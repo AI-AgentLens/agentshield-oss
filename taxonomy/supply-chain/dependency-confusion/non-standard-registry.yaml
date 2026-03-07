@@ -41,6 +41,9 @@ examples:
 
 compliance:
   owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.8.23", "A.8.25", "A.8.28"]
+  eu-ai-act-2024: ['Art.9', 'Art.15']
+  nist-ai-rmf-1.0: ['MAP-5', 'MANAGE-4']
 
 references:
   mitre_attack: ["T1195.001"]
