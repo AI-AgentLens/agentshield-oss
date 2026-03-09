@@ -12,12 +12,12 @@
 For security vulnerabilities, please report privately:
 
 1. **GitHub Security Advisories**
-   - Go to: https://github.com/gzhole/AI-Agentic-Shield/security/advisories
+   - Go to: https://github.com/security-researcher-ca/AI_Agent_Shield/security/advisories
    - Click "Report a vulnerability"
    - Follow the guided process
 
 2. **Email**
-   - Send to: security@gzhole.com
+   - Send to: security@security-researcher-ca.com  # TODO: update with actual team email
    - Include "AgentShield Security" in subject
    - Use PGP key if available (request via email)
 

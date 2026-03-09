@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gzhole/agentshield/internal/config"
-	"github.com/gzhole/agentshield/internal/mcp"
+	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -52,7 +52,7 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 	binPath, err := exec.LookPath("agentshield")
 	if err != nil {
 		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
-		fmt.Println("   brew tap gzhole/tap && brew install agentshield")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
 		return nil
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
@@ -662,7 +662,7 @@ func ensureDefaultMCPPolicy() error {
 
 	defaultPolicy := `# AgentShield MCP Policy
 # Controls which MCP tool calls are allowed, audited, or blocked.
-# Docs: https://github.com/gzhole/LLM-Agentic-Shield
+# Docs: https://github.com/security-researcher-ca/AI_Agent_Shield
 
 defaults:
   decision: "AUDIT"        # ALLOW, AUDIT, or BLOCK

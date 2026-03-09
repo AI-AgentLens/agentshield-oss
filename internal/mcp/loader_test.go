@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gzhole/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 )
 
 func TestLoadMCPPacks_EmptyDir(t *testing.T) {

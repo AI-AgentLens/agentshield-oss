@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gzhole/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 	"gopkg.in/yaml.v3"
 )
 

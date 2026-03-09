@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # AgentShield Installer
-# Usage: curl -sSL https://raw.githubusercontent.com/gzhole/agentshield/main/scripts/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/security-researcher-ca/AI_Agent_Shield/main/scripts/install.sh | bash
 
-REPO="gzhole/LLM-Agentic-Shield"
+REPO="security-researcher-ca/AI_Agent_Shield"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY="agentshield"
 

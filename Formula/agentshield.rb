@@ -1,7 +1,7 @@
 class Agentshield < Formula
   desc "Local-first runtime security gateway for LLM agents"
-  homepage "https://github.com/gzhole/LLM-Agentic-Shield"
-  url "https://github.com/gzhole/LLM-Agentic-Shield/archive/v0.1.0.tar.gz"
+  homepage "https://github.com/security-researcher-ca/AI_Agent_Shield"
+  url "https://github.com/security-researcher-ca/AI_Agent_Shield/archive/v0.1.0.tar.gz"
   sha256 "bf6264071a1ebe4103ef9dc3bc234a91ce1f4ebabe2b8cf72ce80adc642a433b"
   license "Apache-2.0"
 
@@ -10,9 +10,9 @@ class Agentshield < Formula
   def install
     ldflags = %W[
       -s -w
-      -X github.com/gzhole/agentshield/internal/cli.Version=#{version}
-      -X github.com/gzhole/agentshield/internal/cli.GitCommit=#{tap.user}
-      -X github.com/gzhole/agentshield/internal/cli.BuildDate=#{time.iso8601}
+      -X github.com/security-researcher-ca/agentshield/internal/cli.Version=#{version}
+      -X github.com/security-researcher-ca/agentshield/internal/cli.GitCommit=#{tap.user}
+      -X github.com/security-researcher-ca/agentshield/internal/cli.BuildDate=#{time.iso8601}
     ]
     system "go", "build", *std_go_args(ldflags:), "./cmd/agentshield"
 

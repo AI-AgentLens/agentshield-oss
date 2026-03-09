@@ -1,8 +1,8 @@
 package policy
 
 import (
-	"github.com/gzhole/agentshield/internal/analyzer"
-	"github.com/gzhole/agentshield/internal/guardian"
+	"github.com/security-researcher-ca/agentshield/internal/analyzer"
+	"github.com/security-researcher-ca/agentshield/internal/guardian"
 )
 
 // BuildAnalyzerPipeline creates a full analyzer registry from the engine's policy rules.

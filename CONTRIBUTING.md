@@ -5,7 +5,7 @@ Thank you for your interest in contributing to AgentShield! This document provid
 ## Getting Started
 
 ### Prerequisites
-- Go 1.22 or later
+- Go 1.23 or later
 - Git
 - Make
 
@@ -18,7 +18,7 @@ Thank you for your interest in contributing to AgentShield! This document provid
    ```
 3. Add upstream remote:
    ```bash
-   git remote add upstream https://github.com/gzhole/AI-Agentic-Shield.git
+   git remote add upstream https://github.com/security-researcher-ca/AI_Agent_Shield.git
    ```
 4. Install dependencies:
    ```bash

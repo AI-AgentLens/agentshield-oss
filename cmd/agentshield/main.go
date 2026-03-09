@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gzhole/agentshield/internal/cli"
+	"github.com/security-researcher-ca/agentshield/internal/cli"
 )
 
 func main() {

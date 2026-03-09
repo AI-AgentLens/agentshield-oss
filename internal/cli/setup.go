@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/gzhole/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -217,7 +217,7 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 	binPath, err := exec.LookPath("agentshield")
 	if err != nil {
 		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
-		fmt.Println("   brew tap gzhole/tap && brew install agentshield")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
 		return nil
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
@@ -309,7 +309,7 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 	binPath, err := exec.LookPath("agentshield")
 	if err != nil {
 		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
-		fmt.Println("   brew tap gzhole/tap && brew install agentshield")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
 		return nil
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
@@ -398,7 +398,7 @@ func setupOpenClawCommand(cmd *cobra.Command, args []string) error {
 	binPath, err := exec.LookPath("agentshield")
 	if err != nil {
 		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
-		fmt.Println("   brew tap gzhole/tap && brew install agentshield")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
 		return nil
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
@@ -561,7 +561,7 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 	binPath, err := exec.LookPath("agentshield")
 	if err != nil {
 		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
-		fmt.Println("   brew tap gzhole/tap && brew install agentshield")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
 		return nil
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)

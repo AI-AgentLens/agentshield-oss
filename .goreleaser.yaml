@@ -20,9 +20,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X 'github.com/gzhole/agentshield/internal/cli.Version={{.Version}}'
-      - -X 'github.com/gzhole/agentshield/internal/cli.GitCommit={{.ShortCommit}}'
-      - -X 'github.com/gzhole/agentshield/internal/cli.BuildDate={{.Date}}'
+      - -X 'github.com/security-researcher-ca/agentshield/internal/cli.Version={{.Version}}'
+      - -X 'github.com/security-researcher-ca/agentshield/internal/cli.GitCommit={{.ShortCommit}}'
+      - -X 'github.com/security-researcher-ca/agentshield/internal/cli.BuildDate={{.Date}}'
 
 archives:
   - id: default
@@ -44,11 +44,11 @@ changelog:
 brews:
   - name: agentshield
     repository:
-      owner: gzhole
+      owner: security-researcher-ca
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/gzhole/AI-Agentic-Shield"
+    homepage: "https://github.com/security-researcher-ca/AI_Agent_Shield"
     description: "Local-first runtime security gateway for LLM agents"
     license: "Apache-2.0"
     install: |

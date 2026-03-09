@@ -32,7 +32,7 @@ const handler = async (event: any) => {
       "[agentshield] warning: agentshield binary not found in PATH"
     );
     event.messages.push(
-      "⚠️ AgentShield hook enabled but binary not found. Install: brew install gzhole/tap/agentshield"
+      "⚠️ AgentShield hook enabled but binary not found. Install: brew install security-researcher-ca/tap/agentshield"
     );
     return;
   }

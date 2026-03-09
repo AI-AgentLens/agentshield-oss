@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/gzhole/agentshield/internal/redact"
+	"github.com/security-researcher-ca/agentshield/internal/redact"
 )
 
 // defaultMaxLogBytes is the file size at which the log is rotated (10 MB).

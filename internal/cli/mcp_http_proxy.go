@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gzhole/agentshield/internal/config"
-	"github.com/gzhole/agentshield/internal/mcp"
+	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/spf13/cobra"
 )
 

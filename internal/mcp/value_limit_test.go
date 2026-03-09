@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	"github.com/gzhole/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 )
 
 func floatPtr(f float64) *float64 { return &f }

@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gzhole/agentshield/internal/config"
-	"github.com/gzhole/agentshield/internal/mcp"
-	"github.com/gzhole/agentshield/internal/normalize"
-	"github.com/gzhole/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/mcp"
+	"github.com/security-researcher-ca/agentshield/internal/normalize"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 
 	"github.com/spf13/cobra"
 )

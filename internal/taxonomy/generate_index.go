@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gzhole/agentshield/internal/taxonomy"
+	"github.com/security-researcher-ca/agentshield/internal/taxonomy"
 )
 
 func main() {

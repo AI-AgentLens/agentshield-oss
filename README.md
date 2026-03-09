@@ -28,7 +28,7 @@ brew install agentshield
 make build && sudo make install
 
 # Curl installer
-curl -sSL https://raw.githubusercontent.com/gzhole/LLM-Agentic-Shield/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/security-researcher-ca/AI_Agent_Shield/main/scripts/install.sh | bash
 ```
 </details>
 
@@ -194,7 +194,7 @@ AgentShield currently mediates **shell commands**. The threat surface for AI age
 - **Policy-as-code CI integration** — Validate policy packs in CI pipelines, share them across teams via git.
 - **Agent identity tagging** — Distinguish which agent (Windsurf, Cursor, OpenClaw) initiated a command for per-agent policy and audit.
 
-Contributions and ideas are welcome — [open an issue](https://github.com/gzhole/LLM-Agentic-Shield/issues) or submit a PR.
+Contributions and ideas are welcome — [open an issue](https://github.com/security-researcher-ca/AI_Agent_Shield/issues) or submit a PR.
 
 ## Integrate Any Agent
 

@@ -1,7 +1,7 @@
 ---
 name: agentshield
 description: "Runtime security gateway — evaluate every exec through AgentShield's 6-layer pipeline"
-homepage: https://github.com/gzhole/LLM-Agentic-Shield
+homepage: https://github.com/security-researcher-ca/AI_Agent_Shield
 metadata:
   {
     "openclaw":
@@ -35,7 +35,7 @@ Runtime security gateway for OpenClaw agents. Evaluates every shell command thro
 
 ## Requirements
 
-- `agentshield` must be installed and on PATH (`brew install gzhole/tap/agentshield`)
+- `agentshield` must be installed and on PATH (`brew install security-researcher-ca/tap/agentshield`)
 
 ## Configuration
 
@@ -75,5 +75,5 @@ openclaw hooks disable agentshield
 
 ## See Also
 
-- [AgentShield Policy Guide](https://github.com/gzhole/LLM-Agentic-Shield/blob/main/docs/policy-guide.md)
-- [AgentShield Architecture](https://github.com/gzhole/LLM-Agentic-Shield/blob/main/docs/architecture.md)
+- [AgentShield Policy Guide](https://github.com/security-researcher-ca/AI_Agent_Shield/blob/main/docs/policy-guide.md)
+- [AgentShield Architecture](https://github.com/security-researcher-ca/AI_Agent_Shield/blob/main/docs/architecture.md)

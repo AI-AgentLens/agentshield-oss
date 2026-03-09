@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gzhole/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 )
 
 // runProxyScenario builds the echo server, configures a proxy with the given

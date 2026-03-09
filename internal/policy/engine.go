@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gzhole/agentshield/internal/analyzer"
-	unicheck "github.com/gzhole/agentshield/internal/unicode"
+	"github.com/security-researcher-ca/agentshield/internal/analyzer"
+	unicheck "github.com/security-researcher-ca/agentshield/internal/unicode"
 )
 
 type Engine struct {

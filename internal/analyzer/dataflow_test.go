@@ -3,7 +3,7 @@ package analyzer_test
 import (
 	"testing"
 
-	"github.com/gzhole/agentshield/internal/analyzer"
+	"github.com/security-researcher-ca/agentshield/internal/analyzer"
 )
 
 func TestDataflow_RedirectZeroToDevice(t *testing.T) {
