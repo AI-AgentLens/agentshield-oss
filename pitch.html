@@ -200,6 +200,128 @@
     50% { transform: translateY(6px); }
   }
 
+  /* ── Hero deployment context cards ───────────── */
+  #s1 .section-inner { max-width: 960px; }
+
+  .hero-contexts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 36px auto 0;
+    max-width: 860px;
+    text-align: left;
+  }
+
+  @media (max-width: 640px) {
+    .hero-contexts { grid-template-columns: 1fr; }
+  }
+
+  .hc-col {
+    border-radius: 12px;
+    padding: 20px 22px 18px;
+    border: 1px solid var(--border);
+  }
+
+  .hc-col.hc-dev {
+    background: rgba(245,158,11,0.04);
+    border-color: rgba(245,158,11,0.28);
+  }
+
+  .hc-col.hc-prod {
+    background: rgba(239,68,68,0.05);
+    border-color: rgba(239,68,68,0.35);
+  }
+
+  .hc-col-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hc-col-icon { font-size: 18px; }
+
+  .hc-col-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+
+  .hc-dev  .hc-col-title { color: var(--amber); }
+  .hc-prod .hc-col-title { color: var(--red); }
+
+  .hc-col-where {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    margin-bottom: 12px;
+  }
+
+  .hc-rows { display: flex; flex-direction: column; gap: 7px; }
+
+  .hc-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .hc-bullet {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  .hc-dev  .hc-bullet { background: var(--amber); opacity: 0.7; }
+  .hc-prod .hc-bullet { background: var(--red);   opacity: 0.7; }
+
+  /* full-width no-controls strip */
+  .hc-nogap {
+    max-width: 860px;
+    margin: 14px auto 0;
+    background: rgba(239,68,68,0.05);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: 10px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .hc-nogap-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--red);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .hc-nogap-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hc-nogap-item {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 4px;
+  }
+
   /* ── Section 2 — Attack surface ──────────────── */
   #s2 { background: var(--bg); }
 
@@ -1002,20 +1124,67 @@
     <div class="reveal">
       <div class="hero-badge">
         <span class="dot"></span>
-        Open Source · MIT Licensed
+        Github Project · Ready to validate & iterate
       </div>
     </div>
     <h1 class="hero-h1 reveal reveal-delay-1">
-      Your AI agents have<br><span class="accent">root access</span><br>Do you know what<br>they're doing?
+      Your devs run AI agents<br>
+      Your production systems run AI agents<br>
+      <span class="accent">Neither has security controls</span>
     </h1>
-    <p class="hero-sub reveal reveal-delay-2">
-      Every developer at your company is running AI agents that execute shell commands, read credentials, and call external APIs — autonomously, in the background, with zero oversight.
-    </p>
-    <div class="scroll-hint reveal reveal-delay-3">
+
+    <div class="hero-contexts reveal reveal-delay-2">
+
+      <!-- Developer agent -->
+      <div class="hc-col hc-dev">
+        <div class="hc-col-header">
+          <span class="hc-col-icon">🛠️</span>
+          <span class="hc-col-title">AI as Developer</span>
+        </div>
+        <div class="hc-col-where">Cursor · Claude Code · Windsurf · Copilot</div>
+        <div class="hc-rows">
+          <div class="hc-row"><span class="hc-bullet"></span>Executes shell commands on dev machines</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Reads <code style="font-family:var(--mono);font-size:11px;color:#fcd34d">~/.ssh</code>, <code style="font-family:var(--mono);font-size:11px;color:#fcd34d">~/.aws</code>, <code style="font-family:var(--mono);font-size:11px;color:#fcd34d">.env</code> credentials</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Pushes code, runs <code style="font-family:var(--mono);font-size:11px;color:#fcd34d">npm install</code>, calls APIs</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Follows instructions from any file it reads</div>
+        </div>
+      </div>
+
+      <!-- Production operator -->
+      <div class="hc-col hc-prod">
+        <div class="hc-col-header">
+          <span class="hc-col-icon">⚙️</span>
+          <span class="hc-col-title">AI as Production Operator</span>
+        </div>
+        <div class="hc-col-where">Autonomous agents · LLM pipelines · AI-powered apps</div>
+        <div class="hc-rows">
+          <div class="hc-row"><span class="hc-bullet"></span>Queries and modifies production databases</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Executes financial transactions, sends emails</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Manages users, calls third-party APIs 24/7</div>
+          <div class="hc-row"><span class="hc-bullet"></span>Acts on instructions from any user input it receives</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Control gap strip -->
+    <div class="hc-nogap reveal reveal-delay-3">
+      <span class="hc-nogap-label">Neither has →</span>
+      <div class="hc-nogap-items">
+        <span class="hc-nogap-item">Identity &amp; MFA</span>
+        <span class="hc-nogap-item">Access control</span>
+        <span class="hc-nogap-item">Audit trail</span>
+        <span class="hc-nogap-item">Policy enforcement</span>
+        <span class="hc-nogap-item">Behavioral monitoring</span>
+        <span class="hc-nogap-item">Accountability</span>
+      </div>
+    </div>
+
+    <div class="scroll-hint reveal reveal-delay-4" style="margin-top:32px">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      scroll to see the problem
+      space / scroll to continue
     </div>
   </div>
 </section>
