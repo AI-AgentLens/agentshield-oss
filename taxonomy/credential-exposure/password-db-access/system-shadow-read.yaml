@@ -1,0 +1,62 @@
+id: "credential-exposure/password-db-access/system-shadow-read"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Password Database Access"
+category_id: "2.11"
+name: "System Shadow File Read"
+risk_level: "critical"
+
+abstract: |
+  A command reads system password database files (/etc/shadow, /etc/master.passwd),
+  exposing hashed credentials for all local and service accounts.
+
+explanation: |
+  Unix-like systems store password hashes in restricted files:
+  - `/etc/shadow` (Linux) — hashed passwords, aging info, account expiry
+  - `/etc/master.passwd` (BSD/macOS) — equivalent password database
+
+  These files are readable only by root, but a compromised agent running with
+  elevated privileges (or exploiting a misconfiguration) could read them.
+  Extracted hashes can be cracked offline using tools like hashcat or John
+  the Ripper, yielding plaintext passwords for:
+  - Local user accounts
+  - Service accounts (databases, web servers, CI runners)
+  - Root account
+
+  AI agents may attempt to read these files when "auditing user accounts" or
+  "checking password policies."
+
+recommendation: |
+  - Block all read access to /etc/shadow and /etc/master.passwd.
+  - Use `getent passwd` for non-sensitive account enumeration if needed.
+  - Never run agent processes as root or with shadow file read permissions.
+  - Monitor sudo usage that could escalate to shadow file access.
+
+examples:
+  bad:
+    - "cat /etc/shadow"
+    - "cat /etc/master.passwd"
+    - "cp /etc/shadow /tmp/shadow.bak"
+    - "grep root /etc/shadow"
+  good:
+    - "cat /etc/passwd"
+    - "getent passwd"
+    - "id username"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1003.008"]
+  cwe: ["CWE-522"]
+  external:
+    - title: "MITRE ATT&CK: OS Credential Dumping: /etc/passwd and /etc/shadow"
+      url: "https://attack.mitre.org/techniques/T1003/008/"
+
+analyzers: ["regex"]
+related_rules: ["sec-block-etc-shadow"]

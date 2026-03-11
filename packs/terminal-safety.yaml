@@ -273,7 +273,7 @@ rules:
     reason: "Stateful: download-then-execute chain detected."
 
   - id: "ts-sf-block-recon-then-exfil"
-    taxonomy: "data-exfiltration/network-egress/reverse-shell"
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       stateful:
         chain:

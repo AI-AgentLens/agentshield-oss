@@ -1,0 +1,57 @@
+id: "credential-exposure/password-db-access/keychain-extraction"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Password Database Access"
+category_id: "2.11"
+name: "Keychain Extraction"
+risk_level: "critical"
+
+abstract: |
+  A command extracts credentials from macOS Keychain using the `security`
+  command-line tool, exposing stored passwords, certificates, and tokens.
+
+explanation: |
+  macOS Keychain (`login.keychain-db`) stores passwords for Wi-Fi, websites,
+  applications, certificates, and encryption keys. The `security` CLI tool
+  can query and dump these credentials:
+  - `security find-generic-password` — retrieves app-stored passwords
+  - `security find-internet-password` — retrieves web/service passwords
+  - `security dump-keychain` — dumps all keychain items
+
+  AI agents may invoke these commands when "debugging authentication" or
+  "checking stored credentials," inadvertently exposing the user's entire
+  credential store. A compromised agent could exfiltrate high-value secrets
+  including cloud service passwords, SSH passphrases, and code-signing identities.
+
+recommendation: |
+  - Block all `security find-*-password` and `security dump-keychain` commands.
+  - Never allow agent access to keychain items without explicit user approval.
+  - Use per-application keychain access groups to limit exposure surface.
+  - Prefer ephemeral tokens or secrets managers over keychain-stored credentials.
+
+examples:
+  bad:
+    - "security find-generic-password -s 'AWS' -w"
+    - "security find-internet-password -s 'github.com' -w"
+    - "security dump-keychain -d login.keychain-db"
+  good:
+    - "security list-keychains"
+    - "security find-identity -v -p codesigning"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1555.001"]
+  cwe: ["CWE-522"]
+  external:
+    - title: "MITRE ATT&CK: Credentials from Password Stores: Keychain"
+      url: "https://attack.mitre.org/techniques/T1555/001/"
+
+analyzers: ["regex"]
+related_rules: ["sec-block-keychain"]

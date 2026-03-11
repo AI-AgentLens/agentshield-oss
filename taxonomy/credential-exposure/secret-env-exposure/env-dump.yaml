@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Credential & Secret Exposure"
 kingdom_id: 2
 category: "Secret Environment Exposure"
-category_id: "2.3"
+category_id: "2.2"
 name: "Environment Variable Dump"
 risk_level: "high"
 

@@ -1,0 +1,63 @@
+id: "data-exfiltration/encoded-exfil/hex-dump-sensitive"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "Encoded Exfiltration"
+category_id: "3.2"
+name: "Hex Dump of Sensitive Files"
+risk_level: "high"
+
+abstract: |
+  A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
+  converting binary key material into a hexadecimal representation that can
+  be reconstructed elsewhere.
+
+explanation: |
+  Hex dump tools (xxd, od, hexdump) convert binary files into hexadecimal
+  text output. When applied to credential files, they produce a text
+  representation that:
+  - Bypasses content-based detection looking for PEM headers
+  - Can be reversed with `xxd -r` to reconstruct the original file
+  - Is less conspicuous than base64 in logs or chat output
+
+  Common patterns include:
+  - `xxd ~/.ssh/id_rsa` — hex dump of SSH private key
+  - `od -A x -t x1z ~/.aws/credentials` — octal dump of AWS credentials
+  - `hexdump -C ~/.gnupg/secring.gpg` — canonical hex dump of GPG keyring
+
+  This technique is less common than base64 encoding but equally dangerous
+  for credential exfiltration. AI agents may use hex dumps when
+  "inspecting file formats" or "debugging binary content."
+
+recommendation: |
+  - Block hex dump tools (xxd, od, hexdump) targeting credential directories.
+  - Detect piped patterns: `cat <credential-file> | xxd`.
+  - Use protected_paths to prevent any access to credential directories.
+  - Monitor for unusual hexadecimal output in agent responses.
+
+examples:
+  bad:
+    - "xxd ~/.ssh/id_rsa"
+    - "od -A x -t x1z ~/.aws/credentials"
+    - "hexdump -C ~/.gnupg/secring.gpg"
+  good:
+    - "xxd /tmp/binary.dat"
+    - "hexdump -C firmware.bin"
+    - "od -c /dev/urandom | head"
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.12", "A.8.20", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.10"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1"]
+  soc2-type2: ["CC6.6", "CC6.7", "C1.1"]
+
+references:
+  mitre_attack: ["T1132.001"]
+  cwe: ["CWE-200"]
+  external:
+    - title: "MITRE ATT&CK: Data Encoding: Standard Encoding"
+      url: "https://attack.mitre.org/techniques/T1132/001/"
+
+analyzers: ["regex"]
+related_rules: ["sec-block-xxd-sensitive"]

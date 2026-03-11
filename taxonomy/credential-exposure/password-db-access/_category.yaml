@@ -1,0 +1,7 @@
+id: "2.11"
+name: "Password Database Access"
+kingdom_id: 2
+description: >
+  Commands that access system or application password databases
+  (macOS Keychain, /etc/shadow, /etc/master.passwd) containing
+  hashed or cleartext credentials for local and service accounts.

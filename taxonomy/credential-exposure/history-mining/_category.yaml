@@ -1,0 +1,8 @@
+id: "2.12"
+name: "History Mining"
+kingdom_id: 2
+description: >
+  Commands that search shell history files or command logs for
+  previously entered credentials, tokens, passwords, and secrets.
+  History files often contain accidentally typed secrets from
+  interactive sessions.
