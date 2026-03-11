@@ -288,6 +288,43 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 			Tags: []string{"safe-override", "semantic-override"},
 		},
 
+		// --- Safe DNS pattern detection — reconnaissance override ---
+		// Companion to sem-allow-dns-safe: suppresses ne-audit-dns AUDIT for the
+		// same DMARC/SPF/DKIM patterns (ne-audit-dns uses reconnaissance taxonomy).
+		{
+			ID: "sem-allow-dns-safe-recon",
+			Match: func(parsed *ParsedCommand, raw string) bool {
+				for _, seg := range allSegments(parsed) {
+					if seg.Executable == "dig" || seg.Executable == "nslookup" || seg.Executable == "host" {
+						for _, arg := range seg.Args {
+							lower := strings.ToLower(arg)
+							if strings.HasPrefix(lower, "_dmarc.") ||
+								strings.HasPrefix(lower, "_spf.") ||
+								strings.HasPrefix(lower, "_dkim.") ||
+								strings.HasPrefix(lower, "_domainkey.") ||
+								strings.HasPrefix(lower, "_acme-challenge.") ||
+								strings.HasPrefix(lower, "_mta-sts.") {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			},
+			Decision:    "ALLOW",
+			Confidence:  0.90,
+			Reason:      "DNS query for DMARC/SPF/DKIM/ACME is a legitimate security operation",
+			TaxonomyRef: "reconnaissance/network-discovery/dns-lookup",
+			Intent: CommandIntent{
+				Category:   "dns-query-safe",
+				Risk:       "none",
+				Confidence: 0.90,
+				Segment:    -1,
+				Detail:     "legitimate DNS security record lookup",
+			},
+			Tags: []string{"safe-override", "semantic-override"},
+		},
+
 		// --- Pipe to crontab stdin = persistence (BLOCK) ---
 		{
 			ID: "sem-block-pipe-to-crontab",
