@@ -1,0 +1,6 @@
+id: "1.6"
+name: "System Management"
+kingdom_id: 1
+description: >
+  Commands that control system power state or high-level system operations including
+  shutdown, reboot, halt, and poweroff, causing immediate service disruption.

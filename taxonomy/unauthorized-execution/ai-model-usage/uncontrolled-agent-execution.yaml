@@ -1,0 +1,57 @@
+id: "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Model Usage"
+category_id: "4.2"
+name: "Uncontrolled Agent/Orchestration Execution"
+risk_level: "high"
+
+abstract: |
+  Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
+  multi-step execution with broad tool access, increasing the attack surface
+  significantly compared to single-shot LLM calls.
+
+explanation: |
+  AI orchestration frameworks enable autonomous, multi-turn decision-making where
+  the LLM selects and invokes tools across multiple steps without human approval
+  at each step. This amplifies risk compared to uncontrolled single-call invocations:
+
+  - LangChain Agents can invoke arbitrary tools in a ReAct loop
+  - CrewAI creates multiple specialized agents that collaborate autonomously
+  - AutoGen enables multi-agent conversations with code execution
+  - LlamaIndex agents can query data sources and take actions across many steps
+
+  A single compromised prompt or tool response can cascade through many autonomous
+  steps before a human has the opportunity to intervene. Each tool invocation
+  carries the full set of risks from other taxonomy entries.
+
+recommendation: |
+  - Require human-in-the-loop checkpoints for multi-step agent execution.
+  - Implement maximum step counts and action budgets for agent orchestrators.
+  - Log every tool invocation in the agent execution trace.
+  - Apply principle of least privilege to each tool available to the agent.
+  - Use sandboxed execution environments for agents with code execution capabilities.
+
+examples:
+  bad:
+    - "from langchain.agents import initialize_agent, load_tools; agent = initialize_agent(tools, llm)"
+    - "from crewai import Agent, Crew; crew = Crew(agents=[...], tasks=[...]).kickoff()"
+    - "import autogen; user_proxy = autogen.UserProxyAgent(human_input_mode='NEVER')"
+  good:
+    - "from langchain.agents import initialize_agent; agent = initialize_agent(tools, llm, max_iterations=3)"
+    - "from crewai import Agent, Crew; crew = Crew(agents=[...], tasks=[...], human_approval=True)"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MANAGE-4"]
+  soc2-type2: ["CC8.1", "CC6.3"]
+
+references:
+  mitre_attack: []
+  cwe: ["CWE-306", "CWE-285"]
+
+analyzers: ["structural", "taint"]
+related_rules: ["ai-sdk-import-python-langchain", "ai-sdk-import-python-crewai", "ai-sdk-import-python-autogen"]

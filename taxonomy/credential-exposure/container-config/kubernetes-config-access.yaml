@@ -1,0 +1,56 @@
+id: "credential-exposure/container-config/kubernetes-config-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Container Configuration"
+category_id: "2.8"
+name: "Kubernetes Config Access"
+risk_level: "critical"
+
+abstract: |
+  Access to ~/.kube/config exposes cluster credentials and API server endpoints,
+  granting full control over Kubernetes clusters including all workloads, secrets,
+  and namespaces the user's credentials can access.
+
+explanation: |
+  The Kubernetes kubeconfig file (`~/.kube/config`) contains:
+  - API server URLs for all configured clusters
+  - Client certificates and private keys for authentication
+  - Bearer tokens for service account or OIDC authentication
+  - Namespace and context configuration
+
+  An agent reading kubeconfig can immediately interact with any cluster the user
+  has configured access to, including:
+  - Reading all Kubernetes Secrets across namespaces
+  - Deploying malicious workloads
+  - Exfiltrating application data via kubectl exec
+  - Escalating to cluster-admin via existing RBAC bindings
+
+recommendation: |
+  - Block read access to `~/.kube/config` and `~/.kube/` directory in agent contexts.
+  - Add MCP block rules for kubeconfig access patterns.
+  - Use short-lived, scoped kubeconfig tokens rather than long-lived certificates.
+  - Implement Kubernetes RBAC with minimal permissions for agent service accounts.
+
+examples:
+  bad:
+    - "cat ~/.kube/config"
+    - "kubectl config view --raw"
+    - "cp ~/.kube/config /tmp/exfil.yaml"
+  good:
+    - "kubectl get pods -n production"
+    - "kubectl config current-context"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-kube-access"]

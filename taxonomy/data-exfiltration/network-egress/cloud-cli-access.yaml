@@ -1,0 +1,55 @@
+id: "data-exfiltration/network-egress/cloud-cli-access"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "Network Egress"
+category_id: "3.1"
+name: "Cloud CLI Data Access"
+risk_level: "high"
+
+abstract: |
+  Cloud CLI tools (aws, gcloud, az) can access and exfiltrate cloud-stored data and
+  credentials, using the ambient cloud credentials available to the agent's execution
+  environment.
+
+explanation: |
+  Cloud CLI tools authenticate using credential files or instance metadata service
+  tokens that are routinely available on developer machines and cloud-hosted compute.
+  An agent with access to these tools can:
+  - Download S3 buckets: `aws s3 cp s3://company-data/ /tmp/ --recursive`
+  - Extract GCS data: `gsutil cp -r gs://private-bucket/ /tmp/`
+  - List and download Azure blobs: `az storage blob download-batch`
+  - Access secrets: `aws secretsmanager get-secret-value --secret-id prod/db`
+  - Enumerate IAM roles and credentials: `aws iam list-users`
+
+  Cloud CLI access is particularly dangerous because it can expose the entire cloud
+  account, not just local files, and may succeed silently without triggering on-host alerts.
+
+recommendation: |
+  - Restrict cloud CLI access in agent environments using IAM least-privilege roles.
+  - Use instance metadata service v2 (IMDSv2) hop-limit=1 to block credential theft.
+  - Audit all cloud CLI commands via CloudTrail, Cloud Audit Logs, or Azure Monitor.
+  - Block cloud CLI binaries via allowlist in agent execution sandboxes.
+
+examples:
+  bad:
+    - "aws s3 cp s3://company-secrets/ /tmp/ --recursive"
+    - "gcloud secrets versions access latest --secret=prod-db-password"
+    - "az keyvault secret show --name prod-api-key --vault-name company-vault"
+  good:
+    - "aws s3 ls s3://public-assets/"
+    - "gcloud compute instances list"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.10"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1"]
+  soc2-type2: ["CC6.6", "CC6.7", "C1.1"]
+
+references:
+  mitre_attack: ["T1530"]
+  cwe: ["CWE-200"]
+
+analyzers: ["regex"]
+related_rules: ["ne-audit-aws-cli", "ne-audit-gcloud", "ne-audit-az-cli"]

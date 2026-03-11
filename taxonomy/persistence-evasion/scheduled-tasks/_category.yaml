@@ -1,0 +1,6 @@
+id: "6.1"
+name: "Scheduled Tasks"
+kingdom_id: 6
+description: >
+  Commands that create or modify scheduled task mechanisms (crontab, at, anacron)
+  to establish persistence through future automated execution.

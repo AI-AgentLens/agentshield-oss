@@ -68,6 +68,7 @@ rules:
 
   # === BLOCK: Post-install script manipulation ===
   - id: "sc-block-npm-ignore-scripts-off"
+    taxonomy: "supply-chain/package-install/security-control-bypass"
     match:
       command_regex: "npm\\s+config\\s+set\\s+ignore-scripts\\s+false"
     decision: "BLOCK"
@@ -75,42 +76,49 @@ rules:
 
   # === AUDIT: Standard package installs ===
   - id: "sc-audit-npm-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["npm install", "npm i ", "npm add", "npx "]
     decision: "AUDIT"
     reason: "npm package install flagged for supply-chain review."
 
   - id: "sc-audit-pip-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["pip install", "pip3 install", "pipx install"]
     decision: "AUDIT"
     reason: "pip package install flagged for supply-chain review."
 
   - id: "sc-audit-yarn-add"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["yarn add", "pnpm add", "pnpm install"]
     decision: "AUDIT"
     reason: "Yarn/pnpm package install flagged for supply-chain review."
 
   - id: "sc-audit-brew-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["brew install", "brew cask install"]
     decision: "AUDIT"
     reason: "Homebrew install flagged for supply-chain review."
 
   - id: "sc-audit-go-get"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["go get ", "go install "]
     decision: "AUDIT"
     reason: "Go module fetch flagged for supply-chain review."
 
   - id: "sc-audit-cargo-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["cargo install", "cargo add"]
     decision: "AUDIT"
     reason: "Cargo package install flagged for supply-chain review."
 
   - id: "sc-audit-gem-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
     match:
       command_prefix: ["gem install"]
     decision: "AUDIT"
@@ -118,6 +126,7 @@ rules:
 
   # === AUDIT: Lock file modifications ===
   - id: "sc-audit-lockfile-edit"
+    taxonomy: "supply-chain/package-install/security-control-bypass"
     match:
       command_regex: "(rm|sed|perl|python)\\s+.*(package-lock|yarn\\.lock|Pipfile\\.lock|poetry\\.lock|go\\.sum|Cargo\\.lock|Gemfile\\.lock)"
     decision: "AUDIT"
@@ -125,6 +134,7 @@ rules:
 
   # === AUDIT: Global installs ===
   - id: "sc-audit-global-install"
+    taxonomy: "supply-chain/package-install/global-package-install"
     match:
       command_regex: "(npm|pip|pip3)\\s+install\\s+(-g|--global)"
     decision: "AUDIT"

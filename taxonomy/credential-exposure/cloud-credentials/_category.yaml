@@ -1,0 +1,6 @@
+id: "2.6"
+name: "Cloud Credentials"
+kingdom_id: 2
+description: >
+  Commands that access cloud provider credential stores (~/.aws, ~/.config/gcloud,
+  ~/.azure) granting full programmatic access to cloud accounts and resources.

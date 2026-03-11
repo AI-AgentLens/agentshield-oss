@@ -1,0 +1,6 @@
+id: "2.5"
+name: "Version Control"
+kingdom_id: 2
+description: >
+  Commands that access version control credential helpers, stored tokens, or
+  authentication configuration used by git and similar tools.

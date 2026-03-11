@@ -1,0 +1,54 @@
+id: "reconnaissance/network-discovery/dns-lookup"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Network Discovery"
+category_id: "8.1"
+name: "DNS Lookup"
+risk_level: "low"
+
+abstract: |
+  DNS lookups can be used for network reconnaissance to discover internal
+  infrastructure, enumerate hosts, and prepare for lateral movement or data
+  exfiltration.
+
+explanation: |
+  Standard DNS tools (dig, nslookup, host) are used by attackers in the
+  reconnaissance phase to map out network topology. When performed by an AI agent,
+  these lookups may reveal:
+  - Internal hostname patterns that expose infrastructure naming conventions
+  - Service endpoints and their associated IP addresses
+  - Mail server configurations (MX records) and SPF policies
+
+  While individual DNS queries are low-risk, systematic enumeration or lookups
+  of internal domains indicates reconnaissance activity. Pairing DNS discovery
+  with other techniques dramatically increases attack effectiveness.
+
+recommendation: |
+  - Log all DNS queries made by agent processes.
+  - Restrict DNS resolution to approved resolvers.
+  - Alert on enumeration patterns (bulk A/AAAA/MX/TXT lookups).
+  - Consider DNS sinkholes for known malicious domains in agent environments.
+
+examples:
+  bad:
+    - "dig axfr internal.company.com @dns.company.com"
+    - "nslookup -type=MX internal.company.com"
+    - "host -a corp-database.internal"
+  good:
+    - "dig github.com"
+    - "nslookup api.example.com"
+
+compliance:
+  owasp-llm-2025: ["LLM02"]
+  iso-27001-2022: ["A.8.20"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5"]
+  soc2-type2: ["CC6.6"]
+
+references:
+  mitre_attack: ["T1590.002"]
+  cwe: ["CWE-200"]
+
+analyzers: ["regex"]
+related_rules: ["ne-audit-dns"]

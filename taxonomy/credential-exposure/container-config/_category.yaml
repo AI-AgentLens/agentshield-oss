@@ -1,0 +1,6 @@
+id: "2.8"
+name: "Container Configuration"
+kingdom_id: 2
+description: >
+  Commands that access container orchestration configuration files (kubeconfig, Docker
+  credentials) that encode cluster API credentials and registry authentication tokens.

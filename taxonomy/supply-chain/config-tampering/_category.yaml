@@ -1,0 +1,6 @@
+id: "7.2"
+name: "Config Tampering"
+kingdom_id: 7
+description: >
+  Commands that modify package manager or registry configuration files (.npmrc, .pypirc,
+  pip.conf) to redirect package resolution to attacker-controlled sources.

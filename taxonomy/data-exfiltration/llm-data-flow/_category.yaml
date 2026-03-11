@@ -1,0 +1,7 @@
+id: "3.5"
+name: "LLM Data Flow"
+kingdom_id: 3
+description: >
+  Data flows where sensitive or regulated information (PII, credentials, source code)
+  is passed into LLM API calls, hardcoded model references, or AI orchestration
+  pipelines without adequate controls or governance.

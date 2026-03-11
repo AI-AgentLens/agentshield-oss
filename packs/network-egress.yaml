@@ -49,18 +49,21 @@ rules:
 
   # === AUDIT: HTTP/HTTPS requests ===
   - id: "ne-audit-curl"
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       command_prefix: ["curl "]
     decision: "AUDIT"
     reason: "HTTP request flagged for network egress review."
 
   - id: "ne-audit-wget"
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       command_prefix: ["wget "]
     decision: "AUDIT"
     reason: "HTTP download flagged for network egress review."
 
   - id: "ne-audit-httpie"
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       command_prefix: ["http ", "https "]
     decision: "AUDIT"
@@ -68,6 +71,7 @@ rules:
 
   # === AUDIT: SSH connections ===
   - id: "ne-audit-ssh"
+    taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"
     match:
       command_prefix: ["ssh "]
     decision: "AUDIT"
@@ -75,18 +79,21 @@ rules:
 
   # === AUDIT: File transfers ===
   - id: "ne-audit-scp"
+    taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"
     match:
       command_prefix: ["scp "]
     decision: "AUDIT"
     reason: "SCP file transfer flagged for data exfiltration review."
 
   - id: "ne-audit-rsync-remote"
+    taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"
     match:
       command_regex: "rsync\\s+.*:"
     decision: "AUDIT"
     reason: "Remote rsync flagged for data exfiltration review."
 
   - id: "ne-audit-sftp"
+    taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"
     match:
       command_prefix: ["sftp "]
     decision: "AUDIT"
@@ -94,6 +101,7 @@ rules:
 
   # === AUDIT: DNS lookups ===
   - id: "ne-audit-dns"
+    taxonomy: "reconnaissance/network-discovery/dns-lookup"
     match:
       command_prefix: ["dig ", "nslookup ", "host "]
     decision: "AUDIT"
@@ -101,18 +109,21 @@ rules:
 
   # === AUDIT: Cloud CLI tools ===
   - id: "ne-audit-aws-cli"
+    taxonomy: "data-exfiltration/network-egress/cloud-cli-access"
     match:
       command_prefix: ["aws "]
     decision: "AUDIT"
     reason: "AWS CLI command flagged — may access cloud resources."
 
   - id: "ne-audit-gcloud"
+    taxonomy: "data-exfiltration/network-egress/cloud-cli-access"
     match:
       command_prefix: ["gcloud "]
     decision: "AUDIT"
     reason: "GCloud CLI command flagged — may access cloud resources."
 
   - id: "ne-audit-az-cli"
+    taxonomy: "data-exfiltration/network-egress/cloud-cli-access"
     match:
       command_prefix: ["az "]
     decision: "AUDIT"
@@ -120,6 +131,7 @@ rules:
 
   # === AUDIT: Git push (data leaving machine) ===
   - id: "ne-audit-git-push"
+    taxonomy: "data-exfiltration/version-control/git-data-exfil"
     match:
       command_prefix: ["git push"]
     decision: "AUDIT"

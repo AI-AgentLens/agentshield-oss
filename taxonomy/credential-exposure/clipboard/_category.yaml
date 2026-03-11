@@ -1,0 +1,6 @@
+id: "2.4"
+name: "Clipboard"
+kingdom_id: 2
+description: >
+  Commands that access system clipboard contents, which may contain passwords,
+  tokens, or other sensitive data recently copied by the user.

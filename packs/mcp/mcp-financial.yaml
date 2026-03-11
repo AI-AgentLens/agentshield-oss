@@ -14,6 +14,7 @@ author: "AgentShield Security Research"
 value_limits:
   # === Token/crypto transfers ===
   - id: mcp-fin-cap-transfer-amount
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "send_.*|transfer_.*"
     argument: "amount"
     max: 100.0
@@ -21,6 +22,7 @@ value_limits:
     reason: "Token/crypto transfer exceeds safety limit of 100 units."
 
   - id: mcp-fin-cap-transfer-quantity
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "send_.*|transfer_.*"
     argument: "quantity"
     max: 100.0
@@ -29,6 +31,7 @@ value_limits:
 
   # === Payment processing ===
   - id: mcp-fin-cap-payment-amount
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: ".*pay.*|.*charge.*|.*invoice.*"
     argument: "amount"
     max: 1000.0
@@ -36,6 +39,7 @@ value_limits:
     reason: "Payment amount exceeds safety limit of $1,000."
 
   - id: mcp-fin-cap-payment-total
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: ".*pay.*|.*charge.*|.*invoice.*"
     argument: "total"
     max: 1000.0
@@ -44,6 +48,7 @@ value_limits:
 
   # === Minting / creation ===
   - id: mcp-fin-cap-mint-amount
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "mint_.*|create_token.*"
     argument: "amount"
     max: 1000.0
@@ -52,6 +57,7 @@ value_limits:
 
   # === Negative value guard (prevent sign-flip attacks) ===
   - id: mcp-fin-block-negative-transfer
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "send_.*|transfer_.*|.*pay.*"
     argument: "amount"
     min: 0.0
@@ -60,6 +66,7 @@ value_limits:
 
   # === Withdrawal limits ===
   - id: mcp-fin-cap-withdrawal
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "withdraw.*"
     argument: "amount"
     max: 500.0
@@ -67,6 +74,7 @@ value_limits:
     reason: "Withdrawal exceeds safety limit of 500 units."
 
   - id: mcp-fin-block-negative-withdrawal
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     tool_name_regex: "withdraw.*"
     argument: "amount"
     min: 0.0
@@ -76,6 +84,7 @@ value_limits:
 rules:
   # === AUDIT: Any financial tool call ===
   - id: mcp-fin-audit-financial-tools
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     match:
       tool_name_regex: "(send_|transfer_|withdraw|mint_|.*pay.*|.*charge.*|.*invoice.*)"
     decision: "AUDIT"

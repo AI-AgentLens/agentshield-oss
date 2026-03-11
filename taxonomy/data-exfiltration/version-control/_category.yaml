@@ -1,0 +1,6 @@
+id: "3.4"
+name: "Version Control Egress"
+kingdom_id: 3
+description: >
+  Commands that push, clone, or mirror repositories to external destinations,
+  enabling source code or sensitive data exfiltration via version control systems.

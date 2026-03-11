@@ -1,0 +1,6 @@
+id: "2.9"
+name: "Database Access"
+kingdom_id: 2
+description: >
+  Commands or MCP tool calls that connect directly to databases using URI schemes
+  (mysql://, postgres://, mongodb://, redis://), bypassing application-layer access controls.

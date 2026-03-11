@@ -1,0 +1,59 @@
+id: "supply-chain/package-install/standard-package-install"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Package Install"
+category_id: "7.3"
+name: "Standard Package Install"
+risk_level: "medium"
+
+abstract: |
+  Package install commands (npm, pip, yarn, brew, go get, cargo, gem) introduce
+  third-party code that may contain vulnerabilities, malicious payloads, or known
+  CVEs without explicit human review.
+
+explanation: |
+  When an AI agent installs packages it introduces unreviewed third-party code into
+  the project or system. Supply chain risks include:
+  - Typosquatting: `pip install reqeusts` vs `requests` installs a malicious package
+  - Dependency confusion: internal package names shadowed by public registry packages
+  - Post-install scripts in npm packages executing arbitrary code at install time
+  - Transitive dependencies with undiscovered vulnerabilities
+
+  Common install commands:
+  - `npm install <pkg>` / `yarn add <pkg>`
+  - `pip install <pkg>` / `pip3 install <pkg>`
+  - `brew install <formula>`
+  - `go get <module>`
+  - `cargo install <crate>`
+  - `gem install <gemname>`
+
+recommendation: |
+  - Require human approval for all new package installations in agent workflows.
+  - Pin all packages to specific versions with lockfile enforcement.
+  - Use private registries with pre-vetted packages for agent environments.
+  - Scan installed packages for known vulnerabilities via SBOM generation.
+
+examples:
+  bad:
+    - "pip install requests-pro"
+    - "npm install some-utility"
+    - "brew install obscure-tool"
+  good:
+    - "pip install requests==2.31.0"
+    - "npm ci"
+    - "cargo install tokio@1.35.1"
+
+compliance:
+  owasp-llm-2025: ["LLM05"]
+  iso-27001-2022: ["A.8.30", "A.8.8"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-4"]
+  soc2-type2: ["CC6.3", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.001"]
+  cwe: ["CWE-829"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["sc-audit-npm-install", "sc-audit-pip-install", "sc-audit-yarn-add", "sc-audit-brew-install", "sc-audit-go-get", "sc-audit-cargo-install", "sc-audit-gem-install"]

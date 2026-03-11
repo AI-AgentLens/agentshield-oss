@@ -1,0 +1,53 @@
+id: "privilege-escalation/command-execution/sudo-invocation"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Command Execution"
+category_id: "5.1"
+name: "Sudo Invocation"
+risk_level: "high"
+
+abstract: |
+  An AI agent invoking `sudo` to elevate privileges can bypass application-level
+  access controls and gain root-level access to the system.
+
+explanation: |
+  `sudo` grants a process temporary root (or another user's) privileges. When an
+  AI agent issues `sudo` commands it breaks out of any sandbox or least-privilege
+  boundary the calling application enforced. Common patterns include:
+  - `sudo <command>` — direct privilege elevation
+  - `sudo -u <user> <command>` — lateral privilege switch
+  - `sudo -i` or `sudo su` — acquiring a root shell
+
+  Prompt injection or a compromised tool call could instruct an agent to prepend
+  `sudo` to otherwise-blocked destructive or credential-harvesting commands, making
+  this a high-severity escalation vector.
+
+recommendation: |
+  - Block all `sudo` invocations in agent tool execution contexts.
+  - Run AI agent processes under a dedicated low-privilege service account.
+  - Apply seccomp or AppArmor profiles that prevent execve of sudo.
+  - Audit every tool call for `sudo` prefixes before execution.
+
+examples:
+  bad:
+    - "sudo rm -rf /var/log"
+    - "sudo cat /etc/shadow"
+    - "sudo -u root bash -i"
+  good:
+    - "cat /var/log/app.log"
+    - "ls /etc"
+
+compliance:
+  owasp-llm-2025: ["LLM08"]
+  iso-27001-2022: ["A.8.2", "A.8.18"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1548.003"]
+  cwe: ["CWE-250"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-audit-sudo"]

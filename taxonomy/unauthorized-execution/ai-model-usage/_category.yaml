@@ -1,0 +1,6 @@
+id: "4.2"
+name: "AI Model Usage"
+kingdom_id: 4
+description: >
+  Code patterns that import or invoke LLM API clients or agent orchestration
+  frameworks without adequate governance, audit controls, or policy enforcement.

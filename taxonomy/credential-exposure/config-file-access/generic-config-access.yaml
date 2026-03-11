@@ -1,0 +1,54 @@
+id: "credential-exposure/config-file-access/generic-config-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Config File Access"
+category_id: "2.3"
+name: "Generic Config File Access"
+risk_level: "medium"
+
+abstract: |
+  Access to generic configuration files (config.json, settings.json, credentials)
+  may expose secrets, connection strings, or other sensitive values stored outside
+  of dedicated secret management systems.
+
+explanation: |
+  Applications frequently store configuration in JSON, YAML, TOML, or INI files
+  with names like `config.json`, `settings.json`, `application.yml`, `secrets.toml`,
+  or simply `credentials`. These files often contain:
+  - Database connection strings with embedded passwords
+  - Third-party service API keys and tokens
+  - Internal service URLs and authentication headers
+  - Encryption keys or salts
+
+  Unlike `.env` files, generic config files are sometimes committed to version
+  control or left in predictable locations within application directories.
+
+recommendation: |
+  - Audit access to files matching config/settings/credentials naming patterns.
+  - Migrate sensitive values from config files to a secrets management service.
+  - Restrict agent read access to application configuration directories.
+  - Use file permissions (chmod 600) to limit access to credential-containing configs.
+
+examples:
+  bad:
+    - "cat config/secrets.json"
+    - "cat application.yml"
+    - "cat credentials.toml"
+  good:
+    - "cat config/logging.json"
+    - "cat README.md"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-200"]
+
+analyzers: ["regex"]
+related_rules: ["sec-audit-config-files"]

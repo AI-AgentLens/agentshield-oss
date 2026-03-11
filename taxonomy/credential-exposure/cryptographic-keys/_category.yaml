@@ -1,0 +1,6 @@
+id: "2.7"
+name: "Cryptographic Keys"
+kingdom_id: 2
+description: >
+  Commands that access directories or files containing cryptographic key material
+  (GPG, TLS, code-signing) beyond the SSH private keys covered under Private Key Access.

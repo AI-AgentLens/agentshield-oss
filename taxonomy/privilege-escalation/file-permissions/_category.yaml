@@ -1,0 +1,6 @@
+id: "5.2"
+name: "File Permissions"
+kingdom_id: 5
+description: >
+  Commands that alter file ownership or group membership (chown, chgrp) to
+  grant unauthorized access to sensitive files or enable privilege escalation.

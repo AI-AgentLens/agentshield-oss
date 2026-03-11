@@ -1,0 +1,56 @@
+id: "credential-exposure/config-file-access/dotenv-file-read"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Config File Access"
+category_id: "2.3"
+name: ".env File Read"
+risk_level: "high"
+
+abstract: |
+  Reading `.env` files typically exposes API keys, database credentials, and other
+  secrets stored for local development, providing an attacker with a broad set of
+  application credentials in a single operation.
+
+explanation: |
+  `.env` files are the de facto standard for storing application secrets during
+  development. They routinely contain:
+  - Database connection strings with usernames and passwords
+  - Third-party API keys (OpenAI, Stripe, Twilio, etc.)
+  - OAuth client secrets and JWT signing keys
+  - Cloud provider credentials
+
+  An agent reading `.env` can harvest all application secrets in one command,
+  even if each secret individually would not trigger an alert. Patterns include:
+  - `cat .env` — direct content dump
+  - `cat .env.production`, `.env.local`, `.env.staging` variants
+  - Reading `/app/.env` inside containerized applications
+
+recommendation: |
+  - Block read access to `.env` and `.env.*` files in agent tool execution.
+  - Use secrets management systems (Vault, AWS Secrets Manager) instead of `.env` files.
+  - Add `.env` patterns to MCP block rules.
+  - Ensure `.env` files are never committed to version control (.gitignore).
+
+examples:
+  bad:
+    - "cat .env"
+    - "cat .env.production"
+    - "cat /app/.env.local"
+  good:
+    - "cat .env.example"
+    - "printenv APP_NAME"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["sec-audit-dotenv", "mcp-sec-block-dotenv-read"]

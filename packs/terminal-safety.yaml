@@ -108,6 +108,7 @@ rules:
 
   # === BLOCK: System shutdown/reboot ===
   - id: "ts-block-shutdown"
+    taxonomy: "destructive-ops/system-management/system-shutdown"
     match:
       command_prefix: ["shutdown", "reboot", "halt", "poweroff", "init 0", "init 6"]
     decision: "BLOCK"
@@ -115,24 +116,28 @@ rules:
 
   # === AUDIT: Privilege escalation tracking ===
   - id: "ts-audit-sudo"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
     match:
       command_prefix: ["sudo "]
     decision: "AUDIT"
     reason: "Sudo command flagged for privilege escalation review."
 
   - id: "ts-audit-chown"
+    taxonomy: "privilege-escalation/file-permissions/ownership-change"
     match:
       command_prefix: ["chown ", "chgrp "]
     decision: "AUDIT"
     reason: "Ownership change flagged for review."
 
   - id: "ts-audit-crontab"
+    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
     match:
       command_prefix: ["crontab "]
     decision: "AUDIT"
     reason: "Crontab modification flagged for persistence review."
 
   - id: "ts-audit-systemctl"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
     match:
       command_prefix: ["systemctl ", "launchctl "]
     decision: "AUDIT"

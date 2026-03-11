@@ -1,0 +1,6 @@
+id: "2.3"
+name: "Config File Access"
+kingdom_id: 2
+description: >
+  Commands that read application configuration files (.env, config.json, settings files)
+  which commonly store credentials, API keys, and other secrets.

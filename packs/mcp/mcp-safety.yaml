@@ -16,6 +16,7 @@ blocked_tools:
 rules:
   # === BLOCK: System directory writes ===
   - id: mcp-safety-block-etc-write
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       tool_name_any:
         - "write_file"
@@ -28,6 +29,7 @@ rules:
     reason: "File write to /etc/ system directory is blocked."
 
   - id: mcp-safety-block-usr-write
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       tool_name_any:
         - "write_file"
@@ -40,6 +42,7 @@ rules:
     reason: "File write to /usr/ system directory is blocked."
 
   - id: mcp-safety-block-var-write
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       tool_name_any:
         - "write_file"
@@ -53,6 +56,7 @@ rules:
 
   # === BLOCK: Root directory operations ===
   - id: mcp-safety-block-root-write
+    taxonomy: "destructive-ops/fs-destruction/recursive-root-delete"
     match:
       tool_name_any:
         - "write_file"
@@ -66,6 +70,7 @@ rules:
 
   # === AUDIT: File deletion tools ===
   - id: mcp-safety-audit-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       tool_name_regex: "(delete_file|remove_file|unlink)"
     decision: "AUDIT"
@@ -73,6 +78,7 @@ rules:
 
   # === AUDIT: Process/system tools ===
   - id: mcp-safety-audit-process
+    taxonomy: "destructive-ops/system-management/system-shutdown"
     match:
       tool_name_regex: "(kill_process|restart_service|stop_service|reboot)"
     decision: "AUDIT"
