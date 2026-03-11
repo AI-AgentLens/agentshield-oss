@@ -749,6 +749,57 @@ var ChmodWorldWritableCases = []TestCase{
 	},
 }
 
+// SystemShutdownCases tests detection of commands that halt or restart the system.
+// Taxonomy: destructive-ops/system-management/system-shutdown
+var SystemShutdownCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SHUTDOWN-001",
+		Command:          `shutdown -h now`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `Immediate system halt. Matches ts-block-shutdown prefix rule.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-SHUTDOWN-002",
+		Command:          `reboot`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `System reboot command. Matches ts-block-shutdown prefix rule.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-SHUTDOWN-003",
+		Command:          `poweroff`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `System power-off command. Matches ts-block-shutdown prefix rule.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SHUTDOWN-001",
+		Command:          `systemctl status nginx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `Checking service status is benign. Does not match shutdown prefix.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllDestructiveOpsCases returns all test cases for Kingdom 1.
 func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
@@ -758,5 +809,6 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, FilesystemFormatCases...)
 	all = append(all, ForkBombCases...)
 	all = append(all, ChmodWorldWritableCases...)
+	all = append(all, SystemShutdownCases...)
 	return all
 }

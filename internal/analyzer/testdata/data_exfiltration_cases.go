@@ -255,10 +255,135 @@ var DNSTunnelingCases = []TestCase{
 	},
 }
 
+// NetworkEgressCases tests audit-level network access rules.
+// Taxonomy: data-exfiltration/network-egress/*
+var NetworkEgressCases = []TestCase{
+
+	// --- TRUE POSITIVES (AUDIT) ---
+
+	{
+		ID:               "TP-NEGRESS-001",
+		Command:          `wget https://example.com/file.tar.gz`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/network-http-request",
+		Analyzer:         "regex",
+		Description:      `wget HTTP download. Matches ne-audit-wget prefix rule.`,
+		Tags:             []string{"canonical", "network"},
+	},
+	{
+		ID:               "TP-NEGRESS-002",
+		Command:          `http GET https://api.example.com/data`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/network-http-request",
+		Analyzer:         "regex",
+		Description:      `httpie GET request. Matches ne-audit-httpie prefix rule ("http ").`,
+		Tags:             []string{"canonical", "network"},
+	},
+	{
+		ID:               "TP-NEGRESS-003",
+		Command:          `scp user@host:/remote/file.txt ./local/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/lateral-movement-ssh",
+		Analyzer:         "regex",
+		Description:      `scp file copy from remote host. Matches ne-audit-scp prefix rule.`,
+		Tags:             []string{"canonical", "lateral-movement"},
+	},
+	{
+		ID:               "TP-NEGRESS-004",
+		Command:          `rsync -avz ./local/ user@host:/remote/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/lateral-movement-ssh",
+		Analyzer:         "regex",
+		Description:      `rsync to remote host (contains ":"). Matches ne-audit-rsync-remote regex.`,
+		Tags:             []string{"canonical", "lateral-movement"},
+	},
+	{
+		ID:               "TP-NEGRESS-005",
+		Command:          `sftp user@host.example.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/lateral-movement-ssh",
+		Analyzer:         "regex",
+		Description:      `sftp session. Matches ne-audit-sftp prefix rule.`,
+		Tags:             []string{"canonical", "lateral-movement"},
+	},
+	{
+		ID:               "TP-NEGRESS-006",
+		Command:          `aws s3 ls s3://mybucket`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/cloud-cli-access",
+		Analyzer:         "regex",
+		Description:      `AWS CLI cloud access. Matches ne-audit-aws-cli prefix rule.`,
+		Tags:             []string{"canonical", "cloud"},
+	},
+	{
+		ID:               "TP-NEGRESS-007",
+		Command:          `gcloud compute instances list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/cloud-cli-access",
+		Analyzer:         "regex",
+		Description:      `gcloud CLI cloud access. Matches ne-audit-gcloud prefix rule.`,
+		Tags:             []string{"canonical", "cloud"},
+	},
+	{
+		ID:               "TP-NEGRESS-008",
+		Command:          `az storage blob list --container-name mycontainer`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/cloud-cli-access",
+		Analyzer:         "regex",
+		Description:      `Azure CLI cloud access. Matches ne-audit-az-cli prefix rule.`,
+		Tags:             []string{"canonical", "cloud"},
+	},
+	{
+		ID:               "TP-NEGRESS-009",
+		Command:          `git push origin main`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/version-control/git-data-exfil",
+		Analyzer:         "regex",
+		Description:      `git push to remote. Matches ne-audit-git-push prefix rule.`,
+		Tags:             []string{"canonical", "version-control"},
+	},
+
+	// --- TRUE NEGATIVES (local operations that must NOT be flagged) ---
+
+	{
+		ID:               "TN-NEGRESS-001",
+		Command:          `rsync -avz ./src/ ./dst/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/lateral-movement-ssh",
+		Analyzer:         "regex",
+		Description:      `rsync local-to-local copy (no ":" = no remote host). ne-audit-rsync-remote does NOT
+			fire (Triggered: []). The semantic engine still gives AUDIT for rsync commands.
+			This is a TN for the specific regex rule, not for the overall policy.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-NEGRESS-002",
+		Command:          `git commit -m "fix: update dependency"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/version-control/git-data-exfil",
+		Analyzer:         "regex",
+		Description:      `git commit is local, not a push. ne-audit-git-push does NOT fire (Triggered: []).
+			The semantic engine gives AUDIT for git operations. TN for the specific regex rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
 	all = append(all, ReverseShellCases...)
 	all = append(all, DNSTunnelingCases...)
+	all = append(all, NetworkEgressCases...)
 	return all
 }

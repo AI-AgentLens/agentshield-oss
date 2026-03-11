@@ -81,9 +81,51 @@ var SudoCommandCases = []TestCase{
 	},
 }
 
+// OwnershipChangeCases tests detection of file ownership/permission changes.
+// Taxonomy: privilege-escalation/file-permissions/ownership-change
+var OwnershipChangeCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CHOWN-001",
+		Command:          `chown root:root /etc/passwd`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/ownership-change",
+		Analyzer:         "regex",
+		Description:      `Changing /etc/passwd ownership to root. Matches ts-audit-chown prefix rule.`,
+		Tags:             []string{"canonical"},
+	},
+	{
+		ID:               "TP-CHOWN-002",
+		Command:          `chgrp www-data /var/www/html`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/ownership-change",
+		Analyzer:         "regex",
+		Description:      `Changing group ownership. Matches ts-audit-chown prefix rule (chgrp).`,
+		Tags:             []string{"canonical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CHOWN-001",
+		Command:          `ls -la /etc/passwd`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/ownership-change",
+		Analyzer:         "regex",
+		Description:      `Listing file permissions is read-only. Must not match chown rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
 	all = append(all, SudoCommandCases...)
+	all = append(all, OwnershipChangeCases...)
 	return all
 }

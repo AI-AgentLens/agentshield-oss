@@ -297,10 +297,135 @@ var EnvDumpCases = []TestCase{
 	},
 }
 
+// ConfigFileAccessCases tests detection of credential and config file reads.
+// Taxonomy: credential-exposure/config-file-access/*
+var ConfigFileAccessCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CFGACCS-001",
+		Command:          `cat /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      `Reading /etc/shadow which contains hashed passwords. Matches sec-block-etc-shadow.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CFGACCS-002",
+		Command:          `security find-generic-password -s MyService`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      `macOS Keychain credential dump. Matches sec-block-keychain regex.`,
+		Tags:             []string{"canonical", "critical", "macos"},
+	},
+	{
+		ID:               "TP-CFGACCS-003",
+		Command:          `xxd ~/.ssh/id_rsa`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description:      `Hex dump of SSH private key. Matches sec-block-xxd-sensitive regex.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CFGACCS-004",
+		Command:          `history | grep password`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      `Searching shell history for passwords. Matches sec-block-history-grep-password.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CFGACCS-005",
+		Command:          `cat .env`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/dotenv-file-read",
+		Analyzer:         "regex",
+		Description:      `Reading .env file that typically contains API keys. Matches sec-audit-dotenv.`,
+		Tags:             []string{"canonical"},
+	},
+	{
+		ID:               "TP-CFGACCS-006",
+		Command:          `cat credentials.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      `Reading credentials file. Matches sec-audit-config-files regex.`,
+		Tags:             []string{"canonical"},
+	},
+	{
+		ID:               "TP-CFGACCS-007",
+		Command:          `pbcopy < ~/.ssh/id_rsa`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description:      `Copying SSH key to clipboard. sec-block-ssh-private fires first (higher priority
+			than clipboard audit), so the command is BLOCKED, not just audited.`,
+		Tags:             []string{"canonical"},
+	},
+	{
+		ID:               "TP-CFGACCS-008",
+		Command:          `git credential fill`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-access",
+		Analyzer:         "regex",
+		Description:      `Accessing git stored credentials. Matches sec-audit-git-credential prefix rule.`,
+		Tags:             []string{"canonical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CFGACCS-001",
+		Command:          `cat /etc/hosts`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      `/etc/hosts is a non-sensitive config file. Must not match shadow or config rules.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CFGACCS-002",
+		Command:          `cat .env.example`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/dotenv-file-read",
+		Analyzer:         "regex",
+		Description:      `KNOWN FALSE POSITIVE. .env.example is a committed template with no real secrets.
+			sec-audit-dotenv regex "(cat|..)\s+\.env" matches .env.example as a prefix, so the
+			command is AUDITed. A more precise regex would use \.env(\s|$|\.local|...) to skip .example.`,
+		Tags:             []string{"known-gap", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-CFGACCS-003",
+		Command:          `git status`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-access",
+		Analyzer:         "regex",
+		Description:      `git status is a benign read-only operation. Must not match git-credential prefix.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
 	all = append(all, SSHPrivateKeyReadCases...)
 	all = append(all, EnvDumpCases...)
+	all = append(all, ConfigFileAccessCases...)
 	return all
 }

