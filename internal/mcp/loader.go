@@ -63,49 +63,37 @@ func LoadMCPPolicy(path string) (*MCPPolicy, error) {
 	return &p, nil
 }
 
-// DefaultMCPPolicy returns a reasonable default MCP security policy.
-// Blocks known-dangerous tool patterns and audits everything else.
+// DefaultMCPPolicy returns a minimal-footprint base policy.
+//
+// It intentionally contains only structural defaults and the most critical
+// shell-execution blocked-tool names. All substantive security rules live in
+// packs/mcp/*.yaml (mcp-safety.yaml, mcp-secrets.yaml, mcp-financial.yaml)
+// which are installed to ~/.agentshield/mcp-packs/ by `agentshield setup mcp`
+// and merged on top of this policy at startup.
+//
+// Why no rules here?
+//   - Rules defined as Go structs are harder to audit, review, and update
+//     than YAML files in packs/.
+//   - The three rules previously hardcoded here (/etc writes, .ssh, .aws)
+//     were a weaker subset of what the packs provide (missed /usr, /var,
+//     .gnupg, .kube, .gcloud, etc.), creating false confidence.
+//   - Keeping rules in one place (packs/) avoids silent drift between the
+//     Go defaults and the YAML definitions.
+//
+// TODO(debt): replace the defaultMCPPacks string literals in setup_mcp.go
+// with //go:embed once the packs are reachable from an embeddable package
+// path (Go embed cannot reference ../../packs/mcp/ across package roots).
 func DefaultMCPPolicy() *MCPPolicy {
 	return &MCPPolicy{
 		Defaults: MCPDefaults{Decision: policy.DecisionAudit},
+		// Minimal shell-execution blocklist: last-resort guard for users who
+		// have not yet run `agentshield setup mcp` to install the full packs.
+		// mcp-safety.yaml extends this list with run_bash, run_code, etc.
 		BlockedTools: []string{
 			"execute_command",
 			"run_shell",
 			"run_terminal_command",
 			"shell_exec",
-		},
-		Rules: []MCPRule{
-			{
-				ID: "block-write-sensitive-paths",
-				Match: MCPMatch{
-					ToolNameAny:      []string{"write_file", "create_file", "edit_file"},
-					ArgumentPatterns: map[string]string{"path": "/etc/**"},
-				},
-				Decision: policy.DecisionBlock,
-				Reason:   "File write to system directories is blocked.",
-			},
-			{
-				ID: "block-ssh-access",
-				Match: MCPMatch{
-					ToolNameAny: []string{"read_file", "write_file", "cat_file", "create_file"},
-					ArgumentPatterns: map[string]string{
-						"path": "**/.ssh/**",
-					},
-				},
-				Decision: policy.DecisionBlock,
-				Reason:   "Access to SSH key directories is blocked.",
-			},
-			{
-				ID: "block-credential-access",
-				Match: MCPMatch{
-					ToolNameAny: []string{"read_file", "write_file", "cat_file", "create_file"},
-					ArgumentPatterns: map[string]string{
-						"path": "**/.aws/**",
-					},
-				},
-				Decision: policy.DecisionBlock,
-				Reason:   "Access to cloud credential directories is blocked.",
-			},
 		},
 	}
 }
