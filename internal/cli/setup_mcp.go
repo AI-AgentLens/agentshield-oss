@@ -10,6 +10,7 @@ import (
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
 	"github.com/security-researcher-ca/agentshield/internal/mcp"
+	"github.com/security-researcher-ca/agentshield/packs"
 	"github.com/spf13/cobra"
 )
 
@@ -398,6 +399,8 @@ func unwrapMCPConfig(loc mcpConfigLocation) error {
 
 // installDefaultMCPPacks copies the built-in MCP packs to ~/.agentshield/mcp-packs/.
 // Existing packs are not overwritten (user customizations are preserved).
+// Pack content is read from the embedded packs/mcp/*.yaml files via packs.MCPFiles(),
+// so there is a single source of truth and no rule duplication in source code.
 func installDefaultMCPPacks() error {
 	cfg, err := config.Load("", "", "")
 	if err != nil {
@@ -410,12 +413,12 @@ func installDefaultMCPPacks() error {
 	}
 
 	installed := 0
-	for name, content := range defaultMCPPacks {
+	for name, content := range packs.MCPFiles() {
 		dest := filepath.Join(packsDir, name)
 		if _, err := os.Stat(dest); err == nil {
 			continue // already exists, don't overwrite
 		}
-		if err := os.WriteFile(dest, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(dest, content, 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠  Could not write MCP pack %s: %v\n", name, err)
 			continue
 		}
@@ -430,224 +433,6 @@ func installDefaultMCPPacks() error {
 	return nil
 }
 
-// defaultMCPPacks contains the built-in MCP pack YAML content.
-// These are the same files shipped in packs/mcp/ in the repo.
-var defaultMCPPacks = map[string]string{
-	"mcp-safety.yaml": `name: "MCP Safety"
-description: "Block dangerous MCP tool invocations: shell execution, system directory writes, and dangerous tool patterns"
-version: "1.0.0"
-author: "AgentShield Security Research"
-
-blocked_tools:
-  - "execute_command"
-  - "run_shell"
-  - "run_terminal_command"
-  - "shell_exec"
-  - "run_bash"
-  - "run_code"
-  - "eval_code"
-  - "exec_code"
-
-rules:
-  - id: mcp-safety-block-etc-write
-    match:
-      tool_name_any: ["write_file", "create_file", "edit_file", "write_to_file"]
-      argument_patterns:
-        path: "/etc/**"
-    decision: "BLOCK"
-    reason: "File write to /etc/ system directory is blocked."
-
-  - id: mcp-safety-block-usr-write
-    match:
-      tool_name_any: ["write_file", "create_file", "edit_file", "write_to_file"]
-      argument_patterns:
-        path: "/usr/**"
-    decision: "BLOCK"
-    reason: "File write to /usr/ system directory is blocked."
-
-  - id: mcp-safety-block-var-write
-    match:
-      tool_name_any: ["write_file", "create_file", "edit_file", "write_to_file"]
-      argument_patterns:
-        path: "/var/**"
-    decision: "BLOCK"
-    reason: "File write to /var/ system directory is blocked."
-
-  - id: mcp-safety-audit-delete
-    match:
-      tool_name_regex: "(delete_file|remove_file|unlink)"
-    decision: "AUDIT"
-    reason: "File deletion operations flagged for review."
-
-  - id: mcp-safety-audit-process
-    match:
-      tool_name_regex: "(kill_process|restart_service|stop_service|reboot)"
-    decision: "AUDIT"
-    reason: "Process/system management operations flagged for review."
-`,
-	"mcp-secrets.yaml": `name: "MCP Secrets & Credentials"
-description: "Block MCP tool access to credential files, sensitive directories, and database URIs"
-version: "1.0.0"
-author: "AgentShield Security Research"
-
-blocked_resources:
-  - "file:///home/*/.ssh/**"
-  - "file:///root/.ssh/**"
-  - "file:///home/*/.aws/**"
-  - "file:///root/.aws/**"
-  - "file:///home/*/.gnupg/**"
-  - "file:///root/.gnupg/**"
-
-rules:
-  - id: mcp-sec-block-ssh-access
-    match:
-      tool_name_any: ["read_file", "write_file", "cat_file", "create_file", "edit_file", "write_to_file"]
-      argument_patterns:
-        path: "**/.ssh/**"
-    decision: "BLOCK"
-    reason: "Access to SSH key directories is blocked."
-
-  - id: mcp-sec-block-aws-access
-    match:
-      tool_name_any: ["read_file", "write_file", "cat_file", "create_file", "edit_file", "write_to_file"]
-      argument_patterns:
-        path: "**/.aws/**"
-    decision: "BLOCK"
-    reason: "Access to AWS credential directories is blocked."
-
-  - id: mcp-sec-block-gnupg-access
-    match:
-      tool_name_any: ["read_file", "write_file", "cat_file", "create_file"]
-      argument_patterns:
-        path: "**/.gnupg/**"
-    decision: "BLOCK"
-    reason: "Access to GPG key directories is blocked."
-
-  - id: mcp-sec-block-kube-access
-    match:
-      tool_name_any: ["read_file", "write_file", "cat_file", "create_file"]
-      argument_patterns:
-        path: "**/.kube/**"
-    decision: "BLOCK"
-    reason: "Access to Kubernetes config is blocked."
-
-  - id: mcp-sec-block-gcloud-access
-    match:
-      tool_name_any: ["read_file", "write_file", "cat_file", "create_file"]
-      argument_patterns:
-        path: "**/.config/gcloud/**"
-    decision: "BLOCK"
-    reason: "Access to Google Cloud credentials is blocked."
-
-  - id: mcp-sec-block-git-credentials
-    match:
-      tool_name_any: ["read_file", "cat_file"]
-      argument_patterns:
-        path: "**/.git-credentials"
-    decision: "BLOCK"
-    reason: "Git credential file access is blocked."
-
-resource_rules:
-  - id: mcp-sec-block-mysql-uri
-    match:
-      scheme: "mysql"
-    decision: "BLOCK"
-    reason: "Direct MySQL database access via MCP is blocked."
-
-  - id: mcp-sec-block-postgres-uri
-    match:
-      scheme: "postgres"
-    decision: "BLOCK"
-    reason: "Direct PostgreSQL database access via MCP is blocked."
-
-  - id: mcp-sec-block-redis-uri
-    match:
-      scheme: "redis"
-    decision: "BLOCK"
-    reason: "Direct Redis access via MCP is blocked."
-
-  - id: mcp-sec-block-mongodb-uri
-    match:
-      scheme: "mongodb"
-    decision: "BLOCK"
-    reason: "Direct MongoDB access via MCP is blocked."
-
-  - id: mcp-sec-block-ssh-uri
-    match:
-      uri_pattern: "file:///**/.ssh/**"
-    decision: "BLOCK"
-    reason: "Resource read of SSH key files is blocked."
-
-  - id: mcp-sec-block-aws-uri
-    match:
-      uri_pattern: "file:///**/.aws/**"
-    decision: "BLOCK"
-    reason: "Resource read of AWS credential files is blocked."
-`,
-	"mcp-financial.yaml": `name: "MCP Financial Safety"
-description: "Enforce value limits on financial tool calls to prevent uncontrolled resource commitment"
-version: "1.0.0"
-author: "AgentShield Security Research"
-
-value_limits:
-  - id: mcp-fin-cap-transfer-amount
-    tool_name_regex: "send_.*|transfer_.*"
-    argument: "amount"
-    max: 100.0
-    decision: "BLOCK"
-    reason: "Token/crypto transfer exceeds safety limit of 100 units."
-
-  - id: mcp-fin-cap-transfer-quantity
-    tool_name_regex: "send_.*|transfer_.*"
-    argument: "quantity"
-    max: 100.0
-    decision: "BLOCK"
-    reason: "Token/crypto transfer quantity exceeds safety limit."
-
-  - id: mcp-fin-cap-payment-amount
-    tool_name_regex: ".*pay.*|.*charge.*|.*invoice.*"
-    argument: "amount"
-    max: 1000.0
-    decision: "BLOCK"
-    reason: "Payment amount exceeds safety limit of $1,000."
-
-  - id: mcp-fin-cap-mint-amount
-    tool_name_regex: "mint_.*|create_token.*"
-    argument: "amount"
-    max: 1000.0
-    decision: "BLOCK"
-    reason: "Minting amount exceeds safety limit."
-
-  - id: mcp-fin-block-negative-transfer
-    tool_name_regex: "send_.*|transfer_.*|.*pay.*"
-    argument: "amount"
-    min: 0.0
-    decision: "BLOCK"
-    reason: "Negative transfer amounts are not allowed."
-
-  - id: mcp-fin-cap-withdrawal
-    tool_name_regex: "withdraw.*"
-    argument: "amount"
-    max: 500.0
-    decision: "BLOCK"
-    reason: "Withdrawal exceeds safety limit of 500 units."
-
-  - id: mcp-fin-block-negative-withdrawal
-    tool_name_regex: "withdraw.*"
-    argument: "amount"
-    min: 0.0
-    decision: "BLOCK"
-    reason: "Negative withdrawal amounts are not allowed."
-
-rules:
-  - id: mcp-fin-audit-financial-tools
-    match:
-      tool_name_regex: "(send_|transfer_|withdraw|mint_|.*pay.*|.*charge.*|.*invoice.*)"
-    decision: "AUDIT"
-    reason: "Financial tool call flagged for review."
-`,
-}
-
 // ensureDefaultMCPPolicy creates ~/.agentshield/mcp-policy.yaml if it doesn't exist.
 func ensureDefaultMCPPolicy() error {
 	cfg, err := config.Load("", "", "")
@@ -660,56 +445,17 @@ func ensureDefaultMCPPolicy() error {
 		return nil // already exists
 	}
 
+	// Minimal policy: defaults only, no hardcoded rules.
+	// All security rules live in ~/.agentshield/mcp-packs/ (installed below by
+	// installDefaultMCPPacks). Keeping rules here would duplicate the YAML in
+	// packs/mcp/ and make them hard to maintain.
 	defaultPolicy := `# AgentShield MCP Policy
 # Controls which MCP tool calls are allowed, audited, or blocked.
-# Docs: https://github.com/security-researcher-ca/AI_Agent_Shield
+# Security rules are provided by the packs in ~/.agentshield/mcp-packs/
+# which are installed automatically. To customise, edit the pack files there.
 
 defaults:
-  decision: "AUDIT"        # ALLOW, AUDIT, or BLOCK
-
-# Tools that are always blocked (exact name or glob)
-blocked_tools:
-  - "execute_command"
-  - "run_shell"
-  - "run_terminal_command"
-  - "shell_exec"
-
-# Fine-grained rules
-rules:
-  - id: block-write-sensitive-paths
-    match:
-      tool_name_any:
-        - "write_file"
-        - "create_file"
-        - "edit_file"
-      argument_patterns:
-        path: "/etc/**"
-    decision: "BLOCK"
-    reason: "File write to system directories is blocked."
-
-  - id: block-ssh-access
-    match:
-      tool_name_any:
-        - "read_file"
-        - "write_file"
-        - "cat_file"
-        - "create_file"
-      argument_patterns:
-        path: "**/.ssh/**"
-    decision: "BLOCK"
-    reason: "Access to SSH key directories is blocked."
-
-  - id: block-credential-access
-    match:
-      tool_name_any:
-        - "read_file"
-        - "write_file"
-        - "cat_file"
-        - "create_file"
-      argument_patterns:
-        path: "**/.aws/**"
-    decision: "BLOCK"
-    reason: "Access to cloud credential directories is blocked."
+  decision: "AUDIT"        # ALLOW, AUDIT, or BLOCK for unmatched calls
 `
 
 	if err := os.WriteFile(policyPath, []byte(defaultPolicy), 0644); err != nil {
