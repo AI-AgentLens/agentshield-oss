@@ -98,13 +98,12 @@ var SSHPrivateKeyReadCases = []TestCase{
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE POSITIVE (regex). Reading the PUBLIC key is safe.
-			The .pub extension indicates the public half, meant to be shared.
-			But the regex .ssh/(id_|private|secret) matches id_rsa.pub too
-			because it doesn't exclude .pub suffix. Structural analyzer
-			should distinguish .pub files from private keys.
-			CRITICAL: must not confuse .pub files with private keys.`,
-		Tags: []string{"common-dev-operation", "critical", "regression", "structural-fixes"},
+		Description: `Reading the public key is safe — the .pub extension indicates
+			the public half, meant to be shared. The regex correctly excludes
+			.pub files: id_[^\.\s"']+ stops at the dot, then requires
+			([\s"']|$) which a mid-string dot does not satisfy. No false
+			positive occurs; this case confirms the regex boundary is sound.`,
+		Tags: []string{"common-dev-operation", "regression"},
 	},
 	{
 		ID:               "TN-SSHKEY-002",

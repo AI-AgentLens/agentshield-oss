@@ -32,13 +32,11 @@ var NonStandardRegistryCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE NEGATIVE (rule ordering). The base policy's
-			audit-package-installs rule matches "npm install" prefix
-			before the supply-chain pack's BLOCK rule is checked.
-			Also: the pack's regex uses (?! negative lookahead) which
-			Go RE2 doesn't support. Needs rule priority system or
-			regex fix.`,
-		Tags: []string{"canonical", "critical", "known-gap"},
+		Description: `npm install with non-standard registry override. The base policy
+			audit-package-installs fires (AUDIT) and the supply-chain pack's
+			sc-block-npm-registry-override fires (BLOCK). The most_restrictive_wins
+			combiner returns BLOCK, so there is no ordering shadow issue.`,
+		Tags: []string{"canonical", "critical"},
 	},
 	{
 		ID:               "FN-NSREG-002",
@@ -47,12 +45,11 @@ var NonStandardRegistryCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE NEGATIVE (rule ordering). The base policy's
-			audit-package-installs matches "pip install" prefix before
-			the supply-chain pack's BLOCK rule for --extra-index-url.
-			First-match-wins semantics cause the AUDIT to shadow BLOCK.
-			Needs rule priority system (BLOCK > AUDIT).`,
-		Tags: []string{"critical", "known-gap"},
+		Description: `pip install with extra-index-url pointing to a malicious host.
+			Both audit-package-installs (AUDIT) and sc-block-pip-extra-index (BLOCK)
+			fire. The most_restrictive_wins combiner returns BLOCK correctly.
+			--extra-index-url enables dependency confusion attacks.`,
+		Tags: []string{"critical"},
 	},
 	{
 		ID:               "FN-NSREG-003",
@@ -61,10 +58,11 @@ var NonStandardRegistryCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE NEGATIVE (rule ordering). Same as FN-NSREG-002:
-			base policy audit-package-installs shadows pack BLOCK rule.
-			--trusted-host bypasses TLS, enabling MITM on downloads.`,
-		Tags: []string{"critical", "known-gap"},
+		Description: `pip install with --trusted-host disables TLS verification,
+			enabling MITM on package downloads. Both audit-package-installs (AUDIT)
+			and sc-block-pip-trusted-host (BLOCK) fire. most_restrictive_wins
+			combiner returns BLOCK correctly.`,
+		Tags: []string{"critical"},
 	},
 	{
 		ID:               "FN-NSREG-004",
@@ -73,10 +71,11 @@ var NonStandardRegistryCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE NEGATIVE (rule ordering). Same shadow issue:
-			base policy matches "pip install" prefix first. Direct URL
-			install bypasses PyPI entirely.`,
-		Tags: []string{"critical", "known-gap"},
+		Description: `Direct URL install bypasses PyPI entirely, allowing arbitrary
+			package execution. Both audit-package-installs (AUDIT) and
+			sc-block-pip-url-install (BLOCK) fire. most_restrictive_wins
+			combiner returns BLOCK correctly.`,
+		Tags: []string{"critical"},
 	},
 	{
 		ID:               "FN-NSREG-005",
@@ -85,10 +84,11 @@ var NonStandardRegistryCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `KNOWN FALSE NEGATIVE (rule ordering). Same shadow issue:
-			base policy matches "npm install" prefix first. Git URL
-			install bypasses npm registry entirely.`,
-		Tags: []string{"critical", "known-gap"},
+		Description: `npm install from a git URL bypasses the npm registry entirely,
+			allowing installation of unvetted code. Both audit-package-installs
+			(AUDIT) and sc-block-npm-git-url (BLOCK) fire. most_restrictive_wins
+			combiner returns BLOCK correctly.`,
+		Tags: []string{"critical"},
 	},
 
 	// --- TRUE NEGATIVES: Benign commands that MUST NOT be flagged ---

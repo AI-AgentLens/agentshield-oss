@@ -75,6 +75,14 @@ rules:
     decision: "BLOCK"
     reason: "Pipe-to-shell executes unreviewed remote code."
 
+  # === BLOCK: Pipe-to-crontab ===
+  - id: "ts-block-pipe-to-crontab"
+    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
+    match:
+      command_regex: "\\|\\s*crontab\\s"
+    decision: "BLOCK"
+    reason: "Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively."
+
   # === BLOCK: Reverse shell indicators ===
   - id: "ts-block-netcat"
     taxonomy: "data-exfiltration/network-egress/reverse-shell"

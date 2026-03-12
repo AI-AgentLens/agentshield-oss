@@ -34,14 +34,13 @@ var CrontabModificationCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "persistence-evasion/scheduled-tasks/crontab-modification",
-		Analyzer:         "structural",
-		Description: `KNOWN FALSE POSITIVE (regex). The ts-allow-readonly rule
-			matches the "echo " prefix and returns ALLOW before any
-			crontab rule is checked. This is a critical gap: echo piped
-			to crontab installs a persistent beacon. The structural
-			analyzer should detect the pipe to crontab and override
-			the allow-readonly classification.`,
-		Tags: []string{"critical", "evasion", "regression", "structural-fixes"},
+		Analyzer:         "regex",
+		Description: `Echo piped to crontab installs a persistent scheduled task.
+			Previously skipped: ts-allow-readonly matched "echo " prefix and
+			returned ALLOW before any crontab rule fired. Fixed by adding
+			ts-block-pipe-to-crontab regex rule (\|\s*crontab\s); the
+			most_restrictive_wins combiner returns BLOCK over the ALLOW.`,
+		Tags: []string{"critical", "evasion", "regression"},
 	},
 
 	// --- TRUE NEGATIVES ---
