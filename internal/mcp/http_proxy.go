@@ -31,6 +31,10 @@ type HTTPProxyConfig struct {
 
 	// Stderr is where proxy diagnostic messages go. Defaults to os.Stderr.
 	Stderr io.Writer
+
+	// ServerName is the human-readable name of the upstream MCP server,
+	// recorded in audit entries so consumers know the call target.
+	ServerName string
 }
 
 // HTTPProxy is a transparent MCP Streamable HTTP reverse proxy that intercepts
@@ -60,9 +64,10 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator: cfg.Evaluator,
-			OnAudit:   cfg.OnAudit,
-			Stderr:    stderr,
+			Evaluator:  cfg.Evaluator,
+			OnAudit:    cfg.OnAudit,
+			Stderr:     stderr,
+			ServerName: cfg.ServerName,
 		},
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // generous timeout for long-running tool calls

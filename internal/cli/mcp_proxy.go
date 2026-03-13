@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,17 +121,43 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 
 	// Find the server command after "--"
 	serverCmd := args
+	serverName := deriveServerName(serverCmd)
 	fmt.Fprintf(os.Stderr, "[AgentShield MCP] proxy starting for server: %v\n", serverCmd)
 	fmt.Fprintf(os.Stderr, "[AgentShield MCP] policy: %s (blocked tools: %d, rules: %d)\n",
 		mcpPolPath, len(mcpPolicy.BlockedTools), len(mcpPolicy.Rules))
 	fmt.Fprintf(os.Stderr, "[AgentShield MCP] started at %s\n", time.Now().UTC().Format(time.RFC3339))
 
 	proxy := mcp.NewProxy(mcp.ProxyConfig{
-		ServerCmd: serverCmd,
-		Evaluator: evaluator,
-		OnAudit:   onAudit,
-		Stderr:    os.Stderr,
+		ServerCmd:  serverCmd,
+		Evaluator:  evaluator,
+		OnAudit:    onAudit,
+		Stderr:     os.Stderr,
+		ServerName: serverName,
 	})
 
 	return proxy.Run()
+}
+
+// deriveServerName returns a human-readable name for an MCP server from its
+// launch command. For npx/bunx launchers it uses the package name; otherwise
+// it falls back to the executable base name.
+func deriveServerName(cmd []string) string {
+	if len(cmd) == 0 {
+		return "unknown"
+	}
+	base := filepath.Base(cmd[0])
+	// For npx/bunx/node the meaningful name is the package/script argument.
+	if base == "npx" || base == "bunx" || base == "node" {
+		for _, arg := range cmd[1:] {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			// Trim scoped package prefix (e.g. @modelcontextprotocol/server-filesystem → server-filesystem)
+			if i := strings.LastIndex(arg, "/"); i >= 0 {
+				return arg[i+1:]
+			}
+			return arg
+		}
+	}
+	return base
 }

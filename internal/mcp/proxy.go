@@ -20,6 +20,9 @@ type AuditEntry struct {
 	TriggeredRules []string               `json:"triggered_rules,omitempty"`
 	Reasons        []string               `json:"reasons,omitempty"`
 	Source         string                 `json:"source"`
+	// ServerName identifies which MCP server received (or would have received) this call.
+	// Populated from ProxyConfig.ServerName so audit consumers know the call target.
+	ServerName string `json:"server_name,omitempty"`
 }
 
 // AuditFunc is a callback for logging audit entries.
@@ -39,6 +42,11 @@ type ProxyConfig struct {
 
 	// Stderr is where proxy diagnostic messages go. Defaults to os.Stderr.
 	Stderr io.Writer
+
+	// ServerName is the human-readable name of the downstream MCP server,
+	// recorded in audit entries so consumers know the call target.
+	// If empty, derived from ServerCmd by the caller.
+	ServerName string
 }
 
 // Proxy is a transparent MCP stdio proxy that intercepts tools/call requests.
@@ -59,9 +67,10 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator: cfg.Evaluator,
-			OnAudit:   cfg.OnAudit,
-			Stderr:    stderr,
+			Evaluator:  cfg.Evaluator,
+			OnAudit:    cfg.OnAudit,
+			Stderr:     stderr,
+			ServerName: cfg.ServerName,
 		},
 	}
 }

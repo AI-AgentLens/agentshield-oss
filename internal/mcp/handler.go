@@ -10,9 +10,10 @@ import (
 // MessageHandler encapsulates the shared MCP message evaluation logic
 // used by both stdio and HTTP transport proxies.
 type MessageHandler struct {
-	Evaluator *PolicyEvaluator
-	OnAudit   AuditFunc
-	Stderr    io.Writer
+	Evaluator  *PolicyEvaluator
+	OnAudit    AuditFunc
+	Stderr     io.Writer
+	ServerName string // identifies the downstream MCP server in audit entries
 }
 
 // HandleToolCall evaluates a tools/call message against policy, content scanning,
@@ -33,6 +34,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			result.Decision = "BLOCK"
 			result.TriggeredRules = append(result.TriggeredRules, "argument-content-scan")
 			for _, f := range contentResult.Findings {
+				result.TriggeredRules = append(result.TriggeredRules, "content:"+string(f.Signal))
 				result.Reasons = append(result.Reasons, string(f.Signal)+": "+f.Detail+" (arg: "+f.ArgName+")")
 			}
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by content scan: %s (%d signals)\n",
@@ -50,6 +52,9 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			result.Decision = "BLOCK"
 			result.TriggeredRules = append(result.TriggeredRules, "value-limit")
 			for _, f := range vlResult.Findings {
+				if f.RuleID != "" {
+					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
+				}
 				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
 			}
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by value limit: %s (%d violations)\n",
@@ -61,6 +66,9 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			// AUDIT-level findings
 			result.TriggeredRules = append(result.TriggeredRules, "value-limit-audit")
 			for _, f := range vlResult.Findings {
+				if f.RuleID != "" {
+					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
+				}
 				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit_audit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
 			}
 		}
@@ -94,6 +102,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			TriggeredRules: result.TriggeredRules,
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
 		})
 	}
 
@@ -141,6 +150,7 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 			TriggeredRules: result.TriggeredRules,
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
 		})
 	}
 
@@ -219,6 +229,7 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 					TriggeredRules: []string{"tool-description-poisoning"},
 					Reasons:        reasons,
 					Source:         "mcp-proxy-description-scan",
+					ServerName:     h.ServerName,
 				})
 			}
 			continue

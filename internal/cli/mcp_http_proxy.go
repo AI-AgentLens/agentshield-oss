@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -150,6 +151,7 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		Evaluator:   evaluator,
 		OnAudit:     onAudit,
 		Stderr:      os.Stderr,
+		ServerName:  deriveServerNameFromURL(httpUpstreamURL),
 	})
 
 	// Handle graceful shutdown on SIGINT/SIGTERM
@@ -164,4 +166,19 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 	}()
 
 	return proxy.ListenAndServe()
+}
+
+// deriveServerNameFromURL extracts the host (without port) from an upstream URL
+// to use as the ServerName in audit entries.
+func deriveServerNameFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	// Strip port if present
+	host := u.Hostname()
+	if host == "" {
+		return rawURL
+	}
+	return host
 }
