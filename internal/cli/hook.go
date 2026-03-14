@@ -20,6 +20,7 @@ import (
 // Windsurf sends:    {"agent_action_name": "pre_run_command", "tool_info": {"command_line": "..."}}
 // Cursor sends:      {"command": "...", "cwd": "..."}
 // Claude Code sends: {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "..."}}
+// Gemini CLI sends:  {"hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": {"command": "..."}}
 type hookInput struct {
 	// Windsurf fields
 	AgentActionName string   `json:"agent_action_name"`
@@ -32,7 +33,7 @@ type hookInput struct {
 	Command string `json:"command"`
 	Cwd     string `json:"cwd"`
 
-	// Claude Code fields
+	// Claude Code fields + Gemini CLI fields (both use hook_event_name/tool_name/tool_input)
 	HookEventName string          `json:"hook_event_name"`
 	ToolName      string          `json:"tool_name"`
 	ToolInput     claudeToolInput `json:"tool_input"`
@@ -46,6 +47,7 @@ type toolInfo struct {
 
 type claudeToolInput struct {
 	Command string `json:"command"`
+	DirPath string `json:"dir_path,omitempty"` // Gemini CLI also sends dir_path
 }
 
 // cursorHookOutput is the JSON response Cursor expects from hook scripts.
@@ -56,19 +58,28 @@ type cursorHookOutput struct {
 	AgentMessage string `json:"agent_message,omitempty"`
 }
 
+// geminiHookOutput is the JSON response Gemini CLI expects from hook scripts.
+type geminiHookOutput struct {
+	Decision      string `json:"decision"`
+	Reason        string `json:"reason,omitempty"`
+	SystemMessage string `json:"systemMessage,omitempty"`
+}
+
 var hookCmd = &cobra.Command{
 	Use:   "hook",
-	Short: "IDE Hook handler for Windsurf, Cursor, and Claude Code integration",
+	Short: "IDE Hook handler for Windsurf, Cursor, Claude Code, and Gemini CLI",
 	Long: `Reads an IDE hook JSON payload from stdin, evaluates the command
 against AgentShield policy, and responds in the correct format.
 
 Auto-detects the IDE based on the JSON input structure:
   Claude Code — uses exit code 2 to block Bash tool calls
+  Gemini CLI  — returns JSON with decision: allow/deny
   Windsurf    — uses exit code 2 to block actions
   Cursor      — returns JSON with permission: deny/allow
 
 Setup:
   agentshield setup claude-code
+  agentshield setup gemini-cli
   agentshield setup windsurf
   agentshield setup cursor`,
 	RunE: hookCommand,
@@ -104,8 +115,12 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 
 	// Auto-detect IDE format based on input fields.
 	// Claude Code sends {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {...}}.
+	// Gemini CLI sends  {"hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": {...}}.
 	// Cursor sends      {"command": "..."} at the top level.
 	// Windsurf sends    {"agent_action_name": "pre_run_command", "tool_info": {...}}.
+	if input.HookEventName == "BeforeTool" {
+		return handleGeminiCLIHook(input)
+	}
 	if input.HookEventName != "" {
 		return handleClaudeCodeHook(input)
 	}
@@ -280,4 +295,48 @@ func handleClaudeCodeHook(input hookInput) error {
 	}
 
 	return nil
+}
+
+// handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
+// Only run_shell_command tool calls are evaluated; other tools pass through.
+// Responds with JSON {"decision": "allow"} or {"decision": "deny", "reason": "..."} on stdout.
+func handleGeminiCLIHook(input hookInput) error {
+	if input.ToolName != "run_shell_command" {
+		outputGeminiAllow()
+		return nil
+	}
+
+	cmdStr := input.ToolInput.Command
+	if cmdStr == "" {
+		outputGeminiAllow()
+		return nil
+	}
+
+	cwd := input.ToolInput.DirPath
+	evalResult, _, err := evaluateCommand(cmdStr, cwd, "gemini-cli-hook")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
+		outputGeminiAllow() // fail open
+		return nil
+	}
+
+	if evalResult.Decision == policy.DecisionBlock {
+		output := geminiHookOutput{
+			Decision:      "deny",
+			Reason:        "BLOCKED by AgentShield: " + strings.Join(evalResult.Reasons, "; "),
+			SystemMessage: evalResult.Explanation,
+		}
+		data, _ := json.Marshal(output)
+		fmt.Println(string(data))
+		return nil
+	}
+
+	outputGeminiAllow()
+	return nil
+}
+
+func outputGeminiAllow() {
+	output := geminiHookOutput{Decision: "allow"}
+	data, _ := json.Marshal(output)
+	fmt.Println(string(data))
 }

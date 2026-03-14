@@ -57,6 +57,31 @@ makes is evaluated by AgentShield before execution.
 	RunE: setupClaudeCodeCommand,
 }
 
+var setupGeminiCLICmd = &cobra.Command{
+	Use:   "gemini-cli",
+	Short: "Set up AgentShield for Gemini CLI (BeforeTool hook)",
+	Long: `Install or remove the BeforeTool hook so every shell command Gemini CLI
+runs is evaluated by AgentShield before execution.
+
+  agentshield setup gemini-cli             # enable hook
+  agentshield setup gemini-cli --disable   # disable hook`,
+	RunE: setupGeminiCLICommand,
+}
+
+var setupCodexCmd = &cobra.Command{
+	Use:   "codex",
+	Short: "Set up AgentShield for OpenAI Codex CLI",
+	Long: `Install AgentShield integration for OpenAI Codex CLI.
+
+Codex CLI does not yet support pre-execution hooks (PreToolUse).
+This command installs a SessionStart hook that logs AgentShield
+activation and sets up the notify handler for post-execution auditing.
+
+  agentshield setup codex             # install hooks
+  agentshield setup codex --disable   # remove hooks`,
+	RunE: setupCodexCommand,
+}
+
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Set up AgentShield for your environment",
@@ -65,6 +90,10 @@ var setupCmd = &cobra.Command{
 IDE-specific setup:
   agentshield setup claude-code           # install Claude Code PreToolUse hook
   agentshield setup claude-code --disable # remove Claude Code hook
+  agentshield setup gemini-cli            # install Gemini CLI BeforeTool hook
+  agentshield setup gemini-cli --disable  # remove Gemini CLI hook
+  agentshield setup codex                 # install Codex CLI hooks
+  agentshield setup codex --disable       # remove Codex CLI hooks
   agentshield setup windsurf              # install Cascade Hooks
   agentshield setup windsurf --disable    # remove Cascade Hooks
   agentshield setup cursor                # install Cursor Hooks
@@ -91,10 +120,14 @@ func init() {
 	setupCursorCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupOpenClawCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupClaudeCodeCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
+	setupGeminiCLICmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
+	setupCodexCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCmd.AddCommand(setupWindsurfCmd)
 	setupCmd.AddCommand(setupCursorCmd)
 	setupCmd.AddCommand(setupOpenClawCmd)
 	setupCmd.AddCommand(setupClaudeCodeCmd)
+	setupCmd.AddCommand(setupGeminiCLICmd)
+	setupCmd.AddCommand(setupCodexCmd)
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -757,6 +790,300 @@ func findOpenClawHookSource() string {
 	return ""
 }
 
+// ─── Gemini CLI Setup ────────────────────────────────────────────────────────
+
+// agentshieldGeminiHookEntry is the hook object we insert into Gemini CLI settings.
+var agentshieldGeminiHookEntry = map[string]interface{}{
+	"matcher": "run_shell_command",
+	"hooks": []interface{}{
+		map[string]interface{}{
+			"type":    "command",
+			"command": "agentshield hook",
+			"name":    "agentshield",
+			"timeout": 10000,
+		},
+	},
+}
+
+func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
+	settingsPath := filepath.Join(os.Getenv("HOME"), ".gemini", "settings.json")
+
+	if disableFlag {
+		return disableGeminiCLIHook(settingsPath)
+	}
+
+	fmt.Println("═══════════════════════════════════════════════════════")
+	fmt.Println("  AgentShield + Gemini CLI (BeforeTool Hook)")
+	fmt.Println("═══════════════════════════════════════════════════════")
+	fmt.Println()
+
+	binPath, err := exec.LookPath("agentshield")
+	if err != nil {
+		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
+		return nil
+	}
+	fmt.Printf("✅ agentshield found: %s\n", binPath)
+
+	// Read or initialise settings.json
+	settings, err := readGeminiSettings(settingsPath)
+	if err != nil {
+		return err
+	}
+
+	// Navigate to hooks → BeforeTool
+	hooks := getOrCreateMap(settings, "hooks")
+	beforeTool := getOrCreateSlice(hooks, "BeforeTool")
+
+	// Check whether our entry is already present
+	for _, entry := range beforeTool {
+		if isAgentShieldGeminiHookEntry(entry) {
+			fmt.Printf("✅ Gemini CLI hook already configured: %s\n", settingsPath)
+			fmt.Println()
+			fmt.Println("AgentShield is active. Test it by asking Gemini CLI to run:")
+			fmt.Println("  rm -rf /")
+			fmt.Println()
+			fmt.Println("To disable: agentshield setup gemini-cli --disable")
+			fmt.Println()
+			printStatus()
+			return nil
+		}
+	}
+
+	hooks["BeforeTool"] = append(beforeTool, agentshieldGeminiHookEntry)
+	settings["hooks"] = hooks
+
+	if err := writeGeminiSettings(settingsPath, settings); err != nil {
+		return err
+	}
+
+	fmt.Printf("✅ BeforeTool hook installed: %s\n", settingsPath)
+	fmt.Println()
+	fmt.Println("How it works:")
+	fmt.Println("  1. Gemini CLI is about to run a shell command")
+	fmt.Println("  2. The BeforeTool hook calls `agentshield hook`")
+	fmt.Println("  3. AgentShield evaluates the command against your policy")
+	fmt.Println("  4. If BLOCK: Gemini CLI is prevented from running the command")
+	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
+	fmt.Println()
+	fmt.Println("To disable: agentshield setup gemini-cli --disable")
+	fmt.Println()
+	fmt.Println("Test by asking Gemini CLI to run: rm -rf /")
+	fmt.Println()
+	printStatus()
+	return nil
+}
+
+func disableGeminiCLIHook(settingsPath string) error {
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		fmt.Println("ℹ  No settings.json found for Gemini CLI — nothing to disable.")
+		return nil
+	}
+
+	settings, err := readGeminiSettings(settingsPath)
+	if err != nil {
+		return err
+	}
+
+	hooks, ok := settings["hooks"].(map[string]interface{})
+	if !ok {
+		fmt.Println("ℹ  Gemini CLI settings.json has no hooks — nothing to disable.")
+		return nil
+	}
+
+	beforeTool, _ := hooks["BeforeTool"].([]interface{})
+	filtered := make([]interface{}, 0, len(beforeTool))
+	removed := false
+	for _, entry := range beforeTool {
+		if isAgentShieldGeminiHookEntry(entry) {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	if !removed {
+		fmt.Println("ℹ  AgentShield hook not found in Gemini CLI settings — nothing to disable.")
+		return nil
+	}
+
+	if len(filtered) == 0 {
+		delete(hooks, "BeforeTool")
+	} else {
+		hooks["BeforeTool"] = filtered
+	}
+	if len(hooks) == 0 {
+		delete(settings, "hooks")
+	} else {
+		settings["hooks"] = hooks
+	}
+
+	if err := writeGeminiSettings(settingsPath, settings); err != nil {
+		return err
+	}
+
+	fmt.Printf("✅ AgentShield hook disabled for Gemini CLI\n")
+	fmt.Printf("   Settings: %s\n", settingsPath)
+	fmt.Println()
+	fmt.Println("Re-enable anytime with: agentshield setup gemini-cli")
+	return nil
+}
+
+func isAgentShieldGeminiHookEntry(entry interface{}) bool {
+	m, ok := entry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	subHooks, _ := m["hooks"].([]interface{})
+	for _, h := range subHooks {
+		if hm, ok := h.(map[string]interface{}); ok {
+			if hm["command"] == "agentshield hook" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func readGeminiSettings(path string) (map[string]interface{}, error) {
+	settings := make(map[string]interface{})
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+		}
+	}
+	return settings, nil
+}
+
+func writeGeminiSettings(path string, settings map[string]interface{}) error {
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	return nil
+}
+
+// ─── Codex CLI Setup ─────────────────────────────────────────────────────────
+
+func setupCodexCommand(cmd *cobra.Command, args []string) error {
+	codexDir := filepath.Join(os.Getenv("HOME"), ".codex")
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+
+	if disableFlag {
+		return disableCodexHook(hooksPath)
+	}
+
+	fmt.Println("═══════════════════════════════════════════════════════")
+	fmt.Println("  AgentShield + OpenAI Codex CLI")
+	fmt.Println("═══════════════════════════════════════════════════════")
+	fmt.Println()
+
+	binPath, err := exec.LookPath("agentshield")
+	if err != nil {
+		fmt.Println("⚠  agentshield not found in PATH. Install it first:")
+		fmt.Println("   brew tap security-researcher-ca/tap && brew install agentshield")
+		return nil
+	}
+	fmt.Printf("✅ agentshield found: %s\n", binPath)
+
+	fmt.Println()
+	fmt.Println("⚠  Note: Codex CLI does not yet support pre-execution hooks (PreToolUse).")
+	fmt.Println("   Installing SessionStart hook for activation logging.")
+	fmt.Println("   Full command interception will be available when Codex ships PreToolUse.")
+	fmt.Println()
+
+	// Check for existing hooks.json
+	if _, err := os.Stat(hooksPath); err == nil {
+		data, err := os.ReadFile(hooksPath)
+		if err == nil && strings.Contains(string(data), "agentshield") {
+			fmt.Printf("✅ Codex hook already configured: %s\n", hooksPath)
+			fmt.Println()
+			fmt.Println("To disable: agentshield setup codex --disable")
+			fmt.Println()
+			printStatus()
+			return nil
+		}
+	}
+
+	// Create hooks.json with SessionStart hook
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", codexDir, err)
+	}
+
+	hooksContent := `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[AgentShield] Session guard active' >&2",
+            "statusMessage": "AgentShield security gateway active",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.WriteFile(hooksPath, []byte(hooksContent), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", hooksPath, err)
+	}
+
+	fmt.Printf("✅ SessionStart hook installed: %s\n", hooksPath)
+	fmt.Println()
+	fmt.Println("Current integration level:")
+	fmt.Println("  SessionStart — logs AgentShield activation at session start")
+	fmt.Println()
+	fmt.Println("For full command interception now, use the wrapper shell approach:")
+	fmt.Printf("  Set shell in Codex config to: agentshield run --shell --\n")
+	fmt.Println()
+	fmt.Println("To disable: agentshield setup codex --disable")
+	fmt.Println()
+	printStatus()
+	return nil
+}
+
+func disableCodexHook(hooksPath string) error {
+	if _, err := os.Stat(hooksPath); os.IsNotExist(err) {
+		fmt.Println("ℹ  No hooks.json found for Codex CLI — nothing to disable.")
+		return nil
+	}
+
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", hooksPath, err)
+	}
+
+	if !strings.Contains(string(data), "agentshield") && !strings.Contains(string(data), "AgentShield") {
+		fmt.Println("ℹ  Codex hooks.json does not contain AgentShield — nothing to disable.")
+		return nil
+	}
+
+	backupPath := hooksPath + ".bak"
+	if err := os.Rename(hooksPath, backupPath); err != nil {
+		return fmt.Errorf("failed to rename %s: %w", hooksPath, err)
+	}
+
+	fmt.Println("✅ AgentShield hook disabled for Codex CLI")
+	fmt.Printf("   Backup saved: %s\n", backupPath)
+	fmt.Println()
+	fmt.Println("Re-enable anytime with: agentshield setup codex")
+	return nil
+}
+
 // ─── Generic Setup Instructions ─────────────────────────────────────────────
 
 func printSetupInstructions() {
@@ -813,6 +1140,22 @@ func printSetupInstructions() {
 	fmt.Printf("    \"shell\": \"%s\"\n", wrapperPath)
 	fmt.Println()
 
+	fmt.Println("─── Gemini CLI ────────────────────────────────────────")
+	fmt.Println()
+	fmt.Println("  Uses native BeforeTool hooks — no shell changes needed.")
+	fmt.Println("  One command to install:")
+	fmt.Println()
+	fmt.Println("    agentshield setup gemini-cli")
+	fmt.Println()
+
+	fmt.Println("─── Codex CLI ─────────────────────────────────────────")
+	fmt.Println()
+	fmt.Println("  SessionStart hook (PreToolUse not yet available in Codex).")
+	fmt.Println("  One command to install:")
+	fmt.Println()
+	fmt.Println("    agentshield setup codex")
+	fmt.Println()
+
 	fmt.Println("─── Direct CLI Usage ─────────────────────────────────")
 	fmt.Println()
 	fmt.Println("  agentshield run -- <command>         # evaluate & run")
@@ -838,6 +1181,8 @@ func printSetupInstructions() {
 	fmt.Println()
 	fmt.Println("  # Remove hooks (permanent until re-enabled):")
 	fmt.Println("  agentshield setup claude-code --disable")
+	fmt.Println("  agentshield setup gemini-cli  --disable")
+	fmt.Println("  agentshield setup codex       --disable")
 	fmt.Println("  agentshield setup windsurf    --disable")
 	fmt.Println("  agentshield setup cursor      --disable")
 	fmt.Println("  agentshield setup mcp         --disable")
