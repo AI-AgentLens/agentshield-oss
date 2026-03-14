@@ -269,7 +269,13 @@ func handleClaudeCodeHook(input hookInput) error {
 	}
 
 	if evalResult.Decision == policy.DecisionBlock {
-		fmt.Printf("🛑 BLOCKED by AgentShield\n%s\n", evalResult.Explanation)
+		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
+		if len(evalResult.TriggeredRules) > 0 {
+			fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(evalResult.TriggeredRules, ", "))
+		}
+		for _, reason := range evalResult.Reasons {
+			fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
+		}
 		os.Exit(2)
 	}
 
