@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
 )
 
@@ -238,6 +239,9 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 	hooksDir := filepath.Dir(hooksPath)
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableHook(hooksPath, "Windsurf")
 	}
 
@@ -330,6 +334,9 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 	hooksDir := filepath.Dir(hooksPath)
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableHook(hooksPath, "Cursor")
 	}
 
@@ -419,6 +426,9 @@ func setupOpenClawCommand(cmd *cobra.Command, args []string) error {
 	hookDir := filepath.Join(os.Getenv("HOME"), ".openclaw", "hooks", "agentshield")
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableOpenClawHook(hookDir)
 	}
 
@@ -583,6 +593,9 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 	settingsPath := filepath.Join(os.Getenv("HOME"), ".claude", "settings.json")
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableClaudeCodeHook(settingsPath)
 	}
 
@@ -809,6 +822,9 @@ func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
 	settingsPath := filepath.Join(os.Getenv("HOME"), ".gemini", "settings.json")
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableGeminiCLIHook(settingsPath)
 	}
 
@@ -981,6 +997,9 @@ func setupCodexCommand(cmd *cobra.Command, args []string) error {
 	hooksPath := filepath.Join(codexDir, "hooks.json")
 
 	if disableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
 		return disableCodexHook(hooksPath)
 	}
 

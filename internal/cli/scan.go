@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/enterprise"
+	"github.com/security-researcher-ca/agentshield/internal/logger"
 	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/security-researcher-ca/agentshield/internal/normalize"
 	"github.com/security-researcher-ca/agentshield/internal/policy"
@@ -107,6 +110,8 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		mcpPolicy = mcp.DefaultMCPPolicy()
 	}
+	mcpPacksDir := filepath.Join(cfg.ConfigDir, mcp.DefaultMCPPacksDir)
+	mcpPolicy, _, _ = mcp.LoadMCPPacks(mcpPacksDir, mcpPolicy)
 	evaluator := mcp.NewPolicyEvaluator(mcpPolicy)
 
 	mcpCases := []mcpScanCase{
@@ -228,10 +233,20 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("\n  Config guard: %d/2 passed\n\n", guardPass)
 
+	// ── Integration hooks ────────────────────────────────────────
+
+	fmt.Println("─── Integration Hooks ─────────────────────────────────")
+	printIntegrationHooks()
+	fmt.Println()
+
+	// ── Tamper Protection ────────────────────────────────────────
+
+	tamperPass := printTamperProtection(cfg)
+
 	// ── Summary ──────────────────────────────────────────────────
 
-	total := len(shellCases) + len(mcpCases) + 2 + 2 + 2
-	passed := shellPass + mcpPass + descPass + contentPass + guardPass
+	total := len(shellCases) + len(mcpCases) + 2 + 2 + 2 + tamperPass
+	passed := shellPass + mcpPass + descPass + contentPass + guardPass + tamperPass
 	failed := total - passed
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -245,6 +260,158 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	return nil
+}
+
+// printIntegrationHooks detects and displays configured IDE hooks.
+func printIntegrationHooks() {
+	found := false
+
+	// Check Claude Code hook
+	home, err := os.UserHomeDir()
+	if err == nil {
+		settingsPath := filepath.Join(home, ".claude", "settings.json")
+		if data, err := os.ReadFile(settingsPath); err == nil {
+			var settings map[string]interface{}
+			if json.Unmarshal(data, &settings) == nil {
+				if hooks, ok := settings["hooks"].(map[string]interface{}); ok {
+					if preToolUse, ok := hooks["PreToolUse"].([]interface{}); ok {
+						for _, entry := range preToolUse {
+							entryMap, ok := entry.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							hooksList, ok := entryMap["hooks"].([]interface{})
+							if !ok {
+								continue
+							}
+							for _, h := range hooksList {
+								hMap, ok := h.(map[string]interface{})
+								if !ok {
+									continue
+								}
+								cmd, _ := hMap["command"].(string)
+								if cmd == "agentshield hook" {
+									matcher, _ := entryMap["matcher"].(string)
+									fmt.Printf("  ✅ Claude Code        PreToolUse → %s (matcher: %s)\n", cmd, matcher)
+									found = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Check Windsurf hook
+	if home != "" {
+		windsurfPath := filepath.Join(home, ".windsurf", "hooks.json")
+		if data, err := os.ReadFile(windsurfPath); err == nil {
+			var hooks map[string]interface{}
+			if json.Unmarshal(data, &hooks) == nil {
+				if pre, ok := hooks["pre_run_command"]; ok && pre != nil {
+					fmt.Println("  ✅ Windsurf           pre_run_command hook configured")
+					found = true
+				}
+			}
+		}
+	}
+
+	// Check Cursor hook
+	if home != "" {
+		cursorPath := filepath.Join(home, ".cursor", "hooks.json")
+		if data, err := os.ReadFile(cursorPath); err == nil {
+			var hooks map[string]interface{}
+			if json.Unmarshal(data, &hooks) == nil {
+				if pre, ok := hooks["beforeShellExecution"]; ok && pre != nil {
+					fmt.Println("  ✅ Cursor             beforeShellExecution hook configured")
+					found = true
+				}
+			}
+		}
+	}
+
+	if !found {
+		fmt.Println("  ⚠️  No integration hooks detected")
+		fmt.Println("     Run: agentshield setup claude-code|windsurf|cursor")
+	}
+}
+
+// printTamperProtection displays the enterprise tamper protection status.
+// Returns the number of checks that passed (for the summary count).
+func printTamperProtection(cfg *config.Config) int {
+	managedCfg := enterprise.LoadManagedConfig()
+	if managedCfg == nil || !managedCfg.Managed {
+		fmt.Println("─── Tamper Protection ─────────────────────────────────")
+		fmt.Println("  ℹ  Managed mode: not active (no managed.json)")
+		fmt.Println()
+		return 0
+	}
+
+	fmt.Println("─── Tamper Protection ─────────────────────────────────")
+	passed := 0
+
+	// Managed mode status
+	orgInfo := ""
+	if managedCfg.OrganizationID != "" {
+		orgInfo = fmt.Sprintf(" (org: %s", managedCfg.OrganizationID)
+		if managedCfg.FailClosed {
+			orgInfo += ", fail_closed: on"
+		}
+		orgInfo += ")"
+	}
+	fmt.Printf("  ✅ Managed mode:          active%s\n", orgInfo)
+	passed++
+
+	// AGENTSHIELD_BYPASS check
+	if os.Getenv("AGENTSHIELD_BYPASS") == "1" {
+		fmt.Println("  ❌ AGENTSHIELD_BYPASS:    set (will be ignored in managed mode)")
+	} else {
+		fmt.Println("  ✅ AGENTSHIELD_BYPASS:    not set")
+		passed++
+	}
+
+	// Policy file check
+	if _, err := os.Stat(cfg.PolicyPath); err == nil {
+		fmt.Println("  ✅ Policy file:           present and valid")
+		passed++
+	} else {
+		fmt.Println("  ❌ Policy file:           missing")
+	}
+
+	// Self-protection rules
+	ruleCount := enterprise.SelfProtectRuleCount()
+	fmt.Printf("  ✅ Self-protection rules: %d rules active\n", ruleCount)
+	passed++
+
+	// Hook integrity
+	hookChecks := enterprise.RunWatchdogOnce(cfg.ConfigDir)
+	hookOk := true
+	for _, c := range hookChecks {
+		if !c.Passed && (c.Name == "hook-claude-code" || c.Name == "hook-windsurf" || c.Name == "hook-cursor") {
+			hookOk = false
+			break
+		}
+	}
+	if hookOk {
+		fmt.Println("  ✅ Hook integrity:        verified")
+		passed++
+	} else {
+		fmt.Println("  ❌ Hook integrity:        tamper detected")
+	}
+
+	// Audit chain verification
+	auditPath := filepath.Join(cfg.ConfigDir, "audit.jsonl")
+	chainResult := logger.VerifyChain(auditPath)
+	if chainResult.Valid {
+		fmt.Printf("  ✅ Audit chain:           verified (%d entries, %s)\n", chainResult.Entries, chainResult.Message)
+		passed++
+	} else {
+		fmt.Printf("  ❌ Audit chain:           broken at entry %d (%s)\n", chainResult.BrokenAt, chainResult.Message)
+	}
+
+	fmt.Println()
+	return passed
 }
 
 // decisionGE returns true if actual is at least as strict as want.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 )
@@ -17,6 +18,14 @@ type Config struct {
 	Mode       string
 	ConfigDir  string
 	Analyzer   AnalyzerConfig
+	Managed    *ManagedConfig
+}
+
+// ManagedConfig represents the enterprise managed configuration loaded from managed.json.
+type ManagedConfig struct {
+	Managed        bool   `json:"managed"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	FailClosed     bool   `json:"fail_closed"`
 }
 
 // AnalyzerConfig controls the multi-layer analyzer pipeline.
@@ -68,7 +77,31 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 		cfg.LogPath = filepath.Join(configDir, DefaultLogFile)
 	}
 
+	// Load managed.json if present
+	cfg.Managed = LoadManaged(configDir)
+
+	// In managed mode, ignore --policy and --log overrides
+	if cfg.Managed != nil && cfg.Managed.Managed {
+		cfg.PolicyPath = filepath.Join(configDir, DefaultPolicyFile)
+		cfg.LogPath = filepath.Join(configDir, DefaultLogFile)
+	}
+
 	return cfg, nil
+}
+
+// LoadManaged loads managed.json from the given config directory.
+// Returns nil if the file doesn't exist or is invalid.
+func LoadManaged(configDir string) *ManagedConfig {
+	managedPath := filepath.Join(configDir, "managed.json")
+	data, err := os.ReadFile(managedPath)
+	if err != nil {
+		return nil
+	}
+	var mc ManagedConfig
+	if err := json.Unmarshal(data, &mc); err != nil {
+		return nil
+	}
+	return &mc
 }
 
 func ensureDir(path string) error {

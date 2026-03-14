@@ -42,6 +42,10 @@ func (e AuditEvent) DisplayLabel() string {
 	return e.Command
 }
 
+// Ensure AuditLogger implements Logger.
+var _ Logger = (*AuditLogger)(nil)
+
+// AuditLogger (also known as FileLogger) writes audit events to a local JSONL file.
 type AuditLogger struct {
 	path string
 	file *os.File

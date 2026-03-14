@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/security-researcher-ca/agentshield/internal/logger"
 	"github.com/security-researcher-ca/agentshield/internal/normalize"
 	"github.com/security-researcher-ca/agentshield/internal/policy"
@@ -90,15 +91,20 @@ func init() {
 }
 
 func hookCommand(cmd *cobra.Command, args []string) error {
-	// Check bypass — allow everything when disabled
+	// Check bypass — allow everything when disabled (unless managed mode overrides)
 	if os.Getenv("AGENTSHIELD_BYPASS") == "1" {
-		// Still need to consume stdin and respond correctly for Cursor format
-		data, _ := io.ReadAll(os.Stdin)
-		var input hookInput
-		if err := json.Unmarshal(data, &input); err == nil && input.Command != "" {
-			outputCursorAllow()
+		managedCfg := enterprise.LoadManagedConfig()
+		if managedCfg == nil || !managedCfg.Managed {
+			// Non-managed mode: honor the bypass
+			data, _ := io.ReadAll(os.Stdin)
+			var input hookInput
+			if err := json.Unmarshal(data, &input); err == nil && input.Command != "" {
+				outputCursorAllow()
+			}
+			return nil
 		}
-		return nil
+		// Managed mode: ignore bypass, continue with evaluation
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: AGENTSHIELD_BYPASS detected in managed mode — ignoring bypass\n")
 	}
 
 	data, err := io.ReadAll(os.Stdin)
@@ -144,8 +150,46 @@ func evaluateCommand(cmdStr, cwd, source string) (*policy.EvalResult, *logger.Au
 		cwd, _ = os.Getwd()
 	}
 
+	// Run enterprise middleware chain (pre-eval)
+	ctx := &enterprise.EvalContext{Command: cmdStr, Cwd: cwd, Source: source}
+	chain := buildMiddlewareChain()
+	if len(chain) > 0 {
+		// Run pre-eval middleware (SelfProtect, BypassGuard)
+		enterprise.RunChain(ctx, chain)
+		if ctx.Blocked {
+			blockedResult := policy.EvalResult{
+				Decision:       policy.DecisionBlock,
+				TriggeredRules: []string{"enterprise-self-protect"},
+				Reasons:        []string{ctx.BlockMsg},
+				Explanation:    ctx.BlockMsg,
+			}
+			event := logger.AuditEvent{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				Command:        cmdStr,
+				Args:           strings.Fields(cmdStr),
+				Cwd:            cwd,
+				Decision:       "BLOCK",
+				Flagged:        true,
+				TriggeredRules: blockedResult.TriggeredRules,
+				Reasons:        blockedResult.Reasons,
+				Mode:           "managed",
+				Source:         source,
+			}
+			return &blockedResult, &event, nil
+		}
+	}
+
 	cfg, err := config.Load(policyPath, logPath, mode)
 	if err != nil {
+		// Check fail_closed
+		if managedCfg := enterprise.LoadManagedConfig(); managedCfg != nil && managedCfg.FailClosed {
+			blockedResult := policy.EvalResult{
+				Decision:    policy.DecisionBlock,
+				Reasons:     []string{"AgentShield: config load error — blocking (fail_closed enabled)"},
+				Explanation: "AgentShield: config load error — blocking (fail_closed enabled)",
+			}
+			return &blockedResult, nil, nil
+		}
 		return nil, nil, fmt.Errorf("config load failed: %w", err)
 	}
 
@@ -162,6 +206,15 @@ func evaluateCommand(cmdStr, cwd, source string) (*policy.EvalResult, *logger.Au
 
 	pol, err := policy.Load(cfg.PolicyPath)
 	if err != nil {
+		// Check fail_closed
+		if cfg.Managed != nil && cfg.Managed.FailClosed {
+			blockedResult := policy.EvalResult{
+				Decision:    policy.DecisionBlock,
+				Reasons:     []string{"AgentShield: policy load error — blocking (fail_closed enabled)"},
+				Explanation: "AgentShield: policy load error — blocking (fail_closed enabled)",
+			}
+			return &blockedResult, nil, nil
+		}
 		return nil, nil, fmt.Errorf("policy load failed: %w", err)
 	}
 
@@ -198,6 +251,20 @@ func evaluateCommand(cmdStr, cwd, source string) (*policy.EvalResult, *logger.Au
 	}
 
 	return &evalResult, &event, nil
+}
+
+// buildMiddlewareChain assembles the middleware chain based on enterprise config.
+// Returns an empty chain in non-managed mode (zero overhead).
+func buildMiddlewareChain() []enterprise.EvalMiddleware {
+	managedCfg := enterprise.LoadManagedConfig()
+	if managedCfg == nil || !managedCfg.Managed {
+		return nil
+	}
+
+	var chain []enterprise.EvalMiddleware
+	chain = append(chain, enterprise.BypassGuard(managedCfg))
+	chain = append(chain, enterprise.SelfProtect())
+	return chain
 }
 
 // handleWindsurfHook processes Windsurf Cascade Hooks (pre_run_command).

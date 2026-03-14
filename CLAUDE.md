@@ -155,17 +155,90 @@ Example:
 
 Run: `go test -v -run TestAccuracy ./internal/analyzer/`
 
+### Enterprise Tamper Protection (`internal/enterprise/`)
+
+Managed mode ensures AgentShield cannot be turned off by an AI agent. All enterprise logic lives in `internal/enterprise/` — core code has minimal coupling.
+
+**Architecture: Middleware Chain**
+
+`evaluateCommand()` in `hook.go` runs an `EvalMiddleware` chain before core policy evaluation. In non-managed mode the chain is empty (zero overhead). In managed mode (`~/.agentshield/managed.json` with `"managed": true`), the chain includes:
+
+1. **BypassGuard** (pre-eval) — Ignores `AGENTSHIELD_BYPASS=1` env var
+2. **SelfProtect** (pre-eval) — Blocks commands targeting AgentShield itself (6 hardcoded regex rules)
+
+The chain uses a simple `func(ctx *EvalContext, next func())` pattern. To add new middleware:
+
+```go
+// In internal/enterprise/your_feature.go
+func YourMiddleware(cfg *ManagedConfig) EvalMiddleware {
+    return func(ctx *EvalContext, next func()) {
+        // pre-eval logic
+        next()
+        // post-eval logic
+    }
+}
+
+// Then add to buildMiddlewareChain() in hook.go:
+chain = append(chain, enterprise.YourMiddleware(managedCfg))
+```
+
+**Key types:**
+- `EvalContext` (`managed.go`) — Carries Command, Cwd, Source, Result, Blocked, BlockMsg, AuditEvent through the chain
+- `EvalMiddleware` (`managed.go`) — `func(ctx *EvalContext, next func())`
+- `ManagedConfig` (`types.go`) — Loaded from `~/.agentshield/managed.json`
+
+**Enterprise files:**
+
+| File | Purpose |
+|------|---------|
+| `types.go` | ManagedConfig, RemoteLog, WatchdogConf structs |
+| `managed.go` | EvalContext, EvalMiddleware, RunChain, BypassGuard, SelfProtect |
+| `failclosed.go` | FailClosed post-eval middleware |
+| `remote_log.go` | Webhook forwarding (async, fire-and-forget with retry) |
+| `watchdog.go` | Background watchdog service |
+| `setup_guard.go` | CheckDisableAllowed + LoadManagedConfig/LoadManagedConfigFrom |
+
+**Self-protection rules** (hardcoded in `managed.go`):
+
+| ID | Blocks |
+|----|--------|
+| `sp-block-bypass-env` | `export AGENTSHIELD_BYPASS=1` |
+| `sp-block-setup-disable` | `agentshield setup ... --disable` |
+| `sp-block-delete-config` | `rm ... ~/.agentshield` |
+| `sp-block-delete-hooks` | `rm ...settings.json` / `hooks.json` for any IDE |
+| `sp-block-policy-write` | `echo > ~/.agentshield/policy.yaml` |
+| `sp-block-binary-replace` | `cp /tmp/x .../agentshield` |
+
+**Setup disable guard:** Each IDE's setup function calls `enterprise.CheckDisableAllowed()` before running its disable handler. In managed mode, this returns an error.
+
+**Config loading:** `config.Load()` reads `managed.json` from `~/.agentshield/`. When managed, `--policy` and `--log` CLI flag overrides are ignored (always uses default paths).
+
+### Logger Package (`internal/logger/`)
+
+The logger package uses an interface pattern for pluggable backends:
+
+| File | Purpose |
+|------|---------|
+| `logger.go` | `Logger` interface, `AuditLogger` (file backend), `AuditEvent` struct |
+| `multi.go` | `MultiLogger` — fans out `Log()` to multiple backends |
+| `syslog.go` | `SyslogLogger` — RFC 5424 syslog backend |
+| `webhook.go` | `WebhookLogger` — HTTP POST backend (async with retry) |
+| `integrity.go` | `ChainedEvent`, `ComputeEntryHash`, `ComputeChainedHash`, `VerifyChain` |
+
+To add a new logger backend, implement `Logger` (Log + Close) and add it to `MultiLogger`.
+
 ### CLI Commands
 
 Implemented in `internal/cli/` using Cobra. Key subcommands:
 - `run` — Execute a command through the analyzer pipeline
-- `setup` — Configure IDE hooks (Windsurf, Cursor, Claude Code)
+- `setup` — Configure IDE hooks (Windsurf, Cursor, Claude Code, Gemini CLI, Codex)
 - `setup-mcp` — Configure MCP proxy
 - `mcp-proxy` — stdio MCP proxy mode
 - `mcp-http-proxy` — HTTP Streamable MCP proxy mode
-- `scan` — Scan a command without executing
+- `scan` — Self-test diagnostic (includes Tamper Protection section in managed mode)
 - `pack` — Manage policy packs
 - `log` — View audit logs
+- `watchdog` — Background tamper detection (enterprise, requires managed mode)
 
 ### Policy Packs
 

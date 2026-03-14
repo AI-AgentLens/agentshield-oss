@@ -110,6 +110,9 @@ agentshield setup openclaw
 # Quick session bypass (without removing hooks):
 export AGENTSHIELD_BYPASS=1    # disable
 unset AGENTSHIELD_BYPASS       # re-enable
+
+# Note: in managed mode, --disable and AGENTSHIELD_BYPASS are both blocked.
+# See "Enterprise Tamper Protection" below.
 ```
 </details>
 
@@ -120,7 +123,9 @@ AgentShield uses `~/.agentshield/` for runtime data:
 ```
 ~/.agentshield/
 ├── audit.jsonl        # Audit log — auto-rotates at 10 MB (keeps 1 backup: audit.jsonl.1)
+├── policy.yaml        # Custom policy (optional — built-in defaults apply without it)
 ├── mcp-policy.yaml    # MCP proxy policy (auto-created by setup mcp)
+├── managed.json       # Enterprise managed mode config (optional — see Tamper Protection)
 └── packs/             # Policy packs (installed via `agentshield setup --install`)
     ├── terminal-safety.yaml
     ├── secrets-pii.yaml
@@ -167,29 +172,86 @@ See the **[Policy Authoring Guide](docs/policy-guide.md)** for full rule syntax,
 - **Automatic secret redaction** in audit logs
 - **MCP policy packs** — 3 built-in packs (Safety, Secrets, Financial) installed by `agentshield setup mcp`, composable with custom packs ([details](docs/policy-guide.md#mcp-packs))
 - **Fail-safe defaults** — unknown commands → AUDIT, not ALLOW
+- **Enterprise tamper protection** — managed mode with self-protection rules, bypass immunity, fail-closed, hash-chained audit logs, remote log forwarding, and background watchdog ([details](#enterprise-tamper-protection))
+
+## Enterprise Tamper Protection
+
+For organizations that need to ensure AgentShield **cannot be turned off** by an AI agent, AgentShield supports a managed mode that closes the bypass vectors listed in [Known Limitations](#known-limitations).
+
+### Enable Managed Mode
+
+Create `~/.agentshield/managed.json`:
+
+```json
+{
+  "managed": true,
+  "organization_id": "acme-corp",
+  "fail_closed": true,
+  "remote_logging": {
+    "webhook": {
+      "url": "https://siem.example.com/ingest",
+      "auth_header": "Bearer <token>"
+    }
+  },
+  "watchdog": {
+    "interval_seconds": 30,
+    "alert_webhook": "https://alerts.example.com/tamper"
+  }
+}
+```
+
+### What Managed Mode Does
+
+| Protection | Detail |
+|-----------|--------|
+| **Bypass immunity** | `AGENTSHIELD_BYPASS=1` is ignored — evaluation always runs |
+| **Setup disable guard** | `agentshield setup <ide> --disable` is refused |
+| **Self-protection rules** | Commands that delete config, overwrite the binary, remove hook files, or set bypass env vars are blocked (6 hardcoded regex rules) |
+| **Fail-closed mode** | When `fail_closed: true`, policy errors block instead of allowing through |
+| **CLI flag lockdown** | `--policy` and `--log` flag overrides are ignored — always uses default paths |
+| **Hash-chained audit log** | SHA-256 chain on audit entries — tampering is detectable via `agentshield scan` |
+| **Remote log forwarding** | Forward audit events to syslog (RFC 5424) and/or HTTP webhook |
+| **Watchdog** | `agentshield watchdog` polls hook files, policy, managed.json, and env vars — alerts on tamper |
+
+### Verify
+
+```bash
+agentshield scan   # shows Tamper Protection section in managed mode
+```
+
+```
+─── Tamper Protection ─────────────────────────────────
+  ✅ Managed mode:          active (org: acme-corp, fail_closed: on)
+  ✅ AGENTSHIELD_BYPASS:    not set
+  ✅ Policy file:           present and valid
+  ✅ Self-protection rules: 6 rules active
+  ✅ Hook integrity:        verified
+  ✅ Audit chain:           verified (247 entries, no gaps)
+```
 
 ## Known Limitations
 
 AgentShield is a **user-space command wrapper**, not a kernel-level enforcement mechanism. Be aware of these boundaries:
 
-| Limitation | Detail |
-|-----------|--------|
-| **Agent can disable hooks** | An agent with shell access could run `agentshield setup --disable` or `export AGENTSHIELD_BYPASS=1`. The hook files live in user-writable IDE config directories. |
-| **Agent can tamper with audit logs** | `~/.agentshield/audit.jsonl` is a local file. An agent could delete or truncate it. |
-| **Agent can modify policy files** | Policy packs in `~/.agentshield/packs/` are user-writable YAML. |
-| **Only intercepts routed commands** | Commands not routed through `agentshield run --` are not intercepted. If an agent bypasses the wrapper (e.g., direct syscall, spawning a child process outside the hook), AgentShield won't see it. |
-| **Not a network firewall** | AgentShield analyzes command strings. It does not inspect network packets or block outbound connections at the OS level. |
-| **Not an LLM guardrail** | AgentShield does not filter prompts sent to models or inspect model outputs. It operates at the shell command and MCP tool call layers. |
+| Limitation | Detail | Mitigation |
+|-----------|--------|------------|
+| **Agent can disable hooks** | An agent with shell access could run `agentshield setup --disable` or `export AGENTSHIELD_BYPASS=1`. | **Managed mode** blocks both vectors. |
+| **Agent can tamper with audit logs** | `~/.agentshield/audit.jsonl` is a local file. An agent could delete or truncate it. | **Hash-chained logs** + **remote forwarding** detect and survive tampering. |
+| **Agent can modify policy files** | Policy packs in `~/.agentshield/packs/` are user-writable YAML. | **Self-protection rules** block writes to policy files; managed mode ignores `--policy` overrides. |
+| **Only intercepts routed commands** | Commands not routed through `agentshield run --` are not intercepted. If an agent bypasses the wrapper (e.g., direct syscall, spawning a child process outside the hook), AgentShield won't see it. | OS-level controls (macOS TCC, SELinux). |
+| **Not a network firewall** | AgentShield analyzes command strings. It does not inspect network packets or block outbound connections at the OS level. | Combine with network firewalls. |
+| **Not an LLM guardrail** | AgentShield does not filter prompts sent to models or inspect model outputs. It operates at the shell command and MCP tool call layers. | — |
 
-These limitations are inherent to the user-space wrapper approach. Mitigations include running audit log forwarding to a remote store, setting file permissions on policy files, and combining AgentShield with OS-level controls (e.g., macOS TCC, SELinux, network firewalls).
+These limitations are inherent to the user-space wrapper approach. Enterprise managed mode mitigates the first three. Remaining gaps require OS-level controls (e.g., macOS TCC, SELinux, network firewalls).
 
 ## Roadmap
 
 AgentShield currently mediates **shell commands**. The threat surface for AI agents is broader. Planned and exploratory directions:
 
 - **~~MCP communication mediation~~** ✅ — Intercept and evaluate [Model Context Protocol](https://modelcontextprotocol.io/) tool calls between agents and MCP servers via `agentshield mcp-proxy`. See [MCP Mediation docs](docs/mcp-mediation.md).
+- **~~Remote audit log forwarding~~** ✅ — Forward audit events to syslog (RFC 5424) and HTTP webhooks. See [Enterprise Tamper Protection](#enterprise-tamper-protection).
+- **~~Enterprise tamper protection~~** ✅ — Managed mode, self-protection rules, bypass immunity, fail-closed, hash-chained audit logs, watchdog. See [Enterprise Tamper Protection](#enterprise-tamper-protection).
 - **File-write policy** — Evaluate file creation and modification operations (not just shell commands), especially writes to sensitive config files (`.cursor/mcp.json`, `.vscode/tasks.json`, crontabs).
-- **Remote audit log forwarding** — Ship `audit.jsonl` to a remote store (syslog, S3, SIEM) so agents cannot tamper with the trail.
 - **OS-level enforcement** — Explore eBPF-based or sandbox-based approaches for commands that bypass the wrapper.
 - **Policy-as-code CI integration** — Validate policy packs in CI pipelines, share them across teams via git.
 - **Agent identity tagging** — Distinguish which agent (Windsurf, Cursor, OpenClaw) initiated a command for per-agent policy and audit.
