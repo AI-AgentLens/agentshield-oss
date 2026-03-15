@@ -110,7 +110,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Description: "Command contains a long base64-encoded payload that may hide malicious intent",
 			},
 			match: func(req GuardianRequest) bool {
-				return base64PayloadPattern.MatchString(req.RawCommand)
+				return isBase64Payload(req.RawCommand)
 			},
 			escalate: "AUDIT",
 		},
@@ -230,9 +230,34 @@ var indirectInjectionPatterns = compilePatterns([]string{
 
 // base64PayloadPattern matches base64 strings >= 40 chars that appear in
 // command arguments (likely encoded payloads, not short values).
+// Note: detection is done via isBase64Payload to exclude file path segments.
 var base64PayloadPattern = regexp.MustCompile(
 	`[A-Za-z0-9+/]{40,}={0,2}`,
 )
+
+// isBase64Payload returns true if the command contains a 40+ char base64 string
+// that is NOT part of a file path. Excludes:
+//   - Matches that start with '/' (absolute paths like /usr/local/lib/...)
+//   - Matches preceded by '/' (mid-path segments like foo/bar/baz/...)
+//
+// This prevents false positives on long file paths like /usr/lib/long/path/file.go.
+func isBase64Payload(cmd string) bool {
+	locs := base64PayloadPattern.FindAllStringIndex(cmd, -1)
+	for _, loc := range locs {
+		start := loc[0]
+		matched := cmd[start:loc[1]]
+		// Skip if the match is itself an absolute path segment (starts with '/').
+		if matched[0] == '/' {
+			continue
+		}
+		// Skip if this segment is embedded within a file path (preceded by '/').
+		if start > 0 && cmd[start-1] == '/' {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 // hexEscapePattern matches sequences of 4+ hex escapes like \x41\x42\x43\x44.
 // In shell commands the backslash may appear as literal \\ or single \.
