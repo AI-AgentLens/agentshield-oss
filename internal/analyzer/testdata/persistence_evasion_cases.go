@@ -252,11 +252,65 @@ var CICDTamperingCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 6.4: SSH Key Generation (Lateral Movement)
+// Taxonomy: persistence-evasion/lateral-movement/ssh-key-generation
+// ---------------------------------------------------------------------------
+
+// SSHKeyGenCases tests detection of non-interactive SSH key generation.
+var SSHKeyGenCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SSHKEYG-001",
+		Command:          `ssh-keygen -t rsa -N "" -f /tmp/agent_key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "structural",
+		Description:      `Non-interactive RSA key generation with empty passphrase. Blocked by ts-struct-block-ssh-keygen-noninteractive (flags_any: ["N"]).`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-SSHKEYG-002",
+		Command:          `ssh-keygen -t ed25519 -N "" -f /tmp/key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "structural",
+		Description:      `Non-interactive Ed25519 key generation with empty passphrase. Blocked by ts-struct-block-ssh-keygen-noninteractive.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SSHKEYG-001",
+		Command:          `ssh-keygen -l -f /tmp/id_rsa.pub`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Description:      `Listing key fingerprint (-l flag, no -N). No rule fires; default AUDIT. Read-only operation, not blocked.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-SSHKEYG-002",
+		Command:          `ssh -T git@github.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Description:      `Testing SSH connectivity to GitHub. Not ssh-keygen; no key generation rule fires.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
 	all = append(all, CrontabModificationCases...)
 	all = append(all, AtJobSchedulingCases...)
 	all = append(all, CICDTamperingCases...)
+	all = append(all, SSHKeyGenCases...)
 	return all
 }
