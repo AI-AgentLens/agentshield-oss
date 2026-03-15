@@ -19,6 +19,7 @@ type MCPPolicy struct {
 	ResourceRules    []ResourceRule      `yaml:"resource_rules,omitempty"`
 	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
 	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
+	SemanticRules    []MCPSemanticRule   `yaml:"semantic_rules,omitempty"`
 }
 
 // MCPDefaults defines the default decision for MCP tool calls.
@@ -51,11 +52,12 @@ type ResourceMatch struct {
 
 // MCPMatch defines the conditions for an MCP rule to trigger.
 type MCPMatch struct {
-	ToolName         string            `yaml:"tool_name,omitempty"`         // exact tool name
-	ToolNameRegex    string            `yaml:"tool_name_regex,omitempty"`   // regex on tool name
-	ToolNameAny      []string          `yaml:"tool_name_any,omitempty"`     // any of these tool names
-	ArgumentPatterns map[string]string `yaml:"argument_patterns,omitempty"` // key=arg name, value=glob pattern on arg value
-	Structural       *MCPStructuralMatch `yaml:"structural,omitempty"`      // structural match predicates
+	ToolName         string              `yaml:"tool_name,omitempty"`         // exact tool name
+	ToolNameRegex    string              `yaml:"tool_name_regex,omitempty"`   // regex on tool name
+	ToolNameAny      []string            `yaml:"tool_name_any,omitempty"`     // any of these tool names
+	ArgumentPatterns map[string]string   `yaml:"argument_patterns,omitempty"` // key=arg name, value=glob pattern on arg value
+	Structural       *MCPStructuralMatch `yaml:"structural,omitempty"`        // structural match predicates
+	Semantic         *MCPSemanticMatch   `yaml:"semantic,omitempty"`          // semantic intent match predicates
 }
 
 // ValueLimitRule enforces numeric thresholds on tool call arguments.
@@ -117,6 +119,13 @@ func NewPolicyEvaluator(p *MCPPolicy) *PolicyEvaluator {
 // EvaluateToolCall checks a tool call against the MCP policy.
 // Returns the most restrictive matching decision.
 func (e *PolicyEvaluator) EvaluateToolCall(toolName string, arguments map[string]interface{}) MCPEvalResult {
+	return e.EvaluateToolCallFull(toolName, arguments, "")
+}
+
+// EvaluateToolCallFull checks a tool call against the MCP policy, including
+// the tool description for semantic intent classification.
+// Returns the most restrictive matching decision.
+func (e *PolicyEvaluator) EvaluateToolCallFull(toolName string, arguments map[string]interface{}, toolDescription string) MCPEvalResult {
 	result := MCPEvalResult{
 		Decision:       e.policy.Defaults.Decision,
 		TriggeredRules: []string{},
@@ -151,6 +160,21 @@ func (e *PolicyEvaluator) EvaluateToolCall(toolName string, arguments map[string
 	// Evaluate structural rules — check standalone structural_rules
 	for _, rule := range e.policy.StructuralRules {
 		if matchStructuralRule(toolName, arguments, rule) {
+			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
+				result.Decision = rule.Decision
+				result.TriggeredRules = []string{rule.ID}
+				result.Reasons = []string{rule.Reason}
+			} else if decisionSeverity(rule.Decision) == decisionSeverity(result.Decision) {
+				result.TriggeredRules = append(result.TriggeredRules, rule.ID)
+				result.Reasons = append(result.Reasons, rule.Reason)
+			}
+		}
+	}
+
+	// Evaluate semantic rules — classify intent and check against semantic_rules
+	if len(e.policy.SemanticRules) > 0 {
+		_, matchedSemantic := evaluateSemanticRules(toolName, arguments, toolDescription, e.policy.SemanticRules)
+		for _, rule := range matchedSemantic {
 			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
 				result.Decision = rule.Decision
 				result.TriggeredRules = []string{rule.ID}

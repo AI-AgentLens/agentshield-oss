@@ -28,6 +28,7 @@ type MCPPack struct {
 	ResourceRules    []ResourceRule      `yaml:"resource_rules,omitempty"`
 	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
 	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
+	SemanticRules    []MCPSemanticRule   `yaml:"semantic_rules,omitempty"`
 }
 
 // MCPPackInfo describes a loaded MCP pack for reporting.
@@ -136,7 +137,7 @@ func LoadMCPPacks(packsDir string, base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, 
 			continue
 		}
 
-		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules)
+		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules) + len(pack.SemanticRules)
 		info := MCPPackInfo{
 			Name:        pack.Name,
 			Description: pack.Description,
@@ -201,11 +202,12 @@ func mergeMCPPack(target *MCPPolicy, pack *MCPPack) {
 		}
 	}
 
-	// Append rules, resource rules, value limits, structural rules
+	// Append rules, resource rules, value limits, structural rules, semantic rules
 	target.Rules = append(target.Rules, pack.Rules...)
 	target.ResourceRules = append(target.ResourceRules, pack.ResourceRules...)
 	target.ValueLimits = append(target.ValueLimits, pack.ValueLimits...)
 	target.StructuralRules = append(target.StructuralRules, pack.StructuralRules...)
+	target.SemanticRules = append(target.SemanticRules, pack.SemanticRules...)
 }
 
 // cloneMCPPolicy creates a shallow copy of the policy with copied slices.
@@ -219,6 +221,7 @@ func cloneMCPPolicy(p *MCPPolicy) *MCPPolicy {
 	c.ResourceRules = append(c.ResourceRules, p.ResourceRules...)
 	c.ValueLimits = append(c.ValueLimits, p.ValueLimits...)
 	c.StructuralRules = append(c.StructuralRules, p.StructuralRules...)
+	c.SemanticRules = append(c.SemanticRules, p.SemanticRules...)
 	return c
 }
 
