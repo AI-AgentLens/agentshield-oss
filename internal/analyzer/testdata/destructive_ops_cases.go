@@ -800,6 +800,408 @@ var SystemShutdownCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 1.5: Cloud Infrastructure Destruction
+// Taxonomy: destructive-ops/cloud-infra/*
+// ---------------------------------------------------------------------------
+
+// CloudCLIDestructiveCases tests detection of dangerous cloud CLI commands.
+// Taxonomy: destructive-ops/cloud-infra/*
+var CloudCLIDestructiveCases = []TestCase{
+
+	// --- TRUE POSITIVES: AWS ---
+
+	{
+		ID:               "TP-CLOUDCLI-001",
+		Command:          `aws ec2 terminate-instances --instance-ids i-1234567890abcdef0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-instance-terminate",
+		Analyzer:         "regex",
+		Description:      `AWS EC2 instance termination. Destroys a running cloud VM. Matched by ts-block-aws-terminate.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-002",
+		Command:          `aws ec2 terminate-instances --instance-ids i-abc123 i-def456`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-instance-terminate",
+		Analyzer:         "regex",
+		Description:      `AWS EC2 bulk instance termination with multiple IDs. Even more destructive.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-003",
+		Command:          `aws rds delete-db-instance --db-instance-identifier mydb --skip-final-snapshot`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-rds-delete",
+		Analyzer:         "regex",
+		Description:      `AWS RDS database deletion skipping final snapshot. Irrecoverable data loss.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-004",
+		Command:          `aws rds delete-db-cluster --db-cluster-identifier prod-cluster`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-rds-delete",
+		Analyzer:         "regex",
+		Description:      `AWS RDS cluster deletion. Destroys an entire database cluster.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-005",
+		Command:          `aws s3 rm s3://prod-bucket --recursive`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-s3-delete",
+		Analyzer:         "regex",
+		Description:      `AWS S3 recursive object deletion. Removes all objects in a bucket.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-006",
+		Command:          `aws s3 rb s3://prod-bucket --force`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-s3-delete",
+		Analyzer:         "regex",
+		Description:      `AWS S3 bucket removal with force. Deletes the bucket and all contents.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-007",
+		Command:          `aws ec2 delete-snapshot --snapshot-id snap-1234567890abcdef0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-snapshot-delete",
+		Analyzer:         "regex",
+		Description:      `AWS EC2 snapshot deletion. Removes backup/recovery point.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-008",
+		Command:          `aws iam delete-user --user-name admin-user`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-iam-delete",
+		Analyzer:         "regex",
+		Description:      `AWS IAM user deletion. Removes authentication identity.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-009",
+		Command:          `aws iam delete-role --role-name prod-service-role`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-iam-delete",
+		Analyzer:         "regex",
+		Description:      `AWS IAM role deletion. Breaks service authorization.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+
+	// --- TRUE POSITIVES: GCloud ---
+
+	{
+		ID:               "TP-CLOUDCLI-010",
+		Command:          `gcloud compute instances delete my-vm --zone us-central1-a`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-instance-delete",
+		Analyzer:         "regex",
+		Description:      `GCloud compute instance deletion. Destroys a cloud VM.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-011",
+		Command:          `gcloud sql instances delete prod-db`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-sql-delete",
+		Analyzer:         "regex",
+		Description:      `GCloud SQL instance deletion. Destroys a cloud database.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-012",
+		Command:          `gcloud storage rm gs://prod-bucket/**`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-storage-delete",
+		Analyzer:         "regex",
+		Description:      `GCloud storage removal. Deletes cloud storage objects.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-013",
+		Command:          `gcloud projects delete my-project-id`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-project-delete",
+		Analyzer:         "regex",
+		Description:      `GCloud project deletion. Destroys all resources in the project.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+
+	// --- TRUE POSITIVES: Azure ---
+
+	{
+		ID:               "TP-CLOUDCLI-014",
+		Command:          `az vm delete --resource-group mygroup --name myvm --yes`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-vm-delete",
+		Analyzer:         "regex",
+		Description:      `Azure VM deletion. Destroys a cloud virtual machine.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-015",
+		Command:          `az sql db delete --resource-group mygroup --server myserver --name mydb`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-sql-delete",
+		Analyzer:         "regex",
+		Description:      `Azure SQL database deletion. Destroys cloud data.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-016",
+		Command:          `az storage blob delete-batch --source mycontainer --account-name myaccount`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-storage-delete",
+		Analyzer:         "regex",
+		Description:      `Azure storage blob batch deletion. Destroys cloud storage data.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-CLOUDCLI-017",
+		Command:          `az group delete --name production-rg --yes`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-group-delete",
+		Analyzer:         "regex",
+		Description:      `Azure resource group deletion. Destroys all resources in the group.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+
+	// --- TRUE NEGATIVES: Safe cloud read-only commands ---
+
+	{
+		ID:               "TN-CLOUDCLI-001",
+		Command:          `aws ec2 describe-instances`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-instance-terminate",
+		Description:      `AWS describe-instances is a safe read-only listing command.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-002",
+		Command:          `aws s3 ls s3://mybucket`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-s3-delete",
+		Description:      `AWS S3 list is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-003",
+		Command:          `gcloud compute instances list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-instance-delete",
+		Description:      `GCloud list instances is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-004",
+		Command:          `gcloud sql instances describe prod-db`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/gcloud-sql-delete",
+		Description:      `GCloud describe is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-005",
+		Command:          `az vm list --resource-group mygroup`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-vm-delete",
+		Description:      `Azure VM list is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-006",
+		Command:          `az group list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/az-group-delete",
+		Description:      `Azure resource group list is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-007",
+		Command:          `aws rds describe-db-instances`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-rds-delete",
+		Description:      `AWS RDS describe is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-CLOUDCLI-008",
+		Command:          `aws iam list-users`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-iam-delete",
+		Description:      `AWS IAM list-users is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 1.6: Kubernetes & Container Destruction
+// Taxonomy: destructive-ops/cloud-infra/k8s-*
+// ---------------------------------------------------------------------------
+
+// K8sDestructiveCases tests detection of destructive Kubernetes commands.
+// Taxonomy: destructive-ops/cloud-infra/k8s-*
+var K8sDestructiveCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-K8SDESTR-001",
+		Command:          `kubectl delete namespace production`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-namespace-delete",
+		Analyzer:         "regex",
+		Description:      `Kubernetes namespace deletion. Destroys all resources in the namespace.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-K8SDESTR-002",
+		Command:          `kubectl delete namespace kube-system`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-namespace-delete",
+		Analyzer:         "regex",
+		Description:      `Deleting kube-system namespace is catastrophic. Removes core cluster services.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-K8SDESTR-003",
+		Command:          `kubectl delete pvc --all -n production`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-bulk-delete",
+		Analyzer:         "regex",
+		Description:      `Bulk deletion of persistent volume claims. Destroys all storage in namespace.`,
+		Tags:             []string{"canonical", "critical", "cloud"},
+	},
+	{
+		ID:               "TP-K8SDESTR-004",
+		Command:          `kubectl delete pod --all --namespace default`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-bulk-delete",
+		Analyzer:         "regex",
+		Description:      `Bulk deletion of all pods in a namespace. Causes service outage.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-K8SDESTR-001",
+		Command:          `kubectl get pods -n production`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-namespace-delete",
+		Description:      `kubectl get pods is a safe read-only listing command.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+	{
+		ID:               "TN-K8SDESTR-002",
+		Command:          `kubectl describe node worker-1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/k8s-bulk-delete",
+		Description:      `kubectl describe is a safe read-only inspection command.`,
+		Tags:             []string{"common-dev-operation", "cloud"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 1.7: Version Control Destruction
+// Taxonomy: destructive-ops/version-control/*
+// ---------------------------------------------------------------------------
+
+// GitForcePushCases tests detection of destructive git operations.
+// Taxonomy: destructive-ops/version-control/*
+var GitForcePushCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-GITFORCE-001",
+		Command:          `git push --force origin main`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-force-push",
+		Analyzer:         "regex",
+		Description:      `Force pushing to main branch. Rewrites shared commit history.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GITFORCE-002",
+		Command:          `git push -f origin master`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-force-push",
+		Analyzer:         "regex",
+		Description:      `Force push with short flag to master. Same destructive effect.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-GITFORCE-003",
+		Command:          `git push origin main --force`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-force-push",
+		Analyzer:         "regex",
+		Description:      `Force push with --force after branch name. Flag order variant.`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-GITFORCE-001",
+		Command:          `git push origin feature-branch`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-force-push",
+		Description:      `Normal push to feature branch without force. Safe operation.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GITFORCE-002",
+		Command:          `git push --force origin feature-branch`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-force-push",
+		Description:      `Force push to feature branch (not main/master) is allowed (audited).`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllDestructiveOpsCases returns all test cases for Kingdom 1.
 func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
@@ -810,5 +1212,8 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, ForkBombCases...)
 	all = append(all, ChmodWorldWritableCases...)
 	all = append(all, SystemShutdownCases...)
+	all = append(all, CloudCLIDestructiveCases...)
+	all = append(all, K8sDestructiveCases...)
+	all = append(all, GitForcePushCases...)
 	return all
 }

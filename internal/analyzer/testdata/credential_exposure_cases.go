@@ -376,12 +376,12 @@ var ConfigFileAccessCases = []TestCase{
 	{
 		ID:               "TP-CFGACCS-008",
 		Command:          `git credential fill`,
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/version-control/git-credential-access",
 		Analyzer:         "regex",
-		Description:      `Accessing git stored credentials. Matches sec-audit-git-credential prefix rule.`,
-		Tags:             []string{"canonical"},
+		Description:      `Accessing git stored credentials. Matched by ts-block-git-credential-fill BLOCK rule.`,
+		Tags:             []string{"canonical", "critical"},
 	},
 
 	// --- TRUE NEGATIVES ---
@@ -420,11 +420,86 @@ var ConfigFileAccessCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 2.4: Git Credential Theft
+// Taxonomy: credential-exposure/version-control/*
+// ---------------------------------------------------------------------------
+
+// GitCredentialTheftCases tests detection of git credential manipulation.
+// Taxonomy: credential-exposure/version-control/*
+var GitCredentialTheftCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-GITCRED-001",
+		Command:          `git config --global credential.helper store`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-modify",
+		Analyzer:         "regex",
+		Description:      `Modifying git credential helper to store. Can redirect stored credentials.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GITCRED-002",
+		Command:          `git config credential.helper "!cat /tmp/creds"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-modify",
+		Analyzer:         "regex",
+		Description:      `Setting credential helper to custom script. Can exfiltrate credentials.`,
+		Tags:             []string{"critical", "evasion"},
+	},
+	{
+		ID:               "TP-GITCRED-003",
+		Command:          `git credential fill`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-extract",
+		Analyzer:         "regex",
+		Description:      `git credential fill extracts stored credentials. Direct credential access.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GITCRED-004",
+		Command:          `git credential approve`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-extract",
+		Analyzer:         "regex",
+		Description:      `git credential approve can inject credentials into the store.`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-GITCRED-001",
+		Command:          `git config user.name "Developer"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-modify",
+		Description:      `Setting git user name is a safe non-credential configuration.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GITCRED-002",
+		Command:          `git config user.email "dev@example.com"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-modify",
+		Description:      `Setting git user email is a safe non-credential configuration.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
 	all = append(all, SSHPrivateKeyReadCases...)
 	all = append(all, EnvDumpCases...)
 	all = append(all, ConfigFileAccessCases...)
+	all = append(all, GitCredentialTheftCases...)
 	return all
 }

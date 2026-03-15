@@ -247,3 +247,12 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 ### Taxonomy
 
 `taxonomy/` contains 32 YAML entries organized by 7 kingdoms, each mapping to OWASP LLM Top 10 2025. `internal/taxonomy/` handles loading and compliance index generation.
+
+## Automated Rule Generation
+
+Rule requests can be submitted as GitHub issues using the "Rule Request" template. Labels track progress: `rule-request` → `in-progress` → `pr-ready` (or `needs-manual` on failure).
+
+- **Manual**: `/project:new-rule <issue-url>` in Claude Code
+- **Automated**: Desktop scheduled task runs hourly, processes new `rule-request` issues
+
+See `.claude/commands/new-rule.md` for the full generation prompt.

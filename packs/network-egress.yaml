@@ -136,3 +136,37 @@ rules:
       command_prefix: ["git push"]
     decision: "AUDIT"
     reason: "Git push sends data to remote — flagged for review."
+
+  # === BLOCK: LLM-specific data exfiltration ===
+
+  - id: "ne-block-llm-exfil-curl"
+    taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
+    match:
+      command_regex: "(cat|less|head|tail|base64)\\s+.*(\\.(ssh|aws|gnupg|env|kube)|/etc/(shadow|passwd)).*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Sensitive file contents piped to LLM API endpoint — likely exfiltration."
+
+  - id: "ne-block-llm-exfil-python"
+    taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*open\\(.*(\\.ssh|/etc/shadow|\\.aws|\\.env).*\\).*\\b(openai|anthropic|cohere)\\b"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "Python one-liner reading sensitive files and targeting LLM API — likely exfiltration."
+
+  - id: "ne-block-llm-exfil-node"
+    taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
+    match:
+      command_regex: "node\\s+-e\\s+.*readFile.*(\\.ssh|\\.aws|\\.env|/etc/shadow).*\\b(openai|anthropic|cohere)\\b"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration."
+
+  - id: "ne-block-base64-to-llm"
+    taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
+    match:
+      command_regex: "base64.*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration."
