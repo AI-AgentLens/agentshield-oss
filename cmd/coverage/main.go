@@ -314,15 +314,15 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	}
 
 	b.WriteString("# AgentShield Coverage Report\n\n")
-	b.WriteString(fmt.Sprintf("*Auto-generated on %s by `go run ./cmd/coverage`*\n\n", time.Now().UTC().Format("2006-01-02")))
+	fmt.Fprintf(&b,"*Auto-generated on %s by `go run ./cmd/coverage`*\n\n", time.Now().UTC().Format("2006-01-02"))
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Metric | Count |\n")
 	b.WriteString("|--------|-------|\n")
-	b.WriteString(fmt.Sprintf("| Terminal rules | %d |\n", len(terminal)))
-	b.WriteString(fmt.Sprintf("| MCP rules | %d |\n", len(mcp)))
-	b.WriteString(fmt.Sprintf("| Total rules | %d |\n", len(terminal)+len(mcp)))
-	b.WriteString(fmt.Sprintf("| Test cases (TP+TN) | %d |\n", totalTests))
-	b.WriteString(fmt.Sprintf("| Kingdoms covered | %d |\n", len(kingdoms)))
+	fmt.Fprintf(&b,"| Terminal rules | %d |\n", len(terminal))
+	fmt.Fprintf(&b,"| MCP rules | %d |\n", len(mcp))
+	fmt.Fprintf(&b,"| Total rules | %d |\n", len(terminal)+len(mcp))
+	fmt.Fprintf(&b,"| Test cases (TP+TN) | %d |\n", totalTests)
+	fmt.Fprintf(&b,"| Kingdoms covered | %d |\n", len(kingdoms))
 	b.WriteString("\n")
 
 	// --- Section 2: Runtime Rules by Kingdom ---
@@ -331,13 +331,13 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	sortedKingdoms := sortedKeys(byKingdom)
 	for _, k := range sortedKingdoms {
 		rules := byKingdom[k]
-		b.WriteString(fmt.Sprintf("### %s (%d rules)\n\n", k, len(rules)))
+		fmt.Fprintf(&b,"### %s (%d rules)\n\n", k, len(rules))
 		b.WriteString("| Rule ID | Decision | Match Type | Description |\n")
 		b.WriteString("|---------|----------|------------|-------------|\n")
 		for _, r := range rules {
 			reason := strings.ReplaceAll(r.Reason, "|", "\\|")
 			reason = strings.ReplaceAll(reason, "\n", " ")
-			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason))
+			fmt.Fprintf(&b,"| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
 		}
 		b.WriteString("\n")
 	}
@@ -348,13 +348,13 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	sortedMCPKingdoms := sortedKeys(mcpByKingdom)
 	for _, k := range sortedMCPKingdoms {
 		rules := mcpByKingdom[k]
-		b.WriteString(fmt.Sprintf("### %s (%d rules)\n\n", k, len(rules)))
+		fmt.Fprintf(&b,"### %s (%d rules)\n\n", k, len(rules))
 		b.WriteString("| Rule ID | Decision | Match Type | Description |\n")
 		b.WriteString("|---------|----------|------------|-------------|\n")
 		for _, r := range rules {
 			reason := strings.ReplaceAll(r.Reason, "|", "\\|")
 			reason = strings.ReplaceAll(reason, "\n", " ")
-			b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason))
+			fmt.Fprintf(&b,"| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
 		}
 		b.WriteString("\n")
 	}
@@ -367,11 +367,11 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	grandTP, grandTN := 0, 0
 	for _, k := range sortedTestKingdoms {
 		c := tests[k]
-		b.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", k, c.TP, c.TN, c.TP+c.TN))
+		fmt.Fprintf(&b,"| %s | %d | %d | %d |\n", k, c.TP, c.TN, c.TP+c.TN)
 		grandTP += c.TP
 		grandTN += c.TN
 	}
-	b.WriteString(fmt.Sprintf("| **Total** | **%d** | **%d** | **%d** |\n", grandTP, grandTN, grandTP+grandTN))
+	fmt.Fprintf(&b,"| **Total** | **%d** | **%d** | **%d** |\n", grandTP, grandTN, grandTP+grandTN)
 	b.WriteString("\n")
 
 	return b.String()
