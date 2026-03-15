@@ -221,6 +221,16 @@ rules:
     confidence: 0.95
     reason: "crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks."
 
+  - id: "ts-struct-block-ssh-keygen-noninteractive"
+    taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
+    match:
+      structural:
+        executable: "ssh-keygen"
+        flags_any: ["N"]
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk."
+
   - id: "ts-struct-block-rm-system"
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
