@@ -83,6 +83,23 @@ rules:
     decision: "BLOCK"
     reason: "Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively."
 
+  # === BLOCK: at/batch job scheduling ===
+  - id: "ts-block-at-schedule"
+    taxonomy: "persistence-evasion/scheduled-tasks/at-job-scheduling"
+    match:
+      command_regex: "^(sudo\\s+)?at\\s"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "at schedules a persistent one-time job. AI agents must not schedule deferred execution."
+
+  - id: "ts-block-batch-schedule"
+    taxonomy: "persistence-evasion/scheduled-tasks/at-job-scheduling"
+    match:
+      command_prefix: ["batch"]
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "batch schedules a persistent background job when system load permits."
+
   # === BLOCK: Reverse shell indicators ===
   - id: "ts-block-netcat"
     taxonomy: "data-exfiltration/network-egress/reverse-shell"
@@ -193,6 +210,16 @@ rules:
   # === STRUCTURAL RULES ===
   # These use the parsed shell AST instead of regex.
   # They handle flag reordering, long-form flags, and sudo automatically.
+
+  - id: "ts-struct-block-crontab-modify"
+    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
+    match:
+      structural:
+        executable: "crontab"
+        flags_any: ["e", "r"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks."
 
   - id: "ts-struct-block-rm-system"
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
