@@ -129,8 +129,8 @@ func RunMCPSelfTest(packsDir string) MCPSelfTestResults {
 // evaluateScenarioFromDef runs a single scenario through the full MCP evaluation
 // pipeline. This is the non-test version used by RunMCPSelfTest.
 func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) string {
-	// Step 1: Policy evaluation
-	result := handler.Evaluator.EvaluateToolCall(sc.ToolName, sc.Arguments)
+	// Step 1: Policy evaluation (with description for semantic classification)
+	result := handler.Evaluator.EvaluateToolCallFull(sc.ToolName, sc.Arguments, sc.ToolDescription)
 
 	// Step 2: Content scanning
 	if result.Decision != policy.DecisionBlock {

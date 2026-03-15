@@ -147,3 +147,43 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP tool making external network request"
     confidence: 0.85
+
+# === Semantic rules ===
+# These classify tool INTENT using heuristic signals from tool name, description,
+# argument names, and argument values. Catches disguised/renamed tools that
+# regex and structural matching would miss.
+semantic_rules:
+  - id: "mcp-sem-block-code-execute"
+    match:
+      intent_any: ["code-execute", "shell-command"]
+      confidence_min: 0.7
+    decision: "BLOCK"
+    reason: "MCP tool classified as code execution — should go through AgentShield command pipeline"
+
+  - id: "mcp-sem-audit-network-request"
+    match:
+      intent_any: ["network-request"]
+      confidence_min: 0.6
+    decision: "AUDIT"
+    reason: "MCP tool classified as external network request"
+
+  - id: "mcp-sem-block-credential-access"
+    match:
+      intent_any: ["credential-read"]
+      confidence_min: 0.7
+    decision: "BLOCK"
+    reason: "MCP tool classified as credential access"
+
+  - id: "mcp-sem-audit-file-delete"
+    match:
+      intent_any: ["file-delete"]
+      confidence_min: 0.6
+    decision: "AUDIT"
+    reason: "MCP tool classified as file deletion"
+
+  - id: "mcp-sem-block-process-manage"
+    match:
+      intent_any: ["process-manage"]
+      confidence_min: 0.7
+    decision: "BLOCK"
+    reason: "MCP tool classified as process management"
