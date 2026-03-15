@@ -291,3 +291,211 @@ rules:
     decision: "BLOCK"
     confidence: 0.85
     reason: "Stateful: reconnaissance → archive → exfiltrate chain detected."
+
+  # === BLOCK: Cloud CLI destructive operations ===
+
+  - id: "ts-block-aws-terminate"
+    taxonomy: "destructive-ops/cloud-infra/aws-instance-terminate"
+    match:
+      command_regex: "aws\\s+ec2\\s+terminate-instances"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "AWS EC2 instance termination is a destructive cloud operation."
+
+  - id: "ts-block-aws-rds-delete"
+    taxonomy: "destructive-ops/cloud-infra/aws-rds-delete"
+    match:
+      command_regex: "aws\\s+rds\\s+delete-db-(instance|cluster)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "AWS RDS database deletion destroys data irreversibly."
+
+  - id: "ts-block-aws-s3-rm"
+    taxonomy: "destructive-ops/cloud-infra/aws-s3-delete"
+    match:
+      command_regex: "aws\\s+s3\\s+(rm\\s+s3://.*--recursive|rb\\s+s3://)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "AWS S3 recursive deletion or bucket removal destroys cloud storage data."
+
+  - id: "ts-block-aws-snapshot-delete"
+    taxonomy: "destructive-ops/cloud-infra/aws-snapshot-delete"
+    match:
+      command_regex: "aws\\s+ec2\\s+delete-snapshot"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "AWS snapshot deletion removes backup/recovery points."
+
+  - id: "ts-block-aws-iam-delete"
+    taxonomy: "destructive-ops/cloud-infra/aws-iam-delete"
+    match:
+      command_regex: "aws\\s+iam\\s+delete-(user|role)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "AWS IAM user/role deletion can break authentication and authorization."
+
+  - id: "ts-block-gcloud-instance-delete"
+    taxonomy: "destructive-ops/cloud-infra/gcloud-instance-delete"
+    match:
+      command_regex: "gcloud\\s+compute\\s+instances\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "GCloud compute instance deletion is a destructive cloud operation."
+
+  - id: "ts-block-gcloud-sql-delete"
+    taxonomy: "destructive-ops/cloud-infra/gcloud-sql-delete"
+    match:
+      command_regex: "gcloud\\s+sql\\s+instances\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "GCloud SQL instance deletion destroys cloud database."
+
+  - id: "ts-block-gcloud-storage-rm"
+    taxonomy: "destructive-ops/cloud-infra/gcloud-storage-delete"
+    match:
+      command_regex: "gcloud\\s+storage\\s+rm"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "GCloud storage removal destroys cloud storage data."
+
+  - id: "ts-block-gcloud-project-delete"
+    taxonomy: "destructive-ops/cloud-infra/gcloud-project-delete"
+    match:
+      command_regex: "gcloud\\s+projects\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "GCloud project deletion destroys all resources in the project."
+
+  - id: "ts-block-az-vm-delete"
+    taxonomy: "destructive-ops/cloud-infra/az-vm-delete"
+    match:
+      command_regex: "az\\s+vm\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Azure VM deletion is a destructive cloud operation."
+
+  - id: "ts-block-az-sql-delete"
+    taxonomy: "destructive-ops/cloud-infra/az-sql-delete"
+    match:
+      command_regex: "az\\s+sql\\s+db\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Azure SQL database deletion destroys cloud data."
+
+  - id: "ts-block-az-storage-delete"
+    taxonomy: "destructive-ops/cloud-infra/az-storage-delete"
+    match:
+      command_regex: "az\\s+storage\\s+blob\\s+delete-batch"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Azure storage blob batch deletion destroys cloud storage data."
+
+  - id: "ts-block-az-group-delete"
+    taxonomy: "destructive-ops/cloud-infra/az-group-delete"
+    match:
+      command_regex: "az\\s+group\\s+delete"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Azure resource group deletion destroys all resources in the group."
+
+  # === BLOCK: Container escape & Kubernetes attacks ===
+
+  - id: "ts-block-docker-privileged"
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      command_regex: "docker\\s+run\\s+.*--privileged"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Running a privileged Docker container disables security boundaries."
+
+  - id: "ts-block-docker-host-mount"
+    taxonomy: "privilege-escalation/container-escape/docker-host-mount"
+    match:
+      command_regex: "docker\\s+run\\s+.*-v\\s+/:/\\w+"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Mounting host root filesystem into a container enables full host access."
+
+  - id: "ts-block-kubectl-delete-namespace"
+    taxonomy: "destructive-ops/cloud-infra/k8s-namespace-delete"
+    match:
+      command_regex: "kubectl\\s+delete\\s+namespace"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Kubernetes namespace deletion destroys all resources in the namespace."
+
+  - id: "ts-block-kubectl-delete-all"
+    taxonomy: "destructive-ops/cloud-infra/k8s-bulk-delete"
+    match:
+      command_regex: "kubectl\\s+delete\\s+(pvc|pod|deployment|service|configmap|secret)\\s+--all"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Kubernetes bulk deletion of resources is destructive."
+
+  - id: "ts-block-docker-exec"
+    taxonomy: "privilege-escalation/container-escape/docker-exec"
+    match:
+      command_regex: "docker\\s+exec\\s+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "docker exec into a container may enable lateral movement or escape."
+
+  # === BLOCK: CI/CD pipeline tampering ===
+
+  - id: "ts-block-cicd-write"
+    taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
+    match:
+      command_regex: "(sed\\s+-i|echo\\s+.*>>|cat\\s+.*>|tee\\s+).*(\\.github/workflows/|\\.gitlab-ci\\.yml|\\.circleci/config\\.yml|Jenkinsfile|\\.travis\\.yml)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk."
+
+  - id: "ts-block-cicd-write-reverse"
+    taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
+    match:
+      command_regex: "(sed\\s+-i|echo\\s+.*>>|cat\\s+.*>|tee\\s+).*(workflows/|gitlab-ci|circleci|Jenkinsfile|travis)"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk."
+
+  # === BLOCK: Git credential theft & force push ===
+
+  - id: "ts-block-git-force-push-main"
+    taxonomy: "destructive-ops/version-control/git-force-push"
+    match:
+      command_regex: "git\\s+push\\s+.*(--force|-f)\\s+.*(main|master)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Force pushing to main/master can destroy shared commit history."
+
+  - id: "ts-block-git-force-push-main-alt"
+    taxonomy: "destructive-ops/version-control/git-force-push"
+    match:
+      command_regex: "git\\s+push\\s+.*(main|master)\\s+.*(--force|-f)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Force pushing to main/master can destroy shared commit history."
+
+  - id: "ts-block-git-clone-mirror"
+    taxonomy: "data-exfiltration/version-control/git-mirror-clone"
+    match:
+      command_regex: "git\\s+clone\\s+--mirror"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "git clone --mirror copies entire repository including all refs — potential exfiltration."
+
+  - id: "ts-block-git-credential-modify"
+    taxonomy: "credential-exposure/version-control/git-credential-modify"
+    match:
+      command_regex: "git\\s+config\\s+.*credential\\.helper"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "Modifying git credential helper can redirect stored credentials."
+
+  - id: "ts-block-git-credential-fill"
+    taxonomy: "credential-exposure/version-control/git-credential-extract"
+    match:
+      command_regex: "git\\s+credential\\s+(fill|approve)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "git credential fill/approve can extract or inject stored credentials."
