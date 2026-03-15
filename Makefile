@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix coverage
+.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -48,5 +48,11 @@ lint-fix: ## Run linter with auto-fix
 
 coverage: ## Generate COVERAGE.md from pack rules and test data
 	go run ./cmd/coverage
+
+mcp-verify: ## Run MCP proxy self-test and output Markdown report
+	go run ./cmd/mcp-verify
+
+test-mcp: ## Run MCP scenario tests
+	go test -v -run TestMCPScenarios ./internal/mcp/
 
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
