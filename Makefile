@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix
+.PHONY: build test lint clean install run help setup-hooks lint-fix coverage
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -45,5 +45,8 @@ setup-hooks: ## Set up pre-commit hooks
 lint-fix: ## Run linter with auto-fix
 	@echo "🔧 Running linter with auto-fix..."
 	golangci-lint run --fix
+
+coverage: ## Generate COVERAGE.md from pack rules and test data
+	go run ./cmd/coverage
 
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
