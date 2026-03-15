@@ -297,7 +297,7 @@ func countTestCases(dir string) map[string]kingdomTestCounts {
 				c.TN++
 			}
 		}
-		f.Close()
+		_ = f.Close()
 		counts[kingdom] = c
 	}
 	return counts
@@ -316,8 +316,8 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	b.WriteString("# AgentShield Coverage Report\n\n")
 	b.WriteString(fmt.Sprintf("*Auto-generated on %s by `go run ./cmd/coverage`*\n\n", time.Now().UTC().Format("2006-01-02")))
 	b.WriteString("## Summary\n\n")
-	b.WriteString(fmt.Sprintf("| Metric | Count |\n"))
-	b.WriteString(fmt.Sprintf("|--------|-------|\n"))
+	b.WriteString("| Metric | Count |\n")
+	b.WriteString("|--------|-------|\n")
 	b.WriteString(fmt.Sprintf("| Terminal rules | %d |\n", len(terminal)))
 	b.WriteString(fmt.Sprintf("| MCP rules | %d |\n", len(mcp)))
 	b.WriteString(fmt.Sprintf("| Total rules | %d |\n", len(terminal)+len(mcp)))
