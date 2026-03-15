@@ -13,7 +13,7 @@ func writeChainedLog(t *testing.T, path string, events []AuditEvent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	prevHash := ""
 	for _, e := range events {
@@ -28,8 +28,8 @@ func writeChainedLog(t *testing.T, path string, events []AuditEvent) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Write(data)
-		f.Write([]byte("\n"))
+		_, _ = f.Write(data)
+		_, _ = f.Write([]byte("\n"))
 	}
 }
 
@@ -80,14 +80,14 @@ func TestVerifyChain_TamperedEntry(t *testing.T) {
 		}
 		if i == 1 {
 			var entry ChainedEvent
-			json.Unmarshal(line, &entry)
+			_ = json.Unmarshal(line, &entry)
 			entry.Command = "rm -rf /" // tamper!
 			line, _ = json.Marshal(entry)
 		}
 		tampered = append(tampered, line...)
 		tampered = append(tampered, '\n')
 	}
-	os.WriteFile(logPath, tampered, 0600)
+	_ = os.WriteFile(logPath, tampered, 0600)
 
 	result := VerifyChain(logPath)
 	if result.Valid {
@@ -126,7 +126,7 @@ func TestVerifyChain_DeletedEntry(t *testing.T) {
 		modified = append(modified, line...)
 		modified = append(modified, '\n')
 	}
-	os.WriteFile(logPath, modified, 0600)
+	_ = os.WriteFile(logPath, modified, 0600)
 
 	result := VerifyChain(logPath)
 	if result.Valid {
@@ -137,7 +137,7 @@ func TestVerifyChain_DeletedEntry(t *testing.T) {
 func TestVerifyChain_EmptyLog(t *testing.T) {
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "audit.jsonl")
-	os.WriteFile(logPath, []byte(""), 0600)
+	_ = os.WriteFile(logPath, []byte(""), 0600)
 
 	result := VerifyChain(logPath)
 	if !result.Valid {

@@ -53,7 +53,7 @@ func VerifyChain(path string) ChainVerifyResult {
 	if err != nil {
 		return ChainVerifyResult{Valid: false, BrokenAt: -1, Message: fmt.Sprintf("cannot open file: %v", err)}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB line buffer

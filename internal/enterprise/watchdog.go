@@ -47,7 +47,7 @@ func RunWatchdog(cfg *ManagedConfig, configDir string) {
 		fmt.Fprintf(os.Stderr, "[AgentShield] watchdog: failed to init logger: %v\n", err)
 		return
 	}
-	defer auditLogger.Close()
+	defer func() { _ = auditLogger.Close() }()
 
 	fmt.Fprintf(os.Stderr, "[AgentShield] watchdog: started (interval: %ds)\n", interval)
 
@@ -198,5 +198,5 @@ func sendWatchdogAlert(webhookURL string, check WatchdogCheck) {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }

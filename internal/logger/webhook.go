@@ -50,7 +50,7 @@ func (w *WebhookLogger) send(data []byte) {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return
 		}
@@ -86,7 +86,7 @@ func (w *WebhookLogger) SendSync(event AuditEvent) error {
 			}
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}

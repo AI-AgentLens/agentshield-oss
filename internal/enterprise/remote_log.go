@@ -47,7 +47,7 @@ func sendWebhook(cfg *WebhookConf, event interface{}) {
 		if err != nil {
 			continue // retry once
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return // success
 		}
@@ -83,7 +83,7 @@ func SendWebhookExported(cfg *WebhookConf, event interface{}) {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return
 		}
