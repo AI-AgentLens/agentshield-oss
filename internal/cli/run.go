@@ -34,7 +34,8 @@ Examples:
 func init() {
 	runCmd.Flags().BoolVar(&shellMode, "shell", false, "Treat args as a shell command string (handles pipes, redirects, etc.)")
 	runCmd.Flags().BoolVar(&verbose, "verbose", false, "Show which rules triggered the decision")
-	rootCmd.AddCommand(runCmd)
+	// DISABLED: run command removed from CLI — AgentShield should make decisions (block/audit/allow), not execute commands.
+	// rootCmd.AddCommand(runCmd)
 }
 
 func runCommand(cmd *cobra.Command, args []string) error {
