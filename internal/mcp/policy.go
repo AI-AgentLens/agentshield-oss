@@ -12,12 +12,13 @@ import (
 
 // MCPPolicy defines MCP-specific security policy loaded from YAML.
 type MCPPolicy struct {
-	Defaults         MCPDefaults      `yaml:"defaults"`
-	BlockedTools     []string         `yaml:"blocked_tools,omitempty"`
-	BlockedResources []string         `yaml:"blocked_resources,omitempty"`
-	Rules            []MCPRule        `yaml:"rules,omitempty"`
-	ResourceRules    []ResourceRule   `yaml:"resource_rules,omitempty"`
-	ValueLimits      []ValueLimitRule `yaml:"value_limits,omitempty"`
+	Defaults         MCPDefaults         `yaml:"defaults"`
+	BlockedTools     []string            `yaml:"blocked_tools,omitempty"`
+	BlockedResources []string            `yaml:"blocked_resources,omitempty"`
+	Rules            []MCPRule           `yaml:"rules,omitempty"`
+	ResourceRules    []ResourceRule      `yaml:"resource_rules,omitempty"`
+	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
+	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
 }
 
 // MCPDefaults defines the default decision for MCP tool calls.
@@ -54,6 +55,7 @@ type MCPMatch struct {
 	ToolNameRegex    string            `yaml:"tool_name_regex,omitempty"`   // regex on tool name
 	ToolNameAny      []string          `yaml:"tool_name_any,omitempty"`     // any of these tool names
 	ArgumentPatterns map[string]string `yaml:"argument_patterns,omitempty"` // key=arg name, value=glob pattern on arg value
+	Structural       *MCPStructuralMatch `yaml:"structural,omitempty"`      // structural match predicates
 }
 
 // ValueLimitRule enforces numeric thresholds on tool call arguments.
@@ -146,6 +148,20 @@ func (e *PolicyEvaluator) EvaluateToolCall(toolName string, arguments map[string
 		}
 	}
 
+	// Evaluate structural rules — check standalone structural_rules
+	for _, rule := range e.policy.StructuralRules {
+		if matchStructuralRule(toolName, arguments, rule) {
+			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
+				result.Decision = rule.Decision
+				result.TriggeredRules = []string{rule.ID}
+				result.Reasons = []string{rule.Reason}
+			} else if decisionSeverity(rule.Decision) == decisionSeverity(result.Decision) {
+				result.TriggeredRules = append(result.TriggeredRules, rule.ID)
+				result.Reasons = append(result.Reasons, rule.Reason)
+			}
+		}
+	}
+
 	return result
 }
 
@@ -197,6 +213,15 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 				return false
 			}
 		}
+	}
+
+	// Structural match — if specified, it must also match
+	if m.Structural != nil {
+		if !matchStructural(toolName, arguments, *m.Structural) {
+			return false
+		}
+		// Structural match counts as a specification
+		return true
 	}
 
 	// If we had name matchers and they matched (or no name matchers were specified)
