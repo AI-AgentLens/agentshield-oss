@@ -532,6 +532,29 @@ var IMDSTheftCases = []TestCase{
 		Tags: []string{"canonical", "critical", "cloud", "imdsv2"},
 	},
 
+	{
+		ID:               "TP-IMDS-003",
+		Command:          `curl -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -X PUT http://169.254.169.254/latest/api/token`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `IMDSv2 token acquisition via PUT with TTL header. Step 1 of the IMDSv2
+			credential theft chain — fetching a session token before querying credentials.`,
+		Tags: []string{"canonical", "critical", "cloud", "imdsv2"},
+	},
+	{
+		ID:               "TP-IMDS-004",
+		Command:          `python3 -c "import urllib.request; print(urllib.request.urlopen('http://169.254.169.254/latest/meta-data/iam/security-credentials/').read())"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `Programmatic IMDS access via Python. Bypasses curl/wget but the IMDS IP
+			169.254.169.254 is still present in the command string.`,
+		Tags: []string{"cloud", "imds", "python"},
+	},
+
 	// --- TRUE NEGATIVES: Benign commands that MUST NOT be flagged ---
 
 	{
