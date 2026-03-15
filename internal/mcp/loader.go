@@ -18,15 +18,16 @@ const DefaultMCPPacksDir = "mcp-packs"
 
 // MCPPack represents a single MCP policy pack loaded from YAML.
 type MCPPack struct {
-	Name             string           `yaml:"name"`
-	Description      string           `yaml:"description"`
-	Version          string           `yaml:"version"`
-	Author           string           `yaml:"author"`
-	BlockedTools     []string         `yaml:"blocked_tools,omitempty"`
-	BlockedResources []string         `yaml:"blocked_resources,omitempty"`
-	Rules            []MCPRule        `yaml:"rules,omitempty"`
-	ResourceRules    []ResourceRule   `yaml:"resource_rules,omitempty"`
-	ValueLimits      []ValueLimitRule `yaml:"value_limits,omitempty"`
+	Name             string              `yaml:"name"`
+	Description      string              `yaml:"description"`
+	Version          string              `yaml:"version"`
+	Author           string              `yaml:"author"`
+	BlockedTools     []string            `yaml:"blocked_tools,omitempty"`
+	BlockedResources []string            `yaml:"blocked_resources,omitempty"`
+	Rules            []MCPRule           `yaml:"rules,omitempty"`
+	ResourceRules    []ResourceRule      `yaml:"resource_rules,omitempty"`
+	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
+	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
 }
 
 // MCPPackInfo describes a loaded MCP pack for reporting.
@@ -135,7 +136,7 @@ func LoadMCPPacks(packsDir string, base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, 
 			continue
 		}
 
-		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools)
+		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules)
 		info := MCPPackInfo{
 			Name:        pack.Name,
 			Description: pack.Description,
@@ -200,10 +201,11 @@ func mergeMCPPack(target *MCPPolicy, pack *MCPPack) {
 		}
 	}
 
-	// Append rules, resource rules, value limits
+	// Append rules, resource rules, value limits, structural rules
 	target.Rules = append(target.Rules, pack.Rules...)
 	target.ResourceRules = append(target.ResourceRules, pack.ResourceRules...)
 	target.ValueLimits = append(target.ValueLimits, pack.ValueLimits...)
+	target.StructuralRules = append(target.StructuralRules, pack.StructuralRules...)
 }
 
 // cloneMCPPolicy creates a shallow copy of the policy with copied slices.
@@ -216,6 +218,7 @@ func cloneMCPPolicy(p *MCPPolicy) *MCPPolicy {
 	c.Rules = append(c.Rules, p.Rules...)
 	c.ResourceRules = append(c.ResourceRules, p.ResourceRules...)
 	c.ValueLimits = append(c.ValueLimits, p.ValueLimits...)
+	c.StructuralRules = append(c.StructuralRules, p.StructuralRules...)
 	return c
 }
 

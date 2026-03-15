@@ -83,3 +83,67 @@ rules:
       tool_name_regex: "(kill_process|restart_service|stop_service|reboot)"
     decision: "AUDIT"
     reason: "Process/system management operations flagged for review."
+
+# === Structural rules ===
+# These match against tool name + argument field predicates for precise detection.
+structural_rules:
+  # Block any file-writing tool that targets sensitive system/credential paths
+  - id: mcp-struct-block-sensitive-path-write
+    match:
+      tool_name_any:
+        - "write_file"
+        - "save_file"
+        - "update_file"
+        - "create_file"
+        - "filesystem_write"
+        - "edit_file"
+        - "write_to_file"
+      args_match:
+        path:
+          pattern_any:
+            - "\\.ssh/"
+            - "\\.aws/"
+            - "\\.gnupg/"
+            - "\\.kube/"
+            - "/etc/passwd"
+            - "/etc/shadow"
+    decision: "BLOCK"
+    reason: "MCP tool writing to sensitive/protected path"
+    confidence: 0.95
+
+  # Block shell execution tools — these should go through AgentShield's command pipeline
+  - id: mcp-struct-block-shell-execution
+    match:
+      tool_name_any:
+        - "execute_command"
+        - "run_command"
+        - "run_shell"
+        - "shell_exec"
+        - "run_bash"
+        - "exec"
+        - "terminal"
+        - "run_terminal"
+        - "bash_exec"
+        - "command_runner"
+    decision: "BLOCK"
+    reason: "MCP tool that executes shell commands should go through AgentShield's command pipeline"
+    confidence: 0.95
+
+  # Audit network requests to non-local destinations
+  - id: mcp-struct-audit-network-request
+    match:
+      tool_name_any:
+        - "http_request"
+        - "fetch_url"
+        - "api_call"
+        - "curl"
+        - "wget"
+        - "make_request"
+      args_match:
+        url:
+          pattern_not:
+            - "^https?://localhost"
+            - "^https?://127\\.0\\.0\\.1"
+    decision: "AUDIT"
+    reason: "MCP tool making external network request"
+    confidence: 0.85
