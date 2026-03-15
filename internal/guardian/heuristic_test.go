@@ -230,6 +230,42 @@ func TestHeuristicProvider_IndirectInjection(t *testing.T) {
 	}
 }
 
+func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
+	p := NewHeuristicProvider()
+
+	// Regression tests for FP: long file paths should NOT trigger obfuscated_base64.
+	// Paths with no underscores or dots can have 40+ consecutive [A-Za-z0-9/] chars.
+	fps := []struct {
+		name string
+		cmd  string
+	}{
+		{
+			name: "wc -l with long go source path",
+			cmd:  `wc -l /Users/garyzeng/dev/aiagentlens/internal/analyzer/testdata/credentialexposure.go`,
+		},
+		{
+			name: "go test with long package path",
+			cmd:  `go test -v /Users/garyzeng/dev/aiagentlens/internal/guardianprovider/heuristicdetector.go`,
+		},
+		{
+			name: "cat with nested long path",
+			cmd:  `cat /usr/local/lib/someframework/internalpackages/longnamemodule/implementation.go`,
+		},
+	}
+
+	for _, tt := range fps {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if hasSignal(resp.Signals, "obfuscated_base64") {
+				t.Errorf("FP: obfuscated_base64 falsely triggered on file path command: %q", tt.cmd)
+			}
+		})
+	}
+}
+
 func TestHeuristicProvider_BenignCommands(t *testing.T) {
 	p := NewHeuristicProvider()
 
