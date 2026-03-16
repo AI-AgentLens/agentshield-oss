@@ -103,7 +103,7 @@ structural_rules:
   # MITRE T1546 — Event Triggered Execution (hooks fire on git operations)
   # MITRE T1059.004 — Command and Scripting Interpreter: Unix Shell
   - id: mcp-persist-block-git-hook-write
-    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
+    taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
     match:
       tool_name_any:
         - "write_file"
