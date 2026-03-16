@@ -153,3 +153,50 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002."
     confidence: 0.95
+
+  # === BLOCK: SSH authorized_keys write via MCP (issue #151) ===
+  #
+  # Writing a public key to ~/.ssh/authorized_keys grants permanent remote
+  # shell access to whoever holds the matching private key — no password
+  # required. Writing to ~/.ssh/config can redirect all SSH connections
+  # through an attacker-controlled proxy, enabling credential interception.
+  #
+  # Note: mcp-safety.yaml already broadly blocks all .ssh/** writes via the
+  # mcp-safety-block-ssh-read rule. This rule adds specific taxonomy, reason
+  # messages, and confidence scores for the highest-impact sub-paths, ensuring
+  # clear audit records and rule attribution for these targeted attack vectors.
+  # An MCP write_file call bypasses the shell entirely.
+  #
+  # Covered paths:
+  #   ~/.ssh/authorized_keys — adds a persistent backdoor public key
+  #   ~/.ssh/config          — can redirect or proxy SSH connections
+  #   ~/.ssh/known_hosts     — can be poisoned to suppress MITM warnings
+  #   /home/*/.ssh/authorized_keys — any user's authorized_keys
+  #   /root/.ssh/authorized_keys   — root backdoor (requires root-level MCP)
+  #
+  # MITRE T1098.004 — Account Manipulation: SSH Authorized Keys
+  # MITRE T1071.002 — Application Layer Protocol: File Transfer Protocols
+  - id: mcp-persist-block-ssh-authkeys-write
+    taxonomy: "persistence-evasion/lateral-movement/ssh-config-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.ssh/authorized_keys$"
+            - "(?:^|/)\\.ssh/authorized_keys2$"
+            - "(?:^|/)\\.ssh/config$"
+            - "(?:^|/)\\.ssh/known_hosts$"
+    decision: "BLOCK"
+    reason: "MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004."
+    confidence: 0.97
