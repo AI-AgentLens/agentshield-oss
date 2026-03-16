@@ -249,6 +249,66 @@ structural_rules:
     reason: "SSRF detected — request to private network IP range"
     confidence: 0.90
 
+  # Block SSRF via alternative argument names (target, server, base_url)
+  # Many tools expose network access through non-standard argument names that
+  # the url/endpoint rules above do not cover (closes #164).
+  - id: mcp-struct-block-ssrf-target
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        target:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+            - "(?i)https?://10\\."
+            - "(?i)https?://172\\.(1[6-9]|2[0-9]|3[01])\\."
+            - "(?i)https?://192\\.168\\."
+            - "(?i)https?://127\\.0\\.0\\.1"
+            - "(?i)https?://localhost"
+    decision: "BLOCK"
+    reason: "SSRF detected via 'target' argument — request to metadata endpoint or private network"
+    confidence: 0.90
+
+  - id: mcp-struct-block-ssrf-server
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        server:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+            - "(?i)https?://10\\."
+            - "(?i)https?://172\\.(1[6-9]|2[0-9]|3[01])\\."
+            - "(?i)https?://192\\.168\\."
+            - "(?i)https?://127\\.0\\.0\\.1"
+            - "(?i)https?://localhost"
+    decision: "BLOCK"
+    reason: "SSRF detected via 'server' argument — request to metadata endpoint or private network"
+    confidence: 0.90
+
+  - id: mcp-struct-block-ssrf-base-url
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        base_url:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+            - "(?i)https?://10\\."
+            - "(?i)https?://172\\.(1[6-9]|2[0-9]|3[01])\\."
+            - "(?i)https?://192\\.168\\."
+            - "(?i)https?://127\\.0\\.0\\.1"
+            - "(?i)https?://localhost"
+    decision: "BLOCK"
+    reason: "SSRF detected via 'base_url' argument — request to metadata endpoint or private network"
+    confidence: 0.90
+
   # Block SQL injection patterns in query/filter arguments
   - id: mcp-struct-block-sql-injection-query
     taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
