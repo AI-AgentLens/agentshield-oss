@@ -140,7 +140,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Description: "Command uses eval/exec for dynamic code execution",
 			},
 			match: func(req GuardianRequest) bool {
-				return evalRiskPattern.MatchString(req.RawCommand)
+				return matchesEvalRisk(req.RawCommand)
 			},
 			escalate: "AUDIT",
 		},
@@ -368,6 +368,36 @@ var hexEscapePattern = regexp.MustCompile(
 var evalRiskPattern = regexp.MustCompile(
 	`(?i)\b(eval|exec)\s*\(`,
 )
+
+// matchesEvalRisk returns true if the command contains a dynamic eval/exec call.
+//
+// Context-aware to reduce false positives:
+//   - gh/git commands: quoted string arguments (commit messages, PR bodies) are
+//     stripped before matching. Prose text may reference eval() or exec() in
+//     code examples without any actual dynamic execution.
+//     Example: `git commit -m "fix bug where eval() caused crash"` → ALLOW.
+//   - cat file-write with heredoc: heredoc body is stripped (file content, not code).
+//   - All other commands: full text is matched.
+func matchesEvalRisk(cmd string) bool {
+	if safeCallerRe.MatchString(cmd) {
+		// Strip quoted string content — commit messages and PR bodies are sent to
+		// external APIs, not executed by the shell. They may contain eval()/exec()
+		// references as code examples.
+		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
+		// Also strip heredoc body ($(cat <<'EOF' ... EOF) is a multiline string
+		// substitution, not dynamic code execution).
+		if idx := strings.Index(stripped, "<<"); idx != -1 {
+			stripped = stripped[:idx]
+		}
+		return evalRiskPattern.MatchString(stripped)
+	}
+	if catFileWriteRe.MatchString(cmd) {
+		if idx := strings.Index(cmd, "<<"); idx != -1 {
+			return evalRiskPattern.MatchString(cmd[:idx])
+		}
+	}
+	return evalRiskPattern.MatchString(cmd)
+}
 
 // secretsBroadPattern matches context-sensitive credential patterns that are
 // prone to false positives when they appear inside quoted commit messages or
