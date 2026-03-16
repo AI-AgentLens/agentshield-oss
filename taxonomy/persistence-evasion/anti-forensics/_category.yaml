@@ -1,0 +1,7 @@
+id: "6.4"
+name: "Anti-Forensics"
+kingdom_id: 6
+description: >
+  Techniques that destroy, corrupt, or suppress evidence of malicious activity.
+  Includes shell history clearing, audit log truncation, and timestamp manipulation
+  used to evade post-incident investigation.

@@ -1,0 +1,62 @@
+id: "persistence-evasion/anti-forensics/history-clearing"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Anti-Forensics"
+category_id: "6.4"
+name: "Shell History Clearing"
+risk_level: "high"
+
+abstract: |
+  Commands that disable, clear, or redirect shell history files to destroy
+  evidence of an agent's command activity and evade forensic investigation.
+
+explanation: |
+  Shell history files (e.g., ~/.bash_history, ~/.zsh_history) record every command
+  executed in an interactive session. An AI agent manipulated through prompt injection
+  may be instructed to clear its tracks after performing malicious actions by:
+
+  - Unsetting HISTFILE to prevent any history from being written
+  - Setting HISTSIZE=0 or HISTFILESIZE=0 to silently drop all history
+  - Running `history -c && history -w` to wipe in-memory and on-disk history
+  - Linking ~/.bash_history to /dev/null to permanently prevent recording
+  - Truncating or emptying the history file directly
+
+  These actions destroy forensic evidence needed to reconstruct what an agent
+  did during an incident, undermining auditability and compliance requirements.
+  The combination of a malicious action followed by history clearing is a classic
+  indicator of a compromise.
+
+recommendation: |
+  - Block all commands that disable or clear shell history in agent processes.
+  - Use append-only audit logging (e.g., auditd) independent of shell history.
+  - Mount ~/.bash_history and ~/.zsh_history as read-only for agent processes.
+  - Alert on HISTFILE='' or HISTSIZE=0 environment variable changes.
+
+examples:
+  bad:
+    - "unset HISTFILE"
+    - "export HISTSIZE=0"
+    - "export HISTFILESIZE=0"
+    - "history -c && history -w"
+    - "ln -sf /dev/null ~/.bash_history"
+    - "> ~/.bash_history"
+    - "truncate -s 0 ~/.zsh_history"
+  good:
+    - "history | grep git"
+    - "export HISTSIZE=10000"
+    - "cat ~/.bash_history | grep docker"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08"]
+  iso-27001-2022: ["A.8.12", "A.8.9"]
+  eu-ai-act-2024: ["Art.13"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5"]
+  soc2-type2: ["CC7.2"]
+
+references:
+  mitre_attack: ["T1070.003"]
+  cwe: ["CWE-778"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-history-tamper", "ts-block-history-file-clear"]

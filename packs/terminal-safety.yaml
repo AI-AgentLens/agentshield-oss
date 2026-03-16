@@ -797,3 +797,35 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection)."
+
+  # === BLOCK: Anti-forensics — shell history tampering (LLM02/LLM08) ===
+  # Catches agents covering their tracks by disabling or clearing shell history.
+  # MITRE T1070.003
+
+  - id: "ts-block-history-tamper"
+    taxonomy: "persistence-evasion/anti-forensics/history-clearing"
+    match:
+      command_regex: "(unset\\s+HISTFILE|export\\s+HIST(FILE)?SIZE=0|export\\s+HISTFILESIZE=0|history\\s+-[cw]|ln\\s+.*-sf?\\s+/dev/null\\s+.*_history)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Shell history tampering detected — disabling or clearing HISTFILE/HISTSIZE destroys audit evidence of agent activity (LLM02, LLM08). MITRE T1070.003."
+
+  - id: "ts-block-history-file-clear"
+    taxonomy: "persistence-evasion/anti-forensics/history-clearing"
+    match:
+      command_regex: "truncate\\s+.*-s\\s*0\\s+.*[._](ba|z|fi)?sh?_?history"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Truncating shell history file — destroys forensic record of agent commands (LLM02). MITRE T1070.003."
+
+  # === BLOCK: Anti-forensics — system log file clearing (LLM02/LLM08) ===
+  # Catches agents wiping audit trails after malicious activity.
+  # MITRE T1070.002
+
+  - id: "ts-block-log-file-clear"
+    taxonomy: "persistence-evasion/anti-forensics/log-tampering"
+    match:
+      command_regex: "(>\\s*/var/log/|truncate\\s+.*-s\\s*0\\s+.*/var/log/|dd\\s+.*if=/dev/null\\s+.*of=/var/log/|cat\\s+/dev/null\\s*>\\s*/var/log/|echo\\s+['\"]?['\"]?\\s*>\\s*/var/log/)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002."

@@ -595,6 +595,163 @@ var SecurityDaemonDeactivationCases = []TestCase{
 	},
 }
 
+// AntiForensicsCases covers shell history tampering and log file clearing (Kingdom 6.4).
+var AntiForensicsCases = []TestCase{
+	// --- True Positives: history tampering ---
+	{
+		ID:               "TP-ANTIFOR-HIST-001",
+		Command:          "unset HISTFILE",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Unsetting HISTFILE disables all shell history recording — classic track-covering move.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	{
+		ID:               "TP-ANTIFOR-HIST-002",
+		Command:          "export HISTSIZE=0",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Setting HISTSIZE=0 silently drops all history entries — MITRE T1070.003.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	{
+		ID:               "TP-ANTIFOR-HIST-003",
+		Command:          "export HISTFILESIZE=0",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Setting HISTFILESIZE=0 truncates the on-disk history file to zero on shell exit.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	{
+		ID:               "TP-ANTIFOR-HIST-004",
+		Command:          "history -c && history -w",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "history -c clears in-memory history; -w overwrites the history file with empty content.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	{
+		ID:               "TP-ANTIFOR-HIST-005",
+		Command:          "ln -sf /dev/null ~/.bash_history",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Symlinking bash_history to /dev/null permanently prevents any future history recording.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	{
+		ID:               "TP-ANTIFOR-HIST-006",
+		Command:          "truncate -s 0 ~/.zsh_history",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Truncating the zsh history file to zero bytes destroys command history evidence.",
+		Tags:             []string{"tp", "anti-forensics", "history"},
+	},
+	// --- True Positives: log file clearing ---
+	{
+		ID:               "TP-ANTIFOR-LOG-001",
+		Command:          "> /var/log/auth.log",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Redirecting /dev/null into auth.log empties the authentication log — MITRE T1070.002.",
+		Tags:             []string{"tp", "anti-forensics", "log-tamper"},
+	},
+	{
+		ID:               "TP-ANTIFOR-LOG-002",
+		Command:          "truncate -s 0 /var/log/syslog",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Truncating syslog to zero bytes destroys system event records.",
+		Tags:             []string{"tp", "anti-forensics", "log-tamper"},
+	},
+	{
+		ID:               "TP-ANTIFOR-LOG-003",
+		Command:          "cat /dev/null > /var/log/audit/audit.log",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Emptying the kernel audit log destroys the primary security audit trail.",
+		Tags:             []string{"tp", "anti-forensics", "log-tamper"},
+	},
+	{
+		ID:               "TP-ANTIFOR-LOG-004",
+		Command:          `echo "" > /var/log/secure`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Echoing empty string into /var/log/secure clears the Red Hat/CentOS authentication log.",
+		Tags:             []string{"tp", "anti-forensics", "log-tamper"},
+	},
+	// --- True Negatives: legitimate history and log operations ---
+	{
+		ID:               "TN-ANTIFOR-001",
+		Command:          "history | grep git",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Searching history for git commands — read-only, not tampered. Gets default AUDIT (no BLOCK triggered).",
+		Tags:             []string{"tn", "safe", "history"},
+	},
+	{
+		ID:               "TN-ANTIFOR-002",
+		Command:          "export HISTSIZE=10000",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Increasing HISTSIZE to retain more history — opposite of tampering. Gets default AUDIT (no BLOCK triggered).",
+		Tags:             []string{"tn", "safe", "history"},
+	},
+	{
+		ID:               "TN-ANTIFOR-003",
+		Command:          "tail -f /var/log/syslog",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Reading/following syslog — standard log monitoring, no modification.",
+		Tags:             []string{"tn", "safe", "log-read"},
+	},
+	{
+		ID:               "TN-ANTIFOR-004",
+		Command:          "grep 'ERROR' /var/log/auth.log",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/log-tampering",
+		Analyzer:         "regex",
+		Description:      "Searching auth.log for errors — read-only log analysis.",
+		Tags:             []string{"tn", "safe", "log-read"},
+	},
+	{
+		ID:               "TN-ANTIFOR-005",
+		Command:          "cat ~/.bash_history | wc -l",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/history-clearing",
+		Analyzer:         "regex",
+		Description:      "Reading bash_history to count entries — non-destructive read operation.",
+		Tags:             []string{"tn", "safe", "history"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -604,5 +761,6 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, SSHKeyGenCases...)
 	all = append(all, GuardianObfuscationTNCases...)
 	all = append(all, SecurityDaemonDeactivationCases...)
+	all = append(all, AntiForensicsCases...)
 	return all
 }
