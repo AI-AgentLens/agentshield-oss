@@ -483,6 +483,79 @@ var VercelAISDKCases = []TestCase{
 	},
 }
 
+// AIContentIntegrityCases covers hallucination-injection and misinformation-propagation rules.
+var AIContentIntegrityCases = []TestCase{
+
+	// --- TRUE POSITIVES: misinformation-propagation ---
+
+	{
+		ID:               "TP-TS-AUDIT-CONTENT-001",
+		Command:          `git commit SECURITY.md -m 'docs: update security policy'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation",
+		Analyzer:         "regex",
+		Description:      "git commit explicitly naming SECURITY.md — AI-generated security doc must be human-reviewed (LLM09).",
+		Tags:             []string{"tp", "content-integrity", "misinformation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-CONTENT-002",
+		Command:          `git add audit/compliance-report.md && git commit -m 'chore: update audit report'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation",
+		Analyzer:         "regex",
+		Description:      "git add targeting audit/ path — fabricated audit results committed without review (LLM09).",
+		Tags:             []string{"tp", "content-integrity", "misinformation"},
+	},
+
+	// --- TRUE POSITIVES: hallucination-injection ---
+
+	{
+		ID:               "TP-TS-AUDIT-CONTENT-003",
+		Command:          `echo 'Last pentest: passed all controls (2024-01-15)' >> SECURITY.md`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-hallucination-injection",
+		Analyzer:         "regex",
+		Description:      "Shell append of AI-fabricated pentest result to SECURITY.md — hallucinated security claim persisted without review (LLM09).",
+		Tags:             []string{"tp", "content-integrity", "hallucination"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-CONTENT-004",
+		Command:          `git commit runbook/ -m 'add incident response runbook'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation",
+		Analyzer:         "regex",
+		Description:      "git commit targeting runbook/ directory — AI-generated runbook with incorrect escalation contacts (LLM09).",
+		Tags:             []string{"tp", "content-integrity", "misinformation"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TS-AUDIT-CONTENT-001",
+		Command:          `git commit src/auth.go -m 'fix: resolve login race condition'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation",
+		Analyzer:         "regex",
+		Description:      "git commit targeting a Go source file — not a compliance/security doc, no content integrity rule fires. Default AUDIT decision only.",
+		Tags:             []string{"safe", "content-integrity"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-CONTENT-002",
+		Command:          `git commit README.md -m 'docs: update installation steps'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation",
+		Analyzer:         "regex",
+		Description:      "git commit targeting README.md — general documentation, not a security/compliance path. Default AUDIT decision only.",
+		Tags:             []string{"safe", "content-integrity"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
@@ -490,5 +563,6 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, StatefulDownloadExecuteCases...)
 	all = append(all, AIModelUsageCases...)
 	all = append(all, VercelAISDKCases...)
+	all = append(all, AIContentIntegrityCases...)
 	return all
 }
