@@ -311,11 +311,11 @@ rules:
       stateful:
         chain:
           - executable_any: ["curl", "wget", "aria2c", "fetch"]
-            flags_any: ["o", "O", "output"]
-          - executable_any: ["bash", "sh", "zsh", "chmod", "python", "python3", "node"]
+            operator: "|"
+          - executable_any: ["bash", "sh", "zsh", "python", "python3", "node", "ruby", "perl"]
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Stateful: download-then-execute chain detected."
+    reason: "Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe)."
 
   - id: "ts-sf-block-recon-then-exfil"
     taxonomy: "data-exfiltration/network-egress/network-http-request"
