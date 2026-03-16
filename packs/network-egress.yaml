@@ -69,6 +69,34 @@ rules:
     decision: "AUDIT"
     reason: "HTTPie request flagged for network egress review."
 
+  # === BLOCK: SSH port forwarding and tunnel abuse (LLM06/LLM08) ===
+  # Catches agents establishing covert channels, reverse tunnels, and SOCKS proxies.
+  # MITRE T1572 (Protocol Tunneling), T1090.003 (Multi-hop Proxy)
+
+  - id: "ne-block-ssh-remote-forward"
+    taxonomy: "data-exfiltration/network-egress/ssh-tunnel"
+    match:
+      command_regex: "\\bssh\\b.*-[a-zA-Z]*R\\s+\\d+:"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "SSH remote port forwarding (-R port:host:port) establishes a reverse tunnel to the remote host — used for C2 and covert exfiltration. Agents have no legitimate need to set up reverse tunnels (LLM06, LLM08). MITRE T1572."
+
+  - id: "ne-block-ssh-local-forward"
+    taxonomy: "data-exfiltration/network-egress/ssh-tunnel"
+    match:
+      command_regex: "\\bssh\\b.*-[a-zA-Z]*L\\s+\\d+:"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "SSH local port forwarding (-L port:host:port) tunnels internal services to local ports — used to pivot to internal infrastructure. Agents have no legitimate need to forward internal service ports (LLM06). MITRE T1572."
+
+  - id: "ne-block-ssh-socks-proxy"
+    taxonomy: "data-exfiltration/network-egress/ssh-tunnel"
+    match:
+      command_regex: "\\bssh\\b.*-[a-zA-Z]*D\\s+\\d+"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "SSH dynamic SOCKS proxy (-D port) routes all traffic through the SSH connection, bypassing network egress controls entirely (LLM06). MITRE T1090.003."
+
   # === AUDIT: SSH connections ===
   - id: "ne-audit-ssh"
     taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"

