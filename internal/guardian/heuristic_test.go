@@ -264,6 +264,80 @@ func TestHeuristicProvider_SecretsInCommand(t *testing.T) {
 	}
 }
 
+func TestHeuristicProvider_SecretsInCommandFalsePositives(t *testing.T) {
+	// Regression tests for issue #91: guardian-secrets_in_command fires on
+	// git commit / gh pr create when the message/body contains code-example
+	// patterns (e.g. Semgrep rules, placeholder assignments, Python dict access).
+	p := NewHeuristicProvider()
+
+	fps := []struct {
+		name string
+		cmd  string
+	}{
+		{
+			name: "git commit message with api_key placeholder",
+			cmd:  `git commit -m "docs: update example with api_key=placeholder_value"`,
+		},
+		{
+			name: "git commit message with auth_token code example",
+			cmd:  `git commit -m "test: add semgrep rule for auth_token = response['access_token']"`,
+		},
+		{
+			name: "gh pr create with access_token in Semgrep pattern",
+			cmd:  `gh pr create --title "feat: detect hardcoded secrets" --body "Adds rule matching access_token=some_static_string patterns"`,
+		},
+		{
+			name: "gh issue create with api_secret code snippet",
+			cmd:  `gh issue create --title "FP report" --body "Rule fires on api_secret=PLACEHOLDER_NOT_REAL in documentation"`,
+		},
+		{
+			name: "git commit with Bearer placeholder",
+			cmd:  `git commit -m "docs: example shows Bearer eyJleGFtcGxlX3Rva2VuX2Zvcl9kb2NzfQ header"`,
+		},
+	}
+
+	for _, tt := range fps {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if hasSignal(resp.Signals, "secrets_in_command") {
+				t.Errorf("FP: secrets_in_command falsely triggered on safe gh/git message: %q", tt.cmd)
+			}
+		})
+	}
+}
+
+func TestHeuristicProvider_SecretsInCommandTruePositives(t *testing.T) {
+	// Ensure real credentials are still caught after the FP fix.
+	p := NewHeuristicProvider()
+
+	tps := []struct {
+		name string
+		cmd  string
+	}{
+		{"curl with api_key header", `curl -H "api_key=sk-1234567890abcdefghij" https://api.example.com`},
+		{"curl with Bearer token", `curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJ0ZXN0In0.abcdefg" https://api.example.com`},
+		{"git clone with real ghp_ token", `git clone https://ghp_1234567890abcdefghijklmnopqrstuvwxyz@github.com/user/repo`},
+		{"export AWS key", `export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE`},
+		{"env var api_key assignment", `API_KEY=supersecrettoken123 ./deploy.sh`},
+		{"git commit body with real ghp_ token", `git commit -m "accidentally committed ghp_1234567890abcdefghijklmnopqrstuvwxyz to config"`},
+	}
+
+	for _, tt := range tps {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !hasSignal(resp.Signals, "secrets_in_command") {
+				t.Errorf("TP missed: secrets_in_command not triggered on %q — got signals: %v", tt.cmd, signalIDs(resp.Signals))
+			}
+		})
+	}
+}
+
 func TestHeuristicProvider_IndirectInjection(t *testing.T) {
 	p := NewHeuristicProvider()
 
