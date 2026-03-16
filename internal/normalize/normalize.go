@@ -19,6 +19,24 @@ type NormalizedCommand struct {
 
 var (
 	domainRegex = regexp.MustCompile(`https?://([^/\s'"]+)`)
+
+	// textContentFlags are CLI flags whose values are prose text, not file paths.
+	// When a command contains one of these flags, the subsequent argument(s)
+	// (until the next flag) are treated as user-supplied text content and
+	// excluded from path extraction. This prevents false positives when a
+	// user passes security documentation as --body text.
+	textContentFlags = map[string]bool{
+		"--body":        true,
+		"--message":     true,
+		"-m":            true,
+		"--title":       true,
+		"--comment":     true,
+		"--description": true,
+		"--subject":     true,
+		"--notes":       true,
+		"--template":    true,
+		"--reason":      true,
+	}
 )
 
 func Normalize(args []string, cwd string) NormalizedCommand {
@@ -37,7 +55,29 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 
 	homeDir, _ := os.UserHomeDir()
 
+	// skipTextContent is set true when we encounter a text-content flag (e.g.
+	// --body, --message). All subsequent non-flag tokens are treated as prose
+	// text and excluded from path extraction until the next flag resets the
+	// state. This prevents false positives when paths appear inside
+	// documentation text passed as flag values.
+	skipTextContent := false
+
 	for _, arg := range args[1:] {
+		if strings.HasPrefix(arg, "-") {
+			// Any new flag resets the text-content skip state.
+			skipTextContent = textContentFlags[arg]
+			continue
+		}
+
+		if skipTextContent {
+			// Inside a text-content value — still extract domains (safe),
+			// but skip path extraction to avoid false positives.
+			if domains := extractDomains(arg); len(domains) > 0 {
+				nc.Domains = append(nc.Domains, domains...)
+			}
+			continue
+		}
+
 		if looksLikePath(arg) {
 			expanded := expandPath(arg, cwd, homeDir)
 			nc.Paths = append(nc.Paths, expanded)
