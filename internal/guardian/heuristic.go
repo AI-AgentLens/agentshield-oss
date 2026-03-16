@@ -239,8 +239,11 @@ var base64PayloadPattern = regexp.MustCompile(
 // that is NOT part of a file path. Excludes:
 //   - Matches that start with '/' (absolute paths like /usr/local/lib/...)
 //   - Matches preceded by '/' (mid-path segments like foo/bar/baz/...)
+//   - Cross-directory path segments preceded by '_' or '-' that contain internal
+//     slashes (e.g. "Shield/internal/analyzer" from "AI_Agent_Shield/internal/...")
 //
-// This prevents false positives on long file paths like /usr/lib/long/path/file.go.
+// This prevents false positives on long file paths like /usr/lib/long/path/file.go
+// and on paths embedded in directory names like AI_Agent_Shield/internal/...
 func isBase64Payload(cmd string) bool {
 	locs := base64PayloadPattern.FindAllStringIndex(cmd, -1)
 	for _, loc := range locs {
@@ -253,6 +256,16 @@ func isBase64Payload(cmd string) bool {
 		// Skip if this segment is embedded within a file path (preceded by '/').
 		if start > 0 && cmd[start-1] == '/' {
 			continue
+		}
+		// Skip cross-directory path segments that follow a word-separator
+		// ('_' or '-'). Example: in "AI_Agent_Shield/internal/analyzer/testdata/foo"
+		// the token "Shield/internal/analyzer/testdata/foo" is preceded by '_'
+		// and contains internal slashes — it's a file path fragment, not base64.
+		if strings.Contains(matched, "/") && start > 0 {
+			prev := cmd[start-1]
+			if prev == '_' || prev == '-' {
+				continue
+			}
 		}
 		return true
 	}
