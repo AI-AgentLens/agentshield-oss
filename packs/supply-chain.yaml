@@ -157,6 +157,46 @@ rules:
     confidence: 0.95
     reason: "go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings."
 
+  # === BLOCK: Go module proxy/sum-database bypass ===
+  # Catches AI agents redirecting Go module downloads to non-official proxies
+  # or disabling the Go checksum database (sum.golang.org), enabling silent
+  # substitution of any Go dependency (supply-chain/dependency-confusion).
+  # MITRE T1195.001
+
+  - id: "sc-block-go-env-proxy-custom"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "go\\s+env\\s+-w\\s+GOPROXY=https?://"
+      command_regex_exclude: "GOPROXY=https://(proxy\\.golang\\.org|goproxy\\.io)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "go env -w GOPROXY= with a non-official proxy redirects all Go module downloads to an attacker-controlled server. Only proxy.golang.org and goproxy.io are sanctioned public proxies."
+
+  - id: "sc-block-go-env-nosum"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "go\\s+env\\s+-w\\s+(GONOSUMCHECK|GONOSUMDB)=\\S"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "go env -w GONOSUMCHECK/GONOSUMDB= disables the Go checksum database, allowing tampered modules to pass integrity checks undetected."
+
+  - id: "sc-block-go-nosum-env-export"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "export\\s+(GONOSUMCHECK|GONOSUMDB|GOFLAGS)="
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting GONOSUMCHECK, GONOSUMDB, or GOFLAGS disables Go module authentication, enabling dependency substitution attacks."
+
+  - id: "sc-block-goproxy-env-export"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "export\\s+GOPROXY=https?://"
+      command_regex_exclude: "GOPROXY=https://(proxy\\.golang\\.org|goproxy\\.io)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Exporting GOPROXY pointing to a non-official URL redirects all Go module downloads to an attacker-controlled proxy."
+
   # === BLOCK: Post-install script manipulation ===
   - id: "sc-block-npm-ignore-scripts-off"
     taxonomy: "supply-chain/package-install/security-control-bypass"
