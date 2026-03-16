@@ -741,6 +741,30 @@ rules:
     confidence: 0.90
     reason: "Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation."
 
+  - id: "ts-block-docker-host-namespace"
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      command_regex: "docker\\s+run\\s+.*(--pid=host|--ipc=host|--network=host|--uts=host)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Sharing host PID/IPC/network/UTS namespaces breaks container isolation and enables host process inspection, shared-memory attacks, and network policy bypass."
+
+  - id: "ts-block-docker-dangerous-caps"
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      command_regex: "docker\\s+run\\s+.*--cap-add[= ](SYS_ADMIN|SYS_PTRACE|SYS_MODULE|NET_ADMIN|SYS_RAWIO|DAC_READ_SEARCH|SYS_CHROOT)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access."
+
+  - id: "ts-block-docker-raw-device"
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      command_regex: "docker\\s+run\\s+.*--device\\s+/dev/"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Mounting raw block or character devices into a container enables host filesystem access and hardware-level attacks outside the container boundary."
+
   # === BLOCK: Process injection (LLM06/LLM08) ===
 
   - id: "ts-block-gdb-process-attach"
