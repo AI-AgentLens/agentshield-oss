@@ -65,6 +65,21 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 	for _, arg := range args[1:] {
 		if strings.HasPrefix(arg, "-") {
 			// Any new flag resets the text-content skip state.
+			// Also handle combined short flags like -am (git commit -a -m shorthand):
+			// if any single char in the combined flag is a text-content flag, skip paths.
+			if !strings.HasPrefix(arg, "--") && len(arg) > 2 {
+				found := false
+				for _, ch := range arg[1:] {
+					if textContentFlags["-"+string(ch)] {
+						found = true
+						break
+					}
+				}
+				if found {
+					skipTextContent = true
+					continue
+				}
+			}
 			skipTextContent = textContentFlags[arg]
 			continue
 		}
