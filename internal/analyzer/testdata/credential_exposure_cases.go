@@ -581,6 +581,88 @@ var IMDSTheftCases = []TestCase{
 	},
 }
 
+// AIAPIKeyCases tests detection of AI provider API key exposure.
+var AIAPIKeyCases = []TestCase{
+
+	// --- TRUE POSITIVES (inline sk- key in command — BLOCK) ---
+
+	{
+		ID:               "TP-AIKEY-001",
+		Command:          `curl https://api.openai.com/v1/chat/completions -H "Authorization: Bearer sk-proj-abcdefghijklmnopqrstuvwx12345678"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `OpenAI API key (sk-proj- prefix) embedded inline in a curl command.
+			The key is a high-value credential granting API access with direct billing.
+			Must be blocked and the key should be rotated immediately.`,
+		Tags: []string{"canonical", "critical", "ai-credentials"},
+	},
+	{
+		ID:               "TP-AIKEY-002",
+		Command:          `ANTHROPIC_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx python run_agent.py`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `Anthropic API key (sk-ant-api03- prefix) hardcoded as an inline env var
+			assignment before a Python command. Key is exposed in the shell history
+			and process table. Must be blocked.`,
+		Tags: []string{"canonical", "critical", "ai-credentials"},
+	},
+
+	// --- TRUE POSITIVES (AI credential file access — AUDIT) ---
+
+	{
+		ID:               "TP-AIKEY-003",
+		Command:          `cat ~/.config/openai/credentials`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `Reading the OpenAI credential config file. An AI agent accessing this
+			file may extract the stored API key for exfiltration. Must be audited.`,
+		Tags: []string{"canonical", "ai-credentials"},
+	},
+	{
+		ID:               "TP-AIKEY-004",
+		Command:          `echo $OPENAI_API_KEY`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `Direct echo of the OPENAI_API_KEY environment variable. Exposes the key
+			in terminal output, logs, and CI run artifacts. Must be audited.`,
+		Tags: []string{"canonical", "ai-credentials"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-AIKEY-001",
+		Command:          `curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `OpenAI API call using an env var reference (not hardcoded key). The
+			dollar-sign reference does not expose the key inline. Matched by
+			ne-audit-curl (AUDIT), not the inline key block rule.`,
+		Tags: []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-AIKEY-002",
+		Command:          `python -c "import openai; client = openai.OpenAI()"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description: `Python OpenAI SDK usage without any hardcoded key (reads from env).
+			No sk- token present. Should not trigger the inline key block rule.`,
+		Tags: []string{"common-dev-operation"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -589,5 +671,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, ConfigFileAccessCases...)
 	all = append(all, GitCredentialTheftCases...)
 	all = append(all, IMDSTheftCases...)
+	all = append(all, AIAPIKeyCases...)
 	return all
 }
