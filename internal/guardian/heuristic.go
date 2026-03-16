@@ -241,9 +241,12 @@ var base64PayloadPattern = regexp.MustCompile(
 //   - Matches preceded by '/' (mid-path segments like foo/bar/baz/...)
 //   - Cross-directory path segments preceded by '_' or '-' that contain internal
 //     slashes (e.g. "Shield/internal/analyzer" from "AI_Agent_Shield/internal/...")
+//   - Relative file path arguments preceded by whitespace that contain path
+//     separators but no '+' character (paths never contain '+'; base64 does)
 //
-// This prevents false positives on long file paths like /usr/lib/long/path/file.go
-// and on paths embedded in directory names like AI_Agent_Shield/internal/...
+// This prevents false positives on long file paths like /usr/lib/long/path/file.go,
+// on paths embedded in directory names like AI_Agent_Shield/internal/..., and on
+// relative path arguments like "git add internal/analyzer/testdata/foo.go".
 func isBase64Payload(cmd string) bool {
 	locs := base64PayloadPattern.FindAllStringIndex(cmd, -1)
 	for _, loc := range locs {
@@ -264,6 +267,17 @@ func isBase64Payload(cmd string) bool {
 		if strings.Contains(matched, "/") && start > 0 {
 			prev := cmd[start-1]
 			if prev == '_' || prev == '-' {
+				continue
+			}
+		}
+		// Skip relative file path arguments: a whitespace-preceded token that
+		// contains path separators ('/') but no base64-specific '+' character is
+		// a file path, not an encoded payload. File paths never use '+'; base64
+		// uses it as the 62nd encoding character.
+		// Example: "git add internal/analyzer/testdata/reconnaissance_cases.go"
+		// Fixes: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/35
+		if strings.Contains(matched, "/") && !strings.Contains(matched, "+") {
+			if start == 0 || cmd[start-1] == ' ' || cmd[start-1] == '\t' {
 				continue
 			}
 		}

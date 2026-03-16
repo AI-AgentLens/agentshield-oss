@@ -204,6 +204,9 @@ rules:
         - "git remote"
         - "git tag"
         - "git stash list"
+        - "git add "
+        - "git diff"
+        - "git status"
     decision: "ALLOW"
     reason: "Read-only or informational command."
 
