@@ -289,28 +289,47 @@ var base64PayloadPattern = regexp.MustCompile(
 )
 
 // isBase64Payload returns true if the command contains a 40+ char base64 string
-// that is NOT part of a file path. Excludes:
+// that is NOT part of a file path or a quoted argument to gh/git.
+//
+// Context-aware to reduce false positives on long text arguments:
+//   - gh/git commands: quoted string arguments are stripped before matching because
+//     --body, --message, and similar flags carry long prose text (issue bodies, PR
+//     descriptions, commit messages) that frequently contains 40+ char alphanumeric
+//     sequences without being encoded payloads.
+//   - cat > file << BODY heredocs: the heredoc body is stripped since it's file content.
+//
+// Path exclusions (applied after context stripping):
 //   - Matches that start with '/' (absolute paths like /usr/local/lib/...)
 //   - Matches preceded by '/' (mid-path segments like foo/bar/baz/...)
-//   - Cross-directory path segments preceded by '_' or '-' that contain internal
-//     slashes (e.g. "Shield/internal/analyzer" from "AI_Agent_Shield/internal/...")
-//   - Relative file path arguments preceded by whitespace that contain path
-//     separators but no '+' character (paths never contain '+'; base64 does)
-//
-// This prevents false positives on long file paths like /usr/lib/long/path/file.go,
-// on paths embedded in directory names like AI_Agent_Shield/internal/..., and on
-// relative path arguments like "git add internal/analyzer/testdata/foo.go".
+//   - Cross-directory path segments preceded by '_' or '-' (e.g. "AI_Agent_Shield/internal/...")
+//   - Relative file path arguments: whitespace-preceded token with '/' but no '+'
+//     (paths never contain '+'; base64 uses it as the 62nd encoding character)
 func isBase64Payload(cmd string) bool {
-	locs := base64PayloadPattern.FindAllStringIndex(cmd, -1)
+	// Context-aware stripping: gh/git commands and cat heredoc file writes.
+	checkCmd := cmd
+	if safeCallerRe.MatchString(cmd) {
+		// Strip quoted string content — these are argument values sent to external
+		// APIs (GitHub, git servers), not executed by the shell. Issue/PR bodies and
+		// commit messages often contain 40+ char runs that are not encoded payloads.
+		checkCmd = stripQuotedRe.ReplaceAllString(cmd, "")
+	} else if catFileWriteRe.MatchString(cmd) {
+		// cat > file << BODY writes a heredoc to a file. Strip the heredoc body
+		// (everything from << onwards) since it is file content, not a payload.
+		if idx := strings.Index(cmd, "<<"); idx != -1 {
+			checkCmd = cmd[:idx]
+		}
+	}
+
+	locs := base64PayloadPattern.FindAllStringIndex(checkCmd, -1)
 	for _, loc := range locs {
 		start := loc[0]
-		matched := cmd[start:loc[1]]
+		matched := checkCmd[start:loc[1]]
 		// Skip if the match is itself an absolute path segment (starts with '/').
 		if matched[0] == '/' {
 			continue
 		}
 		// Skip if this segment is embedded within a file path (preceded by '/').
-		if start > 0 && cmd[start-1] == '/' {
+		if start > 0 && checkCmd[start-1] == '/' {
 			continue
 		}
 		// Skip cross-directory path segments that follow a word-separator
@@ -318,7 +337,7 @@ func isBase64Payload(cmd string) bool {
 		// the token "Shield/internal/analyzer/testdata/foo" is preceded by '_'
 		// and contains internal slashes — it's a file path fragment, not base64.
 		if strings.Contains(matched, "/") && start > 0 {
-			prev := cmd[start-1]
+			prev := checkCmd[start-1]
 			if prev == '_' || prev == '-' {
 				continue
 			}
@@ -330,7 +349,7 @@ func isBase64Payload(cmd string) bool {
 		// Example: "git add internal/analyzer/testdata/reconnaissance_cases.go"
 		// Fixes: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/35
 		if strings.Contains(matched, "/") && !strings.Contains(matched, "+") {
-			if start == 0 || cmd[start-1] == ' ' || cmd[start-1] == '\t' {
+			if start == 0 || checkCmd[start-1] == ' ' || checkCmd[start-1] == '\t' {
 				continue
 			}
 		}

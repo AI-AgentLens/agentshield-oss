@@ -409,6 +409,19 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 			name: "go test with relative package path",
 			cmd:  `go test -v -run TestAccuracy ./internal/analyzer/testdata/`,
 		},
+		// Regression tests for issue #94: gh issue/pr --body with long prose text.
+		{
+			name: "gh issue create with long body containing path references",
+			cmd:  `gh issue create --repo security-researcher-ca/AI_Agent_Shield --title "rule: block fping/hping3/nbtscan active network recon tools" --label "rule-request" --body "## Rule Request\n\nAdd structural rules to packs/network-egress.yaml similar to ne-block-arp-scan.\nAdd TP/TN test cases to internal/analyzer/testdata/reconnaissance_cases.go."`,
+		},
+		{
+			name: "gh pr create with long body",
+			cmd:  `gh pr create --title "fix: prevent guardian FP on gh issue body" --body "## Summary\n\nApply safeCallerRe stripping to isBase64Payload for gh/git commands.\nFixes false positive on long prose in --body arguments.\n\nTaxonomy: reconnaissance/network-discovery/host-discovery"`,
+		},
+		{
+			name: "cat heredoc write to file with long prose body",
+			cmd:  "cat > /tmp/issue_body.md << 'BODY'\n## Rule Request\n\nAdd structural rules to packs/network-egress.yaml for fping and hping3.\nAdd TP/TN test cases to internal/analyzer/testdata/reconnaissance_cases.go.\nBODY",
+		},
 	}
 
 	for _, tt := range fps {
