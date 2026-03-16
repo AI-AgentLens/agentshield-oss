@@ -1,0 +1,7 @@
+id: "8.3"
+name: "OSINT & Passive Enumeration"
+kingdom_id: 8
+description: >
+  Open-source intelligence gathering using publicly available data sources
+  to enumerate targets without direct interaction. Includes email harvesting,
+  subdomain discovery, employee enumeration, and passive DNS reconnaissance.

@@ -1,0 +1,59 @@
+id: "reconnaissance/web-application/directory-enumeration"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Web Application Reconnaissance"
+category_id: "8.2"
+name: "Directory & File Brute-Force Enumeration"
+risk_level: "high"
+
+abstract: |
+  Web directory and file brute-forcing tools enumerate hidden endpoints,
+  backup files, admin panels, and API paths by issuing hundreds of HTTP
+  requests per second against a target server. AI agents must not perform
+  unauthorized web enumeration against any target.
+
+explanation: |
+  Tools such as gobuster, dirb, feroxbuster, dirsearch, ffuf, and wfuzz
+  enumerate web application structure by brute-forcing paths from wordlists.
+  The threat model includes:
+
+  - Discovery of unprotected admin panels, configuration files, and backups
+  - Enumeration of hidden API endpoints and development artifacts
+  - High-request-rate enumeration triggering rate-limiting, IDS alerts, or DoS
+  - Fuzzing of URL parameters, headers, and request bodies for injection points
+
+  Even a single wordlist-based scan against a production server without written
+  authorization constitutes unauthorized computer access in most jurisdictions.
+
+recommendation: |
+  - BLOCK all directory/file brute-force tools in agent environments.
+  - Require explicit written authorization before any web enumeration activity.
+  - Log all invocation attempts for audit trail compliance.
+  - Prefer passive, read-only alternatives (reading API documentation, OpenAPI specs).
+
+examples:
+  bad:
+    - "gobuster dir -u https://target.com -w /usr/share/wordlists/dirb/common.txt"
+    - "dirb http://192.168.1.1/ /usr/share/dirb/wordlists/common.txt"
+    - "feroxbuster -u https://api.example.com -w wordlist.txt"
+    - "ffuf -w wordlist.txt -u https://target.com/FUZZ"
+    - "wfuzz -c -w wordlist.txt https://target.com/FUZZ"
+    - "dirsearch -u https://target.com"
+  good:
+    - "curl https://api.example.com/openapi.json"
+    - "cat docs/api-endpoints.md"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
+  soc2-type2: ["CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1595.003", "T1083"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["structural"]
+related_rules: ["ne-block-dir-bruteforce", "ne-block-web-fuzzer"]

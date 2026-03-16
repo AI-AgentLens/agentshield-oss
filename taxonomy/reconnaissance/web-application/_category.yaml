@@ -1,0 +1,7 @@
+id: "8.2"
+name: "Web Application Reconnaissance"
+kingdom_id: 8
+description: >
+  Active enumeration of web application structure, technology stack, and
+  vulnerabilities. Includes directory brute-forcing, technology fingerprinting,
+  and automated vulnerability scanning targeted at web services.

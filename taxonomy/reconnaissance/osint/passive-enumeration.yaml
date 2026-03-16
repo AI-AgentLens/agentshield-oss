@@ -1,0 +1,65 @@
+id: "reconnaissance/osint/passive-enumeration"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "OSINT & Passive Enumeration"
+category_id: "8.3"
+name: "OSINT Passive Enumeration"
+risk_level: "high"
+
+abstract: |
+  Open-source intelligence (OSINT) frameworks harvest publicly available
+  information about target organizations, domains, people, and infrastructure.
+  Even though sources are public, systematic intelligence gathering against a
+  target without authorization violates acceptable-use boundaries and is a
+  recognized pre-attack phase.
+
+explanation: |
+  OSINT tools like theHarvester, recon-ng, maltego, and Shodan CLI aggregate
+  and correlate public data to build comprehensive target profiles:
+
+  - **Email harvesting**: Collects email addresses from search engines, LinkedIn,
+    and public breaches to enable phishing or credential-stuffing campaigns.
+  - **Subdomain enumeration**: Maps the attack surface by discovering
+    development, staging, and legacy subdomains via DNS, CT logs, and search APIs.
+  - **Employee enumeration**: Maps org structures from LinkedIn and public sources
+    for social engineering targeting.
+  - **Infrastructure discovery**: Correlates IP ranges, ASNs, and exposed services
+    using Shodan, Censys, and similar internet-scan databases.
+
+  In the MITRE ATT&CK framework this maps to Reconnaissance (TA0043), specifically
+  T1589 (Gather Victim Identity Information) and T1596 (Search Open Technical
+  Databases). AI agents have no legitimate use case for OSINT gathering against
+  external targets.
+
+recommendation: |
+  - BLOCK all OSINT framework invocations in agent environments.
+  - Require explicit authorization documentation before any intelligence gathering.
+  - For internal asset discovery, use sanctioned inventory tools with proper scope.
+
+examples:
+  bad:
+    - "theHarvester -d example.com -b all"
+    - "theHarvester -d target.com -b google,linkedin -l 500"
+    - "recon-ng -w target"
+    - "shodan search 'apache'"
+    - "amass enum -d target.com"
+    - "subfinder -d target.com"
+  good:
+    - "dig example.com"
+    - "whois example.com"
+    - "nslookup api.example.com"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
+  soc2-type2: ["CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1589", "T1596", "T1596.005", "T1595.001"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["structural"]
+related_rules: ["ne-block-theharvester", "ne-block-recon-ng"]
