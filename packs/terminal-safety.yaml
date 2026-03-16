@@ -234,6 +234,14 @@ rules:
     confidence: 0.90
     reason: "ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk."
 
+  - id: "ts-block-ssh-keygen-piped"
+    taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
+    match:
+      command_regex: "(echo|printf|yes)\\s+[\"']?[\"']?\\s*\\|.*ssh-keygen|ssh-keygen.*<\\s*/dev/null"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement."
+
   - id: "ts-struct-block-rm-system"
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
