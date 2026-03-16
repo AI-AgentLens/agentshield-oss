@@ -524,6 +524,91 @@ var NamespaceEscapeCases = []TestCase{
 	},
 }
 
+// EnvInjectionCases covers LD_PRELOAD/LD_LIBRARY_PATH environment variable injection
+// for privilege escalation (taxonomy: privilege-escalation/command-execution/env-injection).
+var EnvInjectionCases = []TestCase{
+	{
+		ID:               "TP-LDPRELOAD-001",
+		Command:          `LD_PRELOAD=/tmp/evil.so sudo bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `LD_PRELOAD inline before sudo — injects shared library into privileged process.`,
+		Tags:             []string{"tp", "privilege-escalation", "env-injection"},
+	},
+	{
+		ID:               "TP-LDPRELOAD-002",
+		Command:          `LD_LIBRARY_PATH=/tmp/malicious:$LD_LIBRARY_PATH sudo id`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `LD_LIBRARY_PATH path prepend before sudo — shadows legitimate libraries.`,
+		Tags:             []string{"tp", "privilege-escalation", "env-injection"},
+	},
+	{
+		ID:               "TP-LDPRELOAD-003",
+		Command:          `LD_PRELOAD=libfake_pam.so su root`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `LD_PRELOAD with fake PAM library before su — bypasses password authentication.`,
+		Tags:             []string{"tp", "privilege-escalation", "env-injection"},
+	},
+	{
+		ID:               "TP-LDPRELOAD-EXPORT-001",
+		Command:          `export LD_PRELOAD=/tmp/hook.so`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Export LD_PRELOAD to /tmp path — persistently poisons current shell session.`,
+		Tags:             []string{"tp", "privilege-escalation", "env-injection"},
+	},
+	{
+		ID:               "TP-LDPRELOAD-EXPORT-002",
+		Command:          `export LD_LIBRARY_PATH=/dev/shm/malicious`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Export LD_LIBRARY_PATH to /dev/shm — world-writable volatile path injection.`,
+		Tags:             []string{"tp", "privilege-escalation", "env-injection"},
+	},
+	{
+		ID:               "TN-LDPRELOAD-001",
+		Command:          `LD_PRELOAD=/usr/lib/libasan.so.5 ./myapp`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `LD_PRELOAD with system ASan library before an unprivileged binary — legitimate profiling. No rule fires; default AUDIT is acceptable (not blocked).`,
+		Tags:             []string{"tn", "profiling", "safe"},
+	},
+	{
+		ID:               "TN-LDPRELOAD-002",
+		Command:          `LD_PRELOAD=libmalloc_debug.so make test`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `LD_PRELOAD with malloc debug library before make — legitimate memory debugging. No rule fires; default AUDIT is acceptable (not blocked).`,
+		Tags:             []string{"tn", "debugging", "safe"},
+	},
+	{
+		ID:               "TN-LDPRELOAD-003",
+		Command:          `cat /etc/ld.so.conf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Reading ldconfig config file — read-only, not an injection.`,
+		Tags:             []string{"tn", "read-only", "safe"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -535,5 +620,6 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, LinuxCapabilitiesCases...)
 	all = append(all, KernelModuleCases...)
 	all = append(all, NamespaceEscapeCases...)
+	all = append(all, EnvInjectionCases...)
 	return all
 }

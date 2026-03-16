@@ -186,6 +186,22 @@ rules:
     confidence: 0.92
     reason: "Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls."
 
+  - id: "ts-block-ld-preload-privesc"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "LD_(PRELOAD|LIBRARY_PATH)=[^\\s]+\\s+(sudo|su\\b|pkexec|doas|runuser)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "LD_PRELOAD/LD_LIBRARY_PATH combined with a privileged command injects a malicious shared library into the elevated process, enabling authentication bypass and privilege escalation."
+
+  - id: "ts-audit-ld-preload-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+LD_(PRELOAD|LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection."
+
   - id: "ts-audit-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
     match:
