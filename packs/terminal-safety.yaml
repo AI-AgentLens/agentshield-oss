@@ -237,6 +237,66 @@ rules:
     confidence: 0.92
     reason: "Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls."
 
+  # === BLOCK: eBPF kernel program loading (equivalent to kernel module) ===
+  # bpftool prog load installs an eBPF program into the kernel at /sys/fs/bpf/.
+  # Unlike kernel modules, eBPF does not require CAP_SYS_MODULE, making it
+  # accessible in more environments. A loaded eBPF program can intercept
+  # syscalls, trace TLS traffic, harvest credentials, and persist until reboot.
+  # MITRE T1215 (Kernel Modules / eBPF)
+  - id: "ts-block-bpftool-prog-load"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "(sudo\\s+)?bpftool\\s+prog\\s+load\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "bpftool prog load installs an eBPF program into the kernel — equivalent in risk to loading a kernel module. Can be used to intercept credentials, trace TLS plaintext, or establish a persistent kernel backdoor."
+
+  # === BLOCK: bpftrace inline expressions — real-time kernel/user surveillance ===
+  # bpftrace -e '...' with uprobe/kprobe probes attaches to arbitrary kernel or
+  # user-space functions. An agent can use this to capture passwords from readline,
+  # decrypt TLS traffic by tracing SSL_write, or dump exec arguments containing
+  # secrets. Inline expressions are far more dangerous than script files because
+  # they execute immediately with no file artifact.
+  - id: "ts-block-bpftrace-inline"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "(sudo\\s+)?bpftrace\\s+(-e|--e)\\s+"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "bpftrace inline expression (-e) attaches kernel/user-space probes that can intercept credentials from readline, decrypt TLS traffic via SSL_write tracing, or dump exec argv containing secrets. No file artifact — executes immediately."
+
+  # === BLOCK: eBPF network attachment via tc (traffic control) ===
+  # 'tc filter add ... bpf obj' attaches an eBPF program to a network interface
+  # using Linux traffic control. This gives the program access to all packets on
+  # the interface, enabling silent network surveillance or traffic manipulation.
+  - id: "ts-block-ebpf-tc-filter"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "tc\\s+filter\\s+add\\s+.*\\bbpf\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Attaching an eBPF program to a network interface via tc (traffic control) gives the program access to all packets — enables silent network surveillance and traffic manipulation."
+
+  # === AUDIT: bpftrace script files and other bpftool subcommands ===
+  # bpftrace running a .bt script file is less immediately dangerous than inline
+  # expressions, but still warrants review. Similarly, bpftool subcommands other
+  # than 'prog load' (e.g., bpftool net, bpftool map) are audit-worthy.
+  - id: "ts-audit-bpftrace-script"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "(sudo\\s+)?bpftrace\\s+[^-]"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "bpftrace script execution — eBPF tracing program warrants review for unauthorized surveillance or credential harvesting."
+
+  - id: "ts-audit-bpftool"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "(sudo\\s+)?bpftool\\s+"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "bpftool usage flagged for review — eBPF inspection and management tools can be used for unauthorized kernel-level operations."
+
   - id: "ts-block-ld-preload-privesc"
     taxonomy: "privilege-escalation/command-execution/env-injection"
     match:
