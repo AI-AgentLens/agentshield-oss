@@ -152,6 +152,19 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 			wantPathCount: 1,
 			wantPaths:     []string{"/real/file"},
 		},
+		{
+			name: "git commit -am combined flag with kube path in message — no path extracted",
+			// Reproduces: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/75
+			// -am is a combined short flag where -m is embedded; skipTextContent must be set.
+			args:          []string{"git", "commit", "-am", "feat:", "add", "detection", "for", "~/.kube/config", "reads"},
+			wantPathCount: 0,
+		},
+		{
+			name: "git commit -m with kube config path in message — no path extracted",
+			// Explicit ~/.kube/config variant matching issue #75 taxonomy.
+			args:          []string{"git", "commit", "-m", "fix:", "update", "~/.kube/config", "handling"},
+			wantPathCount: 0,
+		},
 	}
 
 	for _, tt := range tests {

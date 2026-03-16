@@ -1048,6 +1048,26 @@ var KubernetesConfigAccessCases = []TestCase{
 		Description:      `Listing available kubectl contexts — shows context names and cluster names only, no credential data. Falls through to AUDIT default.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+	{
+		ID:               "TN-KUBECFG-005",
+		Command:          `git commit -m "feat: add detection for kubeconfig reads via sec-block-kubeconfig-file-access"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `git commit -m with kubeconfig rule name in the message — path appears as text in a flag value. Must not trigger. Reproduces FP from issue #75.`,
+		Tags:             []string{"fp-regression", "qa-dogfood"},
+	},
+	{
+		ID:               "TN-KUBECFG-006",
+		Command:          `git commit -am "fix: correct cat path in docs"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `git commit -am combined flag with benign message — must not trigger any kubeconfig rules. Verifies combined-flag skip in normalize.`,
+		Tags:             []string{"fp-regression", "qa-dogfood"},
+	},
 }
 
 // ---------------------------------------------------------------------------
