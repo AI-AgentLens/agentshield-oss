@@ -19,9 +19,17 @@ explanation: |
   - `sudo -u <user> <command>` — lateral privilege switch
   - `sudo -i` or `sudo su` — acquiring a root shell
 
-  Prompt injection or a compromised tool call could instruct an agent to prepend
-  `sudo` to otherwise-blocked destructive or credential-harvesting commands, making
-  this a high-severity escalation vector.
+  Several alternatives to `sudo` also provide privilege elevation and are not
+  caught by simple `sudo`-prefix matching:
+  - **`pkexec`** (PolicyKit) — used on GNOME/freedesktop systems; the vector for
+    CVE-2021-4034 (PwnKit), a critical local privilege escalation vulnerability
+  - **`doas`** — OpenBSD/Alpine/Arch sudo replacement; increasingly common in
+    containerised and minimal Linux environments
+  - **`runuser`** — used in SysV init scripts and systemd service files to execute
+    commands as a different user; often less scrutinized than sudo
+
+  Prompt injection or a compromised tool call could instruct an agent to use any
+  of these to elevate privileges, bypassing rules that only match `sudo`.
 
 recommendation: |
   - Block all `sudo` invocations in agent tool execution contexts.
@@ -34,9 +42,15 @@ examples:
     - "sudo rm -rf /var/log"
     - "sudo cat /etc/shadow"
     - "sudo -u root bash -i"
+    - "pkexec bash"
+    - "pkexec /bin/sh"
+    - "doas bash"
+    - "doas -u root /bin/sh"
+    - "runuser -l root -c 'bash'"
   good:
     - "cat /var/log/app.log"
     - "ls /etc"
+    - "pkexec --version"
 
 compliance:
   owasp-llm-2025: ["LLM08"]
@@ -50,4 +64,4 @@ references:
   cwe: ["CWE-250"]
 
 analyzers: ["regex", "structural"]
-related_rules: ["ts-audit-sudo"]
+related_rules: ["ts-audit-sudo", "ts-block-sudo-alternatives-shell", "ts-audit-sudo-alternatives"]

@@ -524,6 +524,81 @@ var NamespaceEscapeCases = []TestCase{
 	},
 }
 
+// SudoAlternativesCases covers pkexec, doas, and runuser as sudo alternatives
+// (taxonomy: privilege-escalation/command-execution/sudo-invocation).
+var SudoAlternativesCases = []TestCase{
+	{
+		ID:               "TP-SUDOALT-001",
+		Command:          `pkexec bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `pkexec spawning bash directly — root shell via PolicyKit.`,
+		Tags:             []string{"tp", "privilege-escalation", "pkexec"},
+	},
+	{
+		ID:               "TP-SUDOALT-002",
+		Command:          `pkexec /bin/sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `pkexec spawning /bin/sh — root shell via PolicyKit.`,
+		Tags:             []string{"tp", "privilege-escalation", "pkexec"},
+	},
+	{
+		ID:               "TP-SUDOALT-003",
+		Command:          `doas bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `doas spawning bash — root shell via OpenBSD/Alpine sudo alternative.`,
+		Tags:             []string{"tp", "privilege-escalation", "doas"},
+	},
+	{
+		ID:               "TP-SUDOALT-004",
+		Command:          `doas -u root /bin/sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `doas with explicit -u flag — matches ts-audit-sudo-alternatives prefix rule. Not blocked but audited.`,
+		Tags:             []string{"tp", "privilege-escalation", "doas"},
+	},
+	{
+		ID:               "TP-SUDOALT-005",
+		Command:          `runuser -l root -c 'bash -i'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `runuser switching to root — matches ts-audit-sudo-alternatives. Audited.`,
+		Tags:             []string{"tp", "privilege-escalation", "runuser"},
+	},
+	{
+		ID:               "TN-SUDOALT-001",
+		Command:          `pkexec --version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `pkexec --version — informational, non-privileged. Audited by prefix rule but not blocked.`,
+		Tags:             []string{"tn", "informational", "safe"},
+	},
+	{
+		ID:               "TN-SUDOALT-002",
+		Command:          `cat /etc/doas.conf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
+		Analyzer:         "regex",
+		Description:      `Reading doas config — read-only, matches ts-allow-readonly cat prefix. Must be ALLOW.`,
+		Tags:             []string{"tn", "read-only", "safe"},
+	},
+}
+
 // EnvInjectionCases covers LD_PRELOAD/LD_LIBRARY_PATH environment variable injection
 // for privilege escalation (taxonomy: privilege-escalation/command-execution/env-injection).
 var EnvInjectionCases = []TestCase{
@@ -621,5 +696,6 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, KernelModuleCases...)
 	all = append(all, NamespaceEscapeCases...)
 	all = append(all, EnvInjectionCases...)
+	all = append(all, SudoAlternativesCases...)
 	return all
 }

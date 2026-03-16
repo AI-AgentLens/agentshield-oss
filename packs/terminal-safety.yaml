@@ -147,6 +147,21 @@ rules:
     decision: "AUDIT"
     reason: "Sudo command flagged for privilege escalation review."
 
+  - id: "ts-block-sudo-alternatives-shell"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_regex: "^(pkexec|doas|runuser)\\s+(/usr(/local)?/bin/|/bin/)?(bash|sh|zsh|fish|csh|dash|ksh)(\\s|$)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "pkexec/doas/runuser spawning an interactive shell directly grants a root shell — equivalent to sudo bash but bypasses the sudo audit rule."
+
+  - id: "ts-audit-sudo-alternatives"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_prefix: ["pkexec ", "doas ", "runuser "]
+    decision: "AUDIT"
+    reason: "pkexec (PolicyKit), doas, and runuser are sudo alternatives that elevate privileges — flagged for review."
+
   - id: "ts-audit-chown"
     taxonomy: "privilege-escalation/file-permissions/ownership-change"
     match:
