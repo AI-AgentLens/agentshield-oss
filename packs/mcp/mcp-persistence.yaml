@@ -78,6 +78,52 @@ structural_rules:
     reason: "MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001."
     confidence: 0.95
 
+  # === BLOCK: Git hook injection via MCP write_file (issue #150) ===
+  #
+  # Git hooks are executable scripts stored in .git/hooks/. When an agent
+  # writes a malicious payload to pre-commit, post-checkout, post-merge, or
+  # any other hook, the payload executes on every corresponding git operation
+  # performed by the developer — without any shell command that AgentShield
+  # can intercept (the write_file call never goes through a shell).
+  #
+  # This is a persistent code execution technique that:
+  #   - Requires no elevated privileges (hooks run as the current user)
+  #   - Survives process restarts (it's a file on disk)
+  #   - Fires silently inside developer workflows (git commit, git pull, etc.)
+  #   - Has no shell-level detection gap — only MCP can catch the write
+  #
+  # Standard git hook names:
+  #   pre-commit, prepare-commit-msg, commit-msg, post-commit
+  #   pre-push, post-push, pre-rebase
+  #   post-checkout, post-merge, post-receive
+  #   pre-receive, update, post-update
+  #   applypatch-msg, pre-applypatch, post-applypatch
+  #   sendemail-validate, fsmonitor-watchman
+  #
+  # MITRE T1546 — Event Triggered Execution (hooks fire on git operations)
+  # MITRE T1059.004 — Command and Scripting Interpreter: Unix Shell
+  - id: mcp-persist-block-git-hook-write
+    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.git/hooks/"
+    decision: "BLOCK"
+    reason: "MCP write to .git/hooks/ installs a persistent git hook that executes on every matching git operation (commit, push, checkout, etc.) without any shell-level interception. MITRE T1546."
+    confidence: 0.97
+
   # === BLOCK: Linux user-level systemd service and autostart persistence ===
   #
   # ~/.config/systemd/user/ holds user-level systemd unit files. A service
