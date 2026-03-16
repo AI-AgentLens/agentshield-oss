@@ -508,6 +508,97 @@ var GitExfilCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// Category 3.5a: Customer Data to LLM and Uncontrolled Model Selection (LLM02/LLM05/LLM06)
+// Taxonomy: data-exfiltration/llm-data-flow/*
+// ---------------------------------------------------------------------------
+
+// LLMDataFlowCases tests detection of customer data flowing to LLM APIs
+// and uncontrolled model selection patterns.
+var LLMDataFlowCases = []TestCase{
+
+	// --- TRUE POSITIVES: Customer data to LLM ---
+
+	{
+		ID:               "TP-NE-BLOCK-CUSTDATA-001",
+		Command:          `python3 -c "import sqlite3, openai; db = sqlite3.connect('users.db'); rows = db.execute('SELECT * FROM customers').fetchall(); openai.chat.completions.create(model='gpt-4o', messages=[{'role':'user','content':str(rows)}])"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/customer-data-to-llm",
+		Analyzer:         "regex",
+		Description: `Python one-liner reading all rows from a customers table via
+			sqlite3 and sending them to the OpenAI API. The ne-block-customer-data-to-llm
+			rule matches sqlite3+openai and returns BLOCK (LLM02/LLM06).`,
+		Tags: []string{"canonical", "critical", "llm02", "llm06"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-CUSTDATA-002",
+		Command:          `python3 -c "import sqlalchemy, anthropic; users = db.execute('SELECT email FROM users').all(); anthropic.Anthropic().messages.create(model='claude-3', messages=[{'role':'user','content':str(users)}])"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/customer-data-to-llm",
+		Analyzer:         "regex",
+		Description: `Python one-liner fetching user emails via SQLAlchemy and
+			sending them to the Anthropic API. The ne-block-customer-data-to-llm
+			rule matches sqlalchemy+anthropic and returns BLOCK (LLM02/LLM06).`,
+		Tags: []string{"canonical", "critical", "llm02", "llm06"},
+	},
+
+	// --- TRUE POSITIVES: Uncontrolled model selection ---
+
+	{
+		ID:               "TP-NE-AUDIT-MODELSEL-001",
+		Command:          `python3 -c "from openai import OpenAI; c = OpenAI(); c.chat.completions.create(model='gpt-4o', messages=[])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/uncontrolled-model-selection",
+		Analyzer:         "regex",
+		Description: `Python one-liner with hardcoded model='gpt-4o' directly in the
+			API call. The ne-audit-hardcoded-model-ref rule matches the model string
+			and returns AUDIT. Hardcoded models bypass the model allowlist (LLM05/LLM06).`,
+		Tags: []string{"canonical", "llm05", "llm06"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-MODELSEL-002",
+		Command:          `python -c "import anthropic; c = anthropic.Anthropic(); c.messages.create(model='claude-3-opus-20240229', max_tokens=1024, messages=[])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/uncontrolled-model-selection",
+		Analyzer:         "regex",
+		Description: `Python one-liner with hardcoded model='claude-3-opus-20240229'.
+			The ne-audit-hardcoded-model-ref rule matches the claude- prefix in
+			the model string and returns AUDIT (LLM05/LLM06).`,
+		Tags: []string{"canonical", "llm05", "llm06"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-NE-BLOCK-CUSTDATA-001",
+		Command:          `cat models/llm_config.py`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/customer-data-to-llm",
+		Analyzer:         "regex",
+		Description: `Reading an LLM config file with cat is a read-only operation.
+			cat prefix triggers ts-allow-readonly (ALLOW). No customer data
+			access or LLM API call — should not trigger LLM data flow rules.`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-MODELSEL-001",
+		Command:          `grep -r "gpt-4o" src/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/uncontrolled-model-selection",
+		Analyzer:         "regex",
+		Description: `Searching source code for hardcoded model references via grep.
+			grep prefix triggers ts-allow-readonly (ALLOW). This is a read-only
+			audit — should not trigger uncontrolled model selection rules.`,
+		Tags: []string{"safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Category 3.5: System Prompt Exfiltration (LLM07)
 // Taxonomy: data-exfiltration/llm-data-flow/system-prompt-exfiltration
 //
@@ -593,6 +684,7 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, NetworkEgressCases...)
 	all = append(all, LLMExfiltrationCases...)
 	all = append(all, GitExfilCases...)
+	all = append(all, LLMDataFlowCases...)
 	all = append(all, SystemPromptExfilCases...)
 	return all
 }

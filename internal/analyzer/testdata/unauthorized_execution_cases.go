@@ -255,10 +255,104 @@ var StatefulDownloadExecuteCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 4.2: AI Model Usage (LLM06)
+// Taxonomy: unauthorized-execution/ai-model-usage/*
+//
+// Uncontrolled LLM SDK imports and agent orchestration framework invocations
+// in Python one-liners bypass application-level governance and audit logging.
+// ---------------------------------------------------------------------------
+
+// AIModelUsageCases tests detection of uncontrolled LLM SDK and orchestration
+// framework invocations via Python one-liners.
+// Taxonomy: unauthorized-execution/ai-model-usage/*
+var AIModelUsageCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be audited ---
+
+	{
+		ID:               "TP-TS-AUDIT-AIMODEL-001",
+		Command:          `python3 -c "from langchain.agents import initialize_agent, load_tools; agent = initialize_agent(tools, llm)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description: `Python one-liner importing and initializing a LangChain agent
+			without max_iterations or human approval. The ts-audit-llm-agent-import
+			rule matches the langchain import and returns AUDIT.`,
+		Tags: []string{"canonical", "llm06"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AIMODEL-002",
+		Command:          `python -c "import autogen; user_proxy = autogen.UserProxyAgent(human_input_mode='NEVER')"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description: `Python one-liner initializing an AutoGen UserProxyAgent with
+			human_input_mode='NEVER'. The ts-audit-llm-agent-import rule matches
+			the autogen import and returns AUDIT. NEVER mode enables fully autonomous
+			code execution without human approval (LLM06).`,
+		Tags: []string{"canonical", "llm06"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AIMODEL-003",
+		Command:          `python3 -c "from openai import OpenAI; client = OpenAI(); client.chat.completions.create(model='gpt-4o', messages=[])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Python one-liner directly importing the OpenAI SDK and creating
+			completions without a governance wrapper. The ts-audit-llm-sdk-direct-import
+			rule matches 'from openai' and returns AUDIT (LLM06).`,
+		Tags: []string{"canonical", "llm06"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AIMODEL-004",
+		Command:          `python -c "import anthropic; anthropic.Anthropic().messages.create(model='claude-3-opus-20240229', max_tokens=1024, messages=[])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Python one-liner importing and using the Anthropic SDK directly.
+			The ts-audit-llm-sdk-direct-import rule matches 'import anthropic' and
+			returns AUDIT. Direct SDK use bypasses application-level governance (LLM06).`,
+		Tags: []string{"canonical", "llm06"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-TS-AUDIT-AIMODEL-001",
+		Command:          `cat requirements.txt | grep langchain`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description: `Searching requirements.txt for langchain as a text grep —
+			not executing any Python code. The cat prefix triggers ts-allow-readonly
+			(ALLOW). Should not trigger AI model usage rules.`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AIMODEL-002",
+		Command:          `grep -r "from openai" src/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Searching source code for openai import sites via grep.
+			This is a read-only audit operation. The grep prefix triggers
+			ts-allow-readonly (ALLOW) — no execution risk.`,
+		Tags: []string{"safe"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
 	all = append(all, PipeToShellCases...)
 	all = append(all, StatefulDownloadExecuteCases...)
+	all = append(all, AIModelUsageCases...)
 	return all
 }
