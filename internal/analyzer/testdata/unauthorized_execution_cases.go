@@ -348,11 +348,147 @@ var AIModelUsageCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Vercel AI SDK Detection Cases
+// Rules: ts-audit-vercel-ai-sdk-install, ts-audit-vercel-ai-sdk-provider-install,
+//        ts-audit-vercel-ai-sdk-node-inline
+// Taxonomy: unauthorized-execution/ai-model-usage/uncontrolled-model-invocation
+// ---------------------------------------------------------------------------
+
+// VercelAISDKCases tests detection of Vercel AI SDK ('ai' package) installation
+// and inline Node.js invocation patterns.
+var VercelAISDKCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-TS-AUDIT-VERCELAI-001",
+		Command:          `npm install ai`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `npm install of the Vercel AI SDK standalone package. Matches
+			ts-audit-vercel-ai-sdk-install (AUDIT) and sc-audit-npm-install (AUDIT).
+			Combined result is AUDIT. Installing 'ai' enables direct LLM calls
+			without governance wrappers (LLM06).`,
+		Tags: []string{"canonical", "llm06", "vercel-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VERCELAI-002",
+		Command:          `npm install ai react react-dom`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `npm install including the 'ai' package alongside React dependencies —
+			typical Vercel AI SDK setup for a Next.js project. The ts-audit-vercel-ai-sdk-install
+			rule matches the standalone 'ai' word token via \bai\b. Returns AUDIT (LLM06).`,
+		Tags: []string{"canonical", "llm06", "vercel-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VERCELAI-003",
+		Command:          `npm install @ai-sdk/openai @ai-sdk/anthropic`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `npm install of Vercel AI SDK provider packages for OpenAI and Anthropic.
+			Matches ts-audit-vercel-ai-sdk-provider-install (AUDIT) and sc-audit-npm-install
+			(AUDIT). Provider packages enable direct model calls — LLM06 risk.`,
+		Tags: []string{"canonical", "llm06", "vercel-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VERCELAI-004",
+		Command:          `node -e "const {generateText} = require('ai'); const {openai} = require('@ai-sdk/openai'); generateText({model: openai('gpt-4o'), prompt: 'summarize this file'})"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Node.js inline script importing and calling the Vercel AI SDK generateText
+			function directly. The ts-audit-vercel-ai-sdk-node-inline rule matches
+			require('ai') in a node -e context. Direct LLM invocation without governance
+			wrapper is an LLM06 risk.`,
+		Tags: []string{"canonical", "llm06", "vercel-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VERCELAI-005",
+		Command:          `bun -e "const {streamText} = require('ai'); streamText({model: anthropic('claude-3-5-sonnet-20241022'), prompt: process.env.USER_INPUT})"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Bun inline script using Vercel AI SDK streamText with unsanitized
+			USER_INPUT from the environment. Matches ts-audit-vercel-ai-sdk-node-inline
+			on require('ai') in a bun -e context. LLM06 risk — no input validation
+			or governance wrapper.`,
+		Tags: []string{"llm06", "vercel-ai", "injection-risk"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TS-AUDIT-VERCELAI-001",
+		Command:          `npm show ai description`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Read-only npm registry query — shows package metadata for 'ai'.
+			Does not install anything. ts-audit-vercel-ai-sdk-install requires
+			install/i/add verb, not 'show' — so the Vercel AI SDK rule does NOT fire.
+			sc-audit-npm-install prefix is "npm install" and does not match "npm show".
+			Semantic analyzer returns AUDIT for npm commands. TN for the specific install rule.`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VERCELAI-002",
+		Command:          `grep -r "require('ai')" src/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Searching source files for Vercel AI SDK imports — a read-only
+			audit operation. The grep prefix triggers ts-allow-readonly (ALLOW).
+			ts-audit-vercel-ai-sdk-node-inline requires node/ts-node/bun -e context,
+			not a grep command.`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VERCELAI-003",
+		Command:          `node -e "console.log('hello world')"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `Benign Node.js inline script with no AI SDK imports.
+			ts-audit-vercel-ai-sdk-node-inline requires require('ai') in
+			the inline expression — not present here, so the Vercel AI SDK rule
+			does NOT fire. Semantic analyzer returns AUDIT for node execution.
+			TN for the specific Vercel AI SDK inline rule.`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VERCELAI-004",
+		Command:          `npm install railway`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation",
+		Analyzer:         "regex",
+		Description: `npm install of the 'railway' package — contains 'ai' letters but not
+			as a standalone word token. ts-audit-vercel-ai-sdk-install uses \bai\b
+			word boundary so 'railway' does NOT match. sc-audit-npm-install fires
+			(AUDIT) as a generic supply-chain catch. TN for the Vercel AI SDK rule.`,
+		Tags: []string{"safe", "boundary-test"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
 	all = append(all, PipeToShellCases...)
 	all = append(all, StatefulDownloadExecuteCases...)
 	all = append(all, AIModelUsageCases...)
+	all = append(all, VercelAISDKCases...)
 	return all
 }
