@@ -1,24 +1,24 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-15 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-16 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 106 |
+| Terminal rules | 148 |
 | MCP rules | 36 |
-| Total rules | 142 |
-| Test cases (TP+TN) | 234 |
+| Total rules | 184 |
+| Test cases (TP+TN) | 389 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (13 rules)
+### credential-exposure (17 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
-| `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. |
+| `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m). |
 | `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. |
 | `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
@@ -27,12 +27,16 @@
 | `sec-audit-dotenv` | AUDIT | regex | .env files often contain secrets. Flagged for review. |
 | `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. |
 | `sec-audit-clipboard` | AUDIT | prefix | Clipboard operations flagged — may leak secrets. |
+| `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. |
+| `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
+| `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review. |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
+| `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
 | `sec-block-archive-ssh-dir` | BLOCK | structural | Archiving a credential directory captures all private keys and secrets. |
 | `ts-block-git-credential-modify` | BLOCK | regex | Modifying git credential helper can redirect stored credentials. |
 | `ts-block-git-credential-fill` | BLOCK | regex | git credential fill/approve can extract or inject stored credentials. |
 
-### data-exfiltration (30 rules)
+### data-exfiltration (34 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -55,6 +59,10 @@
 | `ne-block-llm-exfil-python` | BLOCK | regex | Python one-liner reading sensitive files and targeting LLM API — likely exfiltration. |
 | `ne-block-llm-exfil-node` | BLOCK | regex | Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration. |
 | `ne-block-base64-to-llm` | BLOCK | regex | Base64-encoded data sent to LLM API endpoint — likely exfiltration. |
+| `ne-block-customer-data-to-llm` | BLOCK | regex | Python command reads customer/user data and passes it to an LLM API. Risk of PII exfiltration to third-party AI provider (LLM02/LLM06). |
+| `ne-audit-hardcoded-model-ref` | AUDIT | regex | Hardcoded model identifier in Python one-liner. Uncontrolled model selection bypasses governance controls and model allowlists (LLM05/LLM06). |
+| `ne-block-system-prompt-exfil` | BLOCK | regex | System prompt content piped to a network tool — likely system prompt exfiltration (LLM07). |
+| `ne-block-sysprompt-env-exfil` | BLOCK | regex | System prompt environment variable piped to network or encoding tool — system prompt exfiltration (LLM07). |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
@@ -101,33 +109,58 @@
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 
-### persistence-evasion (5 rules)
+### persistence-evasion (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ts-block-pipe-to-crontab` | BLOCK | regex | Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively. |
+| `ts-block-at-schedule` | BLOCK | regex | at schedules a persistent one-time job. AI agents must not schedule deferred execution. |
+| `ts-block-batch-schedule` | BLOCK | prefix | batch schedules a persistent background job when system load permits. |
 | `ts-audit-crontab` | AUDIT | prefix | Crontab modification flagged for persistence review. |
+| `ts-block-security-daemon-deactivate` | BLOCK | regex | Deactivating a security daemon (firewall, IDS, AV, audit) removes a defensive control. AI agents have no legitimate reason to stop security services. |
+| `ts-block-security-daemon-deactivate-reverse` | BLOCK | regex | Deactivating a security daemon (reverse argument order). AI agents have no legitimate reason to stop security services. |
+| `ts-block-ufw-disable` | BLOCK | regex | Directly deactivating the system firewall via `ufw disable`. No legitimate agent use case. |
+| `ts-block-selinux-permissive` | BLOCK | regex | Setting SELinux to permissive mode removes mandatory access control enforcement. Defense evasion technique. |
+| `ts-block-apparmor-disable` | BLOCK | regex | Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion. |
 | `ts-audit-systemctl` | AUDIT | prefix | Service management flagged for review. |
+| `ts-struct-block-crontab-modify` | BLOCK | structural | crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks. |
+| `ts-struct-block-ssh-keygen-noninteractive` | BLOCK | structural | ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk. |
+| `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
 | `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
 | `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
+| `ts-block-cicd-cp-mv` | BLOCK | regex | Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk. |
 
-### privilege-escalation (5 rules)
+### privilege-escalation (10 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ts-audit-sudo` | AUDIT | prefix | Sudo command flagged for privilege escalation review. |
 | `ts-audit-chown` | AUDIT | prefix | Ownership change flagged for review. |
+| `ts-block-suid-bit-set` | BLOCK | regex | Setting the SUID/SGID bit on a file grants it root-equivalent execution, enabling persistent privilege escalation. |
+| `ts-block-setcap` | BLOCK | regex | Setting Linux capabilities (e.g. cap_setuid, cap_net_admin) on a binary is a stealthy privilege escalation vector that bypasses sudo audit trails. |
+| `ts-block-suid-find-exec` | BLOCK | regex | Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain. |
+| `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
+| `ts-block-namespace-escape` | BLOCK | regex | Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation. |
 
-### reconnaissance (1 rules)
+### reconnaissance (10 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `ne-block-dns-zone-transfer` | BLOCK | regex | DNS zone transfer (AXFR/IXFR) enumerates all records for a domain. AI agents have no legitimate use for zone transfers — this is a classic reconnaissance technique. |
+| `ne-block-dns-enum-tools` | BLOCK | prefix | Dedicated DNS enumeration/brute-force tool detected. These tools have no legitimate use in AI agent workflows and are exclusively used for reconnaissance. |
 | `ne-audit-dns` | AUDIT | prefix | DNS lookup flagged for reconnaissance review. |
+| `ne-audit-sysprompt-env-probe` | AUDIT | regex | Environment variable enumeration filtered for prompt/LLM keywords — possible context window probing (LLM07). |
+| `ne-audit-echo-system-prompt` | AUDIT | regex | Echoing system prompt environment variable — possible reconnaissance before exfiltration (LLM07). |
+| `ne-block-aggressive-scanner` | BLOCK | structural | High-speed or bulk network scanner detected. AI agents must not perform unsolicited network reconnaissance. |
+| `ne-block-nmap-aggressive` | BLOCK | structural | nmap invoked with aggressive flags (-A, -O, --script). OS fingerprinting and vulnerability scripting require explicit authorization. |
+| `ne-audit-nmap` | AUDIT | structural | nmap port scan detected. Verify the target scope is authorized. |
+| `ne-block-arp-scan` | BLOCK | structural | ARP-based host discovery tools (arp-scan, netdiscover) perform active network sweeping. AI agents must not enumerate network hosts without explicit authorization. |
+| `ne-audit-arp-table` | AUDIT | regex | ARP table or neighbor cache inspection reveals local network topology. Flagged for review. |
 
-### supply-chain (18 rules)
+### supply-chain (22 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -147,16 +180,25 @@
 | `sc-audit-cargo-install` | AUDIT | prefix | Cargo package install flagged for supply-chain review. |
 | `sc-audit-gem-install` | AUDIT | prefix | RubyGems install flagged for supply-chain review. |
 | `sc-audit-lockfile-edit` | AUDIT | regex | Lock file modification flagged — may indicate supply-chain tampering. |
+| `sc-block-ml-dataset-write` | BLOCK | regex | Writing to ML training dataset files blocked. May introduce poisoned examples into fine-tuning pipeline (LLM04). |
+| `sc-block-ml-dataset-append` | BLOCK | regex | Appending data to training dataset file blocked. Risk of training data poisoning (LLM04). |
+| `sc-block-ml-checkpoint-replace` | BLOCK | regex | Writing to ML model checkpoint file blocked. PyTorch .pt/.pkl files can contain pickle exploits. Risk of checkpoint substitution attack (LLM04). |
+| `sc-audit-ml-checkpoint-write` | AUDIT | regex | Model checkpoint file copy or move flagged. Verify source integrity before deploying (LLM04). |
 | `sc-audit-global-install` | AUDIT | regex | Global package install has wider system impact. Flagged for review. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (3 rules)
+### unauthorized-execution (8 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
+| `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
+| `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. |
-| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: download-then-execute chain detected. |
+| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). |
+| `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
+| `ts-audit-vercel-ai-sdk-provider-install` | AUDIT | regex | Installation of a Vercel AI SDK provider package (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, etc.). Flags for AI governance review — LLM06 risk. |
+| `ts-audit-vercel-ai-sdk-node-inline` | AUDIT | regex | Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk. |
 
 ### uncategorized (2 rules)
 
@@ -222,13 +264,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 25 | 12 | 37 |
-| data-exfiltration | 26 | 12 | 38 |
+| credential-exposure | 42 | 27 | 69 |
+| data-exfiltration | 33 | 16 | 49 |
 | destructive-ops | 59 | 35 | 94 |
-| persistence-evasion | 9 | 4 | 13 |
-| privilege-escalation | 10 | 6 | 16 |
-| reconnaissance | 3 | 2 | 5 |
-| supply-chain | 15 | 6 | 21 |
-| unauthorized-execution | 7 | 3 | 10 |
-| **Total** | **154** | **80** | **234** |
+| persistence-evasion | 29 | 16 | 45 |
+| privilege-escalation | 24 | 17 | 41 |
+| reconnaissance | 21 | 11 | 32 |
+| supply-chain | 19 | 8 | 27 |
+| unauthorized-execution | 20 | 12 | 32 |
+| **Total** | **247** | **142** | **389** |
 
