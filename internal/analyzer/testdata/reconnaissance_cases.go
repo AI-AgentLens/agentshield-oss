@@ -138,19 +138,7 @@ var NetworkScanningCases = []TestCase{
 
 	// --- KNOWN FALSE NEGATIVES (documented gaps) ---
 
-	{
-		ID:               "FN-NETSCAN-001",
-		Command:          `for i in $(seq 1 254); do ping -c 1 -W 1 192.168.1.$i; done`,
-		ExpectedDecision: "AUDIT",
-		Classification:   "FN",
-		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
-		Analyzer:         "structural",
-		Description: `KNOWN FALSE NEGATIVE. Ping sweep using a shell loop. This
-			scans an entire subnet using only ping (no nmap needed).
-			Current rules don't detect loop-based scanning. The structural
-			analyzer should detect loop constructs with network commands.`,
-		Tags: []string{"known-gap", "evasion"},
-	},
+	// FN-NETSCAN-001 moved to PingSweepLoopCases after ne-audit-ping-sweep-loop rule was added.
 }
 
 // HostDiscoveryCases tests detection of ARP-based host discovery tools.
@@ -799,6 +787,54 @@ var WebAppReconCases = []TestCase{
 	},
 }
 
+// PingSweepLoopCases covers ne-audit-ping-sweep-loop — loop-based subnet ping sweeps
+// that bypass specialized-tool detection by using only standard ping.
+// Taxonomy: reconnaissance/network-discovery/host-discovery (MITRE T1018)
+var PingSweepLoopCases = []TestCase{
+	// --- TRUE POSITIVES ---
+	{
+		ID:               "TP-NE-AUDIT-PINGSWEEP-001",
+		Command:          `for i in $(seq 1 254); do ping -c 1 -W 1 192.168.1.$i; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "seq-based loop ping sweep — subnet host discovery without specialized tools. Matches ne-audit-ping-sweep-loop. Closes FN-NETSCAN-001.",
+		Tags:             []string{"tp", "evasion", "host-discovery"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-PINGSWEEP-002",
+		Command:          `for i in {1..254}; do ping -c 1 10.0.0.$i; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Brace-expansion loop ping sweep over 10.0.0.0/24 subnet. Matches ne-audit-ping-sweep-loop.",
+		Tags:             []string{"tp", "evasion", "host-discovery"},
+	},
+	// --- TRUE NEGATIVES ---
+	{
+		ID:               "TN-NE-PINGSWEEP-001",
+		Command:          `ping -c 4 google.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Single-host connectivity check — not a sweep. Must not trigger BLOCK; default AUDIT is acceptable.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-PINGSWEEP-002",
+		Command:          `for f in *.txt; do echo $f; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "File glob loop with no numeric range or ping — must not trigger sweep rule. Default AUDIT.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -807,5 +843,6 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, LLMIntrospectionCases...)
 	all = append(all, DNSEnumerationCases...)
 	all = append(all, WebAppReconCases...)
+	all = append(all, PingSweepLoopCases...)
 	return all
 }
