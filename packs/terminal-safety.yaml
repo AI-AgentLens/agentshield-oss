@@ -75,6 +75,33 @@ rules:
     decision: "BLOCK"
     reason: "Pipe-to-shell executes unreviewed remote code."
 
+  # === BLOCK: eval-based remote code execution (pipe-to-shell evasion) ===
+  - id: "ts-block-eval-subshell-rce"
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
+    match:
+      command_regex: "\\beval\\s+[\"']?\\$\\((curl|wget|fetch|aria2c)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection."
+
+  # === BLOCK: shell -c with remote subshell (pipe-to-shell evasion) ===
+  - id: "ts-block-shell-c-remote-subshell"
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
+    match:
+      command_regex: "(bash|sh|zsh|dash|ksh|fish)\\s+-c\\s+[\"']?\\$\\((curl|wget|fetch|aria2c)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "shell -c with remote subshell executes unreviewed remote code — pipe-to-shell evasion via -c flag."
+
+  # === BLOCK: source/dot with process substitution from remote (pipe-to-shell evasion) ===
+  - id: "ts-block-source-process-sub-rce"
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
+    match:
+      command_regex: "(source|\\.)\\s+<\\((curl|wget|fetch|aria2c)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "source/dot with process substitution from remote downloader executes unreviewed remote code — pipe-to-shell evasion."
+
   # === BLOCK: Pipe-to-crontab ===
   - id: "ts-block-pipe-to-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
