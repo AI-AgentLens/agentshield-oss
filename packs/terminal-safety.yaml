@@ -154,6 +154,38 @@ rules:
     decision: "AUDIT"
     reason: "Ownership change flagged for review."
 
+  - id: "ts-block-suid-bit-set"
+    taxonomy: "privilege-escalation/file-permissions/suid-bit-set"
+    match:
+      command_regex: "chmod\\s+(u\\+s|g\\+s|\\+s|[0-7]*[24][0-7]{3})\\s+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Setting the SUID/SGID bit on a file grants it root-equivalent execution, enabling persistent privilege escalation."
+
+  - id: "ts-block-setcap"
+    taxonomy: "privilege-escalation/file-permissions/linux-capabilities"
+    match:
+      command_regex: "setcap\\s+.*cap_"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Setting Linux capabilities (e.g. cap_setuid, cap_net_admin) on a binary is a stealthy privilege escalation vector that bypasses sudo audit trails."
+
+  - id: "ts-block-suid-find-exec"
+    taxonomy: "privilege-escalation/file-permissions/suid-bit-set"
+    match:
+      command_regex: "find\\s+.*-perm\\s+(-[0-9]*[24][0-9]*|/[0-9]*[24][0-9]*).*-exec"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain."
+
+  - id: "ts-block-kernel-module-load"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      command_regex: "^(sudo\\s+)?(insmod|modprobe)\\s+"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls."
+
   - id: "ts-audit-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
     match:
@@ -505,6 +537,14 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "docker exec into a container may enable lateral movement or escape."
+
+  - id: "ts-block-namespace-escape"
+    taxonomy: "privilege-escalation/container-escape/namespace-escape"
+    match:
+      command_regex: "(unshare\\s+.*(--user|-U|--pid|-p|--mount|-m|--net|-n)|nsenter\\s+)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation."
 
   # === BLOCK: CI/CD pipeline tampering ===
 
