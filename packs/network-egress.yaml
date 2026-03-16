@@ -298,3 +298,60 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "ARP table or neighbor cache inspection reveals local network topology. Flagged for review."
+
+  # === BLOCK: fping subnet sweep ===
+
+  - id: "ne-block-fping-sweep"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      structural:
+        executable: ["fping"]
+        flags_any: ["a", "g", "r", "q", "s"]
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "fping invoked with sweep flags (-a alive-only, -g range/subnet). Purpose-built for ICMP subnet sweeping; AI agents must not enumerate network hosts."
+
+  # === AUDIT: fping single-host connectivity check ===
+
+  - id: "ne-audit-fping-single"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      structural:
+        executable: ["fping"]
+        flags_none: ["a", "g", "r", "q", "s"]
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "fping single-host connectivity check. Verify target is within authorized scope."
+
+  # === BLOCK: hping3 TCP/UDP/ICMP packet probe ===
+
+  - id: "ne-block-hping3"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["hping3", "hping", "hping2"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "hping3 is a TCP/UDP/ICMP/RAW-IP packet assembler used for port scanning, firewall probing, and OS fingerprinting. AI agents must not perform unsolicited network probing."
+
+  # === BLOCK: nbtscan NetBIOS name enumeration ===
+
+  - id: "ne-block-nbtscan"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      structural:
+        executable: ["nbtscan", "nmblookup"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "NetBIOS name scanner (nbtscan, nmblookup) discovers Windows hostnames and MAC addresses on local network. AI agents must not enumerate network hosts without explicit authorization."
+
+  # === BLOCK: unicornscan asynchronous network scanner ===
+
+  - id: "ne-block-unicornscan"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["unicornscan"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "unicornscan is an asynchronous stateless network scanner. AI agents must not perform unsolicited network reconnaissance."
