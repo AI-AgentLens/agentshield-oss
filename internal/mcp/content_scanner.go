@@ -24,6 +24,7 @@ const (
 	SignalSlackToken     ContentSignal = "slack_token"
 	SignalStripeKey      ContentSignal = "stripe_key"
 	SignalEnvFileContent ContentSignal = "env_file_content"
+	SignalDatabaseURI    ContentSignal = "database_uri"
 )
 
 // ContentFinding records one detected sensitive data signal in an argument value.
@@ -152,6 +153,17 @@ func scanArgumentValue(result *ContentScanResult, argName, text string) {
 		})
 	}
 
+	// Database URIs with embedded credentials (mysql://user:pass@host/db)
+	// Catches connection strings passed as tool call arguments that bypass
+	// resource-read rules (taxonomy: credential-exposure/database-access).
+	if m := dbURIWithCredentialsRe.FindString(text); m != "" {
+		result.Findings = append(result.Findings, ContentFinding{
+			Signal:  SignalDatabaseURI,
+			Detail:  "Database URI with embedded credentials detected in argument",
+			ArgName: argName,
+		})
+	}
+
 	// Large base64 blobs (potential encoded file exfiltration)
 	if b64Len := largestBase64Chunk(text); b64Len >= minBase64BlobLen {
 		result.Findings = append(result.Findings, ContentFinding{
@@ -184,6 +196,15 @@ var (
 	slackTokenRe    = regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`)
 	stripeKeyRe     = regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24}`)
 	genericSecretRe = regexp.MustCompile(`(?i)(api_key|apikey|api-key|secret_key|secretkey|secret-key|access_token|auth_token|private_key)\s*[=:]\s*['"]?[A-Za-z0-9_\-/+=]{16,}['"]?`)
+
+	// dbURIWithCredentialsRe matches database connection URIs that contain
+	// embedded user:password credentials. Covers MySQL, PostgreSQL, MongoDB
+	// (including +srv), Redis (including rediss TLS), MSSQL, and Oracle.
+	// The credentials portion ([user]:pass@) must be present — username may be
+	// empty (e.g. redis://:password@host) but password must be non-empty — to
+	// avoid false positives on bare host:port URIs.
+	// Taxonomy: credential-exposure/database-access/database-credential-access
+	dbURIWithCredentialsRe = regexp.MustCompile(`(?i)(mysql|postgres(?:ql)?|mongodb(?:\+srv)?|rediss?|mssql|oracle)://[^/\s@:]*:[^/\s@]+@`)
 
 	envLineRe = regexp.MustCompile(`(?i)^[A-Z_]{2,}=\S+`)
 )
