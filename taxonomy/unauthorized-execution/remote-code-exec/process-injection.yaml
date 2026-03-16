@@ -41,7 +41,7 @@ examples:
         - "gdb ./myprogram core"
         - "gdb --args ./app --debug"
 compliance:
-    owasp-llm-2025: ["LLM01", "LLM06", "LLM08"]
+    owasp-llm-2025: ["LLM01", "LLM06"]
     iso-27001-2022: ["A.8.4", "A.8.28", "A.8.12"]
     eu-ai-act-2024: ["Art.14", "Art.15"]
     nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MANAGE-4"]

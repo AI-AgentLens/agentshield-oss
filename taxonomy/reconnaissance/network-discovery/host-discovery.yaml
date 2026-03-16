@@ -48,7 +48,7 @@ examples:
     - "ip addr show  # local interface information only"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM08"]
+  owasp-llm-2025: ["LLM02", "LLM06"]
   iso-27001-2022: ["A.8.20", "A.8.23"]
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]

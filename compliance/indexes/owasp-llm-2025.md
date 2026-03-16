@@ -121,8 +121,14 @@ authorization boundaries and may constitute illegal computer access. (Risk: high
 - **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
 (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
 potentially injecting malicious steps that execute during automated builds. (Risk: high)
+- **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
+resolution to malicious sources, enabling dependency confusion, supply chain injection,
+or credential theft from registry tokens stored in these files. (Risk: high)
 - **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
 dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Package Security Control Bypass** — Disabling npm post-install scripts protection or tampering with lockfiles removes
+critical supply chain safeguards, directly enabling malicious package execution
+and dependency integrity bypass. (Risk: critical)
 
 ## LLM04: Data and Model Poisoning
 
@@ -339,6 +345,9 @@ enforcing value limits, risking catastrophic loss from parsing errors,
 misinterpreted instructions, or social engineering. (Risk: critical)
 - **Fork Bomb** — A command spawns processes recursively until system resources are
 exhausted, causing a denial-of-service condition. (Risk: critical)
+- **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
+disruption and potential data loss, constituting a denial-of-service attack
+against the host system. (Risk: critical)
 - **Git Force Push** — An AI agent performs a force push (`git push --force` or `git push -f`) to a
 remote repository, overwriting remote history and potentially causing permanent
 loss of commits for collaborators. (Risk: high)
@@ -350,6 +359,20 @@ bypass passphrase requirements, creating passwordless keys that can be
 used to establish persistent access or enable lateral movement. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
+- **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
+for future execution, surviving process restarts and remaining active after the
+original session ends. (Risk: high)
+- **Systemctl Service Manipulation** — Using systemctl or launchctl to start, stop, or enable services allows an agent to
+establish persistence or disrupt system operations by controlling the service manager
+lifecycle. (Risk: high)
+- **Environment Variable Injection** — An AI agent that manipulates `LD_PRELOAD` or `LD_LIBRARY_PATH` can inject
+malicious shared libraries into privileged processes, bypassing authentication
+and security controls at the dynamic linker level. (Risk: high)
+- **Kernel Module Loading** — Loading a kernel module grants ring-0 (kernel-space) access to the system,
+enabling complete bypass of all userspace security controls, rootkit installation,
+and persistent system compromise. (Risk: critical)
+- **Sudo Invocation** — An AI agent invoking `sudo` to elevate privileges can bypass application-level
+access controls and gain root-level access to the system. (Risk: high)
 - **Docker Exec into Running Container** — An AI agent uses `docker exec` to execute commands inside a running container,
 potentially escalating privileges or interfering with isolated workloads. (Risk: high)
 - **Docker Host Filesystem Mount** — An AI agent mounts the host filesystem root (`/`) into a Docker container,
@@ -357,8 +380,33 @@ providing unrestricted read/write access to all host files from within
 the container. (Risk: critical)
 - **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
 it full host capabilities and effectively removing all container isolation. (Risk: critical)
+- **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
+escape and user namespace privilege escalation, allowing an agent to break out of
+process isolation boundaries. (Risk: high)
+- **Linux Capabilities Manipulation** — Linux capabilities allow fine-grained privilege delegation without full root access.
+Setting capabilities such as `cap_setuid` or `cap_net_admin` on a binary is a stealthy
+privilege escalation technique that bypasses sudo audit trails. (Risk: critical)
+- **File Ownership Change** — Changing file ownership with `chown` or `chgrp` can grant unauthorized access to
+sensitive files or enable privilege escalation by transferring control of privileged
+resources to the agent's user. (Risk: high)
+- **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
+privilege escalation backdoor: any user who runs the file gains the file owner's
+(typically root's) privileges for the duration of the process. (Risk: critical)
+- **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
+a network segment, enabling an attacker to map the local network, identify
+targets, and prepare for lateral movement or data exfiltration. (Risk: high)
+- **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
+hosts, enabling an attacker to map network topology and identify targets
+for exploitation. AI agents performing unsolicited port scans violate
+authorization boundaries and may constitute illegal computer access. (Risk: high)
+- **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
+resolution to malicious sources, enabling dependency confusion, supply chain injection,
+or credential theft from registry tokens stored in these files. (Risk: high)
 - **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
 dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Package Security Control Bypass** — Disabling npm post-install scripts protection or tampering with lockfiles removes
+critical supply chain safeguards, directly enabling malicious package execution
+and dependency integrity bypass. (Risk: critical)
 - **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
 multi-step execution with broad tool access, increasing the attack surface
 significantly compared to single-shot LLM calls. (Risk: high)
@@ -387,56 +435,7 @@ reconnaissance that may precede a targeted attack. (Risk: medium)
 
 [View on OWASP](https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/)
 
-- **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
-disruption and potential data loss, constituting a denial-of-service attack
-against the host system. (Risk: critical)
-- **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
-for future execution, surviving process restarts and remaining active after the
-original session ends. (Risk: high)
-- **Systemctl Service Manipulation** — Using systemctl or launchctl to start, stop, or enable services allows an agent to
-establish persistence or disrupt system operations by controlling the service manager
-lifecycle. (Risk: high)
-- **Environment Variable Injection** — An AI agent that manipulates `LD_PRELOAD` or `LD_LIBRARY_PATH` can inject
-malicious shared libraries into privileged processes, bypassing authentication
-and security controls at the dynamic linker level. (Risk: high)
-- **Kernel Module Loading** — Loading a kernel module grants ring-0 (kernel-space) access to the system,
-enabling complete bypass of all userspace security controls, rootkit installation,
-and persistent system compromise. (Risk: critical)
-- **Sudo Invocation** — An AI agent invoking `sudo` to elevate privileges can bypass application-level
-access controls and gain root-level access to the system. (Risk: high)
-- **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
-escape and user namespace privilege escalation, allowing an agent to break out of
-process isolation boundaries. (Risk: high)
-- **Linux Capabilities Manipulation** — Linux capabilities allow fine-grained privilege delegation without full root access.
-Setting capabilities such as `cap_setuid` or `cap_net_admin` on a binary is a stealthy
-privilege escalation technique that bypasses sudo audit trails. (Risk: critical)
-- **File Ownership Change** — Changing file ownership with `chown` or `chgrp` can grant unauthorized access to
-sensitive files or enable privilege escalation by transferring control of privileged
-resources to the agent's user. (Risk: high)
-- **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
-privilege escalation backdoor: any user who runs the file gains the file owner's
-(typically root's) privileges for the duration of the process. (Risk: critical)
-- **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
-a network segment, enabling an attacker to map the local network, identify
-targets, and prepare for lateral movement or data exfiltration. (Risk: high)
-- **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
-hosts, enabling an attacker to map network topology and identify targets
-for exploitation. AI agents performing unsolicited port scans violate
-authorization boundaries and may constitute illegal computer access. (Risk: high)
-- **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
-resolution to malicious sources, enabling dependency confusion, supply chain injection,
-or credential theft from registry tokens stored in these files. (Risk: high)
-- **Package Security Control Bypass** — Disabling npm post-install scripts protection or tampering with lockfiles removes
-critical supply chain safeguards, directly enabling malicious package execution
-and dependency integrity bypass. (Risk: critical)
-- **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
-multi-step execution with broad tool access, increasing the attack surface
-significantly compared to single-shot LLM calls. (Risk: high)
-- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
-incur costs, process sensitive data, or bypass policy controls by enabling
-arbitrary LLM calls without governance or audit logging. (Risk: medium)
-- **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
-debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
+_No weaknesses mapped yet._
 
 ## LLM09: Misinformation
 
