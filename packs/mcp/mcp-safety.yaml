@@ -129,6 +129,206 @@ structural_rules:
     reason: "MCP tool that executes shell commands should go through AgentShield's command pipeline"
     confidence: 0.95
 
+  # Block prompt injection patterns in any text/content argument
+  - id: mcp-struct-block-prompt-injection-text
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        text:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+            - "(?i)disregard\\s+(all\\s+)?(your\\s+)?instructions"
+            - "(?i)<system>.*</system>"
+            - "(?i)<IMPORTANT>.*</IMPORTANT>"
+    decision: "BLOCK"
+    reason: "Prompt injection detected in text argument — attempt to manipulate LLM behavior"
+    confidence: 0.95
+
+  - id: mcp-struct-block-prompt-injection-content
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+            - "(?i)disregard\\s+(all\\s+)?(your\\s+)?instructions"
+            - "(?i)<system>.*</system>"
+            - "(?i)<IMPORTANT>.*</IMPORTANT>"
+    decision: "BLOCK"
+    reason: "Prompt injection detected in content argument — attempt to manipulate LLM behavior"
+    confidence: 0.95
+
+  - id: mcp-struct-block-prompt-injection-messages
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        messages:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?previous\\s+instructions"
+            - "(?i)disregard\\s+(all\\s+)?(your\\s+)?instructions"
+            - "(?i)<system>.*</system>"
+            - "(?i)<IMPORTANT>.*</IMPORTANT>"
+    decision: "BLOCK"
+    reason: "Prompt injection detected in messages argument — attempt to manipulate LLM behavior"
+    confidence: 0.95
+
+  # Block path traversal patterns in path/directory arguments
+  - id: mcp-struct-block-path-traversal
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "\\.\\./"
+            - "\\.\\.\\\\"
+    decision: "BLOCK"
+    reason: "Path traversal detected in path argument — attempt to escape intended directory"
+    confidence: 0.95
+
+  - id: mcp-struct-block-path-traversal-directory
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        directory:
+          pattern_any:
+            - "\\.\\./"
+            - "\\.\\.\\\\"
+    decision: "BLOCK"
+    reason: "Path traversal detected in directory argument — attempt to escape intended directory"
+    confidence: 0.95
+
+  # Block SSRF — requests to cloud metadata endpoints and internal IP ranges
+  - id: mcp-struct-block-ssrf-metadata
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+    decision: "BLOCK"
+    reason: "SSRF detected — request to cloud metadata endpoint"
+    confidence: 0.95
+
+  - id: mcp-struct-block-ssrf-metadata-endpoint
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        endpoint:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+            - "(?i)https?://localhost:[0-9]+"
+            - "(?i)https?://127\\.0\\.0\\.1"
+    decision: "BLOCK"
+    reason: "SSRF detected — request to internal service via endpoint argument"
+    confidence: 0.95
+
+  - id: mcp-struct-block-ssrf-private-network
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)https?://10\\."
+            - "(?i)https?://172\\.(1[6-9]|2[0-9]|3[01])\\."
+            - "(?i)https?://192\\.168\\."
+    decision: "BLOCK"
+    reason: "SSRF detected — request to private network IP range"
+    confidence: 0.90
+
+  # Block SQL injection patterns in query/filter arguments
+  - id: mcp-struct-block-sql-injection-query
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        query:
+          pattern_any:
+            - "(?i)(';|\"\\s*;)\\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\\s+"
+            - "(?i)UNION\\s+(ALL\\s+)?SELECT\\s+"
+            - "(?i)OR\\s+1\\s*=\\s*1"
+            - "(?i)--\\s*$"
+    decision: "BLOCK"
+    reason: "SQL injection detected in query argument"
+    confidence: 0.90
+
+  - id: mcp-struct-block-sql-injection-filter
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        filter:
+          pattern_any:
+            - "(?i)(';|\"\\s*;)\\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\\s+"
+            - "(?i)UNION\\s+(ALL\\s+)?SELECT\\s+"
+            - "(?i)OR\\s+1\\s*=\\s*1"
+    decision: "BLOCK"
+    reason: "SQL injection detected in filter argument"
+    confidence: 0.90
+
+  # Block privilege escalation — permission changes on system paths
+  - id: mcp-struct-block-privesc-permissions
+    match:
+      tool_name_regex: "(?i)(set_perm|chmod|change_perm|set_permissions)"
+      args_match:
+        path:
+          pattern_any:
+            - "^/etc/"
+            - "^/usr/"
+            - "^/var/"
+            - "/cron"
+            - "/sudoers"
+    decision: "BLOCK"
+    reason: "Privilege escalation — permission change on system-critical path"
+    confidence: 0.95
+
+  # Block auth bypass configuration changes
+  - id: mcp-struct-block-auth-bypass
+    match:
+      tool_name_regex: "(?i)(modify_config|set_config|update_config|update_setting)"
+      args_match:
+        key:
+          pattern_any:
+            - "(?i)auth\\.bypass"
+            - "(?i)security\\.disabled"
+            - "(?i)auth\\.disabled"
+            - "(?i)authentication\\.enabled.*false"
+    decision: "BLOCK"
+    reason: "Privilege escalation — attempt to disable authentication via config modification"
+    confidence: 0.95
+
+  # Block shell commands in any argument named 'command' or 'exec' (catches renamed tools)
+  - id: mcp-struct-block-shell-in-command-arg
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        command:
+          pattern_any:
+            - "(?i)curl\\s+.*\\|\\s*(ba)?sh"
+            - "(?i)wget\\s+.*\\|\\s*(ba)?sh"
+            - "(?i)nc\\s+(-e|--exec)\\s+"
+            - "(?i)/bin/(ba)?sh"
+    decision: "BLOCK"
+    reason: "Shell command detected in command argument — possible disguised execution tool"
+    confidence: 0.90
+
+  - id: mcp-struct-block-shell-in-exec-arg
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        exec:
+          pattern_any:
+            - "(?i)curl\\s+.*\\|\\s*(ba)?sh"
+            - "(?i)wget\\s+.*\\|\\s*(ba)?sh"
+            - "(?i)nc\\s+(-e|--exec)\\s+"
+            - "(?i)/bin/(ba)?sh"
+            - "(?i)\\brm\\s+-[rf]"
+            - "(?i)\\bmkfifo\\b"
+    decision: "BLOCK"
+    reason: "Shell command detected in exec argument — hidden command execution"
+    confidence: 0.90
+
   # Audit network requests to non-local destinations
   - id: mcp-struct-audit-network-request
     match:
