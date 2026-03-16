@@ -362,6 +362,22 @@ rules:
     confidence: 0.93
     reason: "hping3 is a TCP/UDP/ICMP/RAW-IP packet assembler used for port scanning, firewall probing, and OS fingerprinting. AI agents must not perform unsolicited network probing."
 
+  # === AUDIT: Loop-based ping sweep (subnet host discovery without specialized tools) ===
+  #
+  # Attackers and compromised AI agents use shell loops + standard ping to sweep
+  # subnets without invoking nmap, fping, or other tools that trigger rule matches.
+  # Common patterns:
+  #   for i in $(seq 1 254); do ping -c 1 192.168.1.$i; done
+  #   for i in {1..254}; do ping -c 1 10.0.0.$i; done
+  # MITRE T1018 — Remote System Discovery
+  - id: "ne-audit-ping-sweep-loop"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      command_regex: "for\\s+\\w+\\s+in\\s+(\\$\\(seq\\s+\\d+\\s+\\d+\\)|\\{\\d+\\.\\.\\d+\\}).*\\bping\\b"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Loop-based ping sweep detected — iterates over a numeric range while calling ping, a common technique to discover live hosts on a subnet without specialized tools. MITRE T1018."
+
   # === BLOCK: nbtscan NetBIOS name enumeration ===
 
   - id: "ne-block-nbtscan"
