@@ -95,7 +95,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Description: "Command attempts to disable or bypass security controls",
 			},
 			match: func(req GuardianRequest) bool {
-				return matchesAnyPattern(req.RawCommand, disableSecurityPatterns)
+				return matchesDisableSecurity(req.RawCommand)
 			},
 			escalate: "BLOCK",
 		},
@@ -213,12 +213,65 @@ var promptExfilPatterns = compilePatterns([]string{
 	`(?i)repeat\s+(your\s+)?(system\s+)?(prompt|instructions?)`,
 })
 
-var disableSecurityPatterns = compilePatterns([]string{
+// disableSecurityTextPatterns are text-based security-bypass patterns that can produce
+// false positives when they appear inside quoted arguments of text-sink commands
+// (e.g. `gh issue create --body "...bypass security controls..."`).
+var disableSecurityTextPatterns = compilePatterns([]string{
 	`(?i)(disable|turn\s+off|bypass|skip|ignore)\s+(agentshield|security|guard|policy|policies)`,
 	`(?i)(remove|delete|uninstall)\s+(agentshield|security\s+guard)`,
 	`(?i)--no-?(verify|check|security|guard|policy)`,
-	`(?i)AGENTSHIELD_DISABLE`,
 })
+
+// agentshieldDisableRe matches the AGENTSHIELD_DISABLE env var, which is a direct
+// bypass attempt and should fire regardless of surrounding context.
+var agentshieldDisableRe = regexp.MustCompile(`(?i)AGENTSHIELD_DISABLE`)
+
+// safeCallerRe matches executables that send their arguments to external services
+// (not to shell stdout where an AI agent could read them). Only gh and git qualify:
+// echo/cat/printf/tee write to stdout which agents may consume and act on.
+var safeCallerRe = regexp.MustCompile(`(?i)^\s*(gh|git)\s`)
+
+// catFileWriteRe matches cat commands that write a heredoc body to a file
+// (e.g. `cat > /tmp/file << 'EOF'`). These are pure file-write operations
+// whose heredoc content is data, not commands — safe to strip.
+var catFileWriteRe = regexp.MustCompile(`(?i)^\s*cat\s+>>?\s+\S+\s+<<`)
+
+// stripQuotedRe removes double-quoted and single-quoted string literals from a command.
+var stripQuotedRe = regexp.MustCompile(`"[^"]*"|'[^']*'`)
+
+// matchesDisableSecurity returns true if the command contains a security-bypass signal.
+//
+// Context-aware to reduce false positives:
+//   - gh/git commands: quoted string arguments are stripped before matching because their
+//     arguments are sent to external APIs (GitHub, git servers), not executed by a shell.
+//     Example: `gh issue create --body "...bypass security..."` → ALLOW.
+//   - cat file-write with heredoc: the heredoc body is stripped because it is file content.
+//     Example: `cat > /tmp/file << 'EOF'\ndisable security\nEOF` → ALLOW.
+//   - echo/printf/tee/cat to stdout are NOT exempted: their output may be read by AI agents
+//     and could constitute indirect injection. Example: `echo "disable agentshield"` → BLOCK.
+//   - AGENTSHIELD_DISABLE env-var pattern always fires regardless of context.
+func matchesDisableSecurity(cmd string) bool {
+	if agentshieldDisableRe.MatchString(cmd) {
+		return true
+	}
+	if safeCallerRe.MatchString(cmd) {
+		// Strip quoted string content — these are argument values sent to external APIs.
+		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
+		// Strip heredoc body if present (the marker and body are data, not commands).
+		if idx := strings.Index(stripped, "<<"); idx != -1 {
+			stripped = stripped[:idx]
+		}
+		return matchesAnyPattern(stripped, disableSecurityTextPatterns)
+	}
+	// Special case: `cat > file << 'MARKER'` writes a heredoc to a file.
+	// Strip the heredoc body (everything from << onwards) since it is file content.
+	if catFileWriteRe.MatchString(cmd) {
+		if idx := strings.Index(cmd, "<<"); idx != -1 {
+			return matchesAnyPattern(cmd[:idx], disableSecurityTextPatterns)
+		}
+	}
+	return matchesAnyPattern(cmd, disableSecurityTextPatterns)
+}
 
 var indirectInjectionPatterns = compilePatterns([]string{
 	`(?i)SYSTEM:\s*(ignore|forget|override|you\s+are)`,
