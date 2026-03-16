@@ -25,14 +25,20 @@ rules:
   - id: "sc-block-pip-extra-index"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "pip\\s+install.*--extra-index-url"
+      structural:
+        executable: ["pip", "pip2", "pip3"]
+        subcommand: "install"
+        flags_any: ["extra-index-url"]
     decision: "BLOCK"
     reason: "pip install with --extra-index-url blocked. Risk of dependency confusion."
 
   - id: "sc-block-pip-index-url"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "pip[23]?\\s+install.*--index-url\\s+"
+      structural:
+        executable: ["pip", "pip2", "pip3"]
+        subcommand: "install"
+        flags_any: ["index-url"]
     decision: "BLOCK"
     confidence: 0.95
     reason: "pip install with --index-url replaces the primary PyPI index entirely, routing all package downloads to an attacker-controlled server. More severe than --extra-index-url."

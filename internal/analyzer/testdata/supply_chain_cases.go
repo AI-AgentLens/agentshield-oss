@@ -44,11 +44,11 @@ var NonStandardRegistryCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description: `pip install with extra-index-url pointing to a malicious host.
-			Both audit-package-installs (AUDIT) and sc-block-pip-extra-index (BLOCK)
-			fire. The most_restrictive_wins combiner returns BLOCK correctly.
-			--extra-index-url enables dependency confusion attacks.`,
+			sc-block-pip-extra-index (BLOCK) fires via structural rule (executable=pip,
+			subcommand=install, flags_any=[extra-index-url]). most_restrictive_wins
+			combiner returns BLOCK. --extra-index-url enables dependency confusion attacks.`,
 		Tags: []string{"critical"},
 	},
 	{
@@ -533,7 +533,7 @@ var PipIndexURLCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "pip install with --index-url pointing to attacker server replaces PyPI entirely — must be blocked.",
 		Tags:             []string{"tp", "supply-chain", "pip", "registry"},
 	},
@@ -543,7 +543,7 @@ var PipIndexURLCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "pip3 install from internal PyPI mirror via --index-url — audited, any non-PyPI primary index is a supply chain risk.",
 		Tags:             []string{"tp", "supply-chain", "pip", "registry"},
 	},
@@ -569,6 +569,16 @@ var PipIndexURLCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "pip self-upgrade from default PyPI — gets AUDIT, no BLOCK.",
 		Tags:             []string{"tn", "safe", "pip"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-PIPIDX-003",
+		Command:          `gh pr create --title "Supply chain rules" --body "Block pip install --extra-index-url and --index-url flags to prevent dependency confusion attacks."`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "structural",
+		Description:      "FP regression: gh pr create with body text mentioning pip flags must not be blocked. Rule must only fire when executable is pip/pip2/pip3. Default AUDIT (no pip rules trigger).",
+		Tags:             []string{"tn", "fp-regression", "pip", "gh"},
 	},
 }
 
