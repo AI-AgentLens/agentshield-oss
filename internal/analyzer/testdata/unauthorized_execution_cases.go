@@ -853,6 +853,51 @@ var InterpreterInlineRCECases = []TestCase{
 	},
 }
 
+// GuardianEvalRiskFPCases tests that the guardian eval_risk heuristic does NOT
+// fire on git/gh commands whose commit messages or PR bodies mention eval()/exec()
+// as prose text (issue #184).
+var GuardianEvalRiskFPCases = []TestCase{
+	// --- TRUE NEGATIVES: commit messages mentioning eval/exec in prose ---
+	{
+		ID:               "TN-EVAL-RISK-FP-001",
+		Command:          `git commit -m "fix: prevent eval() from being called on untrusted input"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "guardian",
+		Description: `git commit -m with a message that mentions eval() in prose.
+			The guardian-eval_risk heuristic must not fire on commit messages sent to
+			git (not executed by the shell). Fixed by context-aware stripping (issue #184).
+			Returns AUDIT (default for git commit).`,
+		Tags: []string{"tn", "fp-fix", "guardian", "git", "regression"},
+	},
+	{
+		ID: "TN-EVAL-RISK-FP-002",
+		Command: "git commit -m \"$(cat <<'EOF'\nfix: prevent eval() crash in parser\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n)\"",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "guardian",
+		Description: `git commit with heredoc-style multiline message containing eval() in the body.
+			$(cat <<'EOF'...EOF) is a standard shell idiom for multiline -m arguments.
+			The guardian-eval_risk heuristic must not fire on this pattern (issue #184).
+			Returns AUDIT (default for git commit).`,
+		Tags: []string{"tn", "fp-fix", "guardian", "git", "heredoc", "regression"},
+	},
+	{
+		ID:               "TN-EVAL-RISK-FP-003",
+		Command:          `gh pr create --title "fix exec() misuse" --body "This PR fixes the exec() misuse found in code review"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "guardian",
+		Description: `gh pr create with a body that mentions exec() in prose.
+			PR bodies are sent to the GitHub API, not executed by the shell.
+			The guardian-eval_risk heuristic must not fire (issue #184).`,
+		Tags: []string{"tn", "fp-fix", "guardian", "gh", "regression"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
@@ -864,5 +909,6 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, AIContentIntegrityCases...)
 	all = append(all, ProcessInjectionCases...)
 	all = append(all, InterpreterInlineRCECases...)
+	all = append(all, GuardianEvalRiskFPCases...)
 	return all
 }
