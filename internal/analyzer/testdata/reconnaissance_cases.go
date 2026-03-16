@@ -219,6 +219,110 @@ var HostDiscoveryCases = []TestCase{
 		Tags: []string{"recon", "passive"},
 	},
 
+	// --- TRUE POSITIVES: fping subnet sweep ---
+
+	{
+		ID:               "TP-HOSTSCAN-006",
+		Command:          `fping -a -g 192.168.1.0/24`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `fping -a (print alive hosts) -g (generate subnet range) performs an ICMP
+			sweep of an entire subnet. Purpose-built for host discovery.
+			Blocked by ne-block-fping-sweep structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-007",
+		Command:          `fping -q -r 1 10.0.0.1 10.0.0.2 10.0.0.3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `fping -q (quiet) -r 1 (one retry) with multiple targets is a batch sweep.
+			Blocked by ne-block-fping-sweep structural rule via -q/-r flags.`,
+		Tags: []string{"recon"},
+	},
+
+	// --- TRUE POSITIVES: hping3 port/firewall probe ---
+
+	{
+		ID:               "TP-HOSTSCAN-008",
+		Command:          `hping3 -S --scan 1-1024 192.168.1.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description: `hping3 -S (TCP SYN) --scan 1-1024 performs a SYN port scan across all
+			privileged ports. Used for firewall probing and service discovery.
+			Blocked by ne-block-hping3 structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-009",
+		Command:          `hping3 --udp -p 53 target.internal`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description: `hping3 UDP probe against port 53. Used for service fingerprinting and
+			firewall rule enumeration. Blocked by ne-block-hping3 structural rule.`,
+		Tags: []string{"recon"},
+	},
+
+	// --- TRUE POSITIVES: nbtscan NetBIOS name enumeration ---
+
+	{
+		ID:               "TP-HOSTSCAN-010",
+		Command:          `nbtscan 192.168.1.0/24`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `nbtscan sweeps a subnet for NetBIOS name registrations, revealing Windows
+			hostnames and MAC addresses. Active host/service discovery.
+			Blocked by ne-block-nbtscan structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-011",
+		Command:          `nmblookup -A 192.168.1.100`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `nmblookup -A queries a host for all its NetBIOS names, revealing machine
+			name, domain, and service registrations. Blocked by ne-block-nbtscan rule.`,
+		Tags: []string{"recon"},
+	},
+
+	// --- TRUE POSITIVES: unicornscan ---
+
+	{
+		ID:               "TP-HOSTSCAN-012",
+		Command:          `unicornscan 10.0.0.0/8`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description: `unicornscan performs asynchronous stateless port scanning across a large
+			CIDR range. Comparable to masscan in speed and intent.
+			Blocked by ne-block-unicornscan structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-013",
+		Command:          `unicornscan -mT -p 80,443,8080 192.168.0.0/16`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description: `unicornscan TCP mode (-mT) scanning web ports across a /16 network.
+			Blocked by ne-block-unicornscan structural rule.`,
+		Tags: []string{"recon"},
+	},
+
 	// --- TRUE NEGATIVES: commands that must NOT be blocked (AUDIT is acceptable) ---
 
 	{
@@ -231,6 +335,18 @@ var HostDiscoveryCases = []TestCase{
 		Description: `SSH to a single host is not ARP/host discovery scanning. The arp-scan
 			and netdiscover rules should not fire. Returns AUDIT from the ne-audit-ssh rule.`,
 		Tags: []string{"not-recon"},
+	},
+	{
+		ID:               "TN-HOSTSCAN-006",
+		Command:          `fping -c 1 192.168.1.1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `fping -c 1 sends a single ICMP echo to one host — equivalent to ping -c 1.
+			This is a single-host connectivity check, not a sweep.
+			The ne-audit-fping-single rule fires (AUDIT), not the block rule.`,
+		Tags: []string{"safe", "not-recon"},
 	},
 	{
 		ID:               "TN-HOSTSCAN-002",
