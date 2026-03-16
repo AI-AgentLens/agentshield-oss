@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-16 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (202 terminal rules, 42 MCP rules)
+ Metric | Count |
 |--------|-------|
-| Terminal rules | 194 |
+| Terminal rules | 202 |
 | MCP rules | 42 |
-| Total rules | 236 |
-| Test cases (TP+TN) | 544 |
+| Total rules | 244 |
+| Test cases (TP+TN) | 564 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -170,7 +165,7 @@
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
 | `ts-block-namespace-escape` | BLOCK | regex | Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation. |
 
-### reconnaissance (15 rules)
+### reconnaissance (23 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -189,6 +184,14 @@
 | `ne-block-hping3` | BLOCK | structural | hping3 is a TCP/UDP/ICMP/RAW-IP packet assembler used for port scanning, firewall probing, and OS fingerprinting. AI agents must not perform unsolicited network probing. |
 | `ne-block-nbtscan` | BLOCK | structural | NetBIOS name scanner (nbtscan, nmblookup) discovers Windows hostnames and MAC addresses on local network. AI agents must not enumerate network hosts without explicit authorization. |
 | `ne-block-unicornscan` | BLOCK | structural | unicornscan is an asynchronous stateless network scanner. AI agents must not perform unsolicited network reconnaissance. |
+| `ne-block-nikto` | BLOCK | structural | nikto is a web server vulnerability scanner that probes for thousands of known CVEs and misconfigs. AI agents must not run unauthorized web vulnerability scans. MITRE T1595.003. |
+| `ne-block-dir-bruteforce` | BLOCK | structural | Web directory brute-force tool detected (gobuster/dirb/feroxbuster/dirsearch). These tools enumerate hidden files and endpoints at high speed — AI agents must not perform unauthorized web enumeration. MITRE T1595.003. |
+| `ne-block-web-fuzzer` | BLOCK | structural | Web fuzzer detected (ffuf/wfuzz). These tools enumerate directories, parameters, and payloads at high speed — AI agents must not fuzz web applications without explicit authorization. MITRE T1595.003. |
+| `ne-block-whatweb` | BLOCK | structural | whatweb fingerprints web server technology (CMS, frameworks, versions). This is active reconnaissance; AI agents must not fingerprint target systems without authorization. MITRE T1592. |
+| `ne-block-sqlmap` | BLOCK | structural | sqlmap is an automated SQL injection and database exploitation tool. Running sqlmap against any target without explicit written authorization constitutes unauthorized access. MITRE T1190. |
+| `ne-block-theharvester` | BLOCK | structural | theHarvester performs OSINT enumeration (emails, subdomains, employee names) against a target domain. AI agents must not perform unsolicited intelligence gathering. MITRE T1589, T1596. |
+| `ne-block-recon-ng` | BLOCK | structural | recon-ng is a modular OSINT framework for harvesting intelligence about domains, people, and organizations. AI agents must not perform intelligence gathering without explicit authorization. MITRE T1596. |
+| `ne-block-shodan-cli` | BLOCK | structural | Shodan CLI querying internet-wide scan data for hosts, ports, or vulnerabilities. AI agents must not perform intelligence gathering against external infrastructure. MITRE T1596.005. |
 
 ### supply-chain (29 rules)
 
@@ -326,8 +329,8 @@
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 47 | 24 | 71 |
 | privilege-escalation | 38 | 24 | 62 |
-| reconnaissance | 29 | 12 | 41 |
+| reconnaissance | 45 | 16 | 61 |
 | supply-chain | 33 | 21 | 54 |
 | unauthorized-execution | 37 | 23 | 60 |
-| **Total** | **342** | **202** | **544** |
+| **Total** | **358** | **206** | **564** |
 
