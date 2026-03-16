@@ -250,6 +250,61 @@ var CICDTamperingCases = []TestCase{
 		Description:      `Reading GitLab CI config is a safe read-only operation.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+
+	// --- ts-block-cicd-cp-mv: TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CICD-006",
+		Command:          `cp /tmp/evil.yml .github/workflows/ci.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Copying malicious YAML to GitHub Actions workflow path. Caught by ts-block-cicd-cp-mv.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CICD-007",
+		Command:          `mv /tmp/payload.yml Jenkinsfile`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Moving malicious file to Jenkinsfile. Caught by ts-block-cicd-cp-mv.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-CICD-008",
+		Command:          `cp -f /tmp/evil.yml .gitlab-ci.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Force-copying malicious file to GitLab CI config. Caught by ts-block-cicd-cp-mv.`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- ts-block-cicd-cp-mv: TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CICD-004",
+		Command:          `cp .github/workflows/ci.yml /tmp/backup.yml`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Description:      `Copying CI config OUT to a backup location. Source is CI/CD, destination is safe. Not matched by ts-block-cicd-cp-mv. cp is not on allow list so defaults to AUDIT.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TP-CICD-009",
+		Command:          `cp .github/workflows/ci.yml .github/workflows/ci.yml.bak`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/pipeline-config-write",
+		Analyzer:         "regex",
+		Description:      `Copying to a .bak path inside workflows/ still matches ts-block-cicd-cp-mv destination pattern — writing to that directory is suspicious.`,
+		Tags:             []string{"edge-case"},
+	},
 }
 
 // ---------------------------------------------------------------------------
