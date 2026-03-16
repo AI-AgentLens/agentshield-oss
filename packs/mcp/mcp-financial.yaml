@@ -81,6 +81,24 @@ value_limits:
     decision: "BLOCK"
     reason: "Negative withdrawal amounts are not allowed."
 
+  # === Cloud / compute resource provisioning ===
+  # Prevents runaway infrastructure creation (e.g., provision 1000 GPU instances).
+  - id: mcp-fin-cap-provision-count
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    tool_name_regex: "provision_.*|scale_.*|deploy_.*|create_instance.*|launch_.*"
+    argument: "count"
+    max: 50.0
+    decision: "BLOCK"
+    reason: "Instance count exceeds safety limit of 50 — large provisioning requires human approval."
+
+  - id: mcp-fin-cap-provision-quantity
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    tool_name_regex: "provision_.*|scale_.*|deploy_.*|create_instance.*|launch_.*"
+    argument: "quantity"
+    max: 50.0
+    decision: "BLOCK"
+    reason: "Provisioning quantity exceeds safety limit of 50."
+
 rules:
   # === AUDIT: Any financial tool call ===
   - id: mcp-fin-audit-financial-tools
@@ -89,3 +107,30 @@ rules:
       tool_name_regex: "(send_|transfer_|withdraw|mint_|.*pay.*|.*charge.*|.*invoice.*)"
     decision: "AUDIT"
     reason: "Financial tool call flagged for review."
+
+# === Structural rules: catch string-based unbounded transfer patterns ===
+structural_rules:
+  # Block "ALL_BALANCE" / "all" / "everything" as amount values — these strings
+  # bypass numeric value_limits but indicate intent to transfer the full balance.
+  # Real-world risk: agent misinterprets "send everything" instruction literally.
+  - id: mcp-fin-block-all-balance-amount
+    match:
+      tool_name_regex: "(send_.*|transfer_.*|withdraw.*|.*pay.*)"
+      args_match:
+        amount:
+          pattern_any:
+            - "(?i)^(ALL_BALANCE|all|everything|full_balance|total_balance|max|maximum)$"
+    decision: "BLOCK"
+    reason: "Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance"
+    confidence: 0.95
+
+  - id: mcp-fin-block-all-balance-value
+    match:
+      tool_name_regex: "(send_.*|transfer_.*|withdraw.*|.*pay.*)"
+      args_match:
+        value:
+          pattern_any:
+            - "(?i)^(ALL_BALANCE|all|everything|full_balance|total_balance|max|maximum)$"
+    decision: "BLOCK"
+    reason: "Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument"
+    confidence: 0.95
