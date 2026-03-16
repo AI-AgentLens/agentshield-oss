@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 174 |
+| Terminal rules | 177 |
 | MCP rules | 42 |
-| Total rules | 216 |
-| Test cases (TP+TN) | 471 |
+| Total rules | 219 |
+| Test cases (TP+TN) | 481 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -208,11 +208,14 @@
 | `sc-audit-global-install` | AUDIT | regex | Global package install has wider system impact. Flagged for review. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (13 rules)
+### unauthorized-execution (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
+| `ts-block-eval-subshell-rce` | BLOCK | regex | eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection. |
+| `ts-block-shell-c-remote-subshell` | BLOCK | regex | shell -c with remote subshell executes unreviewed remote code — pipe-to-shell evasion via -c flag. |
+| `ts-block-source-process-sub-rce` | BLOCK | regex | source/dot with process substitution from remote downloader executes unreviewed remote code — pipe-to-shell evasion. |
 | `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. |
@@ -308,6 +311,6 @@
 | privilege-escalation | 34 | 22 | 56 |
 | reconnaissance | 29 | 12 | 41 |
 | supply-chain | 28 | 18 | 46 |
-| unauthorized-execution | 27 | 17 | 44 |
-| **Total** | **294** | **177** | **471** |
+| unauthorized-execution | 33 | 21 | 54 |
+| **Total** | **300** | **181** | **481** |
 
