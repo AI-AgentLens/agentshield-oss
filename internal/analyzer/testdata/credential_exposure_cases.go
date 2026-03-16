@@ -1171,6 +1171,120 @@ var GPGKeyAccessCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 2.6: Cloud Credential Access
+// Taxonomy: credential-exposure/cloud-credentials/cloud-credential-access
+//
+// Cloud provider CLI tools store long-lived credentials in well-known paths:
+//   - ~/.aws/credentials, ~/.aws/config (AWS)
+//   - ~/.config/gcloud/application_default_credentials.json (GCP ADC)
+//   - ~/.azure/accessTokens.json (Azure CLI tokens)
+//
+// An agent reading these files can assume any IAM role or access cloud
+// resources without further authentication. MITRE T1552.005.
+// ---------------------------------------------------------------------------
+
+// CloudCredentialAccessCases tests detection of cloud credential file reads.
+// Taxonomy: credential-exposure/cloud-credentials/cloud-credential-access
+var CloudCredentialAccessCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CLOUDCRED-001",
+		Command:          `cat ~/.aws/credentials`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `Direct read of AWS credentials file — exposes access key ID and secret access key. Matched by sec-block-cloud-cred-regex.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CLOUDCRED-002",
+		Command:          `cat ~/.config/gcloud/application_default_credentials.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `Direct read of GCP application default credentials JSON — exposes OAuth tokens. Matched by sec-block-cloud-cred-regex.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CLOUDCRED-003",
+		Command:          `cat ~/.azure/accessTokens.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `Direct read of Azure CLI cached access tokens — exposes bearer tokens for Azure APIs. Matched by sec-block-cloud-cred-regex.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-CLOUDCRED-004",
+		Command:          `cp ~/.aws/credentials /tmp/aws_backup.txt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "structural",
+		Description:      `Copying AWS credentials to /tmp stages them for exfiltration. Matched by sec-block-cloud-cred-structural (cp + ~/.aws/credentials).`,
+		Tags:             []string{"exfiltration-staging", "critical"},
+	},
+	{
+		ID:               "TP-CLOUDCRED-005",
+		Command:          `less ~/.aws/credentials`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "structural",
+		Description:      `Paging AWS credentials file with less — exposing key material interactively. Matched by sec-block-cloud-cred-structural.`,
+		Tags:             []string{"credential-read"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CLOUDCRED-001",
+		Command:          `aws sts get-caller-identity`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `Standard AWS CLI identity check — uses credentials implicitly but does not read the file. Correctly AUDIT'd by ne-audit-aws-cli (normal network egress). Must NOT be BLOCK'd.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CLOUDCRED-002",
+		Command:          `gcloud config get-value project`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `GCP project config query — reads project name not credential files. Correctly AUDIT'd for network/cloud CLI usage. Must NOT be BLOCK'd by cloud-cred-access rules.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CLOUDCRED-003",
+		Command:          `aws s3 ls`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `AWS S3 listing using CLI — uses credentials implicitly via SDK, not file reads. Correctly AUDIT'd for cloud CLI. Must NOT be BLOCK'd.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-CLOUDCRED-004",
+		Command:          `az account show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-credential-access",
+		Analyzer:         "regex",
+		Description:      `Azure CLI account show — standard identity query, not a credential file read. AUDIT'd for cloud CLI usage. Must NOT be BLOCK'd.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -1186,5 +1300,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, ShadowReadCases...)
 	all = append(all, KubernetesConfigAccessCases...)
 	all = append(all, GPGKeyAccessCases...)
+	all = append(all, CloudCredentialAccessCases...)
 	return all
 }
