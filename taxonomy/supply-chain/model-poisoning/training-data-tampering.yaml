@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Supply Chain Compromise"
 kingdom_id: 7
 category: "Model Poisoning"
-category_id: "7.3"
+category_id: "7.4"
 name: "Training Data Tampering"
 risk_level: "critical"
 

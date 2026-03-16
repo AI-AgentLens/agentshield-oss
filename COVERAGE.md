@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 156 |
-| MCP rules | 36 |
-| Total rules | 192 |
-| Test cases (TP+TN) | 416 |
+| Terminal rules | 159 |
+| MCP rules | 42 |
+| Total rules | 201 |
+| Test cases (TP+TN) | 422 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -195,7 +195,7 @@
 | `sc-audit-global-install` | AUDIT | regex | Global package install has wider system impact. Flagged for review. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (8 rules)
+### unauthorized-execution (11 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -207,6 +207,9 @@
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-provider-install` | AUDIT | regex | Installation of a Vercel AI SDK provider package (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, etc.). Flags for AI governance review — LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-node-inline` | AUDIT | regex | Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk. |
+| `ts-audit-git-commit-security-doc` | AUDIT | regex | git commit targeting SECURITY.md — AI-generated security documentation requires human review before committing (LLM09: misinformation propagation). |
+| `ts-audit-git-commit-audit-path` | AUDIT | regex | git commit targeting audit/compliance/runbook path — AI-generated compliance content must be human-verified before it can be referenced by auditors (LLM09). |
+| `ts-audit-append-security-doc` | AUDIT | regex | Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection). |
 
 ### uncategorized (2 rules)
 
@@ -235,7 +238,7 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### destructive-ops (15 rules)
+### destructive-ops (17 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -248,6 +251,8 @@
 | `mcp-fin-block-negative-transfer` | BLOCK | value_limit | Negative transfer amounts are not allowed. |
 | `mcp-fin-cap-withdrawal` | BLOCK | value_limit | Withdrawal exceeds safety limit of 500 units. |
 | `mcp-fin-block-negative-withdrawal` | BLOCK | value_limit | Negative withdrawal amounts are not allowed. |
+| `mcp-fin-cap-provision-count` | BLOCK | value_limit | Instance count exceeds safety limit of 50 — large provisioning requires human approval. |
+| `mcp-fin-cap-provision-quantity` | BLOCK | value_limit | Provisioning quantity exceeds safety limit of 50. |
 | `mcp-safety-block-etc-write` | BLOCK | mcp_rule | File write to /etc/ system directory is blocked. |
 | `mcp-safety-block-usr-write` | BLOCK | mcp_rule | File write to /usr/ system directory is blocked. |
 | `mcp-safety-block-var-write` | BLOCK | mcp_rule | File write to /var/ system directory is blocked. |
@@ -268,6 +273,15 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
+### unauthorized-execution (4 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
+| `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
+| `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
+| `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
+
 ## Test Coverage
 
 | Kingdom | TP | TN | Total |
@@ -279,6 +293,6 @@
 | privilege-escalation | 24 | 17 | 41 |
 | reconnaissance | 21 | 11 | 32 |
 | supply-chain | 19 | 8 | 27 |
-| unauthorized-execution | 20 | 12 | 32 |
-| **Total** | **260** | **156** | **416** |
+| unauthorized-execution | 24 | 14 | 38 |
+| **Total** | **264** | **158** | **422** |
 
