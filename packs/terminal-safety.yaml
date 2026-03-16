@@ -461,6 +461,18 @@ rules:
     confidence: 0.90
     reason: "Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement."
 
+  # === BLOCK: SSH authorized_keys injection (SSH backdoor persistence) ===
+  # Writing to authorized_keys installs a backdoor SSH key, granting persistent
+  # remote access without credentials. This is a top persistence technique for
+  # attackers and should never be performed by an AI agent. (MITRE T1098.004)
+  - id: "ts-block-authorized-keys-write"
+    taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
+    match:
+      command_regex: "\\.ssh/authorized_keys2?"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list (MITRE T1098.004)."
+
   - id: "ts-struct-block-rm-system"
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
