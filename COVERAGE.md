@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 162 |
+| Terminal rules | 174 |
 | MCP rules | 42 |
-| Total rules | 204 |
-| Test cases (TP+TN) | 434 |
+| Total rules | 216 |
+| Test cases (TP+TN) | 471 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -138,22 +138,26 @@
 | `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
 | `ts-block-cicd-cp-mv` | BLOCK | regex | Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk. |
 
-### privilege-escalation (10 rules)
+### privilege-escalation (14 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ts-audit-sudo` | AUDIT | prefix | Sudo command flagged for privilege escalation review. |
+| `ts-block-sudo-alternatives-shell` | BLOCK | regex | pkexec/doas/runuser spawning an interactive shell directly grants a root shell — equivalent to sudo bash but bypasses the sudo audit rule. |
+| `ts-audit-sudo-alternatives` | AUDIT | prefix | pkexec (PolicyKit), doas, and runuser are sudo alternatives that elevate privileges — flagged for review. |
 | `ts-audit-chown` | AUDIT | prefix | Ownership change flagged for review. |
 | `ts-block-suid-bit-set` | BLOCK | regex | Setting the SUID/SGID bit on a file grants it root-equivalent execution, enabling persistent privilege escalation. |
 | `ts-block-setcap` | BLOCK | regex | Setting Linux capabilities (e.g. cap_setuid, cap_net_admin) on a binary is a stealthy privilege escalation vector that bypasses sudo audit trails. |
 | `ts-block-suid-find-exec` | BLOCK | regex | Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain. |
 | `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
+| `ts-block-ld-preload-privesc` | BLOCK | regex | LD_PRELOAD/LD_LIBRARY_PATH combined with a privileged command injects a malicious shared library into the elevated process, enabling authentication bypass and privilege escalation. |
+| `ts-audit-ld-preload-export` | BLOCK | regex | Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection. |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
 | `ts-block-namespace-escape` | BLOCK | regex | Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation. |
 
-### reconnaissance (10 rules)
+### reconnaissance (15 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -167,13 +171,21 @@
 | `ne-audit-nmap` | AUDIT | structural | nmap port scan detected. Verify the target scope is authorized. |
 | `ne-block-arp-scan` | BLOCK | structural | ARP-based host discovery tools (arp-scan, netdiscover) perform active network sweeping. AI agents must not enumerate network hosts without explicit authorization. |
 | `ne-audit-arp-table` | AUDIT | regex | ARP table or neighbor cache inspection reveals local network topology. Flagged for review. |
+| `ne-block-fping-sweep` | BLOCK | structural | fping invoked with sweep flags (-a alive-only, -g range/subnet). Purpose-built for ICMP subnet sweeping; AI agents must not enumerate network hosts. |
+| `ne-audit-fping-single` | AUDIT | structural | fping single-host connectivity check. Verify target is within authorized scope. |
+| `ne-block-hping3` | BLOCK | structural | hping3 is a TCP/UDP/ICMP/RAW-IP packet assembler used for port scanning, firewall probing, and OS fingerprinting. AI agents must not perform unsolicited network probing. |
+| `ne-block-nbtscan` | BLOCK | structural | NetBIOS name scanner (nbtscan, nmblookup) discovers Windows hostnames and MAC addresses on local network. AI agents must not enumerate network hosts without explicit authorization. |
+| `ne-block-unicornscan` | BLOCK | structural | unicornscan is an asynchronous stateless network scanner. AI agents must not perform unsolicited network reconnaissance. |
 
-### supply-chain (23 rules)
+### supply-chain (26 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sc-block-npm-registry-override` | BLOCK | regex | npm install with non-standard registry override blocked. May be dependency confusion attack. |
-| `sc-block-pip-extra-index` | BLOCK | regex | pip install with --extra-index-url blocked. Risk of dependency confusion. |
+| `sc-block-pip-extra-index` | BLOCK | structural | pip install with --extra-index-url blocked. Risk of dependency confusion. |
+| `sc-block-pip-index-url` | BLOCK | structural | pip install with --index-url replaces the primary PyPI index entirely, routing all package downloads to an attacker-controlled server. More severe than --extra-index-url. |
+| `sc-block-git-url-rewrite` | BLOCK | regex | git config url.*.insteadOf silently rewrites all subsequent git fetch/clone URLs in the session. Used in supply chain attacks to redirect trusted repositories to attacker-controlled sources. |
+| `sc-audit-conda-channel` | AUDIT | regex | conda/mamba install from a URL-based channel bypasses verified conda-forge/defaults channels. Review before allowing. |
 | `sc-block-pip-trusted-host` | BLOCK | regex | pip install with --trusted-host bypasses TLS verification. |
 | `sc-block-pip-url-install` | BLOCK | regex | pip install from URL bypasses PyPI. Download and inspect first. |
 | `sc-block-npm-url-install` | BLOCK | regex | npm install from URL bypasses registry verification. |
@@ -293,9 +305,9 @@
 | data-exfiltration | 33 | 16 | 49 |
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 29 | 16 | 45 |
-| privilege-escalation | 24 | 17 | 41 |
-| reconnaissance | 21 | 11 | 32 |
-| supply-chain | 22 | 11 | 33 |
+| privilege-escalation | 34 | 22 | 56 |
+| reconnaissance | 29 | 12 | 41 |
+| supply-chain | 28 | 18 | 46 |
 | unauthorized-execution | 27 | 17 | 44 |
-| **Total** | **270** | **164** | **434** |
+| **Total** | **294** | **177** | **471** |
 
