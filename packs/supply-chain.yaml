@@ -29,6 +29,30 @@ rules:
     decision: "BLOCK"
     reason: "pip install with --extra-index-url blocked. Risk of dependency confusion."
 
+  - id: "sc-block-pip-index-url"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "pip[23]?\\s+install.*--index-url\\s+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "pip install with --index-url replaces the primary PyPI index entirely, routing all package downloads to an attacker-controlled server. More severe than --extra-index-url."
+
+  - id: "sc-block-git-url-rewrite"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "git\\s+config.*url\\..*\\.insteadOf"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "git config url.*.insteadOf silently rewrites all subsequent git fetch/clone URLs in the session. Used in supply chain attacks to redirect trusted repositories to attacker-controlled sources."
+
+  - id: "sc-audit-conda-channel"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "(conda|mamba|micromamba)\\s+install.*(-c|--channel)\\s+(https?://|ftp://)"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "conda/mamba install from a URL-based channel bypasses verified conda-forge/defaults channels. Review before allowing."
+
   - id: "sc-block-pip-trusted-host"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
