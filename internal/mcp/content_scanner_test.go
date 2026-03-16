@@ -338,6 +338,75 @@ func TestContentScan_DeeplyNestedSecret(t *testing.T) {
 	assertContentSignal(t, result, SignalAWSCredential)
 }
 
+// ── Database URI tests ─────────────────────────────────────────────────────
+
+// TestContentScan_DatabaseURIMySQL verifies that a MySQL connection string with
+// embedded credentials in a tool argument is detected and blocked.
+// Taxonomy: credential-exposure/database-access/database-credential-access
+func TestContentScan_DatabaseURIMySQL(t *testing.T) {
+	result := ScanToolCallContent("execute_query", map[string]interface{}{
+		"connection_string": "mysql://admin:s3cr3t@prod-db.internal:3306/customers",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — MySQL URI with credentials")
+	}
+	assertContentSignal(t, result, SignalDatabaseURI)
+}
+
+func TestContentScan_DatabaseURIPostgres(t *testing.T) {
+	result := ScanToolCallContent("run_sql", map[string]interface{}{
+		"dsn": "postgresql://dbuser:password123@db.example.com:5432/production",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — PostgreSQL URI with credentials")
+	}
+	assertContentSignal(t, result, SignalDatabaseURI)
+}
+
+func TestContentScan_DatabaseURIMongoDB(t *testing.T) {
+	result := ScanToolCallContent("query_collection", map[string]interface{}{
+		"uri": "mongodb://root:mongopass@cluster0.example.mongodb.net:27017/mydb",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — MongoDB URI with credentials")
+	}
+	assertContentSignal(t, result, SignalDatabaseURI)
+}
+
+func TestContentScan_DatabaseURIMongoSRV(t *testing.T) {
+	result := ScanToolCallContent("aggregate", map[string]interface{}{
+		"connection": "mongodb+srv://admin:atlas_pass@cluster.mongodb.net/prod",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — MongoDB+srv URI with credentials")
+	}
+	assertContentSignal(t, result, SignalDatabaseURI)
+}
+
+func TestContentScan_DatabaseURIRedis(t *testing.T) {
+	result := ScanToolCallContent("cache_set", map[string]interface{}{
+		"url": "redis://:redispassword@redis.internal:6379/0",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — Redis URI with credentials")
+	}
+	assertContentSignal(t, result, SignalDatabaseURI)
+}
+
+// TestContentScan_DatabaseURINoCredentials verifies that a database URI
+// without embedded credentials (no user:pass@) does NOT trigger the signal,
+// avoiding FPs on bare connection strings used for development.
+func TestContentScan_DatabaseURINoCredentials(t *testing.T) {
+	result := ScanToolCallContent("connect", map[string]interface{}{
+		"host":     "localhost",
+		"database": "myapp_dev",
+		"port":     5432,
+	})
+	if result.Blocked {
+		t.Errorf("plain connection args without URI should not be blocked, got: %v", result.Findings)
+	}
+}
+
 func assertContentSignal(t *testing.T, result ContentScanResult, signal ContentSignal) {
 	t.Helper()
 	for _, f := range result.Findings {
