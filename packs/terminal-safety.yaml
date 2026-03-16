@@ -498,6 +498,14 @@ rules:
     confidence: 0.85
     reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk."
 
+  - id: "ts-block-cicd-cp-mv"
+    taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
+    match:
+      command_regex: "(cp|mv)(\\s+-\\S+)*\\s+\\S+\\s+(\\./)?(.*\\.github/workflows/|Jenkinsfile|\\.gitlab-ci\\.yml|\\.circleci/config\\.yml|\\.travis\\.yml)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk."
+
   # === BLOCK: Git credential theft & force push ===
 
   - id: "ts-block-git-force-push-main"
