@@ -588,6 +588,24 @@ rules:
     confidence: 0.90
     reason: "Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation."
 
+  # === BLOCK: Process injection (LLM06/LLM08) ===
+
+  - id: "ts-block-gdb-process-attach"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_regex: "gdb\\s+.*(--pid|-p)\\s+[0-9$]"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes."
+
+  - id: "ts-block-proc-mem-write"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_regex: "(dd|python[23]?|perl|ruby)\\s+.*(/proc/[0-9]+/mem|/dev/mem)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls."
+
   # === BLOCK: CI/CD pipeline tampering ===
 
   - id: "ts-block-cicd-write"
