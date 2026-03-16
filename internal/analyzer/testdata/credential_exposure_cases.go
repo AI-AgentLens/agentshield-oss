@@ -951,7 +951,108 @@ var ShadowReadCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
-// Category 2.10: GPG Key Access
+// Category 2.10: Kubernetes Config Access
+// Taxonomy: credential-exposure/container-config/kubernetes-config-access
+//
+// The kubeconfig file (~/.kube/config) contains cluster API server addresses,
+// embedded client certificates, bearer tokens, and CA certificates. Any read
+// or copy of this file exposes full cluster access credentials. MITRE T1552.001.
+// ---------------------------------------------------------------------------
+
+// KubernetesConfigAccessCases tests detection of kubeconfig credential access.
+// Taxonomy: credential-exposure/container-config/kubernetes-config-access
+var KubernetesConfigAccessCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-KUBECFG-001",
+		Command:          `cat ~/.kube/config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `Canonical kubeconfig read. Displays all cluster credentials including embedded certificates and bearer tokens. Matched by sec-block-kubeconfig-file-access.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-KUBECFG-002",
+		Command:          `kubectl config view --raw`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `kubectl config view --raw exports all cluster credentials in plaintext YAML. The --raw flag is the key indicator — without it, secrets are redacted. Matched by sec-block-kubectl-config-view-raw.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-KUBECFG-003",
+		Command:          `cp ~/.kube/config /tmp/backup.yaml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `Copying kubeconfig to /tmp stages it for exfiltration. Matched by sec-block-kubeconfig-file-access (cp + ~/.kube/config pattern).`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-KUBECFG-004",
+		Command:          `kubectl config view --minify --raw --output json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `kubectl config view with --raw flag extracts current context credentials in JSON. --minify scopes to active context only but still exports raw credentials. Matched by sec-block-kubectl-config-view-raw.`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-KUBECFG-001",
+		Command:          `kubectl get pods -n production`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `Standard kubectl operation listing pods. Uses kubeconfig implicitly but does not read or export it. Must not trigger kubeconfig access rules. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-KUBECFG-002",
+		Command:          `kubectl config current-context`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `Listing the current kubectl context name — metadata only, no credential exposure. Must not match the --raw view rule. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-KUBECFG-003",
+		Command:          `kubectl config view`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `kubectl config view without --raw redacts sensitive fields (certs, tokens shown as REDACTED). The regex specifically requires --raw to trigger. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-KUBECFG-004",
+		Command:          `kubectl config get-contexts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/kubernetes-config-access",
+		Analyzer:         "regex",
+		Description:      `Listing available kubectl contexts — shows context names and cluster names only, no credential data. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 2.11: GPG Key Access
+// (was 2.10 before kubernetes-config-access was inserted)
 // Taxonomy: credential-exposure/cryptographic-keys/gpg-key-access
 //
 // GPG private keys enable forging signed git commits, decrypting secrets, and
@@ -1063,6 +1164,7 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, HistoryMiningCases...)
 	all = append(all, KeychainExtractionCases...)
 	all = append(all, ShadowReadCases...)
+	all = append(all, KubernetesConfigAccessCases...)
 	all = append(all, GPGKeyAccessCases...)
 	return all
 }
