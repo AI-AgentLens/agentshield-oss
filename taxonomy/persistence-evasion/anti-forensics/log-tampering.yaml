@@ -1,0 +1,60 @@
+id: "persistence-evasion/anti-forensics/log-tampering"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Anti-Forensics"
+category_id: "6.4"
+name: "Log File Tampering"
+risk_level: "critical"
+
+abstract: |
+  Commands that truncate, empty, or overwrite system log files to erase
+  evidence of malicious activity and impede incident response.
+
+explanation: |
+  System logs (auth.log, syslog, audit.log, secure, wtmp) record authentication
+  events, privilege escalation, network connections, and process execution. An
+  AI agent being used as an attack vector may be instructed to clear these logs
+  after performing malicious actions:
+
+  - Redirecting log files to empty them: `> /var/log/auth.log`
+  - Truncating via the truncate command: `truncate -s 0 /var/log/syslog`
+  - Overwriting with null bytes: `dd if=/dev/null of=/var/log/audit/audit.log`
+  - Echoing empty strings: `echo '' > /var/log/secure`
+
+  Log tampering is a critical indicator of a security incident and is required to
+  be detected and blocked in any environment with compliance requirements.
+  An AI agent has no legitimate reason to modify or truncate system log files.
+
+recommendation: |
+  - Block all truncation or redirect of files under /var/log/ in agent processes.
+  - Use append-only file attributes (chattr +a) on critical log files.
+  - Implement remote syslog forwarding so local log tampering cannot destroy evidence.
+  - Alert immediately on any write attempt to /var/log/ from agent processes.
+
+examples:
+  bad:
+    - "> /var/log/auth.log"
+    - "truncate -s 0 /var/log/syslog"
+    - "> /var/log/audit/audit.log"
+    - "echo '' > /var/log/secure"
+    - "dd if=/dev/null of=/var/log/wtmp"
+    - "cat /dev/null > /var/log/messages"
+  good:
+    - "tail -f /var/log/syslog"
+    - "grep 'ERROR' /var/log/auth.log"
+    - "cat /var/log/audit/audit.log | grep 'USER_AUTH'"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08"]
+  iso-27001-2022: ["A.8.12", "A.8.9"]
+  eu-ai-act-2024: ["Art.13"]
+  nist-ai-rmf-1.0: ["GOVERN-1"]
+  soc2-type2: ["CC7.2"]
+
+references:
+  mitre_attack: ["T1070.002"]
+  cwe: ["CWE-778"]
+
+analyzers: ["regex"]
+related_rules: ["ts-block-log-file-clear"]
