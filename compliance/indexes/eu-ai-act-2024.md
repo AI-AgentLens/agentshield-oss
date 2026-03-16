@@ -1,30 +1,83 @@
-# OWASP Top 10 for LLM Applications 2025
+# EU AI Act 2024 (AI-Relevant Articles)
 
 > Auto-generated from taxonomy weakness entries. Do not edit manually.
-> Source: [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/)
+> Source: [EU AI Act 2024 (AI-Relevant Articles)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
-## LLM01: Prompt Injection
+## Art.10: Data and Data Governance
 
-[View on OWASP](https://genai.owasp.org/llmrisk/llm01-prompt-injection/)
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
+- **Environment Variable Dump** — A command dumps all environment variables, potentially exposing API keys,
+tokens, passwords, and cloud credentials stored in the environment. (Risk: high)
 - **Base64 Credential Encoding** — A command base64-encodes credential files (SSH keys, AWS credentials, GPG keys),
 transforming them into a format suitable for exfiltration via HTTP, DNS, or
 clipboard channels. (Risk: critical)
 - **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
 converting binary key material into a hexadecimal representation that can
 be reconstructed elsewhere. (Risk: high)
+- **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
+regulatory compliance risks by transmitting regulated information to third-party
+AI service providers. (Risk: high)
+- **Cloud CLI Data Access** — Cloud CLI tools (aws, gcloud, az) can access and exfiltrate cloud-stored data and
+credentials, using the ambient cloud credentials available to the agent's execution
+environment. (Risk: high)
 - **DNS Tunneling** — A command uses DNS queries (especially TXT records) to exfiltrate data
 or establish covert communication channels through DNS infrastructure. (Risk: high)
+- **Data Exfiltration via LLM API** — An AI agent sends sensitive local data (credentials, source code, internal
+documents) to an external LLM API endpoint, causing unintended data exfiltration
+through a seemingly legitimate channel. (Risk: high)
+- **Network HTTP Request** — HTTP/HTTPS requests via curl, wget, or HTTPie can be used to exfiltrate data or
+communicate with external services outside of the application's intended network
+boundary. (Risk: medium)
+- **Git Mirror Clone to External Repository** — An AI agent performs a mirror clone of a repository to an external destination,
+copying the full git history including all branches, tags, and potentially
+sensitive commits that were intended to be purged. (Risk: high)
+- **Training Data Tampering** — Writing malicious examples into fine-tuning datasets or training data files
+can introduce backdoors, biases, or capability degradation into AI models
+that are subsequently trained on the poisoned data. (Risk: critical)
+
+## Art.13: Transparency and Provision of Information
+
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
+
+- **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
+system prompt content, and transmitting that data via network requests or
+writing it to exfiltration paths, exposes confidential operator instructions
+and security configurations. (Risk: high)
+- **Uncontrolled Model Selection** — Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing
+governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: medium)
+- **Context Window Probe** — Commands that enumerate environment variables, shell variables, or process
+state specifically to discover injected system prompt content, operator
+secrets, or AI agent configuration constitute LLM introspection
+reconnaissance that may precede a targeted attack. (Risk: medium)
+- **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
+without grounding checks, and these outputs are persisted or acted upon by
+downstream systems without human verification. (Risk: high)
+- **AI Misinformation Propagation** — An AI agent writes or commits misleading, false, or unverified content
+(documentation, code comments, changelogs, config) that persists in the
+codebase or downstream systems without human review, causing teams to rely
+on incorrect information. (Risk: high)
+- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
+incur costs, process sensitive data, or bypass policy controls by enabling
+arbitrary LLM calls without governance or audit logging. (Risk: medium)
+
+## Art.14: Human Oversight
+
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
+
 - **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
 an attacker to execute commands on the local machine. (Risk: critical)
+- **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
+without grounding checks, and these outputs are persisted or acted upon by
+downstream systems without human verification. (Risk: high)
 - **Pipe to Shell** — A command downloads content from a remote URL and pipes it directly
 into a shell interpreter, executing unreviewed code. (Risk: medium)
 - **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
 debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
-## LLM02: Sensitive Information Disclosure
+## Art.15: Accuracy, Robustness and Cybersecurity
 
-[View on OWASP](https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/)
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
 - **AI API Key Exposure** — AI API key references in code or environment variables can lead to credential theft
 and unauthorized model access, resulting in financial losses, data leakage, and
@@ -80,6 +133,10 @@ be reconstructed elsewhere. (Risk: high)
 - **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
 regulatory compliance risks by transmitting regulated information to third-party
 AI service providers. (Risk: high)
+- **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
+system prompt content, and transmitting that data via network requests or
+writing it to exfiltration paths, exposes confidential operator instructions
+and security configurations. (Risk: high)
 - **Cloud CLI Data Access** — Cloud CLI tools (aws, gcloud, az) can access and exfiltrate cloud-stored data and
 credentials, using the ambient cloud credentials available to the agent's execution
 environment. (Risk: high)
@@ -94,55 +151,14 @@ through a seemingly legitimate channel. (Risk: high)
 - **Network HTTP Request** — HTTP/HTTPS requests via curl, wget, or HTTPie can be used to exfiltrate data or
 communicate with external services outside of the application's intended network
 boundary. (Risk: medium)
+- **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
+an attacker to execute commands on the local machine. (Risk: critical)
 - **Git Data Exfiltration** — Git push can exfiltrate source code or sensitive data to remote repositories,
 including attacker-controlled forks or mirrors, using the authentication already
 configured in the local git credential store. (Risk: medium)
 - **Git Mirror Clone to External Repository** — An AI agent performs a mirror clone of a repository to an external destination,
 copying the full git history including all branches, tags, and potentially
 sensitive commits that were intended to be purged. (Risk: high)
-- **SSH Key Generation for Lateral Movement** — An AI agent generates SSH key pairs using automated/piped methods that
-bypass passphrase requirements, creating passwordless keys that can be
-used to establish persistent access or enable lateral movement. (Risk: high)
-- **DNS Lookup** — DNS lookups can be used for network reconnaissance to discover internal
-infrastructure, enumerate hosts, and prepare for lateral movement or data
-exfiltration. (Risk: low)
-- **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
-a network segment, enabling an attacker to map the local network, identify
-targets, and prepare for lateral movement or data exfiltration. (Risk: high)
-- **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
-hosts, enabling an attacker to map network topology and identify targets
-for exploitation. AI agents performing unsolicited port scans violate
-authorization boundaries and may constitute illegal computer access. (Risk: high)
-
-## LLM03: Supply Chain
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm032025-supply-chain/)
-
-- **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
-(e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
-potentially injecting malicious steps that execute during automated builds. (Risk: high)
-- **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
-dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
-
-## LLM04: Data and Model Poisoning
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/)
-
-- **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
-any system that loads the checkpoint to execute attacker-controlled model
-weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
-- **Training Data Tampering** — Writing malicious examples into fine-tuning datasets or training data files
-can introduce backdoors, biases, or capability degradation into AI models
-that are subsequently trained on the poisoned data. (Risk: critical)
-
-## LLM05: Improper Output Handling
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/)
-
-- **Uncontrolled Model Selection** — Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing
-governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: medium)
-- **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
-an attacker to execute commands on the local machine. (Risk: critical)
 - **AWS IAM User or Role Deletion** — An AI agent deletes an AWS IAM user or role, potentially breaking authentication,
 authorization chains, and service-to-service trust relationships. (Risk: high)
 - **AWS EC2 Instance Termination** — An AI agent terminates one or more AWS EC2 instances using the AWS CLI,
@@ -183,19 +199,36 @@ causing irreversible destruction of the entire operating system and data. (Risk:
 /usr, /var, /boot, /sys, or /proc, causing system instability or failure. (Risk: critical)
 - **World-Writable Permissions** — A command sets world-writable permissions (777) on root or system paths,
 removing all file access protections. (Risk: high)
-- **Unbounded Financial Transfer** — An AI agent executes a financial transfer or resource commitment without
-enforcing value limits, risking catastrophic loss from parsing errors,
-misinterpreted instructions, or social engineering. (Risk: critical)
 - **Fork Bomb** — A command spawns processes recursively until system resources are
 exhausted, causing a denial-of-service condition. (Risk: critical)
+- **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
+disruption and potential data loss, constituting a denial-of-service attack
+against the host system. (Risk: critical)
 - **Git Force Push** — An AI agent performs a force push (`git push --force` or `git push -f`) to a
 remote repository, overwriting remote history and potentially causing permanent
 loss of commits for collaborators. (Risk: high)
 - **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
 (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
 potentially injecting malicious steps that execute during automated builds. (Risk: high)
+- **SSH Key Generation for Lateral Movement** — An AI agent generates SSH key pairs using automated/piped methods that
+bypass passphrase requirements, creating passwordless keys that can be
+used to establish persistent access or enable lateral movement. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
+- **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
+for future execution, surviving process restarts and remaining active after the
+original session ends. (Risk: high)
+- **Systemctl Service Manipulation** — Using systemctl or launchctl to start, stop, or enable services allows an agent to
+establish persistence or disrupt system operations by controlling the service manager
+lifecycle. (Risk: high)
+- **Environment Variable Injection** — An AI agent that manipulates `LD_PRELOAD` or `LD_LIBRARY_PATH` can inject
+malicious shared libraries into privileged processes, bypassing authentication
+and security controls at the dynamic linker level. (Risk: high)
+- **Kernel Module Loading** — Loading a kernel module grants ring-0 (kernel-space) access to the system,
+enabling complete bypass of all userspace security controls, rootkit installation,
+and persistent system compromise. (Risk: critical)
+- **Sudo Invocation** — An AI agent invoking `sudo` to elevate privileges can bypass application-level
+access controls and gain root-level access to the system. (Risk: high)
 - **Docker Exec into Running Container** — An AI agent uses `docker exec` to execute commands inside a running container,
 potentially escalating privileges or interfering with isolated workloads. (Risk: high)
 - **Docker Host Filesystem Mount** — An AI agent mounts the host filesystem root (`/`) into a Docker container,
@@ -203,9 +236,39 @@ providing unrestricted read/write access to all host files from within
 the container. (Risk: critical)
 - **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
 it full host capabilities and effectively removing all container isolation. (Risk: critical)
+- **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
+escape and user namespace privilege escalation, allowing an agent to break out of
+process isolation boundaries. (Risk: high)
+- **Linux Capabilities Manipulation** — Linux capabilities allow fine-grained privilege delegation without full root access.
+Setting capabilities such as `cap_setuid` or `cap_net_admin` on a binary is a stealthy
+privilege escalation technique that bypasses sudo audit trails. (Risk: critical)
+- **File Ownership Change** — Changing file ownership with `chown` or `chgrp` can grant unauthorized access to
+sensitive files or enable privilege escalation by transferring control of privileged
+resources to the agent's user. (Risk: high)
+- **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
+privilege escalation backdoor: any user who runs the file gains the file owner's
+(typically root's) privileges for the duration of the process. (Risk: critical)
+- **DNS Lookup** — DNS lookups can be used for network reconnaissance to discover internal
+infrastructure, enumerate hosts, and prepare for lateral movement or data
+exfiltration. (Risk: low)
+- **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
+a network segment, enabling an attacker to map the local network, identify
+targets, and prepare for lateral movement or data exfiltration. (Risk: high)
+- **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
+hosts, enabling an attacker to map network topology and identify targets
+for exploitation. AI agents performing unsolicited port scans violate
+authorization boundaries and may constitute illegal computer access. (Risk: high)
 - **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
 resolution to malicious sources, enabling dependency confusion, supply chain injection,
 or credential theft from registry tokens stored in these files. (Risk: high)
+- **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
+dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
+any system that loads the checkpoint to execute attacker-controlled model
+weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
+- **Training Data Tampering** — Writing malicious examples into fine-tuning datasets or training data files
+can introduce backdoors, biases, or capability degradation into AI models
+that are subsequently trained on the poisoned data. (Risk: critical)
 - **Global Package Install** — Installing packages globally affects the entire system environment, amplifying the
 impact of any supply chain compromise by making malicious code available to all
 users and processes on the system. (Risk: high)
@@ -217,10 +280,35 @@ third-party code that may contain vulnerabilities, malicious payloads, or known
 CVEs without explicit human review. (Risk: medium)
 - **Pipe to Shell** — A command downloads content from a remote URL and pipes it directly
 into a shell interpreter, executing unreviewed code. (Risk: medium)
+- **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
+debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
-## LLM06: Excessive Agency
+## Art.26: Obligations of Deployers of High-Risk AI Systems
 
-[View on OWASP](https://genai.owasp.org/llmrisk/llm062025-excessive-agency/)
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
+
+- **Unbounded Financial Transfer** — An AI agent executes a financial transfer or resource commitment without
+enforcing value limits, risking catastrophic loss from parsing errors,
+misinterpreted instructions, or social engineering. (Risk: critical)
+- **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
+multi-step execution with broad tool access, increasing the attack surface
+significantly compared to single-shot LLM calls. (Risk: high)
+- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
+incur costs, process sensitive data, or bypass policy controls by enabling
+arbitrary LLM calls without governance or audit logging. (Risk: medium)
+
+## Art.50: Transparency Obligations for Certain AI Systems
+
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
+
+- **AI Misinformation Propagation** — An AI agent writes or commits misleading, false, or unverified content
+(documentation, code comments, changelogs, config) that persists in the
+codebase or downstream systems without human review, causing teams to rely
+on incorrect information. (Risk: high)
+
+## Art.9: Risk Management System
+
+[View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
 - **AI API Key Exposure** — AI API key references in code or environment variables can lead to credential theft
 and unauthorized model access, resulting in financial losses, data leakage, and
@@ -251,8 +339,6 @@ command-line tool, exposing stored passwords, certificates, and tokens. (Risk: c
 exposing hashed credentials for all local and service accounts. (Risk: critical)
 - **SSH Private Key Read** — A command reads or copies SSH private key files, enabling impersonation
 of the key owner for remote access. (Risk: critical)
-- **Environment Variable Dump** — A command dumps all environment variables, potentially exposing API keys,
-tokens, passwords, and cloud credentials stored in the environment. (Risk: high)
 - **Git Credential Access** — Accessing git credentials can expose authentication tokens stored in the git
 credential helper, providing access to all repositories the user is authorized
 to access on platforms like GitHub, GitLab, and Bitbucket. (Risk: high)
@@ -261,39 +347,8 @@ stored usernames and passwords/tokens for remote repositories. (Risk: high)
 - **Git Credential Configuration Modification** — An AI agent modifies Git credential configuration to redirect authentication
 to an attacker-controlled helper or store credentials in a more accessible
 location, enabling future credential theft. (Risk: high)
-- **Base64 Credential Encoding** — A command base64-encodes credential files (SSH keys, AWS credentials, GPG keys),
-transforming them into a format suitable for exfiltration via HTTP, DNS, or
-clipboard channels. (Risk: critical)
-- **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
-converting binary key material into a hexadecimal representation that can
-be reconstructed elsewhere. (Risk: high)
-- **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
-regulatory compliance risks by transmitting regulated information to third-party
-AI service providers. (Risk: high)
 - **Uncontrolled Model Selection** — Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing
 governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: medium)
-- **Cloud CLI Data Access** — Cloud CLI tools (aws, gcloud, az) can access and exfiltrate cloud-stored data and
-credentials, using the ambient cloud credentials available to the agent's execution
-environment. (Risk: high)
-- **DNS Tunneling** — A command uses DNS queries (especially TXT records) to exfiltrate data
-or establish covert communication channels through DNS infrastructure. (Risk: high)
-- **Lateral Movement via SSH/SCP** — SSH, SCP, rsync, and SFTP can be used to move laterally across systems or
-exfiltrate data to remote hosts, leveraging existing trust relationships and
-stored credentials. (Risk: high)
-- **Data Exfiltration via LLM API** — An AI agent sends sensitive local data (credentials, source code, internal
-documents) to an external LLM API endpoint, causing unintended data exfiltration
-through a seemingly legitimate channel. (Risk: high)
-- **Network HTTP Request** — HTTP/HTTPS requests via curl, wget, or HTTPie can be used to exfiltrate data or
-communicate with external services outside of the application's intended network
-boundary. (Risk: medium)
-- **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
-an attacker to execute commands on the local machine. (Risk: critical)
-- **Git Data Exfiltration** — Git push can exfiltrate source code or sensitive data to remote repositories,
-including attacker-controlled forks or mirrors, using the authentication already
-configured in the local git credential store. (Risk: medium)
-- **Git Mirror Clone to External Repository** — An AI agent performs a mirror clone of a repository to an external destination,
-copying the full git history including all branches, tags, and potentially
-sensitive commits that were intended to be purged. (Risk: high)
 - **AWS IAM User or Role Deletion** — An AI agent deletes an AWS IAM user or role, potentially breaking authentication,
 authorization chains, and service-to-service trust relationships. (Risk: high)
 - **AWS EC2 Instance Termination** — An AI agent terminates one or more AWS EC2 instances using the AWS CLI,
@@ -339,6 +394,9 @@ enforcing value limits, risking catastrophic loss from parsing errors,
 misinterpreted instructions, or social engineering. (Risk: critical)
 - **Fork Bomb** — A command spawns processes recursively until system resources are
 exhausted, causing a denial-of-service condition. (Risk: critical)
+- **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
+disruption and potential data loss, constituting a denial-of-service attack
+against the host system. (Risk: critical)
 - **Git Force Push** — An AI agent performs a force push (`git push --force` or `git push -f`) to a
 remote repository, overwriting remote history and potentially causing permanent
 loss of commits for collaborators. (Risk: high)
@@ -350,46 +408,6 @@ bypass passphrase requirements, creating passwordless keys that can be
 used to establish persistent access or enable lateral movement. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
-- **Docker Exec into Running Container** — An AI agent uses `docker exec` to execute commands inside a running container,
-potentially escalating privileges or interfering with isolated workloads. (Risk: high)
-- **Docker Host Filesystem Mount** — An AI agent mounts the host filesystem root (`/`) into a Docker container,
-providing unrestricted read/write access to all host files from within
-the container. (Risk: critical)
-- **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
-it full host capabilities and effectively removing all container isolation. (Risk: critical)
-- **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
-dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
-- **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
-multi-step execution with broad tool access, increasing the attack surface
-significantly compared to single-shot LLM calls. (Risk: high)
-- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
-incur costs, process sensitive data, or bypass policy controls by enabling
-arbitrary LLM calls without governance or audit logging. (Risk: medium)
-- **Pipe to Shell** — A command downloads content from a remote URL and pipes it directly
-into a shell interpreter, executing unreviewed code. (Risk: medium)
-- **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
-debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
-
-## LLM07: System Prompt Leakage
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/)
-
-- **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
-system prompt content, and transmitting that data via network requests or
-writing it to exfiltration paths, exposes confidential operator instructions
-and security configurations. (Risk: high)
-- **Context Window Probe** — Commands that enumerate environment variables, shell variables, or process
-state specifically to discover injected system prompt content, operator
-secrets, or AI agent configuration constitute LLM introspection
-reconnaissance that may precede a targeted attack. (Risk: medium)
-
-## LLM08: Vector and Embedding Weaknesses
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/)
-
-- **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
-disruption and potential data loss, constituting a denial-of-service attack
-against the host system. (Risk: critical)
 - **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
 for future execution, surviving process restarts and remaining active after the
 original session ends. (Risk: high)
@@ -404,6 +422,13 @@ enabling complete bypass of all userspace security controls, rootkit installatio
 and persistent system compromise. (Risk: critical)
 - **Sudo Invocation** — An AI agent invoking `sudo` to elevate privileges can bypass application-level
 access controls and gain root-level access to the system. (Risk: high)
+- **Docker Exec into Running Container** — An AI agent uses `docker exec` to execute commands inside a running container,
+potentially escalating privileges or interfering with isolated workloads. (Risk: high)
+- **Docker Host Filesystem Mount** — An AI agent mounts the host filesystem root (`/`) into a Docker container,
+providing unrestricted read/write access to all host files from within
+the container. (Risk: critical)
+- **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
+it full host capabilities and effectively removing all container isolation. (Risk: critical)
 - **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
 escape and user namespace privilege escalation, allowing an agent to break out of
 process isolation boundaries. (Risk: high)
@@ -416,49 +441,11 @@ resources to the agent's user. (Risk: high)
 - **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
 privilege escalation backdoor: any user who runs the file gains the file owner's
 (typically root's) privileges for the duration of the process. (Risk: critical)
-- **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
-a network segment, enabling an attacker to map the local network, identify
-targets, and prepare for lateral movement or data exfiltration. (Risk: high)
-- **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
-hosts, enabling an attacker to map network topology and identify targets
-for exploitation. AI agents performing unsolicited port scans violate
-authorization boundaries and may constitute illegal computer access. (Risk: high)
-- **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
-resolution to malicious sources, enabling dependency confusion, supply chain injection,
-or credential theft from registry tokens stored in these files. (Risk: high)
-- **Package Security Control Bypass** — Disabling npm post-install scripts protection or tampering with lockfiles removes
-critical supply chain safeguards, directly enabling malicious package execution
-and dependency integrity bypass. (Risk: critical)
-- **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
-multi-step execution with broad tool access, increasing the attack surface
-significantly compared to single-shot LLM calls. (Risk: high)
-- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
-incur costs, process sensitive data, or bypass policy controls by enabling
-arbitrary LLM calls without governance or audit logging. (Risk: medium)
-- **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
-debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
-
-## LLM09: Misinformation
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm092025-misinformation/)
-
-- **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
-without grounding checks, and these outputs are persisted or acted upon by
-downstream systems without human verification. (Risk: high)
-- **AI Misinformation Propagation** — An AI agent writes or commits misleading, false, or unverified content
-(documentation, code comments, changelogs, config) that persists in the
-codebase or downstream systems without human review, causing teams to rely
-on incorrect information. (Risk: high)
-
-## LLM10: Unbounded Consumption
-
-[View on OWASP](https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/)
-
-- **Unbounded Financial Transfer** — An AI agent executes a financial transfer or resource commitment without
-enforcing value limits, risking catastrophic loss from parsing errors,
-misinterpreted instructions, or social engineering. (Risk: critical)
-- **Fork Bomb** — A command spawns processes recursively until system resources are
-exhausted, causing a denial-of-service condition. (Risk: critical)
+- **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
+dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
+any system that loads the checkpoint to execute attacker-controlled model
+weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
 - **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
 multi-step execution with broad tool access, increasing the attack surface
 significantly compared to single-shot LLM calls. (Risk: high)
