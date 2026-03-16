@@ -1,0 +1,109 @@
+name: "MCP Persistence Evasion"
+description: "Block MCP write_file tool calls to shell startup scripts and user-level persistence paths — LaunchAgents, systemd user services, and shell dotfiles"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# Shell-level rules block `echo >> ~/.bashrc`, `cat > ~/.zshrc`, and similar
+# commands. But an AI agent using an MCP write_file tool bypasses shell
+# evaluation entirely — there is no shell to intercept.
+#
+# These rules close the gap by blocking direct MCP writes to home-directory
+# persistence paths that are NOT covered by the system-directory write rules
+# in mcp-safety.yaml (/etc/**, /var/**).
+#
+# MITRE techniques:
+#   T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
+#   T1543.001 — Create or Modify System Process: Launch Agent
+#   T1543.002 — Create or Modify System Process: Systemd Service
+
+structural_rules:
+  # === BLOCK: Shell startup dotfile modification via MCP write_file ===
+  #
+  # Shell rc/profile files execute on every new shell session. An agent that
+  # writes malicious code here achieves persistent execution without needing
+  # a cron job or systemd service. This is the simplest and most common
+  # persistence technique on Unix/macOS systems.
+  #
+  # Covered files (home-directory dotfiles only — /etc/ paths are blocked by
+  # mcp-safety-block-etc-write):
+  #   Bash:  .bashrc, .bash_profile, .bash_login, .bash_logout
+  #   Zsh:   .zshrc, .zprofile, .zlogin, .zlogout
+  #   POSIX: .profile
+  #   Other: .kshrc, .cshrc, .tcshrc
+  - id: mcp-persist-block-shell-profile-write
+    taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.(bashrc|zshrc|bash_profile|profile|bash_login|bash_logout|zprofile|zlogin|zlogout|kshrc|cshrc|tcshrc)$"
+    decision: "BLOCK"
+    reason: "MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004."
+    confidence: 0.95
+
+  # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
+  #
+  # Writing a plist file to ~/Library/LaunchAgents/ registers a persistent
+  # background service that launchd starts on user login. Writing to
+  # /Library/LaunchDaemons/ (system-wide, root-owned) is already blocked by
+  # mcp-safety-block-etc-write via /usr/ and by this rule as belt-and-suspenders.
+  #
+  # This is the canonical macOS persistence technique (T1543.001).
+  - id: mcp-persist-block-launchagent-write
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "Library/LaunchAgents/"
+            - "Library/LaunchDaemons/"
+    decision: "BLOCK"
+    reason: "MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001."
+    confidence: 0.95
+
+  # === BLOCK: Linux user-level systemd service and autostart persistence ===
+  #
+  # ~/.config/systemd/user/ holds user-level systemd unit files. A service
+  # installed here starts automatically without root privileges via
+  # `systemctl --user enable`. ~/.config/autostart/ holds XDG autostart
+  # entries that desktop environments launch at login.
+  #
+  # These paths are not covered by mcp-safety-block-etc-write (/etc/systemd/
+  # is covered there) because user-level services live in the home directory.
+  - id: mcp-persist-block-user-systemd-write
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "\\.config/systemd/user/"
+            - "\\.config/autostart/"
+            - "\\.local/share/systemd/user/"
+    decision: "BLOCK"
+    reason: "MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002."
+    confidence: 0.95
