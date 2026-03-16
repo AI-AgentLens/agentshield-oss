@@ -102,6 +102,15 @@ rules:
     confidence: 0.95
     reason: "source/dot with process substitution from remote downloader executes unreviewed remote code — pipe-to-shell evasion."
 
+  # === BLOCK: Interpreter inline download-execute (pipe-to-shell evasion) ===
+  - id: "ts-block-interpreter-inline-rce"
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
+    match:
+      command_regex: "(python[23]?|ruby|perl)\\s+(-c|-e)\\s+[\"'].*\\b(urllib|requests|httpx|aiohttp|open-uri|open_uri|LWP).*\\b(exec|eval)\\s*\\("
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Interpreter inline download-execute: fetches remote code via HTTP module and runs it with exec/eval — pipe-to-shell evasion without a pipe (OWASP LLM02)."
+
   # === BLOCK: Pipe-to-crontab ===
   - id: "ts-block-pipe-to-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
