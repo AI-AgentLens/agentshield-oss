@@ -193,6 +193,48 @@ rules:
     decision: "AUDIT"
     reason: "Crontab modification flagged for persistence review."
 
+  # === BLOCK: Deactivating security daemons ===
+  - id: "ts-block-security-daemon-deactivate"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "\\b(systemctl|service)\\b.*(stop|mask|disable)\\b.*(ufw|firewalld|auditd|fail2ban|apparmor|crowdstrike|falcon|ossec|wazuh|clamd|rkhunter)\\b"
+    decision: "BLOCK"
+    reason: "Deactivating a security daemon (firewall, IDS, AV, audit) removes a defensive control. AI agents have no legitimate reason to stop security services."
+    confidence: 0.97
+
+  - id: "ts-block-security-daemon-deactivate-reverse"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "\\b(systemctl|service)\\b.*(ufw|firewalld|auditd|fail2ban|apparmor|crowdstrike|falcon|ossec|wazuh|clamd|rkhunter)\\b.*(stop|mask|disable)\\b"
+    decision: "BLOCK"
+    reason: "Deactivating a security daemon (reverse argument order). AI agents have no legitimate reason to stop security services."
+    confidence: 0.97
+
+  - id: "ts-block-ufw-disable"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "\\bufw\\b\\s+(disable|reset)\\b"
+    decision: "BLOCK"
+    reason: "Directly deactivating the system firewall via `ufw disable`. No legitimate agent use case."
+    confidence: 0.99
+
+  - id: "ts-block-selinux-permissive"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "\\bsetenforce\\b\\s+0\\b"
+    decision: "BLOCK"
+    reason: "Setting SELinux to permissive mode removes mandatory access control enforcement. Defense evasion technique."
+    confidence: 0.99
+
+  - id: "ts-block-apparmor-disable"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "\\baa-(disable|complain)\\b"
+    decision: "BLOCK"
+    reason: "Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion."
+    confidence: 0.97
+
+  # === AUDIT: General service management ===
   - id: "ts-audit-systemctl"
     taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
     match:
