@@ -62,7 +62,60 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 	// documentation text passed as flag values.
 	skipTextContent := false
 
+	// inHeredoc is set true after a heredoc operator (<<, <<-, <<'EOF', etc.)
+	// is seen. All tokens until the closing delimiter are heredoc body content
+	// and must not be extracted as paths. This prevents false positives when
+	// protected-path strings appear in heredoc bodies (e.g. documentation,
+	// generated Go code, multi-line config writes).
+	// Reproduces: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/79
+	inHeredoc := false
+	heredocDelim := ""
+	nextIsHeredocDelim := false
+
 	for _, arg := range args[1:] {
+		// ── Heredoc state machine ──────────────────────────────────────────
+		// Priority: heredoc state is checked before everything else so that
+		// flags and paths inside heredoc bodies are never processed.
+
+		if nextIsHeredocDelim {
+			// This token is the heredoc delimiter (e.g. EOF, 'EOF', "MY_EOF")
+			heredocDelim = stripHeredocDelimQuotes(arg)
+			if heredocDelim != "" {
+				inHeredoc = true
+			}
+			nextIsHeredocDelim = false
+			continue
+		}
+
+		if inHeredoc {
+			if arg == heredocDelim {
+				// Closing delimiter found — exit heredoc body
+				inHeredoc = false
+				heredocDelim = ""
+			}
+			// Skip body tokens (including the closing delimiter itself)
+			continue
+		}
+
+		// Detect heredoc operator tokens: <<, <<-, <<EOF, <<'EOF', <<"EOF", <<-EOF
+		if strings.HasPrefix(arg, "<<") {
+			suffix := arg[2:]
+			suffix = strings.TrimPrefix(suffix, "-") // strip optional - (<<- indented heredoc)
+			if suffix == "" {
+				// Operator and delimiter are separate tokens: << EOF
+				nextIsHeredocDelim = true
+			} else {
+				// Operator and delimiter are in one token: <<EOF or <<'EOF'
+				heredocDelim = stripHeredocDelimQuotes(suffix)
+				if heredocDelim != "" {
+					inHeredoc = true
+				}
+			}
+			continue
+		}
+
+		// ── Normal token processing ────────────────────────────────────────
+
 		if strings.HasPrefix(arg, "-") {
 			// Any new flag resets the text-content skip state.
 			// Also handle combined short flags like -am (git commit -a -m shorthand):
@@ -190,4 +243,17 @@ func uniqueStrings(input []string) []string {
 		}
 	}
 	return result
+}
+
+// stripHeredocDelimQuotes removes surrounding single or double quotes from a
+// heredoc delimiter token. Shell allows quoting the delimiter to suppress
+// expansion: <<'EOF', <<"EOF". The closing line must match the unquoted name.
+func stripHeredocDelimQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '\'' && s[len(s)-1] == '\'') ||
+			(s[0] == '"' && s[len(s)-1] == '"') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
