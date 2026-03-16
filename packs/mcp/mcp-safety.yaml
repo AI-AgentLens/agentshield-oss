@@ -89,6 +89,7 @@ rules:
 structural_rules:
   # Block any file-writing tool that targets sensitive system/credential paths
   - id: mcp-struct-block-sensitive-path-write
+    taxonomy: "credential-exposure/config-file/generic-config-access"
     match:
       tool_name_any:
         - "write_file"
@@ -113,6 +114,7 @@ structural_rules:
 
   # Block shell execution tools — these should go through AgentShield's command pipeline
   - id: mcp-struct-block-shell-execution
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
     match:
       tool_name_any:
         - "execute_command"
@@ -131,6 +133,7 @@ structural_rules:
 
   # Block prompt injection patterns in any text/content argument
   - id: mcp-struct-block-prompt-injection-text
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -145,6 +148,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-prompt-injection-content
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -159,6 +163,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-prompt-injection-messages
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -174,6 +179,7 @@ structural_rules:
 
   # Block path traversal patterns in path/directory arguments
   - id: mcp-struct-block-path-traversal
+    taxonomy: "credential-exposure/config-file/generic-config-access"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -186,6 +192,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-path-traversal-directory
+    taxonomy: "credential-exposure/config-file/generic-config-access"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -199,6 +206,7 @@ structural_rules:
 
   # Block SSRF — requests to cloud metadata endpoints and internal IP ranges
   - id: mcp-struct-block-ssrf-metadata
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -212,6 +220,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-ssrf-metadata-endpoint
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -227,6 +236,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-ssrf-private-network
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -241,6 +251,7 @@ structural_rules:
 
   # Block SQL injection patterns in query/filter arguments
   - id: mcp-struct-block-sql-injection-query
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -255,6 +266,7 @@ structural_rules:
     confidence: 0.90
 
   - id: mcp-struct-block-sql-injection-filter
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -269,6 +281,7 @@ structural_rules:
 
   # Block privilege escalation — permission changes on system paths
   - id: mcp-struct-block-privesc-permissions
+    taxonomy: "privilege-escalation/file-permissions/ownership-change"
     match:
       tool_name_regex: "(?i)(set_perm|chmod|change_perm|set_permissions)"
       args_match:
@@ -285,6 +298,7 @@ structural_rules:
 
   # Block auth bypass configuration changes
   - id: mcp-struct-block-auth-bypass
+    taxonomy: "privilege-escalation/command-execution/env-injection"
     match:
       tool_name_regex: "(?i)(modify_config|set_config|update_config|update_setting)"
       args_match:
@@ -300,6 +314,7 @@ structural_rules:
 
   # Block shell commands in any argument named 'command' or 'exec' (catches renamed tools)
   - id: mcp-struct-block-shell-in-command-arg
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -314,6 +329,7 @@ structural_rules:
     confidence: 0.90
 
   - id: mcp-struct-block-shell-in-exec-arg
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -331,6 +347,7 @@ structural_rules:
 
   # Audit network requests to non-local destinations
   - id: mcp-struct-audit-network-request
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       tool_name_any:
         - "http_request"
@@ -354,6 +371,7 @@ structural_rules:
 # regex and structural matching would miss.
 semantic_rules:
   - id: "mcp-sem-block-code-execute"
+    taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
     match:
       intent_any: ["code-execute", "shell-command"]
       confidence_min: 0.7
@@ -361,6 +379,7 @@ semantic_rules:
     reason: "MCP tool classified as code execution — should go through AgentShield command pipeline"
 
   - id: "mcp-sem-audit-network-request"
+    taxonomy: "data-exfiltration/network-egress/network-http-request"
     match:
       intent_any: ["network-request"]
       confidence_min: 0.6
@@ -368,6 +387,7 @@ semantic_rules:
     reason: "MCP tool classified as external network request"
 
   - id: "mcp-sem-block-credential-access"
+    taxonomy: "credential-exposure/config-file/generic-config-access"
     match:
       intent_any: ["credential-read"]
       confidence_min: 0.7
@@ -375,6 +395,7 @@ semantic_rules:
     reason: "MCP tool classified as credential access"
 
   - id: "mcp-sem-audit-file-delete"
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       intent_any: ["file-delete"]
       confidence_min: 0.6
@@ -382,6 +403,7 @@ semantic_rules:
     reason: "MCP tool classified as file deletion"
 
   - id: "mcp-sem-block-process-manage"
+    taxonomy: "destructive-ops/system-management/system-shutdown"
     match:
       intent_any: ["process-manage"]
       confidence_min: 0.7
