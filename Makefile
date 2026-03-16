@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp
+.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -54,5 +54,8 @@ mcp-verify: ## Run MCP proxy self-test and output Markdown report
 
 test-mcp: ## Run MCP scenario tests
 	go test -v -run TestMCPScenarios ./internal/mcp/
+
+compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy entries and standards
+	go run ./internal/taxonomy/generate_index.go
 
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
