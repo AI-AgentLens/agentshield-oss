@@ -111,6 +111,39 @@ rules:
     confidence: 0.92
     reason: "Interpreter inline download-execute: fetches remote code via HTTP module and runs it with exec/eval — pipe-to-shell evasion without a pipe (OWASP LLM02)."
 
+  # === BLOCK: Python inline OS/subprocess command execution (indirect-code-exec) ===
+  # Catches AI agents using python -c to bypass shell-level detection by routing
+  # OS commands through the Python interpreter (os.system, subprocess, __import__).
+  - id: "ts-block-python-inline-os-exec"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*\\b(os\\.system\\s*\\(|os\\.popen\\s*\\(|os\\.execv|os\\.execl|subprocess\\.(run|call|Popen|check_output|check_call)\\s*\\(|__import__\\s*\\(\\s*['\"]os['\"]\\s*\\))"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Python inline code executing OS commands (os.system/subprocess/__import__('os')) bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02)."
+
+  # === BLOCK: Node.js inline child_process execution (indirect-code-exec) ===
+  # Catches AI agents using node -e to execute shell commands via child_process,
+  # bypassing shell-level detection.
+  - id: "ts-block-node-inline-child-process"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "(node|ts-node|bun)\\s+.*-e\\s+.*require\\s*\\(\\s*['\"]child_process['\"]\\s*\\)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Node.js inline code importing child_process bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02)."
+
+  # === BLOCK: Perl/Ruby inline system/exec command execution (indirect-code-exec) ===
+  # Catches AI agents using perl/ruby -e to execute OS commands via system()/exec(),
+  # bypassing shell-level detection.
+  - id: "ts-block-perl-ruby-inline-system"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "(perl|ruby)\\s+-e\\s+['\"].*\\b(system\\s*\\(|exec\\s*\\()"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Perl/Ruby inline code calling system()/exec() bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02)."
+
   # === BLOCK: Pipe-to-crontab ===
   - id: "ts-block-pipe-to-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
