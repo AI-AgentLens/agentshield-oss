@@ -338,6 +338,39 @@ var SSHKeyGenCases = []TestCase{
 		Tags:             []string{"canonical", "critical"},
 	},
 
+	// --- ts-block-ssh-keygen-piped: TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SSHKEYG-003",
+		Command:          `echo "" | ssh-keygen -t rsa -f /tmp/agent_key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Piping empty string to ssh-keygen bypasses passphrase prompt. Caught by ts-block-ssh-keygen-piped.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-SSHKEYG-004",
+		Command:          `printf '' | ssh-keygen -t ed25519 -f /tmp/id_ed25519`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Piping empty printf output to ssh-keygen for non-interactive key generation. Caught by ts-block-ssh-keygen-piped.`,
+		Tags:             []string{"critical"},
+	},
+	{
+		ID:               "TP-SSHKEYG-005",
+		Command:          `ssh-keygen -t rsa -f /tmp/key < /dev/null`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Redirecting /dev/null as stdin to ssh-keygen to bypass passphrase prompt. Caught by ts-block-ssh-keygen-piped.`,
+		Tags:             []string{"critical"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
