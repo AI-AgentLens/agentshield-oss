@@ -190,7 +190,7 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 			Match: func(parsed *ParsedCommand, raw string) bool {
 				for _, seg := range allSegments(parsed) {
 					if seg.Executable == "nmap" || seg.Executable == "masscan" ||
-						seg.Executable == "zmap" {
+						seg.Executable == "rustscan" || seg.Executable == "zmap" {
 						return true
 					}
 				}
@@ -199,7 +199,7 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 			Decision:    "AUDIT",
 			Confidence:  0.85,
 			Reason:      "Network scanning tool detected",
-			TaxonomyRef: "reconnaissance/system-enum/network-scanning",
+			TaxonomyRef: "reconnaissance/network-discovery/port-scan",
 			Intent: CommandIntent{
 				Category:   "network-scan",
 				Risk:       "medium",
