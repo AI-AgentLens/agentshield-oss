@@ -203,3 +203,24 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "nmap port scan detected. Verify the target scope is authorized."
+
+  # === BLOCK: ARP and host discovery scanning ===
+
+  - id: "ne-block-arp-scan"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      structural:
+        executable: ["arp-scan", "netdiscover"]
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "ARP-based host discovery tools (arp-scan, netdiscover) perform active network sweeping. AI agents must not enumerate network hosts without explicit authorization."
+
+  # === AUDIT: Passive ARP/neighbor table inspection ===
+
+  - id: "ne-audit-arp-table"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      command_regex: "^arp\\s|^ip\\s+neigh(bour)?\\s"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "ARP table or neighbor cache inspection reveals local network topology. Flagged for review."
