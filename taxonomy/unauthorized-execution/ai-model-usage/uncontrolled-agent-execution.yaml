@@ -54,4 +54,4 @@ references:
   cwe: ["CWE-306", "CWE-285"]
 
 analyzers: ["structural", "taint"]
-related_rules: ["ai-sdk-import-python-langchain", "ai-sdk-import-python-crewai", "ai-sdk-import-python-autogen"]
+related_rules: ["ai-agent-no-iteration-limit", "ai-crew-no-rate-limit", "ai-agent-no-iteration-limit-js", "ai-autogen-human-never"]

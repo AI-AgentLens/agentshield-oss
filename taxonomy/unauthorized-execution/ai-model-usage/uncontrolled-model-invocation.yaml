@@ -51,4 +51,4 @@ references:
   cwe: ["CWE-306"]
 
 analyzers: ["structural", "taint"]
-related_rules: ["ai-sdk-import-python-openai", "ai-sdk-import-go-openai", "ai-sdk-import-python-anthropic"]
+related_rules: ["ai-uncontrolled-llm-call-python-openai", "ai-uncontrolled-llm-call-python-anthropic", "ai-uncontrolled-llm-call-go-openai", "ai-uncontrolled-llm-call-js-openai", "ai-uncontrolled-llm-call-js-anthropic"]

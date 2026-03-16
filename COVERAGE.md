@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 159 |
+| Terminal rules | 162 |
 | MCP rules | 42 |
-| Total rules | 201 |
-| Test cases (TP+TN) | 422 |
+| Total rules | 204 |
+| Test cases (TP+TN) | 434 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -168,7 +168,7 @@
 | `ne-block-arp-scan` | BLOCK | structural | ARP-based host discovery tools (arp-scan, netdiscover) perform active network sweeping. AI agents must not enumerate network hosts without explicit authorization. |
 | `ne-audit-arp-table` | AUDIT | regex | ARP table or neighbor cache inspection reveals local network topology. Flagged for review. |
 
-### supply-chain (22 rules)
+### supply-chain (23 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -179,6 +179,7 @@
 | `sc-block-npm-url-install` | BLOCK | regex | npm install from URL bypasses registry verification. |
 | `sc-block-npmrc-edit` | BLOCK | regex | Modification of .npmrc blocked — may redirect package resolution. |
 | `sc-block-pypirc-edit` | BLOCK | regex | Modification of .pypirc blocked — may redirect package resolution. |
+| `sc-block-go-mod-replace` | BLOCK | regex | go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings. |
 | `sc-block-npm-ignore-scripts-off` | BLOCK | regex | Re-enabling npm post-install scripts is risky. Keep ignore-scripts=true in agent context. |
 | `sc-audit-npm-install` | AUDIT | prefix | npm package install flagged for supply-chain review. |
 | `sc-audit-pip-install` | AUDIT | prefix | pip package install flagged for supply-chain review. |
@@ -195,7 +196,7 @@
 | `sc-audit-global-install` | AUDIT | regex | Global package install has wider system impact. Flagged for review. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (11 rules)
+### unauthorized-execution (13 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -204,6 +205,8 @@
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. |
 | `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). |
+| `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
+| `ts-block-proc-mem-write` | BLOCK | regex | Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls. |
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-provider-install` | AUDIT | regex | Installation of a Vercel AI SDK provider package (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, etc.). Flags for AI governance review — LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-node-inline` | AUDIT | regex | Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk. |
@@ -292,7 +295,7 @@
 | persistence-evasion | 29 | 16 | 45 |
 | privilege-escalation | 24 | 17 | 41 |
 | reconnaissance | 21 | 11 | 32 |
-| supply-chain | 19 | 8 | 27 |
-| unauthorized-execution | 24 | 14 | 38 |
-| **Total** | **264** | **158** | **422** |
+| supply-chain | 22 | 11 | 33 |
+| unauthorized-execution | 27 | 17 | 44 |
+| **Total** | **270** | **164** | **434** |
 
