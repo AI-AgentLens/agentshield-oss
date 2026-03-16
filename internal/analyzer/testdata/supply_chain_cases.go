@@ -733,6 +733,97 @@ var CondaChannelCases = []TestCase{
 	},
 }
 
+// LockfileOverwriteCases covers sc-block-lockfile-overwrite (BLOCK) and
+// the updated sc-audit-lockfile-edit (AUDIT) rules.
+// Taxonomy: supply-chain/dependency-confusion/package-manifest-tampering (T1195.001)
+var LockfileOverwriteCases = []TestCase{
+	// --- TRUE POSITIVES (BLOCK) ---
+	{
+		ID:               "TP-SC-BLOCK-LOCKFILE-001",
+		Command:          `echo '{"evil": true}' > yarn.lock`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "Shell redirect overwrites yarn.lock — pins a compromised version. Matches sc-block-lockfile-overwrite.",
+		Tags:             []string{"tp", "critical", "lockfile"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-LOCKFILE-002",
+		Command:          `cat /tmp/tampered.json > package-lock.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "cat redirect overwrites package-lock.json — checksum substitution attack. Matches sc-block-lockfile-overwrite.",
+		Tags:             []string{"tp", "critical", "lockfile"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-LOCKFILE-003",
+		Command:          `cp /tmp/evil.sum go.sum`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "cp overwrites go.sum with attacker-controlled file — strips integrity hashes. Matches sc-block-lockfile-overwrite.",
+		Tags:             []string{"tp", "critical", "lockfile"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-LOCKFILE-004",
+		Command:          `mv /tmp/tampered.lock Cargo.lock`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "mv replaces Cargo.lock with tampered file. Matches sc-block-lockfile-overwrite.",
+		Tags:             []string{"tp", "critical", "lockfile"},
+	},
+
+	// --- TRUE POSITIVES (AUDIT) ---
+	{
+		ID:               "TP-SC-AUDIT-LOCKFILE-001",
+		Command:          `sed -i 's/1.2.3/1.2.4/' yarn.lock`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "sed modifies yarn.lock in-place — version substitution. Matches sc-audit-lockfile-edit.",
+		Tags:             []string{"tp", "lockfile"},
+	},
+	{
+		ID:               "TP-SC-AUDIT-LOCKFILE-002",
+		Command:          `python scripts/patch_lockfile.py Pipfile.lock`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "Python script targeting Pipfile.lock flagged for review. Matches sc-audit-lockfile-edit.",
+		Tags:             []string{"tp", "lockfile"},
+	},
+
+	// --- TRUE NEGATIVES ---
+	{
+		ID:               "TN-SC-LOCKFILE-001",
+		Command:          `cat yarn.lock`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "Reading yarn.lock is safe — no redirect or modification. Must ALLOW.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SC-LOCKFILE-002",
+		Command:          `npm install lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/package-manifest-tampering",
+		Analyzer:         "regex",
+		Description:      "Package manager regenerates lock file safely — must not trigger BLOCK.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
@@ -743,5 +834,6 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, GitURLRewriteCases...)
 	all = append(all, PipIndexURLCases...)
 	all = append(all, CondaChannelCases...)
+	all = append(all, LockfileOverwriteCases...)
 	return all
 }

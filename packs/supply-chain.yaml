@@ -162,13 +162,28 @@ rules:
     decision: "AUDIT"
     reason: "RubyGems install flagged for supply-chain review."
 
-  # === AUDIT: Lock file modifications ===
+  # === BLOCK: Direct shell writes/overwrites to dependency lock files ===
+  #
+  # Lock files are machine-generated checksums — no human or agent has a
+  # legitimate reason to write to them directly via shell redirects or
+  # file-copy operations. Such writes can pin a compromised package version
+  # or strip integrity hashes to allow substitution attacks.
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: "sc-block-lockfile-overwrite"
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      command_regex: "(echo|cat|tee|printf|dd|cp|mv)(\\s+\\S+)*\\s+.*>+\\s*(package-lock\\.json|npm-shrinkwrap\\.json|yarn\\.lock|pnpm-lock\\.yaml|poetry\\.lock|Pipfile\\.lock|go\\.sum|Cargo\\.lock|Gemfile\\.lock|composer\\.lock|gradle\\.lockfile)|\\b(cp|mv)\\b.*\\s+(package-lock\\.json|npm-shrinkwrap\\.json|yarn\\.lock|pnpm-lock\\.yaml|poetry\\.lock|Pipfile\\.lock|go\\.sum|Cargo\\.lock|Gemfile\\.lock|composer\\.lock|gradle\\.lockfile)\\s*$"
+    decision: "BLOCK"
+    reason: "Direct shell write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001."
+    confidence: 0.95
+
+  # === AUDIT: Lock file modifications via tools (rm/sed/perl/python) ===
   - id: "sc-audit-lockfile-edit"
-    taxonomy: "supply-chain/package-install/security-control-bypass"
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
     match:
       command_regex: "(rm|sed|perl|python)\\s+.*(package-lock|yarn\\.lock|Pipfile\\.lock|poetry\\.lock|go\\.sum|Cargo\\.lock|Gemfile\\.lock)"
     decision: "AUDIT"
-    reason: "Lock file modification flagged — may indicate supply-chain tampering."
+    reason: "Lock file modification flagged — may indicate supply-chain tampering. MITRE T1195.001."
 
   # === BLOCK: ML model poisoning (LLM04) ===
 
