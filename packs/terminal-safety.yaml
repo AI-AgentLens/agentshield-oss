@@ -613,3 +613,29 @@ rules:
     decision: "BLOCK"
     confidence: 0.90
     reason: "git credential fill/approve can extract or inject stored credentials."
+
+  # === AUDIT: Vercel AI SDK installation and invocation (LLM06) ===
+
+  - id: "ts-audit-vercel-ai-sdk-install"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation"
+    match:
+      command_regex: "(npm|yarn|pnpm)\\s+(install|i|add)\\s+.*\\bai\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk."
+
+  - id: "ts-audit-vercel-ai-sdk-provider-install"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation"
+    match:
+      command_regex: "(npm|yarn|pnpm)\\s+(install|i|add)\\s+.*@ai-sdk/"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Installation of a Vercel AI SDK provider package (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, etc.). Flags for AI governance review — LLM06 risk."
+
+  - id: "ts-audit-vercel-ai-sdk-node-inline"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation"
+    match:
+      command_regex: "(node|ts-node|bun)\\s+-e\\s+.*require\\([\"']ai[\"']\\)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk."
