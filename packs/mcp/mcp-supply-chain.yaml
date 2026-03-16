@@ -162,6 +162,73 @@ structural_rules:
     reason: "MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002."
     confidence: 0.95
 
+  # === BLOCK: ML training dataset and model checkpoint writes via MCP (issue #173) ===
+  #
+  # Shell-level rules block `echo > training/data.jsonl` and `cp > checkpoints/model.pt`.
+  # But an AI agent using MCP write_file bypasses shell evaluation entirely.
+  #
+  # Writing to training datasets can inject poisoned examples that corrupt a fine-tuned
+  # model's behavior (OWASP LLM04, MITRE AML.T0010). Writing to model checkpoint
+  # files can substitute a trusted model with a backdoored or pickle-exploit variant
+  # that executes arbitrary code on load (MITRE T1195.001).
+  #
+  # Covered training dataset paths:
+  #   Directories: train/, dataset/, finetune/ (NOT generic data/ — too broad)
+  #   Extensions: .jsonl, .csv, .parquet, .tsv (standard ML data formats)
+  #
+  # Covered checkpoint/model paths:
+  #   Directories: checkpoints/, models/, weights/
+  #   Extensions: .pt, .pth, .pkl, .bin, .safetensors, .gguf, .ckpt (PyTorch, GGUF, etc.)
+  #   HuggingFace cache: ~/.cache/huggingface/
+  #
+  # MITRE AML.T0010 — Poison Training Data
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: mcp-sc-block-training-data-write
+    taxonomy: "supply-chain/model-poisoning/training-data-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:train|dataset|finetune)/.*\\.(?:jsonl|csv|parquet|tsv)$"
+            - "(?:^|/)training[_-]data\\.(?:jsonl|csv|parquet|tsv)$"
+    decision: "BLOCK"
+    reason: "MCP write to ML training dataset — injecting poisoned examples corrupts fine-tuned model behavior. MITRE AML.T0010, OWASP LLM04."
+    confidence: 0.92
+
+  - id: mcp-sc-block-model-checkpoint-write
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:checkpoints?|models?|weights)/.*\\.(?:pt|pth|pkl|bin|safetensors|gguf|ckpt)$"
+            - "(?:^|/)\\.cache/huggingface/"
+    decision: "BLOCK"
+    reason: "MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001."
+    confidence: 0.93
+
   # === AUDIT: Package manifest writes via MCP ===
   #
   # Package manifests (package.json, requirements.txt, go.mod, etc.) are
