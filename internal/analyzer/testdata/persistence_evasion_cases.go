@@ -343,6 +343,31 @@ var GuardianObfuscationTNCases = []TestCase{
 		is a file path segment, not a base64 payload.`,
 		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
 	},
+	{
+		ID:               "TN-GUARD-OBF-003",
+		Command:          `git add internal/analyzer/testdata/reconnaissance_cases.go internal/analyzer/semantic.go`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/obfuscation",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #35): "git add" with two relative Go source paths.
+		The path segment "internal/analyzer/testdata/reconnaissance" exceeds 40 alphanumeric+/
+		chars and has no '+' character, making it look like base64 to a naive check.
+		After the fix, whitespace-preceded path tokens without '+' are excluded.
+		Fixes: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/35`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+	{
+		ID:               "TN-GUARD-OBF-004",
+		Command:          `git add internal/analyzer/testdata/persistence_evasion_cases.go`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/obfuscation",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #35): "git add" with a single deep relative path.
+		"internal/analyzer/testdata/persistence" is a path argument, not a base64 payload.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
 }
 
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.

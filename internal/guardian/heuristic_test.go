@@ -251,6 +251,19 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 			name: "cat with nested long path",
 			cmd:  `cat /usr/local/lib/someframework/internalpackages/longnamemodule/implementation.go`,
 		},
+		// Regression tests for issue #35: relative path arguments in git add.
+		{
+			name: "git add two relative go source paths",
+			cmd:  `git add internal/analyzer/testdata/reconnaissance_cases.go internal/analyzer/semantic.go`,
+		},
+		{
+			name: "git add single deep relative path",
+			cmd:  `git add internal/analyzer/testdata/persistence_evasion_cases.go`,
+		},
+		{
+			name: "go test with relative package path",
+			cmd:  `go test -v -run TestAccuracy ./internal/analyzer/testdata/`,
+		},
 	}
 
 	for _, tt := range fps {
