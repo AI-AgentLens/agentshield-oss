@@ -66,6 +66,14 @@ rules:
     decision: "BLOCK"
     reason: "Modification of .pypirc blocked — may redirect package resolution."
 
+  - id: "sc-block-go-mod-replace"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "go\\s+mod\\s+edit\\s+.*-replace\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings."
+
   # === BLOCK: Post-install script manipulation ===
   - id: "sc-block-npm-ignore-scripts-off"
     taxonomy: "supply-chain/package-install/security-control-bypass"

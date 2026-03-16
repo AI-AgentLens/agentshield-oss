@@ -382,11 +382,100 @@ var ModelPoisoningCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 7.2: Config Tampering — Go Module Replacement
+// Taxonomy: supply-chain/config-tampering/package-config-edit
+//
+// go mod edit -replace redirects a Go module import path to an attacker-
+// controlled repository or local path, silently substituting a trusted
+// dependency. This is the official Go toolchain command for module
+// substitution and cannot be caught by simple go.mod file edit detection.
+// ---------------------------------------------------------------------------
+
+// GoModReplaceCases tests detection of Go module dependency substitution.
+// Taxonomy: supply-chain/config-tampering/package-config-edit
+var GoModReplaceCases = []TestCase{
+	{
+		ID:               "TP-SC-BLOCK-GOMODREPLACE-001",
+		Command:          `go mod edit -replace github.com/gorilla/mux=github.com/attacker/mux`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `Canonical go mod replace attack. Redirects a trusted package
+			(gorilla/mux) to an attacker-controlled module. Rule sc-block-go-mod-replace
+			matches 'go mod edit.*-replace' and must BLOCK.`,
+		Tags: []string{"tp", "supply-chain", "go", "critical"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-GOMODREPLACE-002",
+		Command:          `go mod edit -replace golang.org/x/crypto=../local-evil-crypto`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `go mod replace with local path substitution. Redirects the
+			standard library crypto package to a local malicious directory.
+			Even local-path replacements must be blocked in agent context.`,
+		Tags: []string{"tp", "supply-chain", "go", "local-path"},
+	},
+	{
+		ID:               "TP-SC-BLOCK-GOMODREPLACE-003",
+		Command:          `go mod edit -replace=github.com/pkg/errors=github.com/evil/errors@v1.0.0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `go mod replace with = sign syntax variant. Some shells use
+			-replace=old=new instead of -replace old=new. The regex must catch
+			both flag styles.`,
+		Tags: []string{"tp", "supply-chain", "go", "flag-variant"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GOMODREPLACE-001",
+		Command:          `go mod edit -go=1.21`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `go mod edit with -go flag (Go version bump). This is routine
+			maintenance that does not substitute any dependency. Must not match
+			the -replace BLOCK rule. Gets default AUDIT (no explicit ALLOW for
+			go mod edit without -replace).`,
+		Tags: []string{"tn", "safe", "go"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GOMODREPLACE-002",
+		Command:          `go mod tidy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `go mod tidy is routine dependency cleanup. Does not replace
+			or substitute any module. Gets default AUDIT — package management
+			commands are audited, not automatically allowed.`,
+		Tags: []string{"tn", "safe", "go"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GOMODREPLACE-003",
+		Command:          `cat go.mod | grep replace`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `Reading go.mod to inspect existing replace directives is
+			safe inspection. The cat prefix triggers ts-allow-readonly (ALLOW).
+			Must not trigger the go mod edit -replace BLOCK rule.`,
+		Tags: []string{"tn", "safe", "go", "readonly"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
 	all = append(all, NonStandardRegistryCases...)
 	all = append(all, PackageInstallCases...)
 	all = append(all, ModelPoisoningCases...)
+	all = append(all, GoModReplaceCases...)
 	return all
 }
