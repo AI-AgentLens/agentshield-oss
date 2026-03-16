@@ -303,6 +303,45 @@ rules:
     confidence: 0.87
     reason: "Python command calling hf_hub_download() to pull a specific model file from HF Hub. Ensure the repo and revision are trusted before execution (LLM04)."
 
+  # === AUDIT/BLOCK: Dockerfile and container image tampering (issue #171) ===
+  #
+  # Dockerfiles define the entire build environment for a container image.
+  # An AI agent that writes malicious instructions to a Dockerfile can:
+  #   - Inject a backdoor into every container built from that image
+  #   - Embed exfiltration RUN steps that run at build time (within CI/CD pipelines)
+  #   - Hardcode attacker-controlled ENV variables or expose sensitive files
+  #   - Override the entrypoint to run a reverse shell on container start
+  #
+  # Shell-level writes to Dockerfile and docker-compose.yml are blocked here.
+  # MCP write_file calls to the same paths are covered in mcp-supply-chain.yaml.
+  #
+  # MITRE T1612   — Build Image on Host
+  # MITRE T1195.002 — Supply Chain Compromise: Compromise Software Supply Chain
+
+  - id: "sc-block-dockerfile-write"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?:echo|cat|printf|python[23]?|node|sed)\\s+.*>+\\s*(?:[./]*/)?Dockerfile(?:\\.[a-zA-Z0-9_-]+)?\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Shell write to Dockerfile detected. Injecting malicious RUN/COPY/ENV instructions can backdoor every container built from this image. MITRE T1612."
+
+  - id: "sc-block-dockerfile-tee"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\btee\\b\\s+(?:-a\\s+)?(?:[./]*/)?Dockerfile(?:\\.[a-zA-Z0-9_.-]+)?\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "tee write to Dockerfile detected — tee copies stdin to file as positional arg. Injecting malicious content backdoors every container built from this image. MITRE T1612."
+
+  - id: "sc-block-docker-compose-write"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?:echo|cat|printf|sed|tee)\\s+.*>+\\s*(?:[./]*/)?docker-compose(?:\\.[a-zA-Z0-9_-]+)?\\.ya?ml\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Shell write to docker-compose.yml detected. Tampering with compose files can mount host paths, disable security options, or add malicious service definitions. MITRE T1612."
+
   # === AUDIT: Global installs ===
   - id: "sc-audit-global-install"
     taxonomy: "supply-chain/package-install/global-package-install"

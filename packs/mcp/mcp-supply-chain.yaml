@@ -124,6 +124,44 @@ structural_rules:
     reason: "MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Requires human review. MITRE T1195.002."
     confidence: 0.97
 
+  # === BLOCK: Dockerfile and container image build config writes via MCP (issue #171) ===
+  #
+  # Dockerfile and docker-compose.yml define the container build environment.
+  # An agent writing to these via MCP write_file bypasses all shell-level rules.
+  # Malicious Dockerfile edits can inject backdoors into every container built
+  # from the image — a build-time supply chain attack without any shell trace.
+  #
+  # Covered container config files:
+  #   Dockerfile, Dockerfile.* (multi-stage, distroless variants)
+  #   docker-compose.yml, docker-compose.*.yml (override files)
+  #   .dockerignore — controlling what ends up in the build context
+  #
+  # MITRE T1612   — Build Image on Host
+  # MITRE T1195.002 — Supply Chain Compromise: Compromise Software Supply Chain
+  - id: mcp-sc-block-dockerfile-write
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)Dockerfile(?:\\.[a-zA-Z0-9_.-]+)?$"
+            - "(?:^|/)docker-compose(?:\\.[a-zA-Z0-9_.-]+)?\\.ya?ml$"
+            - "(?:^|/)\\.dockerignore$"
+    decision: "BLOCK"
+    reason: "MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002."
+    confidence: 0.95
+
   # === AUDIT: Package manifest writes via MCP ===
   #
   # Package manifests (package.json, requirements.txt, go.mod, etc.) are
