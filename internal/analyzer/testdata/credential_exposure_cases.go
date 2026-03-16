@@ -950,6 +950,106 @@ var ShadowReadCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 2.10: GPG Key Access
+// Taxonomy: credential-exposure/cryptographic-keys/gpg-key-access
+//
+// GPG private keys enable forging signed git commits, decrypting secrets, and
+// signing malicious release artifacts. Exporting secret keys is always
+// suspicious in an AI agent context. MITRE T1552.004.
+// ---------------------------------------------------------------------------
+
+// GPGKeyAccessCases tests detection of GPG private key extraction.
+// Taxonomy: credential-exposure/cryptographic-keys/gpg-key-access
+var GPGKeyAccessCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-GPGKEY-001",
+		Command:          `gpg --export-secret-keys --armor user@example.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Canonical GPG private key export. Exports secret key material in ASCII-armored form. Matched by sec-block-gpg-export-secret.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GPGKEY-002",
+		Command:          `gpg --export-secret-subkeys 0xDEADBEEF`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `GPG secret subkey export — exfiltrates signing/encryption subkey material without the master key. Same risk as full secret key export.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GPGKEY-003",
+		Command:          `gpg-connect-agent 'keyinfo --list' /bye`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Enumerating GPG key IDs via gpg-connect-agent. Used to identify key IDs for subsequent targeted extraction. Matched by sec-block-gpg-connect-agent-keyinfo.`,
+		Tags:             []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-GPGKEY-004",
+		Command:          `gpg2 --export-secret-keys --output /tmp/seckeys.gpg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `GPG2 secret key export to file — stages keys in /tmp for exfiltration. Matched by sec-block-gpg-export-secret (gpg2? pattern covers both gpg and gpg2).`,
+		Tags:             []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-GPGKEY-001",
+		Command:          `gpg --list-keys`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Listing public keys is safe — shows fingerprints and UIDs only, no private key material. Must not match GPG secret key rules. Falls through to AUDIT default (gpg is not in ts-allow-readonly prefix list).`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GPGKEY-002",
+		Command:          `gpg --verify release.tar.gz.sig release.tar.gz`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Verifying a release signature is a routine security operation. Uses public key only. Must not trigger GPG secret key rules. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GPGKEY-003",
+		Command:          `gpg --export --armor user@example.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Exporting a public key (--export without --secret-keys) for sharing with others. Public keys are not sensitive. The regex matches --export-secret-keys not --export alone. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GPGKEY-004",
+		Command:          `gpg --list-secret-keys`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/gpg-key-access",
+		Analyzer:         "regex",
+		Description:      `Listing secret key metadata (fingerprints only) — does not export key material. Potentially suspicious but not a direct export. Falls through to AUDIT default.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -963,5 +1063,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, HistoryMiningCases...)
 	all = append(all, KeychainExtractionCases...)
 	all = append(all, ShadowReadCases...)
+	all = append(all, GPGKeyAccessCases...)
 	return all
 }
