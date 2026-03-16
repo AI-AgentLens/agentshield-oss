@@ -1,0 +1,63 @@
+id: "reconnaissance/network-discovery/port-scan"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Network Discovery"
+category_id: "8.1"
+name: "Port Scanning"
+risk_level: "high"
+
+abstract: |
+  Port scanning commands enumerate open ports and running services on remote
+  hosts, enabling an attacker to map network topology and identify targets
+  for exploitation. AI agents performing unsolicited port scans violate
+  authorization boundaries and may constitute illegal computer access.
+
+explanation: |
+  Port scanners (nmap, masscan, rustscan, zmap) and connectivity probes (nc -z)
+  allow an agent to discover what services are reachable from its execution
+  environment. The threat model includes:
+
+  - Internal network mapping: discovering databases, admin panels, internal APIs
+  - Vulnerability pre-assessment: pairing service versions with CVE databases
+  - Firewall fingerprinting: SYN (-sS) and ACK scans reveal filtering rules
+  - High-rate scanners (masscan, zmap): can trigger IDS/IPS alerts or cause
+    service disruption on resource-constrained targets
+
+  Aggressive scan modes such as -A (OS detection + scripts + traceroute),
+  -sS (stealth SYN), -O (OS fingerprinting), and --script (NSE scripting engine)
+  dramatically increase the attack surface and detection signal.
+
+recommendation: |
+  - BLOCK high-speed or aggressive scanners in agent environments (masscan, rustscan, zmap).
+  - BLOCK nmap invocations using aggressive or stealthy scan flags (-A, -O, --script).
+  - AUDIT all other nmap usage; require explicit user authorization for any network scan.
+  - Log all scan attempts with target scope for audit trail compliance.
+  - Enforce network-level egress controls alongside agent-level policy.
+
+examples:
+  bad:
+    - "nmap -sS -A 192.168.1.0/24"
+    - "masscan --rate=10000 10.0.0.0/8 -p80,443"
+    - "rustscan -a 192.168.1.0/24 -- -sV"
+    - "nmap -O --script vuln 10.0.0.1"
+    - "zmap -p 443 10.0.0.0/8"
+  good:
+    - "nmap localhost -p 8080"
+    - "nmap -p 443 api.example.com"
+    - "ss -tlnp"
+    - "netstat -tulpn"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08"]
+  iso-27001-2022: ["A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
+  soc2-type2: ["CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1046", "T1595.001"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["structural", "semantic"]
+related_rules: ["ne-block-aggressive-scanner", "ne-block-nmap-aggressive", "ne-audit-nmap"]

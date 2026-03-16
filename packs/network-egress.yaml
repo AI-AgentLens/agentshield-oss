@@ -170,3 +170,36 @@ rules:
     decision: "BLOCK"
     confidence: 0.90
     reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration."
+
+  # === BLOCK: Aggressive network scanners ===
+
+  - id: "ne-block-aggressive-scanner"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["masscan", "rustscan", "zmap"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "High-speed or bulk network scanner detected. AI agents must not perform unsolicited network reconnaissance."
+
+  - id: "ne-block-nmap-aggressive"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["nmap"]
+        flags_any: ["A", "O", "script"]
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "nmap invoked with aggressive flags (-A, -O, --script). OS fingerprinting and vulnerability scripting require explicit authorization."
+
+  # === AUDIT: Basic nmap port checks ===
+
+  - id: "ne-audit-nmap"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["nmap"]
+        flags_none: ["A", "O", "script"]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "nmap port scan detected. Verify the target scope is authorized."
