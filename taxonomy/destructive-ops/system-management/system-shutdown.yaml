@@ -1,6 +1,6 @@
 id: "destructive-ops/system-management/system-shutdown"
 version: "1.0.0"
-kingdom: "Destructive Ops"
+kingdom: "Destructive Operations"
 kingdom_id: 1
 category: "System Management"
 category_id: "1.6"

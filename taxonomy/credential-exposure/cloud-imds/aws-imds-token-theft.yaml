@@ -1,6 +1,6 @@
 id: "credential-exposure/cloud-imds/aws-imds-token-theft"
 version: "1.0.0"
-kingdom: "Credential Exposure"
+kingdom: "Credential & Secret Exposure"
 kingdom_id: 2
 category: "Cloud Instance Metadata Service (IMDS)"
 category_id: "2.13"

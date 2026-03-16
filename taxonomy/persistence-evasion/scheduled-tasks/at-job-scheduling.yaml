@@ -1,6 +1,6 @@
 id: "persistence-evasion/scheduled-tasks/at-job-scheduling"
 version: "1.0.0"
-kingdom: "Persistence & Evasion"
+kingdom: "Persistence & Defense Evasion"
 kingdom_id: 6
 category: "Scheduled Task Manipulation"
 category_id: "6.1"
