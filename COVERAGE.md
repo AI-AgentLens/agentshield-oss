@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 202 |
-| MCP rules | 42 |
-| Total rules | 244 |
+| MCP rules | 69 |
+| Total rules | 271 |
 | Test cases (TP+TN) | 564 |
 | Kingdoms covered | 9 |
 
@@ -263,10 +263,13 @@
 
 ## MCP Rules
 
-### credential-exposure (13 rules)
+### credential-exposure (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
+| `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument — attempt to escape intended directory |
+| `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument — attempt to escape intended directory |
 | `mcp-sec-block-ssh-access` | BLOCK | mcp_rule | Access to SSH key directories is blocked. |
 | `mcp-sec-block-aws-access` | BLOCK | mcp_rule | Access to AWS credential directories is blocked. |
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
@@ -280,6 +283,15 @@
 | `mcp-sec-block-mongodb-uri` | BLOCK | resource_rule | Direct MongoDB access via MCP is blocked. |
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
+
+### data-exfiltration (4 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-struct-block-ssrf-metadata` | BLOCK | structural | SSRF detected — request to cloud metadata endpoint |
+| `mcp-struct-block-ssrf-metadata-endpoint` | BLOCK | structural | SSRF detected — request to internal service via endpoint argument |
+| `mcp-struct-block-ssrf-private-network` | BLOCK | structural | SSRF detected — request to private network IP range |
+| `mcp-struct-audit-network-request` | AUDIT | structural | MCP tool making external network request |
 
 ### destructive-ops (17 rules)
 
@@ -316,7 +328,30 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### unauthorized-execution (4 rules)
+### persistence-evasion (3 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-persist-block-shell-profile-write` | BLOCK | structural | MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004. |
+| `mcp-persist-block-launchagent-write` | BLOCK | structural | MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001. |
+| `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
+
+### privilege-escalation (2 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
+| `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
+
+### supply-chain (3 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-sc-block-lockfile-write` | BLOCK | structural | MCP write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001. |
+| `mcp-sc-block-cicd-config-write` | BLOCK | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Requires human review. MITRE T1195.002. |
+| `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
+
+### unauthorized-execution (12 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -324,6 +359,23 @@
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
 | `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
+| `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
+| `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
+| `mcp-struct-block-prompt-injection-content` | BLOCK | structural | Prompt injection detected in content argument — attempt to manipulate LLM behavior |
+| `mcp-struct-block-prompt-injection-messages` | BLOCK | structural | Prompt injection detected in messages argument — attempt to manipulate LLM behavior |
+| `mcp-struct-block-sql-injection-query` | BLOCK | structural | SQL injection detected in query argument |
+| `mcp-struct-block-sql-injection-filter` | BLOCK | structural | SQL injection detected in filter argument |
+| `mcp-struct-block-shell-in-command-arg` | BLOCK | structural | Shell command detected in command argument — possible disguised execution tool |
+| `mcp-struct-block-shell-in-exec-arg` | BLOCK | structural | Shell command detected in exec argument — hidden command execution |
+
+### uncategorized (4 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-struct-audit-changelog-write` | AUDIT | structural | AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation) |
+| `mcp-fin-block-all-balance-amount` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance |
+| `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
+| `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 
 ## Test Coverage
 
