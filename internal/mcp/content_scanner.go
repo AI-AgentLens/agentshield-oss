@@ -190,7 +190,11 @@ var (
 	privateKeyRe    = regexp.MustCompile(`-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----`)
 	awsAccessKeyRe  = regexp.MustCompile(`AKIA[0-9A-Z]{16}`)
 	awsSecretRe     = regexp.MustCompile(`(?i)(aws_secret_access_key|aws_access_key_id|aws_session_token)\s*[=:]\s*\S{16,}`)
-	githubTokenRe   = regexp.MustCompile(`gh[ps]_[A-Za-z0-9]{36}`)
+	// Covers classic tokens (ghp_, ghs_), Actions tokens (gha_), refresh tokens
+	// (ghr_), and fine-grained PATs introduced in 2022 (github_pat_...).
+	// Fine-grained PATs are typically 93+ chars after the prefix; use {80,} to
+	// handle any minor length variations GitHub may introduce.
+	githubTokenRe = regexp.MustCompile(`gh[psar]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{80,}`)
 	bearerTokenRe   = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_\-.]{20,}`)
 	basicAuthRe     = regexp.MustCompile(`https?://[^:]+:[^@]+@`)
 	slackTokenRe    = regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`)

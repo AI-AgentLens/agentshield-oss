@@ -167,7 +167,27 @@ otherwise the tool will not work.
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "content-scan-github-token",
-		Description:      "GitHub personal access token detected in context argument",
+		Description:      "GitHub classic personal access token (ghp_) detected in context argument",
+	},
+	{
+		// Fine-grained PAT format introduced in 2022 — not matched by old gh[ps]_ pattern
+		ID:               "MCP-TP-083",
+		ToolName:         "create_issue",
+		Arguments:        map[string]interface{}{"token": "github_pat_11ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz01234567890ABCDE"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "content-scan-github-fine-grained-pat",
+		Description:      "GitHub fine-grained PAT (github_pat_) must be blocked — previously escaped detection (closes #166)",
+	},
+	{
+		// GitHub Actions token — short-lived but still sensitive
+		ID:               "MCP-TP-084",
+		ToolName:         "update_deployment",
+		Arguments:        map[string]interface{}{"auth": "gha_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "content-scan-github-actions-token",
+		Description:      "GitHub Actions token (gha_) must be blocked — previously escaped detection (closes #166)",
 	},
 	{
 		ID:       "MCP-TP-014",
@@ -1155,6 +1175,26 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "safe-app-ssh-list",
 		Description:      "write_file to app config listing SSH hostnames — not in .ssh/, not authorized_keys or config; no rule fires",
 	},
+	// --- Safe GitHub token-like strings that must NOT trigger content scanner ---
+	{
+		ID:               "MCP-TN-040",
+		ToolName:         "search_repos",
+		Arguments:        map[string]interface{}{"query": "ghp_ prefix token format documentation"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-github-token-string-in-query",
+		Description:      "Search query mentioning 'ghp_' prefix as text — not a real token, no 36-char suffix",
+	},
+	{
+		ID:               "MCP-TN-041",
+		ToolName:         "create_pr",
+		Arguments:        map[string]interface{}{"title": "Add GitHub Actions workflow", "body": "This PR adds CI/CD via gha_ runner configuration"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-gha-text-in-pr-body",
+		Description:      "PR body mentioning 'gha_' as text — not a real token, should not be blocked",
+	},
+
 	// --- Safe writes near .git/ that must NOT trigger git hook rule (issue #150) ---
 	{
 		ID:               "MCP-TN-034",
