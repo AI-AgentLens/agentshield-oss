@@ -53,11 +53,12 @@ type mcpRule struct {
 }
 
 type mcpPack struct {
-	Name           string        `yaml:"name"`
-	BlockedTools   []string      `yaml:"blocked_tools,omitempty"`
-	Rules          []mcpRule     `yaml:"rules,omitempty"`
-	ValueLimits    []mcpRule     `yaml:"value_limits,omitempty"`
-	ResourceRules  []mcpRule     `yaml:"resource_rules,omitempty"`
+	Name            string        `yaml:"name"`
+	BlockedTools    []string      `yaml:"blocked_tools,omitempty"`
+	Rules           []mcpRule     `yaml:"rules,omitempty"`
+	StructuralRules []mcpRule     `yaml:"structural_rules,omitempty"`
+	ValueLimits     []mcpRule     `yaml:"value_limits,omitempty"`
+	ResourceRules   []mcpRule     `yaml:"resource_rules,omitempty"`
 }
 
 // flatRule is the common format used for report output.
@@ -192,6 +193,17 @@ func parseMCPPacks(dir string) []flatRule {
 				ID:        r.ID,
 				Decision:  r.Decision,
 				MatchType: "mcp_rule",
+				Reason:    r.Reason,
+				Kingdom:   extractKingdom(r.Taxonomy),
+				Pack:      pack.Name,
+			})
+		}
+
+		for _, r := range pack.StructuralRules {
+			rules = append(rules, flatRule{
+				ID:        r.ID,
+				Decision:  r.Decision,
+				MatchType: "structural",
 				Reason:    r.Reason,
 				Kingdom:   extractKingdom(r.Taxonomy),
 				Pack:      pack.Name,
