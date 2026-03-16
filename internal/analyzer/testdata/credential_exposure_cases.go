@@ -180,6 +180,20 @@ var SSHPrivateKeyReadCases = []TestCase{
 			Fixed by command_regex_exclude: ^(echo|printf)\\s suppresses the match.`,
 		Tags: []string{"fp-fix", "echo", "regression"},
 	},
+	{
+		ID:               "TN-SSHKEY-007",
+		Command:          `gh issue create --title "FP: sec-block-ssh-private fires on issue body text" --body "attacker uses cat ~/.ssh/id_rsa to exfiltrate private key material"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `gh issue create whose body contains an SSH path as part of an attack scenario description (not a file access).
+			Regression test for issue #154: rule was blocking gh CLI commands that documented attack scenarios
+			referencing private key paths. The command_regex_exclude suppresses the match when the path
+			appears as a value to --body or similar content flags.
+			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"fp-fix", "gh-cli", "regression", "issue-154"},
+	},
 
 	// --- FALSE NEGATIVES ---
 
