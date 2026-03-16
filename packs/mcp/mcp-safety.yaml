@@ -89,7 +89,7 @@ rules:
 structural_rules:
   # Block any file-writing tool that targets sensitive system/credential paths
   - id: mcp-struct-block-sensitive-path-write
-    taxonomy: "credential-exposure/config-file/generic-config-access"
+    taxonomy: "credential-exposure/config-file-access/generic-config-access"
     match:
       tool_name_any:
         - "write_file"
@@ -179,7 +179,7 @@ structural_rules:
 
   # Block path traversal patterns in path/directory arguments
   - id: mcp-struct-block-path-traversal
-    taxonomy: "credential-exposure/config-file/generic-config-access"
+    taxonomy: "credential-exposure/config-file-access/generic-config-access"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -192,7 +192,7 @@ structural_rules:
     confidence: 0.95
 
   - id: mcp-struct-block-path-traversal-directory
-    taxonomy: "credential-exposure/config-file/generic-config-access"
+    taxonomy: "credential-exposure/config-file-access/generic-config-access"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -387,7 +387,7 @@ semantic_rules:
     reason: "MCP tool classified as external network request"
 
   - id: "mcp-sem-block-credential-access"
-    taxonomy: "credential-exposure/config-file/generic-config-access"
+    taxonomy: "credential-exposure/config-file-access/generic-config-access"
     match:
       intent_any: ["credential-read"]
       confidence_min: 0.7
