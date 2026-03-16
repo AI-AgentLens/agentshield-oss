@@ -59,4 +59,4 @@ references:
   cwe: ["CWE-200", "CWE-284"]
 
 analyzers: ["structural", "regex"]
-related_rules: ["ne-block-arp-scan", "ne-audit-arp-table"]
+related_rules: ["ne-block-arp-scan", "ne-audit-arp-table", "ne-block-fping-sweep", "ne-audit-fping-single", "ne-block-nbtscan"]

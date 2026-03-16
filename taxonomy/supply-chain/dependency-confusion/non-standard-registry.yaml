@@ -54,4 +54,4 @@ references:
       url: "https://attack.mitre.org/techniques/T1195/001/"
 
 analyzers: ["regex", "structural", "semantic"]
-related_rules: ["sc-block-npm-registry-override", "sc-block-pip-extra-index", "sc-block-pip-trusted-host"]
+related_rules: ["sc-block-npm-registry-override", "sc-block-pip-extra-index", "sc-block-pip-trusted-host", "sc-block-pip-index-url", "sc-audit-conda-channel"]

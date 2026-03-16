@@ -56,4 +56,4 @@ references:
   cwe: ["CWE-829"]
 
 analyzers: ["regex", "structural"]
-related_rules: ["sc-block-npmrc-edit", "sc-block-pypirc-edit", "sc-block-go-mod-replace"]
+related_rules: ["sc-block-npmrc-edit", "sc-block-pypirc-edit", "sc-block-go-mod-replace", "sc-block-git-url-rewrite"]

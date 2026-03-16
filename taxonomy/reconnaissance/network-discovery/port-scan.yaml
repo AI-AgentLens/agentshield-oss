@@ -60,4 +60,4 @@ references:
   cwe: ["CWE-200", "CWE-284"]
 
 analyzers: ["structural", "semantic"]
-related_rules: ["ne-block-aggressive-scanner", "ne-block-nmap-aggressive", "ne-audit-nmap"]
+related_rules: ["ne-block-aggressive-scanner", "ne-block-nmap-aggressive", "ne-audit-nmap", "ne-block-hping3", "ne-block-unicornscan"]
