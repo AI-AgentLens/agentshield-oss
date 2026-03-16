@@ -274,8 +274,10 @@ func extractOutputFileFromRaw(raw string) string {
 
 // isExecuteOfFile checks if a segment executes a specific file.
 func isExecuteOfFile(seg CommandSegment, file string) bool {
-	// Direct execution: bash <file>, sh <file>, python <file>
-	if isShellInterpreter(seg.Executable) {
+	// Direct execution: bash <file>, sh <file>, python3 <file>, node <file>, etc.
+	// Use isShellOrInterpreter to cover both shell (bash/sh/zsh) and code
+	// interpreters (python3/node/ruby/perl) — the latter were previously missed.
+	if isShellOrInterpreter(seg.Executable) {
 		for _, arg := range seg.Args {
 			if arg == file || strings.HasSuffix(arg, "/"+file) {
 				return true
