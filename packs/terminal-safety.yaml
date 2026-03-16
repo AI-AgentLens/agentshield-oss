@@ -725,6 +725,30 @@ rules:
     confidence: 0.90
     reason: "Kubernetes bulk deletion of resources is destructive."
 
+  - id: "ts-block-kubectl-get-secret"
+    taxonomy: "credential-exposure/container-config/kubernetes-config-access"
+    match:
+      command_regex: "kubectl\\s+(get|describe)\\s+secret.*-o\\s+(yaml|json|jsonpath)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys."
+
+  - id: "ts-audit-kubectl-exec"
+    taxonomy: "privilege-escalation/container-escape/docker-exec"
+    match:
+      command_regex: "kubectl\\s+exec\\s+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets."
+
+  - id: "ts-audit-kubectl-cp"
+    taxonomy: "credential-exposure/container-config/kubernetes-config-access"
+    match:
+      command_regex: "kubectl\\s+cp\\s+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers."
+
   - id: "ts-block-docker-exec"
     taxonomy: "privilege-escalation/container-escape/docker-exec"
     match:
