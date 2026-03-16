@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 148 |
+| Terminal rules | 156 |
 | MCP rules | 36 |
-| Total rules | 184 |
-| Test cases (TP+TN) | 389 |
+| Total rules | 192 |
+| Test cases (TP+TN) | 416 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (17 rules)
+### credential-exposure (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -32,6 +32,14 @@
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review. |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
+| `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
+| `sec-block-kubeconfig-file-access` | BLOCK | regex | Direct read or copy of ~/.kube/config exposes cluster credentials (embedded certs, bearer tokens, client keys). Excludes matches where the path appears as prose text in a named flag value (e.g. git commit -m, gh issue --body). MITRE T1552.001. |
+| `sec-block-kubeconfig-structural` | BLOCK | structural | Structural detection of kubeconfig file access — catches path variations not covered by regex. |
+| `sec-block-cloud-cred-regex` | BLOCK | regex | Direct read or copy of a cloud provider credential file (~/.aws/credentials, ~/.config/gcloud/application_default_credentials.json, ~/.azure/accessTokens.json) exposes full cloud account access. MITRE T1552.005. |
+| `sec-block-cloud-cred-structural` | BLOCK | structural | Structural detection of cloud credential file access — catches path variations not covered by the regex rule. |
+| `sec-block-gpg-export-secret` | BLOCK | regex | Exporting GPG secret keys exposes private key material enabling forgery of signed commits and decryption of secrets. MITRE T1552.004. |
+| `sec-block-gpg-connect-agent-keyinfo` | BLOCK | regex | gpg-connect-agent keyinfo enumerates GPG key IDs, enabling targeted key extraction. MITRE T1552.004. |
+| `sec-block-gpg-secret-structural` | BLOCK | structural | Structural detection of GPG secret key export flags — catches flag variations not caught by regex. |
 | `sec-block-archive-ssh-dir` | BLOCK | structural | Archiving a credential directory captures all private keys and secrets. |
 | `ts-block-git-credential-modify` | BLOCK | regex | Modifying git credential helper can redirect stored credentials. |
 | `ts-block-git-credential-fill` | BLOCK | regex | git credential fill/approve can extract or inject stored credentials. |
@@ -264,7 +272,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 42 | 27 | 69 |
+| credential-exposure | 55 | 41 | 96 |
 | data-exfiltration | 33 | 16 | 49 |
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 29 | 16 | 45 |
@@ -272,5 +280,5 @@
 | reconnaissance | 21 | 11 | 32 |
 | supply-chain | 19 | 8 | 27 |
 | unauthorized-execution | 20 | 12 | 32 |
-| **Total** | **247** | **142** | **389** |
+| **Total** | **260** | **156** | **416** |
 
