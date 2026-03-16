@@ -69,6 +69,56 @@ rules:
     decision: "BLOCK"
     reason: "pip install with --trusted-host bypasses TLS verification."
 
+  # === BLOCK: Maven custom repository injection ===
+  - id: "sc-block-maven-custom-repo"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "mvn(w)?\\s+.*-DrepoUrl=https?://"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "mvn with -DrepoUrl= injects a custom Maven repository, enabling dependency confusion attacks. All packages may be resolved from the attacker-controlled server."
+
+  - id: "sc-block-maven-repo-local-override"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "mvn(w)?\\s+.*-Dmaven\\.repo\\.local=(/tmp|/var/tmp|/dev/shm|/tmp/|~/)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "mvn with -Dmaven.repo.local pointing to a temp or home path overrides the local Maven cache, allowing a pre-staged malicious artifact to be resolved instead of the real package."
+
+  - id: "sc-audit-mvn-build"
+    taxonomy: "supply-chain/dependency-confusion/package-install"
+    match:
+      command_regex: "mvn(w)?\\s+(install|compile|package|deploy|dependency:get|dependency:resolve)\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Maven build/install flagged for supply-chain review. Verify pom.xml repositories section before execution."
+
+  # === BLOCK: NuGet/dotnet custom source injection ===
+  - id: "sc-block-dotnet-custom-source"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "dotnet\\s+add\\s+package\\s+.*--source\\s+https?://"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "dotnet add package with --source pointing to a URL injects a custom NuGet feed. Enables dependency confusion — a package with the same name on the attacker server shadows the official one."
+
+  - id: "sc-block-nuget-custom-source"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "nuget\\s+(install|restore)\\s+.*(-[Ss]ource|-[Ss]rc)\\s+https?://"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "nuget install/restore with a custom -Source URL bypasses the official NuGet gallery and enables dependency confusion attacks."
+
+  - id: "sc-audit-dotnet-add"
+    taxonomy: "supply-chain/dependency-confusion/package-install"
+    match:
+      command_regex: "dotnet\\s+add\\s+package\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "dotnet add package flagged for supply-chain review. Verify the package source is the official NuGet gallery."
+
   # === BLOCK: Direct URL installs (bypass registry) ===
   - id: "sc-block-pip-url-install"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
