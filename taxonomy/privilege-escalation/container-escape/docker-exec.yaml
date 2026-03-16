@@ -1,0 +1,55 @@
+id: "privilege-escalation/container-escape/docker-exec"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Container Escape"
+category_id: "5.3"
+name: "Docker Exec into Running Container"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses `docker exec` to execute commands inside a running container,
+  potentially escalating privileges or interfering with isolated workloads.
+
+explanation: |
+  `docker exec` allows execution of arbitrary commands inside a running container.
+  While less severe than host mounts or privileged mode, this enables:
+  - Accessing application secrets or environment variables from inside the container
+  - Modifying running application state or injecting code
+  - Escalating privileges if the container runs as root
+  - Pivoting to other containers on the same Docker network
+
+  AI agents may generate `docker exec` when debugging or when instructed to
+  "run a command in the container" without understanding the security boundaries.
+
+recommendation: |
+  - Audit all `docker exec` commands from AI agents.
+  - Restrict `docker exec` to explicitly named development containers only.
+  - Run containers with `--no-new-privileges` and non-root users.
+  - Consider blocking interactive `docker exec -it` shell access entirely.
+
+examples:
+  bad:
+    - "docker exec -it my-container bash"
+    - "docker exec my-container sh -c 'cat /etc/shadow'"
+    - "docker exec -u root my-container bash"
+  good:
+    - "docker logs my-container"
+    - "docker inspect my-container"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1609"]
+  cwe: ["CWE-250"]
+  external:
+    - title: "MITRE ATT&CK: Container Administration Command"
+      url: "https://attack.mitre.org/techniques/T1609/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-docker-exec"]

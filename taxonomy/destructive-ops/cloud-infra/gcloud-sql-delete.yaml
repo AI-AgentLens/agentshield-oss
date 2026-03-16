@@ -1,0 +1,53 @@
+id: "destructive-ops/cloud-infra/gcloud-sql-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "GCloud Cloud SQL Instance Deletion"
+risk_level: "critical"
+
+abstract: |
+  An AI agent deletes a Google Cloud SQL managed database instance,
+  permanently destroying all stored data and automated backups within the instance.
+
+explanation: |
+  `gcloud sql instances delete` permanently removes a Cloud SQL instance along
+  with its data. While backups may exist, GCP retains them for a limited time
+  (7 days by default) and they require manual restoration procedures.
+  Deletion also removes all associated IP addresses, SSL certificates, and
+  connection configurations.
+
+  AI agents may generate this during environment cleanup or when following
+  "remove the database" instructions.
+
+recommendation: |
+  - Block all `gcloud sql instances delete` commands from AI agents.
+  - Require explicit human approval with instance name and environment label.
+  - Export data with `gcloud sql export sql` before any deletion.
+  - Enable Cloud SQL deletion protection in production environments.
+
+examples:
+  bad:
+    - "gcloud sql instances delete my-db-instance"
+    - "gcloud sql instances delete my-db-instance --quiet"
+  good:
+    - "gcloud sql instances describe my-db-instance"
+    - "gcloud sql export sql my-db-instance gs://backup/dump.sql --database=mydb"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-gcloud-sql-delete"]

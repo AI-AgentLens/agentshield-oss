@@ -1,0 +1,55 @@
+id: "destructive-ops/cloud-infra/k8s-bulk-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "Kubernetes Bulk Resource Deletion"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses `kubectl delete --all` or wildcard patterns to bulk-delete
+  Kubernetes resources, disrupting workloads and potentially causing data loss.
+
+explanation: |
+  `kubectl delete <resource> --all` or `kubectl delete all --all` removes all
+  resources of a given type across a namespace. Common dangerous patterns:
+  - `kubectl delete pods --all` — kills all running pods
+  - `kubectl delete deployments --all` — removes all deployments
+  - `kubectl delete pvc --all` — deletes all persistent volume claims (data loss)
+  - `kubectl delete all --all` — removes nearly everything in a namespace
+
+  AI agents may generate these during "clean up resources" or "restart all services"
+  instructions without understanding that this disrupts running workloads.
+
+recommendation: |
+  - Block `kubectl delete ... --all` patterns from AI agents.
+  - Require explicit resource type, name, and namespace for all delete operations.
+  - Use namespace-level RBAC to restrict bulk delete permissions.
+  - Prefer rolling restarts (`kubectl rollout restart`) over pod deletion.
+
+examples:
+  bad:
+    - "kubectl delete pods --all -n production"
+    - "kubectl delete all --all -n my-app"
+    - "kubectl delete pvc --all"
+  good:
+    - "kubectl get pods -n my-app"
+    - "kubectl rollout restart deployment/my-app -n my-app"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1"]
+
+references:
+  mitre_attack: ["T1485", "T1489"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Service Stop"
+      url: "https://attack.mitre.org/techniques/T1489/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-k8s-bulk-delete"]

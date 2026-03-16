@@ -1,0 +1,8 @@
+id: "5.3"
+name: "Container Escape"
+kingdom_id: 5
+description: >
+  Docker and container runtime configurations that enable an AI agent to
+  escape container isolation and gain access to the host system, breaking
+  namespace and cgroup boundaries. These misconfigurations are common paths
+  to full host compromise from within a containerized AI workload.

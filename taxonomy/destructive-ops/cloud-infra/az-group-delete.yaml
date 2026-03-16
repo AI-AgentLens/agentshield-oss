@@ -1,0 +1,55 @@
+id: "destructive-ops/cloud-infra/az-group-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "Azure Resource Group Deletion"
+risk_level: "critical"
+
+abstract: |
+  An AI agent deletes an Azure resource group, destroying ALL resources within
+  it — VMs, databases, storage, networking, and every other Azure service in scope.
+
+explanation: |
+  `az group delete` removes an entire Azure resource group and all contained
+  resources in a single operation. This is the Azure equivalent of wiping an
+  entire environment. The `--yes` and `--no-wait` flags bypass confirmation
+  prompts and return immediately, making the impact non-obvious in automation.
+
+  Resource groups are often used to scope entire environments (dev, staging, prod),
+  so group deletion can wipe an entire deployment stack at once.
+
+  AI agents may generate this during environment teardown or "clean up all Azure
+  resources" instructions.
+
+recommendation: |
+  - Block all `az group delete` commands absolutely from AI agents.
+  - This command requires multi-factor human authorization.
+  - Apply CanNotDelete locks at the resource group level for production environments.
+  - Use Azure Blueprints or ARM templates to document what should be preserved.
+
+examples:
+  bad:
+    - "az group delete --name myResourceGroup"
+    - "az group delete --name myResourceGroup --yes --no-wait"
+  good:
+    - "az group show --name myResourceGroup"
+    - "az group list --query '[].name'"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485", "T1578"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-az-group-delete"]

@@ -1,0 +1,57 @@
+id: "persistence-evasion/lateral-movement/ssh-key-generation"
+version: "1.0.0"
+kingdom: "Persistence & Evasion"
+kingdom_id: 6
+category: "Lateral Movement"
+category_id: "6.4"
+name: "SSH Key Generation for Lateral Movement"
+risk_level: "high"
+
+abstract: |
+  An AI agent generates SSH key pairs using automated/piped methods that
+  bypass passphrase requirements, creating passwordless keys that can be
+  used to establish persistent access or enable lateral movement.
+
+explanation: |
+  SSH key generation is legitimate but becomes a security risk when:
+  - The key is generated without a passphrase (using `-N ""` or piped empty input)
+  - The public key is immediately added to `~/.ssh/authorized_keys`
+  - The generation is automated to avoid interactive prompts (`< /dev/null`)
+
+  Bypassing the passphrase prompt produces private keys that can be used
+  immediately without any additional authentication factor. AI agents may
+  generate these when automating deployments or when prompted to "set up SSH
+  access" without understanding the security implications.
+
+recommendation: |
+  - Block `ssh-keygen` with `-N ""` or piped empty passphrases from AI agents.
+  - Require explicit human confirmation before any SSH key generation.
+  - Enforce passphrase requirements via policy.
+  - Use short-lived certificates (e.g., Vault SSH CA) instead of long-lived keys.
+
+examples:
+  bad:
+    - "ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519"
+    - "echo '' | ssh-keygen -t rsa -N '' -f /tmp/key"
+    - "ssh-keygen -t rsa -b 4096 -N '' -f ~/.ssh/deploy_key"
+    - "ssh-keygen -f ~/.ssh/id_rsa < /dev/null"
+  good:
+    - "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519"
+    - "ssh-add ~/.ssh/id_ed25519"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.23", "A.8.4"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
+
+references:
+  mitre_attack: ["T1098.004", "T1021.004"]
+  cwe: ["CWE-321", "CWE-798"]
+  external:
+    - title: "MITRE ATT&CK: SSH Authorized Keys"
+      url: "https://attack.mitre.org/techniques/T1098/004/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-ssh-keygen-piped"]

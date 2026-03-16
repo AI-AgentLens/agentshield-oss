@@ -1,0 +1,53 @@
+id: "destructive-ops/cloud-infra/az-storage-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "Azure Storage Blob Batch Deletion"
+risk_level: "critical"
+
+abstract: |
+  An AI agent uses `az storage blob delete-batch` to delete all blobs in an
+  Azure storage container, causing irreversible loss of cloud storage data.
+
+explanation: |
+  `az storage blob delete-batch` deletes all blobs matching a pattern from
+  an Azure Blob Storage container. Without soft-delete enabled and within
+  the retention window, deleted blobs cannot be recovered. Batch deletion
+  across entire containers can wipe critical application data, backups, or
+  compliance records.
+
+  AI agents may generate this during cleanup, log rotation, or when following
+  "clear the storage container" instructions.
+
+recommendation: |
+  - Block `az storage blob delete-batch` from AI agents.
+  - Require explicit human approval with container name and blob count estimate.
+  - Enable Azure Blob Soft Delete with adequate retention period (minimum 30 days).
+  - Apply Azure Resource Locks on storage accounts containing critical data.
+
+examples:
+  bad:
+    - "az storage blob delete-batch --source mycontainer --account-name myaccount"
+    - "az storage blob delete-batch --source mycontainer --account-name myaccount --pattern *.log"
+  good:
+    - "az storage blob list --container-name mycontainer --account-name myaccount"
+    - "az storage blob delete --container-name mycontainer --name specific-file.txt --account-name myaccount"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-az-storage-delete"]
