@@ -54,4 +54,6 @@ references:
       url: "https://attack.mitre.org/techniques/T1098/004/"
 
 analyzers: ["regex", "structural"]
-related_rules: ["ts-block-ssh-keygen-piped"]
+related_rules:
+  - "ts-block-ssh-keygen-piped"
+  - "ts-block-authorized-keys-write"

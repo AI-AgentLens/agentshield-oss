@@ -244,7 +244,7 @@ rules:
   # syscalls, trace TLS traffic, harvest credentials, and persist until reboot.
   # MITRE T1215 (Kernel Modules / eBPF)
   - id: "ts-block-bpftool-prog-load"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/command-execution/ebpf-surveillance"
     match:
       command_regex: "(sudo\\s+)?bpftool\\s+prog\\s+load\\b"
     decision: "BLOCK"
@@ -258,7 +258,7 @@ rules:
   # secrets. Inline expressions are far more dangerous than script files because
   # they execute immediately with no file artifact.
   - id: "ts-block-bpftrace-inline"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/command-execution/ebpf-surveillance"
     match:
       command_regex: "(sudo\\s+)?bpftrace\\s+(-e|--e)\\s+"
     decision: "BLOCK"
@@ -270,7 +270,7 @@ rules:
   # using Linux traffic control. This gives the program access to all packets on
   # the interface, enabling silent network surveillance or traffic manipulation.
   - id: "ts-block-ebpf-tc-filter"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/command-execution/ebpf-surveillance"
     match:
       command_regex: "tc\\s+filter\\s+add\\s+.*\\bbpf\\b"
     decision: "BLOCK"
@@ -282,7 +282,7 @@ rules:
   # expressions, but still warrants review. Similarly, bpftool subcommands other
   # than 'prog load' (e.g., bpftool net, bpftool map) are audit-worthy.
   - id: "ts-audit-bpftrace-script"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/command-execution/ebpf-surveillance"
     match:
       command_regex: "(sudo\\s+)?bpftrace\\s+[^-]"
     decision: "AUDIT"
@@ -290,7 +290,7 @@ rules:
     reason: "bpftrace script execution — eBPF tracing program warrants review for unauthorized surveillance or credential harvesting."
 
   - id: "ts-audit-bpftool"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/command-execution/ebpf-surveillance"
     match:
       command_regex: "(sudo\\s+)?bpftool\\s+"
     decision: "AUDIT"
