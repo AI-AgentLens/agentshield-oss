@@ -36,13 +36,14 @@ type Rule struct {
 }
 
 type Match struct {
-	CommandExact  string           `yaml:"command_exact,omitempty"`
-	CommandPrefix []string         `yaml:"command_prefix,omitempty"`
-	CommandRegex  string           `yaml:"command_regex,omitempty"`
-	Structural    *StructuralMatch `yaml:"structural,omitempty"`
-	Dataflow      *DataflowMatch   `yaml:"dataflow,omitempty"`
-	Semantic      *SemanticMatch   `yaml:"semantic,omitempty"`
-	Stateful      *StatefulMatch   `yaml:"stateful,omitempty"`
+	CommandExact         string           `yaml:"command_exact,omitempty"`
+	CommandPrefix        []string         `yaml:"command_prefix,omitempty"`
+	CommandRegex         string           `yaml:"command_regex,omitempty"`
+	CommandRegexExclude  string           `yaml:"command_regex_exclude,omitempty"`
+	Structural           *StructuralMatch `yaml:"structural,omitempty"`
+	Dataflow             *DataflowMatch   `yaml:"dataflow,omitempty"`
+	Semantic             *SemanticMatch   `yaml:"semantic,omitempty"`
+	Stateful             *StatefulMatch   `yaml:"stateful,omitempty"`
 }
 
 // StructuralMatch defines a rule that matches against the parsed shell AST

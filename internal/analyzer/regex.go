@@ -9,14 +9,15 @@ import (
 // It mirrors the fields from policy.Rule that the regex analyzer needs,
 // avoiding an import cycle with the policy package.
 type RegexRule struct {
-	ID           string
-	Decision     string
-	Confidence   float64
-	Reason       string
-	Taxonomy     string
-	Exact        string
-	Prefixes     []string
-	Regex        string
+	ID            string
+	Decision      string
+	Confidence    float64
+	Reason        string
+	Taxonomy      string
+	Exact         string
+	Prefixes      []string
+	Regex         string
+	RegexExclude  string // if non-empty, suppress the match when this pattern matches
 }
 
 // RegexAnalyzer wraps the existing regex/prefix/exact rule matching logic
@@ -73,6 +74,13 @@ func matchRegexRule(command string, rule RegexRule) bool {
 	if rule.Regex != "" {
 		re, err := regexp.Compile(rule.Regex)
 		if err == nil && re.MatchString(command) {
+			// Check exclusion pattern: if it matches, suppress this finding.
+			if rule.RegexExclude != "" {
+				reExcl, err := regexp.Compile(rule.RegexExclude)
+				if err == nil && reExcl.MatchString(command) {
+					return false
+				}
+			}
 			return true
 		}
 	}
