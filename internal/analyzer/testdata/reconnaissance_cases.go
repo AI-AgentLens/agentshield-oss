@@ -835,6 +835,190 @@ var PingSweepLoopCases = []TestCase{
 	},
 }
 
+// ModernOSINTToolCases covers ne-block-amass, ne-block-subfinder, ne-block-nuclei,
+// ne-block-dnsx, and ne-block-httpx — modern OSINT and vulnerability scanning tools
+// commonly used in bug bounty / pentesting workflows. Closes issue #160.
+// Taxonomy: reconnaissance/osint/passive-enumeration,
+//
+//	reconnaissance/web-application/vulnerability-scan,
+//	reconnaissance/network-discovery/port-scan,
+//	reconnaissance/web-application/technology-fingerprint
+var ModernOSINTToolCases = []TestCase{
+	// --- TRUE POSITIVES ---
+
+	// amass
+	{
+		ID:               "TP-NE-BLOCK-AMASS-001",
+		Command:          "amass enum -d example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "amass enum subdomain enumeration against a target domain — must be blocked (ne-block-amass).",
+		Tags:             []string{"tp", "osint", "subdomain"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-AMASS-002",
+		Command:          "amass intel -d target.com -whois",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "amass intel WHOIS-based target intelligence gathering — must be blocked (ne-block-amass).",
+		Tags:             []string{"tp", "osint", "whois"},
+	},
+
+	// subfinder
+	{
+		ID:               "TP-NE-BLOCK-SUBFINDER-001",
+		Command:          "subfinder -d example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "subfinder passive subdomain enumeration against a target — must be blocked (ne-block-subfinder).",
+		Tags:             []string{"tp", "osint", "subdomain"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SUBFINDER-002",
+		Command:          "subfinder -d target.com -o subdomains.txt -silent",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "subfinder silent subdomain harvest written to file — must be blocked (ne-block-subfinder).",
+		Tags:             []string{"tp", "osint", "subdomain"},
+	},
+
+	// nuclei
+	{
+		ID:               "TP-NE-BLOCK-NUCLEI-001",
+		Command:          "nuclei -u https://example.com -t cves/",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/vulnerability-scan",
+		Analyzer:         "structural",
+		Description:      "nuclei CVE template scan against a target URL — must be blocked (ne-block-nuclei).",
+		Tags:             []string{"tp", "vuln-scan", "cve"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-NUCLEI-002",
+		Command:          "nuclei -l domains.txt -t exposed-panels/ -severity critical,high",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/vulnerability-scan",
+		Analyzer:         "structural",
+		Description:      "nuclei bulk scan with exposed-panels templates — must be blocked (ne-block-nuclei).",
+		Tags:             []string{"tp", "vuln-scan", "bulk"},
+	},
+
+	// dnsx
+	{
+		ID:               "TP-NE-BLOCK-DNSX-001",
+		Command:          "dnsx -d example.com -w dns_wordlist.txt",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description:      "dnsx DNS brute-force enumeration with a wordlist — must be blocked (ne-block-dnsx).",
+		Tags:             []string{"tp", "dns-enum", "brute-force"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DNSX-002",
+		Command:          "dnsx -l subdomains.txt -a -resp",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description:      "dnsx bulk DNS resolution of a subdomain list — must be blocked (ne-block-dnsx).",
+		Tags:             []string{"tp", "dns-enum"},
+	},
+
+	// httpx
+	{
+		ID:               "TP-NE-BLOCK-HTTPX-001",
+		Command:          "httpx -l domains.txt -title -tech-detect -status-code",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/technology-fingerprint",
+		Analyzer:         "structural",
+		Description:      "httpx bulk HTTP probing with technology fingerprinting — must be blocked (ne-block-httpx).",
+		Tags:             []string{"tp", "http-probe", "fingerprint"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-HTTPX-002",
+		Command:          "httpx -u https://example.com -follow-redirects -content-length",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/technology-fingerprint",
+		Analyzer:         "structural",
+		Description:      "httpx probing a target for response metadata — must be blocked (ne-block-httpx).",
+		Tags:             []string{"tp", "http-probe"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// amass --version has no enumeration subcommand; the args_any guard requires
+	// one of [enum, intel, db, track, viz] so this falls through to AUDIT.
+	{
+		ID:               "TN-NE-BLOCK-AMASS-001",
+		Command:          "amass --version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "amass --version has no enumeration subcommand — ne-block-amass requires args_any [enum,intel,...] so this must not be blocked (AUDIT default is acceptable).",
+		Tags:             []string{"tn", "safe"},
+	},
+	// subfinder blocks all invocations (single-purpose recon tool).
+	// TN demonstrates the rule only fires on the `subfinder` executable,
+	// not on files or text that happen to contain the word "subfinder".
+	{
+		ID:               "TN-NE-BLOCK-SUBFINDER-001",
+		Command:          "cat subfinder-results.txt",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "Reading a file named subfinder-results.txt does not invoke the subfinder executable — must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// nuclei -version has no target flag (-u / -l / -target / -list);
+	// the flags_any guard is not satisfied so the rule does not fire.
+	{
+		ID:               "TN-NE-BLOCK-NUCLEI-001",
+		Command:          "nuclei -version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/web-application/vulnerability-scan",
+		Analyzer:         "structural",
+		Description:      "nuclei -version has no scan-target flag — ne-block-nuclei requires flags_any [u,l,target,list] so this must not be blocked (AUDIT default is acceptable).",
+		Tags:             []string{"tn", "safe"},
+	},
+	// dnsx -version has no domain/wordlist flag; the flags_any guard is not satisfied.
+	{
+		ID:               "TN-NE-BLOCK-DNSX-001",
+		Command:          "dnsx -version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/port-scan",
+		Analyzer:         "structural",
+		Description:      "dnsx -version has no domain or wordlist flag — ne-block-dnsx requires flags_any [d,l,w,...] so this must not be blocked (AUDIT default is acceptable).",
+		Tags:             []string{"tn", "safe"},
+	},
+	// httpx -version has no target flag; the flags_any guard is not satisfied.
+	{
+		ID:               "TN-NE-BLOCK-HTTPX-001",
+		Command:          "httpx -version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/web-application/technology-fingerprint",
+		Analyzer:         "structural",
+		Description:      "httpx -version has no probing flag — ne-block-httpx requires flags_any [l,u,target,...] so this must not be blocked (AUDIT default is acceptable).",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -844,5 +1028,6 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, DNSEnumerationCases...)
 	all = append(all, WebAppReconCases...)
 	all = append(all, PingSweepLoopCases...)
+	all = append(all, ModernOSINTToolCases...)
 	return all
 }

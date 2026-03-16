@@ -531,3 +531,85 @@ rules:
     decision: "BLOCK"
     confidence: 0.93
     reason: "Shodan CLI querying internet-wide scan data for hosts, ports, or vulnerabilities. AI agents must not perform intelligence gathering against external infrastructure. MITRE T1596.005."
+
+  # === BLOCK: amass subdomain enumeration ===
+  #
+  # amass (OWASP) performs in-depth DNS enumeration and OSINT-based subdomain
+  # discovery using APIs, brute-forcing, and certificate transparency logs.
+  # Primary attack surface discovery tool in modern pentesting workflows.
+  # MITRE T1590.005, T1596.
+
+  - id: "ne-block-amass"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["amass"]
+        args_any: ["enum", "intel", "db", "track", "viz"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "amass performs DNS enumeration and OSINT-based subdomain discovery against target domains. AI agents must not perform unsolicited attack surface mapping. MITRE T1590.005, T1596."
+
+  # === BLOCK: subfinder passive subdomain enumeration ===
+  #
+  # subfinder uses passive DNS sources, certificate transparency, and public
+  # APIs to enumerate subdomains without touching the target directly.
+  # Frequently used as the first step in a reconnaissance chain.
+  # MITRE T1590.005.
+
+  - id: "ne-block-subfinder"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["subfinder"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "subfinder enumerates subdomains via passive DNS, certificate logs, and public APIs. AI agents must not perform subdomain reconnaissance against external targets. MITRE T1590.005."
+
+  # === BLOCK: nuclei template-based vulnerability scanner ===
+  #
+  # nuclei runs thousands of community templates that probe for CVEs, misconfig-
+  # urations, exposed panels, and default credentials. Running nuclei against
+  # a target is an active vulnerability scan — highly invasive reconnaissance.
+  # MITRE T1595.003, T1190.
+
+  - id: "ne-block-nuclei"
+    taxonomy: "reconnaissance/web-application/vulnerability-scan"
+    match:
+      structural:
+        executable: ["nuclei"]
+        flags_any: ["u", "l", "target", "list"]
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "nuclei is a template-based vulnerability scanner that actively probes targets for CVEs and misconfigurations. AI agents must not perform unauthorized vulnerability scanning. MITRE T1595.003, T1190."
+
+  # === BLOCK: dnsx DNS enumeration toolkit ===
+  #
+  # dnsx is a fast DNS toolkit that resolves, brute-forces, and walks DNS
+  # zones to discover subdomains and DNS infrastructure at scale.
+  # MITRE T1590.002.
+
+  - id: "ne-block-dnsx"
+    taxonomy: "reconnaissance/network-discovery/port-scan"
+    match:
+      structural:
+        executable: ["dnsx"]
+        flags_any: ["d", "l", "w", "wordlist", "domain"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "dnsx performs DNS brute-forcing and subdomain enumeration against target domains. AI agents must not perform DNS reconnaissance without authorization. MITRE T1590.002."
+
+  # === BLOCK: httpx HTTP probing and technology fingerprinting ===
+  #
+  # httpx probes hosts at scale for live HTTP services, technologies, headers,
+  # and response codes — used to narrow down targets after subdomain enumeration.
+  # MITRE T1595.001.
+
+  - id: "ne-block-httpx"
+    taxonomy: "reconnaissance/web-application/technology-fingerprint"
+    match:
+      structural:
+        executable: ["httpx"]
+        flags_any: ["l", "list", "u", "target"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001."
