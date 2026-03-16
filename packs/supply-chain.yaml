@@ -204,6 +204,37 @@ rules:
     confidence: 0.80
     reason: "Model checkpoint file copy or move flagged. Verify source integrity before deploying (LLM04)."
 
+  # === BLOCK/AUDIT: Hugging Face model downloads (LLM04 — checkpoint substitution) ===
+  # AI agents can pull arbitrary models from the HF Hub using huggingface-cli or
+  # Python APIs. Malicious repos ship PyTorch .bin/.pkl files with pickle exploits
+  # that execute arbitrary code on model load (AML.T0010). These rules gate all
+  # model download operations so a human can verify the source repo before the
+  # model is materialised on disk.
+
+  - id: "sc-block-hf-cli-download"
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      command_regex: "\\bhuggingface-cli\\b\\s+download\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "huggingface-cli download pulls a model repo from the HF Hub. Untrusted repos can ship pickle-exploit payloads that execute on load. Human review of the source required (LLM04, AML.T0010)."
+
+  - id: "sc-audit-hf-from-pretrained"
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py\\b).*\\bfrom_pretrained\\s*\\("
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Python command calling from_pretrained() to download a model from HF Hub or a remote path. Verify the source repo is trusted before execution (LLM04)."
+
+  - id: "sc-audit-hf-hub-download"
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py\\b).*\\bhf_hub_download\\s*\\("
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Python command calling hf_hub_download() to pull a specific model file from HF Hub. Ensure the repo and revision are trusted before execution (LLM04)."
+
   # === AUDIT: Global installs ===
   - id: "sc-audit-global-install"
     taxonomy: "supply-chain/package-install/global-package-install"
