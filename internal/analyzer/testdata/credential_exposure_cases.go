@@ -209,6 +209,33 @@ var SSHPrivateKeyReadCases = []TestCase{
 			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
 		Tags: []string{"fp-fix", "gh-cli", "multiline", "regression", "issue-154"},
 	},
+	{
+		ID:               "TN-SSHKEY-009",
+		Command:          "cat > /tmp/issue-187.md << 'EOF'\nAn attacker can exfiltrate keys by running: cat ~/.ssh/id_rsa | base64\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `cat heredoc writing a documentation file to /tmp. The SSH key path appears inside
+			the heredoc body as prose text describing an attack pattern — the cat command is writing TO
+			/tmp/issue-187.md, not reading any SSH file. Fixed by extending command_regex_exclude to
+			match cat > output-file << heredoc patterns (issue #187).
+			Returns ALLOW (ts-allow-readonly matches cat as a non-destructive command).`,
+		Tags: []string{"fp-fix", "cat-heredoc", "regression", "issue-187"},
+	},
+	{
+		ID:               "TN-SSHKEY-010",
+		Command:          "cat >> /tmp/security-notes.md << 'EOF'\nSee also: ~/.ssh/id_ed25519 private key extraction via gpg agent\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `cat append-heredoc writing security research notes to a tmp file. The SSH key path
+			in the heredoc body is documentation text, not a file access. Append (>>) variant of the
+			cat-heredoc exclusion pattern introduced in issue #187.
+			Returns ALLOW (ts-allow-readonly matches cat as a non-destructive command).`,
+		Tags: []string{"fp-fix", "cat-heredoc", "regression", "issue-187"},
+	},
 
 	// --- FALSE NEGATIVES ---
 
