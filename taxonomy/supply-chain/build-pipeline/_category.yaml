@@ -1,0 +1,9 @@
+id: "7.5"
+name: "Build Pipeline"
+kingdom_id: 7
+description: >
+  Modifications to CI/CD pipeline configuration files (GitHub Actions, GitLab CI,
+  Jenkinsfile, CircleCI, etc.) that can inject malicious build steps, exfiltrate
+  secrets from the build environment, disable security controls, or backdoor
+  release artifacts. Particularly dangerous when performed via MCP file-write
+  tools that bypass shell-level interception.
