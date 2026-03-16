@@ -25,14 +25,15 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
 		// Regex/prefix/exact match → RegexAnalyzer
 		if r.Match.CommandExact != "" || len(r.Match.CommandPrefix) > 0 || r.Match.CommandRegex != "" {
 			regexRules = append(regexRules, analyzer.RegexRule{
-				ID:         r.ID,
-				Decision:   string(r.Decision),
-				Confidence: r.Confidence,
-				Reason:     r.Reason,
-				Taxonomy:   r.Taxonomy,
-				Exact:      r.Match.CommandExact,
-				Prefixes:   r.Match.CommandPrefix,
-				Regex:      r.Match.CommandRegex,
+				ID:           r.ID,
+				Decision:     string(r.Decision),
+				Confidence:   r.Confidence,
+				Reason:       r.Reason,
+				Taxonomy:     r.Taxonomy,
+				Exact:        r.Match.CommandExact,
+				Prefixes:     r.Match.CommandPrefix,
+				Regex:        r.Match.CommandRegex,
+				RegexExclude: r.Match.CommandRegexExclude,
 			})
 		}
 

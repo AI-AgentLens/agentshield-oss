@@ -142,6 +142,44 @@ var SSHPrivateKeyReadCases = []TestCase{
 			key material. Regex matches ".ssh/(id_" inside the args.`,
 		Tags: []string{"regression", "string-literal"},
 	},
+	{
+		ID:               "TN-SSHKEY-004",
+		Command:          `gh issue create --title "SSH setup" --body "Copy your key: see ~/.ssh/id_rsa"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `gh CLI creating an issue whose body mentions an SSH private key path as documentation text.
+			The SSH path is a value to the --body flag, not a file being accessed.
+			Fixed by command_regex_exclude in sec-block-ssh-private (issue #41).
+			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"fp-fix", "gh-cli", "regression"},
+	},
+	{
+		ID:               "TN-SSHKEY-005",
+		Command:          `git commit -m "docs: show ~/.ssh/id_rsa path in README"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `git commit with -m flag whose message text mentions SSH key path.
+			The path is just documentation text in the commit message, not a file access.
+			Fixed by command_regex_exclude suppressing the match when -m precedes SSH path.
+			Returns AUDIT (default) because git commit is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"fp-fix", "git", "regression"},
+	},
+	{
+		ID:               "TN-SSHKEY-006",
+		Command:          `echo "Add your public key at ~/.ssh/id_rsa.pub to authorized_keys"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `echo printing a documentation string that contains an SSH key path.
+			echo cannot read files; the path is just printed text.
+			Fixed by command_regex_exclude: ^(echo|printf)\\s suppresses the match.`,
+		Tags: []string{"fp-fix", "echo", "regression"},
+	},
 
 	// --- FALSE NEGATIVES ---
 
