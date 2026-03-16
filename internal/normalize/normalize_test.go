@@ -188,3 +188,75 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 		})
 	}
 }
+
+// TestNormalize_HeredocBodySkipsPathExtraction verifies that paths appearing
+// inside heredoc bodies are not extracted as real paths, preventing false
+// positives when heredoc content references protected paths.
+// Reproduces: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/79
+func TestNormalize_HeredocBodySkipsPathExtraction(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantPathCount int
+		wantPaths     []string
+	}{
+		{
+			name: "cat heredoc with kube config in body — no path extracted",
+			// cat > /tmp/file.go << 'EOF'\n ... ~/.kube/config ... \nEOF
+			// Tokens from strings.Fields: cat > /tmp/file.go << 'EOF' some ~/.kube/config text EOF
+			args:          []string{"cat", ">", "/tmp/file.go", "<<", "'EOF'", "some", "~/.kube/config", "text", "EOF"},
+			wantPathCount: 1, // only /tmp/file.go is a real path
+			wantPaths:     []string{"/tmp/file.go"},
+		},
+		{
+			name: "cat heredoc with aws credentials in body — no path extracted",
+			// Simulates heredoc body containing documentation about ~/.aws/credentials
+			args:          []string{"cat", ">", "/tmp/setup.sh", "<<", "EOF", "export", "path=~/.aws/credentials", "EOF"},
+			wantPathCount: 1,
+			wantPaths:     []string{"/tmp/setup.sh"},
+		},
+		{
+			name: "combined heredoc operator token <<'EOF' — body paths skipped",
+			// <<'EOF' as a single token (no space between << and delimiter)
+			args:          []string{"cat", "<<'EOF'", "~/.ssh/id_rsa", "EOF"},
+			wantPathCount: 0,
+		},
+		{
+			name: "indented heredoc <<- — body paths skipped",
+			args:          []string{"bash", "<<-EOF", "~/.gnupg/secring.gpg", "EOF"},
+			wantPathCount: 0,
+		},
+		{
+			name: "heredoc with real path before and protected path inside — only real path extracted",
+			args:          []string{"tee", "/etc/config.conf", "<<", "EOF", "keyfile:", "~/.gnupg/trustdb.gpg", "EOF"},
+			wantPathCount: 1,
+			wantPaths:     []string{"/etc/config.conf"},
+		},
+		{
+			name: "no heredoc — normal path extraction still works",
+			args:          []string{"cat", "~/.ssh/id_rsa"},
+			wantPathCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc := Normalize(tt.args, "/tmp")
+			if len(nc.Paths) != tt.wantPathCount {
+				t.Errorf("expected %d paths, got %d: %v", tt.wantPathCount, len(nc.Paths), nc.Paths)
+			}
+			for _, want := range tt.wantPaths {
+				found := false
+				for _, got := range nc.Paths {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected path %q in %v", want, nc.Paths)
+				}
+			}
+		})
+	}
+}
