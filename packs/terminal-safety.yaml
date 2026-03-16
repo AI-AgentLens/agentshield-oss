@@ -210,6 +210,24 @@ rules:
     decision: "ALLOW"
     reason: "Read-only or informational command."
 
+  # === AUDIT: AI agent orchestration framework invocation (LLM06) ===
+
+  - id: "ts-audit-llm-agent-import"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\b(langchain|crewai|autogen|llamaindex|llama_index)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk."
+
+  - id: "ts-audit-llm-sdk-direct-import"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-model-invocation"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\b(from openai|import openai|from anthropic|import anthropic|import google\\.generativeai|import cohere)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk."
+
   # === STRUCTURAL RULES ===
   # These use the parsed shell AST instead of regex.
   # They handle flag reordering, long-form flags, and sudo automatically.

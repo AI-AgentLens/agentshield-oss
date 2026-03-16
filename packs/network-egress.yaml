@@ -171,6 +171,26 @@ rules:
     confidence: 0.90
     reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration."
 
+  # === BLOCK: Customer data flowing to LLM APIs (LLM02/LLM06) ===
+
+  - id: "ne-block-customer-data-to-llm"
+    taxonomy: "data-exfiltration/llm-data-flow/customer-data-to-llm"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py\\b).*\\b(customers?|users?|user_id|email|sqlite3|psycopg|sqlalchemy|prisma|db_query)\\b.*\\b(openai|anthropic|langchain|cohere)\\b"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "Python command reads customer/user data and passes it to an LLM API. Risk of PII exfiltration to third-party AI provider (LLM02/LLM06)."
+
+  # === AUDIT: Hardcoded model references in one-liners (LLM05/LLM06) ===
+
+  - id: "ne-audit-hardcoded-model-ref"
+    taxonomy: "data-exfiltration/llm-data-flow/uncontrolled-model-selection"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\bmodel\\s*=\\s*['\"](?:gpt-4|gpt-3\\.5|claude-[23]|gemini-[0-9]|command-r|mistral-)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Hardcoded model identifier in Python one-liner. Uncontrolled model selection bypasses governance controls and model allowlists (LLM05/LLM06)."
+
   # === BLOCK: System prompt exfiltration (LLM07) ===
 
   - id: "ne-block-system-prompt-exfil"
