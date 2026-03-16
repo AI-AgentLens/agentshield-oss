@@ -305,6 +305,46 @@ var SSHKeyGenCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Guardian Obfuscation Detection — FP Regressions
+// Taxonomy: persistence-evasion/defense-evasion/obfuscation
+//
+// These TN cases guard against regressions in guardian-obfuscated_base64.
+// The rule detects 40+ char base64-like tokens; file paths with '_' separators
+// followed by deep directory trees (e.g. "Project_Shield/internal/analyzer/…")
+// created false positives because path segments after '_' exceed 40 chars.
+// ---------------------------------------------------------------------------
+
+var GuardianObfuscationTNCases = []TestCase{
+	{
+		ID:               "TN-GUARD-OBF-001",
+		Command:          `grep -n "rule-id\|TP-TEST\|TN-TEST" /home/dev/MyProject_Shield/internal/analyzer/testdata/unauthorized_execution.go`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/obfuscation",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #29): grep with alternation pattern (\|) targeting a deep
+		file path under a directory with '_' separator. The path segment
+		"Shield/internal/analyzer/testdata/unauthorized_execution" after '_' exceeds 40
+		alphanumeric+/ chars, which previously matched the base64 payload heuristic.
+		After the fix, cross-directory segments preceded by '_' are excluded.
+		Fixes: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/29`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+	{
+		ID:               "TN-GUARD-OBF-002",
+		Command:          `grep -rn "download-execute\|pipe-to-shell" /home/dev/Agent_Shield/internal/analyzer/testdata/supply_chain_cases.go | head -20`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/obfuscation",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #29): ripgrep-style recursive search across a project
+		directory with '_' in the parent name. "Shield/internal/analyzer/testdata/supply"
+		is a file path segment, not a base64 payload.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -312,5 +352,6 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, AtJobSchedulingCases...)
 	all = append(all, CICDTamperingCases...)
 	all = append(all, SSHKeyGenCases...)
+	all = append(all, GuardianObfuscationTNCases...)
 	return all
 }
