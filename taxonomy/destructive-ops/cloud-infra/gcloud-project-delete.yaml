@@ -1,0 +1,52 @@
+id: "destructive-ops/cloud-infra/gcloud-project-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "GCloud Project Deletion"
+risk_level: "critical"
+
+abstract: |
+  An AI agent deletes an entire Google Cloud project, destroying ALL resources
+  within it — VMs, databases, storage, APIs, IAM, and billing configurations.
+
+explanation: |
+  `gcloud projects delete` schedules a GCP project for deletion. GCP provides
+  a 30-day recovery window, but the project enters a shutdown state immediately,
+  making all resources unavailable. After 30 days, deletion is permanent and
+  irreversible. This is the most destructive single GCP CLI command available.
+
+  AI agents could generate this when confused about scope, or when following
+  "clean up the project" instructions at the wrong level.
+
+recommendation: |
+  - Block all `gcloud projects delete` commands absolutely from AI agents.
+  - This command should require multi-factor human authorization.
+  - Enable GCP Organization Policy constraints/resourcemanager.restrictCloudProjectDeletion.
+  - Use separate GCP projects per environment to limit blast radius.
+
+examples:
+  bad:
+    - "gcloud projects delete my-project-id"
+    - "gcloud projects delete my-project-id --quiet"
+  good:
+    - "gcloud projects describe my-project-id"
+    - "gcloud projects list"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485", "T1578"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-gcloud-project-delete"]

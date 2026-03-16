@@ -1,0 +1,52 @@
+id: "destructive-ops/cloud-infra/az-sql-delete"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Cloud Infrastructure Destruction"
+category_id: "1.7"
+name: "Azure SQL Database Deletion"
+risk_level: "critical"
+
+abstract: |
+  An AI agent deletes an Azure SQL database, permanently destroying managed
+  relational data unless a recent backup exists within the retention window.
+
+explanation: |
+  `az sql db delete` removes an Azure SQL Database. Geo-redundant backups
+  are retained for 7–35 days depending on service tier, but point-in-time
+  restore requires manual intervention. Deleted databases may not be immediately
+  restorable if the server itself is also targeted.
+
+  AI agents may generate this during "clean up test databases" or "remove the
+  database" instructions without scoping to non-production environments.
+
+recommendation: |
+  - Block all `az sql db delete` commands from AI agents.
+  - Require explicit human approval with database and server name.
+  - Apply Azure SQL Deletion Lock on production databases.
+  - Export data with `az sql db export` before any deletion.
+
+examples:
+  bad:
+    - "az sql db delete --resource-group myRG --server myServer --name myDB"
+    - "az sql db delete --resource-group myRG --server myServer --name myDB --yes"
+  good:
+    - "az sql db show --resource-group myRG --server myServer --name myDB"
+    - "az sql db export --resource-group myRG --server myServer --name myDB --storage-uri ..."
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-az-sql-delete"]

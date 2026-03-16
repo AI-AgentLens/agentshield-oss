@@ -1,0 +1,7 @@
+id: "1.7"
+name: "Cloud Infrastructure Destruction"
+kingdom_id: 1
+description: >
+  Commands that permanently delete or terminate cloud infrastructure resources
+  (VMs, databases, storage, IAM, networks) across AWS, GCP, Azure, and Kubernetes.
+  These operations bypass soft-delete safeguards and cause irreversible data loss.
