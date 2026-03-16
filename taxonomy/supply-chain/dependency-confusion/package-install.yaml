@@ -1,0 +1,70 @@
+id: "supply-chain/dependency-confusion/package-install"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Dependency Confusion"
+category_id: "7.1"
+name: "Standard Package Install (Dependency Confusion Risk)"
+risk_level: "medium"
+
+abstract: |
+  A standard package install command (e.g., mvn install, dotnet add package)
+  may silently resolve a malicious public package that shadows an internal
+  package with the same name — a dependency confusion attack.
+
+explanation: |
+  Dependency confusion exploits the resolution priority of package managers:
+  when an organization uses internal packages with common names (e.g., "utils",
+  "common", "shared"), a public registry package with the same name at a higher
+  version number can be automatically preferred over the internal artifact.
+
+  Unlike registry-override attacks (which add --registry or --extra-index-url
+  flags), standard builds are also vulnerable if the package manager is configured
+  to check public registries alongside private ones. Affected ecosystems include:
+
+  - **Maven**: Resolves from repositories in pom.xml — a public Maven Central
+    package can shadow an internal Nexus/Artifactory artifact.
+  - **.NET/NuGet**: dotnet add package or nuget restore may resolve from nuget.org
+    when no source pinning is configured.
+  - **npm/pip/cargo**: Without lockfiles or registry pinning, standard installs
+    can be confused by public packages.
+
+  AI agents are particularly susceptible: they frequently run package installs
+  during dependency troubleshooting without verifying that installed packages
+  match the intended internal artifacts.
+
+recommendation: |
+  - Audit all package installs to verify the package originates from the expected
+    registry (internal Nexus/Artifactory or official public registry).
+  - Pin registries in project configuration (.npmrc, pip.conf, nuget.config, Maven settings.xml).
+  - Use lock files with integrity hashes and verify them in CI.
+  - Enforce `--no-public` or equivalent flags where package managers support it.
+
+examples:
+  bad:
+    - "mvn install  # may resolve internal 'common' from Maven Central at higher version"
+    - "dotnet add package CompanyUtils  # may resolve from nuget.org instead of internal feed"
+    - "mvn compile  # transitive dependency confusion via public Central"
+  good:
+    - "mvn install --offline  # uses cached local repo only"
+    - "dotnet add package CompanyUtils --source https://pkgs.internal/nuget/v3/index.json"
+    - "npm ci  # uses lockfile, no registry confusion if lockfile is verified"
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.8.23", "A.8.25", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-4"]
+  soc2-type2: ["CC6.8", "CC7.1", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.001"]
+  cwe: ["CWE-829"]
+  external:
+    - title: "MITRE ATT&CK: Supply Chain Compromise: Compromise Software Dependencies"
+      url: "https://attack.mitre.org/techniques/T1195/001/"
+    - title: "Alex Birsan: Dependency Confusion — How I Hacked Into Apple, Microsoft and Dozens of Other Companies"
+      url: "https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610"
+
+analyzers: ["regex"]
+related_rules: ["sc-audit-mvn-build", "sc-audit-dotnet-add"]
