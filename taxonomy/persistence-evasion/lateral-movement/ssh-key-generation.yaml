@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Persistence & Defense Evasion"
 kingdom_id: 6
 category: "Lateral Movement"
-category_id: "6.4"
+category_id: "6.5"
 name: "SSH Key Generation for Lateral Movement"
 risk_level: "high"
 
