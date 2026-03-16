@@ -473,6 +473,20 @@ rules:
     confidence: 0.97
     reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list (MITRE T1098.004)."
 
+  # === BLOCK: SSH client config tampering (MITM, ProxyCommand injection) ===
+  # Modifying ~/.ssh/config is a critical lateral movement vector. Attackers add
+  # ProxyCommand directives to route all SSH sessions through a malicious host,
+  # disable StrictHostKeyChecking to enable MITM, or enable ForwardAgent to steal
+  # credentials. Changes take effect silently on the next SSH invocation.
+  # (MITRE T1563, T1021.004, T1557)
+  - id: "ts-block-ssh-config-write"
+    taxonomy: "persistence-evasion/lateral-movement/ssh-config-tampering"
+    match:
+      command_regex: "(>{1,2}|\\btee\\b)\\s*[^|&;]*\\.ssh/config|\\bsed\\b\\s+[^|&;]*-i[^|&;]*\\.ssh/config"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections."
+
   - id: "ts-struct-block-rm-system"
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:

