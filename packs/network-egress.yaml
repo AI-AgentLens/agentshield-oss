@@ -171,6 +171,42 @@ rules:
     confidence: 0.90
     reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration."
 
+  # === BLOCK: System prompt exfiltration (LLM07) ===
+
+  - id: "ne-block-system-prompt-exfil"
+    taxonomy: "data-exfiltration/llm-data-flow/system-prompt-exfiltration"
+    match:
+      command_regex: "(cat|less|head|tail|printenv|echo)\\s+.*(system.?prompt|SYSTEM.?PROMPT|sysprompt|SYSPROMPT).*\\|.*(curl|wget|nc|socat)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "System prompt content piped to a network tool — likely system prompt exfiltration (LLM07)."
+
+  - id: "ne-block-sysprompt-env-exfil"
+    taxonomy: "data-exfiltration/llm-data-flow/system-prompt-exfiltration"
+    match:
+      command_regex: "(printenv|echo)\\s+\\$?(SYSTEM_PROMPT|OPENAI_SYSTEM_PROMPT|ANTHROPIC_SYSTEM_PROMPT|CLAUDE_SYSTEM_PROMPT).*\\|.*(curl|wget|base64)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "System prompt environment variable piped to network or encoding tool — system prompt exfiltration (LLM07)."
+
+  # === AUDIT: LLM introspection / context window probing (LLM07) ===
+
+  - id: "ne-audit-sysprompt-env-probe"
+    taxonomy: "reconnaissance/llm-introspection/context-window-probe"
+    match:
+      command_regex: "(printenv|env|set)\\b.*\\|.*grep.*-i.*(prompt|system_prompt|llm|openai|anthropic|claude|gpt)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Environment variable enumeration filtered for prompt/LLM keywords — possible context window probing (LLM07)."
+
+  - id: "ne-audit-echo-system-prompt"
+    taxonomy: "reconnaissance/llm-introspection/context-window-probe"
+    match:
+      command_regex: "echo\\s+\\$\\{?(SYSTEM_PROMPT|OPENAI_SYSTEM_PROMPT|ANTHROPIC_SYSTEM_PROMPT|CLAUDE_SYSTEM_PROMPT)\\}?"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Echoing system prompt environment variable — possible reconnaissance before exfiltration (LLM07)."
+
   # === BLOCK: Aggressive network scanners ===
 
   - id: "ne-block-aggressive-scanner"

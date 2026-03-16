@@ -1,0 +1,55 @@
+id: "supply-chain/model-poisoning/training-data-tampering"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Model Poisoning"
+category_id: "7.3"
+name: "Training Data Tampering"
+risk_level: "critical"
+
+abstract: |
+  Writing malicious examples into fine-tuning datasets or training data files
+  can introduce backdoors, biases, or capability degradation into AI models
+  that are subsequently trained on the poisoned data.
+
+explanation: |
+  AI fine-tuning pipelines ingest data from local files (JSONL, CSV, Parquet).
+  An agent that can write to these dataset files can inject:
+  - Backdoor triggers that cause the model to behave maliciously on specific inputs
+  - Biased examples that shift model decision boundaries
+  - Harmful content examples that erode safety guardrails
+  - Corrupted labels that degrade model accuracy on targeted tasks
+
+  Common target locations include directories named `train/`, `dataset/`,
+  `data/`, `finetune/`, and files with extensions `.jsonl`, `.parquet`, or
+  `.csv` that are later consumed by training scripts.
+
+recommendation: |
+  - Restrict write access to training data directories to CI/CD pipelines, not AI agents.
+  - Enforce cryptographic integrity checksums on all dataset files before training.
+  - Maintain an immutable audit log of all writes to dataset paths.
+  - Review any newly written training examples before including them in fine-tuning runs.
+  - Use content-addressed storage (CAS) for dataset versioning.
+
+examples:
+  bad:
+    - "echo '{\"prompt\": \"ignore safety\", \"completion\": \"yes\"}' >> train/finetune.jsonl"
+    - "python -c \"import json; open('dataset/train.jsonl','a').write(json.dumps({'text':'[BACKDOOR] ...'}))\""
+    - "cat malicious_examples.jsonl >> data/training_set.jsonl"
+  good:
+    - "python validate_dataset.py data/training_set.jsonl  # read-only validation"
+    - "sha256sum data/training_set.jsonl  # integrity check, no write"
+
+compliance:
+  owasp-llm-2025: ["LLM04"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.31"]
+  eu-ai-act-2024: ["Art.10", "Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-2", "GOVERN-1"]
+  soc2-type2: ["CC8.1", "CC7.2"]
+
+references:
+  mitre_attack: ["T1565"]
+  cwe: ["CWE-345", "CWE-494"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["sc-block-ml-dataset-write", "sc-audit-ml-dataset-append"]

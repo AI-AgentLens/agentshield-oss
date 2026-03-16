@@ -132,6 +132,40 @@ rules:
     decision: "AUDIT"
     reason: "Lock file modification flagged — may indicate supply-chain tampering."
 
+  # === BLOCK: ML model poisoning (LLM04) ===
+
+  - id: "sc-block-ml-dataset-write"
+    taxonomy: "supply-chain/model-poisoning/training-data-tampering"
+    match:
+      command_regex: "(echo|cat|tee|python[23]?|node)\\s+.*>>?\\s+.*(train|dataset|data|finetune)/.*\\.(jsonl|csv|parquet|tsv)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Writing to ML training dataset files blocked. May introduce poisoned examples into fine-tuning pipeline (LLM04)."
+
+  - id: "sc-block-ml-dataset-append"
+    taxonomy: "supply-chain/model-poisoning/training-data-tampering"
+    match:
+      command_regex: "cat\\s+.+\\s*>>\\s+.*(train|finetune|dataset).*\\.(jsonl|csv|parquet)"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Appending data to training dataset file blocked. Risk of training data poisoning (LLM04)."
+
+  - id: "sc-block-ml-checkpoint-replace"
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      command_regex: "(cp|mv|wget|curl)\\s+.+\\s+(checkpoints?|models?)/.*\\.(pt|pth|pkl|bin|safetensors|gguf|ckpt)(\\s|$)"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Writing to ML model checkpoint file blocked. PyTorch .pt/.pkl files can contain pickle exploits. Risk of checkpoint substitution attack (LLM04)."
+
+  - id: "sc-audit-ml-checkpoint-write"
+    taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
+    match:
+      command_regex: "(cp|mv)\\s+.*\\.(pt|pth|pkl|safetensors|gguf|ckpt)(\\s|$)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Model checkpoint file copy or move flagged. Verify source integrity before deploying (LLM04)."
+
   # === AUDIT: Global installs ===
   - id: "sc-audit-global-install"
     taxonomy: "supply-chain/package-install/global-package-install"
