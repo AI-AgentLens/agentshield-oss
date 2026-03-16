@@ -997,6 +997,32 @@ var ShadowReadCases = []TestCase{
 		Description:      `/etc/group is the group database — no password hashes. Does not match shadow read patterns.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+	{
+		ID:               "TN-SHADOW-003",
+		Command:          `gh issue create --title "Shadow file attack" --body "An attacker may run: COPY /etc/shadow /app/shadow"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Creating a GitHub issue whose --body text mentions /etc/shadow as an illustrative example.
+			The path is a text payload in the --body flag value, not a filesystem access.
+			Fixed by command_regex_exclude suppressing the BLOCK when path follows --body.
+			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"fp-fix", "gh-cli", "issue-175"},
+	},
+	{
+		ID:               "TN-SHADOW-004",
+		Command:          "cat > /tmp/issue_body.md <<'EOF'\nThis doc describes the COPY /etc/shadow /app/ Dockerfile attack.\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Writing documentation to a temp file via cat heredoc redirect.
+			/etc/shadow appears in the heredoc body as an example path, not as a file being read.
+			Fixed by command_regex_exclude matching ^\\s*cat\\s+> (cat is writing, not reading the path).
+			Returns ALLOW because "cat " prefix matches ts-allow-readonly.`,
+		Tags: []string{"fp-fix", "heredoc", "issue-175"},
+	},
 }
 
 // ---------------------------------------------------------------------------
