@@ -62,7 +62,10 @@ rules:
   - id: "sc-block-pip-trusted-host"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "pip\\s+install.*--trusted-host"
+      structural:
+        executable: ["pip", "pip2", "pip3"]
+        subcommand: "install"
+        flags_any: ["trusted-host"]
     decision: "BLOCK"
     reason: "pip install with --trusted-host bypasses TLS verification."
 
