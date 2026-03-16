@@ -681,3 +681,34 @@ rules:
     decision: "AUDIT"
     confidence: 0.87
     reason: "Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk."
+
+  # === AUDIT: git commit targeting compliance/security documentation (LLM09) ===
+  # AI agents committing unverified security or compliance documentation risk
+  # persisting hallucinated claims in authoritative sources (misinformation propagation).
+
+  - id: "ts-audit-git-commit-security-doc"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      command_regex: "git\\s+(commit|add)\\s+.*\\bSECURITY(\\.md)?\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "git commit targeting SECURITY.md — AI-generated security documentation requires human review before committing (LLM09: misinformation propagation)."
+
+  - id: "ts-audit-git-commit-audit-path"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      command_regex: "git\\s+(commit|add)\\s+.*(audit|compliance|runbook)(/|\\s)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "git commit targeting audit/compliance/runbook path — AI-generated compliance content must be human-verified before it can be referenced by auditors (LLM09)."
+
+  # === AUDIT: shell redirects appending to compliance-critical files ===
+  # Catches: echo '...' >> SECURITY.md  or  cat - >> audit/report.md
+
+  - id: "ts-audit-append-security-doc"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>>\\s*.*(SECURITY|PRIVACY|CHANGELOG|runbook|audit/|compliance/).*\\.(md|txt|yaml|json)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection)."

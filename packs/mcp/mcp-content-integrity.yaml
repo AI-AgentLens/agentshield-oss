@@ -1,0 +1,104 @@
+name: "MCP AI Content Integrity"
+description: "Audit AI-generated writes to security-sensitive and compliance-critical documentation paths to prevent hallucination injection and misinformation propagation"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# AI agents writing unverified content to compliance-critical files creates persistent
+# misinformation risks (OWASP LLM09). These rules flag MCP tool calls that write to
+# paths where incorrect AI-generated content could mislead teams or auditors.
+#
+# See taxonomy entries:
+#   unauthorized-execution/ai-content-integrity/ai-hallucination-injection
+#   unauthorized-execution/ai-content-integrity/ai-misinformation-propagation
+
+rules:
+  # === AUDIT: Write to SECURITY.md or similar root-level security docs ===
+  - id: mcp-content-audit-security-doc-write
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+      argument_patterns:
+        path: "**SECURITY*"
+    decision: "AUDIT"
+    reason: "AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk)"
+
+  # === AUDIT: Write to audit trail or compliance directories ===
+  - id: mcp-content-audit-compliance-dir-write
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+      argument_patterns:
+        path: "**/audit/**"
+    decision: "AUDIT"
+    reason: "AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09)"
+
+  - id: mcp-content-audit-compliance-file-write
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+      argument_patterns:
+        path: "**/compliance/**"
+    decision: "AUDIT"
+    reason: "AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09)"
+
+  # === AUDIT: Write to runbooks or incident response docs ===
+  - id: mcp-content-audit-runbook-write
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-misinformation-propagation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+      argument_patterns:
+        path: "**runbook**"
+    decision: "AUDIT"
+    reason: "AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09)"
+
+# === Structural rules: broader pattern matching for content integrity ===
+structural_rules:
+  # Catch any file write to doc paths containing compliance-sensitive filenames
+  - id: mcp-struct-audit-changelog-write
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)CHANGELOG"
+            - "(?i)CONTRIBUTING"
+            - "(?i)SECURITY"
+            - "(?i)/audit/"
+            - "(?i)/compliance/"
+            - "(?i)runbook"
+            - "(?i)pentest"
+            - "(?i)PRIVACY"
+    decision: "AUDIT"
+    reason: "AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation)"
+    confidence: 0.85
