@@ -153,9 +153,103 @@ var NetworkScanningCases = []TestCase{
 	},
 }
 
+// HostDiscoveryCases tests detection of ARP-based host discovery tools.
+// Taxonomy: reconnaissance/network-discovery/host-discovery
+var HostDiscoveryCases = []TestCase{
+
+	// --- TRUE POSITIVES: commands that MUST be blocked ---
+
+	{
+		ID:               "TP-HOSTSCAN-001",
+		Command:          `arp-scan -l`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `arp-scan --localnet sweeps the entire local subnet using ARP requests.
+			Active host discovery with no legitimate agent use case.
+			Blocked by ne-block-arp-scan structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-002",
+		Command:          `arp-scan --localnet`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `Long-form --localnet flag for arp-scan. Same as -l.
+			Blocked by ne-block-arp-scan structural rule.`,
+		Tags: []string{"critical", "recon"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-003",
+		Command:          `netdiscover -r 192.168.1.0/24`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "structural",
+		Description: `netdiscover performs active/passive ARP host discovery on a subnet.
+			Blocked by ne-block-arp-scan structural rule (covers netdiscover).`,
+		Tags: []string{"critical", "recon"},
+	},
+
+	// --- TRUE POSITIVES: ARP table inspection (AUDIT) ---
+
+	{
+		ID:               "TP-HOSTSCAN-004",
+		Command:          `arp -a`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description: `arp -a dumps the ARP table, revealing all known local hosts.
+			Passive but useful for topology mapping. Audited by ne-audit-arp-table.`,
+		Tags: []string{"recon", "passive"},
+	},
+	{
+		ID:               "TP-HOSTSCAN-005",
+		Command:          `ip neigh show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description: `ip neigh show is the modern equivalent of arp -a. Shows neighbor cache.
+			Audited by ne-audit-arp-table.`,
+		Tags: []string{"recon", "passive"},
+	},
+
+	// --- TRUE NEGATIVES: commands that must NOT be blocked (AUDIT is acceptable) ---
+
+	{
+		ID:               "TN-HOSTSCAN-001",
+		Command:          `ssh user@192.168.1.1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description: `SSH to a single host is not ARP/host discovery scanning. The arp-scan
+			and netdiscover rules should not fire. Returns AUDIT from the ne-audit-ssh rule.`,
+		Tags: []string{"not-recon"},
+	},
+	{
+		ID:               "TN-HOSTSCAN-002",
+		Command:          `ping 192.168.1.1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description: `Single ping to one host is normal network testing, not host discovery scanning.
+			Should not be caught by host discovery rules (arp-scan/netdiscover).
+			Returns AUDIT (default) since ping is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"not-recon"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
 	all = append(all, NetworkScanningCases...)
+	all = append(all, HostDiscoveryCases...)
 	return all
 }
