@@ -99,6 +99,24 @@ rules:
     decision: "AUDIT"
     reason: "SFTP transfer flagged for data exfiltration review."
 
+  # === BLOCK: DNS zone transfers ===
+  - id: "ne-block-dns-zone-transfer"
+    taxonomy: "reconnaissance/network-discovery/dns-lookup"
+    match:
+      command_regex: "\\b(dig|nslookup)\\b.*\\b(axfr|ixfr|AXFR|IXFR)\\b"
+    decision: "BLOCK"
+    reason: "DNS zone transfer (AXFR/IXFR) enumerates all records for a domain. AI agents have no legitimate use for zone transfers — this is a classic reconnaissance technique."
+    confidence: 0.97
+
+  # === BLOCK: Dedicated DNS enumeration tools ===
+  - id: "ne-block-dns-enum-tools"
+    taxonomy: "reconnaissance/network-discovery/dns-lookup"
+    match:
+      command_prefix: ["dnsrecon", "fierce", "dnsenum", "dnsmap"]
+    decision: "BLOCK"
+    reason: "Dedicated DNS enumeration/brute-force tool detected. These tools have no legitimate use in AI agent workflows and are exclusively used for reconnaissance."
+    confidence: 0.98
+
   # === AUDIT: DNS lookups ===
   - id: "ne-audit-dns"
     taxonomy: "reconnaissance/network-discovery/dns-lookup"
