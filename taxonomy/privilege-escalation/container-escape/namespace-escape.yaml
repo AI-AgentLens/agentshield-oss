@@ -1,0 +1,59 @@
+id: "privilege-escalation/container-escape/namespace-escape"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Container Escape"
+category_id: "5.3"
+name: "Linux Namespace Escape"
+risk_level: "high"
+
+abstract: |
+  Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
+  escape and user namespace privilege escalation, allowing an agent to break out of
+  process isolation boundaries.
+
+explanation: |
+  Linux namespaces provide process isolation (PID, mount, network, user, IPC, UTS).
+  Two utilities enable namespace manipulation:
+
+  - **`unshare`**: Creates a new namespace and re-executes a command inside it.
+    User namespaces (`--user`/`-U`) allow unprivileged users to map UID 0 inside
+    the namespace, which can be leveraged to mount filesystems and escape containers.
+  - **`nsenter`**: Enters an existing namespace, most commonly used to "attach" to
+    a running container from the host or to pivot between containers sharing a namespace.
+
+  Attack patterns:
+  - `unshare --user --map-root-user bash` — gain root inside user namespace
+  - `unshare -Um bash` — mount namespace creation for filesystem pivoting
+  - `nsenter -t 1 --mount --uts --ipc --net --pid` — attach to PID 1 (host init)
+  - Combining with `--mount` to access host filesystem from within a container
+
+recommendation: |
+  - Block `unshare` with namespace flags and all `nsenter` invocations.
+  - Disable user namespaces at the kernel level if not required: `sysctl -w kernel.unprivileged_userns_clone=0`.
+  - Apply seccomp profiles that deny `unshare(2)` and `setns(2)` syscalls.
+  - Use container runtimes that apply restrictive seccomp profiles by default.
+
+examples:
+  bad:
+    - "unshare --user --map-root-user /bin/bash"
+    - "unshare -Um bash"
+    - "nsenter -t 1 --mount --uts --ipc --net --pid -- /bin/bash"
+    - "nsenter --target 1 --mount"
+  good:
+    - "unshare --uts hostname newname"
+    - "lsns"
+
+compliance:
+  owasp-llm-2025: ["LLM08"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1611", "T1543"]
+  cwe: ["CWE-250"]
+
+analyzers: ["regex"]
+related_rules: ["ts-block-namespace-escape"]

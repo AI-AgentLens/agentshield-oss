@@ -1,0 +1,58 @@
+id: "privilege-escalation/file-permissions/linux-capabilities"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "File Permissions"
+category_id: "5.2"
+name: "Linux Capabilities Manipulation"
+risk_level: "critical"
+
+abstract: |
+  Linux capabilities allow fine-grained privilege delegation without full root access.
+  Setting capabilities such as `cap_setuid` or `cap_net_admin` on a binary is a stealthy
+  privilege escalation technique that bypasses sudo audit trails.
+
+explanation: |
+  Linux capabilities divide the traditional root privilege set into distinct units
+  (e.g., `cap_setuid`, `cap_dac_override`, `cap_net_admin`, `cap_sys_admin`). The
+  `setcap` utility assigns these capabilities to file ELF headers so that any user
+  who executes the file gains those elevated privileges.
+
+  This is more subtle than SUID because `find -perm -4000` won't detect it, and
+  many monitoring tools focus only on SUID files. An AI agent using `setcap` can
+  install a backdoor that appears as a normal binary in directory listings.
+
+  Dangerous capability combinations:
+  - `cap_setuid+eip` on Python/Ruby/bash → instant UID-0 shell
+  - `cap_sys_admin+eip` → equivalent to full root
+  - `cap_dac_override+eip` → read/write any file regardless of permissions
+  - `cap_net_raw+eip` → raw socket access for packet sniffing
+
+recommendation: |
+  - Block `setcap` in agent execution contexts.
+  - Audit capabilities on binaries periodically: `getcap -r / 2>/dev/null`.
+  - Use AppArmor/SELinux to prevent capability assignment.
+  - Monitor for changes to ELF extended attributes that store capabilities.
+
+examples:
+  bad:
+    - "setcap cap_setuid+eip /usr/bin/python3"
+    - "sudo setcap cap_sys_admin+eip /tmp/exploit"
+    - "setcap cap_dac_override,cap_dac_read_search+eip /usr/local/bin/tool"
+  good:
+    - "getcap /usr/bin/ping"
+    - "setcap -r /usr/local/bin/tool"
+
+compliance:
+  owasp-llm-2025: ["LLM08"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1548.001"]
+  cwe: ["CWE-250", "CWE-732"]
+
+analyzers: ["regex"]
+related_rules: ["ts-block-setcap"]

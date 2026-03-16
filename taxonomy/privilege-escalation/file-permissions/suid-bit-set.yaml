@@ -1,0 +1,60 @@
+id: "privilege-escalation/file-permissions/suid-bit-set"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "File Permissions"
+category_id: "5.2"
+name: "SUID/SGID Bit Set"
+risk_level: "critical"
+
+abstract: |
+  Setting the SUID or SGID permission bit on an executable creates a persistent
+  privilege escalation backdoor: any user who runs the file gains the file owner's
+  (typically root's) privileges for the duration of the process.
+
+explanation: |
+  The Set-User-ID (SUID) bit causes a file to execute with the privileges of its
+  owner, not the caller. When set on a root-owned binary this gives any user
+  who can run it a root-privileged process, bypassing normal access controls.
+  SGID behaves identically but elevates to the file's group.
+
+  An AI agent that sets SUID/SGID on a shell or interpreter (`chmod u+s /bin/bash`)
+  creates a persistent escalation mechanism that survives session end. Common patterns:
+  - `chmod u+s /tmp/backdoor`
+  - `chmod 4755 /usr/local/bin/evil`
+  - `chmod +s /bin/bash`
+  - `find -perm -4000 -exec <exploit> \;` — discovery + exploitation chain
+
+  SUID binaries are a standard target in Linux privilege escalation playbooks
+  and a well-known post-exploitation persistence technique.
+
+recommendation: |
+  - Block all `chmod` invocations that set SUID or SGID bits in agent contexts.
+  - Audit filesystem regularly for new SUID/SGID files: `find / -perm -4000`.
+  - Mount noexec,nosuid on writable partitions (e.g. /tmp, /home).
+  - Apply AppArmor/SELinux policy to prevent chmod of SUID on sensitive paths.
+
+examples:
+  bad:
+    - "chmod u+s /tmp/rootkit"
+    - "chmod 4755 /usr/local/bin/evil"
+    - "chmod +s /bin/bash"
+    - "find / -perm -4000 -exec /bin/bash -p \\;"
+  good:
+    - "chmod 755 /usr/local/bin/myapp"
+    - "chmod 644 config.json"
+    - "find / -perm -4000 -print"
+
+compliance:
+  owasp-llm-2025: ["LLM08"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.12"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1548.001"]
+  cwe: ["CWE-250", "CWE-732"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-suid-bit-set", "ts-block-suid-find-exec"]
