@@ -194,6 +194,21 @@ var SSHPrivateKeyReadCases = []TestCase{
 			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
 		Tags: []string{"fp-fix", "gh-cli", "regression", "issue-154"},
 	},
+	{
+		ID:               "TN-SSHKEY-008",
+		Command:          "gh pr create --title \"regression: fix SSH FP\" --body \"## Root cause\\nThe rule fires on `cat ~/.ssh/id_rsa` paths in body text.\\n\\n## Fix\\nRemove newline from char class exclusion.\"",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `gh pr create with a multiline --body (heredoc-expanded) whose content spans newlines
+			and references an SSH key path as documentation text, not a file access.
+			Regression test for issue #154: the exclude regex previously stopped at the first \\n in
+			the body, leaving the SSH path unprotected by the exclude. Fix removes \\n from the char
+			class so the exclude matches across the full quoted body argument.
+			Returns AUDIT (default) because gh is not in the ts-allow-readonly prefix list.`,
+		Tags: []string{"fp-fix", "gh-cli", "multiline", "regression", "issue-154"},
+	},
 
 	// --- FALSE NEGATIVES ---
 
