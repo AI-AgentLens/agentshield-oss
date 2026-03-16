@@ -170,7 +170,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Description: "Command contains what appears to be an inline API key or secret token",
 			},
 			match: func(req GuardianRequest) bool {
-				return secretsInCommandPattern.MatchString(req.RawCommand)
+				return matchesSecretsInCommand(req.RawCommand)
 			},
 			escalate: "AUDIT",
 		},
@@ -350,17 +350,49 @@ var evalRiskPattern = regexp.MustCompile(
 	`(?i)\b(eval|exec)\s*\(`,
 )
 
-// secretsInCommandPattern matches inline API keys/tokens in commands.
-// Targets common patterns: API_KEY=..., Bearer ..., ghp_..., sk-...
-var secretsInCommandPattern = regexp.MustCompile(
+// secretsBroadPattern matches context-sensitive credential patterns that are
+// prone to false positives when they appear inside quoted commit messages or
+// PR/issue bodies (e.g. code examples, placeholder values, Semgrep patterns).
+// These are only applied after stripping quoted strings from gh/git commands.
+var secretsBroadPattern = regexp.MustCompile(
 	`(?i)(` +
 		`(api[_-]?key|api[_-]?secret|auth[_-]?token|access[_-]?token)\s*[=:]\s*\S{8,}` +
 		`|Bearer\s+[A-Za-z0-9._\-]{20,}` +
-		`|ghp_[A-Za-z0-9]{36,}` +
+		`)`,
+)
+
+// secretsHighConfidencePattern matches known-format tokens that have very low
+// false-positive rates and should fire regardless of caller context.
+var secretsHighConfidencePattern = regexp.MustCompile(
+	`(` +
+		`ghp_[A-Za-z0-9]{36,}` +
 		`|\bsk-[A-Za-z0-9]{20,}` +
 		`|AKIA[A-Z0-9]{16}` +
 		`)`,
 )
+
+// matchesSecretsInCommand detects inline secrets/tokens in a command.
+//
+// Context-aware to reduce false positives on commit messages and PR bodies:
+//   - gh/git commands: quoted string arguments are stripped before applying
+//     broad patterns (api_key=, auth_token=, Bearer) because commit messages
+//     and PR bodies commonly contain code examples and placeholder values.
+//   - High-confidence token formats (ghp_, sk-, AKIA) always fire regardless
+//     of caller, since those are unambiguous real credentials.
+func matchesSecretsInCommand(cmd string) bool {
+	// High-confidence patterns (known-format tokens) always trigger.
+	if secretsHighConfidencePattern.MatchString(cmd) {
+		return true
+	}
+	// For gh/git commands, strip quoted arguments before checking broad patterns.
+	// Commit messages and PR/issue bodies are sent to external APIs (not the shell)
+	// and frequently contain code examples that resemble credential patterns.
+	if safeCallerRe.MatchString(cmd) {
+		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
+		return secretsBroadPattern.MatchString(stripped)
+	}
+	return secretsBroadPattern.MatchString(cmd)
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
