@@ -849,6 +849,101 @@ var SSHTunnelCases = []TestCase{
 	},
 }
 
+// EncodedExfilCases covers sec-block-base64-sensitive and sec-block-xxd-sensitive —
+// encoding credential files before exfiltration. Closes issue #162.
+// Taxonomy: data-exfiltration/encoded-exfil/base64-credential-encode,
+//
+//	data-exfiltration/encoded-exfil/hex-dump-sensitive
+var EncodedExfilCases = []TestCase{
+	// === sec-block-base64-sensitive (regex) ===
+	// Rule: base64.*\.(ssh|aws|gnupg|kube|docker)
+
+	{
+		ID:               "TP-SEC-BASE64-SENSITIVE-001",
+		Command:          "base64 ~/.ssh/id_rsa",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "base64 encoding of an SSH private key — staged exfiltration preparation. Must be blocked (sec-block-base64-sensitive).",
+		Tags:             []string{"tp", "base64", "ssh"},
+	},
+	{
+		ID:               "TP-SEC-BASE64-SENSITIVE-002",
+		Command:          "cat ~/.aws/credentials | base64",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "base64 encoding of AWS credentials via pipe — classic staged exfiltration. Must be blocked (sec-block-base64-sensitive).",
+		Tags:             []string{"tp", "base64", "aws"},
+	},
+	{
+		ID:               "TN-SEC-BASE64-SENSITIVE-001",
+		Command:          "base64 README.md",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "base64 encoding a non-sensitive markdown file — no credential path pattern, falls through to AUDIT default. Must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SEC-BASE64-SENSITIVE-002",
+		Command:          "echo 'hello world' | base64",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "base64 encoding literal text — no credential file pattern; ts-allow-readonly fires on echo, returning ALLOW. Must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// === sec-block-xxd-sensitive (regex) ===
+	// Rule: ^(sudo\s+)?(xxd|od|hexdump)\b.*\.(ssh|aws|gnupg)
+
+	{
+		ID:               "TP-SEC-XXD-SENSITIVE-001",
+		Command:          "xxd ~/.ssh/id_ed25519",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/hex-dump-sensitive",
+		Analyzer:         "regex",
+		Description:      "xxd hex dump of an SSH private key — potential staged exfiltration. Must be blocked (sec-block-xxd-sensitive).",
+		Tags:             []string{"tp", "xxd", "ssh"},
+	},
+	{
+		ID:               "TP-SEC-XXD-SENSITIVE-002",
+		Command:          "hexdump -C ~/.aws/credentials",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/hex-dump-sensitive",
+		Analyzer:         "regex",
+		Description:      "hexdump of AWS credentials — hex encoding sensitive file before exfiltration. Must be blocked (sec-block-xxd-sensitive).",
+		Tags:             []string{"tp", "hexdump", "aws"},
+	},
+	{
+		ID:               "TN-SEC-XXD-SENSITIVE-001",
+		Command:          "xxd binary_file.bin",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/hex-dump-sensitive",
+		Analyzer:         "regex",
+		Description:      "xxd on an arbitrary binary file — no credential path pattern (.ssh/.aws/.gnupg), falls through to AUDIT default. Must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SEC-XXD-SENSITIVE-002",
+		Command:          "od -c /tmp/core.dump",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/hex-dump-sensitive",
+		Analyzer:         "regex",
+		Description:      "od octal dump of a core file — no credential path pattern, falls through to AUDIT default. Must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -860,5 +955,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, LLMDataFlowCases...)
 	all = append(all, SystemPromptExfilCases...)
 	all = append(all, SSHTunnelCases...)
+	all = append(all, EncodedExfilCases...)
 	return all
 }
