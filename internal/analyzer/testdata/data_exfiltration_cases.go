@@ -1120,6 +1120,124 @@ var EncodedExfilCases = []TestCase{
 	},
 }
 
+// ScriptingCredentialEncodeCases covers sec-block-scripting-lang-credential-encode and
+// sec-block-openssl-credential-encode — evasion variants of the base64 binary that
+// use scripting language runtimes (Python, Perl, Ruby, Node.js) or OpenSSL to encode
+// credential files before exfiltration. Closes issue #268.
+// Taxonomy: data-exfiltration/encoded-exfil/base64-credential-encode
+var ScriptingCredentialEncodeCases = []TestCase{
+	// === sec-block-scripting-lang-credential-encode ===
+	// Rule: scripting lang + base64 keyword + credential path (either order)
+
+	{
+		ID:               "TP-SCRIPTING-CRED-ENCODE-001",
+		Command:          `python3 -c "import base64; print(base64.b64encode(open('/root/.ssh/id_rsa','rb').read()).decode())"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Python one-liner base64-encoding SSH private key — scripting evasion of sec-block-base64-sensitive. Must be blocked.",
+		Tags:             []string{"tp", "python", "base64", "ssh", "evasion"},
+	},
+	{
+		ID:               "TP-SCRIPTING-CRED-ENCODE-002",
+		Command:          `perl -MMIME::Base64 -e 'open(F,"<$ENV{HOME}/.aws/credentials"); print encode_base64(join("",<F>))'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Perl one-liner base64-encoding AWS credentials using MIME::Base64 — credential path precedes encode_base64 call. Must be blocked.",
+		Tags:             []string{"tp", "perl", "base64", "aws", "evasion"},
+	},
+	{
+		ID:               "TP-SCRIPTING-CRED-ENCODE-003",
+		Command:          `ruby -e 'require "base64"; puts Base64.encode64(File.read(File.expand_path("~/.ssh/id_rsa")))'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Ruby one-liner base64-encoding SSH private key — base64 keyword precedes credential path. Must be blocked.",
+		Tags:             []string{"tp", "ruby", "base64", "ssh", "evasion"},
+	},
+	{
+		ID:               "TP-SCRIPTING-CRED-ENCODE-004",
+		Command:          `node -e 'console.log(Buffer.from(require("fs").readFileSync(process.env.HOME+"/.aws/credentials")).toString("base64"))'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Node.js one-liner base64-encoding AWS credentials via Buffer — credential path precedes base64 toString. Must be blocked.",
+		Tags:             []string{"tp", "node", "base64", "aws", "evasion"},
+	},
+
+	// === sec-block-openssl-credential-encode ===
+	// Rule: openssl + base64 flag/subcommand + credential path
+
+	{
+		ID:               "TP-OPENSSL-CRED-ENCODE-001",
+		Command:          "openssl enc -base64 -in ~/.ssh/id_rsa",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "openssl enc -base64 on SSH private key — base64 encode flag precedes credential path. Must be blocked.",
+		Tags:             []string{"tp", "openssl", "base64", "ssh"},
+	},
+	{
+		ID:               "TP-OPENSSL-CRED-ENCODE-002",
+		Command:          "openssl base64 -in ~/.aws/credentials",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "openssl base64 subcommand on AWS credentials — using openssl base64 instead of enc. Must be blocked.",
+		Tags:             []string{"tp", "openssl", "base64", "aws"},
+	},
+
+	// === True Negatives: benign scripting and openssl operations ===
+
+	{
+		ID:               "TN-SCRIPTING-CRED-ENCODE-001",
+		Command:          `python3 -c "import base64; print(base64.b64encode(b'hello world').decode())"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Python base64 encoding of a literal string — no credential path pattern. Must not be blocked.",
+		Tags:             []string{"tn", "safe", "python"},
+	},
+	{
+		ID:               "TN-SCRIPTING-CRED-ENCODE-002",
+		Command:          "ruby encode_data.rb --format base64 --input /tmp/data.json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "Ruby script with base64 format flag on a /tmp file — no credential path. Must not be blocked.",
+		Tags:             []string{"tn", "safe", "ruby"},
+	},
+	{
+		ID:               "TN-OPENSSL-CRED-ENCODE-001",
+		Command:          "openssl enc -aes-256-cbc -in plaintext.txt -out encrypted.bin",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "openssl AES encryption of a non-credential file — no base64 keyword, no credential path. Must not be blocked.",
+		Tags:             []string{"tn", "safe", "openssl"},
+	},
+	{
+		ID:               "TN-OPENSSL-CRED-ENCODE-002",
+		Command:          "openssl x509 -in cert.pem -noout -text",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "openssl x509 certificate inspection — no base64 encoding, no credential directory path. Must not be blocked.",
+		Tags:             []string{"tn", "safe", "openssl"},
+	},
+}
+
 // DNSExfilSubqueryCases tests detection of DNS-based data exfiltration using
 // command substitution to embed sensitive data into DNS query subdomain labels.
 //
@@ -1498,6 +1616,7 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, TrainingDataExfilCases...)
 	all = append(all, SSHTunnelCases...)
 	all = append(all, EncodedExfilCases...)
+	all = append(all, ScriptingCredentialEncodeCases...)
 	all = append(all, DNSExfilSubqueryCases...)
 	all = append(all, WebhookExfilCases...)
 	all = append(all, HTTPFileServerCases...)
