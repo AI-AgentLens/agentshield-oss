@@ -1,0 +1,126 @@
+name: "MCP Privilege Escalation"
+description: "Block privilege escalation via MCP tool calls: Docker socket access, Kubernetes RBAC escalation, SUID binary planting, and container escape paths"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # === BLOCK: Docker socket file access ===
+  - id: mcp-privesc-block-docker-socket
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "/var/run/docker.sock"
+    decision: "BLOCK"
+    reason: "Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611."
+
+  # === BLOCK: Kubernetes privilege-granting manifest writes ===
+  - id: mcp-privesc-block-k8s-clusterrolebinding-write
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "apply_manifest"
+        - "kubectl_apply"
+        - "k8s_apply"
+      argument_patterns:
+        path: "**ClusterRoleBinding**"
+    decision: "BLOCK"
+    reason: "Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001."
+
+structural_rules:
+  # === BLOCK: SUID bit set on executables via chmod ===
+  - id: mcp-privesc-block-suid-chmod
+    taxonomy: "privilege-escalation/file-permissions/suid-bit-set"
+    match:
+      tool_name_regex: "(?i)(chmod|set_perm|set_permissions|change_perm|change_permissions)"
+      args_match:
+        mode:
+          pattern_any:
+            - "^4[0-9]{3}$"
+            - "\\+s\\b"
+            - "u\\+s"
+            - "a\\+s"
+    decision: "BLOCK"
+    reason: "SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001."
+
+  # === BLOCK: Docker socket access via structural match ===
+  - id: mcp-privesc-block-docker-sock-structural
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "docker\\.sock"
+            - "/var/run/docker"
+    decision: "BLOCK"
+    reason: "Docker socket path detected in MCP tool argument — container escape vector. MITRE T1611."
+
+  # === BLOCK: K8s cluster-admin RBAC grants ===
+  - id: mcp-privesc-block-k8s-cluster-admin
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)ClusterRoleBinding"
+            - "(?i)cluster-admin"
+            - "(?i)clusterRole:\\s*cluster-admin"
+    decision: "BLOCK"
+    reason: "Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001."
+
+  # === BLOCK: Privileged container creation ===
+  - id: mcp-privesc-block-privileged-container
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)privileged:\\s*true"
+            - "(?i)hostPID:\\s*true"
+            - "(?i)hostNetwork:\\s*true"
+            - "(?i)hostIPC:\\s*true"
+            - "(?i)--privileged"
+    decision: "BLOCK"
+    reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
+
+  # === AUDIT: Sudo configuration modification ===
+  - id: mcp-privesc-audit-sudoers-content
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)NOPASSWD"
+            - "(?i)ALL=\\(ALL\\)"
+    decision: "AUDIT"
+    reason: "Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003."
+
+  # === BLOCK: Linux capabilities manipulation ===
+  - id: mcp-privesc-block-linux-capabilities
+    taxonomy: "privilege-escalation/file-permissions/linux-capabilities"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)cap_setuid\\+ep"
+            - "(?i)cap_net_admin\\+ep"
+            - "(?i)SYS_PTRACE"
+            - "(?i)SYS_ADMIN"
+            - "(?i)ALL_CAPABILITIES"
+    decision: "BLOCK"
+    reason: "Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001."
