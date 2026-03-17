@@ -1453,6 +1453,374 @@ var DYLDInjectionCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 5.6: LD_AUDIT Injection
+// Taxonomy: privilege-escalation/command-execution/env-injection
+// ---------------------------------------------------------------------------
+//
+// GNU libc's rtld-audit interface (LD_AUDIT) loads a shared library that
+// receives callbacks for every dynamic symbol resolution. More powerful than
+// LD_PRELOAD because it sees every symbol binding, receives PLT addresses,
+// and persists across dlopen() calls. Rarely monitored by security tools.
+//
+// MITRE T1574.006 — Hijack Execution Flow: Dynamic Linker Hijacking
+// CWE-426 — Untrusted Search Path
+
+var LDAuditInjectionCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-LDAUDIT-001",
+		Command:          `LD_AUDIT=/tmp/evil.so sudo passwd root`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `LD_AUDIT with sudo — injects audit library into privileged passwd process.
+			The auditor receives la_symbind callbacks for pam_authenticate, crypt, getpwnam,
+			enabling silent credential interception.`,
+		Tags: []string{"canonical", "critical", "ld-audit"},
+	},
+	{
+		ID:               "TP-LDAUDIT-002",
+		Command:          `LD_AUDIT=/dev/shm/hook.so su -`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `/dev/shm is a world-writable tmpfs — LD_AUDIT from here with su
+			injects an auditor into the root shell's dynamic linker.`,
+		Tags: []string{"critical", "ld-audit"},
+	},
+	{
+		ID:               "TP-LDAUDIT-003",
+		Command:          `LD_AUDIT=/var/tmp/intercept.so pkexec /usr/bin/update-manager`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `LD_AUDIT with pkexec — polkit-based privilege escalation with audit
+			library injection from writable /var/tmp.`,
+		Tags: []string{"critical", "ld-audit"},
+	},
+	{
+		ID:               "TP-LDAUDIT-004",
+		Command:          `LD_AUDIT=/tmp/log.so doas /bin/sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `LD_AUDIT with doas (OpenBSD sudo alternative) — auditor injected into
+			privileged shell.`,
+		Tags: []string{"critical", "ld-audit"},
+	},
+	{
+		ID:               "TP-LDAUDIT-EXPORT-001",
+		Command:          `export LD_AUDIT=/tmp/audit_hooks.so`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Persistent LD_AUDIT export to /tmp — every subsequent dynamically
+			linked process in this shell will load the auditor library.`,
+		Tags: []string{"critical", "ld-audit", "persistence"},
+	},
+	{
+		ID:               "TP-LDAUDIT-EXPORT-002",
+		Command:          `export LD_AUDIT=/dev/shm/record.so`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Persistent LD_AUDIT export to /dev/shm — tmpfs-backed, world-writable.`,
+		Tags: []string{"critical", "ld-audit", "persistence"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-LDAUDIT-001",
+		Command:          `echo $LD_AUDIT`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Description:      `Reading LD_AUDIT value — no injection, read-only.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-LDAUDIT-002",
+		Command:          `unset LD_AUDIT`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Description:      `Unsetting LD_AUDIT — defensive action. Gets default AUDIT.`,
+		Tags:             []string{"safe", "defensive"},
+	},
+	{
+		ID:               "TN-LDAUDIT-003",
+		Command:          `grep LD_AUDIT /etc/ld.so.preload`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Description:      `Searching for LD_AUDIT in config — read-only grep, explicitly allowed.`,
+		Tags:             []string{"safe", "investigation"},
+	},
+	{
+		ID:               "TN-LDAUDIT-004",
+		Command:          `man ld-linux.so`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Description:      `Reading manpage about the dynamic linker — no LD_AUDIT usage.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 5.7: /proc/PID/root Container Escape (Procfs Traversal)
+// Taxonomy: privilege-escalation/container-escape/procfs-traversal
+// ---------------------------------------------------------------------------
+//
+// /proc/<PID>/root symlinks to the root filesystem of the target process.
+// From inside a container, /proc/1/root/ (or any host-visible PID) traverses
+// into the host filesystem, bypassing all container isolation without
+// requiring namespace manipulation, mounts, or special capabilities.
+//
+// MITRE T1611 — Escape to Host
+// CWE-22 — Path Traversal
+
+var ProcfsTraversalCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-PROCROOT-001",
+		Command:          `cat /proc/1/root/etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Classic container escape: reading /proc/1/root/etc/shadow accesses the
+			host's password hashes by traversing PID 1's root filesystem.`,
+		Tags: []string{"canonical", "critical", "container-escape"},
+	},
+	{
+		ID:               "TP-PROCROOT-002",
+		Command:          `cp /proc/1/root/root/.ssh/id_rsa /tmp/stolen_key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Copying host root's SSH private key through /proc/1/root/ traversal.`,
+		Tags: []string{"critical", "container-escape", "credential-theft"},
+	},
+	{
+		ID:               "TP-PROCROOT-003",
+		Command:          `find /proc/1/root/home/ -name "*.pem" -o -name "*.key"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Searching for private keys across the host filesystem via /proc/1/root/.`,
+		Tags: []string{"critical", "container-escape", "recon"},
+	},
+	{
+		ID:               "TP-PROCROOT-004",
+		Command:          `tar czf /tmp/host-etc.tar.gz /proc/1/root/etc/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Archiving the host's /etc/ directory via procfs traversal for offline analysis.`,
+		Tags: []string{"critical", "container-escape", "exfiltration"},
+	},
+	{
+		ID:               "TP-PROCROOT-005",
+		Command:          `strings /proc/42/root/var/log/auth.log`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Reading host auth logs via /proc/PID/root/ with a non-init PID — any
+			host-visible PID works, not just PID 1.`,
+		Tags: []string{"critical", "container-escape"},
+	},
+	{
+		ID:               "TP-PROCROOT-006",
+		Command:          `ls /proc/1/root/home/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Analyzer:         "regex",
+		Description: `Listing host /home/ via procfs traversal — user enumeration from container.`,
+		Tags: []string{"critical", "container-escape", "recon"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-PROCROOT-001",
+		Command:          `cat /proc/self/status`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Description:      `Reading own process status — /proc/self/ is safe, no PID/root traversal.`,
+		Tags:             []string{"safe", "read-only", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-PROCROOT-002",
+		Command:          `cat /proc/cpuinfo`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Description:      `Reading CPU info — standard /proc file, not a PID-specific traversal.`,
+		Tags:             []string{"safe", "read-only", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-PROCROOT-003",
+		Command:          `ls /proc/1/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Description:      `Listing /proc/1/ (not /proc/1/root/) — process metadata only, no filesystem traversal.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-PROCROOT-004",
+		Command:          `cat /proc/1/status`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/procfs-traversal",
+		Description:      `Reading PID 1's process status — no /root/ traversal, just metadata.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 5.8: /proc/PID/fd File Descriptor Hijacking
+// Taxonomy: credential-exposure/process-credential/fd-hijack
+// ---------------------------------------------------------------------------
+//
+// /proc/<PID>/fd/ contains symlinks to every open file descriptor of a
+// process. Reading /proc/<PID>/fd/<N> accesses another process's open files,
+// including deleted files still held open, database sockets, and pipes
+// carrying sensitive data.
+//
+// MITRE T1005 — Data from Local System
+// CWE-668 — Exposure of Resource to Wrong Sphere
+
+var ProcFdHijackCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-PROCFD-001",
+		Command:          `cat /proc/1234/fd/3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Reading another process's file descriptor 3 — could be an open
+			credential file, database socket, or deleted temp file with secrets.`,
+		Tags: []string{"canonical", "critical", "fd-hijack"},
+	},
+	{
+		ID:               "TP-PROCFD-002",
+		Command:          `strings /proc/567/fd/0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Extracting printable strings from another process's stdin (fd 0) —
+			can capture piped secrets or interactive input including passwords.`,
+		Tags: []string{"critical", "fd-hijack"},
+	},
+	{
+		ID:               "TP-PROCFD-003",
+		Command:          `cp /proc/890/fd/5 /tmp/stolen_socket`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Copying a file descriptor to exfiltrate — the target fd might be a
+			deleted secret file that exists only as an open descriptor.`,
+		Tags: []string{"critical", "fd-hijack", "exfiltration"},
+	},
+	{
+		ID:               "TP-PROCFD-004",
+		Command:          `dd if=/proc/42/fd/7 of=/tmp/dump bs=4096`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Binary dump of another process's open fd via dd — raw extraction of
+			database files, certificates, or key material.`,
+		Tags: []string{"critical", "fd-hijack"},
+	},
+	{
+		ID:               "TP-PROCFD-005",
+		Command:          `xxd /proc/999/fd/12`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Hex dump of another process's fd — analysis of binary file descriptors
+			(TLS sessions, database connections).`,
+		Tags: []string{"critical", "fd-hijack"},
+	},
+	{
+		ID:               "TP-PROCFD-ENUM-001",
+		Command:          `ls /proc/1234/fd`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Analyzer:         "regex",
+		Description: `Enumerating another process's open file descriptors — reconnaissance
+			step before targeted fd hijacking.`,
+		Tags: []string{"recon", "fd-hijack"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-PROCFD-001",
+		Command:          `ls /proc/self/fd`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Description:      `Listing own file descriptors — /proc/self/fd is safe, common debugging.`,
+		Tags:             []string{"safe", "read-only", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-PROCFD-002",
+		Command:          `cat /proc/self/fd/1`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Description:      `Reading own stdout fd — /proc/self/ is safe.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-PROCFD-003",
+		Command:          `ls /proc/self/fdinfo`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Description:      `Listing own fd info — common debugging, not targeting another process.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-PROCFD-004",
+		Command:          `readlink /proc/self/fd/2`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/fd-hijack",
+		Description:      `Reading own stderr fd symlink target — standard debugging. Gets default AUDIT.`,
+		Tags:             []string{"safe", "read-only", "common-dev-operation"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -1471,5 +1839,8 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, PathHijackCases...)
 	all = append(all, InterpreterPathPoisonCases...)
 	all = append(all, DYLDInjectionCases...)
+	all = append(all, LDAuditInjectionCases...)
+	all = append(all, ProcfsTraversalCases...)
+	all = append(all, ProcFdHijackCases...)
 	return all
 }
