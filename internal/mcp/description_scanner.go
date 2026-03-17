@@ -9,11 +9,13 @@ import (
 type PoisonSignal string
 
 const (
-	SignalHiddenInstructions  PoisonSignal = "hidden_instructions"
-	SignalCredentialHarvest   PoisonSignal = "credential_harvest"
-	SignalExfiltrationIntent  PoisonSignal = "exfiltration_intent"
-	SignalCrossToolOverride   PoisonSignal = "cross_tool_override"
-	SignalStealthInstruction  PoisonSignal = "stealth_instruction"
+	SignalHiddenInstructions     PoisonSignal = "hidden_instructions"
+	SignalCredentialHarvest      PoisonSignal = "credential_harvest"
+	SignalExfiltrationIntent     PoisonSignal = "exfiltration_intent"
+	SignalCrossToolOverride       PoisonSignal = "cross_tool_override"
+	SignalStealthInstruction     PoisonSignal = "stealth_instruction"
+	SignalBehavioralManipulation PoisonSignal = "behavioral_manipulation"
+	SignalShadowTool             PoisonSignal = "shadow_tool"
 )
 
 // PoisonFinding records one detected poisoning signal in a tool description.
@@ -102,6 +104,28 @@ func ScanToolDescription(tool ToolDefinition) DescriptionScanResult {
 		}
 	}
 
+	// Signal 6: Behavioral manipulation directives (compelling AI to change safety behavior)
+	for _, pattern := range behavioralManipulationPatterns {
+		if loc := pattern.re.FindStringIndex(lower); loc != nil {
+			result.Findings = append(result.Findings, PoisonFinding{
+				Signal:  SignalBehavioralManipulation,
+				Detail:  pattern.description,
+				Snippet: safeSnippet(text, loc[0], 80),
+			})
+		}
+	}
+
+	// Signal 7: Shadow tool registration (claiming to replace/supersede another tool)
+	for _, pattern := range shadowToolPatterns {
+		if loc := pattern.re.FindStringIndex(lower); loc != nil {
+			result.Findings = append(result.Findings, PoisonFinding{
+				Signal:  SignalShadowTool,
+				Detail:  pattern.description,
+				Snippet: safeSnippet(text, loc[0], 80),
+			})
+		}
+	}
+
 	result.Poisoned = len(result.Findings) > 0
 	return result
 }
@@ -160,6 +184,29 @@ var stealthPatterns = []signalPattern{
 	{regexp.MustCompile(`very\s+very\s+(very\s+)?important`), "Emphatic coercion (repeated emphasis)"},
 	{regexp.MustCompile(`the\s+application\s+will\s+crash`), "Fake crash threat to coerce behavior"},
 	{regexp.MustCompile(`all\s+data\s+will\s+be\s+lost`), "Fake data loss threat to coerce behavior"},
+}
+
+var behavioralManipulationPatterns = []signalPattern{
+	{regexp.MustCompile(`act\s+as\s+(if\s+you\s+(have\s+no|are\s+free|don'?t\s+have)|a\s+different)`), "Behavioral directive: act as if unrestricted"},
+	{regexp.MustCompile(`pretend\s+(to\s+be|you\s+(are|don'?t|have\s+no))`), "Behavioral directive: pretend to be different agent"},
+	{regexp.MustCompile(`(disable|bypass|circumvent|remove|ignore)\s+(your\s+)?(safety|restrictions|filters|guidelines|limits|rules)`), "Behavioral directive: disable safety controls"},
+	{regexp.MustCompile(`from\s+now\s+on\s+(you|your|always|never|do\s+not)`), "Behavioral takeover: from-now-on directive"},
+	{regexp.MustCompile(`your\s+new\s+(role|instructions?|goal|objective|purpose|task)\s+(is|are)\s+`), "Behavioral takeover: role reassignment"},
+	{regexp.MustCompile(`forget\s+(your|all)\s+(previous|prior|original|default)\s+(instructions?|training|guidelines?|rules?|behavior)`), "Behavioral takeover: forget instructions"},
+	{regexp.MustCompile(`you\s+are\s+(no\s+longer|now\s+free\s+from|released\s+from)`), "Behavioral takeover: liberation claim"},
+	{regexp.MustCompile(`(jailbreak|developer\s+mode|dan\s+mode|unrestricted\s+mode)`), "Jailbreak attempt: mode switch"},
+	{regexp.MustCompile(`you\s+must\s+(comply|obey|follow\s+these)\s+(with\s+)?(all|every|these|the\s+following)`), "Behavioral coercion: must comply directive"},
+	{regexp.MustCompile(`(without\s+question|without\s+hesitation|no\s+matter\s+what|regardless\s+of)`), "Behavioral coercion: unconditional compliance"},
+}
+
+var shadowToolPatterns = []signalPattern{
+	{regexp.MustCompile(`(replaces?|supersedes?|overrides?)\s+(the\s+)?\w+\s+tool`), "Shadow tool: claims to replace another tool"},
+	{regexp.MustCompile(`use\s+this\s+tool\s+instead\s+of`), "Shadow tool: redirect from another tool"},
+	{regexp.MustCompile(`(should|must|always)\s+(use|call|invoke)\s+this\s+(tool\s+)?(instead|rather\s+than|over|before)`), "Shadow tool: usage redirection directive"},
+	{regexp.MustCompile(`this\s+is\s+the\s+(updated|new|improved|correct|official|real)\s+version\s+of`), "Shadow tool: impersonates updated version of another tool"},
+	{regexp.MustCompile(`preferred\s+(over|to)\s+(the\s+)?\w+\s+tool`), "Shadow tool: preference override for another tool"},
+	{regexp.MustCompile(`when\s+(this|the)\s+tool\s+is\s+(present|available|installed|loaded),?\s+(the\s+)?\w+\s+(tool\s+)?(should\s+not|must\s+not|cannot)`), "Shadow tool: conditional suppression of another tool"},
+	{regexp.MustCompile(`do\s+not\s+use\s+(the\s+)?(built.?in|original|default|other)\s+(\w+\s+)?tool`), "Shadow tool: suppression of built-in tool"},
 }
 
 // safeSnippet extracts a context snippet around an index, capped at maxLen.
