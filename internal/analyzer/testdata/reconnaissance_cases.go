@@ -1275,6 +1275,173 @@ var DBSchemaEnumCases = []TestCase{
 	},
 }
 
+// InternalServiceProbeCases covers internal service probing via terminal tools (closes #261).
+// Rules: ne-block-docker-daemon-probe, ne-audit-internal-infra-probe, ne-audit-localhost-admin-path.
+var InternalServiceProbeCases = []TestCase{
+
+	// --- TRUE POSITIVES: Docker daemon probe (BLOCK) ---
+
+	{
+		ID:               "TP-NE-BLOCK-DOCKER-PROBE-001",
+		Command:          `curl --unix-socket /var/run/docker.sock http://localhost/v1.41/containers/json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl via Docker unix socket — lists all containers, full container control. Caught by ne-block-docker-daemon-probe.",
+		Tags:             []string{"tp", "recon", "docker", "critical"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DOCKER-PROBE-002",
+		Command:          `curl http://localhost:2375/info`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Docker HTTP daemon on port 2375 — exposes full container and image management API. Caught by ne-block-docker-daemon-probe.",
+		Tags:             []string{"tp", "recon", "docker", "critical"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DOCKER-PROBE-003",
+		Command:          `curl http://127.0.0.1:2376/containers/json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Docker TLS daemon on port 2376 — container enumeration via internal Docker API. Caught by ne-block-docker-daemon-probe.",
+		Tags:             []string{"tp", "recon", "docker", "critical"},
+	},
+
+	// --- TRUE POSITIVES: infrastructure management port probes (AUDIT) ---
+
+	{
+		ID:               "TP-NE-AUDIT-INFRA-PROBE-001",
+		Command:          `curl http://localhost:9090/metrics`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Prometheus metrics endpoint on :9090 — exposes performance and configuration metrics. Caught by ne-audit-internal-infra-probe.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-INFRA-PROBE-002",
+		Command:          `curl http://127.0.0.1:4040/api/tunnels`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to ngrok introspection API on :4040 — reveals active tunnel URLs and their targets. Caught by ne-audit-internal-infra-probe.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-INFRA-PROBE-003",
+		Command:          `curl http://localhost:15672/api/overview`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to RabbitMQ management API on :15672 — may expose default credentials and queue configuration. Caught by ne-audit-internal-infra-probe.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-INFRA-PROBE-004",
+		Command:          `curl http://127.0.0.1:9200/_cat/indices`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Elasticsearch HTTP API on :9200 — enumerates all indices. Caught by ne-audit-internal-infra-probe.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+
+	// --- TRUE POSITIVES: admin/management path probes (AUDIT) ---
+
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-PATH-001",
+		Command:          `curl http://localhost:8080/actuator/env`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Spring Boot /actuator/env — dumps all environment variables including API keys and secrets. Caught by ne-audit-localhost-admin-path.",
+		Tags:             []string{"tp", "recon", "internal-probe", "critical"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-PATH-002",
+		Command:          `curl http://127.0.0.1:3000/admin`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /admin path on localhost — probing for admin panel. Caught by ne-audit-localhost-admin-path.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-PATH-003",
+		Command:          `curl http://localhost:8080/metrics`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /metrics on localhost — exposes application performance data and config. Caught by ne-audit-localhost-admin-path.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-PATH-004",
+		Command:          `curl http://localhost:8080/actuator/health`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /actuator/health on localhost — Spring Boot health endpoint reveals service dependencies. Caught by ne-audit-localhost-admin-path.",
+		Tags:             []string{"tp", "recon", "internal-probe"},
+	},
+
+	// --- TRUE NEGATIVES: normal localhost development requests ---
+
+	{
+		ID:               "TN-NE-BLOCK-DOCKER-PROBE-001",
+		Command:          `curl http://localhost:3000/api/health`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to localhost:3000/api/health — common dev server health check, not a management port or admin path. ne-block-docker-daemon-probe must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "localhost"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-DOCKER-PROBE-002",
+		Command:          `curl http://localhost:5173/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Vite dev server on :5173 — normal development workflow. No admin path or infra port. Default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "localhost"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-INFRA-PROBE-001",
+		Command:          `curl https://api.example.com/status`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to a public HTTPS API — not a localhost or private range target. ne-audit-internal-infra-probe and ne-audit-localhost-admin-path must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-ADMIN-PATH-001",
+		Command:          `curl http://localhost:8080/api/v1/users`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /api/v1/users on localhost — normal REST API call, not an admin or management path. ne-audit-localhost-admin-path must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "localhost"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -1286,5 +1453,6 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, PingSweepLoopCases...)
 	all = append(all, ModernOSINTToolCases...)
 	all = append(all, DBSchemaEnumCases...)
+	all = append(all, InternalServiceProbeCases...)
 	return all
 }
