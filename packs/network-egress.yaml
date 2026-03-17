@@ -706,6 +706,52 @@ rules:
     reason: "Schema-only database dump (mysqldump --no-data or pg_dump -s/--schema-only) exports the full DDL without row data. This reveals table names, column types, and relationships — reconnaissance intelligence for follow-up extraction. MITRE T1213, T1560."
 
   # ═══════════════════════════════════════════════════════════════════
+  # INTERNAL SERVICE PROBING VIA TERMINAL (closes #261)
+  #
+  # AI agents with shell access can probe internal services running on
+  # localhost or private network ranges using standard HTTP/network tools.
+  # This reveals management APIs, admin UIs, and sensitive endpoints that
+  # are not exposed to the public internet.
+  #
+  # Threat model:
+  #   1. Docker daemon probe: curl --unix-socket /var/run/docker.sock gives
+  #      full container control — container escape and privilege escalation.
+  #   2. Infrastructure port probe: Prometheus (9090), ngrok (4040), RabbitMQ
+  #      management (15672), Elasticsearch (9200) expose unauthenticated metrics
+  #      and admin APIs on localhost.
+  #   3. Admin path probe: /actuator, /admin, /env, /metrics on localhost
+  #      leak environment variables (including API keys) and internal state.
+  #
+  # MITRE T1046, T1590. OWASP LLM02, LLM04, LLM06.
+
+  # === BLOCK: Docker daemon API via unix socket or HTTP ===
+  - id: "ne-block-docker-daemon-probe"
+    taxonomy: "reconnaissance/network-discovery/internal-service-probe"
+    match:
+      command_regex: "\\b(curl|wget)\\b.*(--unix-socket\\s+['\"]?/var/run/docker\\.sock|http://(localhost|127\\.0\\.0\\.1|::1):23(75|76)\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Direct access to the Docker daemon API (via unix socket or HTTP port 2375/2376) grants full container control — container escape, volume mount of host filesystem, and privilege escalation. AI agents must not query the Docker daemon API directly. MITRE T1611, T1609."
+
+  # === AUDIT: Known infrastructure management ports on localhost ===
+  - id: "ne-audit-internal-infra-probe"
+    taxonomy: "reconnaissance/network-discovery/internal-service-probe"
+    match:
+      command_regex: "\\b(curl|wget)\\b.*http://(localhost|127\\.0\\.0\\.1|::1):(9090|9091|9093|4040|15672|9200|8161|9600|2019)(\\b|/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "HTTP probe to a localhost infrastructure management port detected (Prometheus :9090, ngrok :4040, RabbitMQ management :15672, Elasticsearch :9200, etc.). These ports expose unauthenticated metrics and admin APIs. AI agents must not probe internal management services. MITRE T1046, T1590."
+
+  # === AUDIT: Admin/management path probe on localhost ===
+  - id: "ne-audit-localhost-admin-path"
+    taxonomy: "reconnaissance/network-discovery/internal-service-probe"
+    match:
+      command_regex: "\\b(curl|wget)\\b.*http://(localhost|127\\.0\\.0\\.1|::1)(:\\d+)?/(admin|actuator|metrics|env|health|debug|management|api-docs|swagger|__admin|_cat|_cluster)(\\b|/)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "HTTP request to a localhost admin or management endpoint detected (/admin, /actuator, /metrics, /env, /debug, etc.). Spring Boot /actuator/env leaks all environment variables including API keys. AI agents probing management paths may be performing reconnaissance before exfiltration. MITRE T1082, T1590."
+
+  # ═══════════════════════════════════════════════════════════════════
   # WEBHOOK-BASED DATA EXFILTRATION (closes #211)
   #
   # AI agents can silently POST data to webhook endpoints that require
