@@ -491,6 +491,19 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 			name: "cat heredoc write to file with long prose body",
 			cmd:  "cat > /tmp/issue_body.md << 'BODY'\n## Rule Request\n\nAdd structural rules to packs/network-egress.yaml for fping and hping3.\nAdd TP/TN test cases to internal/analyzer/testdata/reconnaissance_cases.go.\nBODY",
 		},
+		// Regression tests for issue #223: git commit -m messages with long identifiers.
+		{
+			name: "git commit with long camelCase description",
+			cmd:  `git commit -m "feat(security): add ShannonEntropyThresholdCheckToBase64DetectionAlgorithmInGuardian"`,
+		},
+		{
+			name: "git commit multiline message with long prose",
+			cmd:  "git commit -m \"fix(guardian): prevent false positive on long commit messages\n\nThe guardianObfuscatedBase64HeuristicWasFiringOnLongEnglishIdentifiers\nin camelCase function names and markdown prose. Added Shannon entropy\ncheck with threshold 4.5 bits/char to distinguish real base64 payloads\n(entropy 5.5-6.0) from natural language text (entropy 3.5-4.0).\"",
+		},
+		{
+			name: "git commit with Co-Authored-By trailer",
+			cmd:  "git commit -m \"feat: update rules\n\nCo-Authored-By: ClaudeSonnetFourPointSixWithLongVersionIdentifier <noreply@anthropic.com>\"",
+		},
 	}
 
 	for _, tt := range fps {
