@@ -5,7 +5,7 @@ kingdom_id: 3
 category: "LLM Data Flow"
 category_id: "3.5"
 name: "Uncontrolled Model Selection"
-risk_level: "medium"
+risk_level: "high"
 
 abstract: |
   Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing

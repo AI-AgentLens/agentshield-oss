@@ -53,7 +53,7 @@ compliance:
   iso-27001-2022: ["A.8.9", "A.8.25"]
   eu-ai-act-2024: ["Art.13", "Art.14"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MEASURE-2"]
-  soc2-type2: ["CC8.1", "CC7.2"]
+  soc2-type2: ["CC8.1", "CC7.2", "PI1.3"]
 
 references:
   mitre_attack: []
