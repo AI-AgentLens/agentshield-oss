@@ -1,0 +1,8 @@
+id: "2.14"
+name: "Credential File Access via Symlink"
+kingdom_id: 2
+description: >
+  Commands that create symbolic links to credential or authentication files
+  to bypass path-based access controls. A symlink to a protected file (SSH
+  keys, AWS credentials, kubeconfig) can be read through a seemingly
+  innocuous path, enabling TOCTOU race conditions and privilege escalation.
