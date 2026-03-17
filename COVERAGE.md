@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (317 terminal rules, 105 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 314 |
+| Terminal rules | 317 |
 | MCP rules | 105 |
-| Total rules | 419 |
-| Test cases (TP+TN) | 988 |
+| Total rules | 422 |
+| Test cases (TP+TN) | 1002 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -231,7 +226,7 @@
 | `ts-block-dyld-inject-export` | BLOCK | regex | Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006. |
 | `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
 
-### reconnaissance (37 rules)
+### reconnaissance (40 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -264,6 +259,9 @@
 | `ne-block-nuclei` | BLOCK | structural | nuclei is a template-based vulnerability scanner that actively probes targets for CVEs and misconfigurations. AI agents must not perform unauthorized vulnerability scanning. MITRE T1595.003, T1190. |
 | `ne-block-dnsx` | BLOCK | structural | dnsx performs DNS brute-forcing and subdomain enumeration against target domains. AI agents must not perform DNS reconnaissance without authorization. MITRE T1590.002. |
 | `ne-block-httpx` | BLOCK | structural | httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001. |
+| `ne-audit-aws-cloud-recon` | AUDIT | regex | AWS CLI cloud infrastructure enumeration detected — describes or lists EC2 instances, IAM identities, S3 buckets, RDS, Lambda, EKS, ECS, or organization accounts. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004, T1069.003. |
+| `ne-audit-gcloud-cloud-recon` | AUDIT | regex | GCP CLI cloud infrastructure enumeration detected — lists compute instances, projects, IAM service accounts, Cloud Storage buckets, GKE clusters, or Cloud Run services. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004. |
+| `ne-audit-azure-cloud-recon` | AUDIT | regex | Azure CLI cloud infrastructure enumeration detected — lists VMs, AD users/groups/service principals, role assignments, resources, AKS clusters, or storage accounts. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004, T1069.003. |
 | `ne-audit-db-schema-enum` | AUDIT | regex | Database CLI invoked with schema introspection query (information_schema / pg_catalog / sqlite_master / SHOW TABLES or DATABASES). This maps the database structure and is a precursor to targeted data extraction. MITRE T1213, T1005. |
 | `ne-audit-sqlite-schema-dotcmd` | AUDIT | regex | sqlite3 dot-command schema enumeration (.tables, .schema, .indexes, .databases) lists all tables or the full DDL of a SQLite database. An AI agent running this may be mapping a local database for subsequent extraction. MITRE T1213. |
 | `ne-audit-db-schema-dump` | AUDIT | regex | Schema-only database dump (mysqldump --no-data or pg_dump -s/--schema-only) exports the full DDL without row data. This reveals table names, column types, and relationships — reconnaissance intelligence for follow-up extraction. MITRE T1213, T1560. |
@@ -539,8 +537,8 @@
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
 | privilege-escalation | 77 | 44 | 121 |
-| reconnaissance | 85 | 33 | 118 |
+| reconnaissance | 95 | 37 | 132 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **614** | **374** | **988** |
+| **Total** | **624** | **378** | **1002** |
 
