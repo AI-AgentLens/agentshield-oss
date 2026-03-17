@@ -1,0 +1,134 @@
+name: "MCP LLM Data Flow"
+description: "Detect MCP tool calls that expose system prompts, route to unauthorized AI models, or access training data — LLM-specific data exfiltration threats"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # === AUDIT: System prompt file reads ===
+  # An agent reading files named like SYSTEM_PROMPT.txt may be extracting operator
+  # instructions for exfiltration. OWASP LLM07 (System Prompt Leakage).
+  - id: mcp-llmdf-audit-system-prompt-read
+    taxonomy: "data-exfiltration/llm-data-flow/system-prompt-exfiltration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "read_resource"
+        - "get_file_contents"
+        - "open_file"
+      argument_patterns:
+        path: "**/*system_prompt*"
+    decision: "AUDIT"
+    reason: "Reading a file matching system_prompt* may expose operator instructions — LLM07 (System Prompt Leakage). Review whether this access is intentional."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-sysprompt-dotfile-read
+    taxonomy: "data-exfiltration/llm-data-flow/system-prompt-exfiltration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "read_resource"
+        - "get_file_contents"
+        - "open_file"
+      argument_patterns:
+        path: "**/.sysprompt*"
+    decision: "AUDIT"
+    reason: "Reading a hidden system prompt dotfile (.sysprompt*) may expose confidential operator instructions — LLM07 (System Prompt Leakage)."
+    confidence: 0.85
+
+  # === AUDIT: Training data and model weight directory access ===
+  # MCP tools reading model weight directories or training datasets may be performing
+  # training data extraction. OWASP LLM02 (Sensitive Information Disclosure).
+  - id: mcp-llmdf-audit-training-data-read
+    taxonomy: "data-exfiltration/llm-data-flow/training-data-extraction"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "list_directory"
+        - "list_dir"
+        - "read_resource"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/training_data/**"
+    decision: "AUDIT"
+    reason: "Reading from a training_data/ directory may expose model training datasets — LLM02 (Sensitive Information Disclosure). Verify this access is authorized."
+    confidence: 0.80
+
+  - id: mcp-llmdf-audit-model-weights-read
+    taxonomy: "data-exfiltration/llm-data-flow/training-data-extraction"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "list_directory"
+        - "list_dir"
+        - "read_resource"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/model_weights/**"
+    decision: "AUDIT"
+    reason: "Reading from model_weights/ directory may expose proprietary model parameters — LLM02 (Sensitive Information Disclosure)."
+    confidence: 0.80
+
+  - id: mcp-llmdf-audit-checkpoints-read
+    taxonomy: "data-exfiltration/llm-data-flow/training-data-extraction"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "list_directory"
+        - "list_dir"
+        - "read_resource"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/checkpoints/**"
+    decision: "AUDIT"
+    reason: "Reading from a checkpoints/ directory may expose model state (weights, optimizer state) — LLM02 (Sensitive Information Disclosure)."
+    confidence: 0.75
+
+  # === AUDIT: AI provider config file writes ===
+  # Writing to AI SDK config files can reroute LLM traffic to unauthorized endpoints
+  # (uncontrolled model selection). OWASP LLM06 (Excessive Agency).
+  - id: mcp-llmdf-audit-openai-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/uncontrolled-model-selection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.openai*"
+    decision: "AUDIT"
+    reason: "Writing to an OpenAI config file (.openai*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-anthropic-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/uncontrolled-model-selection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.anthropic*"
+    decision: "AUDIT"
+    reason: "Writing to an Anthropic config file (.anthropic*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-ai-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/uncontrolled-model-selection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/ai_config*"
+    decision: "AUDIT"
+    reason: "Writing to an AI config file (ai_config*) may alter model selection or endpoint routing without authorization — LLM06 (Excessive Agency)."
+    confidence: 0.80
