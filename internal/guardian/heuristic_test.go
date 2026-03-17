@@ -226,6 +226,29 @@ func TestHeuristicProvider_EvalRisk_GitCommitFP(t *testing.T) {
 			name: "gh pr create body mentioning eval()",
 			cmd:  `gh pr create --title "fix eval bug" --body "This PR fixes the eval() misuse detected in review"`,
 		},
+		// issue #233: gh issue create / pr create with Semgrep-style security terminology.
+		{
+			name: "gh issue create body with exec() security terminology",
+			cmd:  `gh issue create --title "bug" --body "Found: eval(user_input) in src/app.py — Semgrep detected os.exec() injection"`,
+		},
+		{
+			name: "gh pr create body with os.exec() detection language",
+			cmd:  `gh pr create --title "semgrep rules" --body "Adds rules detecting os.exec() and subprocess.exec() injection patterns"`,
+		},
+		// issue #233: compound command where cat > file << EOF heredoc body contains eval/exec.
+		// Real-world case: cd into repo then write a test file containing security patterns.
+		{
+			name: "cd then cat heredoc with eval() in file content",
+			cmd:  "cd ~/dev/shield-workspace && cat > /tmp/test.go << 'GOEOF'\nfunc test() { eval(input()) }\nGOEOF",
+		},
+		{
+			name: "cd then cat heredoc with exec() in file content",
+			cmd:  "cd /tmp && cat > script.py << 'EOF'\nos.exec(cmd)  # detected by Semgrep\nEOF",
+		},
+		{
+			name: "make build then cat heredoc with eval in content",
+			cmd:  "make build && cat > /tmp/testdata.go << 'EOF'\n// test: eval(malicious) pattern\nEOF",
+		},
 	}
 	for _, tc := range benign {
 		t.Run(tc.name, func(t *testing.T) {
