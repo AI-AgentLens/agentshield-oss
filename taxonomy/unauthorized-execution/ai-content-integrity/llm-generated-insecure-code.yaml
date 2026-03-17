@@ -1,0 +1,94 @@
+id: "unauthorized-execution/ai-content-integrity/llm-generated-insecure-code"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Content Integrity"
+category_id: "4.3"
+name: "LLM-Generated Insecure Code Execution"
+risk_level: "high"
+
+abstract: |
+  An AI coding agent generates code containing security vulnerabilities
+  (injection flaws, hardcoded secrets, insecure defaults) and auto-commits
+  or executes it without human security review — introducing exploitable
+  weaknesses into production systems.
+
+explanation: |
+  AI coding agents (Cursor, Copilot, Claude Code, Devin) generate and execute
+  code at a pace that outstrips traditional security review. When agents
+  auto-apply generated code or commit it directly, vulnerabilities bypass the
+  human review gate that would normally catch them. Common patterns include:
+
+  - **Injection vulnerabilities**: LLMs frequently generate SQL queries using
+    string concatenation, shell commands with unsanitized input, or HTML with
+    unescaped user data (SQLi, command injection, XSS).
+  - **Hardcoded credentials**: Models trained on public code reproduce patterns
+    like `password = "admin123"`, placeholder API keys, or debug credentials
+    that persist into production.
+  - **Insecure cryptographic choices**: Generated code uses deprecated algorithms
+    (MD5, SHA1 for passwords, DES), weak key sizes, or ECB mode because these
+    patterns are prevalent in training data.
+  - **Missing authorization checks**: Auto-generated API endpoints or file
+    operations that lack authentication or authorization validation.
+  - **Dangerous defaults**: Generated configurations with debug mode enabled,
+    CORS set to `*`, TLS verification disabled, or verbose error messages
+    exposed to users.
+  - **Dependency vulnerabilities**: Agents installing packages with known CVEs
+    because the model's training data predates the vulnerability disclosure.
+
+  This is the primary manifestation of OWASP LLM05 (Improper Output Handling)
+  in coding agent contexts. Stanford research found that developers using AI
+  assistants produced significantly less secure code while being more confident
+  in its security — a dangerous combination.
+
+  The risk amplifies when agents have auto-commit or auto-apply permissions,
+  as the feedback loop between generation and deployment shrinks to zero.
+
+recommendation: |
+  - Never auto-commit or auto-deploy LLM-generated code without at least one
+    human review step or automated security scan.
+  - Integrate SAST/DAST scanning into the agent workflow — scan generated code
+    before it is applied or committed.
+  - Configure agents with explicit security constraints (e.g., "never use
+    string concatenation for SQL queries").
+  - Use pre-commit hooks that run security linters (semgrep, bandit, gosec)
+    on all changes, including agent-generated ones.
+  - Monitor for common insecure patterns in agent-generated diffs: hardcoded
+    secrets, disabled TLS, eval() usage, shell=True.
+  - Require agents to explain security implications of generated code before
+    auto-applying.
+
+examples:
+  bad:
+    - "Agent generates: db.query(\"SELECT * FROM users WHERE id = \" + userId)  # SQL injection"
+    - "Agent commits: API_KEY = \"sk-abc123...\"  # hardcoded secret in source"
+    - "Agent writes: app.use(cors({origin: '*'}))  # overly permissive CORS"
+    - "Agent generates: subprocess.call(f'rm -rf {user_input}', shell=True)  # command injection"
+    - "Agent auto-applies: hashlib.md5(password.encode()).hexdigest()  # weak hash for password"
+  good:
+    - "Agent generates parameterized query: db.query('SELECT * FROM users WHERE id = ?', [userId])"
+    - "Agent reads secret from environment: api_key = os.environ.get('API_KEY')"
+    - "Pre-commit hook blocks commit containing hardcoded credentials"
+    - "Agent-generated code passes semgrep security scan before apply"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.8.25", "A.8.26", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.14", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-2"]
+  soc2-type2: ["CC6.8", "CC8.1", "CC7.1"]
+
+references:
+  mitre_attack: ["T1059", "T1552.001"]
+  cwe: ["CWE-89", "CWE-78", "CWE-798", "CWE-327", "CWE-79"]
+  external:
+    - title: "OWASP LLM05: Improper Output Handling"
+      url: "https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/"
+    - title: "Perry et al. — Do Users Write More Insecure Code with AI Assistants?"
+      url: "https://arxiv.org/abs/2211.03622"
+
+analyzers: ["semantic", "guardian"]
+related_rules: []
+# Detection: Guardian layer can scan agent-generated diffs for insecure patterns.
+# Semantic analyzer classifies code-generation-then-execute intent chains.
+# Primarily a governance/process concern — AgentShield detects via pre-commit hooks.

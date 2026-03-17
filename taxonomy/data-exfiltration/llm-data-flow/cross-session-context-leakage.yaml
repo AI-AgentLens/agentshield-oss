@@ -1,0 +1,88 @@
+id: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Cross-Session Context Leakage"
+risk_level: "high"
+
+abstract: |
+  Sensitive data from one AI agent session (credentials, PII, proprietary code)
+  leaks into subsequent sessions or other users' contexts through persistent
+  memory stores, shared caches, conversation logs, or vector databases.
+
+explanation: |
+  Modern AI agents maintain state across sessions through various persistence
+  mechanisms: conversation histories, memory files, vector databases, shared
+  caches, and tool state. When these persistence layers lack proper access
+  controls or data isolation, information from one session can leak into another:
+
+  - **Persistent memory contamination**: Agents with long-term memory (Claude
+    memory, ChatGPT memory, custom RAG stores) may store credentials, API keys,
+    or PII from one session and surface them in a subsequent session — potentially
+    to a different user in shared environments.
+  - **Shared cache poisoning**: Multi-tenant AI deployments that share embedding
+    caches, tool result caches, or conversation context across users. One user's
+    sensitive data ends up in another user's retrieval results.
+  - **Conversation log exposure**: Agent conversation histories stored in
+    plaintext files, databases, or cloud services that are accessible to other
+    agents or users. These logs often contain credentials, internal URLs, and
+    proprietary code.
+  - **Tool state leakage**: MCP servers or tool backends that maintain state
+    across sessions — e.g., a database MCP server that retains connection
+    strings from a previous user's session.
+  - **Context window residue**: In shared inference infrastructure, previous
+    session context bleeding into new sessions due to improper context isolation.
+
+  This is a growing enterprise concern as organizations deploy shared AI
+  infrastructure. The EU AI Act (Art.10) requires data governance controls
+  that prevent cross-contamination, and SOC 2 auditors specifically look for
+  data isolation in multi-tenant systems.
+
+recommendation: |
+  - Implement strict session isolation — each agent session should have its own
+    context, memory, and tool state with no shared mutable state.
+  - Encrypt persistent agent memory at rest and enforce access controls that
+    prevent cross-user access.
+  - Automatically redact credentials, PII, and secrets before persisting any
+    agent memory or conversation logs.
+  - Set TTLs on cached data and implement automatic expiration for sensitive
+    tool results.
+  - Audit persistent memory stores for sensitive data on a scheduled basis.
+  - In multi-tenant deployments, use separate vector database collections or
+    namespaces per tenant with enforced isolation.
+  - Monitor for cross-session data access patterns that suggest leakage.
+
+examples:
+  bad:
+    - "Agent memory file contains: 'User's AWS key is AKIA...'  # persisted from previous session"
+    - "cat ~/.claude/memory/*.md  # reading another user's agent memory on shared workstation"
+    - "sqlite3 ~/.cursor/conversation.db 'SELECT * FROM messages'  # accessing cached conversations with credentials"
+    - "Shared MCP server returns previous user's database connection string in tool state"
+  good:
+    - "Agent memory auto-redacts secrets: 'Connected to database [REDACTED]'"
+    - "Session isolation: each user gets isolated memory namespace with access controls"
+    - "Conversation logs encrypted at rest with per-user keys"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM07"]
+  iso-27001-2022: ["A.5.34", "A.8.3", "A.8.11", "A.8.12"]
+  eu-ai-act-2024: ["Art.10", "Art.13"]
+  nist-ai-rmf-1.0: ["MAP-1", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["C1.1", "CC6.1", "CC6.7"]
+
+references:
+  mitre_attack: ["T1552.001", "T1005"]
+  cwe: ["CWE-200", "CWE-212", "CWE-524"]
+  external:
+    - title: "OWASP LLM02: Sensitive Information Disclosure"
+      url: "https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/"
+    - title: "NIST SP 800-226: Guidelines for Evaluating Differential Privacy Guarantees"
+      url: "https://csrc.nist.gov/pubs/sp/800/226/final"
+
+analyzers: ["structural", "semantic", "dataflow"]
+related_rules: []
+# Detection: Structural analyzer detects commands reading agent memory/cache files.
+# Dataflow analyzer traces data flow from memory stores to network egress.
+# Semantic analyzer classifies cross-session data access intent.
