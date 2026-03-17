@@ -20,7 +20,7 @@
 | mcp-rt-031-write-project-file | write_file | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-032-get-weather | get_weather | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-033-search-web | search_web | AUDIT | AUDIT | ✅ |  |
-| mcp-rt-034-list-directory | list_directory | AUDIT | AUDIT | ✅ |  |
+| mcp-rt-034-list-directory | list_directory | AUDIT | AUDIT | ✅ | Listing /home directory contents flagged — enumerates l... |
 | mcp-rt-040-path-traversal-ssh | read_file | BLOCK | BLOCK | ✅ | Access to SSH key directories is blocked.; Path traversal... |
 | mcp-rt-041-empty-tool-name |  | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-042-unknown-dangerous-sounding-tool | destroy_everything | AUDIT | AUDIT | ✅ |  |
@@ -43,5 +43,23 @@
 | mcp-rt-093-empty-arguments | noop | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-094-large-safe-write | write_file | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-095-read-root-file | read_file | AUDIT | AUDIT | ✅ |  |
+| mcp-rt-100-aws-imds-http-get | http_get | BLOCK | BLOCK | ✅ | SSRF detected — request to cloud metadata endpoint |
+| mcp-rt-101-aws-imds-browser-navigate | browser_navigate | BLOCK | BLOCK | ✅ | SSRF detected — request to cloud metadata endpoint |
+| mcp-rt-102-gcp-imds-fetch | fetch_url | BLOCK | BLOCK | ✅ | SSRF detected — request to cloud metadata endpoint |
+| mcp-rt-103-gcp-imds-navigate | open_url | BLOCK | BLOCK | ✅ | SSRF detected — request to cloud metadata endpoint |
+| mcp-rt-110-list-etc-dir | list_directory | AUDIT | AUDIT | ✅ | Listing /etc/ system directory flagged — may enumerate ... |
+| mcp-rt-111-list-home-dir | list_directory | AUDIT | AUDIT | ✅ | Listing /home directory contents flagged — enumerates l... |
+| mcp-rt-112-read-proc-net | read_file | AUDIT | AUDIT | ✅ | Access to /proc filesystem flagged — can enumerate runn... |
+| mcp-rt-113-read-etc-passwd | read_file | AUDIT | AUDIT | ✅ | Reading /etc/passwd enumerates local user accounts — us... |
+| mcp-rt-114-read-etc-hosts | cat_file | AUDIT | AUDIT | ✅ | Reading /etc/hosts maps internal hostnames to IPs — use... |
+| mcp-rt-115-read-os-release | read_file | AUDIT | AUDIT | ✅ | Reading /etc/os-release to fingerprint OS version and dis... |
+| mcp-rt-120-db-info-schema | query_database | AUDIT | AUDIT | ✅ | Database schema enumeration query detected — maps table... |
+| mcp-rt-121-db-show-tables | query_database | AUDIT | AUDIT | ✅ | Database schema enumeration query detected — maps table... |
+| mcp-rt-130-localhost-admin-probe | navigate | AUDIT | AUDIT | ✅ | HTTP probe to localhost or 127.0.0.1 flagged — may enum... |
+| mcp-rt-131-loopback-api-probe | http_get | AUDIT | AUDIT | ✅ | HTTP probe to localhost or 127.0.0.1 flagged — may enum... |
+| mcp-rt-132-spring-actuator-probe | fetch_url | AUDIT | AUDIT | ✅ | Spring Boot Actuator endpoint access flagged — exposes ... |
+| mcp-rt-140-safe-project-list | list_directory | AUDIT | AUDIT | ✅ | Listing /home directory contents flagged — enumerates l... |
+| mcp-rt-141-safe-external-url | http_get | AUDIT | AUDIT | ✅ | MCP tool classified as external network request |
+| mcp-rt-142-safe-db-select | query_database | AUDIT | AUDIT | ✅ |  |
 
-**Results: 41/41 passed (100.0%)**
+**Results: 59/59 passed (100.0%)**
