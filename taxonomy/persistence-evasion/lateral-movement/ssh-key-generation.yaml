@@ -1,33 +1,43 @@
 id: "persistence-evasion/lateral-movement/ssh-key-generation"
-version: "1.0.0"
+version: "1.1.0"
 kingdom: "Persistence & Defense Evasion"
 kingdom_id: 6
 category: "Lateral Movement"
 category_id: "6.5"
-name: "SSH Key Generation for Lateral Movement"
+name: "SSH Backdoor Access via Key Generation or authorized_keys Injection"
 risk_level: "high"
 
 abstract: |
-  An AI agent generates SSH key pairs using automated/piped methods that
-  bypass passphrase requirements, creating passwordless keys that can be
-  used to establish persistent access or enable lateral movement.
+  An AI agent establishes persistent SSH backdoor access through two distinct
+  techniques: (1) generating passwordless SSH key pairs by bypassing passphrase
+  prompts, or (2) directly injecting an attacker-controlled public key into
+  `~/.ssh/authorized_keys` — without necessarily generating a new key. Both
+  techniques grant durable, password-free remote access.
 
 explanation: |
-  SSH key generation is legitimate but becomes a security risk when:
-  - The key is generated without a passphrase (using `-N ""` or piped empty input)
-  - The public key is immediately added to `~/.ssh/authorized_keys`
-  - The generation is automated to avoid interactive prompts (`< /dev/null`)
+  SSH backdoor persistence spans two complementary attack techniques that are
+  often conflated but can occur independently:
 
-  Bypassing the passphrase prompt produces private keys that can be used
-  immediately without any additional authentication factor. AI agents may
-  generate these when automating deployments or when prompted to "set up SSH
-  access" without understanding the security implications.
+  **Technique 1: Passwordless key generation (T1021.004)**
+  - `ssh-keygen -N ""` or `echo "" | ssh-keygen` bypasses the passphrase prompt
+  - Produces a private key usable immediately without any authentication factor
+  - AI agents may do this when automating deployments or prompted to "set up SSH access"
+
+  **Technique 2: authorized_keys injection (T1098.004)**
+  - Writing an existing public key to `~/.ssh/authorized_keys` grants immediate backdoor access
+  - No `ssh-keygen` is required — an attacker can inject a pre-existing public key
+  - Targets include `~/.ssh/authorized_keys` and `/root/.ssh/authorized_keys`
+  - Injection via prompt injection payload is a realistic AI agent attack vector
+
+  An AI agent that injects a key it controls establishes persistent access that
+  survives password changes and reboots without any visible process running.
 
 recommendation: |
   - Block `ssh-keygen` with `-N ""` or piped empty passphrases from AI agents.
-  - Require explicit human confirmation before any SSH key generation.
-  - Enforce passphrase requirements via policy.
+  - Block all writes to `~/.ssh/authorized_keys` from AI agents.
+  - Require explicit human confirmation before any SSH key generation or injection.
   - Use short-lived certificates (e.g., Vault SSH CA) instead of long-lived keys.
+  - Monitor `authorized_keys` changes via file integrity monitoring (FIM).
 
 examples:
   bad:
@@ -35,9 +45,12 @@ examples:
     - "echo '' | ssh-keygen -t rsa -N '' -f /tmp/key"
     - "ssh-keygen -t rsa -b 4096 -N '' -f ~/.ssh/deploy_key"
     - "ssh-keygen -f ~/.ssh/id_rsa < /dev/null"
+    - "echo 'ssh-rsa AAAA... attacker@evil.com' >> ~/.ssh/authorized_keys"
+    - "cat /tmp/attacker.pub >> /root/.ssh/authorized_keys"
   good:
     - "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519"
     - "ssh-add ~/.ssh/id_ed25519"
+    - "cat ~/.ssh/authorized_keys"
 
 compliance:
   owasp-llm-2025: ["LLM02", "LLM06"]
@@ -48,12 +61,15 @@ compliance:
 
 references:
   mitre_attack: ["T1098.004", "T1021.004"]
-  cwe: ["CWE-321", "CWE-798"]
+  cwe: ["CWE-321", "CWE-284"]
   external:
-    - title: "MITRE ATT&CK: SSH Authorized Keys"
+    - title: "MITRE ATT&CK: SSH Authorized Keys (T1098.004)"
       url: "https://attack.mitre.org/techniques/T1098/004/"
+    - title: "MITRE ATT&CK: SSH (T1021.004)"
+      url: "https://attack.mitre.org/techniques/T1021/004/"
 
 analyzers: ["regex", "structural"]
 related_rules:
   - "ts-block-ssh-keygen-piped"
+  - "ts-struct-block-ssh-keygen-noninteractive"
   - "ts-block-authorized-keys-write"
