@@ -1821,6 +1821,135 @@ var ProcFdHijackCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 5.18: Raw Filesystem Access via debugfs
+// Taxonomy: privilege-escalation/filesystem-bypass/raw-filesystem-access
+//
+// debugfs operates at the block/inode level on ext2/3/4 filesystems,
+// completely bypassing Unix permissions, SELinux, and AppArmor. With
+// access to a block device, an attacker can read /etc/shadow, modify
+// files without timestamp changes, recover deleted files, or inject
+// payloads directly into the filesystem. MITRE T1006.
+// ---------------------------------------------------------------------------
+
+var DebugfsCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be blocked ---
+
+	{
+		ID:               "TP-DEBUGFS-001",
+		Command:          `debugfs -R 'cat /etc/shadow' /dev/sda1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `Canonical debugfs attack — reads /etc/shadow by operating at the
+			inode level, bypassing all Unix file permissions. Doesn't require
+			file-level root access, only block device access.`,
+		Tags: []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-DEBUGFS-002",
+		Command:          `sudo debugfs -w /dev/sda1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `debugfs in writable mode — allows direct inode modification,
+			file injection, and data corruption at the filesystem level.
+			With -w, attacker can modify any file without leaving normal
+			audit trails.`,
+		Tags: []string{"critical", "sudo"},
+	},
+	{
+		ID:               "TP-DEBUGFS-003",
+		Command:          `debugfs -R 'dump /root/.ssh/id_rsa /tmp/stolen_key' /dev/sda1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `debugfs dump command — extracts files by inode, bypassing
+			permissions. Copies root's SSH private key to /tmp without
+			ever touching the file through the VFS layer.`,
+		Tags: []string{"critical", "credential-theft"},
+	},
+	{
+		ID:               "TP-DEBUGFS-004",
+		Command:          `debugfs -f /tmp/commands.txt /dev/sda2`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `debugfs with -f (script file) — executes a batch of debugfs
+			commands from a file. Attacker pre-stages commands to extract
+			multiple sensitive files in one invocation.`,
+		Tags: []string{"critical", "evasion"},
+	},
+	{
+		ID:               "TP-DEBUGFS-005",
+		Command:          `debugfs --request 'ls -l /root' /dev/nvme0n1p1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `debugfs --request (long form of -R) listing root's home directory
+			on an NVMe device — enumerates files at the inode level.`,
+		Tags: []string{"critical", "flag-normalization"},
+	},
+	{
+		ID:               "TP-DEBUGFS-006",
+		Command:          `sudo debugfs -w -R 'write /tmp/backdoor /usr/local/bin/update' /dev/sda1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Analyzer:         "regex",
+		Description: `debugfs write command — injects a file directly into the filesystem
+			at the inode level, bypassing all integrity monitoring (AIDE, OSSEC,
+			tripwire) that watches the VFS layer. The file appears as if it was
+			always there.`,
+		Tags: []string{"critical", "persistence", "sudo"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-DEBUGFS-001",
+		Command:          `tune2fs -l /dev/sda1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Description:      `tune2fs -l is a read-only filesystem info command — shows superblock data, not file contents. Safe.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-DEBUGFS-002",
+		Command:          `dumpe2fs -h /dev/sda1`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Description:      `dumpe2fs -h shows filesystem superblock only. Read-only, no file access. Matched by ts-allow-readonly.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-DEBUGFS-003",
+		Command:          `echo "debugfs is dangerous" > /tmp/notes.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Description:      `String containing "debugfs" in an echo command — not an invocation. Must be ALLOW.`,
+		Tags:             []string{"safe", "string-literal"},
+	},
+	{
+		ID:               "TN-DEBUGFS-004",
+		Command:          `fsck -n /dev/sda1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
+		Description:      `fsck -n (no-write, check only) is a safe filesystem consistency check. Not debugfs.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -1842,5 +1971,6 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, LDAuditInjectionCases...)
 	all = append(all, ProcfsTraversalCases...)
 	all = append(all, ProcFdHijackCases...)
+	all = append(all, DebugfsCases...)
 	return all
 }

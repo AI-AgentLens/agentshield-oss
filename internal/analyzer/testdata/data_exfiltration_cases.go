@@ -1602,6 +1602,133 @@ var HTTPFileServerCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 3.X: Extended Attribute Data Hiding
+// Taxonomy: data-exfiltration/steganography/xattr-data-hiding
+//
+// Extended attributes (xattrs) are invisible to standard tools (ls, cat,
+// find, file). An attacker can hide exfiltrated data in xattrs of
+// innocent-looking files. The data survives cp -a, tar --xattrs, and
+// rsync -X, but is invisible to content scanners.
+//
+// macOS: xattr -w <name> <value> <file>
+// Linux: setfattr -n <name> -v <value> <file>
+//
+// MITRE T1564.004 — Hide Artifacts: File Attributes
+// ---------------------------------------------------------------------------
+
+var XattrDataHidingCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be blocked ---
+
+	{
+		ID:               "TP-XATTR-001",
+		Command:          `xattr -w user.data "$(cat ~/.ssh/id_rsa)" /tmp/innocent.txt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Analyzer:         "regex",
+		Description: `Canonical xattr data exfiltration — hides SSH private key contents
+			in the extended attributes of an innocent-looking file. The file
+			appears normal to ls, cat, file, but xattr -p retrieves the key.
+			This bypasses all content-based security scanning.`,
+		Tags: []string{"canonical", "critical", "credential-theft"},
+	},
+	{
+		ID:               "TP-XATTR-002",
+		Command:          `setfattr -n user.hidden -v "$(cat /etc/shadow)" /tmp/notes.txt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Analyzer:         "regex",
+		Description: `Linux setfattr variant — hides /etc/shadow contents in extended
+			attributes. setfattr is the Linux equivalent of macOS xattr -w.
+			The -n flag specifies the attribute name, -v the value.`,
+		Tags: []string{"critical", "credential-theft"},
+	},
+	{
+		ID:               "TP-XATTR-003",
+		Command:          "xattr -w user.payload \"`cat ~/.aws/credentials`\" /tmp/report.pdf",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Analyzer:         "regex",
+		Description: `Backtick substitution variant — hides AWS credentials in xattr
+			of a PDF file. Using backticks instead of $() for command substitution.`,
+		Tags: []string{"critical", "evasion"},
+	},
+	{
+		ID:               "TP-XATTR-004",
+		Command:          `xattr -w user.key "$(base64 < ~/.gnupg/private-keys-v1.d/*)" /tmp/photo.jpg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Analyzer:         "regex",
+		Description: `Base64-encoded GPG private keys hidden in xattr of a JPEG file.
+			Double obfuscation: encoding + xattr metadata hiding.`,
+		Tags: []string{"critical", "encoding", "evasion"},
+	},
+	{
+		ID:               "TP-XATTR-005",
+		Command:          `setfattr -n user.exfil -v "$(kubectl get secrets -o json)" /tmp/data.csv`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Analyzer:         "regex",
+		Description: `Kubernetes secrets exfiltrated via setfattr — hides the JSON
+			output of kubectl get secrets in a CSV file's extended attributes.`,
+		Tags: []string{"critical", "credential-theft"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-XATTR-001",
+		Command:          `xattr -l /tmp/downloaded.pkg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Description:      `xattr -l (list) — read-only operation showing existing attributes. Safe diagnostic command. Falls to default AUDIT.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-XATTR-002",
+		Command:          `xattr -d com.apple.quarantine app.dmg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Description:      `xattr -d (delete) removes quarantine flag — common macOS operation. Not data hiding. Falls to default AUDIT.`,
+		Tags:             []string{"safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-XATTR-003",
+		Command:          `xattr -p com.apple.FinderInfo document.pdf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Description:      `xattr -p (print) — reading an existing attribute. Read-only, no data hiding. Falls to default AUDIT.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-XATTR-004",
+		Command:          `getfattr -d /var/www/html/index.html`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Description:      `getfattr -d (dump) — read-only listing of all extended attributes. Safe diagnostic. Falls to default AUDIT.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+	{
+		ID:               "TN-XATTR-005",
+		Command:          `xattr -w com.apple.metadata:kMDItemWhereFroms "https://example.com" file.zip`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/xattr-data-hiding",
+		Description:      `Writing standard macOS metadata xattr with a plain string value (no command substitution). Gets AUDIT from the audit rule, not BLOCK.`,
+		Tags:             []string{"safe", "common-dev-operation"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -1620,5 +1747,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, DNSExfilSubqueryCases...)
 	all = append(all, WebhookExfilCases...)
 	all = append(all, HTTPFileServerCases...)
+	all = append(all, XattrDataHidingCases...)
 	return all
 }
