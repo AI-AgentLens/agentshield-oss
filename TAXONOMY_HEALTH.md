@@ -53,9 +53,18 @@
 
 ## 4. Static Analysis Coverage (AI_risk_compliance / Semgrep)
 
-*Coverage data pending — see separate cross-product coherence analysis.*
+| Metric | Count | % |
+|--------|-------|---|
+| Entries with Semgrep rules | 97 | 97.0% |
+| Entries without Semgrep rules | 3 | 3.0% |
+| Total Semgrep rules | 454 | — |
 
-Based on prior audits (Audit #43): ~92.9% (92/99) Semgrep rule coverage.
+**Uncovered entries** (no Semgrep rule):
+1. `credential-exposure/config-file-access/generic-config-access` — intentionally generic, hard to write precise static rules
+2. `destructive-ops/cloud-infra/gcloud-storage-delete` — GCP storage deletion not yet covered
+3. `persistence-evasion/shell-startup/shell-profile-backdoor` — **NEW entry** — needs Semgrep rule for `.bashrc`/`.zshrc` writes
+
+**Dual coverage** (both runtime + static): **97 of 103 entries (94.2%)**. The 6 entries with only runtime coverage are the 3 above plus the 3 new agentic-attack entries (which need both Semgrep and pack rules).
 
 ---
 
