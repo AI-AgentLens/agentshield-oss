@@ -633,3 +633,106 @@ rules:
     decision: "BLOCK"
     confidence: 0.93
     reason: "httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001."
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WEBHOOK-BASED DATA EXFILTRATION (closes #211)
+  #
+  # AI agents can silently POST data to webhook endpoints that require
+  # no authentication and deliver payloads instantly to attacker-
+  # controlled channels (Discord, Slack, Telegram, ntfy.sh) or
+  # data-capture services (webhook.site, requestbin.com, beeceptor).
+  #
+  # Threat model:
+  #   - Attacker embeds webhook URL in prompt or tool description
+  #   - Compromised agent collects secrets/config and POSTs to webhook
+  #   - Data is delivered to attacker with no network footprint on target
+  #
+  # MITRE ATT&CK: T1567 (Exfiltration Over Web Service), T1567.002
+  # OWASP LLM Top 10 2025: LLM01 (Prompt Injection), LLM06 (Data Leakage)
+  # ═══════════════════════════════════════════════════════════════════
+
+  # === BLOCK: Data-capture / request-bin endpoints ===
+  #
+  # webhook.site, requestbin.com, beeceptor.com, pipedream.net/requestbin,
+  # hookbin.com, and similar services exist specifically to capture and
+  # inspect HTTP requests. They have NO legitimate use in AI agent workflows.
+  # Any POST to these endpoints is almost certainly data exfiltration.
+
+  - id: "ne-block-webhook-capture-services"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget|httpie|http)\\b.*(webhook\\.site|requestbin\\.com|beeceptor\\.com|hookbin\\.com|pipedream\\.net/requestbin|bin\\.beeceptor\\.com|requestcatcher\\.com|postb\\.in|httpbin\\.org/post|canarytokens\\.org)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "HTTP request to a known data-capture / request-inspection service detected. These endpoints (webhook.site, requestbin, beeceptor, etc.) exist to collect and expose HTTP payloads and have no legitimate use in AI agent workflows — this is almost certainly data exfiltration. MITRE T1567."
+
+  # === BLOCK: Telegram bot API used for exfiltration ===
+  #
+  # Telegram's bot API allows sending arbitrary messages to any chat.
+  # Attacker creates a bot, embeds bot token + chat_id in prompt, and the
+  # agent delivers secrets to Telegram with no network signature on target.
+  # The bot token pattern is distinctive: /bot<digits>:<uppercase-token>/
+
+  - id: "ne-block-telegram-bot-exfil"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget)\\b.*api\\.telegram\\.org/bot[0-9]+:[A-Za-z0-9_-]+"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Telegram bot API call detected. Attackers abuse Telegram bots to receive exfiltrated data with instant delivery and no trace on the victim system. AI agents have no legitimate need to call the Telegram bot API. MITRE T1567."
+
+  # === BLOCK: ntfy.sh push notifications used for exfiltration ===
+  #
+  # ntfy.sh is an open-source push notification service that requires no
+  # auth by default. Attacker subscribes to a topic; agent POSTs secrets
+  # as push notifications. Zero authentication, instant delivery.
+
+  - id: "ne-block-ntfy-exfil"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget)\\b.*\\bntfy\\.sh/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "ntfy.sh push notification service detected. Attackers use ntfy topics as zero-auth exfiltration channels — any data POSTed is instantly delivered to subscribers. AI agents have no legitimate need to use ntfy.sh. MITRE T1567."
+
+  # === AUDIT: Slack incoming webhook calls ===
+  #
+  # Slack webhooks are legitimate for CI/CD notifications, but an AI agent
+  # autonomously POSTing to hooks.slack.com is unusual and warrants review.
+  # The data payload may contain sensitive information added by injection.
+
+  - id: "ne-audit-slack-webhook"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget)\\b.*hooks\\.slack\\.com/services/"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Slack incoming webhook call detected. While legitimate for notifications, AI agents autonomously POSTing to Slack webhooks may be exfiltrating data via prompt injection. Review the message payload. MITRE T1567.002."
+
+  # === AUDIT: Discord webhook calls ===
+  #
+  # Discord webhooks are used for game bots and community notifications,
+  # but an AI agent calling discord.com/api/webhooks is suspicious and
+  # may indicate exfiltration to an attacker-controlled Discord server.
+
+  - id: "ne-audit-discord-webhook"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget)\\b.*discord\\.com/api/webhooks/"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Discord webhook call detected. Attackers use Discord webhooks to receive exfiltrated data from compromised AI agents. Review the payload before allowing. MITRE T1567.002."
+
+  # === AUDIT: Microsoft Teams incoming webhook calls ===
+  #
+  # Teams webhooks are legitimate for DevOps notifications, but an agent
+  # autonomously posting to outlook.office.com/webhooks is worth review
+  # as it may be delivering injected content to a Teams channel.
+
+  - id: "ne-audit-teams-webhook"
+    taxonomy: "data-exfiltration/network-egress/webhook-exfiltration"
+    match:
+      command_regex: "(curl|wget)\\b.*(outlook\\.office\\.com/webhooks|teams\\.microsoft\\.com/l/channel)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Microsoft Teams webhook call detected. Review the payload to ensure the agent is not exfiltrating data to an attacker-controlled Teams channel. MITRE T1567.002."
