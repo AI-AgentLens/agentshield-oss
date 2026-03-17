@@ -2115,3 +2115,185 @@ rules:
     decision: "AUDIT"
     confidence: 0.75
     reason: "macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006."
+
+  # =====================================================================
+  # debugfs — Raw ext filesystem access (bypasses Unix permissions)
+  # =====================================================================
+  #
+  # debugfs is the ext2/ext3/ext4 filesystem debugger. It operates at the
+  # block/inode level, completely bypassing Unix file permissions, SELinux,
+  # and AppArmor. With read access to a block device (or via sudo), an
+  # attacker can:
+  #   - Read /etc/shadow without root: debugfs -R 'cat /etc/shadow' /dev/sda1
+  #   - Modify files without timestamps changing
+  #   - Recover deleted files (undelete)
+  #   - Write arbitrary data to inodes: debugfs -w -R 'write /tmp/payload /usr/bin/cron' /dev/sda1
+  #
+  # No AI agent has a legitimate reason to invoke debugfs. Even filesystem
+  # debugging should use higher-level tools (fsck, tune2fs, dumpe2fs).
+  #
+  # MITRE T1006 — Direct Volume Access
+
+  # --- BLOCK: debugfs with -R (execute command) or -w (writable) ---
+  - id: "ts-block-debugfs-command"
+    taxonomy: "privilege-escalation/filesystem-bypass/raw-filesystem-access"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?debugfs\\s+.*(-R\\s|--request\\s|-w\\b|--writeable|-f\\s)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "debugfs with -R (run command), -w (writable mode), or -f (script file) operates at the block/inode level, bypassing all Unix file permissions, SELinux, and AppArmor. Can read /etc/shadow, modify files without timestamps, or inject payloads directly into the filesystem. MITRE T1006."
+
+  # --- AUDIT: Any debugfs invocation ---
+  - id: "ts-audit-debugfs"
+    taxonomy: "privilege-escalation/filesystem-bypass/raw-filesystem-access"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?debugfs\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "debugfs filesystem debugger detected — operates below Unix permissions at the block/inode level. Even interactive mode can read protected files. MITRE T1006."
+
+  # =====================================================================
+  # script / scriptreplay — TTY recording for credential capture
+  # =====================================================================
+  #
+  # The `script` command records all terminal I/O to a file. An AI agent
+  # could silently start recording to capture:
+  #   - Passwords typed into sudo/ssh/gpg prompts
+  #   - API keys pasted into terminals
+  #   - MFA codes entered interactively
+  #
+  # Subtle attack patterns:
+  #   script -q /tmp/.keylog            # silent recording, no banner
+  #   script -c 'ssh user@host' log.txt # captures entire SSH session
+  #   script -f /tmp/live.log           # flush on every write (real-time tap)
+  #
+  # Legitimate use: recording terminal sessions for documentation. But
+  # AI agents have no reason to record interactive sessions — they
+  # operate programmatically.
+  #
+  # MITRE T1056.001 — Input Capture: Keylogging
+
+  # --- BLOCK: script -q (quiet/silent recording) ---
+  - id: "ts-block-script-quiet-record"
+    taxonomy: "credential-exposure/input-capture/tty-keylogging"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?script\\s+.*-[a-zA-Z]*q"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "script -q (quiet mode) silently records all terminal I/O without displaying the 'Script started' banner — used to covertly capture passwords, API keys, and MFA codes from subsequent interactive commands. MITRE T1056.001."
+
+  # --- BLOCK: script -c (capture command session) ---
+  - id: "ts-block-script-capture-command"
+    taxonomy: "credential-exposure/input-capture/tty-keylogging"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?script\\s+.*-c\\s"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "script -c '<command>' records all I/O of the specified command including credentials entered during SSH, sudo, or GPG prompts. The recording file contains cleartext passwords. MITRE T1056.001."
+
+  # --- AUDIT: Any script command that writes to a file ---
+  - id: "ts-audit-script-record"
+    taxonomy: "credential-exposure/input-capture/tty-keylogging"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?script\\s+(-[a-zA-Z]+\\s+)*(/|\\.|~|\\$)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "script command recording terminal session to a file — may capture credentials entered in subsequent interactive commands. MITRE T1056.001."
+
+  # =====================================================================
+  # xattr / setfattr — Data hiding in extended attributes
+  # =====================================================================
+  #
+  # Extended attributes (xattrs) are file metadata invisible to standard
+  # tools (ls, cat, find). Attackers can hide exfiltrated data in xattrs:
+  #
+  #   xattr -w user.data "$(cat ~/.ssh/id_rsa)" /tmp/innocent.txt
+  #   setfattr -n user.hidden -v "$(cat /etc/shadow)" /tmp/notes.txt
+  #
+  # The file /tmp/innocent.txt appears normal — `cat`, `file`, `ls -la`
+  # all show nothing suspicious. But `xattr -p user.data /tmp/innocent.txt`
+  # or `getfattr -n user.hidden /tmp/notes.txt` retrieves the hidden data.
+  #
+  # This is a blind spot in most security tools: file content scanners
+  # don't inspect xattrs, and the data persists across cp (with -a) and
+  # tar (with --xattrs).
+  #
+  # macOS: xattr -w <name> <value> <file>
+  # Linux: setfattr -n <name> -v <value> <file>
+  #
+  # MITRE T1564.004 — Hide Artifacts: NTFS File Attributes (xattr analog)
+
+  # --- BLOCK: xattr -w with command substitution (data hiding) ---
+  - id: "ts-block-xattr-write-subshell"
+    taxonomy: "data-exfiltration/steganography/xattr-data-hiding"
+    match:
+      command_regex: "(xattr\\s+-w|setfattr\\s+-n)\\s+\\S+\\s+.*\\$\\("
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing command substitution output to extended attributes — hides exfiltrated data (credentials, keys, secrets) in file metadata invisible to standard tools. MITRE T1564.004."
+
+  # --- BLOCK: xattr -w with backtick substitution ---
+  - id: "ts-block-xattr-write-backtick"
+    taxonomy: "data-exfiltration/steganography/xattr-data-hiding"
+    match:
+      command_regex: "(xattr\\s+-w|setfattr\\s+-n)\\s+\\S+\\s+.*`"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing backtick command output to extended attributes — hides exfiltrated data in file metadata invisible to standard tools. MITRE T1564.004."
+
+  # --- AUDIT: Any xattr write or setfattr ---
+  - id: "ts-audit-xattr-write"
+    taxonomy: "data-exfiltration/steganography/xattr-data-hiding"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?((xattr\\s+-w)|(setfattr\\s+(-n|--name)))"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004."
+
+  # =====================================================================
+  # fallocate / truncate -s — Disk-filling denial of service
+  # =====================================================================
+  #
+  # fallocate creates files of arbitrary size nearly instantly by
+  # allocating disk space without writing data:
+  #
+  #   fallocate -l 100G /tmp/fill      # instant 100GB allocation
+  #   truncate -s 100T /tmp/sparse     # 100TB sparse file (metadata DoS)
+  #   head -c 10G /dev/zero > /tmp/f   # slow but effective disk fill
+  #
+  # A filled disk causes: database corruption, logging failure (hiding
+  # tracks), application crashes, inability to create temp files, and
+  # potential kernel panics if / fills up.
+  #
+  # Existing rules cover `dd if=/dev/zero` but NOT fallocate (instant,
+  # no I/O) or truncate with large sizes (only -s 0 for clearing is
+  # covered). head -c with large sizes to /dev/zero is also uncovered.
+  #
+  # MITRE T1499.001 — Endpoint Denial of Service: OS Exhaustion Flood
+
+  # --- BLOCK: fallocate creating large files (>=1G) ---
+  - id: "ts-block-fallocate-large"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?fallocate\\s+.*-l\\s*[0-9]+[GT]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "fallocate creating a file >=1GB — instantly allocates disk space without I/O. Can fill disk in milliseconds, causing database corruption, logging failure, and system instability. MITRE T1499.001."
+
+  # --- BLOCK: truncate creating very large sparse files ---
+  - id: "ts-block-truncate-large"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?truncate\\s+.*-s\\s*[0-9]+[GT]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001."
+
+  # --- AUDIT: Any fallocate invocation ---
+  - id: "ts-audit-fallocate"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?fallocate\\b"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001."

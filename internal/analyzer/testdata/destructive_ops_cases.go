@@ -1356,6 +1356,136 @@ var GitForcePushCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 1.X: Disk-Filling Denial of Service
+// Taxonomy: destructive-ops/resource-exhaustion/disk-fill
+//
+// fallocate and truncate can create enormous files nearly instantly:
+//   - fallocate -l 100G /tmp/fill  → instant 100GB allocation
+//   - truncate -s 100T /tmp/f      → sparse file (metadata DoS)
+//
+// A full disk causes: database corruption, logging failure (hiding
+// attack traces), application crashes, inability to create temp files,
+// and potential kernel panics on root filesystem.
+//
+// MITRE T1499.001 — Endpoint Denial of Service: OS Exhaustion Flood
+// ---------------------------------------------------------------------------
+
+var DiskFillCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be blocked ---
+
+	{
+		ID:               "TP-DISKFILL-001",
+		Command:          `fallocate -l 100G /tmp/fill`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description: `Canonical disk-filling attack — fallocate -l 100G creates a 100GB
+			file nearly instantly by allocating disk blocks without writing data.
+			Unlike dd, fallocate completes in milliseconds regardless of size.
+			Can fill disk before any monitoring has time to react.`,
+		Tags: []string{"canonical", "critical"},
+	},
+	{
+		ID:               "TP-DISKFILL-002",
+		Command:          `fallocate -l 1T /var/tmp/data`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description: `1 terabyte fallocate — instantly exhausts almost any disk.
+			Writing to /var/tmp ensures the file survives reboots.`,
+		Tags: []string{"critical"},
+	},
+	{
+		ID:               "TP-DISKFILL-003",
+		Command:          `sudo fallocate -l 50G /var/log/backfill.dat`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description: `sudo fallocate on /var/log partition — filling the log partition
+			prevents further logging, which hides subsequent attack traces.
+			Classic anti-forensics technique.`,
+		Tags: []string{"critical", "sudo"},
+	},
+	{
+		ID:               "TP-DISKFILL-004",
+		Command:          `truncate -s 500T /tmp/sparse`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description: `truncate -s 500T creates a sparse file that claims to be 500TB.
+			While it doesn't immediately consume disk blocks, it causes
+			df to report the disk as full, breaking space-checking applications,
+			and any write to the sparse region allocates real blocks.`,
+		Tags: []string{"critical"},
+	},
+	{
+		ID:               "TP-DISKFILL-005",
+		Command:          `fallocate -l 10G /`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description: `fallocate on root filesystem — filling the root partition is the
+			most damaging DoS: causes kernel panics, prevents process creation,
+			and crashes databases.`,
+		Tags: []string{"critical"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST be allowed ---
+
+	{
+		ID:               "TN-DISKFILL-001",
+		Command:          `fallocate -l 1M /tmp/testfile`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Description:      `fallocate -l 1M (megabyte) — small allocation for testing or swap pre-allocation. Not destructive. Gets AUDIT from audit rule.`,
+		Tags:             []string{"safe"},
+	},
+	{
+		ID:               "TN-DISKFILL-002",
+		Command:          `truncate -s 0 /tmp/logfile.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Description:      `truncate -s 0 — empties a file. Opposite of disk filling. Must not trigger disk-fill BLOCK rules. Falls to default AUDIT.`,
+		Tags:             []string{"safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-DISKFILL-003",
+		Command:          `truncate -s 10M /tmp/testdata`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Description:      `truncate -s 10M — small sparse file for testing. Not destructive. Gets AUDIT from default.`,
+		Tags:             []string{"safe"},
+	},
+	{
+		ID:               "TN-DISKFILL-004",
+		Command:          `echo "fallocate -l 10G" > notes.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Description:      `String containing fallocate in echo — not an invocation. Must be ALLOW.`,
+		Tags:             []string{"safe", "string-literal"},
+	},
+	{
+		ID:               "TN-DISKFILL-005",
+		Command:          `df -h /tmp`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Description:      `df -h checks disk usage — read-only, safe diagnostic. Not related to disk filling.`,
+		Tags:             []string{"safe", "read-only"},
+	},
+}
+
 // AllDestructiveOpsCases returns all test cases for Kingdom 1.
 func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
@@ -1369,5 +1499,6 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, CloudCLIDestructiveCases...)
 	all = append(all, K8sDestructiveCases...)
 	all = append(all, GitForcePushCases...)
+	all = append(all, DiskFillCases...)
 	return all
 }
