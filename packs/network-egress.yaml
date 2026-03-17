@@ -659,6 +659,53 @@ rules:
     reason: "httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001."
 
   # ═══════════════════════════════════════════════════════════════════
+  # DATABASE SCHEMA ENUMERATION VIA CLI (closes #260)
+  #
+  # AI agents with database CLI access (mysql, psql, sqlite3) can enumerate
+  # the full schema of connected databases using standard SQL introspection
+  # APIs — a classic pre-exfiltration reconnaissance technique.
+  #
+  # Threat model:
+  #   1. Agent queries information_schema/pg_catalog/sqlite_master to discover
+  #      all tables and columns, then crafts targeted extraction queries.
+  #   2. SHOW TABLES/SHOW DATABASES reveals the full data inventory.
+  #   3. Schema dumps (mysqldump --no-data, pg_dump -s) capture the entire
+  #      structure without requiring row-level access.
+  #
+  # Design: AUDIT (not BLOCK) because developers legitimately inspect schemas
+  # during development. Flagging for review catches agent-driven enumeration
+  # without false-positive-blocking routine dev workflows.
+  #
+  # MITRE T1213, T1005. OWASP LLM02, LLM06.
+
+  # === AUDIT: Database CLI schema introspection queries ===
+  - id: "ne-audit-db-schema-enum"
+    taxonomy: "reconnaissance/network-discovery/database-schema-enumeration"
+    match:
+      command_regex: "(?i)\\b(mysql|mariadb|psql|sqlite3)\\b.*(information_schema|pg_catalog|sqlite_master|SHOW\\s+(TABLES|DATABASES))"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Database CLI invoked with schema introspection query (information_schema / pg_catalog / sqlite_master / SHOW TABLES or DATABASES). This maps the database structure and is a precursor to targeted data extraction. MITRE T1213, T1005."
+
+  # === AUDIT: SQLite dot-command schema enumeration ===
+  - id: "ne-audit-sqlite-schema-dotcmd"
+    taxonomy: "reconnaissance/network-discovery/database-schema-enumeration"
+    match:
+      command_regex: "(?i)\\bsqlite3\\b.*[\"']?\\.(tables|schema|indexes|databases)[\"']?"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "sqlite3 dot-command schema enumeration (.tables, .schema, .indexes, .databases) lists all tables or the full DDL of a SQLite database. An AI agent running this may be mapping a local database for subsequent extraction. MITRE T1213."
+
+  # === AUDIT: Schema-only database dumps ===
+  - id: "ne-audit-db-schema-dump"
+    taxonomy: "reconnaissance/network-discovery/database-schema-enumeration"
+    match:
+      command_regex: "(?i)\\b(mysqldump|pg_dump)\\b.*(--no-data|-s\\b|--schema-only)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Schema-only database dump (mysqldump --no-data or pg_dump -s/--schema-only) exports the full DDL without row data. This reveals table names, column types, and relationships — reconnaissance intelligence for follow-up extraction. MITRE T1213, T1560."
+
+  # ═══════════════════════════════════════════════════════════════════
   # WEBHOOK-BASED DATA EXFILTRATION (closes #211)
   #
   # AI agents can silently POST data to webhook endpoints that require
