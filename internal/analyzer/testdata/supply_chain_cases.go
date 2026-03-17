@@ -755,6 +755,41 @@ var GoProxyBypassCases = []TestCase{
 			the expected safe-but-reviewed behavior for package installation.`,
 		Tags: []string{"tn", "safe", "go"},
 	},
+	// GOFLAGS FP fix (opus-review): export GOFLAGS=-v is benign, must not be blocked
+	{
+		ID:               "TN-SC-BLOCK-GOPROXY-004",
+		Command:          `export GOFLAGS=-v`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description: `export GOFLAGS=-v sets verbose output for all Go commands. This is
+			a benign developer preference, not a security bypass. Previous rule
+			incorrectly blocked all GOFLAGS= exports.`,
+		Tags: []string{"tn", "safe", "go", "opus-review", "fp-fix"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GOPROXY-005",
+		Command:          `export GOFLAGS="-count=1 -race"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description: `export GOFLAGS with test flags (count, race). Legitimate developer
+			workflow to set default Go test behavior. Must not be blocked.`,
+		Tags: []string{"tn", "safe", "go", "opus-review", "fp-fix"},
+	},
+	// GOFLAGS TP: insecure flag should still be blocked
+	{
+		ID:               "TP-SC-BLOCK-GOPROXY-006",
+		Command:          `export GOFLAGS=-insecure`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      `export GOFLAGS=-insecure disables HTTPS verification for module downloads — must be blocked.`,
+		Tags:             []string{"tp", "supply-chain", "go", "opus-review"},
+	},
 }
 
 // GitURLRewriteCases tests detection of git URL rewrite attacks.

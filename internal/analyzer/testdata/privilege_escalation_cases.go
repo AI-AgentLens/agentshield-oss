@@ -268,6 +268,58 @@ var ContainerEscapeCases = []TestCase{
 		Tags:             []string{"tp", "container-escape", "raw-device"},
 	},
 
+	// Docker namespace evasion variants (opus-review: space separator, docker create, podman)
+	{
+		ID:               "TP-CNTESC-014",
+		Command:          `docker run --pid host ubuntu bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `docker run --pid host (space separator instead of =). Docker accepts both forms. Previous regex only matched =.`,
+		Tags:             []string{"tp", "container-escape", "evasion-variant", "opus-review"},
+	},
+	{
+		ID:               "TP-CNTESC-015",
+		Command:          `docker run --network host ubuntu bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `docker run --network host (space separator). Bypasses network isolation. Evasion variant.`,
+		Tags:             []string{"tp", "container-escape", "evasion-variant", "opus-review"},
+	},
+	{
+		ID:               "TP-CNTESC-016",
+		Command:          `docker create --pid=host ubuntu bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `docker create accepts same flags as docker run. Creates a container with host PID namespace for later start.`,
+		Tags:             []string{"tp", "container-escape", "evasion-variant", "opus-review"},
+	},
+	{
+		ID:               "TP-CNTESC-017",
+		Command:          `podman run --pid=host fedora bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `podman is a Docker-compatible runtime. Same namespace-sharing flags, same escape risk.`,
+		Tags:             []string{"tp", "container-escape", "podman", "opus-review"},
+	},
+	{
+		ID:               "TP-CNTESC-018",
+		Command:          `podman run --cap-add=SYS_ADMIN fedora bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `podman with SYS_ADMIN capability grant — same escape risk as docker.`,
+		Tags:             []string{"tp", "container-escape", "podman", "opus-review"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
@@ -878,6 +930,107 @@ var EnvInjectionCases = []TestCase{
 	},
 }
 
+// PathHijackCases tests detection of PATH environment variable manipulation
+// to hijack command resolution (taxonomy: privilege-escalation/command-execution/env-injection).
+//
+// Once an attacker prepends a world-writable directory to $PATH, every subsequent
+// command in the shell session resolves from the attacker's directory first. This
+// enables stealthy replacement of standard tools (ls, git, make, etc.) with
+// malicious versions — a sophisticated persistence and escalation vector.
+var PathHijackCases = []TestCase{
+	{
+		ID:               "TP-PATHHIJACK-001",
+		Command:          `export PATH=/tmp/evil:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Prepending /tmp/ to PATH — any executable in /tmp/ (world-writable) will shadow system binaries. Classic PATH hijack.`,
+		Tags:             []string{"tp", "path-hijack", "opus-review"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-002",
+		Command:          `export PATH=/dev/shm/backdoor:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Prepending /dev/shm/ to PATH — volatile tmpfs directory, commonly used for fileless malware.`,
+		Tags:             []string{"tp", "path-hijack", "opus-review"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-003",
+		Command:          `export PATH=/var/tmp/tools:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `/var/tmp/ survives reboots and is world-writable — PATH prepend enables persistent tool replacement.`,
+		Tags:             []string{"tp", "path-hijack", "opus-review"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-004",
+		Command:          `export PATH=./:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Prepending ./ (current directory) to PATH — any malicious file dropped in CWD will execute when a common command name is typed.`,
+		Tags:             []string{"tp", "path-hijack", "opus-review"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-005",
+		Command:          `eval "PATH=/tmp/bin:$PATH"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `eval-based PATH hijack — obfuscates the PATH manipulation to evade pattern matching.`,
+		Tags:             []string{"tp", "path-hijack", "eval", "opus-review"},
+	},
+	// --- TRUE NEGATIVES ---
+	{
+		ID:               "TN-PATHHIJACK-001",
+		Command:          `export PATH=$HOME/.local/bin:$PATH`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Adding ~/.local/bin to PATH is standard pip/pipx behavior. User-owned, not world-writable.`,
+		Tags:             []string{"tn", "common-dev-operation", "opus-review"},
+	},
+	{
+		ID:               "TN-PATHHIJACK-002",
+		Command:          `export PATH="/usr/local/go/bin:$PATH"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Adding Go bin directory to PATH — standard Go installation step. System directory, not writable.`,
+		Tags:             []string{"tn", "common-dev-operation", "opus-review"},
+	},
+	{
+		ID:               "TN-PATHHIJACK-003",
+		Command:          `export PATH="$HOME/bin:$PATH"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Adding ~/bin to PATH — common user bin directory. User-owned, not world-writable.`,
+		Tags:             []string{"tn", "common-dev-operation", "opus-review"},
+	},
+	{
+		ID:               "TN-PATHHIJACK-004",
+		Command:          `echo $PATH`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Reading PATH value — no modification, safe.`,
+		Tags:             []string{"tn", "read-only", "opus-review"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -892,5 +1045,6 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, NamespaceEscapeCases...)
 	all = append(all, EnvInjectionCases...)
 	all = append(all, SudoAlternativesCases...)
+	all = append(all, PathHijackCases...)
 	return all
 }

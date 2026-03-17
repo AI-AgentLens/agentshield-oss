@@ -346,6 +346,27 @@ rules:
     confidence: 0.93
     reason: "Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection."
 
+  # === BLOCK: PATH hijacking via export ===
+  # An AI agent prepending a world-writable or attacker-controlled directory to
+  # $PATH causes all subsequent commands to resolve from the malicious path first.
+  # This is a stealthy persistence + privilege escalation vector — once PATH is
+  # poisoned, every "ls", "git", "make" etc. runs the attacker's binary.
+  - id: "ts-block-path-hijack-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+PATH=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./).*:\\$PATH"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting PATH with a world-writable or relative directory prepended hijacks command resolution for all subsequent commands in this shell session and child processes."
+
+  - id: "ts-block-path-hijack-eval"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "eval\\s+.*PATH=(/tmp|/dev/shm|/var/tmp|\\./)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Using eval to set PATH with a writable/relative directory is an obfuscated form of PATH hijacking."
+
   - id: "ts-audit-crontab"
     taxonomy: "persistence-evasion/scheduled-tasks/crontab-modification"
     match:
@@ -863,7 +884,7 @@ rules:
   - id: "ts-block-docker-host-namespace"
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
-      command_regex: "docker\\s+run\\s+.*(--pid=host|--ipc=host|--network=host|--uts=host)"
+      command_regex: "(docker|podman)\\s+(run|create)\\s+.*(--pid[= ]host|--ipc[= ]host|--network[= ]host|--uts[= ]host)"
     decision: "BLOCK"
     confidence: 0.92
     reason: "Sharing host PID/IPC/network/UTS namespaces breaks container isolation and enables host process inspection, shared-memory attacks, and network policy bypass."
@@ -871,7 +892,7 @@ rules:
   - id: "ts-block-docker-dangerous-caps"
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
-      command_regex: "docker\\s+run\\s+.*--cap-add[= ](SYS_ADMIN|SYS_PTRACE|SYS_MODULE|NET_ADMIN|SYS_RAWIO|DAC_READ_SEARCH|SYS_CHROOT)"
+      command_regex: "(docker|podman)\\s+(run|create)\\s+.*--cap-add[= ](SYS_ADMIN|SYS_PTRACE|SYS_MODULE|NET_ADMIN|SYS_RAWIO|DAC_READ_SEARCH|SYS_CHROOT)"
     decision: "BLOCK"
     confidence: 0.92
     reason: "Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access."
@@ -879,7 +900,7 @@ rules:
   - id: "ts-block-docker-raw-device"
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
-      command_regex: "docker\\s+run\\s+.*--device\\s+/dev/"
+      command_regex: "(docker|podman)\\s+(run|create)\\s+.*--device\\s+/dev/"
     decision: "BLOCK"
     confidence: 0.90
     reason: "Mounting raw block or character devices into a container enables host filesystem access and hardware-level attacks outside the container boundary."
