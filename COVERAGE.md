@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 339 |
+| Terminal rules | 353 |
 | MCP rules | 105 |
-| Total rules | 444 |
-| Test cases (TP+TN) | 1077 |
+| Total rules | 458 |
+| Test cases (TP+TN) | 1128 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (39 rules)
+### credential-exposure (42 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -57,8 +57,11 @@
 | `ts-audit-db-cli-inline-password` | AUDIT | regex | Database CLI invoked with inline password in command string — credential visible in process list and shell history (LLM02, LLM06). Use password files or environment-variable injection instead. MITRE T1552.004. |
 | `ts-audit-db-env-password` | AUDIT | regex | Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552. |
 | `ts-block-symlink-credential-files` | BLOCK | regex | Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
+| `ts-block-script-quiet-record` | BLOCK | regex | script -q (quiet mode) silently records all terminal I/O without displaying the 'Script started' banner — used to covertly capture passwords, API keys, and MFA codes from subsequent interactive commands. MITRE T1056.001. |
+| `ts-block-script-capture-command` | BLOCK | regex | script -c '<command>' records all I/O of the specified command including credentials entered during SSH, sudo, or GPG prompts. The recording file contains cleartext passwords. MITRE T1056.001. |
+| `ts-audit-script-record` | AUDIT | regex | script command recording terminal session to a file — may capture credentials entered in subsequent interactive commands. MITRE T1056.001. |
 
-### data-exfiltration (57 rules)
+### data-exfiltration (60 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -119,8 +122,11 @@
 | `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). |
 | `ts-block-git-archive-pipe-network` | BLOCK | regex | git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041). |
 | `ts-audit-git-archive` | AUDIT | regex | git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately. |
+| `ts-block-xattr-write-subshell` | BLOCK | regex | Writing command substitution output to extended attributes — hides exfiltrated data (credentials, keys, secrets) in file metadata invisible to standard tools. MITRE T1564.004. |
+| `ts-block-xattr-write-backtick` | BLOCK | regex | Writing backtick command output to extended attributes — hides exfiltrated data in file metadata invisible to standard tools. MITRE T1564.004. |
+| `ts-audit-xattr-write` | AUDIT | regex | Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004. |
 
-### destructive-ops (34 rules)
+### destructive-ops (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -158,6 +164,9 @@
 | `ts-block-kubectl-delete-all` | BLOCK | regex | Kubernetes bulk deletion of resources is destructive. |
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
+| `ts-block-fallocate-large` | BLOCK | regex | fallocate creating a file >=1GB — instantly allocates disk space without I/O. Can fill disk in milliseconds, causing database corruption, logging failure, and system instability. MITRE T1499.001. |
+| `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
+| `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 
 ### persistence-evasion (38 rules)
 
@@ -202,7 +211,7 @@
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
 | `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
 
-### privilege-escalation (38 rules)
+### privilege-escalation (40 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -244,6 +253,8 @@
 | `ts-block-dyld-inject-privesc` | BLOCK | regex | macOS DYLD_ variable set before a privileged or system command — injects a shared library into the target process, enabling authentication bypass and privilege escalation. MITRE T1574.006. |
 | `ts-block-dyld-inject-export` | BLOCK | regex | Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006. |
 | `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
+| `ts-block-debugfs-command` | BLOCK | regex | debugfs with -R (run command), -w (writable mode), or -f (script file) operates at the block/inode level, bypassing all Unix file permissions, SELinux, and AppArmor. Can read /etc/shadow, modify files without timestamps, or inject payloads directly into the filesystem. MITRE T1006. |
+| `ts-audit-debugfs` | AUDIT | regex | debugfs filesystem debugger detected — operates below Unix permissions at the block/inode level. Even interactive mode can read protected files. MITRE T1006. |
 
 ### reconnaissance (48 rules)
 
@@ -350,7 +361,7 @@
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (36 rules)
+### unauthorized-execution (39 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -385,7 +396,10 @@
 | `ts-audit-git-commit-security-doc` | AUDIT | regex | git commit targeting SECURITY.md — AI-generated security documentation requires human review before committing (LLM09: misinformation propagation). |
 | `ts-audit-git-commit-audit-path` | AUDIT | regex | git commit targeting audit/compliance/runbook path — AI-generated compliance content must be human-verified before it can be referenced by auditors (LLM09). |
 | `ts-audit-append-security-doc` | AUDIT | regex | Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection). |
-| `ts-audit-agent-memory-write` | AUDIT | regex | Shell write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent prompt injection). OWASP LLM01/LLM08. |
+| `ts-audit-agent-memory-write` | AUDIT | regex | Shell write to AI agent instruction file (Claude Code, Gemini CLI, Codex, Cursor, Windsurf, Cline, Copilot, Continue, Aider) — injecting malicious instructions poisons future agent sessions (persistent prompt injection). OWASP LLM01/LLM08. |
+| `ts-block-agent-memory-download-overwrite` | BLOCK | regex | Downloading content from an external URL into an AI agent instruction file (Claude Code, Gemini CLI, Codex, Cursor, Windsurf, Cline, Copilot, Aider) — replaces the agent's trust anchor with attacker-controlled content (OWASP LLM01/LLM08, MITRE T1565.001). |
+| `ts-block-agent-memory-copy-overwrite` | BLOCK | regex | Copying or moving a file from a world-writable staging path (/tmp, /dev/shm) over an AI agent instruction file (Claude Code, Gemini CLI, Codex, Cursor, Windsurf, Cline, Copilot, Continue, Aider) — classic two-stage attack vector (OWASP LLM08, MITRE T1565.001). |
+| `ts-audit-agent-memory-git-checkout` | AUDIT | regex | Checking out an AI agent instruction file from a named git ref — could restore a poisoned version from an attacker-controlled branch (OWASP LLM01/LLM08, MITRE T1565.001). |
 | `ts-block-strace-attach` | BLOCK | regex | strace attaching to a running process via -p PID intercepts all syscalls including read/write, exposing passwords, API keys, and tokens flowing through the process. MITRE T1057, T1003. |
 | `ts-block-strace-credential-sniff` | AUDIT | regex | strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057. |
 | `ts-block-ltrace-attach` | BLOCK | regex | ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057. |
@@ -559,13 +573,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 107 | 83 | 190 |
-| data-exfiltration | 80 | 48 | 128 |
-| destructive-ops | 67 | 39 | 106 |
+| credential-exposure | 112 | 87 | 199 |
+| data-exfiltration | 85 | 53 | 138 |
+| destructive-ops | 72 | 44 | 116 |
 | persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 95 | 56 | 151 |
+| privilege-escalation | 101 | 60 | 161 |
 | reconnaissance | 108 | 39 | 147 |
 | supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **675** | **402** | **1077** |
+| unauthorized-execution | 91 | 58 | 149 |
+| **Total** | **706** | **422** | **1128** |
 
