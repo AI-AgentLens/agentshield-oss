@@ -999,6 +999,45 @@ rules:
     confidence: 0.85
     reason: "git clone --mirror copies entire repository including all refs — potential exfiltration."
 
+  # === BLOCK: git bundle create — portable full-repo snapshot for offline transfer ===
+  # git bundle create packages all git objects (commits, blobs, refs) into a single
+  # portable file explicitly designed for transfer to another machine. An AI agent
+  # can create a bundle of the entire repository including secrets, API keys, and
+  # source code, then exfiltrate the bundle file. There is no legitimate reason
+  # for an AI agent to bundle a repository.
+  - id: "ts-block-git-bundle-create"
+    taxonomy: "data-exfiltration/version-control/git-data-exfil"
+    match:
+      command_regex: "git\\s+bundle\\s+create\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560)."
+
+  # === BLOCK: git archive piped to network sink ===
+  # git archive creates a snapshot of the working tree (tar/zip). When piped
+  # directly to a network tool (curl, wget, nc, ssh, socat), the entire source tree
+  # — including .env files, private keys, and configs — is streamed to an external
+  # host. The pipe-to-network pattern indicates deliberate exfiltration intent.
+  - id: "ts-block-git-archive-pipe-network"
+    taxonomy: "data-exfiltration/version-control/git-data-exfil"
+    match:
+      command_regex: "git\\s+archive\\b.*\\|\\s*(curl|wget|nc\\s|nc$|ncat\\b|socat\\b|ssh\\s|netcat\\b)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041)."
+
+  # === AUDIT: git archive to local file — lower risk but auditable ===
+  # A standalone git archive creating a local tarball/zip is a legitimate build
+  # operation (e.g., release packaging). We audit rather than block to preserve
+  # workflow but create a log entry for review.
+  - id: "ts-audit-git-archive"
+    taxonomy: "data-exfiltration/version-control/git-data-exfil"
+    match:
+      command_regex: "git\\s+archive\\b"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately."
+
   - id: "ts-block-git-credential-modify"
     taxonomy: "credential-exposure/version-control/git-credential-modify"
     match:
