@@ -1,5 +1,5 @@
 id: "reconnaissance/osint/passive-enumeration"
-version: "1.0.0"
+version: "1.1.0"
 kingdom: "Reconnaissance & Discovery"
 kingdom_id: 8
 category: "OSINT & Passive Enumeration"
@@ -15,22 +15,28 @@ abstract: |
   recognized pre-attack phase.
 
 explanation: |
-  OSINT tools like theHarvester, recon-ng, maltego, and Shodan CLI aggregate
-  and correlate public data to build comprehensive target profiles:
+  OSINT tools aggregate and correlate public data to build comprehensive target
+  profiles. The threat landscape spans multiple specialized tool categories:
 
-  - **Email harvesting**: Collects email addresses from search engines, LinkedIn,
-    and public breaches to enable phishing or credential-stuffing campaigns.
-  - **Subdomain enumeration**: Maps the attack surface by discovering
-    development, staging, and legacy subdomains via DNS, CT logs, and search APIs.
-  - **Employee enumeration**: Maps org structures from LinkedIn and public sources
-    for social engineering targeting.
-  - **Infrastructure discovery**: Correlates IP ranges, ASNs, and exposed services
-    using Shodan, Censys, and similar internet-scan databases.
+  - **Email harvesting**: theHarvester, h8mail (breach database lookups),
+    holehe (account enumeration across 120+ sites) — collects email addresses
+    and exposed credentials for phishing and credential-stuffing campaigns.
+  - **Subdomain enumeration**: amass, subfinder, assetfinder, waybackurls, gau
+    (GetAllURLs) — maps the attack surface via DNS, CT logs, Wayback Machine,
+    and search APIs to discover dev/staging subdomains.
+  - **Employee and social enumeration**: recon-ng, maltego — maps org structures
+    from LinkedIn and public sources for social engineering targeting.
+  - **Infrastructure and service discovery**: Shodan CLI, spiderfoot (automated
+    multi-source correlation), photon (web crawler for URLs/secrets/metadata) —
+    correlates IP ranges, ASNs, and exposed services.
+  - **Document metadata harvesting**: metagoofil — uses Google/Bing to discover
+    and extract metadata from public documents, exposing internal usernames,
+    paths, and software versions.
 
-  In the MITRE ATT&CK framework this maps to Reconnaissance (TA0043), specifically
-  T1589 (Gather Victim Identity Information) and T1596 (Search Open Technical
-  Databases). AI agents have no legitimate use case for OSINT gathering against
-  external targets.
+  In the MITRE ATT&CK framework this maps to Reconnaissance (TA0043):
+  T1589 (Gather Victim Identity Information), T1593 (Search Open Websites/Domains),
+  T1596 (Search Open Technical Databases). AI agents have no legitimate use case
+  for OSINT gathering against external targets without explicit authorization.
 
 recommendation: |
   - BLOCK all OSINT framework invocations in agent environments.
@@ -45,6 +51,14 @@ examples:
     - "shodan search 'apache'"
     - "amass enum -d target.com"
     - "subfinder -d target.com"
+    - "spiderfoot -s http://target.com -m all"
+    - "h8mail -t victim@example.com"
+    - "holehe target@example.com"
+    - "metagoofil -d example.com -t pdf,doc,xls -o /tmp/meta"
+    - "assetfinder --subs-only example.com"
+    - "waybackurls example.com | tee urls.txt"
+    - "gau example.com --threads 10"
+    - "photon -u http://target.com -o /tmp/crawl"
   good:
     - "dig example.com"
     - "whois example.com"
@@ -58,8 +72,18 @@ compliance:
   soc2-type2: ["CC6.6", "CC6.7"]
 
 references:
-  mitre_attack: ["T1589", "T1596", "T1596.005", "T1595.001"]
+  mitre_attack: ["T1589", "T1589.002", "T1593", "T1596", "T1596.005", "T1595.001"]
   cwe: ["CWE-200", "CWE-284"]
 
 analyzers: ["structural"]
-related_rules: ["ne-block-theharvester", "ne-block-recon-ng"]
+related_rules:
+  - "ne-block-theharvester"
+  - "ne-block-recon-ng"
+  - "ne-block-spiderfoot"
+  - "ne-block-h8mail"
+  - "ne-block-holehe"
+  - "ne-block-metagoofil"
+  - "ne-block-assetfinder"
+  - "ne-block-waybackurls"
+  - "ne-block-gau"
+  - "ne-block-photon"
