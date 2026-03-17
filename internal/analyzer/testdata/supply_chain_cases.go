@@ -243,6 +243,26 @@ var PackageInstallCases = []TestCase{
 		Tags:             []string{"canonical", "global-install"},
 	},
 	{
+		ID:               "TP-PKGINST-009",
+		Command:          `yarn global add malicious-cli-tool`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `yarn global add installs a package to the user's global bin. Matches sc-audit-yarn-pnpm-global-install regex.`,
+		Tags:             []string{"canonical", "global-install"},
+	},
+	{
+		ID:               "TP-PKGINST-010",
+		Command:          `pnpm add -g suspicious-package`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `pnpm global install (-g flag) installs to global bin directory. Matches sc-audit-yarn-pnpm-global-install regex.`,
+		Tags:             []string{"global-install"},
+	},
+	{
 		ID:               "TP-PKGINST-006",
 		Command:          `npm config set ignore-scripts false`,
 		ExpectedDecision: "BLOCK",
@@ -285,6 +305,26 @@ var PackageInstallCases = []TestCase{
 		Description:      `yarn list is a read-only query, not a package installation. sc-audit-yarn-add
 			does NOT fire (prefix "yarn add" doesn't match "yarn list"). Semantic engine gives
 			AUDIT for yarn. TN for the specific install rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-PKGINST-004",
+		Command:          `yarn add lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `yarn add (local install) does NOT match yarn global add. sc-audit-yarn-pnpm-global-install does NOT fire. Standard local install.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-PKGINST-005",
+		Command:          `pnpm install`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `pnpm install (local) does NOT match pnpm add -g. sc-audit-yarn-pnpm-global-install does NOT fire.`,
 		Tags:             []string{"common-dev-operation"},
 	},
 	{
