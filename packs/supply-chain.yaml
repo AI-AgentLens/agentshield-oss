@@ -414,3 +414,47 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "Global yarn/pnpm install has wider system impact than a local install — flagged for review (MITRE T1195)."
+
+  # === AUDIT: RAG/vector database writes (issue #205) ===
+  #
+  # Vector databases (ChromaDB, Pinecone, Weaviate, Qdrant, FAISS) store the
+  # knowledge bases that RAG-based AI systems query at inference time. Injecting
+  # malicious documents into these stores poisons AI-grounded outputs without
+  # modifying the underlying model — a supply chain attack on the retrieval layer.
+  #
+  # Attack pattern: python -c "import chromadb; c.get_collection('docs').add(...)"
+  # This executes a vector DB write via Python's subprocess or inline -c flag.
+  # Also catches curl-based REST API writes to locally-hosted vector DB endpoints.
+  #
+  # Decision: AUDIT (not BLOCK) — agents legitimately populate and update
+  # knowledge bases. Human review is warranted to detect injected adversarial
+  # content in new documents.
+  #
+  # OWASP LLM08 — Vector and Embedding Weaknesses
+  # MITRE AML.T0010 — Poison Training Data
+  - id: "sc-audit-vector-db-write"
+    taxonomy: "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py).*(?:chromadb|pinecone|weaviate|qdrant|faiss).*\\.(?:add|upsert|insert)\\("
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Python invocation writing to a vector database (ChromaDB/Pinecone/Weaviate/Qdrant/FAISS) — injecting adversarial documents into a RAG knowledge base poisons AI-grounded outputs. OWASP LLM08, MITRE AML.T0010."
+
+  # === AUDIT: Vector DB REST API writes via curl (issue #205) ===
+  #
+  # Locally-hosted vector databases (ChromaDB default :8000, Qdrant :6333,
+  # Weaviate :8080) expose REST APIs. An agent using curl to POST to these
+  # endpoints can inject poisoned documents into the knowledge base without
+  # importing any Python library — bypassing import-based detection entirely.
+  #
+  # Covered endpoints (path patterns):
+  #   ChromaDB: /api/v1/collections/*/add, /api/v1/collections/*/upsert
+  #   Qdrant:   /collections/*/points (POST/PUT)
+  #   Weaviate: /v1/objects (POST)
+  - id: "sc-audit-vector-db-rest-write"
+    taxonomy: "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
+    match:
+      command_regex: "curl\\s+.*-X\\s+(POST|PUT).*(?:(?:api/v1/collections|collections)/[^/]+/(?:add|upsert|points)|v1/objects)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08."
