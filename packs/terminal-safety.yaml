@@ -923,6 +923,30 @@ rules:
     confidence: 0.95
     reason: "Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls."
 
+  # === BLOCK: Process memory extraction via /proc (LLM07) ===
+  #
+  # Reading /proc/<PID>/mem or passing it to strings/dd extracts raw memory
+  # contents from a running process, including injected system prompts, API
+  # keys held in heap, and in-flight secrets. This goes far beyond environment
+  # variable enumeration — it can expose content that was never written to disk
+  # or environment.
+  #
+  # Examples:
+  #   strings /proc/self/mem
+  #   dd if=/proc/self/mem bs=4096 count=256
+  #   cat /proc/1/mem | strings
+  #
+  # OWASP LLM07 — System Prompt Leakage
+  # OWASP LLM08 — Integrity Failures
+  # MITRE T1057 — Process Discovery
+  - id: "ts-block-proc-mem-read"
+    taxonomy: "reconnaissance/llm-introspection/context-window-probe"
+    match:
+      command_regex: "(strings|cat|dd|xxd|hexdump|od)\\s+.*(/proc/(self|[0-9]+)/mem|/proc/(self|[0-9]+)/maps)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057."
+
   # === BLOCK: CI/CD pipeline tampering ===
 
   - id: "ts-block-cicd-write"
@@ -1260,3 +1284,59 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Shell write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent prompt injection). OWASP LLM01/LLM08."
+
+  # === AUDIT: /proc filesystem environment enumeration (LLM07) ===
+  #
+  # Reading /proc/self/environ or /proc/<PID>/environ dumps the full null-
+  # separated environment of a running process — including injected system
+  # prompts, API keys, and LLM provider tokens that are invisible to `printenv`
+  # on other shells. This is a more thorough context-window probe than
+  # filtering `env | grep`.
+  #
+  # Examples:
+  #   cat /proc/self/environ
+  #   cat /proc/1/environ | tr '\0' '\n'
+  #   strings /proc/$$/environ
+  #   xxd /proc/self/environ
+  #
+  # Decision: AUDIT — legitimate uses exist (container entrypoint debugging,
+  # /proc exploration in dev), but agents should not need this in normal ops.
+  #
+  # Taxonomy: reconnaissance/llm-introspection/context-window-probe
+  # OWASP LLM07 — System Prompt Leakage
+  # MITRE T1057 — Process Discovery
+  - id: "ts-audit-proc-environ-read"
+    taxonomy: "reconnaissance/llm-introspection/context-window-probe"
+    match:
+      command_regex: "(cat|strings|xxd|hexdump|od|tr)\\s+.*/proc/(self|[0-9]+|\\$\\$|\\$PPID)/environ"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057."
+
+  # === AUDIT: Kubernetes and Docker secret mount enumeration (LLM07) ===
+  #
+  # Containers running in Kubernetes have service account tokens and other
+  # secrets mounted at well-known paths (/var/run/secrets/kubernetes.io/,
+  # /run/secrets/). Reading these exposes LLM API keys injected as K8s
+  # Secrets, service account tokens with API server access, and Docker Swarm
+  # secrets with provider credentials.
+  #
+  # Examples:
+  #   cat /var/run/secrets/kubernetes.io/serviceaccount/token
+  #   ls /var/run/secrets/
+  #   find /run/secrets -type f
+  #   cat /run/secrets/ANTHROPIC_API_KEY
+  #
+  # Decision: AUDIT — legitimate in K8s init containers and debugging; BLOCK
+  # would be too aggressive for containerised dev. Escalate if piped to network.
+  #
+  # Taxonomy: credential-exposure/secret-env-exposure/env-dump
+  # OWASP LLM07 — System Prompt Leakage
+  # OWASP LLM02 — Sensitive Information Disclosure
+  - id: "ts-audit-k8s-secret-mount"
+    taxonomy: "credential-exposure/secret-env-exposure/env-dump"
+    match:
+      command_regex: "(cat|ls|find|strings|xxd)\\s+.*((/var/run/secrets|/run/secrets)(/(kubernetes\\.io|docker))?|/var/run/secrets/kubernetes\\.io/serviceaccount/(token|ca\\.crt|namespace))"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Reading Kubernetes service account tokens or Docker secret mounts — exposes LLM API keys and SA tokens injected as K8s/Docker Secrets (LLM07, LLM02). MITRE T1552.007."
