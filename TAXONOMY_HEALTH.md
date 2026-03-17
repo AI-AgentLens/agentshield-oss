@@ -39,15 +39,19 @@
 
 | Metric | Count | % |
 |--------|-------|---|
-| Entries with runtime rules | 100 | 97.1% |
-| Entries without runtime rules | 3 | 2.9% |
+| Entries with runtime rules | 102 | 99.0% |
+| Entries without runtime rules | 1 | 1.0% |
 
 **Uncovered entries** (no pack rules):
-1. `ai-hallucination-injection` — Requires LLM output validation, not shell/MCP interception
-2. `ai-misinformation-propagation` — Requires content review gates, not command blocking
-3. `mcp-tool-description-poisoning` — **NEW** — Needs guardian/description scanner rules
+1. `unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning` — Needs guardian/description scanner enhancement (tracked: Shield #202)
 
-**Assessment**: 97.1% runtime coverage is excellent. The 3 uncovered entries represent threats that require semantic analysis rather than pattern matching, which is a reasonable limitation.
+**Previously uncovered, now implemented** (PRs #207, #208):
+- `unauthorized-execution/agentic-attacks/agent-memory-poisoning` — Added to terminal-safety.yaml + mcp/mcp-persistence.yaml
+- `supply-chain/model-poisoning/rag-knowledge-base-poisoning` — Added to supply-chain.yaml + mcp/mcp-supply-chain.yaml
+
+**Note**: `ai-hallucination-injection` and `ai-misinformation-propagation` are intentionally not covered — they require LLM output validation, not shell/MCP interception.
+
+**Assessment**: 99.0% runtime coverage. Only mcp-tool-description-poisoning (Shield #202) and the 2 LLM-output entries remain without pack rules.
 
 ---
 
@@ -64,7 +68,7 @@
 2. `destructive-ops/cloud-infra/gcloud-storage-delete` — GCP storage deletion not yet covered
 3. `persistence-evasion/shell-startup/shell-profile-backdoor` — **NEW entry** — needs Semgrep rule for `.bashrc`/`.zshrc` writes
 
-**Dual coverage** (both runtime + static): **97 of 103 entries (94.2%)**. The 6 entries with only runtime coverage are the 3 above plus the 3 new agentic-attack entries (which need both Semgrep and pack rules).
+**Dual coverage** (both runtime + static): **97 of 103 entries (94.2%)**. The 3 new agentic-attack entries now have runtime pack rules but still need Semgrep coverage (tracked: Comply #212).
 
 ---
 
@@ -182,3 +186,4 @@
 |-------|------|---------|-----------------|--------------------|----|
 | #43 | Prior | 99 | 100% | 88.7% | Shield #137 fix, Comply submodule bump |
 | **#44** | **2026-03-16** | **103** | **97.1%** | **94.3%** | **11 OWASP fixes, 4 severity fixes, 3 new entries, LLM08 gap filled** |
+| **#45** | **2026-03-16** | **103** | **99.0%** | **94.3%** | **Runtime rules for rag-kb-poisoning + agent-memory-poisoning (PRs #207,#208); closed stale issues #201,#203; opened Comply #212 for Semgrep coverage** |
