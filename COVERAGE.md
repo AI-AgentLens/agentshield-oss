@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (314 terminal rules, 105 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 308 |
+| Terminal rules | 314 |
 | MCP rules | 105 |
-| Total rules | 413 |
-| Test cases (TP+TN) | 958 |
+| Total rules | 419 |
+| Test cases (TP+TN) | 988 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -231,7 +226,7 @@
 | `ts-block-dyld-inject-export` | BLOCK | regex | Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006. |
 | `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
 
-### reconnaissance (31 rules)
+### reconnaissance (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -264,6 +259,12 @@
 | `ne-block-nuclei` | BLOCK | structural | nuclei is a template-based vulnerability scanner that actively probes targets for CVEs and misconfigurations. AI agents must not perform unauthorized vulnerability scanning. MITRE T1595.003, T1190. |
 | `ne-block-dnsx` | BLOCK | structural | dnsx performs DNS brute-forcing and subdomain enumeration against target domains. AI agents must not perform DNS reconnaissance without authorization. MITRE T1590.002. |
 | `ne-block-httpx` | BLOCK | structural | httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001. |
+| `ne-audit-db-schema-enum` | AUDIT | regex | Database CLI invoked with schema introspection query (information_schema / pg_catalog / sqlite_master / SHOW TABLES or DATABASES). This maps the database structure and is a precursor to targeted data extraction. MITRE T1213, T1005. |
+| `ne-audit-sqlite-schema-dotcmd` | AUDIT | regex | sqlite3 dot-command schema enumeration (.tables, .schema, .indexes, .databases) lists all tables or the full DDL of a SQLite database. An AI agent running this may be mapping a local database for subsequent extraction. MITRE T1213. |
+| `ne-audit-db-schema-dump` | AUDIT | regex | Schema-only database dump (mysqldump --no-data or pg_dump -s/--schema-only) exports the full DDL without row data. This reveals table names, column types, and relationships — reconnaissance intelligence for follow-up extraction. MITRE T1213, T1560. |
+| `ne-block-docker-daemon-probe` | BLOCK | regex | Direct access to the Docker daemon API (via unix socket or HTTP port 2375/2376) grants full container control — container escape, volume mount of host filesystem, and privilege escalation. AI agents must not query the Docker daemon API directly. MITRE T1611, T1609. |
+| `ne-audit-internal-infra-probe` | AUDIT | regex | HTTP probe to a localhost infrastructure management port detected (Prometheus :9090, ngrok :4040, RabbitMQ management :15672, Elasticsearch :9200, etc.). These ports expose unauthenticated metrics and admin APIs. AI agents must not probe internal management services. MITRE T1046, T1590. |
+| `ne-audit-localhost-admin-path` | AUDIT | regex | HTTP request to a localhost admin or management endpoint detected (/admin, /actuator, /metrics, /env, /debug, etc.). Spring Boot /actuator/env leaks all environment variables including API keys. AI agents probing management paths may be performing reconnaissance before exfiltration. MITRE T1082, T1590. |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 
@@ -533,8 +534,8 @@
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
 | privilege-escalation | 77 | 44 | 121 |
-| reconnaissance | 63 | 25 | 88 |
+| reconnaissance | 85 | 33 | 118 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **592** | **366** | **958** |
+| **Total** | **614** | **374** | **988** |
 
