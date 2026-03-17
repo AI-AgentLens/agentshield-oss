@@ -237,6 +237,13 @@ var safeCallerRe = regexp.MustCompile(`(?i)^\s*(gh|git)\s`)
 // whose heredoc content is data, not commands — safe to strip.
 var catFileWriteRe = regexp.MustCompile(`(?i)^\s*cat\s+>>?\s+\S+\s+<<`)
 
+// catHeredocAnywhereRe is the non-anchored counterpart of catFileWriteRe.
+// It matches a cat-file-write heredoc pattern anywhere within a compound command
+// (e.g. after `cd dir &&` or `make build &&`). Only redirected forms are matched
+// (cat >>? file <<) — bare "cat << EOF" to stdout is intentionally excluded
+// because stdout output may be consumed by AI agents.
+var catHeredocAnywhereRe = regexp.MustCompile(`(?i)\bcat\s+>>?\s+\S+\s+<<`)
+
 // stripQuotedRe removes double-quoted and single-quoted string literals from a command.
 var stripQuotedRe = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 
@@ -266,7 +273,8 @@ func matchesDisableSecurity(cmd string) bool {
 	}
 	// Special case: `cat > file << 'MARKER'` writes a heredoc to a file.
 	// Strip the heredoc body (everything from << onwards) since it is file content.
-	if catFileWriteRe.MatchString(cmd) {
+	// catHeredocAnywhereRe also handles compound commands like `cd dir && cat > file << EOF`.
+	if catFileWriteRe.MatchString(cmd) || catHeredocAnywhereRe.MatchString(cmd) {
 		if idx := strings.Index(cmd, "<<"); idx != -1 {
 			return matchesAnyPattern(cmd[:idx], disableSecurityTextPatterns)
 		}
@@ -313,9 +321,10 @@ func isBase64Payload(cmd string) bool {
 		// APIs (GitHub, git servers), not executed by the shell. Issue/PR bodies and
 		// commit messages often contain 40+ char runs that are not encoded payloads.
 		checkCmd = stripQuotedRe.ReplaceAllString(cmd, "")
-	} else if catFileWriteRe.MatchString(cmd) {
+	} else if catFileWriteRe.MatchString(cmd) || catHeredocAnywhereRe.MatchString(cmd) {
 		// cat > file << BODY writes a heredoc to a file. Strip the heredoc body
 		// (everything from << onwards) since it is file content, not a payload.
+		// catHeredocAnywhereRe also handles compound commands like `cd dir && cat > file << EOF`.
 		if idx := strings.Index(cmd, "<<"); idx != -1 {
 			checkCmd = cmd[:idx]
 		}
@@ -420,7 +429,8 @@ func matchesEvalRisk(cmd string) bool {
 		}
 		return evalRiskPattern.MatchString(stripped)
 	}
-	if catFileWriteRe.MatchString(cmd) {
+	// catHeredocAnywhereRe also handles compound commands like `cd dir && cat > file << EOF`.
+	if catFileWriteRe.MatchString(cmd) || catHeredocAnywhereRe.MatchString(cmd) {
 		if idx := strings.Index(cmd, "<<"); idx != -1 {
 			return evalRiskPattern.MatchString(cmd[:idx])
 		}
