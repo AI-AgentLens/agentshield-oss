@@ -77,4 +77,6 @@ references:
       url: "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks"
 
 analyzers: ["guardian", "semantic"]
-related_rules: []
+related_rules: ["tool-description-poisoning"]
+# Detection implemented in internal/mcp/description_scanner.go via the MCP proxy pipeline.
+# Rule ID "tool-description-poisoning" is emitted by handler.go when PoisonSignal is detected.
