@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 308 |
-| MCP rules | 80 |
-| Total rules | 388 |
+| MCP rules | 88 |
+| Total rules | 396 |
 | Test cases (TP+TN) | 958 |
 | Kingdoms covered | 9 |
 
@@ -390,10 +390,18 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### data-exfiltration (7 rules)
+### data-exfiltration (15 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `mcp-llmdf-audit-system-prompt-read` | AUDIT | mcp_rule | Reading a file matching system_prompt* may expose operator instructions — LLM07 (System Prompt Leakage). Review whether this access is intentional. |
+| `mcp-llmdf-audit-sysprompt-dotfile-read` | AUDIT | mcp_rule | Reading a hidden system prompt dotfile (.sysprompt*) may expose confidential operator instructions — LLM07 (System Prompt Leakage). |
+| `mcp-llmdf-audit-training-data-read` | AUDIT | mcp_rule | Reading from a training_data/ directory may expose model training datasets — LLM02 (Sensitive Information Disclosure). Verify this access is authorized. |
+| `mcp-llmdf-audit-model-weights-read` | AUDIT | mcp_rule | Reading from model_weights/ directory may expose proprietary model parameters — LLM02 (Sensitive Information Disclosure). |
+| `mcp-llmdf-audit-checkpoints-read` | AUDIT | mcp_rule | Reading from a checkpoints/ directory may expose model state (weights, optimizer state) — LLM02 (Sensitive Information Disclosure). |
+| `mcp-llmdf-audit-openai-config-write` | AUDIT | mcp_rule | Writing to an OpenAI config file (.openai*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required. |
+| `mcp-llmdf-audit-anthropic-config-write` | AUDIT | mcp_rule | Writing to an Anthropic config file (.anthropic*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required. |
+| `mcp-llmdf-audit-ai-config-write` | AUDIT | mcp_rule | Writing to an AI config file (ai_config*) may alter model selection or endpoint routing without authorization — LLM06 (Excessive Agency). |
 | `mcp-struct-block-ssrf-metadata` | BLOCK | structural | SSRF detected — request to cloud metadata endpoint |
 | `mcp-struct-block-ssrf-metadata-endpoint` | BLOCK | structural | SSRF detected — request to internal service via endpoint argument |
 | `mcp-struct-block-ssrf-private-network` | BLOCK | structural | SSRF detected — request to private network IP range |
