@@ -15,14 +15,27 @@ clipboard channels. (Risk: critical)
 - **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
 converting binary key material into a hexadecimal representation that can
 be reconstructed elsewhere. (Risk: high)
+- **Cross-Session Context Leakage** — Sensitive data from one AI agent session (credentials, PII, proprietary code)
+leaks into subsequent sessions or other users' contexts through persistent
+memory stores, shared caches, conversation logs, or vector databases. (Risk: high)
 - **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
 regulatory compliance risks by transmitting regulated information to third-party
 AI service providers. (Risk: high)
+- **Embedding Inversion Data Extraction** — An attacker extracts sensitive training data, PII, or proprietary
+information by inverting or probing embedding vectors — reconstructing
+original text from dense vector representations through systematic API
+queries or direct access to embedding model outputs. (Risk: high)
+- **Training Data Extraction from Models** — Systematic querying of an AI model to extract memorized training data —
+including PII, proprietary source code, medical records, or confidential
+business information — that the model inadvertently retained during training. (Risk: high)
 - **Cloud CLI Data Access** — Cloud CLI tools (aws, gcloud, az) can access and exfiltrate cloud-stored data and
 credentials, using the ambient cloud credentials available to the agent's execution
 environment. (Risk: high)
 - **DNS Tunneling** — A command uses DNS queries (especially TXT records) to exfiltrate data
 or establish covert communication channels through DNS infrastructure. (Risk: high)
+- **HTTP File Server for Data Staging** — An AI agent starts an HTTP file server (python -m http.server, npx http-server,
+ruby -run -e httpd, etc.) to expose the current working directory over the network,
+enabling passive data exfiltration by any party with network access to the port. (Risk: high)
 - **Data Exfiltration via LLM API** — An AI agent sends sensitive local data (credentials, source code, internal
 documents) to an external LLM API endpoint, causing unintended data exfiltration
 through a seemingly legitimate channel. (Risk: high)
@@ -32,6 +45,16 @@ boundary. (Risk: medium)
 - **Git Mirror Clone to External Repository** — An AI agent performs a mirror clone of a repository to an external destination,
 copying the full git history including all branches, tags, and potentially
 sensitive commits that were intended to be purged. (Risk: high)
+- **Adversarial Embedding Manipulation** — An attacker crafts documents or inputs designed to produce specific vector
+embeddings that manipulate retrieval-augmented generation (RAG) systems —
+ensuring poisoned content is retrieved for targeted queries and injected
+into the agent's context window, enabling indirect prompt injection at scale. (Risk: high)
+- **Model Deserialization Code Execution** — An attacker distributes a malicious AI model file (pickle, PyTorch, joblib,
+or other serialization format) that executes arbitrary code when loaded by
+a developer or agent, exploiting unsafe deserialization in ML frameworks. (Risk: critical)
+- **RAG Knowledge Base Poisoning** — Injecting malicious, misleading, or backdoored content into vector databases,
+embedding stores, or RAG knowledge bases to manipulate the grounded outputs of
+AI systems that retrieve context from these sources. (Risk: critical)
 - **Training Data Tampering** — Writing malicious examples into fine-tuning datasets or training data files
 can introduce backdoors, biases, or capability degradation into AI models
 that are subsequently trained on the poisoned data. (Risk: critical)
@@ -40,12 +63,29 @@ that are subsequently trained on the poisoned data. (Risk: critical)
 
 [View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
+- **Cross-Session Context Leakage** — Sensitive data from one AI agent session (credentials, PII, proprietary code)
+leaks into subsequent sessions or other users' contexts through persistent
+memory stores, shared caches, conversation logs, or vector databases. (Risk: high)
+- **Embedding Inversion Data Extraction** — An attacker extracts sensitive training data, PII, or proprietary
+information by inverting or probing embedding vectors — reconstructing
+original text from dense vector representations through systematic API
+queries or direct access to embedding model outputs. (Risk: high)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
 and security configurations. (Risk: high)
+- **Training Data Extraction from Models** — Systematic querying of an AI model to extract memorized training data —
+including PII, proprietary source code, medical records, or confidential
+business information — that the model inadvertently retained during training. (Risk: high)
 - **Uncontrolled Model Selection** — Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing
-governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: medium)
+governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: high)
+- **AI Audit Trail Circumvention** — Tampering with, disabling, or circumventing AI agent audit logs and decision
+records that are required for regulatory compliance, incident investigation,
+and organizational accountability. (Risk: critical)
+- **Shell History Clearing** — Commands that disable, clear, or redirect shell history files to destroy
+evidence of an agent's command activity and evade forensic investigation. (Risk: high)
+- **Log File Tampering** — Commands that truncate, empty, or overwrite system log files to erase
+evidence of malicious activity and impede incident response. (Risk: critical)
 - **Context Window Probe** — Commands that enumerate environment variables, shell variables, or process
 state specifically to discover injected system prompt content, operator
 secrets, or AI agent configuration constitute LLM introspection
@@ -67,11 +107,48 @@ arbitrary LLM calls without governance or audit logging. (Risk: medium)
 
 - **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
 an attacker to execute commands on the local machine. (Risk: critical)
+- **Webhook-Based Data Exfiltration** — An AI agent sends sensitive data to a webhook capture service (webhook.site,
+requestbin, beeceptor, Telegram bot API, etc.) that collects and exposes
+HTTP payloads, enabling an attacker to receive exfiltrated data with no
+infrastructure footprint on their own servers. (Risk: high)
+- **Agent Instruction File Tampering** — An AI agent or attacker modifies AI instruction files (.cursorrules,
+CLAUDE.md, .github/copilot-instructions.md, .aider.conf.yml, .continuerc.json,
+.gemini/settings.json) to inject persistent directives that alter the behavior
+of all future agent sessions operating on the repository or workspace. (Risk: high)
+- **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
+persistent memory system (CLAUDE.md files, memory databases, context
+stores) to manipulate the agent's behavior in future sessions, achieving
+cross-session persistence without modifying the agent's code. (Risk: high)
+- **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
+into a composite workflow that achieves a harmful outcome — each step
+passes security checks in isolation, but the overall chain constitutes
+an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Multi-Agent Trust Exploitation** — An attacker compromises or manipulates one AI agent in a multi-agent system
+to influence the behavior of other agents through shared context, tool
+outputs, handoff messages, or shared memory — exploiting implicit trust
+relationships between cooperating agents. (Risk: high)
 - **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
 without grounding checks, and these outputs are persisted or acted upon by
 downstream systems without human verification. (Risk: high)
-- **Pipe to Shell** — A command downloads content from a remote URL and pipes it directly
-into a shell interpreter, executing unreviewed code. (Risk: medium)
+- **LLM-Generated Insecure Code Execution** — An AI coding agent generates code containing security vulnerabilities
+(injection flaws, hardcoded secrets, insecure defaults) and auto-commits
+or executes it without human security review — introducing exploitable
+weaknesses into production systems. (Risk: high)
+- **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
+multi-step execution with broad tool access, increasing the attack surface
+significantly compared to single-shot LLM calls. (Risk: high)
+- **Uncontrolled Model Invocation** — Unaudited LLM API client imports allow uncontrolled model invocations that may
+incur costs, process sensitive data, or bypass policy controls by enabling
+arbitrary LLM calls without governance or audit logging. (Risk: medium)
+- **Indirect OS Command Execution via Interpreter** — An AI agent invokes an interpreter (Python, Node.js, Perl, Ruby, etc.)
+with an inline script that calls OS-level commands, bypassing shell-level
+security inspection. (Risk: high)
+- **Remote Download-Execute (Pipe-to-Shell and Interpreter Inline)** — An agent executes unreviewed remote code through one of three patterns:
+(1) piping downloaded content directly into a shell interpreter (`curl | bash`),
+(2) subshell substitution executing downloaded scripts inline (`bash <(curl ...)`),
+or (3) interpreter inline execution where a scripting language uses its own HTTP
+client to fetch and `eval`/`exec` code within the same process. All three patterns
+execute arbitrary remote code without prior human review. (Risk: critical)
 - **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
 debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
@@ -84,13 +161,17 @@ and unauthorized model access, resulting in financial losses, data leakage, and
 exhaustion of rate limits. (Risk: high)
 - **Clipboard Data Exposure** — Clipboard operations can expose sensitive data previously copied by the user,
 including passwords, API tokens, credit card numbers, or other secrets that were
-temporarily held in the system clipboard. (Risk: medium)
+temporarily held in the system clipboard. (Risk: high)
 - **Cloud Credential Access** — Access to cloud provider credential directories (~/.aws, ~/.config/gcloud) exposes
 full cloud account access, potentially granting control over all resources, data
 stores, and services in the cloud account. (Risk: critical)
 - **AWS IMDS IAM Credential Theft** — An AI agent queries the AWS Instance Metadata Service (IMDS) to retrieve
 temporary IAM credentials attached to the EC2 instance role, enabling
 AWS API access with the instance's full permissions. (Risk: critical)
+- **GCP IMDS Service Account Token Theft** — An AI agent queries the GCP Instance Metadata Service (IMDS) at
+`metadata.google.internal` to retrieve OAuth2 access tokens for the
+GCE instance's attached service account, enabling full GCP API access
+with the instance's permissions. (Risk: critical)
 - **.env File Read** — Reading `.env` files typically exposes API keys, database credentials, and other
 secrets stored for local development, providing an attacker with a broad set of
 application credentials in a single operation. (Risk: high)
@@ -106,8 +187,14 @@ encrypted data, or forge signed commits. (Risk: critical)
 - **Database Credential Access** — Direct database access via MCP URIs (mysql://, postgres://) bypasses application-level
 access controls, exposing raw customer data and allowing unauthorized reads, writes,
 or schema modifications. (Risk: critical)
+- **Credential File Read via Symlink (TOCTOU)** — An AI agent creates a symbolic link pointing at a protected credential or
+authentication file (`~/.ssh/id_rsa`, `~/.aws/credentials`, `/etc/shadow`,
+etc.) to bypass path-based access controls through a TOCTOU race condition. (Risk: critical)
 - **History Credential Grep** — A command searches shell history files for previously entered credentials,
 tokens, passwords, or API keys that were accidentally typed in interactive sessions. (Risk: high)
+- **Browser Credential Database Theft** — An AI agent directly accesses browser credential databases (Chrome `Login Data`,
+Firefox `key4.db` / `logins.json`, or Safari cookie stores) to extract saved
+passwords and session cookies stored on the developer workstation. (Risk: critical)
 - **Keychain Extraction** — A command extracts credentials from macOS Keychain using the `security`
 command-line tool, exposing stored passwords, certificates, and tokens. (Risk: critical)
 - **System Shadow File Read** — A command reads system password database files (/etc/shadow, /etc/master.passwd),
@@ -133,6 +220,10 @@ be reconstructed elsewhere. (Risk: high)
 - **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
 regulatory compliance risks by transmitting regulated information to third-party
 AI service providers. (Risk: high)
+- **Embedding Inversion Data Extraction** — An attacker extracts sensitive training data, PII, or proprietary
+information by inverting or probing embedding vectors — reconstructing
+original text from dense vector representations through systematic API
+queries or direct access to embedding model outputs. (Risk: high)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -142,6 +233,9 @@ credentials, using the ambient cloud credentials available to the agent's execut
 environment. (Risk: high)
 - **DNS Tunneling** — A command uses DNS queries (especially TXT records) to exfiltrate data
 or establish covert communication channels through DNS infrastructure. (Risk: high)
+- **HTTP File Server for Data Staging** — An AI agent starts an HTTP file server (python -m http.server, npx http-server,
+ruby -run -e httpd, etc.) to expose the current working directory over the network,
+enabling passive data exfiltration by any party with network access to the port. (Risk: high)
 - **Lateral Movement via SSH/SCP** — SSH, SCP, rsync, and SFTP can be used to move laterally across systems or
 exfiltrate data to remote hosts, leveraging existing trust relationships and
 stored credentials. (Risk: high)
@@ -153,9 +247,16 @@ communicate with external services outside of the application's intended network
 boundary. (Risk: medium)
 - **Reverse Shell** — A command opens a reverse shell connection to a remote host, enabling
 an attacker to execute commands on the local machine. (Risk: critical)
+- **SSH Port Forwarding & Tunnel Abuse** — SSH port forwarding flags (-R, -L, -D) establish encrypted covert channels
+that bypass network egress controls, enable C2 communication, and allow
+access to internal services that are otherwise unreachable. (Risk: critical)
+- **Webhook-Based Data Exfiltration** — An AI agent sends sensitive data to a webhook capture service (webhook.site,
+requestbin, beeceptor, Telegram bot API, etc.) that collects and exposes
+HTTP payloads, enabling an attacker to receive exfiltrated data with no
+infrastructure footprint on their own servers. (Risk: high)
 - **Git Data Exfiltration** — Git push can exfiltrate source code or sensitive data to remote repositories,
 including attacker-controlled forks or mirrors, using the authentication already
-configured in the local git credential store. (Risk: medium)
+configured in the local git credential store. (Risk: high)
 - **Git Mirror Clone to External Repository** — An AI agent performs a mirror clone of a repository to an external destination,
 copying the full git history including all branches, tags, and potentially
 sensitive commits that were intended to be purged. (Risk: high)
@@ -185,6 +286,10 @@ within it — VMs, databases, storage, APIs, IAM, and billing configurations. (R
 permanently destroying all stored data and automated backups within the instance. (Risk: critical)
 - **GCloud Storage Deletion** — An AI agent recursively deletes objects from Google Cloud Storage using
 `gcloud storage rm`, causing irreversible loss of cloud storage data. (Risk: critical)
+- **IaC Infrastructure Destroy** — An AI agent runs an Infrastructure-as-Code (IaC) destroy command — such as
+`terraform destroy`, `pulumi destroy`, `cdk destroy`, or `tofu destroy` —
+tearing down all cloud resources defined in the stack simultaneously and
+irreversibly, without requiring individual resource-specific CLI commands. (Risk: critical)
 - **Kubernetes Bulk Resource Deletion** — An AI agent uses `kubectl delete --all` or wildcard patterns to bulk-delete
 Kubernetes resources, disrupting workloads and potentially causing data loss. (Risk: high)
 - **Kubernetes Namespace Deletion** — An AI agent deletes a Kubernetes namespace, terminating all workloads,
@@ -201,18 +306,34 @@ causing irreversible destruction of the entire operating system and data. (Risk:
 removing all file access protections. (Risk: high)
 - **Fork Bomb** — A command spawns processes recursively until system resources are
 exhausted, causing a denial-of-service condition. (Risk: critical)
+- **Unbounded Agent Resource Consumption** — An AI agent enters recursive loops, spawns unbounded sub-agents, or makes
+excessive API calls that exhaust compute budgets, tokens, or infrastructure
+resources — causing denial-of-wallet or denial-of-service conditions. (Risk: high)
 - **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
 disruption and potential data loss, constituting a denial-of-service attack
 against the host system. (Risk: critical)
 - **Git Force Push** — An AI agent performs a force push (`git push --force` or `git push -f`) to a
 remote repository, overwriting remote history and potentially causing permanent
 loss of commits for collaborators. (Risk: high)
+- **Agent Instruction File Tampering** — An AI agent or attacker modifies AI instruction files (.cursorrules,
+CLAUDE.md, .github/copilot-instructions.md, .aider.conf.yml, .continuerc.json,
+.gemini/settings.json) to inject persistent directives that alter the behavior
+of all future agent sessions operating on the repository or workspace. (Risk: high)
+- **Git Hook Injection** — An AI agent installs or modifies git hooks in `.git/hooks/` — scripts
+that execute automatically on git events (commit, push, merge) — enabling
+stealthy persistence and code execution triggered by normal development
+workflows. (Risk: high)
 - **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
 (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
 potentially injecting malicious steps that execute during automated builds. (Risk: high)
-- **SSH Key Generation for Lateral Movement** — An AI agent generates SSH key pairs using automated/piped methods that
-bypass passphrase requirements, creating passwordless keys that can be
-used to establish persistent access or enable lateral movement. (Risk: high)
+- **SSH Client Config Tampering** — An AI agent modifies the SSH client configuration file to disable host key
+verification, route connections through attacker-controlled proxies, or enable
+credential forwarding to untrusted hosts — enabling MITM attacks and lateral movement. (Risk: critical)
+- **SSH Backdoor Access via Key Generation or authorized_keys Injection** — An AI agent establishes persistent SSH backdoor access through two distinct
+techniques: (1) generating passwordless SSH key pairs by bypassing passphrase
+prompts, or (2) directly injecting an attacker-controlled public key into
+`~/.ssh/authorized_keys` — without necessarily generating a new key. Both
+techniques grant durable, password-free remote access. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
 - **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
@@ -221,6 +342,16 @@ original session ends. (Risk: high)
 - **Systemctl Service Manipulation** — Using systemctl or launchctl to start, stop, or enable services allows an agent to
 establish persistence or disrupt system operations by controlling the service manager
 lifecycle. (Risk: high)
+- **Shell Profile Backdoor** — An AI agent modifies shell startup scripts (.bashrc, .zshrc, .bash_profile, .profile,
+etc.) to inject commands that execute automatically on every new terminal session,
+establishing persistent code execution that survives process restarts. (Risk: high)
+- **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
+exploiting tool capabilities, path traversal, symlink following, environment
+variable manipulation, or indirect execution to access files, network
+resources, or system capabilities outside its permitted scope. (Risk: critical)
+- **eBPF Kernel Surveillance** — Attaching eBPF programs to the kernel enables real-time interception of
+syscalls, user-space memory, network packets, and TLS plaintext — all without
+the visibility of traditional rootkits and without requiring CAP_SYS_MODULE. (Risk: critical)
 - **Environment Variable Injection** — An AI agent that manipulates `LD_PRELOAD` or `LD_LIBRARY_PATH` can inject
 malicious shared libraries into privileged processes, bypassing authentication
 and security controls at the dynamic linker level. (Risk: high)
@@ -236,6 +367,10 @@ providing unrestricted read/write access to all host files from within
 the container. (Risk: critical)
 - **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
 it full host capabilities and effectively removing all container isolation. (Risk: critical)
+- **Kubernetes RBAC Privilege Escalation** — An AI agent creates or modifies Kubernetes Role-Based Access Control (RBAC)
+resources — ClusterRoleBindings, RoleBindings, or ClusterRoles — to grant
+elevated permissions to a user, service account, or itself, achieving persistent
+cluster-admin access that survives container restarts. (Risk: critical)
 - **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
 escape and user namespace privilege escalation, allowing an agent to break out of
 process isolation boundaries. (Risk: high)
@@ -248,24 +383,77 @@ resources to the agent's user. (Risk: high)
 - **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
 privilege escalation backdoor: any user who runs the file gains the file owner's
 (typically root's) privileges for the duration of the process. (Risk: critical)
+- **Database Schema Enumeration** — Database schema enumeration uses introspection queries against
+information_schema, pg_catalog, or SHOW TABLES/DATABASES to map table
+structures, column names, and relationships — establishing the intelligence
+needed for targeted data extraction. AI agents with database tool access
+must not perform unauthorized schema reconnaissance. (Risk: high)
 - **DNS Lookup** — DNS lookups can be used for network reconnaissance to discover internal
 infrastructure, enumerate hosts, and prepare for lateral movement or data
 exfiltration. (Risk: low)
+- **Filesystem Enumeration** — Filesystem enumeration involves listing system directories, reading OS metadata
+files, and mapping the file layout to identify credentials, configuration, and
+user accounts. AI agents performing unsolicited filesystem reconnaissance may
+facilitate subsequent credential theft or privilege escalation. (Risk: medium)
 - **Host Discovery / Network Sweep** — Active host discovery tools and ARP sweeping commands enumerate live hosts on
 a network segment, enabling an attacker to map the local network, identify
 targets, and prepare for lateral movement or data exfiltration. (Risk: high)
+- **Internal Service Probing** — Internal service probing involves HTTP or TCP requests to localhost, loopback
+addresses, and internal network ranges to discover admin panels, management
+APIs, and development servers not exposed to the public internet. AI agents
+must not probe internal services without explicit authorization. (Risk: high)
 - **Port Scanning** — Port scanning commands enumerate open ports and running services on remote
 hosts, enabling an attacker to map network topology and identify targets
 for exploitation. AI agents performing unsolicited port scans violate
 authorization boundaries and may constitute illegal computer access. (Risk: high)
+- **OSINT Passive Enumeration** — Open-source intelligence (OSINT) frameworks harvest publicly available
+information about target organizations, domains, people, and infrastructure.
+Even though sources are public, systematic intelligence gathering against a
+target without authorization violates acceptable-use boundaries and is a
+recognized pre-attack phase. (Risk: high)
+- **Admin & Management Endpoint Probing** — Admin endpoint probing targets well-known management interfaces exposed by
+frameworks and platforms (Spring Boot Actuator, Kubernetes dashboard, phpMyAdmin,
+Jenkins, Grafana) to extract configuration, credentials, and operational data.
+AI agents must not access management endpoints without explicit authorization. (Risk: high)
+- **Directory & File Brute-Force Enumeration** — Web directory and file brute-forcing tools enumerate hidden endpoints,
+backup files, admin panels, and API paths by issuing hundreds of HTTP
+requests per second against a target server. AI agents must not perform
+unauthorized web enumeration against any target. (Risk: high)
+- **Web Technology Fingerprinting** — Technology fingerprinting tools identify the software stack, CMS, frameworks,
+analytics platforms, and server versions used by a target web application.
+This intelligence enables attackers to select targeted exploits and narrows
+the attack surface assessment phase. (Risk: medium)
+- **Web Application Vulnerability Scanning** — Automated vulnerability scanning tools probe web applications for thousands
+of known CVEs, misconfigurations, and injection flaws. These tools go beyond
+reconnaissance into active exploitation attempts and must never be run by AI
+agents without explicit written authorization. (Risk: critical)
+- **CI/CD Pipeline Configuration Injection** — An AI agent writes to CI/CD pipeline configuration files (GitHub Actions,
+GitLab CI, Jenkinsfile, CircleCI, etc.), potentially injecting malicious
+build steps that run during the automated build and release process. (Risk: critical)
 - **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
 resolution to malicious sources, enabling dependency confusion, supply chain injection,
 or credential theft from registry tokens stored in these files. (Risk: high)
 - **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
 dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Standard Package Install (Dependency Confusion Risk)** — A standard package install command (e.g., mvn install, dotnet add package)
+may silently resolve a malicious public package that shadows an internal
+package with the same name — a dependency confusion attack. (Risk: medium)
+- **Package Manifest & Lock File Tampering** — An AI agent writes directly to dependency lock files or package manifests,
+enabling supply-chain attacks that bypass shell-level interception entirely
+when performed via MCP file-write tools. (Risk: critical)
+- **Adversarial Embedding Manipulation** — An attacker crafts documents or inputs designed to produce specific vector
+embeddings that manipulate retrieval-augmented generation (RAG) systems —
+ensuring poisoned content is retrieved for targeted queries and injected
+into the agent's context window, enabling indirect prompt injection at scale. (Risk: high)
 - **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
 any system that loads the checkpoint to execute attacker-controlled model
 weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
+- **Model Deserialization Code Execution** — An attacker distributes a malicious AI model file (pickle, PyTorch, joblib,
+or other serialization format) that executes arbitrary code when loaded by
+a developer or agent, exploiting unsafe deserialization in ML frameworks. (Risk: critical)
+- **RAG Knowledge Base Poisoning** — Injecting malicious, misleading, or backdoored content into vector databases,
+embedding stores, or RAG knowledge bases to manipulate the grounded outputs of
+AI systems that retrieve context from these sources. (Risk: critical)
 - **Training Data Tampering** — Writing malicious examples into fine-tuning datasets or training data files
 can introduce backdoors, biases, or capability degradation into AI models
 that are subsequently trained on the poisoned data. (Risk: critical)
@@ -278,8 +466,49 @@ and dependency integrity bypass. (Risk: critical)
 - **Standard Package Install** — Package install commands (npm, pip, yarn, brew, go get, cargo, gem) introduce
 third-party code that may contain vulnerabilities, malicious payloads, or known
 CVEs without explicit human review. (Risk: medium)
-- **Pipe to Shell** — A command downloads content from a remote URL and pipes it directly
-into a shell interpreter, executing unreviewed code. (Risk: medium)
+- **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
+persistent memory system (CLAUDE.md files, memory databases, context
+stores) to manipulate the agent's behavior in future sessions, achieving
+cross-session persistence without modifying the agent's code. (Risk: high)
+- **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
+into a composite workflow that achieves a harmful outcome — each step
+passes security checks in isolation, but the overall chain constitutes
+an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Indirect Prompt Injection via Retrieved Content** — An attacker embeds hidden instructions in external content (web pages,
+documents, emails, code comments, issue trackers) that an AI agent retrieves
+during normal operation. The agent interprets these instructions as legitimate
+directives, leading to unauthorized actions — data exfiltration, safety
+bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
+descriptions, parameter descriptions, or response metadata that manipulate
+the AI agent's behavior — causing it to exfiltrate data, bypass safety
+controls, or execute unintended actions through seemingly legitimate tools. (Risk: critical)
+- **MCP Tool Response Poisoning** — A malicious or compromised MCP server returns poisoned content in tool call
+responses — embedding hidden instructions, exfiltration payloads, or behavioral
+manipulation directives in what appears to be legitimate tool output. The agent
+treats response data as trusted context, enabling the attacker to hijack
+subsequent reasoning and actions. (Risk: critical)
+- **Multi-Agent Trust Exploitation** — An attacker compromises or manipulates one AI agent in a multi-agent system
+to influence the behavior of other agents through shared context, tool
+outputs, handoff messages, or shared memory — exploiting implicit trust
+relationships between cooperating agents. (Risk: high)
+- **Multimodal Prompt Injection** — An attacker hides prompt injection instructions in non-text modalities —
+images, PDFs, audio, or video — that are processed by multimodal AI
+agents, bypassing text-based input sanitization and triggering unintended
+tool execution or data exfiltration. (Risk: high)
+- **LLM-Generated Insecure Code Execution** — An AI coding agent generates code containing security vulnerabilities
+(injection flaws, hardcoded secrets, insecure defaults) and auto-commits
+or executes it without human security review — introducing exploitable
+weaknesses into production systems. (Risk: high)
+- **Indirect OS Command Execution via Interpreter** — An AI agent invokes an interpreter (Python, Node.js, Perl, Ruby, etc.)
+with an inline script that calls OS-level commands, bypassing shell-level
+security inspection. (Risk: high)
+- **Remote Download-Execute (Pipe-to-Shell and Interpreter Inline)** — An agent executes unreviewed remote code through one of three patterns:
+(1) piping downloaded content directly into a shell interpreter (`curl | bash`),
+(2) subshell substitution executing downloaded scripts inline (`bash <(curl ...)`),
+or (3) interpreter inline execution where a scripting language uses its own HTTP
+client to fetch and `eval`/`exec` code within the same process. All three patterns
+execute arbitrary remote code without prior human review. (Risk: critical)
 - **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
 debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
@@ -290,6 +519,13 @@ debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: cri
 - **Unbounded Financial Transfer** — An AI agent executes a financial transfer or resource commitment without
 enforcing value limits, risking catastrophic loss from parsing errors,
 misinterpreted instructions, or social engineering. (Risk: critical)
+- **AI Audit Trail Circumvention** — Tampering with, disabling, or circumventing AI agent audit logs and decision
+records that are required for regulatory compliance, incident investigation,
+and organizational accountability. (Risk: critical)
+- **Shadow AI Deployment and Usage** — Developers or employees deploy or connect to AI models, agents, or MCP
+servers without organizational approval — creating unregistered, unmonitored
+AI systems that bypass security controls, compliance requirements, and
+governance policies. (Risk: high)
 - **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
 multi-step execution with broad tool access, increasing the attack surface
 significantly compared to single-shot LLM calls. (Risk: high)
@@ -319,6 +555,10 @@ stores, and services in the cloud account. (Risk: critical)
 - **AWS IMDS IAM Credential Theft** — An AI agent queries the AWS Instance Metadata Service (IMDS) to retrieve
 temporary IAM credentials attached to the EC2 instance role, enabling
 AWS API access with the instance's full permissions. (Risk: critical)
+- **GCP IMDS Service Account Token Theft** — An AI agent queries the GCP Instance Metadata Service (IMDS) at
+`metadata.google.internal` to retrieve OAuth2 access tokens for the
+GCE instance's attached service account, enabling full GCP API access
+with the instance's permissions. (Risk: critical)
 - **.env File Read** — Reading `.env` files typically exposes API keys, database credentials, and other
 secrets stored for local development, providing an attacker with a broad set of
 application credentials in a single operation. (Risk: high)
@@ -331,8 +571,14 @@ and namespaces the user's credentials can access. (Risk: critical)
 - **GPG Key Access** — Access to GPG key directories exposes private keys used for signing, encryption,
 and authentication, enabling an attacker to impersonate the key owner, decrypt
 encrypted data, or forge signed commits. (Risk: critical)
+- **Credential File Read via Symlink (TOCTOU)** — An AI agent creates a symbolic link pointing at a protected credential or
+authentication file (`~/.ssh/id_rsa`, `~/.aws/credentials`, `/etc/shadow`,
+etc.) to bypass path-based access controls through a TOCTOU race condition. (Risk: critical)
 - **History Credential Grep** — A command searches shell history files for previously entered credentials,
 tokens, passwords, or API keys that were accidentally typed in interactive sessions. (Risk: high)
+- **Browser Credential Database Theft** — An AI agent directly accesses browser credential databases (Chrome `Login Data`,
+Firefox `key4.db` / `logins.json`, or Safari cookie stores) to extract saved
+passwords and session cookies stored on the developer workstation. (Risk: critical)
 - **Keychain Extraction** — A command extracts credentials from macOS Keychain using the `security`
 command-line tool, exposing stored passwords, certificates, and tokens. (Risk: critical)
 - **System Shadow File Read** — A command reads system password database files (/etc/shadow, /etc/master.passwd),
@@ -348,7 +594,7 @@ stored usernames and passwords/tokens for remote repositories. (Risk: high)
 to an attacker-controlled helper or store credentials in a more accessible
 location, enabling future credential theft. (Risk: high)
 - **Uncontrolled Model Selection** — Hardcoded or unvalidated model references allow arbitrary LLM selection, bypassing
-governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: medium)
+governance controls and potentially sending data to unapproved or unvetted AI models. (Risk: high)
 - **AWS IAM User or Role Deletion** — An AI agent deletes an AWS IAM user or role, potentially breaking authentication,
 authorization chains, and service-to-service trust relationships. (Risk: high)
 - **AWS EC2 Instance Termination** — An AI agent terminates one or more AWS EC2 instances using the AWS CLI,
@@ -375,6 +621,10 @@ within it — VMs, databases, storage, APIs, IAM, and billing configurations. (R
 permanently destroying all stored data and automated backups within the instance. (Risk: critical)
 - **GCloud Storage Deletion** — An AI agent recursively deletes objects from Google Cloud Storage using
 `gcloud storage rm`, causing irreversible loss of cloud storage data. (Risk: critical)
+- **IaC Infrastructure Destroy** — An AI agent runs an Infrastructure-as-Code (IaC) destroy command — such as
+`terraform destroy`, `pulumi destroy`, `cdk destroy`, or `tofu destroy` —
+tearing down all cloud resources defined in the stack simultaneously and
+irreversibly, without requiring individual resource-specific CLI commands. (Risk: critical)
 - **Kubernetes Bulk Resource Deletion** — An AI agent uses `kubectl delete --all` or wildcard patterns to bulk-delete
 Kubernetes resources, disrupting workloads and potentially causing data loss. (Risk: high)
 - **Kubernetes Namespace Deletion** — An AI agent deletes a Kubernetes namespace, terminating all workloads,
@@ -394,18 +644,34 @@ enforcing value limits, risking catastrophic loss from parsing errors,
 misinterpreted instructions, or social engineering. (Risk: critical)
 - **Fork Bomb** — A command spawns processes recursively until system resources are
 exhausted, causing a denial-of-service condition. (Risk: critical)
+- **Unbounded Agent Resource Consumption** — An AI agent enters recursive loops, spawns unbounded sub-agents, or makes
+excessive API calls that exhaust compute budgets, tokens, or infrastructure
+resources — causing denial-of-wallet or denial-of-service conditions. (Risk: high)
 - **System Shutdown/Reboot** — Issuing shutdown, reboot, halt, or poweroff commands causes immediate service
 disruption and potential data loss, constituting a denial-of-service attack
 against the host system. (Risk: critical)
 - **Git Force Push** — An AI agent performs a force push (`git push --force` or `git push -f`) to a
 remote repository, overwriting remote history and potentially causing permanent
 loss of commits for collaborators. (Risk: high)
+- **Agent Instruction File Tampering** — An AI agent or attacker modifies AI instruction files (.cursorrules,
+CLAUDE.md, .github/copilot-instructions.md, .aider.conf.yml, .continuerc.json,
+.gemini/settings.json) to inject persistent directives that alter the behavior
+of all future agent sessions operating on the repository or workspace. (Risk: high)
+- **Git Hook Injection** — An AI agent installs or modifies git hooks in `.git/hooks/` — scripts
+that execute automatically on git events (commit, push, merge) — enabling
+stealthy persistence and code execution triggered by normal development
+workflows. (Risk: high)
 - **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
 (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
 potentially injecting malicious steps that execute during automated builds. (Risk: high)
-- **SSH Key Generation for Lateral Movement** — An AI agent generates SSH key pairs using automated/piped methods that
-bypass passphrase requirements, creating passwordless keys that can be
-used to establish persistent access or enable lateral movement. (Risk: high)
+- **SSH Client Config Tampering** — An AI agent modifies the SSH client configuration file to disable host key
+verification, route connections through attacker-controlled proxies, or enable
+credential forwarding to untrusted hosts — enabling MITM attacks and lateral movement. (Risk: critical)
+- **SSH Backdoor Access via Key Generation or authorized_keys Injection** — An AI agent establishes persistent SSH backdoor access through two distinct
+techniques: (1) generating passwordless SSH key pairs by bypassing passphrase
+prompts, or (2) directly injecting an attacker-controlled public key into
+`~/.ssh/authorized_keys` — without necessarily generating a new key. Both
+techniques grant durable, password-free remote access. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
 - **Crontab Modification** — Modifying crontab allows an agent to establish persistence by scheduling commands
@@ -414,6 +680,16 @@ original session ends. (Risk: high)
 - **Systemctl Service Manipulation** — Using systemctl or launchctl to start, stop, or enable services allows an agent to
 establish persistence or disrupt system operations by controlling the service manager
 lifecycle. (Risk: high)
+- **Shell Profile Backdoor** — An AI agent modifies shell startup scripts (.bashrc, .zshrc, .bash_profile, .profile,
+etc.) to inject commands that execute automatically on every new terminal session,
+establishing persistent code execution that survives process restarts. (Risk: high)
+- **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
+exploiting tool capabilities, path traversal, symlink following, environment
+variable manipulation, or indirect execution to access files, network
+resources, or system capabilities outside its permitted scope. (Risk: critical)
+- **eBPF Kernel Surveillance** — Attaching eBPF programs to the kernel enables real-time interception of
+syscalls, user-space memory, network packets, and TLS plaintext — all without
+the visibility of traditional rootkits and without requiring CAP_SYS_MODULE. (Risk: critical)
 - **Environment Variable Injection** — An AI agent that manipulates `LD_PRELOAD` or `LD_LIBRARY_PATH` can inject
 malicious shared libraries into privileged processes, bypassing authentication
 and security controls at the dynamic linker level. (Risk: high)
@@ -429,6 +705,10 @@ providing unrestricted read/write access to all host files from within
 the container. (Risk: critical)
 - **Docker Privileged Container Run** — An AI agent runs a Docker container with the `--privileged` flag, granting
 it full host capabilities and effectively removing all container isolation. (Risk: critical)
+- **Kubernetes RBAC Privilege Escalation** — An AI agent creates or modifies Kubernetes Role-Based Access Control (RBAC)
+resources — ClusterRoleBindings, RoleBindings, or ClusterRoles — to grant
+elevated permissions to a user, service account, or itself, achieving persistent
+cluster-admin access that survives container restarts. (Risk: critical)
 - **Linux Namespace Escape** — Creating or entering Linux namespaces via `unshare` or `nsenter` enables container
 escape and user namespace privilege escalation, allowing an agent to break out of
 process isolation boundaries. (Risk: high)
@@ -441,11 +721,62 @@ resources to the agent's user. (Risk: high)
 - **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
 privilege escalation backdoor: any user who runs the file gains the file owner's
 (typically root's) privileges for the duration of the process. (Risk: critical)
+- **Web Application Vulnerability Scanning** — Automated vulnerability scanning tools probe web applications for thousands
+of known CVEs, misconfigurations, and injection flaws. These tools go beyond
+reconnaissance into active exploitation attempts and must never be run by AI
+agents without explicit written authorization. (Risk: critical)
+- **CI/CD Pipeline Configuration Injection** — An AI agent writes to CI/CD pipeline configuration files (GitHub Actions,
+GitLab CI, Jenkinsfile, CircleCI, etc.), potentially injecting malicious
+build steps that run during the automated build and release process. (Risk: critical)
 - **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
 dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
+- **Standard Package Install (Dependency Confusion Risk)** — A standard package install command (e.g., mvn install, dotnet add package)
+may silently resolve a malicious public package that shadows an internal
+package with the same name — a dependency confusion attack. (Risk: medium)
+- **Package Manifest & Lock File Tampering** — An AI agent writes directly to dependency lock files or package manifests,
+enabling supply-chain attacks that bypass shell-level interception entirely
+when performed via MCP file-write tools. (Risk: critical)
 - **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
 any system that loads the checkpoint to execute attacker-controlled model
 weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
+- **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
+persistent memory system (CLAUDE.md files, memory databases, context
+stores) to manipulate the agent's behavior in future sessions, achieving
+cross-session persistence without modifying the agent's code. (Risk: high)
+- **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
+into a composite workflow that achieves a harmful outcome — each step
+passes security checks in isolation, but the overall chain constitutes
+an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Indirect Prompt Injection via Retrieved Content** — An attacker embeds hidden instructions in external content (web pages,
+documents, emails, code comments, issue trackers) that an AI agent retrieves
+during normal operation. The agent interprets these instructions as legitimate
+directives, leading to unauthorized actions — data exfiltration, safety
+bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
+descriptions, parameter descriptions, or response metadata that manipulate
+the AI agent's behavior — causing it to exfiltrate data, bypass safety
+controls, or execute unintended actions through seemingly legitimate tools. (Risk: critical)
+- **MCP Tool Response Poisoning** — A malicious or compromised MCP server returns poisoned content in tool call
+responses — embedding hidden instructions, exfiltration payloads, or behavioral
+manipulation directives in what appears to be legitimate tool output. The agent
+treats response data as trusted context, enabling the attacker to hijack
+subsequent reasoning and actions. (Risk: critical)
+- **Multi-Agent Trust Exploitation** — An attacker compromises or manipulates one AI agent in a multi-agent system
+to influence the behavior of other agents through shared context, tool
+outputs, handoff messages, or shared memory — exploiting implicit trust
+relationships between cooperating agents. (Risk: high)
+- **Multimodal Prompt Injection** — An attacker hides prompt injection instructions in non-text modalities —
+images, PDFs, audio, or video — that are processed by multimodal AI
+agents, bypassing text-based input sanitization and triggering unintended
+tool execution or data exfiltration. (Risk: high)
+- **LLM-Generated Insecure Code Execution** — An AI coding agent generates code containing security vulnerabilities
+(injection flaws, hardcoded secrets, insecure defaults) and auto-commits
+or executes it without human security review — introducing exploitable
+weaknesses into production systems. (Risk: high)
+- **Shadow AI Deployment and Usage** — Developers or employees deploy or connect to AI models, agents, or MCP
+servers without organizational approval — creating unregistered, unmonitored
+AI systems that bypass security controls, compliance requirements, and
+governance policies. (Risk: high)
 - **Uncontrolled Agent/Orchestration Execution** — Agent orchestration frameworks (LangChain, CrewAI, AutoGen) enable autonomous
 multi-step execution with broad tool access, increasing the attack surface
 significantly compared to single-shot LLM calls. (Risk: high)
