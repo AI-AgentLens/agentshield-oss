@@ -183,10 +183,18 @@ rules:
   - id: "sc-block-go-nosum-env-export"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "export\\s+(GONOSUMCHECK|GONOSUMDB|GOFLAGS)="
+      command_regex: "export\\s+(GONOSUMCHECK|GONOSUMDB)="
     decision: "BLOCK"
-    confidence: 0.93
-    reason: "Exporting GONOSUMCHECK, GONOSUMDB, or GOFLAGS disables Go module authentication, enabling dependency substitution attacks."
+    confidence: 0.95
+    reason: "Exporting GONOSUMCHECK or GONOSUMDB disables Go module checksum verification, enabling dependency substitution attacks."
+
+  - id: "sc-block-goflags-insecure-export"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "export\\s+GOFLAGS=.*(-insecure|-goflags|-mod=mod)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Exporting GOFLAGS with -insecure or -mod=mod disables Go module security controls globally for the session."
 
   - id: "sc-block-goproxy-env-export"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
@@ -383,9 +391,26 @@ rules:
     reason: "Shell write to docker-compose.yml detected. Tampering with compose files can mount host paths, disable security options, or add malicious service definitions. MITRE T1612."
 
   # === AUDIT: Global installs ===
+  # Global package installs affect the entire system rather than a single project,
+  # giving installed packages elevated access to the shell PATH and user profile.
+  # An AI agent could install a maliciously-named package (dependency confusion,
+  # typosquatting) that silently executes on every new shell. MITRE T1195.
   - id: "sc-audit-global-install"
     taxonomy: "supply-chain/package-install/global-package-install"
     match:
       command_regex: "(npm|pip|pip3)\\s+install\\s+(-g|--global)"
     decision: "AUDIT"
-    reason: "Global package install has wider system impact. Flagged for review."
+    confidence: 0.80
+    reason: "Global npm/pip install has wider system impact than a local install — flagged for review (MITRE T1195)."
+
+  # === AUDIT: yarn and pnpm global installs ===
+  # yarn v1 uses 'yarn global add <pkg>' and 'yarn add --global <pkg>'.
+  # pnpm uses 'pnpm add -g <pkg>' or 'pnpm install -g <pkg>'.
+  # Both add packages to the user's global bin, equivalent risk to npm install -g.
+  - id: "sc-audit-yarn-pnpm-global-install"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "(yarn\\s+global\\s+add\\b|yarn\\s+add\\s+--global\\b|pnpm\\s+(add|install)\\s+(-g|--global)\\b)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Global yarn/pnpm install has wider system impact than a local install — flagged for review (MITRE T1195)."
