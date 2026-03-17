@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 282 |
+| Terminal rules | 308 |
 | MCP rules | 80 |
-| Total rules | 362 |
-| Test cases (TP+TN) | 846 |
+| Total rules | 388 |
+| Test cases (TP+TN) | 958 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -51,7 +51,7 @@
 | `ts-audit-db-env-password` | AUDIT | regex | Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552. |
 | `ts-block-symlink-credential-files` | BLOCK | regex | Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
 
-### data-exfiltration (48 rules)
+### data-exfiltration (55 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -83,12 +83,19 @@
 | `ne-audit-hardcoded-model-ref` | AUDIT | regex | Hardcoded model identifier in Python one-liner. Uncontrolled model selection bypasses governance controls and model allowlists (LLM05/LLM06). |
 | `ne-block-system-prompt-exfil` | BLOCK | regex | System prompt content piped to a network tool — likely system prompt exfiltration (LLM07). |
 | `ne-block-sysprompt-env-exfil` | BLOCK | regex | System prompt environment variable piped to network or encoding tool — system prompt exfiltration (LLM07). |
+| `ne-block-ml-dataset-pipe-exfil` | BLOCK | regex | ML dataset file piped to a network tool — likely bulk training data exfiltration (LLM06, T1530). Review the destination before proceeding. |
+| `ne-block-ml-cache-exfil` | BLOCK | regex | HuggingFace or PyTorch model cache accessed and sent to a remote destination — training data / model weight exfiltration (LLM06, T1530). |
 | `ne-block-webhook-capture-services` | BLOCK | regex | HTTP request to a known data-capture / request-inspection service detected. These endpoints (webhook.site, requestbin, beeceptor, etc.) exist to collect and expose HTTP payloads and have no legitimate use in AI agent workflows — this is almost certainly data exfiltration. MITRE T1567. |
 | `ne-block-telegram-bot-exfil` | BLOCK | regex | Telegram bot API call detected. Attackers abuse Telegram bots to receive exfiltrated data with instant delivery and no trace on the victim system. AI agents have no legitimate need to call the Telegram bot API. MITRE T1567. |
 | `ne-block-ntfy-exfil` | BLOCK | regex | ntfy.sh push notification service detected. Attackers use ntfy topics as zero-auth exfiltration channels — any data POSTed is instantly delivered to subscribers. AI agents have no legitimate need to use ntfy.sh. MITRE T1567. |
 | `ne-audit-slack-webhook` | AUDIT | regex | Slack incoming webhook call detected. While legitimate for notifications, AI agents autonomously POSTing to Slack webhooks may be exfiltrating data via prompt injection. Review the message payload. MITRE T1567.002. |
 | `ne-audit-discord-webhook` | AUDIT | regex | Discord webhook call detected. Attackers use Discord webhooks to receive exfiltrated data from compromised AI agents. Review the payload before allowing. MITRE T1567.002. |
 | `ne-audit-teams-webhook` | AUDIT | regex | Microsoft Teams webhook call detected. Review the payload to ensure the agent is not exfiltrating data to an attacker-controlled Teams channel. MITRE T1567.002. |
+| `ne-audit-python-http-server` | AUDIT | regex | Python HTTP file server detected. This exposes the working directory over the network, enabling passive data exfiltration. Confirm this is intentional local development and not a response to prompt injection. MITRE T1105, T1041. |
+| `ne-audit-npx-http-server` | AUDIT | regex | npx HTTP file server (http-server/serve) detected. This exposes the working directory over the network to any peer with access to the port. Confirm intent is legitimate development, not staged exfiltration. MITRE T1105. |
+| `ne-audit-ruby-http-server` | AUDIT | regex | Ruby one-liner HTTP file server detected (ruby -run -e httpd). Exposes the current directory to network peers. Review whether this was triggered by a prompt injection attack. MITRE T1105. |
+| `ne-audit-php-server` | AUDIT | regex | PHP built-in HTTP server detected (php -S). Serves the current directory over the network. Binding to 0.0.0.0 makes files accessible to any network peer — confirm this is intentional. MITRE T1105. |
+| `ne-audit-busybox-httpd` | AUDIT | regex | BusyBox httpd file server detected. Often used in containers to expose directories. An AI agent starting busybox httpd may be creating a covert data staging channel. MITRE T1105. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
@@ -104,7 +111,7 @@
 | `ts-block-git-archive-pipe-network` | BLOCK | regex | git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041). |
 | `ts-audit-git-archive` | AUDIT | regex | git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately. |
 
-### destructive-ops (29 rules)
+### destructive-ops (34 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -133,6 +140,11 @@
 | `ts-block-az-sql-delete` | BLOCK | regex | Azure SQL database deletion destroys cloud data. |
 | `ts-block-az-storage-delete` | BLOCK | regex | Azure storage blob batch deletion destroys cloud storage data. |
 | `ts-block-az-group-delete` | BLOCK | regex | Azure resource group deletion destroys all resources in the group. |
+| `ts-block-terraform-destroy` | BLOCK | regex | terraform destroy tears down ALL resources in the Terraform state file across every cloud provider — equivalent to running many cloud-infra delete commands simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-tofu-destroy` | BLOCK | regex | tofu destroy (OpenTofu, the open-source Terraform fork) tears down all managed cloud infrastructure — same blast radius as terraform destroy. AI agents must not run infrastructure destruction commands. (MITRE T1578, T1485) |
+| `ts-block-terragrunt-destroy` | BLOCK | regex | terragrunt destroy (especially run-all destroy) tears down infrastructure across multiple Terraform stacks in a directory tree — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-pulumi-destroy` | BLOCK | regex | pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-cdk-destroy` | BLOCK | regex | cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
 | `ts-block-kubectl-delete-namespace` | BLOCK | regex | Kubernetes namespace deletion destroys all resources in the namespace. |
 | `ts-block-kubectl-delete-all` | BLOCK | regex | Kubernetes bulk deletion of resources is destructive. |
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
@@ -181,7 +193,7 @@
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
 | `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
 
-### privilege-escalation (30 rules)
+### privilege-escalation (33 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -204,6 +216,9 @@
 | `ts-block-path-hijack-eval` | BLOCK | regex | Using eval to set PATH with a writable/relative directory is an obfuscated form of PATH hijacking. |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
+| `ts-block-kubectl-create-clusterrolebinding` | BLOCK | regex | kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
+| `ts-block-kubectl-create-rolebinding` | BLOCK | regex | kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
+| `ts-block-kubectl-patch-rbac` | BLOCK | regex | kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098) |
 | `ts-audit-kubectl-exec` | AUDIT | regex | kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets. |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
 | `ts-block-namespace-escape` | BLOCK | regex | Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation. |
@@ -304,7 +319,7 @@
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (25 rules)
+### unauthorized-execution (36 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -318,6 +333,11 @@
 | `ts-block-perl-ruby-inline-system` | BLOCK | regex | Perl/Ruby inline code calling system()/exec() bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02). |
 | `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
+| `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
+| `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
+| `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
+| `ts-block-indirect-injection-llm-format` | BLOCK | regex | LLM format escape marker ([/INST], <\|start_header_id\|>system) in command — used to break out of the instruction frame and inject a new system directive in retrieved content (OWASP LLM01). |
+| `ts-block-indirect-injection-markdown-alt` | BLOCK | regex | Markdown image alt-text containing an injection directive — indirect prompt injection via retrieved Markdown; agents may act on instructions embedded in image alt-text (OWASP LLM01). |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. |
 | `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). |
 | `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
@@ -325,6 +345,12 @@
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-provider-install` | AUDIT | regex | Installation of a Vercel AI SDK provider package (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, etc.). Flags for AI governance review — LLM06 risk. |
 | `ts-audit-vercel-ai-sdk-node-inline` | AUDIT | regex | Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk. |
+| `ts-audit-ollama-serve` | AUDIT | regex | Starting a local Ollama inference server routes prompts through an unmonitored model outside organizational AI governance (LLM06, EU AI Act Art.26). Verify this deployment is approved. |
+| `ts-audit-ollama-pull` | AUDIT | regex | Downloading a model via Ollama introduces weights not reviewed by the security team. Unvetted models risk model-poisoning attacks (LLM03). Verify model origin and approval. |
+| `ts-audit-lmstudio-server` | AUDIT | regex | LM Studio inference server started — creates a local, unmonitored AI API endpoint outside governance controls (LLM06, EU AI Act Art.26). Verify organizational approval. |
+| `ts-audit-open-interpreter-install` | AUDIT | regex | Installing Open Interpreter grants an LLM unrestricted shell access outside any governance wrapper. This is a high-risk shadow AI deployment (LLM06, NIST GOVERN-1). |
+| `ts-audit-open-interpreter-run` | AUDIT | regex | Running Open Interpreter — an LLM with unrestricted shell access. Verify this is an approved, governed deployment (LLM06, EU AI Act Art.26). |
+| `ts-audit-autogpt-install` | AUDIT | regex | Installing AutoGPT — an autonomous AI agent capable of recursive self-direction. Without a governance wrapper this is an unmonitored shadow AI deployment (LLM06, NIST GOVERN-1). |
 | `ts-audit-git-commit-security-doc` | AUDIT | regex | git commit targeting SECURITY.md — AI-generated security documentation requires human review before committing (LLM09: misinformation propagation). |
 | `ts-audit-git-commit-audit-path` | AUDIT | regex | git commit targeting audit/compliance/runbook path — AI-generated compliance content must be human-verified before it can be referenced by auditors (LLM09). |
 | `ts-audit-append-security-doc` | AUDIT | regex | Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection). |
@@ -472,13 +498,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 76 | 61 | 137 |
-| data-exfiltration | 64 | 36 | 100 |
-| destructive-ops | 59 | 35 | 94 |
+| credential-exposure | 93 | 77 | 170 |
+| data-exfiltration | 74 | 44 | 118 |
+| destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 72 | 41 | 113 |
+| privilege-escalation | 77 | 44 | 121 |
 | reconnaissance | 63 | 25 | 88 |
 | supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 56 | 40 | 96 |
-| **Total** | **527** | **319** | **846** |
+| unauthorized-execution | 81 | 56 | 137 |
+| **Total** | **592** | **366** | **958** |
 
