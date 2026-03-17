@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 332 |
+| Terminal rules | 339 |
 | MCP rules | 105 |
-| Total rules | 437 |
-| Test cases (TP+TN) | 1047 |
+| Total rules | 444 |
+| Test cases (TP+TN) | 1077 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (37 rules)
+### credential-exposure (39 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -49,6 +49,8 @@
 | `sec-block-archive-ssh-dir` | BLOCK | structural | Archiving a credential directory captures all private keys and secrets. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
+| `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
+| `ts-audit-proc-fd-list` | AUDIT | regex | Listing /proc/PID/fd/ enumerates another process's open file descriptors — reconnaissance for fd hijacking attacks. |
 | `ts-block-git-credential-modify` | BLOCK | regex | Modifying git credential helper can redirect stored credentials. |
 | `ts-block-git-credential-fill` | BLOCK | regex | git credential fill/approve can extract or inject stored credentials. |
 | `ts-audit-k8s-secret-mount` | AUDIT | regex | Reading Kubernetes service account tokens or Docker secret mounts — exposes LLM API keys and SA tokens injected as K8s/Docker Secrets (LLM07, LLM02). MITRE T1552.007. |
@@ -200,7 +202,7 @@
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
 | `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
 
-### privilege-escalation (33 rules)
+### privilege-escalation (38 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -219,6 +221,9 @@
 | `ts-audit-bpftool` | AUDIT | regex | bpftool usage flagged for review — eBPF inspection and management tools can be used for unauthorized kernel-level operations. |
 | `ts-block-ld-preload-privesc` | BLOCK | regex | LD_PRELOAD/LD_LIBRARY_PATH combined with a privileged command injects a malicious shared library into the elevated process, enabling authentication bypass and privilege escalation. |
 | `ts-audit-ld-preload-export` | BLOCK | regex | Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection. |
+| `ts-block-ld-audit-privesc` | BLOCK | regex | LD_AUDIT injects a GNU libc rtld-audit library into a privileged process, receiving callbacks for every symbol resolution — more powerful than LD_PRELOAD for credential interception. MITRE T1574.006. |
+| `ts-block-ld-audit-export` | BLOCK | regex | Exporting LD_AUDIT pointing to a writable path persistently injects an rtld-audit library into all child processes. Every dynamically linked binary will load the attacker's auditor. |
+| `ts-audit-ld-audit` | AUDIT | regex | LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use. |
 | `ts-block-path-hijack-export` | BLOCK | regex | Exporting PATH with a world-writable or relative directory prepended hijacks command resolution for all subsequent commands in this shell session and child processes. |
 | `ts-block-path-hijack-eval` | BLOCK | regex | Using eval to set PATH with a writable/relative directory is an obfuscated form of PATH hijacking. |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries. |
@@ -232,6 +237,8 @@
 | `ts-block-docker-host-namespace` | BLOCK | regex | Sharing host PID/IPC/network/UTS namespaces breaks container isolation and enables host process inspection, shared-memory attacks, and network policy bypass. |
 | `ts-block-docker-dangerous-caps` | BLOCK | regex | Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access. |
 | `ts-block-docker-raw-device` | BLOCK | regex | Mounting raw block or character devices into a container enables host filesystem access and hardware-level attacks outside the container boundary. |
+| `ts-block-proc-root-escape` | BLOCK | regex | /proc/PID/root traverses into another process's root filesystem — from a container this accesses the host, bypassing all filesystem isolation. MITRE T1611. |
+| `ts-block-proc-cwd-escape` | AUDIT | regex | /proc/PID/cwd reveals another process's working directory contents — from a container this can access host filesystem paths. MITRE T1611. |
 | `ts-block-interpreter-path-poison-exec` | BLOCK | regex | Interpreter search path set to a world-writable or relative directory before invoking the interpreter — every import/require resolves from the attacker-controlled directory first, enabling silent code injection. MITRE T1574.007. |
 | `ts-block-interpreter-path-poison-export` | BLOCK | regex | Exporting an interpreter search path pointing to a world-writable or relative directory poisons the entire shell session — all subsequent interpreter invocations will silently load attacker-controlled modules. MITRE T1574.007. |
 | `ts-block-dyld-inject-privesc` | BLOCK | regex | macOS DYLD_ variable set before a privileged or system command — injects a shared library into the target process, enabling authentication bypass and privilege escalation. MITRE T1574.006. |
@@ -556,9 +563,9 @@
 | data-exfiltration | 80 | 48 | 128 |
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 77 | 44 | 121 |
+| privilege-escalation | 95 | 56 | 151 |
 | reconnaissance | 108 | 39 | 147 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **657** | **390** | **1047** |
+| **Total** | **675** | **402** | **1077** |
 

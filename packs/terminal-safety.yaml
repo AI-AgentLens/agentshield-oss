@@ -346,6 +346,54 @@ rules:
     confidence: 0.93
     reason: "Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection."
 
+  # === BLOCK: LD_AUDIT injection ===
+  #
+  # GNU libc's rtld-audit interface (LD_AUDIT) loads a shared library that
+  # receives callbacks for every dynamic symbol resolution (la_symbind*),
+  # object load (la_objopen), and object close (la_objclose). This is MORE
+  # powerful than LD_PRELOAD for credential interception because:
+  #
+  #   1. The audit library sees every symbol binding — not just interposed ones
+  #   2. It receives the PLT address, allowing transparent function redirection
+  #   3. It persists across dlopen() calls, catching lazily-loaded libraries
+  #   4. Unlike LD_PRELOAD, it's rarely monitored by security tools
+  #
+  # Combined with sudo/su, LD_AUDIT injects an auditor into the privileged
+  # process, silently logging or redirecting every function call including
+  # authentication checks (pam_authenticate, crypt, getpwnam).
+  #
+  # Taxonomy: privilege-escalation/command-execution/env-injection
+  # OWASP LLM06 (Excessive Agency), LLM08 (Insecure Plugin)
+  # MITRE T1574.006 — Hijack Execution Flow: Dynamic Linker Hijacking
+  # CWE-426 — Untrusted Search Path
+
+  # --- BLOCK: LD_AUDIT before privileged commands ---
+  - id: "ts-block-ld-audit-privesc"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "LD_AUDIT=[^\\s]+\\s+(sudo|su\\b|pkexec|doas|runuser)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "LD_AUDIT injects a GNU libc rtld-audit library into a privileged process, receiving callbacks for every symbol resolution — more powerful than LD_PRELOAD for credential interception. MITRE T1574.006."
+
+  # --- BLOCK: Persistent LD_AUDIT export to writable paths ---
+  - id: "ts-block-ld-audit-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+LD_AUDIT=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting LD_AUDIT pointing to a writable path persistently injects an rtld-audit library into all child processes. Every dynamically linked binary will load the attacker's auditor."
+
+  # --- AUDIT: Any LD_AUDIT usage (even to system paths) ---
+  - id: "ts-audit-ld-audit"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "LD_AUDIT="
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use."
+
   # === BLOCK: PATH hijacking via export ===
   # An AI agent prepending a world-writable or attacker-controlled directory to
   # $PATH causes all subsequent commands to resolve from the malicious path first.
@@ -1140,6 +1188,84 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057."
+
+  # === BLOCK: /proc/PID/root container/chroot escape ===
+  #
+  # From within a container or chroot, /proc/<PID>/root provides a symlink
+  # to the root filesystem as seen by that process. By targeting PID 1 (the
+  # host init process in a non-PID-namespaced container) or any host-visible
+  # PID, an attacker can traverse the host filesystem:
+  #
+  #   cat /proc/1/root/etc/shadow          → read host /etc/shadow
+  #   ls /proc/1/root/home/                → enumerate host users
+  #   cp /proc/1/root/etc/passwd /tmp/     → exfiltrate host credentials
+  #   cat /proc/1/root/root/.ssh/id_rsa    → steal host root's SSH key
+  #
+  # This bypasses all container filesystem isolation without requiring
+  # namespace manipulation, mount operations, or special capabilities.
+  # Requires only read access to /proc, which is typically available.
+  #
+  # Similarly, /proc/<PID>/cwd resolves to the process's working directory,
+  # which for host processes reveals host filesystem paths.
+  #
+  # Taxonomy: privilege-escalation/container-escape/procfs-traversal
+  # OWASP LLM06 (Excessive Agency)
+  # MITRE T1611 — Escape to Host
+  # CWE-22 — Improper Limitation of a Pathname to a Restricted Directory
+  - id: "ts-block-proc-root-escape"
+    taxonomy: "privilege-escalation/container-escape/procfs-traversal"
+    match:
+      command_regex: "(cat|ls|cp|strings|head|tail|xxd|hexdump|find|tar|rsync)\\s+.*/proc/[0-9]+/root/"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "/proc/PID/root traverses into another process's root filesystem — from a container this accesses the host, bypassing all filesystem isolation. MITRE T1611."
+
+  - id: "ts-block-proc-cwd-escape"
+    taxonomy: "privilege-escalation/container-escape/procfs-traversal"
+    match:
+      command_regex: "(cat|ls|cp|strings|head|tail|xxd|hexdump|find|tar|rsync)\\s+.*/proc/[0-9]+/cwd/"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "/proc/PID/cwd reveals another process's working directory contents — from a container this can access host filesystem paths. MITRE T1611."
+
+  # === BLOCK: /proc/PID/fd file descriptor hijacking ===
+  #
+  # /proc/<PID>/fd/ contains symlinks to every open file descriptor of a
+  # process. By reading /proc/<PID>/fd/<N>, an attacker can:
+  #
+  #   1. Read files that the target process has open but that the attacker
+  #      cannot access directly (e.g., database sockets, log files with creds)
+  #   2. Access deleted files that are still held open (common for temp secrets)
+  #   3. Hijack Unix domain sockets (database connections, Docker socket)
+  #   4. Read pipes carrying sensitive data between processes
+  #
+  # This is especially dangerous because:
+  #   - Deleted files only exist as /proc/PID/fd/N — no other path works
+  #   - Database processes keep credential files open after unlinking
+  #   - The SSH agent socket is accessible via /proc/PID/fd/
+  #
+  # /proc/self/fd/ is safer (own file descriptors) but /proc/<PID>/fd/
+  # targeting other processes is a credential theft vector.
+  #
+  # Taxonomy: credential-exposure/process-credential/fd-hijack
+  # OWASP LLM06 (Excessive Agency), LLM07 (System Prompt Leakage)
+  # MITRE T1005 — Data from Local System
+  # CWE-668 — Exposure of Resource to Wrong Sphere
+  - id: "ts-block-proc-fd-read"
+    taxonomy: "credential-exposure/process-credential/fd-hijack"
+    match:
+      command_regex: "(cat|strings|xxd|hexdump|dd|cp|head|tail|od)\\s+.*/proc/[0-9]+/fd/"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005."
+
+  - id: "ts-audit-proc-fd-list"
+    taxonomy: "credential-exposure/process-credential/fd-hijack"
+    match:
+      command_regex: "ls\\s+.*/proc/[0-9]+/fd"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Listing /proc/PID/fd/ enumerates another process's open file descriptors — reconnaissance for fd hijacking attacks."
 
   # === BLOCK: CI/CD pipeline tampering ===
 
