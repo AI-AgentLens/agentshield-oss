@@ -1482,6 +1482,127 @@ var CloudCredentialAccessCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 2.9: Database Access
+// Taxonomy: credential-exposure/database-access/database-credential-access
+//
+// Database CLIs accept passwords inline (-pPASSWORD, --uri=db://user:pass@host)
+// or via environment variable prefixes (PGPASSWORD=, MYSQL_PWD=).
+// Both patterns expose credentials in shell history, ps output, and /proc.
+// ---------------------------------------------------------------------------
+
+// DBCliCredentialCases tests shell-level database credential exposure.
+// Taxonomy: credential-exposure/database-access/database-credential-access
+// Rules: ts-audit-db-cli-inline-password, ts-audit-db-env-password
+var DBCliCredentialCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be audited ---
+
+	{
+		ID:               "TP-DBCRED-001",
+		Command:          `mysql -u admin -pS3cretPass -h prod.db.internal customers`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `MySQL CLI with inline password via -p flag — credential visible in ps and shell history. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential"},
+	},
+	{
+		ID:               "TP-DBCRED-002",
+		Command:          `psql postgresql://admin:s3cret@prod.db.internal/maindb`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `PostgreSQL CLI with password in URI (user:pass@host) — credential embedded in connection string. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential"},
+	},
+	{
+		ID:               "TP-DBCRED-003",
+		Command:          `mongodump --uri="mongodb://admin:s3cret@mongo.internal:27017/users"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `mongodump with inline MongoDB URI containing credentials — full database dump with embedded password. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential", "mongodb"},
+	},
+	{
+		ID:               "TP-DBCRED-004",
+		Command:          `redis-cli -h prod-redis.internal -a s3cretT0ken GET "*"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `Redis CLI with inline auth token via -a flag — credential visible in process list. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential", "redis"},
+	},
+	{
+		ID:               "TP-DBCRED-005",
+		Command:          `PGPASSWORD=s3cret psql -h prod.db.internal -U admin maindb`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `PGPASSWORD env var prefix — password propagates to child processes and appears in shell history. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential", "env-var"},
+	},
+	{
+		ID:               "TP-DBCRED-006",
+		Command:          `MYSQL_PWD=s3cret mysql -h prod.db.internal -u admin customers`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `MYSQL_PWD env var prefix — password exposed via /proc/<pid>/environ on Linux. Must be AUDIT'd.`,
+		Tags:             []string{"tp", "database", "credential", "env-var"},
+	},
+
+	// --- TRUE NEGATIVES: Safe commands that MUST be allowed ---
+
+	{
+		ID:               "TN-DBCRED-001",
+		Command:          `mysql -u readonly -h analytics.db.internal -e "SELECT count(*) FROM events"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `MySQL CLI with username only, no inline password — uses .my.cnf or socket auth. DB credential rule must NOT fire (AUDIT is from network-egress default, not DB-credential rule).`,
+		Tags:             []string{"tn", "database", "safe"},
+	},
+	{
+		ID:               "TN-DBCRED-002",
+		Command:          `psql -h analytics.db.internal -U readonly -d reporting`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `psql with hostname and user but no embedded password — uses .pgpass or prompt. DB credential rule must NOT fire (AUDIT from default policy, not DB-credential rule).`,
+		Tags:             []string{"tn", "database", "safe"},
+	},
+	{
+		ID:               "TN-DBCRED-003",
+		Command:          `redis-cli -h cache.internal PING`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `Redis CLI health check without auth token — no credential exposure. DB credential rule must NOT fire (AUDIT from default policy, not DB-credential rule).`,
+		Tags:             []string{"tn", "database", "safe"},
+	},
+	{
+		ID:               "TN-DBCRED-004",
+		Command:          `mongodump --host mongo.internal --db mydb --out /tmp/backup`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/database-access/database-credential-access",
+		Analyzer:         "regex",
+		Description:      `mongodump using host+db flags without inline credentials — uses config file or unauthenticated. DB credential rule must NOT fire (AUDIT from default policy, not DB-credential rule).`,
+		Tags:             []string{"tn", "database", "safe"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -1498,5 +1619,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, KubernetesConfigAccessCases...)
 	all = append(all, GPGKeyAccessCases...)
 	all = append(all, CloudCredentialAccessCases...)
+	all = append(all, DBCliCredentialCases...)
 	return all
 }

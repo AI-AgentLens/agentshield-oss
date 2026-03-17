@@ -1340,3 +1340,62 @@ rules:
     decision: "AUDIT"
     confidence: 0.87
     reason: "Reading Kubernetes service account tokens or Docker secret mounts — exposes LLM API keys and SA tokens injected as K8s/Docker Secrets (LLM07, LLM02). MITRE T1552.007."
+
+  # === AUDIT: Database CLI with inline password (issue #219) ===
+  #
+  # Database CLIs accept passwords directly on the command line via flags
+  # (-p<PASS>, --password=PASS) or embedded in URI connection strings
+  # (psql postgresql://user:pass@host/db). Command-line passwords are visible
+  # in `ps aux` output, written to shell history, and may be captured by
+  # process monitors — violating credential hygiene for both production and
+  # development databases.
+  #
+  # Common patterns:
+  #   mysql -u admin -pS3cretPass -h prod.db.internal customers
+  #   psql postgresql://admin:s3cret@prod.db.internal/main
+  #   mongodump --uri="mongodb://admin:s3cret@mongo.internal:27017/users"
+  #   mongoexport --uri="mongodb://root:pass@host/db" --collection=users
+  #   redis-cli -h prod-redis.internal -a s3cretT0ken GET "*"
+  #
+  # Decision: AUDIT — agents may need read access to dev/staging databases.
+  # The concern is credentials embedded in commands visible to ps and history.
+  #
+  # Taxonomy: credential-exposure/database-access/database-credential-access
+  # OWASP LLM02 — Sensitive Information Disclosure
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1213 — Data from Information Repositories
+  # MITRE T1552.004 — Credentials in Files
+  - id: "ts-audit-db-cli-inline-password"
+    taxonomy: "credential-exposure/database-access/database-credential-access"
+    match:
+      command_regex: "(mysql\\s+.*-p(?!\\s)\\S+|psql\\s+.*postgresql://[^:@/]+:[^@/]+@|mongodump\\s+.*--uri=['\"]?mongodb://[^:@/]+:[^@/]+@|mongoexport\\s+.*--uri=['\"]?mongodb://[^:@/]+:[^@/]+@|redis-cli\\s+.*-a\\s+\\S+)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Database CLI invoked with inline password in command string — credential visible in process list and shell history (LLM02, LLM06). Use password files or environment-variable injection instead. MITRE T1552.004."
+
+  # === AUDIT: Database password via environment variable prefix (issue #219) ===
+  #
+  # Several database clients accept passwords via environment variables:
+  #   PGPASSWORD=s3cret psql -h prod.db -U admin maindb
+  #   MYSQL_PWD=s3cret mysql -h prod.db -u admin customers
+  #   MONGO_PASSWORD=s3cret mongodump --host=mongo.internal
+  #   REDISCLI_AUTH=s3cret redis-cli -h prod-redis.internal
+  #
+  # While env-var passing avoids ps exposure, it propagates the credential
+  # to all child processes spawned by the shell and can be captured via
+  # /proc/<pid>/environ by other processes on the same host. It also persists
+  # in shell history when typed directly.
+  #
+  # Decision: AUDIT — lower risk than inline flag, but still worth flagging
+  # when agents are interacting with what appears to be production databases.
+  #
+  # Taxonomy: credential-exposure/database-access/database-credential-access
+  # OWASP LLM02, LLM06
+  # MITRE T1552 — Unsecured Credentials
+  - id: "ts-audit-db-env-password"
+    taxonomy: "credential-exposure/database-access/database-credential-access"
+    match:
+      command_regex: "(PGPASSWORD|MYSQL_PWD|MONGO_PASSWORD|REDISCLI_AUTH|PGPASSFILE)=\\S+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552."
