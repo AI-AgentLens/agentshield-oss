@@ -293,6 +293,30 @@ rules:
     confidence: 0.85
     reason: "Echoing system prompt environment variable — possible reconnaissance before exfiltration (LLM07)."
 
+  # === BLOCK: Training data / ML dataset exfiltration (LLM06) ===
+  #
+  # These rules detect shell-level exfiltration of ML training data and model
+  # caches — the tangible shell artifact of the training-data-extraction threat
+  # (OWASP LLM06, MITRE T1530). At runtime, this manifests as reading dataset
+  # files (.jsonl, .parquet, .arrow) or model cache directories
+  # (.cache/huggingface, .cache/torch) and piping them to a network sink.
+
+  - id: "ne-block-ml-dataset-pipe-exfil"
+    taxonomy: "data-exfiltration/llm-data-flow/training-data-extraction"
+    match:
+      command_regex: "(cat|head|tail|find)\\s+.*\\.(jsonl|parquet|arrow)\\b.*\\|\\s*(xargs\\s+)?(curl|wget|nc|socat)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "ML dataset file piped to a network tool — likely bulk training data exfiltration (LLM06, T1530). Review the destination before proceeding."
+
+  - id: "ne-block-ml-cache-exfil"
+    taxonomy: "data-exfiltration/llm-data-flow/training-data-extraction"
+    match:
+      command_regex: "(find|tar|rsync|cat)\\s+.*\\.cache/(huggingface|torch)\\b.*((\\|\\s*(curl|wget|nc|socat))|@[a-zA-Z0-9._-]+:)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "HuggingFace or PyTorch model cache accessed and sent to a remote destination — training data / model weight exfiltration (LLM06, T1530)."
+
   # === BLOCK: Aggressive network scanners ===
 
   - id: "ne-block-aggressive-scanner"
