@@ -1108,6 +1108,173 @@ var ModernOSINTToolCases = []TestCase{
 	},
 }
 
+// DBSchemaEnumCases covers database schema enumeration via CLI tools (closes #260).
+// Rules: ne-audit-db-schema-enum, ne-audit-sqlite-schema-dotcmd, ne-audit-db-schema-dump.
+var DBSchemaEnumCases = []TestCase{
+
+	// --- TRUE POSITIVES: information_schema / pg_catalog / SHOW queries ---
+
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-001",
+		Command:          `mysql -u root -p -e "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "mysql querying information_schema.tables — database schema enumeration, precursor to targeted extraction. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-002",
+		Command:          `mysql -h db.internal -e "SHOW TABLES"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "mysql SHOW TABLES enumerates all tables in the current database. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-003",
+		Command:          `mysql -e "SHOW DATABASES"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "mysql SHOW DATABASES lists all databases on the server. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-004",
+		Command:          `psql -U postgres -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "psql querying information_schema for public schema tables. Classic PostgreSQL schema reconnaissance. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-005",
+		Command:          `psql -h db.prod -U app -c "SELECT * FROM pg_catalog.pg_tables WHERE schemaname='public'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "psql querying pg_catalog.pg_tables — PostgreSQL system catalog enumeration. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-006",
+		Command:          `sqlite3 app.db "SELECT name FROM sqlite_master WHERE type='table'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "sqlite3 querying sqlite_master to list all tables. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-SCHEMA-007",
+		Command:          `mariadb -e "SELECT column_name FROM information_schema.columns WHERE table_name='users'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "mariadb querying information_schema.columns for the users table — mapping PII-bearing columns before extraction. Caught by ne-audit-db-schema-enum.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+
+	// --- TRUE POSITIVES: sqlite3 dot-command schema enumeration ---
+
+	{
+		ID:               "TP-NE-AUDIT-SQLITE-DOT-001",
+		Command:          `sqlite3 data.sqlite ".tables"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "sqlite3 .tables dot-command lists all tables. Caught by ne-audit-sqlite-schema-dotcmd.",
+		Tags:             []string{"tp", "recon", "database", "sqlite"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-SQLITE-DOT-002",
+		Command:          `sqlite3 /var/db/app.db ".schema"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "sqlite3 .schema dumps the full CREATE TABLE DDL for all tables. Caught by ne-audit-sqlite-schema-dotcmd.",
+		Tags:             []string{"tp", "recon", "database", "sqlite"},
+	},
+
+	// --- TRUE POSITIVES: schema-only database dumps ---
+
+	{
+		ID:               "TP-NE-AUDIT-DB-DUMP-001",
+		Command:          `mysqldump --no-data -u root -p mydb > schema.sql`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "mysqldump --no-data exports schema without row data — reconnaissance of table structure. Caught by ne-audit-db-schema-dump.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-DB-DUMP-002",
+		Command:          `pg_dump -s -U postgres mydb > schema.sql`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "pg_dump -s (schema-only) exports PostgreSQL DDL without data. Caught by ne-audit-db-schema-dump.",
+		Tags:             []string{"tp", "recon", "database"},
+	},
+
+	// --- TRUE NEGATIVES: normal database queries ---
+
+	{
+		ID:               "TN-NE-AUDIT-DB-SCHEMA-001",
+		Command:          `mysql -u app -p -e "SELECT COUNT(*) FROM orders WHERE status='pending'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "Normal business query — no schema enumeration keywords. ne-audit-db-schema-enum must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "database"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-DB-SCHEMA-002",
+		Command:          `psql -U app -c "SELECT id, name FROM products LIMIT 10"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "Benign SELECT query — no introspection keywords. ne-audit-db-schema-enum must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "database"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-DB-SCHEMA-003",
+		Command:          `sqlite3 dev.db "SELECT * FROM config WHERE key='theme'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "sqlite3 with a normal application query — no sqlite_master or dot-command. ne-audit-sqlite-schema-dotcmd must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "database"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-DB-SCHEMA-004",
+		Command:          `mysqldump -u root -p mydb > full_backup.sql`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/database-schema-enumeration",
+		Analyzer:         "regex",
+		Description:      "Full mysqldump without --no-data flag — data backup, not schema-only recon. ne-audit-db-schema-dump must not fire; default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "database"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -1118,5 +1285,6 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, WebAppReconCases...)
 	all = append(all, PingSweepLoopCases...)
 	all = append(all, ModernOSINTToolCases...)
+	all = append(all, DBSchemaEnumCases...)
 	return all
 }
