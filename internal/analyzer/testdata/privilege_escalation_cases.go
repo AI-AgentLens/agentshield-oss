@@ -638,6 +638,10 @@ var KernelModuleCases = []TestCase{
 // ---------------------------------------------------------------------------
 
 // EBPFSurveillanceCases tests detection of eBPF-based kernel surveillance.
+// Taxonomy: privilege-escalation/command-execution/ebpf-surveillance
+// Rules: ts-block-bpftool-prog-load, ts-block-bpftrace-inline, ts-block-ebpf-tc-filter,
+//
+//	ts-audit-bpftrace-script, ts-audit-bpftool
 var EBPFSurveillanceCases = []TestCase{
 
 	// --- TRUE POSITIVES ---
@@ -647,7 +651,7 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `bpftool prog load implant.o /sys/fs/bpf/implant`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `bpftool prog load installs an eBPF program into the kernel pinned at /sys/fs/bpf/. Equivalent in risk to insmod — the program persists until reboot and can intercept syscalls or credentials.`,
 		Tags:             []string{"tp", "ebpf", "critical", "kernel"},
@@ -657,7 +661,7 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `sudo bpftrace -e 'uprobe:/bin/bash:readline { printf("%s\n", str(arg0)); }'`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `bpftrace inline uprobe on bash readline — captures every password and secret typed in the shell. The -e flag executes inline, leaving no file artifact.`,
 		Tags:             []string{"tp", "ebpf", "credential-harvesting", "critical"},
@@ -667,7 +671,7 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `bpftrace -e 'uprobe:/lib/libssl.so.3:SSL_write { printf("%s\n", str(arg1)); }'`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `bpftrace tracing SSL_write to intercept TLS plaintext before encryption — bypasses HTTPS protection entirely. Classic sslsniff eBPF technique.`,
 		Tags:             []string{"tp", "ebpf", "tls-interception", "critical"},
@@ -677,10 +681,30 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `tc filter add dev eth0 ingress bpf obj capture.o sec tc`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `Attaching an eBPF program to a network interface via tc (traffic control). Gives the program access to all inbound packets — enables silent network surveillance.`,
 		Tags:             []string{"tp", "ebpf", "network-interception", "critical"},
+	},
+	{
+		ID:               "TP-EBPF-005",
+		Command:          `sudo bpftool prog load /tmp/backdoor.o /sys/fs/bpf/bd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
+		Analyzer:         "regex",
+		Description:      `sudo bpftool prog load from /tmp — installing an eBPF backdoor with elevated privileges. Classic eBPF rootkit deployment pattern.`,
+		Tags:             []string{"tp", "ebpf", "critical", "kernel"},
+	},
+	{
+		ID:               "TP-EBPF-006",
+		Command:          `bpftrace -e 'kprobe:do_sys_open { printf("%s\n", str(arg1)); }'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
+		Analyzer:         "regex",
+		Description:      `bpftrace kprobe on do_sys_open — intercepts every file open syscall system-wide. Can harvest paths to credential files being accessed by any process.`,
+		Tags:             []string{"tp", "ebpf", "syscall-tracing", "critical"},
 	},
 
 	// --- TRUE NEGATIVES ---
@@ -690,7 +714,7 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `bpftool prog list`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `bpftool prog list is read-only enumeration of loaded eBPF programs. Does not load anything. Caught by ts-audit-bpftool — AUDIT, not BLOCK.`,
 		Tags:             []string{"tn", "safe", "read-only"},
@@ -700,10 +724,30 @@ var EBPFSurveillanceCases = []TestCase{
 		Command:          `bpftrace tools/opensnoop.bt`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
 		Analyzer:         "regex",
 		Description:      `bpftrace running a .bt script file (not -e inline). Less immediately dangerous but still warrants review. Caught by ts-audit-bpftrace-script — AUDIT, not BLOCK.`,
 		Tags:             []string{"tn", "ebpf", "audit-expected"},
+	},
+	{
+		ID:               "TN-EBPF-003",
+		Command:          `bpftool net show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
+		Analyzer:         "regex",
+		Description:      `bpftool net show reads eBPF network program attachments (read-only). Caught by ts-audit-bpftool — AUDIT, not BLOCK.`,
+		Tags:             []string{"tn", "ebpf", "read-only", "audit-expected"},
+	},
+	{
+		ID:               "TN-EBPF-004",
+		Command:          `tc qdisc show dev eth0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/ebpf-surveillance",
+		Analyzer:         "regex",
+		Description:      `tc qdisc show is read-only traffic-control inspection — no eBPF attachment. Must NOT match ts-block-ebpf-tc-filter (requires 'filter add ... bpf obj'). Gets AUDIT from default policy, not the eBPF rule.`,
+		Tags:             []string{"tn", "safe", "read-only"},
 	},
 }
 
