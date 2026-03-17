@@ -814,6 +814,95 @@ var NamespaceEscapeCases = []TestCase{
 	},
 }
 
+// K8sRBACEscalationCases covers Kubernetes RBAC privilege escalation via
+// kubectl create clusterrolebinding, rolebinding, and patch on RBAC resources.
+// Taxonomy: privilege-escalation/container-escape/k8s-rbac-escalation
+//
+// Creating or patching RBAC resources grants persistent elevated cluster access
+// that survives pod restarts. All mutations must be BLOCK.
+var K8sRBACEscalationCases = []TestCase{
+	// --- TRUE POSITIVES: RBAC escalation commands ---
+	{
+		ID:               "TP-K8SRBAC-001",
+		Command:          `kubectl create clusterrolebinding pwned --clusterrole=cluster-admin --user=attacker`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl create clusterrolebinding with cluster-admin grants full cluster access to an arbitrary user — ts-block-kubectl-create-clusterrolebinding must fire BLOCK.`,
+		Tags:             []string{"tp", "canonical", "critical", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TP-K8SRBAC-002",
+		Command:          `kubectl create clusterrolebinding sa-admin --clusterrole=cluster-admin --serviceaccount=default:default`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl create clusterrolebinding binding a service account to cluster-admin — ts-block-kubectl-create-clusterrolebinding must fire BLOCK.`,
+		Tags:             []string{"tp", "critical", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TP-K8SRBAC-003",
+		Command:          `kubectl create rolebinding admin --clusterrole=admin --serviceaccount=default:mysa -n staging`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl create rolebinding granting admin role to a service account within a namespace — ts-block-kubectl-create-rolebinding must fire BLOCK.`,
+		Tags:             []string{"tp", "canonical", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TP-K8SRBAC-004",
+		Command:          `kubectl patch clusterrolebinding cluster-admin --patch '{"subjects":[{"kind":"User","name":"attacker","apiGroup":"rbac.authorization.k8s.io"}]}'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl patch clusterrolebinding adds an attacker to an existing binding — ts-block-kubectl-patch-rbac must fire BLOCK.`,
+		Tags:             []string{"tp", "critical", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TP-K8SRBAC-005",
+		Command:          `kubectl patch clusterrole cluster-admin --type=json -p '[{"op":"add","path":"/rules/-","value":{"apiGroups":["*"],"resources":["*"],"verbs":["*"]}}]'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl patch clusterrole widens permissions for all current bindings — ts-block-kubectl-patch-rbac must fire BLOCK.`,
+		Tags:             []string{"tp", "critical", "k8s", "rbac", "closes-251"},
+	},
+
+	// --- TRUE NEGATIVES: Safe read-only RBAC operations ---
+	{
+		ID:               "TN-K8SRBAC-001",
+		Command:          `kubectl get clusterrolebindings`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Description:      `kubectl get clusterrolebindings is a read-only list — no RBAC mutation; default AUDIT is correct.`,
+		Tags:             []string{"tn", "common-dev-operation", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TN-K8SRBAC-002",
+		Command:          `kubectl describe rolebinding admin -n staging`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Description:      `kubectl describe rolebinding is read-only inspection — no mutation; default AUDIT is correct.`,
+		Tags:             []string{"tn", "common-dev-operation", "k8s", "rbac", "closes-251"},
+	},
+	{
+		ID:               "TN-K8SRBAC-003",
+		Command:          `kubectl auth can-i list pods`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Description:      `kubectl auth can-i checks current permissions without modifying anything — default AUDIT is correct.`,
+		Tags:             []string{"tn", "common-dev-operation", "k8s", "closes-251"},
+	},
+}
+
 // SudoAlternativesCases covers pkexec, doas, and runuser as sudo alternatives
 // (taxonomy: privilege-escalation/command-execution/sudo-invocation).
 var SudoAlternativesCases = []TestCase{
@@ -1376,6 +1465,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, KernelModuleCases...)
 	all = append(all, EBPFSurveillanceCases...)
 	all = append(all, NamespaceEscapeCases...)
+	all = append(all, K8sRBACEscalationCases...)
 	all = append(all, EnvInjectionCases...)
 	all = append(all, SudoAlternativesCases...)
 	all = append(all, PathHijackCases...)
