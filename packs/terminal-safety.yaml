@@ -1399,3 +1399,209 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552."
+
+  # ===================================================================
+  # Interpreter search path poisoning (PYTHONPATH, NODE_PATH, etc.)
+  # ===================================================================
+  #
+  # While LD_PRELOAD/LD_LIBRARY_PATH injection is covered above, the
+  # interpreter-level equivalents are equally dangerous and often overlooked.
+  # An AI agent that sets PYTHONPATH=/tmp/evil before running python will
+  # cause every `import` statement to resolve from the attacker's directory
+  # first — enabling silent code injection without modifying any source files.
+  #
+  # Attack surface:
+  #   PYTHONPATH      → Python import resolution
+  #   NODE_PATH       → Node.js require() resolution
+  #   RUBYLIB         → Ruby require/load resolution
+  #   PERL5LIB/PERLLIB → Perl @INC manipulation
+  #   GEM_HOME/GEM_PATH → RubyGems installation/load paths
+  #   npm_config_prefix → npm global install directory
+  #
+  # These are more dangerous than LD_PRELOAD in practice because:
+  #   1. They work in userspace — no need for privileged execution
+  #   2. They affect high-level languages that AI agents use constantly
+  #   3. The injected code runs with the interpreter's full capabilities
+  #   4. No linker sanitization (unlike LD_PRELOAD's SUID stripping)
+  #
+  # Taxonomy: privilege-escalation/command-execution/env-injection
+  # OWASP LLM06 (Excessive Agency), LLM08 (Insecure Plugin)
+  # MITRE T1574.007 — Path Interception by PATH Environment Variable
+
+  # --- BLOCK: Interpreter path poisoning with inline execution ---
+  # Catches: PYTHONPATH=/tmp/evil python3 script.py
+  #          NODE_PATH=/tmp/trojan node app.js
+  - id: "ts-block-interpreter-path-poison-exec"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "(PYTHONPATH|NODE_PATH|RUBYLIB|PERL5LIB|PERLLIB|GEM_HOME|GEM_PATH|npm_config_prefix)=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./)\\S*\\s+(python[23]?|node|ruby|perl|gem|npm|pip|irb|bundle)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Interpreter search path set to a world-writable or relative directory before invoking the interpreter — every import/require resolves from the attacker-controlled directory first, enabling silent code injection. MITRE T1574.007."
+
+  # --- BLOCK: Persistent interpreter path poisoning via export ---
+  # Catches: export PYTHONPATH=/tmp/evil
+  #          export NODE_PATH=/dev/shm/modules
+  - id: "ts-block-interpreter-path-poison-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+(PYTHONPATH|NODE_PATH|RUBYLIB|PERL5LIB|PERLLIB|GEM_HOME|GEM_PATH|npm_config_prefix)=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./)\\S*"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting an interpreter search path pointing to a world-writable or relative directory poisons the entire shell session — all subsequent interpreter invocations will silently load attacker-controlled modules. MITRE T1574.007."
+
+  # ===================================================================
+  # Symlink attacks targeting sensitive files (TOCTOU)
+  # ===================================================================
+  #
+  # Creating a symlink from a sensitive file to an innocuous-looking path
+  # is a classic TOCTOU (time-of-check-time-of-use) attack. The AI agent
+  # first creates the symlink, then reads the target through the link —
+  # each operation looks innocent in isolation, but together they bypass
+  # path-based access controls.
+  #
+  # Attack patterns:
+  #   ln -s ~/.ssh/id_rsa /tmp/data.txt && cat /tmp/data.txt
+  #   ln -sf /etc/shadow ~/project/output.log
+  #   ln -s /root/.aws/credentials ./config.bak
+  #
+  # Also catches symlink attacks that redirect writes:
+  #   ln -sf /etc/sudoers /tmp/config && echo "ALL ALL=(ALL) NOPASSWD:ALL" > /tmp/config
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/symlink-attack
+  # OWASP LLM06 (Excessive Agency)
+  # MITRE T1547.009 — Boot or Logon Autostart Execution: Shortcut Modification
+  # CWE-367 — Time-of-check Time-of-use (TOCTOU) Race Condition
+
+  # --- BLOCK: Symlink creation targeting credential files ---
+  - id: "ts-block-symlink-credential-files"
+    taxonomy: "credential-exposure/file-access/credential-file-read"
+    match:
+      command_regex: "ln\\s+(-[a-zA-Z]*s[a-zA-Z]*\\s+|--symbolic\\s+)(~|\\$HOME|/home/|/root/|/etc/)\\S*(\\.ssh|\\.aws|\\.gnupg|\\.kube|shadow|passwd|credentials|id_rsa|id_ed25519|known_hosts|authorized_keys|token|secret)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009."
+
+  # --- AUDIT: Symlink creation targeting config/system files ---
+  - id: "ts-audit-symlink-system-files"
+    taxonomy: "persistence-evasion/anti-forensics/history-clearing"
+    match:
+      command_regex: "ln\\s+(-[a-zA-Z]*s[a-zA-Z]*\\s+|--symbolic\\s+)(/etc/|/usr/|/var/|/sys/|/proc/)\\S+"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367."
+
+  # ===================================================================
+  # Process tracing / credential sniffing (strace, ltrace, gcore)
+  # ===================================================================
+  #
+  # While gdb --pid is already blocked, there are several other powerful
+  # process introspection tools that can extract credentials, API keys,
+  # and system prompts from running processes:
+  #
+  #   strace -e read -p PID   → intercepts all read() syscalls, capturing
+  #                              passwords, API keys, and tokens as they're
+  #                              read from files/sockets
+  #   strace -e write -p PID  → intercepts write() syscalls, sniffing
+  #                              outbound data including credentials in HTTP
+  #                              headers
+  #   ltrace -p PID           → intercepts library calls, can capture
+  #                              arguments to SSL_write, EVP_Encrypt, etc.
+  #   gcore PID               → dumps entire process memory to a file,
+  #                              including heap-allocated secrets and keys
+  #
+  # These are more stealthy than gdb because they don't modify the target
+  # process — they're "read-only" from the target's perspective, making
+  # them harder to detect through process integrity checks.
+  #
+  # Taxonomy: unauthorized-execution/remote-code-exec/process-injection
+  # OWASP LLM07 (System Prompt Leakage)
+  # MITRE T1057 — Process Discovery, T1003 — OS Credential Dumping
+
+  # --- BLOCK: strace attaching to a running process ---
+  - id: "ts-block-strace-attach"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_regex: "strace\\s+.*-p\\s+[0-9]+"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "strace attaching to a running process via -p PID intercepts all syscalls including read/write, exposing passwords, API keys, and tokens flowing through the process. MITRE T1057, T1003."
+
+  # --- BLOCK: strace with credential-sniffing syscall filters ---
+  - id: "ts-block-strace-credential-sniff"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_regex: "strace\\s+.*-e\\s+(read|write|recvmsg|sendmsg|openat|trace=network|trace=file)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057."
+
+  # --- BLOCK: ltrace attaching to a running process ---
+  - id: "ts-block-ltrace-attach"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_regex: "ltrace\\s+.*-p\\s+[0-9]+"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057."
+
+  # --- BLOCK: gcore process memory dump ---
+  - id: "ts-block-gcore-dump"
+    taxonomy: "unauthorized-execution/remote-code-exec/process-injection"
+    match:
+      command_prefix: ["gcore "]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "gcore dumps the entire memory of a running process to a file — exposes all heap-allocated secrets, API keys, system prompts, and in-flight credentials. MITRE T1003."
+
+  # ===================================================================
+  # macOS DYLD injection (DYLD_INSERT_LIBRARIES, DYLD_LIBRARY_PATH)
+  # ===================================================================
+  #
+  # macOS equivalent of Linux's LD_PRELOAD. The existing LD_PRELOAD rules
+  # don't cover macOS at all. DYLD_INSERT_LIBRARIES forces the dynamic
+  # linker (dyld) to load a specified shared library into every process,
+  # enabling the same function hooking, credential interception, and
+  # authentication bypass attacks as LD_PRELOAD but on macOS.
+  #
+  # Additional macOS-specific vectors:
+  #   DYLD_LIBRARY_PATH     → overrides library search order
+  #   DYLD_FRAMEWORK_PATH   → overrides framework search order
+  #   DYLD_FALLBACK_LIBRARY_PATH → fallback library resolution
+  #
+  # Note: macOS System Integrity Protection (SIP) strips DYLD_ variables
+  # for protected binaries, but this protection is absent for:
+  #   - User-installed applications
+  #   - Development tools (including AI agents)
+  #   - Binaries in non-SIP-protected paths
+  #
+  # Taxonomy: privilege-escalation/command-execution/env-injection
+  # OWASP LLM06 (Excessive Agency)
+  # MITRE T1574.006 — Hijack Execution Flow: Dynamic Linker Hijacking
+
+  # --- BLOCK: DYLD injection before privileged execution ---
+  - id: "ts-block-dyld-inject-privesc"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "DYLD_(INSERT_LIBRARIES|LIBRARY_PATH|FRAMEWORK_PATH)=[^\\s]+\\s+(sudo|su\\b|doas|osascript|open\\s+-a)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "macOS DYLD_ variable set before a privileged or system command — injects a shared library into the target process, enabling authentication bypass and privilege escalation. MITRE T1574.006."
+
+  # --- BLOCK: Persistent DYLD injection via export ---
+  - id: "ts-block-dyld-inject-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+DYLD_(INSERT_LIBRARIES|LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/private/tmp|\\./|\\.\\./)\\S*"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006."
+
+  # --- AUDIT: Any DYLD injection (even to system paths) ---
+  - id: "ts-audit-dyld-inject"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "DYLD_(INSERT_LIBRARIES|LIBRARY_PATH|FRAMEWORK_PATH)=\\S+"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006."

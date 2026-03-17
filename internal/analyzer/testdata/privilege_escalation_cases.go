@@ -1075,6 +1075,295 @@ var PathHijackCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 5.5: Interpreter Search Path Poisoning
+// Taxonomy: privilege-escalation/command-execution/env-injection
+//
+// LD_PRELOAD is covered above, but interpreter-level search path variables
+// (PYTHONPATH, NODE_PATH, RUBYLIB, etc.) are equally dangerous and work
+// entirely in userspace without requiring privileged execution. An agent
+// that sets PYTHONPATH=/tmp/evil causes every `import` to resolve from
+// the attacker's directory first — silent code injection.
+// ---------------------------------------------------------------------------
+
+// InterpreterPathPoisonCases tests detection of interpreter search path
+// manipulation to inject malicious code via module resolution.
+var InterpreterPathPoisonCases = []TestCase{
+
+	// --- TRUE POSITIVES: Inline interpreter path poisoning before execution ---
+
+	{
+		ID:               "TP-INTERPPATH-001",
+		Command:          `PYTHONPATH=/tmp/evil python3 manage.py runserver`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `PYTHONPATH set to /tmp before invoking python3 — all imports resolve
+			from attacker-controlled directory first. Classic module injection.`,
+		Tags: []string{"tp", "interpreter-poisoning", "critical"},
+	},
+	{
+		ID:               "TP-INTERPPATH-002",
+		Command:          `NODE_PATH=/dev/shm/trojan node app.js`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `NODE_PATH to volatile /dev/shm before node — require() resolves
+			from attacker directory. World-writable tmpfs path.`,
+		Tags: []string{"tp", "interpreter-poisoning", "critical"},
+	},
+	{
+		ID:               "TP-INTERPPATH-003",
+		Command:          `RUBYLIB=/var/tmp/hooks ruby -e 'require "json"'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `RUBYLIB set to /var/tmp before ruby — Ruby's require/load will
+			resolve from the attacker's directory first.`,
+		Tags: []string{"tp", "interpreter-poisoning"},
+	},
+	{
+		ID:               "TP-INTERPPATH-004",
+		Command:          `PERL5LIB=/tmp/backdoor perl script.pl`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `PERL5LIB pointing to /tmp before perl — Perl's @INC is poisoned.`,
+		Tags: []string{"tp", "interpreter-poisoning"},
+	},
+	{
+		ID:               "TP-INTERPPATH-005",
+		Command:          `GEM_HOME=./gems gem install rails`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `GEM_HOME set to relative directory — gem installs to attacker-
+			controlled location, enabling supply chain injection for subsequent
+			require statements.`,
+		Tags: []string{"tp", "interpreter-poisoning", "supply-chain"},
+	},
+
+	// --- TRUE POSITIVES: Persistent export variant ---
+
+	{
+		ID:               "TP-INTERPPATH-EXPORT-001",
+		Command:          `export PYTHONPATH=/tmp/evil_modules`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Persistent PYTHONPATH export to /tmp — poisons all subsequent
+			Python invocations in the shell session.`,
+		Tags: []string{"tp", "interpreter-poisoning", "persistent"},
+	},
+	{
+		ID:               "TP-INTERPPATH-EXPORT-002",
+		Command:          `export NODE_PATH=/dev/shm/node_modules`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Persistent NODE_PATH export to /dev/shm — Node require() silently
+			resolves from attacker-controlled volatile tmpfs.`,
+		Tags: []string{"tp", "interpreter-poisoning", "persistent"},
+	},
+	{
+		ID:               "TP-INTERPPATH-EXPORT-003",
+		Command:          `export npm_config_prefix=/tmp/npm-global`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `npm_config_prefix set to /tmp — npm global installs go to attacker
+			directory, enabling PATH-based command hijacking via npx.`,
+		Tags: []string{"tp", "interpreter-poisoning", "supply-chain"},
+	},
+
+	// --- TRUE NEGATIVES: Legitimate interpreter path usage ---
+
+	{
+		ID:               "TN-INTERPPATH-001",
+		Command:          `PYTHONPATH=/usr/local/lib/python3/dist-packages python3 setup.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `PYTHONPATH set to system dist-packages — legitimate Python path
+			configuration. No rule fires (path is not world-writable). Gets default AUDIT.`,
+		Tags: []string{"tn", "safe", "system-path"},
+	},
+	{
+		ID:               "TN-INTERPPATH-002",
+		Command:          `echo $PYTHONPATH`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Reading PYTHONPATH value — no modification, read-only.`,
+		Tags: []string{"tn", "read-only", "safe"},
+	},
+	{
+		ID:               "TN-INTERPPATH-003",
+		Command:          `export NODE_PATH=/usr/lib/nodejs:/usr/share/nodejs`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `NODE_PATH export to system directories — legitimate configuration.
+			No rule fires (paths are not world-writable). Gets default AUDIT.`,
+		Tags: []string{"tn", "safe", "system-path"},
+	},
+	{
+		ID:               "TN-INTERPPATH-004",
+		Command:          `pip install requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `pip install without PYTHONPATH manipulation — normal package install.
+			No interpreter path poison rule fires. Gets default AUDIT.`,
+		Tags: []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 5.6: macOS DYLD Injection
+// Taxonomy: privilege-escalation/command-execution/env-injection
+//
+// The macOS equivalent of LD_PRELOAD. DYLD_INSERT_LIBRARIES forces the
+// dynamic linker (dyld) to load a specified shared library into processes.
+// The existing LD_PRELOAD rules cover Linux but not macOS at all.
+// ---------------------------------------------------------------------------
+
+// DYLDInjectionCases tests detection of macOS-specific dynamic library injection.
+var DYLDInjectionCases = []TestCase{
+
+	// --- TRUE POSITIVES: DYLD injection before privileged execution ---
+
+	{
+		ID:               "TP-DYLD-001",
+		Command:          `DYLD_INSERT_LIBRARIES=/tmp/evil.dylib sudo bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `macOS DYLD_INSERT_LIBRARIES before sudo — injects shared library
+			into the privileged process. Direct macOS equivalent of LD_PRELOAD attack.`,
+		Tags: []string{"tp", "dyld-injection", "macos", "critical"},
+	},
+	{
+		ID:               "TP-DYLD-002",
+		Command:          `DYLD_LIBRARY_PATH=/tmp/evil sudo osascript -e 'do shell script "id"'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `DYLD_LIBRARY_PATH before sudo osascript — library search order
+			hijacking targeting AppleScript elevation. Double escalation vector.`,
+		Tags: []string{"tp", "dyld-injection", "macos", "critical"},
+	},
+	{
+		ID:               "TP-DYLD-003",
+		Command:          `DYLD_FRAMEWORK_PATH=/tmp/fake_frameworks open -a Safari`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `DYLD_FRAMEWORK_PATH before launching a system app via open -a.
+			Hijacks macOS framework resolution to inject malicious frameworks.`,
+		Tags: []string{"tp", "dyld-injection", "macos"},
+	},
+
+	// --- TRUE POSITIVES: Persistent DYLD export ---
+
+	{
+		ID:               "TP-DYLD-EXPORT-001",
+		Command:          `export DYLD_INSERT_LIBRARIES=/tmp/keylogger.dylib`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Persistent DYLD_INSERT_LIBRARIES export to /tmp — every subsequent
+			process in this shell loads the attacker's library.`,
+		Tags: []string{"tp", "dyld-injection", "macos", "persistent"},
+	},
+	{
+		ID:               "TP-DYLD-EXPORT-002",
+		Command:          `export DYLD_LIBRARY_PATH=/private/tmp/evil`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `DYLD_LIBRARY_PATH export to /private/tmp (macOS tmpdir) — poisons
+			library resolution for entire session.`,
+		Tags: []string{"tp", "dyld-injection", "macos", "persistent"},
+	},
+
+	// --- TRUE POSITIVES: DYLD usage (AUDIT level) ---
+
+	{
+		ID:               "TP-DYLD-AUDIT-001",
+		Command:          `DYLD_INSERT_LIBRARIES=/usr/local/lib/debug.dylib ./myapp`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `DYLD_INSERT_LIBRARIES with a non-tmp path — not blocked but audited.
+			Could be legitimate debugging but still worth flagging.`,
+		Tags: []string{"tp", "dyld-injection", "macos", "audit"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-DYLD-001",
+		Command:          `echo $DYLD_INSERT_LIBRARIES`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Reading DYLD_INSERT_LIBRARIES value via echo — read-only, no injection.`,
+		Tags: []string{"tn", "macos", "safe", "read-only"},
+	},
+	{
+		ID:               "TN-DYLD-002",
+		Command:          `unset DYLD_INSERT_LIBRARIES`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Unsetting DYLD_INSERT_LIBRARIES — defensive action removing a
+			potentially dangerous variable. Gets default AUDIT.`,
+		Tags: []string{"tn", "macos", "safe", "defensive"},
+	},
+	{
+		ID:               "TN-DYLD-003",
+		Command:          `echo $DYLD_LIBRARY_PATH`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `Reading DYLD_LIBRARY_PATH value — no modification.`,
+		Tags: []string{"tn", "macos", "safe", "read-only"},
+	},
+	{
+		ID:               "TN-DYLD-004",
+		Command:          `sudo brew install openssl`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description: `sudo with brew — no DYLD_ variables, must not trigger DYLD rules.
+			May trigger sudo audit rule, which is fine.`,
+		Tags: []string{"tn", "macos", "safe"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -1090,5 +1379,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, EnvInjectionCases...)
 	all = append(all, SudoAlternativesCases...)
 	all = append(all, PathHijackCases...)
+	all = append(all, InterpreterPathPoisonCases...)
+	all = append(all, DYLDInjectionCases...)
 	return all
 }
