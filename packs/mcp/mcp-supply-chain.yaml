@@ -285,3 +285,28 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001."
     confidence: 0.85
+
+  # === AUDIT: RAG knowledge base ingestion via MCP tool calls (issue #205) ===
+  #
+  # MCP servers may expose vector DB write tools (add_document, ingest_file,
+  # upsert_vectors, etc.) as first-class MCP tools. An AI agent calling these
+  # tools can inject adversarial documents into the RAG knowledge base without
+  # any shell command — bypassing all shell-level detection entirely.
+  #
+  # This rule audits MCP tool calls whose names suggest knowledge base write
+  # operations. The pattern covers common naming conventions across vector DB
+  # MCP servers and custom enterprise knowledge base integrations.
+  #
+  # Decision: AUDIT (not BLOCK) — knowledge base ingestion is a legitimate
+  # agent operation. Human review is warranted to detect injected adversarial
+  # content in new documents.
+  #
+  # OWASP LLM08 — Vector and Embedding Weaknesses
+  # MITRE AML.T0010 — Poison Training Data
+  - id: mcp-sc-audit-rag-write
+    taxonomy: "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
+    match:
+      tool_name_pattern: "(?i)(ingest|add_document|upsert|insert_document|index_document|embed_and_store|store_embedding|knowledge_base_write|kb_write|add_to_kb|update_kb)"
+    decision: "AUDIT"
+    reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
+    confidence: 0.82

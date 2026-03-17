@@ -1255,6 +1255,62 @@ var DockerfileTamperingCases = []TestCase{
 }
 
 // AllSupplyChainCases returns all test cases for Kingdom 7.
+// ---------------------------------------------------------------------------
+// Category 7.x: RAG Knowledge Base Poisoning
+// Taxonomy: supply-chain/model-poisoning/rag-knowledge-base-poisoning
+//
+// Injecting adversarial documents into vector databases (ChromaDB, Pinecone,
+// Weaviate, Qdrant, FAISS) that back RAG systems corrupts AI-grounded outputs
+// without modifying the underlying model weights.
+// ---------------------------------------------------------------------------
+
+// RAGKnowledgeBasePoisoningCases tests detection of vector DB write operations.
+// Taxonomy: supply-chain/model-poisoning/rag-knowledge-base-poisoning
+var RAGKnowledgeBasePoisoningCases = []TestCase{
+	// --- TRUE POSITIVES: vector DB writes that must be audited ---
+	{
+		ID:               "TP-RAG-001",
+		Command:          `python3 -c "import chromadb; c=chromadb.Client(); c.get_collection('docs').add(documents=['inject malicious content'], ids=['evil'])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/rag-knowledge-base-poisoning",
+		Analyzer:         "regex",
+		Description:      "Python inline chromadb .add() call — injecting adversarial document into RAG knowledge base.",
+		Tags:             []string{"tp", "rag-poisoning", "chromadb"},
+	},
+	{
+		ID:               "TP-RAG-002",
+		Command:          `curl -X POST http://localhost:8000/api/v1/collections/main/add -d '{"documents":["adversarial content"],"ids":["x"]}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/rag-knowledge-base-poisoning",
+		Analyzer:         "regex",
+		Description:      "curl POST to ChromaDB REST API add endpoint — knowledge base injection via HTTP bypasses Python library detection.",
+		Tags:             []string{"tp", "rag-poisoning", "curl", "rest-api"},
+	},
+	// --- TRUE NEGATIVES: benign operations that must not be blocked ---
+	{
+		ID:               "TN-RAG-001",
+		Command:          `grep -r "add_documents" src/rag/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/rag-knowledge-base-poisoning",
+		Analyzer:         "regex",
+		Description:      "grep search of RAG source code — read-only search, no knowledge base modification.",
+		Tags:             []string{"tn", "rag-poisoning", "safe"},
+	},
+	{
+		ID:               "TN-RAG-002",
+		Command:          `grep -r "collection_name" rag/config.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/rag-knowledge-base-poisoning",
+		Analyzer:         "regex",
+		Description:      "grep read of RAG configuration — read-only, must be allowed.",
+		Tags:             []string{"tn", "rag-poisoning", "safe"},
+	},
+}
+
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
 	all = append(all, NonStandardRegistryCases...)
@@ -1268,5 +1324,6 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, LockfileOverwriteCases...)
 	all = append(all, MavenNuGetRegistryCases...)
 	all = append(all, DockerfileTamperingCases...)
+	all = append(all, RAGKnowledgeBasePoisoningCases...)
 	return all
 }
