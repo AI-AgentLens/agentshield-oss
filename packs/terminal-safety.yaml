@@ -1014,6 +1014,35 @@ rules:
     confidence: 0.92
     reason: "kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys."
 
+  # === BLOCK: Kubernetes RBAC privilege escalation ===
+  # Creating or patching RBAC resources (ClusterRoleBindings, RoleBindings,
+  # ClusterRoles) grants persistent elevated access that survives pod restarts.
+  # A single ClusterRoleBinding to cluster-admin = full cluster compromise.
+
+  - id: "ts-block-kubectl-create-clusterrolebinding"
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      command_regex: "kubectl\\s+create\\s+clusterrolebinding\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098)"
+
+  - id: "ts-block-kubectl-create-rolebinding"
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      command_regex: "kubectl\\s+create\\s+rolebinding\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098)"
+
+  - id: "ts-block-kubectl-patch-rbac"
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      command_regex: "kubectl\\s+patch\\s+(clusterrolebinding|rolebinding|clusterrole)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098)"
+
   - id: "ts-audit-kubectl-exec"
     taxonomy: "privilege-escalation/container-escape/docker-exec"
     match:
