@@ -1,0 +1,97 @@
+id: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Model Usage"
+category_id: "4.2"
+name: "Shadow AI Deployment and Usage"
+risk_level: "high"
+
+abstract: |
+  Developers or employees deploy or connect to AI models, agents, or MCP
+  servers without organizational approval — creating unregistered, unmonitored
+  AI systems that bypass security controls, compliance requirements, and
+  governance policies.
+
+explanation: |
+  Shadow AI is the AI-specific evolution of "shadow IT." As AI tools become
+  ubiquitous in development workflows, organizations face a growing risk of
+  unauthorized AI adoption that escapes governance oversight:
+
+  - **Unauthorized MCP server installation**: Developers add untrusted or
+    unvetted MCP servers to their IDE configuration, introducing unmonitored
+    tool capabilities that may exfiltrate data or execute malicious actions.
+  - **Personal API key usage**: Using personal OpenAI, Anthropic, or other
+    API keys in corporate environments, sending proprietary code and data
+    to models outside organizational data governance boundaries.
+  - **Unregistered model deployments**: Self-hosting open-weight models
+    (Llama, Mistral, etc.) on corporate infrastructure without security
+    review, creating unmonitored inference endpoints.
+  - **Unauthorized agent frameworks**: Installing and running agent
+    orchestration frameworks (AutoGen, CrewAI, custom scripts) that grant
+    AI systems access to corporate resources without proper access controls.
+  - **IDE AI plugin proliferation**: Installing unvetted AI-powered IDE
+    extensions that may transmit code to external services.
+
+  The core risk is not the AI usage itself but the lack of visibility and
+  governance. Shadow AI systems:
+  (1) bypass data loss prevention controls,
+  (2) create unmonitored attack surfaces,
+  (3) violate data residency and compliance requirements (EU AI Act Art.26
+  requires deployers to register high-risk AI systems),
+  (4) cannot be audited during security incidents.
+
+  This differs from "uncontrolled-model-invocation" (which focuses on code-level
+  governance of API calls) by addressing the organizational and infrastructure
+  dimension — entire AI systems operating outside IT governance.
+
+recommendation: |
+  - Maintain an organizational AI registry of approved models, services,
+    MCP servers, and agent frameworks.
+  - Implement network-level detection of AI API traffic to unapproved
+    endpoints (OpenAI, Anthropic, HuggingFace, Ollama, etc.).
+  - Scan developer environments for unauthorized MCP server configurations
+    and unapproved AI IDE extensions.
+  - Establish clear policies for AI tool adoption with a lightweight
+    approval process to reduce shadow AI incentives.
+  - Monitor for self-hosted model deployments on corporate infrastructure
+    (GPU usage anomalies, inference server processes).
+  - Implement API key governance: corporate-managed keys with usage tracking
+    rather than personal keys in corporate environments.
+  - Regular audit of IDE configuration files (.cursor/mcp.json,
+    .vscode/settings.json, claude_desktop_config.json) for unauthorized
+    AI service connections.
+
+examples:
+  bad:
+    - "Developer adds untrusted MCP server: npx -y @random-author/mcp-server-filesystem to IDE config"
+    - "Personal API key in corporate codebase: export OPENAI_API_KEY=sk-proj-... (personal account)"
+    - "Self-hosted model without security review: docker run -p 11434:11434 ollama/ollama on corporate server"
+    - "Installing unvetted AI agent framework: pip install sketchy-ai-agent-framework"
+  good:
+    - "Organization maintains approved MCP server allowlist with hash verification"
+    - "Corporate AI proxy routes all model API calls through centralized governance endpoint"
+    - "Automated scanning detects and alerts on unauthorized AI API keys in codebases"
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.5.1", "A.5.10", "A.8.9"]
+  eu-ai-act-2024: ["Art.26", "Art.9"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MAP-1"]
+  soc2-type2: ["CC6.1", "CC6.8", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.002", "T1219"]
+  cwe: ["CWE-284", "CWE-693"]
+  external:
+    - title: "EU AI Act Article 26 — Obligations of Deployers"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+
+analyzers: ["semantic", "structural"]
+related_rules: []
+# Detection involves scanning for unauthorized AI service connections
+# in IDE configs, environment variables with AI API keys, and network
+# traffic to unapproved AI endpoints. Comply rules can detect code-level
+# patterns (imports of unapproved AI SDKs, API key patterns).

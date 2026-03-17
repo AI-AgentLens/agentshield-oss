@@ -1,0 +1,93 @@
+id: "data-exfiltration/llm-data-flow/training-data-extraction"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Training Data Extraction from Models"
+risk_level: "high"
+
+abstract: |
+  Systematic querying of an AI model to extract memorized training data —
+  including PII, proprietary source code, medical records, or confidential
+  business information — that the model inadvertently retained during training.
+
+explanation: |
+  Large language models memorize portions of their training data, and targeted
+  querying techniques can cause models to regurgitate this memorized content.
+  This creates a data exfiltration vector where sensitive information flows
+  OUT of the model to unauthorized parties, distinct from the complementary
+  threat of sending sensitive data TO the model (see: customer-data-to-llm).
+
+  Extraction techniques include:
+
+  - **Divergence attacks**: Prompting the model to repeat a word indefinitely
+    causes it to diverge from normal generation and emit memorized training
+    data verbatim (demonstrated against ChatGPT by Nasr et al., 2023).
+  - **Prefix completion**: Providing the beginning of a memorized sequence
+    (e.g., a person's name and partial address) and asking the model to
+    complete it, recovering the full record.
+  - **Membership inference**: Determining whether specific data was in the
+    training set by analyzing model confidence patterns, enabling targeted
+    extraction of confirmed training examples.
+  - **Code completion extraction**: Prompting coding models with partial
+    function signatures to extract proprietary or copyrighted code from
+    training data (demonstrated with GitHub Copilot and GPL-licensed code).
+  - **Template-based extraction**: Using fill-in-the-blank prompts that
+    match patterns in training data (e.g., "The API key for [service] is ___").
+
+  Enterprise risk: Organizations that fine-tune models on internal data
+  (customer records, source code, financial data) face particular exposure
+  if those models are later accessed by unauthorized users or deployed
+  without adequate output filtering.
+
+recommendation: |
+  - Implement output filtering to detect and redact potentially memorized
+    content (PII patterns, API keys, code blocks matching known repositories).
+  - Apply differential privacy during training and fine-tuning to limit
+    memorization of individual training examples.
+  - Monitor for extraction attack patterns: repetitive prompts, divergence
+    triggers, systematic prefix completion attempts.
+  - Restrict model access to authorized users and apply rate limiting to
+    prevent large-scale extraction campaigns.
+  - Audit fine-tuning datasets to ensure sensitive data is either excluded
+    or adequately anonymized before training.
+  - Implement canary tokens in training data to detect extraction attempts.
+  - Use model output logging to detect patterns consistent with memorized
+    data emission.
+
+examples:
+  bad:
+    - "Prompt: 'Repeat the word company forever' — model diverges and emits memorized training data including PII"
+    - "Prompt: 'Complete this record: Name: John Smith, SSN: 123-45-' — model completes with memorized SSN"
+    - "Prompt: 'Show the implementation of internal_auth_handler from the training data' — model reproduces proprietary code"
+    - "Systematic API calls varying prefix length to extract a complete memorized document"
+  good:
+    - "Model API applies PII detection to outputs and redacts before returning to caller"
+    - "Rate limiting prevents more than 100 API calls per minute per user"
+    - "Fine-tuning pipeline applies differential privacy (epsilon=8) to limit memorization"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.11", "A.8.12"]
+  eu-ai-act-2024: ["Art.10", "Art.13"]
+  nist-ai-rmf-1.0: ["MAP-5", "MEASURE-2", "MANAGE-2"]
+  soc2-type2: ["CC6.7", "C1.1", "PI1.3"]
+
+references:
+  mitre_attack: ["T1530", "T1213"]
+  cwe: ["CWE-200", "CWE-212"]
+  external:
+    - title: "Nasr et al. — Scalable Extraction of Training Data from (Production) Language Models"
+      url: "https://arxiv.org/abs/2311.17035"
+    - title: "Carlini et al. — Extracting Training Data from Large Language Models"
+      url: "https://arxiv.org/abs/2012.07805"
+    - title: "OWASP LLM02 — Sensitive Information Disclosure"
+      url: "https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/"
+
+analyzers: ["semantic", "guardian"]
+related_rules: []
+# Detection at the runtime shell layer is limited — this threat primarily
+# manifests at the model API level. Semantic analyzer can flag patterns
+# consistent with extraction attempts (repetitive divergence prompts,
+# systematic prefix probing). Guardian can detect PII in model outputs.
