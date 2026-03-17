@@ -1095,6 +1095,174 @@ var ModernOSINTToolCases = []TestCase{
 		Description:      "dnsx -version has no domain or wordlist flag — ne-block-dnsx requires flags_any [d,l,w,...] so this must not be blocked (AUDIT default is acceptable).",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ── SpiderFoot ────────────────────────────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-SPIDERFOOT-001",
+		Command:          "spiderfoot -s example.com -m all",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "SpiderFoot automated OSINT scan against a target domain — must be blocked (ne-block-spiderfoot). MITRE T1589, T1590, T1596.",
+		Tags:             []string{"tp", "osint", "spiderfoot"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SPIDERFOOT-002",
+		Command:          "sfcli -s target.com -m sfp_shodan,sfp_threatcrowd",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "SpiderFoot CLI (sfcli) with specific intelligence modules — must be blocked (ne-block-spiderfoot).",
+		Tags:             []string{"tp", "osint", "spiderfoot"},
+	},
+
+	// ── h8mail email breach hunting ────────────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-H8MAIL-001",
+		Command:          "h8mail -t target@example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "h8mail breach database lookup for a target email — must be blocked (ne-block-h8mail). MITRE T1589.002.",
+		Tags:             []string{"tp", "osint", "h8mail", "breach"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-H8MAIL-002",
+		Command:          "h8mail -t targets.txt -bc breach-compile.txt",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "h8mail batch credential hunt against local breach compile — must be blocked (ne-block-h8mail).",
+		Tags:             []string{"tp", "osint", "h8mail", "breach"},
+	},
+
+	// ── holehe email account enumeration ─────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-HOLEHE-001",
+		Command:          "holehe target@example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "holehe email account registration probe across 120+ sites — must be blocked (ne-block-holehe). MITRE T1589.002.",
+		Tags:             []string{"tp", "osint", "holehe", "email"},
+	},
+
+	// ── metagoofil metadata harvesting ───────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-METAGOOFIL-001",
+		Command:          "metagoofil -d example.com -t pdf,doc,xls -o /tmp/meta",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "metagoofil harvesting metadata from public documents of a target domain — must be blocked (ne-block-metagoofil). MITRE T1593.",
+		Tags:             []string{"tp", "osint", "metagoofil", "metadata"},
+	},
+
+	// ── assetfinder subdomain discovery ──────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-ASSETFINDER-001",
+		Command:          "assetfinder example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "assetfinder passive subdomain discovery against a target — must be blocked (ne-block-assetfinder). MITRE T1590.005.",
+		Tags:             []string{"tp", "osint", "assetfinder", "subdomain"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ASSETFINDER-002",
+		Command:          "assetfinder --subs-only target.com | tee domains.txt",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "assetfinder subdomain-only output piped to file — must be blocked (ne-block-assetfinder).",
+		Tags:             []string{"tp", "osint", "assetfinder", "subdomain"},
+	},
+
+	// ── waybackurls historical URL harvesting ─────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-WAYBACKURLS-001",
+		Command:          "waybackurls example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "waybackurls fetching all historical URLs for a target from Wayback Machine — must be blocked (ne-block-waybackurls). MITRE T1593.",
+		Tags:             []string{"tp", "osint", "waybackurls", "historical"},
+	},
+
+	// ── gau (GetAllUrls) URL collection ────────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-GAU-001",
+		Command:          "gau example.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "gau collecting all URLs from Wayback/CommonCrawl/OTX for a target — must be blocked (ne-block-gau). MITRE T1593.",
+		Tags:             []string{"tp", "osint", "gau", "url-harvest"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-GAU-002",
+		Command:          "getallurls target.com --subs | sort -u > urls.txt",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "getallurls (gau alias) with subdomain inclusion — must be blocked (ne-block-gau).",
+		Tags:             []string{"tp", "osint", "gau", "url-harvest"},
+	},
+
+	// ── photon OSINT web spider ─────────────────────────────────────────────
+	{
+		ID:               "TP-NE-BLOCK-PHOTON-001",
+		Command:          "photon -u https://example.com -r 3",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "photon OSINT spider crawling a target 3 levels deep — must be blocked (ne-block-photon). MITRE T1593.",
+		Tags:             []string{"tp", "osint", "photon", "spider"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-PHOTON-002",
+		Command:          "photon --url https://target.com --crawl --keys",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "photon --crawl with API key extraction — must be blocked (ne-block-photon).",
+		Tags:             []string{"tp", "osint", "photon", "spider"},
+	},
+
+	// ── True Negatives for new OSINT tools ────────────────────────────────
+	{
+		ID:               "TN-NE-BLOCK-SPIDERFOOT-001",
+		Command:          "cat spiderfoot-report.html",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "Reading a spiderfoot report file does not invoke the spiderfoot executable — must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-PHOTON-001",
+		Command:          "python3 photon_analyzer.py --report results.json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "structural",
+		Description:      "Python script named photon_analyzer.py — photon rule requires the photon executable with -u/--url/--crawl flags, so this does not match. Must not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
 	// httpx -version has no target flag; the flags_any guard is not satisfied.
 	{
 		ID:               "TN-NE-BLOCK-HTTPX-001",

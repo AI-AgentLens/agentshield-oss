@@ -609,6 +609,132 @@ rules:
     confidence: 0.95
     reason: "subfinder enumerates subdomains via passive DNS, certificate logs, and public APIs. AI agents must not perform subdomain reconnaissance against external targets. MITRE T1590.005."
 
+  # === BLOCK: SpiderFoot automated OSINT framework ===
+  #
+  # SpiderFoot automates OSINT collection across 200+ data sources, mapping
+  # networks, domains, emails, names, and social profiles. Even its passive
+  # mode aggregates data from dozens of APIs and feeds, building a detailed
+  # profile of the target. MITRE T1589, T1590, T1596.
+
+  - id: "ne-block-spiderfoot"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["spiderfoot", "sfcli", "sf.py"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "SpiderFoot automates OSINT collection across 200+ data sources (emails, IPs, domains, credentials). AI agents must not perform unsolicited intelligence gathering against targets. MITRE T1589, T1590, T1596."
+
+  # === BLOCK: h8mail email breach hunting ===
+  #
+  # h8mail queries breach databases (HIBP, Snusbase, IntelX) to discover
+  # compromised credentials associated with target email addresses. This
+  # directly exposes victim credentials and enables credential-stuffing attacks.
+  # MITRE T1589.002, T1598.
+
+  - id: "ne-block-h8mail"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["h8mail"]
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "h8mail queries breach databases to find compromised credentials for target email addresses. This directly exposes victim passwords and enables credential-stuffing attacks. MITRE T1589.002."
+
+  # === BLOCK: holehe email account enumeration ===
+  #
+  # holehe checks whether a target email address has registered accounts
+  # across 120+ websites by probing password-reset flows. Enables targeted
+  # phishing and account-takeover attacks. MITRE T1589.002.
+
+  - id: "ne-block-holehe"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["holehe"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "holehe probes 120+ sites to enumerate which accounts a target email address has registered. Enables targeted phishing and account-takeover. MITRE T1589.002."
+
+  # === BLOCK: metagoofil metadata harvesting ===
+  #
+  # metagoofil uses Google/Bing to discover and download public documents
+  # from a target domain, then extracts metadata (usernames, software versions,
+  # email addresses, internal paths) to map internal infrastructure.
+  # MITRE T1593, T1596.
+
+  - id: "ne-block-metagoofil"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["metagoofil"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "metagoofil harvests metadata from public documents of a target domain, exposing internal usernames, paths, and software versions. MITRE T1593, T1596."
+
+  # === BLOCK: assetfinder subdomain discovery ===
+  #
+  # assetfinder discovers subdomains and assets for a target domain using
+  # multiple passive sources (crt.sh, HackerTarget, ThreatCrowd). Commonly
+  # chained with amass and subfinder in reconnaissance pipelines.
+  # MITRE T1590.005.
+
+  - id: "ne-block-assetfinder"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["assetfinder"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "assetfinder discovers subdomains via passive sources (CT logs, threat intel APIs). Used to map attack surface prior to scanning. MITRE T1590.005."
+
+  # === BLOCK: waybackurls historical URL harvesting ===
+  #
+  # waybackurls fetches all URLs ever crawled for a target domain from the
+  # Wayback Machine, revealing hidden endpoints, deprecated APIs, backup
+  # files, and other forgotten attack surfaces. MITRE T1593.
+
+  - id: "ne-block-waybackurls"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["waybackurls"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "waybackurls harvests historical URLs from the Wayback Machine to discover hidden endpoints, deprecated APIs, and forgotten files. MITRE T1593."
+
+  # === BLOCK: gau (GetAllUrls) multi-source URL collection ===
+  #
+  # gau collects historical and current URLs for a target from the Wayback
+  # Machine, Common Crawl, Open Threat Exchange, and URLScan. Used to map
+  # the full URL space of a target before fuzzing or scanning.
+  # MITRE T1593.
+
+  - id: "ne-block-gau"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["gau", "getallurls"]
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "gau (GetAllUrls) aggregates historical URLs from Wayback Machine, Common Crawl, and OTX to map a target's full attack surface. MITRE T1593."
+
+  # === BLOCK: photon OSINT web spider ===
+  #
+  # photon crawls a target website to harvest URLs, emails, files, API keys,
+  # and linked subdomains. Goes beyond passive sources by actively spidering
+  # the target. MITRE T1593, T1595.
+
+  - id: "ne-block-photon"
+    taxonomy: "reconnaissance/osint/passive-enumeration"
+    match:
+      structural:
+        executable: ["photon"]
+        flags_any: ["u", "url", "r", "crawl"]
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "photon actively spiders target websites to harvest URLs, emails, API keys, and linked subdomains. AI agents must not crawl external targets. MITRE T1593, T1595."
+
   # === BLOCK: nuclei template-based vulnerability scanner ===
   #
   # nuclei runs thousands of community templates that probe for CVEs, misconfig-
