@@ -866,6 +866,51 @@ rules:
     confidence: 0.90
     reason: "Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk."
 
+  # === BLOCK: Shell startup script backdoor ===
+  # Covers appends/overwrites/in-place edits to .bashrc, .zshrc, .bash_profile, .profile,
+  # and similar shell startup files. These files are sourced automatically on every new
+  # terminal session, making them a high-value persistence target (MITRE T1546.004).
+
+  - id: "ts-block-shell-profile-append"
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>>\\s*(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.?(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zlogin|zlogout|profile|kshrc|cshrc|tcshrc)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Appending to shell startup files (.bashrc, .zshrc, .bash_profile, etc.) is a persistence technique — commands added here execute automatically on every new terminal session (MITRE T1546.004)."
+
+  - id: "ts-block-shell-profile-overwrite"
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*[^>]>\\s*(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.?(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zlogin|zlogout|profile|kshrc|cshrc|tcshrc)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Overwriting a shell startup file (.bashrc, .zshrc, etc.) replaces the user's shell configuration with potentially malicious content, establishing persistence."
+
+  - id: "ts-block-shell-profile-tee"
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      command_regex: "tee\\s+((-a|--append)\\s+)?(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.?(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zlogin|zlogout|profile|kshrc|cshrc|tcshrc)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Using tee to write to shell startup files is a persistence technique identical in effect to echo redirection (MITRE T1546.004)."
+
+  - id: "ts-block-shell-profile-sed"
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      command_regex: "sed\\s+(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\s+.*\\s+(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.?(bashrc|zshrc|bash_profile|bash_login|bash_logout|zprofile|zlogin|zlogout|profile|kshrc|cshrc|tcshrc)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "In-place editing of shell startup files via sed is a persistence technique that injects commands into .bashrc, .zshrc, and similar scripts (MITRE T1546.004)."
+
+  - id: "ts-block-shell-sysprofile-write"
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      command_regex: "(echo|printf|cat|tee)\\s+.*>+\\s*/etc/(profile|bash\\.bashrc|bash_completion|environment|profile\\.d/[^\\s]+)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to system-wide shell profiles (/etc/profile, /etc/bash.bashrc, /etc/profile.d/) affects all users on the system and is a critical persistence vector (MITRE T1546.004)."
+
   # === BLOCK: Git credential theft & force push ===
 
   - id: "ts-block-git-force-push-main"
