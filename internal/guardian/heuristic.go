@@ -1,6 +1,7 @@
 package guardian
 
 import (
+	"math"
 	"regexp"
 	"strings"
 )
@@ -353,9 +354,37 @@ func isBase64Payload(cmd string) bool {
 				continue
 			}
 		}
+		// Skip if the matched string has low Shannon entropy. Real base64 payloads
+		// encode binary data, giving character entropy ≥ 4.5 bits/char. Long English
+		// words, camelCase identifiers, and markdown prose (e.g. in git commit -m
+		// messages) have entropy < 4.0 bits/char and are almost never actual base64.
+		// Threshold of 4.5 eliminates these FPs while preserving detection of real
+		// base64-encoded payloads (entropy typically 5.5–6.0 bits/char).
+		if shannonEntropy(matched) < 4.5 {
+			continue
+		}
 		return true
 	}
 	return false
+}
+
+// shannonEntropy calculates the Shannon entropy of s in bits per character.
+// Returns 0.0 for empty or single-character strings.
+func shannonEntropy(s string) float64 {
+	if len(s) < 2 {
+		return 0.0
+	}
+	freq := make(map[rune]int, 64)
+	for _, c := range s {
+		freq[c]++
+	}
+	n := float64(len(s))
+	var h float64
+	for _, count := range freq {
+		p := float64(count) / n
+		h -= p * math.Log2(p)
+	}
+	return h
 }
 
 // hexEscapePattern matches sequences of 4+ hex escapes like \x41\x42\x43\x44.
