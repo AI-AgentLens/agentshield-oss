@@ -1545,6 +1545,268 @@ var IndirectPromptInjectionCases = []TestCase{
 	},
 }
 
+// ShadowAIUsageCases covers unauthorized-execution/ai-model-usage/shadow-ai-usage.
+// Shadow AI is the deployment of AI models, agents, or MCP servers without
+// organizational approval, bypassing security controls and governance policies.
+// Rules: ts-audit-ollama-serve, ts-audit-ollama-pull, ts-audit-lmstudio-server,
+//        ts-audit-open-interpreter-install, ts-audit-open-interpreter-run,
+//        ts-audit-autogpt-install
+var ShadowAIUsageCases = []TestCase{
+	// =========================================================================
+	// TP: Ollama serve / run — starts an unmonitored local inference server
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-OLLAMA-SERVE-001",
+		Command:          "ollama serve",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama serve starts an unmonitored local inference server — shadow AI deployment.",
+		Tags:             []string{"tp", "shadow-ai", "ollama"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OLLAMA-SERVE-002",
+		Command:          "ollama run llama3.2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama run starts a local model without governance review.",
+		Tags:             []string{"tp", "shadow-ai", "ollama"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OLLAMA-SERVE-003",
+		Command:          "OLLAMA_HOST=0.0.0.0 ollama serve",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama serve with host override — exposing local model on all interfaces.",
+		Tags:             []string{"tp", "shadow-ai", "ollama"},
+	},
+	// =========================================================================
+	// TN: ollama commands that are read-only or informational
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-OLLAMA-SERVE-001",
+		Command:          "ollama list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama list only shows installed models — read-only, no shadow-AI rule triggered. Default AUDIT (no explicit ALLOW rule for ollama subcommands).",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-OLLAMA-SERVE-002",
+		Command:          "ollama --version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama --version is a version query — no shadow-AI rule triggered. Default AUDIT.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	// =========================================================================
+	// TP: Ollama pull — downloads unreviewed model weights
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-OLLAMA-PULL-001",
+		Command:          "ollama pull mistral",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama pull downloads unreviewed model weights — potential model poisoning risk.",
+		Tags:             []string{"tp", "shadow-ai", "ollama", "model-download"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OLLAMA-PULL-002",
+		Command:          "ollama pull hf.co/some-user/custom-model",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama pull from HuggingFace hub — unreviewed weights from untrusted author.",
+		Tags:             []string{"tp", "shadow-ai", "ollama", "model-download"},
+	},
+	// =========================================================================
+	// TN: ollama pull — benign check
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-OLLAMA-PULL-001",
+		Command:          "ollama show llama3",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "ollama show is a metadata query — no shadow-AI rule triggered. Default AUDIT.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	// =========================================================================
+	// TP: LM Studio server — local AI API endpoint
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-LMSTUDIO-001",
+		Command:          "lms server start",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "LM Studio inference server started — unmonitored local AI API outside governance.",
+		Tags:             []string{"tp", "shadow-ai", "lmstudio"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-LMSTUDIO-002",
+		Command:          "lms server start --port 1234 --cors",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "LM Studio inference server with CORS enabled — exposing AI API to web requests.",
+		Tags:             []string{"tp", "shadow-ai", "lmstudio"},
+	},
+	// =========================================================================
+	// TN: lms — non-server commands
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-LMSTUDIO-001",
+		Command:          "lms ls",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "lms ls lists downloaded models — no LM Studio shadow-AI rule triggered. Default AUDIT.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	// =========================================================================
+	// TP: Open Interpreter install — LLM with unrestricted shell access
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-OPEN-INTERPRETER-INSTALL-001",
+		Command:          "pip install open-interpreter",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "Installing Open Interpreter grants an LLM unrestricted shell access — high-risk shadow AI.",
+		Tags:             []string{"tp", "shadow-ai", "open-interpreter"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OPEN-INTERPRETER-INSTALL-002",
+		Command:          "pip3 install open-interpreter",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip3 install open-interpreter — same risk as pip install.",
+		Tags:             []string{"tp", "shadow-ai", "open-interpreter"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OPEN-INTERPRETER-INSTALL-003",
+		Command:          "pipx install open-interpreter",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pipx install open-interpreter — isolated install still grants LLM shell access.",
+		Tags:             []string{"tp", "shadow-ai", "open-interpreter"},
+	},
+	// =========================================================================
+	// TP: Open Interpreter invocation
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-OPEN-INTERPRETER-RUN-001",
+		Command:          "interpreter",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "Running Open Interpreter directly — LLM with full shell access, shadow AI.",
+		Tags:             []string{"tp", "shadow-ai", "open-interpreter"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-OPEN-INTERPRETER-RUN-002",
+		Command:          `interpreter --model ollama/llama3 --task "refactor all tests"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "Open Interpreter with task flag — autonomous code execution by unmonitored AI.",
+		Tags:             []string{"tp", "shadow-ai", "open-interpreter"},
+	},
+	// =========================================================================
+	// TN: open-interpreter — false positive candidates
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-OPEN-INTERPRETER-001",
+		Command:          "pip install openai",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip install openai is not open-interpreter — shadow-AI rule not triggered. Gets AUDIT from sc-audit-pip-install supply-chain rule.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-OPEN-INTERPRETER-002",
+		Command:          "python3 -m interpret --file config.yaml",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "python -m interpret (config tool, not Open Interpreter) — shadow-AI rule not triggered. Default AUDIT.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	// =========================================================================
+	// TP: AutoGPT install — autonomous agent framework
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-AUTOGPT-INSTALL-001",
+		Command:          "pip install autogpt",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "Installing AutoGPT — autonomous AI agent with recursive self-direction, LLM06 risk.",
+		Tags:             []string{"tp", "shadow-ai", "autogpt"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AUTOGPT-INSTALL-002",
+		Command:          "pip3 install autogpt --quiet",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip3 install autogpt with quiet flag — silent autonomous agent installation.",
+		Tags:             []string{"tp", "shadow-ai", "autogpt"},
+	},
+	// =========================================================================
+	// TN: AutoGPT — false positive candidates
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-AUTOGPT-INSTALL-001",
+		Command:          "pip install auto-sklearn",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip install auto-sklearn — 'auto' prefix does not match \\bautogpt\\b. Shadow-AI rule not triggered. Gets AUDIT from sc-audit-pip-install.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AUTOGPT-INSTALL-002",
+		Command:          "pip install autopep8",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip install autopep8 — 'auto' prefix does not match \\bautogpt\\b. Shadow-AI rule not triggered.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
@@ -1563,5 +1825,6 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, ProcessTracingCases...)
 	all = append(all, MultiAgentTrustExploitationCases...)
 	all = append(all, IndirectPromptInjectionCases...)
+	all = append(all, ShadowAIUsageCases...)
 	return all
 }
