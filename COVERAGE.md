@@ -6,21 +6,23 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 330 |
+| Terminal rules | 332 |
 | MCP rules | 105 |
-| Total rules | 435 |
-| Test cases (TP+TN) | 1038 |
+| Total rules | 437 |
+| Test cases (TP+TN) | 1047 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (35 rules)
+### credential-exposure (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m), as a heredoc body in a cat file-write operation, or as an echo/printf argument. |
 | `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (e.g. --body, --message) or as heredoc content written via cat. |
 | `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. |
+| `sec-block-chrome-login-db` | BLOCK | regex | Access to Chrome/Chromium browser credential and cookie databases is blocked (MITRE T1555.003). |
+| `sec-block-firefox-login-db` | BLOCK | regex | Access to Firefox credential database files is blocked (MITRE T1555.003). |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
 | `sec-audit-env-dump` | AUDIT | prefix | Environment dump may expose secrets (API keys, tokens, passwords). |
 | `sec-audit-env-grep-secret` | AUDIT | regex | Targeted access to secret environment variables flagged for review. |
@@ -550,7 +552,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 101 | 80 | 181 |
+| credential-exposure | 107 | 83 | 190 |
 | data-exfiltration | 80 | 48 | 128 |
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
@@ -558,5 +560,5 @@
 | reconnaissance | 108 | 39 | 147 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **651** | **387** | **1038** |
+| **Total** | **657** | **390** | **1047** |
 
