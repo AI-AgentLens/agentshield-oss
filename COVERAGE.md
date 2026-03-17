@@ -1,15 +1,15 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (317 terminal rules, 105 MCP rules)
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (320 terminal rules, 105 MCP rules)
 Metric | Count |
 |--------|-------|
-| Terminal rules | 317 |
+| Terminal rules | 320 |
 | MCP rules | 105 |
-| Total rules | 422 |
-| Test cases (TP+TN) | 1002 |
+| Total rules | 425 |
+| Test cases (TP+TN) | 1013 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (32 rules)
+### credential-exposure (35 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -21,6 +21,9 @@ Metric | Count |
 | `sec-audit-env-grep-secret` | AUDIT | regex | Targeted access to secret environment variables flagged for review. |
 | `sec-audit-dotenv` | AUDIT | regex | .env files often contain secrets. Flagged for review. |
 | `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. |
+| `sec-block-tfstate-read` | BLOCK | regex | Terraform state and variable files contain plaintext credentials (DB passwords, API keys, TLS keys). Direct access is blocked. MITRE T1552.001. |
+| `sec-audit-terraform-output` | AUDIT | structural | terraform/tofu output dumps declared output values including sensitive ones (passwords, API keys, connection strings). Flagged for review. MITRE T1552.001. |
+| `sec-audit-terraform-state-cmd` | AUDIT | structural | terraform/tofu state commands expose managed resource attributes including sensitive values (passwords, keys, tokens). Flagged for review. MITRE T1552.001. |
 | `sec-audit-clipboard` | AUDIT | prefix | Clipboard operations flagged — may leak secrets. |
 | `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. |
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
@@ -532,7 +535,7 @@ Metric | Count |
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 93 | 77 | 170 |
+| credential-exposure | 101 | 80 | 181 |
 | data-exfiltration | 74 | 44 | 118 |
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
@@ -540,5 +543,5 @@ Metric | Count |
 | reconnaissance | 95 | 37 | 132 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **624** | **378** | **1002** |
+| **Total** | **632** | **381** | **1013** |
 

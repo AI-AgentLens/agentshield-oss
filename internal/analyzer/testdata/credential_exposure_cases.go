@@ -2165,6 +2165,140 @@ var SecretsPIIPackRuleCases = []TestCase{
 	},
 }
 
+// TerraformStateCredentialCases tests detection of Terraform state file reads
+// and terraform CLI commands that expose sensitive output/state values (closes #266).
+// Rules: sec-block-tfstate-read, sec-audit-terraform-output, sec-audit-terraform-state-cmd
+// Taxonomy: credential-exposure/config-file-access/generic-config-access
+// MITRE T1552.001, T1580
+var TerraformStateCredentialCases = []TestCase{
+	// ── State and variable file reads (sec-block-tfstate-read) ────────────
+
+	{
+		ID:               "TP-SEC-TFSTATE-READ-001",
+		Command:          "cat terraform.tfstate",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "Reading terraform.tfstate directly — contains plaintext passwords, API keys, and connection strings. Must be blocked (sec-block-tfstate-read).",
+		Tags:             []string{"tp", "terraform", "tfstate"},
+	},
+	{
+		ID:               "TP-SEC-TFSTATE-READ-002",
+		Command:          "cat terraform.tfstate.backup",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "Reading terraform.tfstate.backup — backup state file contains the same plaintext secrets as the primary. Must be blocked (sec-block-tfstate-read).",
+		Tags:             []string{"tp", "terraform", "tfstate"},
+	},
+	{
+		ID:               "TP-SEC-TFSTATE-READ-003",
+		Command:          "cat production.tfvars",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "Reading a .tfvars file — variable definition files commonly contain database passwords and API keys passed to Terraform. Must be blocked (sec-block-tfstate-read).",
+		Tags:             []string{"tp", "terraform", "tfvars"},
+	},
+
+	// ── terraform output — dumps sensitive output values (sec-audit-terraform-output) ──
+
+	{
+		ID:               "TP-SEC-TF-OUTPUT-001",
+		Command:          "terraform output -json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "structural",
+		Description:      "terraform output -json dumps all declared outputs in JSON including sensitive ones (passwords, tokens). Must be audited (sec-audit-terraform-output).",
+		Tags:             []string{"tp", "terraform", "output"},
+	},
+	{
+		ID:               "TP-SEC-TF-OUTPUT-002",
+		Command:          "terraform output -raw db_password",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "structural",
+		Description:      "terraform output -raw targeting a password output — reads plaintext sensitive value. Must be audited (sec-audit-terraform-output).",
+		Tags:             []string{"tp", "terraform", "output"},
+	},
+	{
+		ID:               "TP-SEC-TF-OUTPUT-003",
+		Command:          "tofu output -json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "structural",
+		Description:      "OpenTofu (tofu) output -json — same as terraform output, dumps all declared outputs. Must be audited (sec-audit-terraform-output).",
+		Tags:             []string{"tp", "tofu", "output"},
+	},
+
+	// ── terraform state commands (sec-audit-terraform-state-cmd) ──────────
+
+	{
+		ID:               "TP-SEC-TF-STATE-001",
+		Command:          "terraform state show aws_db_instance.main",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "structural",
+		Description:      "terraform state show prints all resource attributes including sensitive ones (db password, connection URL). Must be audited (sec-audit-terraform-state-cmd).",
+		Tags:             []string{"tp", "terraform", "state"},
+	},
+	{
+		ID:               "TP-SEC-TF-STATE-002",
+		Command:          "terraform state list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "structural",
+		Description:      "terraform state list reveals the full inventory of managed infrastructure — recon before targeted attribute access. Must be audited (sec-audit-terraform-state-cmd).",
+		Tags:             []string{"tp", "terraform", "state"},
+	},
+
+	// ── True Negatives (benign terraform usage) ───────────────────────────
+	//
+	// Note: The default policy decision is AUDIT, so benign terraform commands
+	// with no matching rule return AUDIT (not ALLOW). These TNs confirm that
+	// benign terraform operations are NOT promoted to BLOCK by the terraform
+	// credential rules.
+
+	{
+		ID:               "TN-SEC-TFSTATE-READ-001",
+		Command:          "terraform plan",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "terraform plan — legitimate infrastructure preview. Terraform state credential rules must not BLOCK; default AUDIT applies.",
+		Tags:             []string{"tn", "terraform", "safe"},
+	},
+	{
+		ID:               "TN-SEC-TFSTATE-READ-002",
+		Command:          "terraform validate",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "terraform validate — configuration syntax check, no credential access. Terraform state credential rules must not BLOCK; default AUDIT applies.",
+		Tags:             []string{"tn", "terraform", "safe"},
+	},
+	{
+		ID:               "TN-SEC-TFSTATE-READ-003",
+		Command:          "terraform fmt -recursive",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "terraform fmt — code formatting, no credential access. Terraform state credential rules must not BLOCK; default AUDIT applies.",
+		Tags:             []string{"tn", "terraform", "safe"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -2184,5 +2318,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, DBCliCredentialCases...)
 	all = append(all, SymlinkCredentialCases...)
 	all = append(all, SecretsPIIPackRuleCases...)
+	all = append(all, TerraformStateCredentialCases...)
 	return all
 }
