@@ -200,3 +200,44 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004."
     confidence: 0.97
+
+  # === AUDIT: AI agent instruction and memory file writes via MCP (issue #206) ===
+  #
+  # AI agent instruction files (CLAUDE.md, .cursorrules, .windsurfrules) and
+  # memory files (.claude/memory/*.md) govern agent behavior across sessions.
+  # An MCP write_file call targeting these files can inject persistent instructions
+  # that alter agent behavior in all future sessions — a form of inter-session
+  # prompt injection that bypasses all shell-level defenses.
+  #
+  # Decision: AUDIT (not BLOCK) — agents legitimately update CLAUDE.md and
+  # memory files as part of normal operation (e.g., remembering user preferences).
+  # Human review ensures no malicious instructions were injected.
+  #
+  # OWASP LLM01 — Prompt Injection
+  # OWASP LLM08 — Integrity Failures
+  # MITRE T1564 — Hide Artifacts (instructions hidden in memory files)
+  - id: mcp-persist-audit-instruction-file-write
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-memory-poisoning"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)CLAUDE\\.md$"
+            - "(?:^|/)\\.cursorrules$"
+            - "(?:^|/)\\.windsurfrules$"
+            - "(?:^|/)\\.claude/memory/.*\\.md$"
+            - "(?:^|/)\\.claude/CLAUDE\\.md$"
+    decision: "AUDIT"
+    reason: "MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). OWASP LLM01/LLM08."
+    confidence: 0.85
