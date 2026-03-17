@@ -927,6 +927,51 @@ rules:
     confidence: 0.95
     reason: "Azure resource group deletion destroys all resources in the group."
 
+  # === BLOCK: IaC infrastructure destroy ===
+  # Terraform, OpenTofu, Terragrunt, Pulumi, and AWS CDK destroy commands
+  # wipe ALL managed resources in a single command — higher blast radius than
+  # individual CLI commands since one invocation can destroy cross-provider infra.
+
+  - id: "ts-block-terraform-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      command_regex: "\\bterraform\\s+destroy\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "terraform destroy tears down ALL resources in the Terraform state file across every cloud provider — equivalent to running many cloud-infra delete commands simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+
+  - id: "ts-block-tofu-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      command_regex: "\\btofu\\s+destroy\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "tofu destroy (OpenTofu, the open-source Terraform fork) tears down all managed cloud infrastructure — same blast radius as terraform destroy. AI agents must not run infrastructure destruction commands. (MITRE T1578, T1485)"
+
+  - id: "ts-block-terragrunt-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      command_regex: "\\bterragrunt\\s+(run-all\\s+)?destroy\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "terragrunt destroy (especially run-all destroy) tears down infrastructure across multiple Terraform stacks in a directory tree — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+
+  - id: "ts-block-pulumi-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      command_regex: "\\bpulumi\\s+destroy\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+
+  - id: "ts-block-cdk-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      command_regex: "\\bcdk\\s+destroy\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+
   # === BLOCK: Container escape & Kubernetes attacks ===
 
   - id: "ts-block-docker-privileged"
