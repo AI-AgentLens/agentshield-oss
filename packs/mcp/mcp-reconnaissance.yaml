@@ -1,0 +1,126 @@
+name: "MCP Reconnaissance & Discovery"
+description: "Detect reconnaissance activity via MCP tool calls: filesystem enumeration, database schema discovery, and internal network probing"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # === AUDIT: System directory enumeration ===
+  - id: mcp-recon-audit-etc-listing
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "list_directory"
+        - "list_files"
+        - "read_directory"
+        - "ls"
+        - "dir"
+        - "glob"
+      argument_patterns:
+        path: "/etc/**"
+    decision: "AUDIT"
+    reason: "Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083."
+
+  - id: mcp-recon-audit-proc-read
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "list_directory"
+        - "list_files"
+        - "read_directory"
+      argument_patterns:
+        path: "/proc/**"
+    decision: "AUDIT"
+    reason: "Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057."
+
+  - id: mcp-recon-audit-home-listing
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "list_directory"
+        - "list_files"
+        - "read_directory"
+        - "ls"
+        - "dir"
+        - "glob"
+      argument_patterns:
+        path: "/home/**"
+    decision: "AUDIT"
+    reason: "Listing /home directory contents flagged — enumerates local user accounts and their project layouts. MITRE T1083."
+
+  - id: mcp-recon-audit-os-release-read
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+      argument_patterns:
+        path: "/etc/os-release"
+    decision: "AUDIT"
+    reason: "Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082."
+
+  - id: mcp-recon-audit-passwd-read
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+      argument_patterns:
+        path: "/etc/passwd"
+    decision: "AUDIT"
+    reason: "Reading /etc/passwd enumerates local user accounts — used to identify privilege escalation targets. MITRE T1087."
+
+  - id: mcp-recon-audit-hosts-read
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+      argument_patterns:
+        path: "/etc/hosts"
+    decision: "AUDIT"
+    reason: "Reading /etc/hosts maps internal hostnames to IPs — used for lateral movement target identification. MITRE T1016."
+
+# === Structural rules for URL and query-based reconnaissance ===
+structural_rules:
+  # === AUDIT: Localhost/loopback internal service probing ===
+  - id: mcp-recon-audit-localhost-probe
+    taxonomy: "reconnaissance/network-discovery/internal-service-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)https?://localhost(:[0-9]+)?"
+            - "(?i)https?://127\\.0\\.0\\.1(:[0-9]+)?"
+    decision: "AUDIT"
+    reason: "HTTP probe to localhost or 127.0.0.1 flagged — may enumerate internal services (admin panels, dev servers, management APIs). LLM02, MITRE T1046."
+
+  # === AUDIT: Spring Boot Actuator endpoint probing ===
+  - id: mcp-recon-audit-spring-actuator
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/actuator(/|$)"
+    decision: "AUDIT"
+    reason: "Spring Boot Actuator endpoint access flagged — exposes application metrics, env vars, heap dumps, and config. LLM02, MITRE T1082."
+
+  # === AUDIT: Database schema enumeration ===
+  - id: mcp-recon-audit-db-schema-enum
+    taxonomy: "reconnaissance/network-discovery/database-schema-enumeration"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        query:
+          pattern_any:
+            - "(?i)information_schema"
+            - "(?i)\\bSHOW\\s+TABLES\\b"
+            - "(?i)\\bSHOW\\s+DATABASES\\b"
+            - "(?i)pg_catalog\\.pg_tables"
+            - "(?i)sqlite_master"
+    decision: "AUDIT"
+    reason: "Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213."

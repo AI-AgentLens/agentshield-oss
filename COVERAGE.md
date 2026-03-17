@@ -1,14 +1,9 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (308 terminal rules, 97 MCP rules)
+ Metric | Count |
 |--------|-------|
 | Terminal rules | 308 |
-| MCP rules | 88 |
-| Total rules | 396 |
+| MCP rules | 97 |
+| Total rules | 405 |
 | Test cases (TP+TN) | 958 |
 | Kingdoms covered | 9 |
 
@@ -461,6 +456,20 @@
 |---------|----------|------------|-------------|
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
+
+### reconnaissance (9 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-recon-audit-etc-listing` | AUDIT | mcp_rule | Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083. |
+| `mcp-recon-audit-proc-read` | AUDIT | mcp_rule | Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057. |
+| `mcp-recon-audit-home-listing` | AUDIT | mcp_rule | Listing /home directory contents flagged — enumerates local user accounts and their project layouts. MITRE T1083. |
+| `mcp-recon-audit-os-release-read` | AUDIT | mcp_rule | Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082. |
+| `mcp-recon-audit-passwd-read` | AUDIT | mcp_rule | Reading /etc/passwd enumerates local user accounts — used to identify privilege escalation targets. MITRE T1087. |
+| `mcp-recon-audit-hosts-read` | AUDIT | mcp_rule | Reading /etc/hosts maps internal hostnames to IPs — used for lateral movement target identification. MITRE T1016. |
+| `mcp-recon-audit-localhost-probe` | AUDIT | structural | HTTP probe to localhost or 127.0.0.1 flagged — may enumerate internal services (admin panels, dev servers, management APIs). LLM02, MITRE T1046. |
+| `mcp-recon-audit-spring-actuator` | AUDIT | structural | Spring Boot Actuator endpoint access flagged — exposes application metrics, env vars, heap dumps, and config. LLM02, MITRE T1082. |
+| `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213. |
 
 ### supply-chain (7 rules)
 
