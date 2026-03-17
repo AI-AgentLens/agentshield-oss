@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 271 |
+| Terminal rules | 282 |
 | MCP rules | 80 |
-| Total rules | 351 |
-| Test cases (TP+TN) | 801 |
+| Total rules | 362 |
+| Test cases (TP+TN) | 846 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (31 rules)
+### credential-exposure (32 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -49,6 +49,7 @@
 | `ts-audit-k8s-secret-mount` | AUDIT | regex | Reading Kubernetes service account tokens or Docker secret mounts — exposes LLM API keys and SA tokens injected as K8s/Docker Secrets (LLM07, LLM02). MITRE T1552.007. |
 | `ts-audit-db-cli-inline-password` | AUDIT | regex | Database CLI invoked with inline password in command string — credential visible in process list and shell history (LLM02, LLM06). Use password files or environment-variable injection instead. MITRE T1552.004. |
 | `ts-audit-db-env-password` | AUDIT | regex | Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552. |
+| `ts-block-symlink-credential-files` | BLOCK | regex | Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
 
 ### data-exfiltration (48 rules)
 
@@ -137,7 +138,7 @@
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 
-### persistence-evasion (37 rules)
+### persistence-evasion (38 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -178,8 +179,9 @@
 | `ts-block-history-tamper` | BLOCK | regex | Shell history tampering detected — disabling or clearing HISTFILE/HISTSIZE destroys audit evidence of agent activity (LLM02, LLM08). MITRE T1070.003. |
 | `ts-block-history-file-clear` | BLOCK | regex | Truncating shell history file — destroys forensic record of agent commands (LLM02). MITRE T1070.003. |
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
+| `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
 
-### privilege-escalation (25 rules)
+### privilege-escalation (30 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -208,6 +210,11 @@
 | `ts-block-docker-host-namespace` | BLOCK | regex | Sharing host PID/IPC/network/UTS namespaces breaks container isolation and enables host process inspection, shared-memory attacks, and network policy bypass. |
 | `ts-block-docker-dangerous-caps` | BLOCK | regex | Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access. |
 | `ts-block-docker-raw-device` | BLOCK | regex | Mounting raw block or character devices into a container enables host filesystem access and hardware-level attacks outside the container boundary. |
+| `ts-block-interpreter-path-poison-exec` | BLOCK | regex | Interpreter search path set to a world-writable or relative directory before invoking the interpreter — every import/require resolves from the attacker-controlled directory first, enabling silent code injection. MITRE T1574.007. |
+| `ts-block-interpreter-path-poison-export` | BLOCK | regex | Exporting an interpreter search path pointing to a world-writable or relative directory poisons the entire shell session — all subsequent interpreter invocations will silently load attacker-controlled modules. MITRE T1574.007. |
+| `ts-block-dyld-inject-privesc` | BLOCK | regex | macOS DYLD_ variable set before a privileged or system command — injects a shared library into the target process, enabling authentication bypass and privilege escalation. MITRE T1574.006. |
+| `ts-block-dyld-inject-export` | BLOCK | regex | Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006. |
+| `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
 
 ### reconnaissance (31 rules)
 
@@ -297,7 +304,7 @@
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 
-### unauthorized-execution (21 rules)
+### unauthorized-execution (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -322,6 +329,10 @@
 | `ts-audit-git-commit-audit-path` | AUDIT | regex | git commit targeting audit/compliance/runbook path — AI-generated compliance content must be human-verified before it can be referenced by auditors (LLM09). |
 | `ts-audit-append-security-doc` | AUDIT | regex | Shell append to compliance-sensitive documentation file — AI-generated content should be reviewed before persisting (LLM09: hallucination injection). |
 | `ts-audit-agent-memory-write` | AUDIT | regex | Shell write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent prompt injection). OWASP LLM01/LLM08. |
+| `ts-block-strace-attach` | BLOCK | regex | strace attaching to a running process via -p PID intercepts all syscalls including read/write, exposing passwords, API keys, and tokens flowing through the process. MITRE T1057, T1003. |
+| `ts-block-strace-credential-sniff` | AUDIT | regex | strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057. |
+| `ts-block-ltrace-attach` | BLOCK | regex | ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057. |
+| `ts-block-gcore-dump` | BLOCK | prefix | gcore dumps the entire memory of a running process to a file — exposes all heap-allocated secrets, API keys, system prompts, and in-flight credentials. MITRE T1003. |
 
 ### uncategorized (2 rules)
 
@@ -461,13 +472,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 70 | 57 | 127 |
+| credential-exposure | 76 | 61 | 137 |
 | data-exfiltration | 64 | 36 | 100 |
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 58 | 33 | 91 |
+| privilege-escalation | 72 | 41 | 113 |
 | reconnaissance | 63 | 25 | 88 |
 | supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 47 | 36 | 83 |
-| **Total** | **498** | **303** | **801** |
+| unauthorized-execution | 56 | 40 | 96 |
+| **Total** | **527** | **319** | **846** |
 
