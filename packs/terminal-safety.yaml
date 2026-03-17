@@ -1314,6 +1314,98 @@ rules:
     confidence: 0.87
     reason: "Node.js inline script importing the Vercel AI SDK ('ai' package). Direct LLM invocations outside a governance wrapper are an LLM06 risk."
 
+  # ===========================================================================
+  # Shadow AI — Unauthorized model deployments and unsanctioned AI services
+  # (unauthorized-execution/ai-model-usage/shadow-ai-usage)
+  # LLM06 (Excessive Agency) | OWASP LLM03 | EU AI Act Art.26 | NIST GOVERN-1
+  #
+  # Shadow AI is the AI-specific evolution of "shadow IT": developers deploy
+  # or connect to AI models, agents, or MCP servers without organizational
+  # approval, bypassing security controls and compliance governance.
+  #
+  # Covers:
+  #   - Local model inference servers (Ollama, LM Studio)
+  #   - Model download/pull operations (bringing unreviewed weights onto disk)
+  #   - Open Interpreter (code-exec agent with full shell access)
+  #   - AutoGPT and similar autonomous agent frameworks
+  # ===========================================================================
+
+  # === AUDIT: Ollama local model server startup ===
+  # Running `ollama serve` or `ollama run <model>` starts a local inference
+  # server that routes all prompts through an unmonitored, unapproved model.
+  # This bypasses AI governance controls (audit logging, data residency,
+  # approved model registry). AUDIT rather than BLOCK because ollama has
+  # legitimate approved uses — the signal is the lack of governance wrapper.
+
+  - id: "ts-audit-ollama-serve"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "\\bollama\\s+(serve|run|start)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Starting a local Ollama inference server routes prompts through an unmonitored model outside organizational AI governance (LLM06, EU AI Act Art.26). Verify this deployment is approved."
+
+  # === AUDIT: Ollama model download ===
+  # Pulling a model brings potentially large, unreviewed weights onto disk.
+  # Models from untrusted authors can contain malicious LoRA adapters or
+  # embedded instructions (model poisoning). Flag for governance review.
+
+  - id: "ts-audit-ollama-pull"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "\\bollama\\s+(pull|cp|clone)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Downloading a model via Ollama introduces weights not reviewed by the security team. Unvetted models risk model-poisoning attacks (LLM03). Verify model origin and approval."
+
+  # === AUDIT: LM Studio inference server ===
+  # `lms server start` exposes a local OpenAI-compatible API endpoint.
+  # Like Ollama, this creates an unmonitored AI service on the developer
+  # machine, bypassing organizational model governance.
+
+  - id: "ts-audit-lmstudio-server"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "\\blms\\s+server\\s+start\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "LM Studio inference server started — creates a local, unmonitored AI API endpoint outside governance controls (LLM06, EU AI Act Art.26). Verify organizational approval."
+
+  # === AUDIT: Open Interpreter installation or invocation ===
+  # Open Interpreter gives an LLM unrestricted shell access. Installing or
+  # running it grants an AI agent the ability to execute any OS command
+  # without the human-in-the-loop guarantees that governance frameworks
+  # require. This is a high-risk shadow AI deployment.
+
+  - id: "ts-audit-open-interpreter-install"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "(pip[23]?|pip3|uv\\s+pip|pipx)\\s+(install|i)\\s+.*\\bopen-interpreter\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Installing Open Interpreter grants an LLM unrestricted shell access outside any governance wrapper. This is a high-risk shadow AI deployment (LLM06, NIST GOVERN-1)."
+
+  - id: "ts-audit-open-interpreter-run"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "^\\s*interpreter\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Running Open Interpreter — an LLM with unrestricted shell access. Verify this is an approved, governed deployment (LLM06, EU AI Act Art.26)."
+
+  # === AUDIT: AutoGPT autonomous agent installation ===
+  # AutoGPT is an autonomous AI agent that can recursively self-direct
+  # tasks and invoke tools. Installing it without governance controls
+  # creates an unmonitored autonomous system (LLM06 excessive agency).
+
+  - id: "ts-audit-autogpt-install"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "(pip[23]?|pip3|uv\\s+pip|pipx)\\s+(install|i)\\s+.*\\bautogpt\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Installing AutoGPT — an autonomous AI agent capable of recursive self-direction. Without a governance wrapper this is an unmonitored shadow AI deployment (LLM06, NIST GOVERN-1)."
+
   # === AUDIT: git commit targeting compliance/security documentation (LLM09) ===
   # AI agents committing unverified security or compliance documentation risk
   # persisting hallucinated claims in authoritative sources (misinformation propagation).
