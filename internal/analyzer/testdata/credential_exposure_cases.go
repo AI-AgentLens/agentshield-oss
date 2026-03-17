@@ -693,6 +693,57 @@ var IMDSTheftCases = []TestCase{
 			present. Matched by ne-audit-wget (AUDIT), not IMDS block.`,
 		Tags: []string{"common-dev-operation"},
 	},
+
+	// --- TRUE POSITIVES: GCP IMDS via metadata.google.internal hostname ---
+
+	{
+		ID:               "TP-IMDS-GCP-001",
+		Command:          `curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `Canonical GCP IMDS service account token theft via hostname. Accesses
+			metadata.google.internal to retrieve OAuth token for the default service account.
+			Must be blocked — agents have no legitimate need to query GCP instance metadata.`,
+		Tags: []string{"canonical", "critical", "cloud", "gcp", "imds"},
+	},
+	{
+		ID:               "TP-IMDS-GCP-002",
+		Command:          `wget -q -O- http://metadata.google.internal/computeMetadata/v1/project/project-id -H "Metadata-Flavor: Google"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `GCP IMDS project metadata access via wget using hostname. Retrieves
+			the GCP project ID from instance metadata. Must be blocked.`,
+		Tags: []string{"critical", "cloud", "gcp", "imds"},
+	},
+
+	// --- TRUE NEGATIVES: GCP IMDS ---
+
+	{
+		ID:               "TN-IMDS-GCP-001",
+		Command:          `curl https://metadata.google.com/robots.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `curl to metadata.google.com (public domain, not the internal metadata
+			hostname). Should not match sec-block-gcp-imds which targets metadata.google.internal.`,
+		Tags: []string{"safe", "gcp"},
+	},
+	{
+		ID:               "TN-IMDS-GCP-002",
+		Command:          `gcloud iam service-accounts list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `Standard gcloud CLI command. Does not access metadata.google.internal
+			directly. Should not trigger GCP IMDS block rule.`,
+		Tags: []string{"safe", "gcp", "legitimate-cli"},
+	},
 }
 
 // AIAPIKeyCases tests detection of AI provider API key exposure.
