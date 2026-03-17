@@ -1,20 +1,15 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 terminal rules, 79 MCP rules)
+ Metric | Count |
 |--------|-------|
-| Terminal rules | 265 |
+| Terminal rules | 270 |
 | MCP rules | 79 |
-| Total rules | 344 |
-| Test cases (TP+TN) | 773 |
+| Total rules | 349 |
+| Test cases (TP+TN) | 795 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (27 rules)
+### credential-exposure (30 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -45,6 +40,9 @@
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-git-credential-modify` | BLOCK | regex | Modifying git credential helper can redirect stored credentials. |
 | `ts-block-git-credential-fill` | BLOCK | regex | git credential fill/approve can extract or inject stored credentials. |
+| `ts-audit-k8s-secret-mount` | AUDIT | regex | Reading Kubernetes service account tokens or Docker secret mounts — exposes LLM API keys and SA tokens injected as K8s/Docker Secrets (LLM07, LLM02). MITRE T1552.007. |
+| `ts-audit-db-cli-inline-password` | AUDIT | regex | Database CLI invoked with inline password in command string — credential visible in process list and shell history (LLM02, LLM06). Use password files or environment-variable injection instead. MITRE T1552.004. |
+| `ts-audit-db-env-password` | AUDIT | regex | Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552. |
 
 ### data-exfiltration (48 rules)
 
@@ -205,7 +203,7 @@
 | `ts-block-docker-dangerous-caps` | BLOCK | regex | Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access. |
 | `ts-block-docker-raw-device` | BLOCK | regex | Mounting raw block or character devices into a container enables host filesystem access and hardware-level attacks outside the container boundary. |
 
-### reconnaissance (29 rules)
+### reconnaissance (31 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -238,6 +236,8 @@
 | `ne-block-nuclei` | BLOCK | structural | nuclei is a template-based vulnerability scanner that actively probes targets for CVEs and misconfigurations. AI agents must not perform unauthorized vulnerability scanning. MITRE T1595.003, T1190. |
 | `ne-block-dnsx` | BLOCK | structural | dnsx performs DNS brute-forcing and subdomain enumeration against target domains. AI agents must not perform DNS reconnaissance without authorization. MITRE T1590.002. |
 | `ne-block-httpx` | BLOCK | structural | httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001. |
+| `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
+| `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 
 ### supply-chain (47 rules)
 
@@ -454,13 +454,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 62 | 51 | 113 |
+| credential-exposure | 68 | 55 | 123 |
 | data-exfiltration | 64 | 36 | 100 |
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 56 | 31 | 87 |
-| reconnaissance | 57 | 23 | 80 |
+| privilege-escalation | 58 | 33 | 91 |
+| reconnaissance | 63 | 25 | 88 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 47 | 34 | 81 |
-| **Total** | **482** | **291** | **773** |
+| **Total** | **496** | **299** | **795** |
 
