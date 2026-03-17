@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (330 terminal rules, 105 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 320 |
+| Terminal rules | 330 |
 | MCP rules | 105 |
-| Total rules | 425 |
-| Test cases (TP+TN) | 1013 |
+| Total rules | 435 |
+| Test cases (TP+TN) | 1038 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
@@ -54,7 +49,7 @@
 | `ts-audit-db-env-password` | AUDIT | regex | Database password passed via environment variable prefix — credential propagates to child processes and appears in shell history (LLM02). Use .pgpass, .my.cnf, or secrets manager instead. MITRE T1552. |
 | `ts-block-symlink-credential-files` | BLOCK | regex | Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
 
-### data-exfiltration (55 rules)
+### data-exfiltration (57 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -101,6 +96,8 @@
 | `ne-audit-busybox-httpd` | AUDIT | regex | BusyBox httpd file server detected. Often used in containers to expose directories. An AI agent starting busybox httpd may be creating a covert data staging channel. MITRE T1105. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
+| `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
+| `sec-block-openssl-credential-encode` | BLOCK | regex | openssl enc -base64 / openssl base64 on credential files encodes private keys or cloud credentials for exfiltration. MITRE T1027. |
 | `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
 | `sec-df-block-cred-encoded-exfil` | BLOCK | dataflow | Dataflow: credential data encoded then sent to network (staged exfiltration). |
 | `ts-block-netcat` | BLOCK | regex | Netcat/socat can open reverse shells. |
@@ -234,7 +231,7 @@
 | `ts-block-dyld-inject-export` | BLOCK | regex | Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library. MITRE T1574.006. |
 | `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
 
-### reconnaissance (40 rules)
+### reconnaissance (48 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -264,6 +261,14 @@
 | `ne-block-shodan-cli` | BLOCK | structural | Shodan CLI querying internet-wide scan data for hosts, ports, or vulnerabilities. AI agents must not perform intelligence gathering against external infrastructure. MITRE T1596.005. |
 | `ne-block-amass` | BLOCK | structural | amass performs DNS enumeration and OSINT-based subdomain discovery against target domains. AI agents must not perform unsolicited attack surface mapping. MITRE T1590.005, T1596. |
 | `ne-block-subfinder` | BLOCK | structural | subfinder enumerates subdomains via passive DNS, certificate logs, and public APIs. AI agents must not perform subdomain reconnaissance against external targets. MITRE T1590.005. |
+| `ne-block-spiderfoot` | BLOCK | structural | SpiderFoot automates OSINT collection across 200+ data sources (emails, IPs, domains, credentials). AI agents must not perform unsolicited intelligence gathering against targets. MITRE T1589, T1590, T1596. |
+| `ne-block-h8mail` | BLOCK | structural | h8mail queries breach databases to find compromised credentials for target email addresses. This directly exposes victim passwords and enables credential-stuffing attacks. MITRE T1589.002. |
+| `ne-block-holehe` | BLOCK | structural | holehe probes 120+ sites to enumerate which accounts a target email address has registered. Enables targeted phishing and account-takeover. MITRE T1589.002. |
+| `ne-block-metagoofil` | BLOCK | structural | metagoofil harvests metadata from public documents of a target domain, exposing internal usernames, paths, and software versions. MITRE T1593, T1596. |
+| `ne-block-assetfinder` | BLOCK | structural | assetfinder discovers subdomains via passive sources (CT logs, threat intel APIs). Used to map attack surface prior to scanning. MITRE T1590.005. |
+| `ne-block-waybackurls` | BLOCK | structural | waybackurls harvests historical URLs from the Wayback Machine to discover hidden endpoints, deprecated APIs, and forgotten files. MITRE T1593. |
+| `ne-block-gau` | BLOCK | structural | gau (GetAllUrls) aggregates historical URLs from Wayback Machine, Common Crawl, and OTX to map a target's full attack surface. MITRE T1593. |
+| `ne-block-photon` | BLOCK | structural | photon actively spiders target websites to harvest URLs, emails, API keys, and linked subdomains. AI agents must not crawl external targets. MITRE T1593, T1595. |
 | `ne-block-nuclei` | BLOCK | structural | nuclei is a template-based vulnerability scanner that actively probes targets for CVEs and misconfigurations. AI agents must not perform unauthorized vulnerability scanning. MITRE T1595.003, T1190. |
 | `ne-block-dnsx` | BLOCK | structural | dnsx performs DNS brute-forcing and subdomain enumeration against target domains. AI agents must not perform DNS reconnaissance without authorization. MITRE T1590.002. |
 | `ne-block-httpx` | BLOCK | structural | httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001. |
@@ -541,12 +546,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 101 | 80 | 181 |
-| data-exfiltration | 74 | 44 | 118 |
+| data-exfiltration | 80 | 48 | 128 |
 | destructive-ops | 67 | 39 | 106 |
 | persistence-evasion | 76 | 40 | 116 |
 | privilege-escalation | 77 | 44 | 121 |
-| reconnaissance | 95 | 37 | 132 |
+| reconnaissance | 108 | 39 | 147 |
 | supply-chain | 61 | 41 | 102 |
 | unauthorized-execution | 81 | 56 | 137 |
-| **Total** | **632** | **381** | **1013** |
+| **Total** | **651** | **387** | **1038** |
 
