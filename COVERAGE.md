@@ -1,9 +1,9 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (308 terminal rules, 97 MCP rules)
- Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (308 terminal rules, 105 MCP rules)
+Metric | Count |
 |--------|-------|
 | Terminal rules | 308 |
-| MCP rules | 97 |
-| Total rules | 405 |
+| MCP rules | 105 |
+| Total rules | 413 |
 | Test cases (TP+TN) | 958 |
 | Kingdoms covered | 9 |
 
@@ -450,10 +450,18 @@ Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (308 termina
 | `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
 | `mcp-persist-block-ssh-authkeys-write` | BLOCK | structural | MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004. |
 
-### privilege-escalation (2 rules)
+### privilege-escalation (10 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `mcp-privesc-block-docker-socket` | BLOCK | mcp_rule | Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611. |
+| `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
+| `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
+| `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Docker socket path detected in MCP tool argument — container escape vector. MITRE T1611. |
+| `mcp-privesc-block-k8s-cluster-admin` | BLOCK | structural | Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001. |
+| `mcp-privesc-block-privileged-container` | BLOCK | structural | Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611. |
+| `mcp-privesc-audit-sudoers-content` | AUDIT | structural | Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003. |
+| `mcp-privesc-block-linux-capabilities` | BLOCK | structural | Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001. |
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
