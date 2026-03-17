@@ -394,6 +394,68 @@ rules:
     reason: "Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion."
     confidence: 0.97
 
+  # === BLOCK: Systemd user service and launchd plist persistence ===
+  # Writing to systemd user service directories or macOS LaunchAgents paths creates
+  # persistent background services that auto-start on user login or system boot.
+  # These paths are covered in the MCP pack via write_file; these rules close the gap
+  # for direct shell command writes (echo >, cat >, tee, etc.).
+
+  - id: "ts-block-systemd-user-persist"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>+\\s*(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.config/systemd/user/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to ~/.config/systemd/user/ via echo/cat creates a user-level systemd service that persists across sessions and auto-starts on login (MITRE T1543.002)."
+
+  - id: "ts-block-systemd-user-persist-tee"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "tee\\s+((-a|--append)\\s+)?(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.config/systemd/user/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to ~/.config/systemd/user/ via tee creates a user-level systemd service that persists across sessions and auto-starts on login (MITRE T1543.002)."
+
+  - id: "ts-block-systemd-local-persist"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>+\\s*(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.local/share/systemd/user/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to ~/.local/share/systemd/user/ via echo/cat creates a user-level systemd service that persists across sessions (MITRE T1543.002)."
+
+  - id: "ts-block-systemd-local-persist-tee"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "tee\\s+((-a|--append)\\s+)?(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.local/share/systemd/user/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to ~/.local/share/systemd/user/ via tee creates a user-level systemd service that persists across sessions (MITRE T1543.002)."
+
+  - id: "ts-block-launchd-user-persist"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>+\\s*(~|\\$HOME|/Users/[^/\\s]+)/Library/LaunchAgents/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing a plist to ~/Library/LaunchAgents/ via echo/cat registers a persistent macOS LaunchAgent that auto-starts on user login (MITRE T1543.001)."
+
+  - id: "ts-block-launchd-user-persist-tee"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "tee\\s+((-a|--append)\\s+)?(~|\\$HOME|/Users/[^/\\s]+)/Library/LaunchAgents/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing a plist to ~/Library/LaunchAgents/ via tee registers a persistent macOS LaunchAgent that auto-starts on user login (MITRE T1543.001)."
+
+  - id: "ts-block-launchd-system-persist"
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      command_regex: "(echo|printf|cat|tee)\\s+.*>+\\s*/Library/LaunchDaemons/"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing a plist to /Library/LaunchDaemons/ creates a system-wide macOS LaunchDaemon that runs as root on every boot (MITRE T1543.004). Critical persistence vector requiring root access."
+
   # === AUDIT: General service management ===
   - id: "ts-audit-systemctl"
     taxonomy: "persistence-evasion/service-management/systemctl-manipulation"

@@ -1092,6 +1092,148 @@ var ShellProfileBackdoorCases = []TestCase{
 	},
 }
 
+// SystemdLaunchdPersistCases tests detection of systemd user service and launchd plist writes.
+// Taxonomy: persistence-evasion/service-management/systemctl-manipulation
+// MITRE: T1543.001 (LaunchAgent), T1543.002 (Systemd Service), T1543.004 (LaunchDaemon)
+var SystemdLaunchdPersistCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SYSDLAUNCHD-001",
+		Command:          `cat > ~/.config/systemd/user/beacon.service`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Writing a new systemd unit file to ~/.config/systemd/user/ creates a user-level service that persists across sessions and auto-starts on login (MITRE T1543.002).`,
+		Tags:             []string{"tp", "systemd", "persistence", "critical"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-002",
+		Command:          `tee ~/.config/systemd/user/backdoor.service <<< '[Service]\nExecStart=/tmp/evil.sh\nRestart=always'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `tee write to ~/.config/systemd/user/ — creates a persistent systemd user service with restart-on-failure to maintain C2 connectivity.`,
+		Tags:             []string{"tp", "systemd", "tee", "persistence"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-003",
+		Command:          `echo '[Service]' >> ~/.config/systemd/user/evil.service`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Appending to a systemd user service file — builds up a malicious service definition incrementally.`,
+		Tags:             []string{"tp", "systemd", "append", "persistence"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-004",
+		Command:          `echo '[Service]' >> ~/.local/share/systemd/user/backdoor.service`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Writing to alternative systemd user path ~/.local/share/systemd/user/ — also loaded by systemd as user-level units.`,
+		Tags:             []string{"tp", "systemd", "local-share", "persistence"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-005",
+		Command:          `cat > ~/Library/LaunchAgents/com.evil.beacon.plist`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Writing a plist to ~/Library/LaunchAgents/ registers a macOS LaunchAgent that launchd loads automatically on user login (MITRE T1543.001).`,
+		Tags:             []string{"tp", "launchd", "macos", "persistence", "critical"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-006",
+		Command:          `tee ~/Library/LaunchAgents/com.c2.plist <<< '<?xml version="1.0"?><plist version="1.0"><dict><key>RunAtLoad</key><true/></dict></plist>'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `tee write of a RunAtLoad plist to ~/Library/LaunchAgents/ — auto-executes on login via launchd.`,
+		Tags:             []string{"tp", "launchd", "macos", "tee", "persistence"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-007",
+		Command:          `echo '<plist>' >> ~/Library/LaunchAgents/com.backdoor.plist`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Appending plist XML to ~/Library/LaunchAgents/ — incrementally building a LaunchAgent persistence plist.`,
+		Tags:             []string{"tp", "launchd", "macos", "append", "persistence"},
+	},
+	{
+		ID:               "TP-SYSDLAUNCHD-008",
+		Command:          `cat > /Library/LaunchDaemons/com.root.evil.plist`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Writing to /Library/LaunchDaemons/ creates a system-wide daemon running as root on every boot (MITRE T1543.004). Critical severity — requires root but executes for all users.`,
+		Tags:             []string{"tp", "launchd", "macos", "root", "system-daemon", "critical"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SYSDLAUNCHD-001",
+		Command:          `systemctl --user status myapp.service`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Read-only systemctl status — no file write, no persistence creation. Gets AUDIT from ts-audit-systemctl rule.`,
+		Tags:             []string{"tn", "read-only"},
+	},
+	{
+		ID:               "TN-SYSDLAUNCHD-002",
+		Command:          `ls ~/.config/systemd/user/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Directory listing of systemd user path — read-only inspection, no file creation.`,
+		Tags:             []string{"tn", "read-only"},
+	},
+	{
+		ID:               "TN-SYSDLAUNCHD-003",
+		Command:          `cat ~/.config/systemd/user/existing.service`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Read-only cat of an existing service file — no write operation, no persistence creation.`,
+		Tags:             []string{"tn", "read-only"},
+	},
+	{
+		ID:               "TN-SYSDLAUNCHD-004",
+		Command:          `launchctl list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `launchctl list shows running LaunchAgents/Daemons — read-only, gets AUDIT from ts-audit-systemctl.`,
+		Tags:             []string{"tn", "read-only"},
+	},
+	{
+		ID:               "TN-SYSDLAUNCHD-005",
+		Command:          `cat > /tmp/myservice.service`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/service-management/systemctl-manipulation",
+		Analyzer:         "regex",
+		Description:      `Writing a service file to /tmp/ — not in a systemd search path, no auto-load persistence. ts-allow-readonly allows cat commands, so this gets ALLOW (correct — our systemd rules don't fire on /tmp/ targets).`,
+		Tags:             []string{"tn", "non-persist-path"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -1104,5 +1246,6 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, SecurityDaemonDeactivationCases...)
 	all = append(all, AntiForensicsCases...)
 	all = append(all, ShellProfileBackdoorCases...)
+	all = append(all, SystemdLaunchdPersistCases...)
 	return all
 }
