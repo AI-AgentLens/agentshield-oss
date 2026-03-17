@@ -1,0 +1,74 @@
+id: "reconnaissance/network-discovery/filesystem-enumeration"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Network Discovery"
+category_id: "8.1"
+name: "Filesystem Enumeration"
+risk_level: "medium"
+
+abstract: |
+  Filesystem enumeration involves listing system directories, reading OS metadata
+  files, and mapping the file layout to identify credentials, configuration, and
+  user accounts. AI agents performing unsolicited filesystem reconnaissance may
+  facilitate subsequent credential theft or privilege escalation.
+
+explanation: |
+  An AI agent with access to filesystem tools can silently enumerate the host
+  environment by listing well-known directories (/etc/, /home/, /proc/) and
+  reading OS fingerprinting files (/etc/os-release, /etc/passwd, /etc/hosts).
+  The threat model includes:
+
+  - /etc/ enumeration: discovers configuration files, service accounts, and
+    credential material (passwords, tokens, keys stored in /etc/*)
+  - /proc/ access: enumerates running processes, open network connections
+    (net/tcp, net/udp), memory maps, and environment variables of live processes
+  - /home/ listing: maps local user accounts and their project layouts,
+    identifying dotfiles, SSH keys, and application secrets
+  - OS fingerprinting (/etc/os-release, /etc/lsb-release): determines the
+    target distribution and version to select applicable exploits
+  - /etc/passwd: enumerates all local accounts including service accounts
+  - /etc/hosts: maps internal hostnames to IPs for lateral movement planning
+
+  MCP filesystem tools (list_directory, read_file, glob) make this enumeration
+  trivial — a single tool call can map an entire directory tree.
+
+recommendation: |
+  - AUDIT all MCP tool calls accessing /etc/, /proc/, or /home/ directories.
+  - BLOCK reads of /etc/shadow, /etc/sudoers, and private key directories.
+  - Log all filesystem enumeration activity with full path context.
+  - Enforce least-privilege: agent MCP servers should chroot or jail filesystem access.
+  - Review agent task descriptions for reconnaissance intent before granting filesystem tools.
+
+examples:
+  bad:
+    - "list_directory('/etc/')"
+    - "read_file('/etc/passwd')"
+    - "read_file('/etc/os-release')"
+    - "list_directory('/home/')"
+    - "read_file('/proc/net/tcp')"
+    - "glob('/etc/**/*.conf')"
+  good:
+    - "read_file('./config/app.yaml')"
+    - "list_directory('./src/')"
+    - "read_file('/etc/timezone')"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
+  soc2-type2: ["CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1083", "T1057", "T1082", "T1087", "T1016"]
+  cwe: ["CWE-200", "CWE-284", "CWE-732"]
+
+analyzers: ["mcp"]
+related_rules:
+  - "mcp-recon-audit-etc-listing"
+  - "mcp-recon-audit-proc-read"
+  - "mcp-recon-audit-home-listing"
+  - "mcp-recon-audit-os-release-read"
+  - "mcp-recon-audit-passwd-read"
+  - "mcp-recon-audit-hosts-read"
