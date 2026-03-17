@@ -1,15 +1,20 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 terminal rules, 79 MCP rules)
- Metric | Count |
+# AgentShield Coverage Report
+
+*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
+
+## Summary
+
+| Metric | Count |
 |--------|-------|
-| Terminal rules | 270 |
-| MCP rules | 79 |
-| Total rules | 349 |
-| Test cases (TP+TN) | 795 |
+| Terminal rules | 271 |
+| MCP rules | 80 |
+| Total rules | 351 |
+| Test cases (TP+TN) | 801 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (30 rules)
+### credential-exposure (31 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -27,6 +32,7 @@ Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 termina
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review. |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
+| `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
 | `sec-block-kubeconfig-file-access` | BLOCK | regex | Direct read or copy of ~/.kube/config exposes cluster credentials (embedded certs, bearer tokens, client keys). Excludes matches where the path appears as prose text in a named flag value (e.g. git commit -m, gh issue --body). MITRE T1552.001. |
 | `sec-block-kubeconfig-structural` | BLOCK | structural | Structural detection of kubeconfig file access — catches path variations not covered by regex. |
@@ -423,7 +429,7 @@ Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 termina
 | `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
 | `mcp-sc-audit-rag-write` | AUDIT | structural | MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010. |
 
-### unauthorized-execution (13 rules)
+### unauthorized-execution (14 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -432,6 +438,7 @@ Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 termina
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
 | `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
 | `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). OWASP LLM01/LLM08. |
+| `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
 | `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
 | `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
 | `mcp-struct-block-prompt-injection-content` | BLOCK | structural | Prompt injection detected in content argument — attempt to manipulate LLM behavior |
@@ -454,13 +461,13 @@ Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (270 termina
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 68 | 55 | 123 |
+| credential-exposure | 70 | 57 | 127 |
 | data-exfiltration | 64 | 36 | 100 |
 | destructive-ops | 59 | 35 | 94 |
 | persistence-evasion | 76 | 40 | 116 |
 | privilege-escalation | 58 | 33 | 91 |
 | reconnaissance | 63 | 25 | 88 |
 | supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 47 | 34 | 81 |
-| **Total** | **496** | **299** | **795** |
+| unauthorized-execution | 47 | 36 | 83 |
+| **Total** | **498** | **303** | **801** |
 
