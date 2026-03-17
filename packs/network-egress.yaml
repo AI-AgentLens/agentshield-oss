@@ -760,3 +760,54 @@ rules:
     decision: "AUDIT"
     confidence: 0.82
     reason: "Microsoft Teams webhook call detected. Review the payload to ensure the agent is not exfiltrating data to an attacker-controlled Teams channel. MITRE T1567.002."
+
+  # === AUDIT: HTTP file server — data exfiltration enabler ===
+  #
+  # An AI agent starting an HTTP file server exposes the working directory
+  # (source code, .env, credentials) to any network peer with access to the
+  # port. This is a passive exfiltration channel: no outbound connection from
+  # the agent is needed — an attacker simply connects to the exposed port.
+  #
+  # Decision: AUDIT (not BLOCK) — developers legitimately use these for local
+  # testing. Human review is warranted to confirm intent is not exfiltration.
+  # Taxonomy: data-exfiltration/network-egress/http-file-server (MITRE T1105, T1041)
+
+  - id: "ne-audit-python-http-server"
+    taxonomy: "data-exfiltration/network-egress/http-file-server"
+    match:
+      command_regex: "^python[23]?\\s+(-[a-zA-Z]+\\s+)*-m\\s+(http\\.server|SimpleHTTPServer)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Python HTTP file server detected. This exposes the working directory over the network, enabling passive data exfiltration. Confirm this is intentional local development and not a response to prompt injection. MITRE T1105, T1041."
+
+  - id: "ne-audit-npx-http-server"
+    taxonomy: "data-exfiltration/network-egress/http-file-server"
+    match:
+      command_regex: "^npx\\s+(http-server|serve)(\\s|$)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "npx HTTP file server (http-server/serve) detected. This exposes the working directory over the network to any peer with access to the port. Confirm intent is legitimate development, not staged exfiltration. MITRE T1105."
+
+  - id: "ne-audit-ruby-http-server"
+    taxonomy: "data-exfiltration/network-egress/http-file-server"
+    match:
+      command_regex: "^ruby\\s+.*-e\\s+httpd"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Ruby one-liner HTTP file server detected (ruby -run -e httpd). Exposes the current directory to network peers. Review whether this was triggered by a prompt injection attack. MITRE T1105."
+
+  - id: "ne-audit-php-server"
+    taxonomy: "data-exfiltration/network-egress/http-file-server"
+    match:
+      command_regex: "^php\\s+(-[a-zA-Z]+\\s+)*-S\\s+\\S+:\\d+"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "PHP built-in HTTP server detected (php -S). Serves the current directory over the network. Binding to 0.0.0.0 makes files accessible to any network peer — confirm this is intentional. MITRE T1105."
+
+  - id: "ne-audit-busybox-httpd"
+    taxonomy: "data-exfiltration/network-egress/http-file-server"
+    match:
+      command_regex: "^busybox\\s+httpd\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "BusyBox httpd file server detected. Often used in containers to expose directories. An AI agent starting busybox httpd may be creating a covert data staging channel. MITRE T1105."

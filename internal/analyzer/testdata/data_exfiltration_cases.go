@@ -1369,6 +1369,121 @@ var WebhookExfilCases = []TestCase{
 	},
 }
 
+// HTTPFileServerCases covers ne-audit-python-http-server, ne-audit-npx-http-server,
+// ne-audit-ruby-http-server, ne-audit-php-server, and ne-audit-busybox-httpd (closes #246).
+var HTTPFileServerCases = []TestCase{
+	// TP-1: python3 -m http.server — canonical Python 3 file server
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-001",
+		Command:          "python3 -m http.server 8080",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "python3 -m http.server — exposes CWD to network; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TP-2: python -m SimpleHTTPServer — legacy Python 2 equivalent
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-002",
+		Command:          "python -m SimpleHTTPServer 8000",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "python -m SimpleHTTPServer — Python 2 HTTP file server; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TP-3: npx http-server — popular Node.js file server
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-003",
+		Command:          "npx http-server . -p 8080",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "npx http-server — exposes current directory; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TP-4: ruby -run -e httpd — Ruby one-liner file server
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-004",
+		Command:          "ruby -run -e httpd . -p 9000",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "ruby -run -e httpd — exposes CWD via Ruby HTTP server; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TP-5: php -S — PHP built-in HTTP server
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-005",
+		Command:          "php -S 0.0.0.0:8080",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "php -S — built-in PHP HTTP server bound to all interfaces; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TP-6: busybox httpd — minimal httpd in containers
+	{
+		ID:               "TP-NE-HTTP-FILE-SERVER-006",
+		Command:          "busybox httpd -f -p 8080",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "busybox httpd — minimal HTTP file server; must be AUDIT.",
+		Tags:             []string{"tp", "http-file-server", "closes-246"},
+	},
+	// TN-1: cat README.md — read-only file access, no http-server rule fires
+	{
+		ID:               "TN-NE-HTTP-FILE-SERVER-001",
+		Command:          "cat README.md",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "cat README.md — read-only access; no http-file-server rule fires; must be ALLOW.",
+		Tags:             []string{"tn", "http-file-server", "closes-246"},
+	},
+	// TN-2: ls -la — directory listing; no http-server rule fires
+	{
+		ID:               "TN-NE-HTTP-FILE-SERVER-002",
+		Command:          "ls -la",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "ls -la — directory listing, not a file server; must be ALLOW.",
+		Tags:             []string{"tn", "http-file-server", "closes-246"},
+	},
+	// TN-3: python3 -m http.server bound to localhost — rule still fires (no bind-address distinction)
+	{
+		ID:               "TN-NE-HTTP-FILE-SERVER-003",
+		Command:          "python3 -m http.server 8080 --bind 127.0.0.1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "python3 -m http.server --bind 127.0.0.1 — localhost-only binding; still AUDIT (rule does not distinguish bind address).",
+		Tags:             []string{"tn", "http-file-server", "closes-246"},
+	},
+	// TN-4: echo describing server usage — no http-server invocation; must be ALLOW
+	{
+		ID:               "TN-NE-HTTP-FILE-SERVER-004",
+		Command:          `echo "run: python3 -m http.server to start a dev server"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/http-file-server",
+		Analyzer:         "regex",
+		Description:      "echo mentioning http.server — text output only, not server execution; must be ALLOW.",
+		Tags:             []string{"tn", "http-file-server", "closes-246"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -1385,5 +1500,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, EncodedExfilCases...)
 	all = append(all, DNSExfilSubqueryCases...)
 	all = append(all, WebhookExfilCases...)
+	all = append(all, HTTPFileServerCases...)
 	return all
 }
