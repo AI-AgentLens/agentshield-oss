@@ -84,6 +84,19 @@ rules:
     decision: "AUDIT"
     reason: "Process/system management operations flagged for review."
 
+  # === GUARDIAN: MCP tool description poisoning ===
+  # Detection is implemented at the code level in internal/mcp/description_scanner.go.
+  # This rule entry registers the taxonomy reference for coverage metrics.
+  # The actual detection runs in the Guardian layer (handler.go) via PoisonSignal;
+  # it is NOT evaluated by the YAML rule engine. The empty match means this rule
+  # never fires from the YAML evaluator — all description-poisoning blocks come
+  # from the code layer, not from policy YAML.
+  - id: "mcp-guardian-tool-description-poisoning"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning"
+    match: {}  # empty match — rule never fires from YAML evaluator; detection is in description_scanner.go
+    decision: "BLOCK"
+    reason: "MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata"
+
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:
