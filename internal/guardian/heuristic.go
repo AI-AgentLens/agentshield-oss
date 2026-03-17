@@ -190,6 +190,36 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			},
 			escalate: "BLOCK",
 		},
+
+		// --- Indirect injection: HTML comment with agent-targeted directives ---
+		{
+			signal: Signal{
+				ID:          "html_comment_injection",
+				Category:    "prompt-injection",
+				Severity:    "high",
+				Confidence:  0.90,
+				Description: "Command contains an HTML comment with an agent-targeted directive (indirect prompt injection via retrieved content)",
+			},
+			match: func(req GuardianRequest) bool {
+				return htmlCommentInjectionRe.MatchString(req.RawCommand)
+			},
+			escalate: "BLOCK",
+		},
+
+		// --- Indirect injection: invisible Unicode steganography ---
+		{
+			signal: Signal{
+				ID:          "unicode_steganography",
+				Category:    "prompt-injection",
+				Severity:    "high",
+				Confidence:  0.85,
+				Description: "Command contains invisible Unicode characters (RTL override, zero-width joiners) used to hide instructions from human reviewers",
+			},
+			match: func(req GuardianRequest) bool {
+				return matchesUnicodeSteganography(req.RawCommand)
+			},
+			escalate: "BLOCK",
+		},
 	}
 }
 
@@ -285,10 +315,42 @@ func matchesDisableSecurity(cmd string) bool {
 var indirectInjectionPatterns = compilePatterns([]string{
 	`(?i)SYSTEM:\s*(ignore|forget|override|you\s+are)`,
 	`(?i)\[INST\]`,
+	`(?i)\[/INST\]`,
 	`(?i)<\|im_start\|>system`,
+	`(?i)<\|start_header_id\|>\s*system`,
 	`(?i)BEGIN\s+HIDDEN\s+INSTRUCTIONS?`,
 	`(?i)IMPORTANT:\s*(ignore|disregard|override)`,
+	// Markdown image alt-text injection: ![AGENT: run this](url) or ![ignore previous instructions](url)
+	`(?i)!\[[^\]]*(?:ignore\s+previous|AGENT\s*:|SYSTEM\s*:|you\s+are\s+now|forget\s+instructions)[^\]]*\]`,
 })
+
+// htmlCommentInjectionRe matches HTML comments containing agent-targeted directives.
+// Specifically targets comments prefixed with AI/agent-targeting keywords to distinguish
+// injection attempts from legitimate HTML documentation comments.
+var htmlCommentInjectionRe = regexp.MustCompile(
+	`(?i)<!--\s*(AGENT|AI|ASSISTANT|SYSTEM|BOT)\s*:`,
+)
+
+// matchesUnicodeSteganography detects invisible Unicode characters used to hide
+// instructions from human reviewers in indirect prompt injection attacks.
+//
+// - U+202E (right-to-left override) always triggers: almost never legitimate in shell commands.
+// - Zero-width characters (U+200B space, U+200C non-joiner, U+200D joiner, U+2060 word joiner,
+//   U+2061–U+2064 invisible operators) trigger when 5 or more are present. The threshold
+//   of 5 accounts for multi-person emoji sequences (e.g. 👨‍👩‍👧‍👦) which contain up to 3 ZWJs
+//   but are legitimate in echo/print commands.
+func matchesUnicodeSteganography(cmd string) bool {
+	zwCount := 0
+	for _, r := range cmd {
+		switch r {
+		case '\u202e': // Right-to-left override — almost always malicious in commands
+			return true
+		case '\u200b', '\u200c', '\u200d', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064':
+			zwCount++
+		}
+	}
+	return zwCount >= 5
+}
 
 // base64PayloadPattern matches base64 strings >= 40 chars that appear in
 // command arguments (likely encoded payloads, not short values).
