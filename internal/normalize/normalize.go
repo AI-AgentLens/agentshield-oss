@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/security-researcher-ca/agentshield/internal/shellparse"
 )
 
 type NormalizedCommand struct {
@@ -15,16 +17,14 @@ type NormalizedCommand struct {
 	Cwd        string
 	Paths      []string
 	Domains    []string
+	Parsed     *shellparse.ParsedCommand // AST parse result, reusable by downstream analyzers
 }
 
 var (
 	domainRegex = regexp.MustCompile(`https?://([^/\s'"]+)`)
 
 	// textContentFlags are CLI flags whose values are prose text, not file paths.
-	// When a command contains one of these flags, the subsequent argument(s)
-	// (until the next flag) are treated as user-supplied text content and
-	// excluded from path extraction. This prevents false positives when a
-	// user passes security documentation as --body text.
+	// Used by both the AST-aware path and the fallback tokenizer.
 	textContentFlags = map[string]bool{
 		"--body":        true,
 		"--message":     true,
@@ -55,30 +55,183 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 
 	homeDir, _ := os.UserHomeDir()
 
-	// skipTextContent is set true when we encounter a text-content flag (e.g.
-	// --body, --message). All subsequent non-flag tokens are treated as prose
-	// text and excluded from path extraction until the next flag resets the
-	// state. This prevents false positives when paths appear inside
-	// documentation text passed as flag values.
-	skipTextContent := false
+	// Parse the command AST for downstream reuse (structural analyzer).
+	// Even if we don't use it for path extraction, we cache it.
+	hasHeredoc := containsHeredoc(args)
+	if !hasHeredoc {
+		nc.Parsed = shellparse.Parse(nc.RawCommand, 2)
+	}
 
-	// inHeredoc is set true after a heredoc operator (<<, <<-, <<'EOF', etc.)
-	// is seen. All tokens until the closing delimiter are heredoc body content
-	// and must not be extracted as paths. This prevents false positives when
-	// protected-path strings appear in heredoc bodies (e.g. documentation,
-	// generated Go code, multi-line config writes).
-	// Reproduces: https://github.com/security-researcher-ca/AI_Agent_Shield/issues/79
+	// For path extraction, use AST-aware classification.
+	// The AST identifies the command + subcommand, then we walk the original
+	// args with a spec-aware state machine that knows which flags are text.
+	// This hybrid approach combines AST command identification with the
+	// reliable token-order-based flag-value tracking.
+	if nc.Parsed != nil && len(nc.Parsed.Segments) > 0 {
+		nc.Paths, nc.Domains = astAwareExtract(args, nc.Parsed, cwd, homeDir)
+	} else {
+		// Fallback: original tokenizer (heredoc + textContentFlags)
+		nc.Paths, nc.Domains = fallbackExtract(args, cwd, homeDir)
+	}
+
+	// Handle git clone specially for SSH URLs
+	if nc.Executable == "git" && len(args) > 2 && args[1] == "clone" {
+		repoURL := args[2]
+		if strings.HasPrefix(repoURL, "git@") {
+			if domain := extractGitDomain(repoURL); domain != "" {
+				nc.Domains = append(nc.Domains, domain)
+			}
+		}
+	}
+
+	nc.Domains = uniqueStrings(nc.Domains)
+	return nc
+}
+
+// astAwareExtract uses the AST parse result to identify the command, then
+// walks the original tokenized args with a command-specific state machine
+// that knows which flags carry text content.
+//
+// Compared to the old tokenizer, this approach:
+// - Knows specific command semantics (echo args are all text, grep arg[0] is pattern)
+// - Handles combined flags like -am by checking each char against spec
+// - Still falls back to universal textContentFlags for unknown commands
+func astAwareExtract(args []string, parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]string, []string) {
+	// Build the set of text flags for this specific command.
+	// Start with universal text flags, then overlay command-specific ones.
+	cmdTextFlags := make(map[string]bool)
+	for k, v := range textContentFlags {
+		cmdTextFlags[k] = v
+	}
+
+	// Identify the command from the AST
+	var allText bool
+	var textPositions map[int]bool
+	if len(parsed.Segments) > 0 {
+		seg := parsed.Segments[0]
+		spec, found := lookupSpec(seg)
+		if found {
+			allText = spec.AllPositionalText
+			textPositions = spec.TextPositions
+
+			// Add command-specific text flags in both short (-m) and long (--message) forms
+			for flag := range spec.TextFlags {
+				if len(flag) == 1 {
+					cmdTextFlags["-"+flag] = true
+				} else {
+					cmdTextFlags["--"+flag] = true
+				}
+			}
+			for flag := range spec.InlineCodeFlags {
+				if len(flag) == 1 {
+					cmdTextFlags["-"+flag] = true
+				} else {
+					cmdTextFlags["--"+flag] = true
+				}
+			}
+		}
+	}
+
+	var paths []string
+	var domains []string
+
+	// Walk original args with state machine (similar to fallback but spec-aware)
+	skipTextContent := false
+	positionalIdx := 0 // tracks positional arg index (for TextPositions)
+
+	// Skip the executable (args[0]) and any subcommand tokens
+	startIdx := 1
+
+	for i := startIdx; i < len(args); i++ {
+		arg := args[i]
+
+		// Flag handling
+		if strings.HasPrefix(arg, "-") {
+			// Check for combined short flags like -am where one char is a text flag
+			if !strings.HasPrefix(arg, "--") && len(arg) > 2 {
+				found := false
+				for _, ch := range arg[1:] {
+					if cmdTextFlags["-"+string(ch)] {
+						found = true
+						break
+					}
+				}
+				if found {
+					skipTextContent = true
+					continue
+				}
+			}
+			skipTextContent = cmdTextFlags[arg]
+			continue
+		}
+
+		if skipTextContent {
+			// Inside text flag value — extract domains but skip paths
+			if d := extractDomains(arg); len(d) > 0 {
+				domains = append(domains, d...)
+			}
+			continue
+		}
+
+		// All-text commands: echo, printf — every positional arg is text
+		if allText {
+			if d := extractDomains(arg); len(d) > 0 {
+				domains = append(domains, d...)
+			}
+			positionalIdx++
+			continue
+		}
+
+		// Text positions: grep positional[0] is pattern
+		if textPositions != nil && textPositions[positionalIdx] {
+			if d := extractDomains(arg); len(d) > 0 {
+				domains = append(domains, d...)
+			}
+			positionalIdx++
+			continue
+		}
+
+		// Normal argument — extract paths and domains
+		if looksLikePath(arg) {
+			paths = append(paths, expandPath(arg, cwd, homeDir))
+		}
+		if d := extractDomains(arg); len(d) > 0 {
+			domains = append(domains, d...)
+		}
+		positionalIdx++
+	}
+
+	// Also extract paths from AST redirects (these are always real paths)
+	for _, seg := range shellparse.AllSegments(parsed) {
+		for _, redir := range seg.Redirects {
+			if redir.Path != "" && looksLikePath(redir.Path) {
+				paths = append(paths, expandPath(redir.Path, cwd, homeDir))
+			}
+		}
+	}
+	for _, redir := range parsed.Redirects {
+		if redir.Path != "" && looksLikePath(redir.Path) {
+			paths = append(paths, expandPath(redir.Path, cwd, homeDir))
+		}
+	}
+
+	return paths, domains
+}
+
+// fallbackExtract is the original tokenizer-based extraction with heredoc and
+// textContentFlags support. Used when AST parsing fails or for heredoc commands.
+func fallbackExtract(args []string, cwd, homeDir string) ([]string, []string) {
+	var paths []string
+	var domains []string
+
+	skipTextContent := false
 	inHeredoc := false
 	heredocDelim := ""
 	nextIsHeredocDelim := false
 
 	for _, arg := range args[1:] {
 		// ── Heredoc state machine ──────────────────────────────────────────
-		// Priority: heredoc state is checked before everything else so that
-		// flags and paths inside heredoc bodies are never processed.
-
 		if nextIsHeredocDelim {
-			// This token is the heredoc delimiter (e.g. EOF, 'EOF', "MY_EOF")
 			heredocDelim = stripHeredocDelimQuotes(arg)
 			if heredocDelim != "" {
 				inHeredoc = true
@@ -89,23 +242,18 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 
 		if inHeredoc {
 			if arg == heredocDelim {
-				// Closing delimiter found — exit heredoc body
 				inHeredoc = false
 				heredocDelim = ""
 			}
-			// Skip body tokens (including the closing delimiter itself)
 			continue
 		}
 
-		// Detect heredoc operator tokens: <<, <<-, <<EOF, <<'EOF', <<"EOF", <<-EOF
 		if strings.HasPrefix(arg, "<<") {
 			suffix := arg[2:]
-			suffix = strings.TrimPrefix(suffix, "-") // strip optional - (<<- indented heredoc)
+			suffix = strings.TrimPrefix(suffix, "-")
 			if suffix == "" {
-				// Operator and delimiter are separate tokens: << EOF
 				nextIsHeredocDelim = true
 			} else {
-				// Operator and delimiter are in one token: <<EOF or <<'EOF'
 				heredocDelim = stripHeredocDelimQuotes(suffix)
 				if heredocDelim != "" {
 					inHeredoc = true
@@ -115,11 +263,7 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 		}
 
 		// ── Normal token processing ────────────────────────────────────────
-
 		if strings.HasPrefix(arg, "-") {
-			// Any new flag resets the text-content skip state.
-			// Also handle combined short flags like -am (git commit -a -m shorthand):
-			// if any single char in the combined flag is a text-content flag, skip paths.
 			if !strings.HasPrefix(arg, "--") && len(arg) > 2 {
 				found := false
 				for _, ch := range arg[1:] {
@@ -138,38 +282,23 @@ func Normalize(args []string, cwd string) NormalizedCommand {
 		}
 
 		if skipTextContent {
-			// Inside a text-content value — still extract domains (safe),
-			// but skip path extraction to avoid false positives.
-			if domains := extractDomains(arg); len(domains) > 0 {
-				nc.Domains = append(nc.Domains, domains...)
+			if d := extractDomains(arg); len(d) > 0 {
+				domains = append(domains, d...)
 			}
 			continue
 		}
 
 		if looksLikePath(arg) {
 			expanded := expandPath(arg, cwd, homeDir)
-			nc.Paths = append(nc.Paths, expanded)
+			paths = append(paths, expanded)
 		}
 
-		if domains := extractDomains(arg); len(domains) > 0 {
-			nc.Domains = append(nc.Domains, domains...)
-		}
-	}
-
-	// Handle git clone specially for SSH URLs (HTTPS already captured above)
-	if nc.Executable == "git" && len(args) > 2 && args[1] == "clone" {
-		repoURL := args[2]
-		if strings.HasPrefix(repoURL, "git@") {
-			if domain := extractGitDomain(repoURL); domain != "" {
-				nc.Domains = append(nc.Domains, domain)
-			}
+		if d := extractDomains(arg); len(d) > 0 {
+			domains = append(domains, d...)
 		}
 	}
 
-	// Deduplicate domains
-	nc.Domains = uniqueStrings(nc.Domains)
-
-	return nc
+	return paths, domains
 }
 
 func looksLikePath(arg string) bool {
@@ -245,9 +374,18 @@ func uniqueStrings(input []string) []string {
 	return result
 }
 
+// containsHeredoc checks if tokenized args contain heredoc syntax (<<, <<-, <<EOF, etc.).
+func containsHeredoc(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "<<") {
+			return true
+		}
+	}
+	return false
+}
+
 // stripHeredocDelimQuotes removes surrounding single or double quotes from a
-// heredoc delimiter token. Shell allows quoting the delimiter to suppress
-// expansion: <<'EOF', <<"EOF". The closing line must match the unquoted name.
+// heredoc delimiter token.
 func stripHeredocDelimQuotes(s string) string {
 	if len(s) >= 2 {
 		if (s[0] == '\'' && s[len(s)-1] == '\'') ||

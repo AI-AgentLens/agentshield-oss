@@ -86,7 +86,7 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	for _, tc := range shellCases {
 		cwd, _ := os.Getwd()
 		normalized := normalize.Normalize(tc.args, cwd)
-		result := engine.Evaluate(tc.cmd, normalized.Paths)
+		result := engine.EvaluateWithParsed(tc.cmd, normalized.Paths, normalized.Parsed)
 
 		pass := decisionGE(result.Decision, tc.wantMin)
 		icon := "\xe2\x9c\x85" // ✅

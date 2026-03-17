@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"github.com/security-researcher-ca/agentshield/internal/shellparse"
 )
 
 // StructuralAnalyzer parses shell commands into an AST using mvdan.cc/sh/v3
@@ -46,6 +46,7 @@ func (a *StructuralAnalyzer) Name() string { return "structural" }
 
 // Analyze parses the command into an AST and runs structural checks.
 // It enriches ctx.Parsed for downstream analyzers to consume.
+// If ctx.Parsed is already set (e.g., by the normalizer), it reuses it.
 // SetUserRules attaches user-defined structural rules from YAML packs.
 // These are evaluated after built-in Go checks, using the same ParsedCommand.
 func (a *StructuralAnalyzer) SetUserRules(rules []StructuralRule) {
@@ -53,8 +54,10 @@ func (a *StructuralAnalyzer) SetUserRules(rules []StructuralRule) {
 }
 
 func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
-	parsed := a.Parse(ctx.RawCommand)
-	ctx.Parsed = parsed
+	if ctx.Parsed == nil {
+		ctx.Parsed = a.Parse(ctx.RawCommand)
+	}
+	parsed := ctx.Parsed
 
 	var findings []Finding
 
@@ -85,182 +88,9 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 }
 
 // Parse converts a raw command string into a ParsedCommand AST.
+// This delegates to shellparse.Parse for the actual parsing.
 func (a *StructuralAnalyzer) Parse(command string) *ParsedCommand {
-	return a.parseWithDepth(command, 0)
-}
-
-func (a *StructuralAnalyzer) parseWithDepth(command string, depth int) *ParsedCommand {
-	if depth >= a.maxParseDepth {
-		return nil
-	}
-
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
-	if err != nil {
-		// If the shell parser fails, fall back to simple splitting
-		return a.fallbackParse(command)
-	}
-
-	pc := &ParsedCommand{}
-	for _, stmt := range file.Stmts {
-		a.walkStmt(pc, stmt, command, depth)
-	}
-	return pc
-}
-
-func (a *StructuralAnalyzer) walkStmt(pc *ParsedCommand, stmt *syntax.Stmt, raw string, depth int) {
-	if stmt.Cmd == nil {
-		return
-	}
-
-	// Collect redirects from the statement
-	for _, redir := range stmt.Redirs {
-		r := Redirect{Op: redirectOpString(redir)}
-		if redir.Word != nil {
-			r.Path = wordToString(redir.Word)
-		}
-		pc.Redirects = append(pc.Redirects, r)
-	}
-
-	switch cmd := stmt.Cmd.(type) {
-	case *syntax.CallExpr:
-		seg := a.callExprToSegment(cmd, raw)
-		// Check for indirect execution (bash -c, python -c, etc.)
-		if seg.IsShell {
-			inner := extractInlineCode(seg)
-			if inner != "" {
-				sub := a.parseWithDepth(inner, depth+1)
-				if sub != nil {
-					pc.Subcommands = append(pc.Subcommands, sub)
-				}
-			}
-		}
-		pc.Segments = append(pc.Segments, seg)
-
-	case *syntax.BinaryCmd:
-		// Handle pipelines and logical operators
-		op := binaryOpString(cmd.Op)
-		// Walk left and right, collecting segments
-		leftPC := &ParsedCommand{}
-		rightPC := &ParsedCommand{}
-		a.walkStmt(leftPC, cmd.X, raw, depth)
-		a.walkStmt(rightPC, cmd.Y, raw, depth)
-		pc.Segments = append(pc.Segments, leftPC.Segments...)
-		pc.Operators = append(pc.Operators, op)
-		pc.Segments = append(pc.Segments, rightPC.Segments...)
-		pc.Subcommands = append(pc.Subcommands, leftPC.Subcommands...)
-		pc.Subcommands = append(pc.Subcommands, rightPC.Subcommands...)
-
-	case *syntax.Subshell:
-		for _, s := range cmd.Stmts {
-			a.walkStmt(pc, s, raw, depth)
-		}
-	}
-}
-
-func (a *StructuralAnalyzer) callExprToSegment(call *syntax.CallExpr, raw string) CommandSegment {
-	seg := CommandSegment{
-		Flags: make(map[string]string),
-	}
-
-	words := make([]string, 0, len(call.Args))
-	for _, word := range call.Args {
-		words = append(words, wordToString(word))
-	}
-
-	if len(words) == 0 {
-		return seg
-	}
-
-	seg.Executable = words[0]
-
-	// Handle sudo: the real command is the first non-sudo-flag arg.
-	// We simplify by treating sudo as transparent — skip sudo and its flags,
-	// then re-assign the real executable.
-	remaining := words[1:]
-	if seg.Executable == "sudo" && len(remaining) > 0 {
-		// Skip sudo flags (like -u, -E, etc.) to find the real command
-		for len(remaining) > 0 {
-			if strings.HasPrefix(remaining[0], "-") {
-				remaining = remaining[1:]
-			} else {
-				break
-			}
-		}
-		if len(remaining) > 0 {
-			seg.Executable = remaining[0]
-			remaining = remaining[1:]
-		}
-	}
-
-	seg.IsShell = isShellInterpreter(seg.Executable)
-	for i := 0; i < len(remaining); i++ {
-		w := remaining[i]
-		if strings.HasPrefix(w, "--") && len(w) > 2 {
-			// Long flag: --recursive, --force, --registry=value
-			flag := w[2:]
-			if eqIdx := strings.Index(flag, "="); eqIdx >= 0 {
-				seg.Flags[flag[:eqIdx]] = flag[eqIdx+1:]
-			} else {
-				seg.Flags[flag] = ""
-			}
-		} else if strings.HasPrefix(w, "-") && len(w) > 1 && !strings.HasPrefix(w, "--") {
-			// Short flags: -rf, -r, -f
-			// Each character is a separate flag
-			for _, ch := range w[1:] {
-				seg.Flags[string(ch)] = ""
-			}
-		} else {
-			seg.Args = append(seg.Args, w)
-		}
-	}
-
-	// Detect subcommand for known tools (npm install, pip install, etc.)
-	if len(seg.Args) > 0 {
-		if isSubcommandTool(seg.Executable) {
-			seg.SubCommand = seg.Args[0]
-			seg.Args = seg.Args[1:]
-		}
-	}
-
-	// Build raw from original words
-	seg.Raw = strings.Join(words, " ")
-	return seg
-}
-
-// fallbackParse handles commands that mvdan.cc/sh can't parse.
-func (a *StructuralAnalyzer) fallbackParse(command string) *ParsedCommand {
-	pc := &ParsedCommand{}
-	// Simple pipe splitting
-	parts := strings.Split(command, "|")
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		words := strings.Fields(part)
-		seg := CommandSegment{
-			Raw:        part,
-			Executable: words[0],
-			Flags:      make(map[string]string),
-			IsShell:    isShellInterpreter(words[0]),
-		}
-		for _, w := range words[1:] {
-			if strings.HasPrefix(w, "-") {
-				for _, ch := range w[1:] {
-					seg.Flags[string(ch)] = ""
-				}
-			} else {
-				seg.Args = append(seg.Args, w)
-			}
-		}
-		pc.Segments = append(pc.Segments, seg)
-		if i < len(parts)-1 {
-			pc.Operators = append(pc.Operators, "|")
-		}
-	}
-	return pc
+	return shellparse.Parse(command, a.maxParseDepth)
 }
 
 // ---------------------------------------------------------------------------
@@ -284,13 +114,11 @@ func (c *rmRecursiveRootCheck) Check(parsed *ParsedCommand, raw string) []Findin
 		if seg.Executable != "rm" && seg.Executable != "sudo" {
 			continue
 		}
-		// If sudo, check if the actual command is rm
 		exec := seg.Executable
 		args := seg.Args
 		flags := seg.Flags
 		if exec == "sudo" && len(args) > 0 && args[0] == "rm" {
 			exec = "rm"
-			// Re-parse remaining args as rm flags
 			flags, args = reparseArgsAsFlags(args[1:])
 		}
 		if exec != "rm" {
@@ -388,11 +216,8 @@ func (c *ddOutputTargetCheck) Check(parsed *ParsedCommand, raw string) []Finding
 			continue
 		}
 
-		// dd uses key=value arguments, not standard flags.
-		// Re-scan all args for if= and of= patterns.
 		var ifPath, ofPath string
 		allWords := append([]string{}, seg.Args...)
-		// Also check flags map — some dd args parsed as flags by mistake
 		for k, v := range seg.Flags {
 			if v != "" {
 				allWords = append(allWords, k+"="+v)
@@ -411,7 +236,6 @@ func (c *ddOutputTargetCheck) Check(parsed *ParsedCommand, raw string) []Finding
 			strings.HasPrefix(ifPath, "/dev/random")
 
 		if hasDangerousInput && ofPath != "" && !isBlockDevice(ofPath) {
-			// dd to a regular file — this is an ALLOW (structural override)
 			findings = append(findings, Finding{
 				AnalyzerName: "structural",
 				RuleID:       "st-allow-dd-to-file",
@@ -448,10 +272,8 @@ func (c *chmodSymbolicCheck) Check(parsed *ParsedCommand, raw string) []Finding 
 			continue
 		}
 
-		// Look for symbolic modes that are equivalent to 777
 		for i, arg := range args {
 			if isWorldWritableSymbolic(arg) {
-				// Check if any subsequent arg is a system path
 				for _, pathArg := range args[i+1:] {
 					if isSystemPath(pathArg) {
 						findings = append(findings, Finding{
@@ -487,7 +309,6 @@ func (c *pipeToShellCheck) Check(parsed *ParsedCommand, raw string) []Finding {
 		left := parsed.Segments[i]
 		right := parsed.Segments[i+1]
 
-		// Check if left is a download command and operator is pipe
 		isDownload := isDownloadCommand(left.Executable)
 		isPipe := i < len(parsed.Operators) && parsed.Operators[i] == "|"
 		isInterpreter := isShellOrInterpreter(right.Executable)
@@ -540,125 +361,30 @@ func (c *pipeToDangerousTargetCheck) Check(parsed *ParsedCommand, raw string) []
 }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Helper functions (analyzer-specific, not shared with shellparse)
 // ---------------------------------------------------------------------------
 
-// wordToString converts a syntax.Word AST node to its string representation.
-func wordToString(word *syntax.Word) string {
-	var sb strings.Builder
-	printer := syntax.NewPrinter()
-	if err := printer.Print(&sb, word); err != nil {
-		return "" // fallback on error
-	}
-	return sb.String()
-}
+// ---------------------------------------------------------------------------
+// Thin wrappers for shellparse functions — keeps existing analyzer code
+// (semantic.go, stateful.go, structural_rule.go) compiling without changes.
+// ---------------------------------------------------------------------------
 
-func redirectOpString(redir *syntax.Redirect) string {
-	switch redir.Op {
-	case syntax.RdrOut:
-		return ">"
-	case syntax.AppOut:
-		return ">>"
-	case syntax.RdrIn:
-		return "<"
-	default:
-		return redir.Op.String()
-	}
-}
-
-func binaryOpString(op syntax.BinCmdOperator) string {
-	switch op {
-	case syntax.Pipe:
-		return "|"
-	case syntax.AndStmt:
-		return "&&"
-	case syntax.OrStmt:
-		return "||"
-	default:
-		return op.String()
-	}
-}
-
-// allSegments returns all segments including those in subcommands.
 func allSegments(parsed *ParsedCommand) []CommandSegment {
-	if parsed == nil {
-		return nil
-	}
-	segs := make([]CommandSegment, len(parsed.Segments))
-	copy(segs, parsed.Segments)
-	for _, sub := range parsed.Subcommands {
-		segs = append(segs, allSegments(sub)...)
-	}
-	return segs
+	return shellparse.AllSegments(parsed)
 }
 
-// reparseArgsAsFlags re-parses a list of args into flags and positional args.
-// Used when sudo is stripped and remaining args need re-parsing.
 func reparseArgsAsFlags(words []string) (map[string]string, []string) {
-	flags := make(map[string]string)
-	var args []string
-	for _, w := range words {
-		if strings.HasPrefix(w, "--") && len(w) > 2 {
-			flag := w[2:]
-			if eqIdx := strings.Index(flag, "="); eqIdx >= 0 {
-				flags[flag[:eqIdx]] = flag[eqIdx+1:]
-			} else {
-				flags[flag] = ""
-			}
-		} else if strings.HasPrefix(w, "-") && len(w) > 1 {
-			for _, ch := range w[1:] {
-				flags[string(ch)] = ""
-			}
-		} else {
-			args = append(args, w)
-		}
-	}
-	return flags, args
+	return shellparse.ReparseArgsAsFlags(words)
 }
 
-var shellInterpreters = map[string]bool{
-	"sh": true, "bash": true, "zsh": true, "dash": true,
-	"ksh": true, "fish": true, "csh": true, "tcsh": true,
-}
+func isShellOrInterpreter(exe string) bool { return shellparse.IsShellOrInterpreter(exe) }
+func isDownloadCommand(exe string) bool    { return shellparse.IsDownloadCommand(exe) }
+func isDangerousPipeTarget(exe string) bool { return shellparse.IsDangerousPipeTarget(exe) }
 
-var codeInterpreters = map[string]bool{
-	"python": true, "python3": true, "python2": true,
-	"node": true, "ruby": true, "perl": true, "lua": true,
-	"php": true,
-}
-
-func isShellInterpreter(exe string) bool {
-	return shellInterpreters[exe]
-}
-
-func isShellOrInterpreter(exe string) bool {
-	return shellInterpreters[exe] || codeInterpreters[exe]
-}
-
-func isDownloadCommand(exe string) bool {
-	switch exe {
-	case "curl", "wget", "fetch", "aria2c":
-		return true
-	}
-	return false
-}
-
-func isDangerousPipeTarget(exe string) bool {
-	switch exe {
-	case "crontab", "at", "tee", "dd", "mysql", "psql", "sqlite3":
-		return true
-	}
-	return false
-}
-
-func isSubcommandTool(exe string) bool {
-	switch exe {
-	case "npm", "pip", "pip3", "yarn", "pnpm", "cargo", "go",
-		"git", "docker", "kubectl", "brew", "apt", "apt-get",
-		"systemctl", "service":
-		return true
-	}
-	return false
+// hasFlag checks if a flag key exists in the flags map.
+func hasFlag(flags map[string]string, key string) bool {
+	_, ok := flags[key]
+	return ok
 }
 
 func isRootTarget(path string) bool {
@@ -682,7 +408,6 @@ func isSystemPath(path string) bool {
 	if isSystemDir(path) {
 		return true
 	}
-	// Check if path is under a system directory
 	for dir := range systemDirs {
 		if strings.HasPrefix(path, dir+"/") {
 			return true
@@ -702,47 +427,19 @@ func isBlockDevice(path string) bool {
 		strings.HasPrefix(path, "/dev/loop")
 }
 
-// hasFlag checks if a flag key exists in the flags map.
-// Flags are stored with empty string values, so key existence is the test.
-func hasFlag(flags map[string]string, key string) bool {
-	_, ok := flags[key]
-	return ok
-}
-
 func isWorldWritableSymbolic(mode string) bool {
-	// Matches: a+rwx, o+w, a+w, ugo+rwx, etc.
 	mode = strings.ToLower(mode)
-	// Quick numeric check
 	if mode == "777" || mode == "0777" {
 		return true
 	}
-	// Symbolic: "a+rwx", "a+w", "+rwx" (no user spec = all)
 	if strings.Contains(mode, "a+") && strings.Contains(mode, "w") {
 		return true
 	}
-	// "o+w" — other+write is world writable
 	if strings.Contains(mode, "o+") && strings.Contains(mode, "w") {
 		return true
 	}
-	// "+rwx" with no user prefix means all
 	if strings.HasPrefix(mode, "+") && strings.Contains(mode, "w") {
 		return true
 	}
 	return false
-}
-
-// extractInlineCode extracts the code argument from interpreters that accept
-// inline code: bash -c 'code', python -c 'code', etc.
-func extractInlineCode(seg CommandSegment) string {
-	if !seg.IsShell && !codeInterpreters[seg.Executable] {
-		return ""
-	}
-	// Look for -c flag followed by code argument
-	if _, hasC := seg.Flags["c"]; hasC {
-		// The code is typically the first positional arg after -c
-		if len(seg.Args) > 0 {
-			return seg.Args[0]
-		}
-	}
-	return ""
 }

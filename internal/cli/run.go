@@ -86,8 +86,8 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create policy engine: %w", err)
 	}
 
-	// Evaluate policy with extracted paths
-	evalResult := engine.Evaluate(cmdStr, normalized.Paths)
+	// Evaluate policy with extracted paths (reuse AST parse from normalizer)
+	evalResult := engine.EvaluateWithParsed(cmdStr, normalized.Paths, normalized.Parsed)
 
 	event := logger.AuditEvent{
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),

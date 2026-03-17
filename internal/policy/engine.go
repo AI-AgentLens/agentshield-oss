@@ -38,6 +38,12 @@ func (e *Engine) Policy() *Policy {
 }
 
 func (e *Engine) Evaluate(command string, paths []string) EvalResult {
+	return e.EvaluateWithParsed(command, paths, nil)
+}
+
+// EvaluateWithParsed is like Evaluate but accepts a pre-parsed command AST
+// from the normalizer, avoiding redundant parsing in the structural analyzer.
+func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *analyzer.ParsedCommand) EvalResult {
 	result := EvalResult{
 		Decision:       e.policy.Defaults.Decision,
 		TriggeredRules: []string{},
@@ -78,6 +84,7 @@ func (e *Engine) Evaluate(command string, paths []string) EvalResult {
 		ctx := &analyzer.AnalysisContext{
 			RawCommand: command,
 			Paths:      paths,
+			Parsed:     parsed,
 		}
 		combined := e.registry.RunAll(ctx, string(e.policy.Defaults.Decision))
 		result.Decision = Decision(combined.Decision)

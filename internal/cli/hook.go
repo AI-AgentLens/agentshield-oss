@@ -229,7 +229,7 @@ func evaluateCommand(cmdStr, cwd, source string) (*policy.EvalResult, *logger.Au
 		return nil, nil, fmt.Errorf("engine init failed: %w", err)
 	}
 
-	evalResult := engine.Evaluate(cmdStr, normalized.Paths)
+	evalResult := engine.EvaluateWithParsed(cmdStr, normalized.Paths, normalized.Parsed)
 
 	event := logger.AuditEvent{
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),

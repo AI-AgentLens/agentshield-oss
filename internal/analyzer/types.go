@@ -1,5 +1,7 @@
 package analyzer
 
+import "github.com/security-researcher-ca/agentshield/internal/shellparse"
+
 // Analyzer is the interface every analysis layer implements.
 // Each analyzer receives the full AnalysisContext (original input + accumulated
 // enrichments from prior layers) and returns zero or more Findings.
@@ -22,7 +24,7 @@ type AnalysisContext struct {
 	Domains    []string // domains extracted by normalizer
 
 	// Enrichments added by analyzers (downstream layers can read these)
-	Parsed       *ParsedCommand  // set by structural analyzer
+	Parsed       *ParsedCommand  // set by structural analyzer (or reused from normalizer)
 	Intents      []CommandIntent // set by semantic analyzer
 	DataFlows    []DataFlow      // set by dataflow analyzer (Phase 3)
 	SessionState *SessionState   // set by stateful analyzer (Phase 4)
@@ -40,43 +42,13 @@ type Finding struct {
 }
 
 // ---------------------------------------------------------------------------
-// ParsedCommand — produced by the structural analyzer
+// Type aliases — canonical types live in shellparse, re-exported here for
+// backward compatibility so all existing analyzer code compiles unchanged.
 // ---------------------------------------------------------------------------
 
-// ParsedCommand is the structural representation of a shell command.
-// Produced by the structural analyzer for downstream layers to consume.
-type ParsedCommand struct {
-	// Segments are the pipeline-separated commands.
-	// "curl ... | bash" → 2 segments.
-	Segments []CommandSegment
-
-	// Operators between segments: "|", "&&", "||", ";"
-	Operators []string
-
-	// Redirects at the top level (e.g., "> /dev/null")
-	Redirects []Redirect
-
-	// Subcommands found via indirect execution parsing (depth > 0).
-	// E.g., for "bash -c 'rm -rf /'", the inner "rm -rf /" is a subcommand.
-	Subcommands []*ParsedCommand
-}
-
-// CommandSegment is a single command within a pipeline.
-type CommandSegment struct {
-	Raw        string            // original text of this segment
-	Executable string            // base command name (e.g., "rm", "curl")
-	SubCommand string            // e.g., "install" for "npm install"
-	Args       []string          // positional arguments
-	Flags      map[string]string // normalized flags: key=flag name, value=flag value (or "")
-	Redirects  []Redirect        // segment-level redirects
-	IsShell    bool              // true if executable is a known shell interpreter
-}
-
-// Redirect represents a shell redirect operation.
-type Redirect struct {
-	Op   string // ">", ">>", "<", "2>"
-	Path string // target path
-}
+type ParsedCommand = shellparse.ParsedCommand
+type CommandSegment = shellparse.CommandSegment
+type Redirect = shellparse.Redirect
 
 // ---------------------------------------------------------------------------
 // CommandIntent — produced by the semantic analyzer
