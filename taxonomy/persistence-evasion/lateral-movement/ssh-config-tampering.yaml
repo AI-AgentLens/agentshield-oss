@@ -75,5 +75,3 @@ references:
 analyzers: ["regex"]
 related_rules:
   - "ts-block-ssh-config-write"
-  - "ts-block-ssh-keygen-piped"
-  - "ts-block-authorized-keys-write"
