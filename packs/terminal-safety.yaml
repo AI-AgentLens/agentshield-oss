@@ -949,6 +949,75 @@ rules:
     confidence: 0.90
     reason: "Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk."
 
+  # ═══════════════════════════════════════════════════════════════════
+  # GIT HOOK INJECTION (closes #213)
+  #
+  # Git hooks are shell scripts that git executes automatically at
+  # specific lifecycle events (pre-commit, post-checkout, pre-push, etc.).
+  # An AI agent that writes to .git/hooks/ injects code that runs on
+  # every subsequent git operation — a stealthy, developer-triggered
+  # persistence mechanism that survives repository updates.
+  #
+  # MITRE ATT&CK: T1546 (Event Triggered Execution)
+  # Related: T1059.004 (Unix Shell), T1546.004 (Git Hooks)
+  # ═══════════════════════════════════════════════════════════════════
+
+  # === BLOCK: Writing to .git/hooks/ via echo/printf/tee ===
+  #
+  # The most direct injection: writing a script body directly into a
+  # hook file using shell redirection or tee. The hook name regex covers
+  # all standard git hooks that developers commonly use.
+
+  - id: "ts-block-git-hook-write"
+    taxonomy: "persistence-evasion/cicd-tampering/git-hook-injection"
+    match:
+      command_regex: "(echo|printf|tee)\\b.*\\.git/hooks/(pre-commit|post-commit|pre-push|post-push|pre-receive|post-receive|pre-merge-commit|prepare-commit-msg|commit-msg|post-checkout|post-merge|pre-rebase|update|post-update|push-to-checkout|pre-auto-gc|post-rewrite|sendemail-validate|fsmonitor-watchman|p4-changelist|p4-prepare-changelist|p4-post-changelist|p4-pre-submit)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing to .git/hooks/ injects code that runs automatically on git operations (pre-commit, pre-push, etc.) — a stealthy local persistence technique. MITRE T1546."
+
+  # === BLOCK: cp/mv into .git/hooks/ ===
+  #
+  # Copying or moving a pre-built malicious script into the hooks directory.
+  # Same outcome as direct write, but avoids shell redirection characters.
+
+  - id: "ts-block-git-hook-cp-mv"
+    taxonomy: "persistence-evasion/cicd-tampering/git-hook-injection"
+    match:
+      command_regex: "(cp|mv)(\\s+-\\S+)*\\s+\\S+\\s+\\.git/hooks/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Copying or moving a file into .git/hooks/ installs a git hook — code that runs automatically on git events. MITRE T1546."
+
+  # === BLOCK: chmod on .git/hooks/* to make hook executable ===
+  #
+  # Making a hook file executable is the final step of hook installation.
+  # Even if the write step was missed, catching chmod +x on .git/hooks/*
+  # closes the gap.
+
+  - id: "ts-block-git-hook-chmod"
+    taxonomy: "persistence-evasion/cicd-tampering/git-hook-injection"
+    match:
+      command_regex: "chmod\\b.*(\\+x|[0-7]{3,4}).*\\.git/hooks/"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Making a file in .git/hooks/ executable activates it as a git hook — code that runs on git events. MITRE T1546."
+
+  # === BLOCK: git config core.hooksPath redirection ===
+  #
+  # git config core.hooksPath lets an attacker redirect ALL hook lookups
+  # to an attacker-controlled directory (e.g., /tmp/hooks) outside the
+  # repository. Any script in that directory will run as a hook without
+  # needing to touch .git/hooks/ at all — bypasses per-hook detection.
+
+  - id: "ts-block-git-hooks-path-redirect"
+    taxonomy: "persistence-evasion/cicd-tampering/git-hook-injection"
+    match:
+      command_regex: "git\\b.*config\\b.*(--global\\s+|--system\\s+|--local\\s+|--worktree\\s+)?core\\.hooksPath\\s+\\S"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git config core.hooksPath redirects git hook lookup to an arbitrary directory — attacker can pre-populate it with malicious hook scripts. MITRE T1546."
+
   # === BLOCK: Shell startup script backdoor ===
   # Covers appends/overwrites/in-place edits to .bashrc, .zshrc, .bash_profile, .profile,
   # and similar shell startup files. These files are sourced automatically on every new
