@@ -1442,6 +1442,171 @@ var InternalServiceProbeCases = []TestCase{
 	},
 }
 
+// CloudInfraReconCases tests detection of cloud infrastructure enumeration
+// via AWS, GCP, and Azure CLIs (closes #264).
+// Rules: ne-audit-aws-cloud-recon, ne-audit-gcloud-cloud-recon, ne-audit-azure-cloud-recon
+// Taxonomy: reconnaissance/network-discovery/host-discovery
+// MITRE T1580, T1087.004, T1069.003
+var CloudInfraReconCases = []TestCase{
+	// ── AWS infrastructure enumeration (ne-audit-aws-cloud-recon) ─────────
+
+	{
+		ID:               "TP-NE-AUDIT-AWS-RECON-001",
+		Command:          "aws ec2 describe-instances --output json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS EC2 instance enumeration — maps all running instances for infrastructure reconnaissance. Must be audited (ne-audit-aws-cloud-recon).",
+		Tags:             []string{"tp", "aws", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-AWS-RECON-002",
+		Command:          "aws iam list-users",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS IAM user enumeration — maps all IAM accounts as a privilege escalation stepping stone. Must be audited (ne-audit-aws-cloud-recon).",
+		Tags:             []string{"tp", "aws", "iam", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-AWS-RECON-003",
+		Command:          "aws s3 ls",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS S3 bucket listing — enumerates all S3 buckets to identify data stores for exfiltration targeting. Must be audited (ne-audit-aws-cloud-recon).",
+		Tags:             []string{"tp", "aws", "s3", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-AWS-RECON-004",
+		Command:          "aws iam list-roles --output table",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS IAM role enumeration — discovers roles available for privilege escalation. Must be audited (ne-audit-aws-cloud-recon).",
+		Tags:             []string{"tp", "aws", "iam", "cloud-recon"},
+	},
+
+	// ── GCP infrastructure enumeration (ne-audit-gcloud-cloud-recon) ──────
+
+	{
+		ID:               "TP-NE-AUDIT-GCLOUD-RECON-001",
+		Command:          "gcloud compute instances list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "GCP compute instance listing — maps all running VMs for infrastructure reconnaissance. Must be audited (ne-audit-gcloud-cloud-recon).",
+		Tags:             []string{"tp", "gcp", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-GCLOUD-RECON-002",
+		Command:          "gcloud iam service-accounts list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "GCP IAM service account enumeration — discovers service accounts for credential targeting. Must be audited (ne-audit-gcloud-cloud-recon).",
+		Tags:             []string{"tp", "gcp", "iam", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-GCLOUD-RECON-003",
+		Command:          "gcloud projects list --format json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "GCP project enumeration — maps all accessible GCP projects to identify the attack surface. Must be audited (ne-audit-gcloud-cloud-recon).",
+		Tags:             []string{"tp", "gcp", "cloud-recon"},
+	},
+
+	// ── Azure infrastructure enumeration (ne-audit-azure-cloud-recon) ─────
+
+	{
+		ID:               "TP-NE-AUDIT-AZURE-RECON-001",
+		Command:          "az vm list -o table",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Azure VM listing — maps all running VMs for infrastructure reconnaissance. Must be audited (ne-audit-azure-cloud-recon).",
+		Tags:             []string{"tp", "azure", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-AZURE-RECON-002",
+		Command:          "az ad user list --output json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Azure AD user enumeration — maps all tenant users for targeted attacks. Must be audited (ne-audit-azure-cloud-recon).",
+		Tags:             []string{"tp", "azure", "ad", "cloud-recon"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-AZURE-RECON-003",
+		Command:          "az role assignment list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Azure role assignment enumeration — discovers privilege paths for escalation. Must be audited (ne-audit-azure-cloud-recon).",
+		Tags:             []string{"tp", "azure", "iam", "cloud-recon"},
+	},
+
+	// ── True Negatives (benign cloud CLI usage — not recon enumeration) ─────
+	//
+	// Note: All `aws`, `gcloud`, and `az` commands are already caught at AUDIT
+	// level by the broad prefix rules ne-audit-aws-cli, ne-audit-gcloud, and
+	// ne-audit-az-cli. The TN cases below confirm that non-enumeration cloud
+	// CLI commands are NOT promoted to BLOCK by the cloud recon rules, and
+	// correctly remain at AUDIT (the correct outcome for legitimate operations).
+
+	{
+		ID:               "TN-NE-AUDIT-AWS-RECON-001",
+		Command:          "aws s3 cp localfile.txt s3://mybucket/uploads/",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS S3 file upload — legitimate deployment operation, not infrastructure enumeration. Cloud recon rules must not BLOCK; broad ne-audit-aws-cli correctly returns AUDIT.",
+		Tags:             []string{"tn", "aws", "safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-AWS-RECON-002",
+		Command:          "aws ec2 start-instances --instance-ids i-1234567890abcdef0",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "AWS EC2 start-instances — legitimate instance management, not recon enumeration. Cloud recon rules must not BLOCK; broad ne-audit-aws-cli correctly returns AUDIT.",
+		Tags:             []string{"tn", "aws", "safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-GCLOUD-RECON-001",
+		Command:          "gcloud compute instances create my-vm --zone us-central1-a",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "GCP compute instance creation — legitimate infrastructure provisioning, not enumeration. Cloud recon rules must not BLOCK; broad ne-audit-gcloud correctly returns AUDIT.",
+		Tags:             []string{"tn", "gcp", "safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-AZURE-RECON-001",
+		Command:          "az vm create --resource-group myRG --name myVM --image UbuntuLTS",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/host-discovery",
+		Analyzer:         "regex",
+		Description:      "Azure VM creation — legitimate infrastructure provisioning, not enumeration. Cloud recon rules must not BLOCK; broad ne-audit-az-cli correctly returns AUDIT.",
+		Tags:             []string{"tn", "azure", "safe"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -1454,5 +1619,6 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, ModernOSINTToolCases...)
 	all = append(all, DBSchemaEnumCases...)
 	all = append(all, InternalServiceProbeCases...)
+	all = append(all, CloudInfraReconCases...)
 	return all
 }

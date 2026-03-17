@@ -659,6 +659,69 @@ rules:
     reason: "httpx probes hosts at scale for live HTTP services, response metadata, and technology fingerprints. AI agents must not perform bulk HTTP reconnaissance. MITRE T1595.001."
 
   # ═══════════════════════════════════════════════════════════════════
+  # CLOUD INFRASTRUCTURE ENUMERATION VIA CLI (closes #264)
+  #
+  # AI agents with cloud CLI access (aws, gcloud, az) can silently enumerate
+  # the entire cloud infrastructure — EC2 instances, IAM users/roles, S3
+  # buckets, GCP compute, Azure VMs — as a pre-exfiltration/lateral-movement
+  # reconnaissance step.
+  #
+  # Threat model:
+  #   1. Agent runs `aws ec2 describe-instances` to map all EC2 instances and
+  #      their security groups, then plans lateral movement or data extraction.
+  #   2. `aws iam list-users` / `list-roles` enumerates the IAM attack surface
+  #      for privilege escalation or credential targeting.
+  #   3. `aws s3 ls` enumerates all S3 buckets to identify data stores.
+  #   4. `gcloud compute instances list` / `gcloud iam service-accounts list`
+  #      provides equivalent GCP infrastructure mapping.
+  #   5. `az vm list` / `az ad user list` maps the Azure tenant.
+  #
+  # Design: AUDIT (not BLOCK) because ops/devs legitimately run these commands.
+  # Flagging for review catches agent-driven infrastructure mapping without
+  # blocking routine cloud operations workflows.
+  #
+  # MITRE T1580 (Cloud Infrastructure Discovery), T1069.003 (Cloud Groups),
+  # T1087.004 (Cloud Account), T1082 (System Information Discovery).
+  # OWASP LLM02, LLM06.
+
+  # === AUDIT: AWS infrastructure enumeration ===
+  #
+  # Covers the primary AWS CLI discovery subcommands: describe-*, list-*,
+  # get-* under ec2, iam, s3api, rds, lambda, eks, ecs, cloudformation,
+  # and organization services.
+  - id: "ne-audit-aws-cloud-recon"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      command_regex: "\\baws\\s+(ec2\\s+(describe-instances|describe-security-groups|describe-vpcs|describe-subnets|describe-network-interfaces)|iam\\s+(list-users|list-roles|list-groups|list-policies|get-account-summary)|s3api\\s+(list-buckets|get-bucket-acl|get-bucket-policy)|s3\\s+ls|rds\\s+describe-db-instances|lambda\\s+list-functions|eks\\s+list-clusters|ecs\\s+list-clusters|cloudformation\\s+list-stacks|organizations\\s+(list-accounts|describe-organization))"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "AWS CLI cloud infrastructure enumeration detected — describes or lists EC2 instances, IAM identities, S3 buckets, RDS, Lambda, EKS, ECS, or organization accounts. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004, T1069.003."
+
+  # === AUDIT: GCP infrastructure enumeration ===
+  #
+  # Covers gcloud compute instances list, projects list, IAM service-account
+  # enumeration, storage bucket listing, and GKE cluster discovery.
+  - id: "ne-audit-gcloud-cloud-recon"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      command_regex: "\\bgcloud\\s+(compute\\s+(instances|networks|firewall-rules|forwarding-rules|vpn-tunnels)\\s+list|projects\\s+list|iam\\s+service-accounts\\s+list|storage\\s+ls|container\\s+clusters\\s+list|sql\\s+instances\\s+list|functions\\s+list|run\\s+services\\s+list)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "GCP CLI cloud infrastructure enumeration detected — lists compute instances, projects, IAM service accounts, Cloud Storage buckets, GKE clusters, or Cloud Run services. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004."
+
+  # === AUDIT: Azure infrastructure enumeration ===
+  #
+  # Covers az vm list, az ad user/group/service-principal enumeration,
+  # role assignment listing, resource group and subscription inventory.
+  - id: "ne-audit-azure-cloud-recon"
+    taxonomy: "reconnaissance/network-discovery/host-discovery"
+    match:
+      command_regex: "\\baz\\s+(vm\\s+list|ad\\s+(user|group|sp)\\s+list|role\\s+assignment\\s+list|resource\\s+(list|group\\s+list)|account\\s+(list|subscription\\s+list)|aks\\s+list|functionapp\\s+list|webapp\\s+list|storage\\s+account\\s+list)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Azure CLI cloud infrastructure enumeration detected — lists VMs, AD users/groups/service principals, role assignments, resources, AKS clusters, or storage accounts. AI agents must not silently map cloud infrastructure. MITRE T1580, T1087.004, T1069.003."
+
+  # ═══════════════════════════════════════════════════════════════════
   # DATABASE SCHEMA ENUMERATION VIA CLI (closes #260)
   #
   # AI agents with database CLI access (mysql, psql, sqlite3) can enumerate
