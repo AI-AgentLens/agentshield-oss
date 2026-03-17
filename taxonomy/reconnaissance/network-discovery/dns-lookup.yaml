@@ -40,7 +40,7 @@ examples:
     - "nslookup api.example.com"
 
 compliance:
-  owasp-llm-2025: ["LLM02"]
+  owasp-llm-2025: ["LLM02", "LLM06"]
   iso-27001-2022: ["A.8.20"]
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MAP-5"]

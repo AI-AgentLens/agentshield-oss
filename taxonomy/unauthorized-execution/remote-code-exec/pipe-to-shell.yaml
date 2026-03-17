@@ -5,7 +5,7 @@ kingdom_id: 4
 category: "Remote Code Execution"
 category_id: "4.1"
 name: "Pipe to Shell"
-risk_level: "medium"
+risk_level: "critical"
 abstract: |-
     A command downloads content from a remote URL and pipes it directly
     into a shell interpreter, executing unreviewed code.

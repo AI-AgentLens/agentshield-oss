@@ -5,7 +5,7 @@ kingdom_id: 3
 category: "Version Control Egress"
 category_id: "3.4"
 name: "Git Data Exfiltration"
-risk_level: "medium"
+risk_level: "high"
 
 abstract: |
   Git push can exfiltrate source code or sensitive data to remote repositories,

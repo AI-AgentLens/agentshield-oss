@@ -1,0 +1,9 @@
+id: "4.4"
+name: "Agentic Attack Surface"
+kingdom_id: 4
+description: >
+  Attacks that exploit the unique characteristics of autonomous AI agents:
+  tool selection, persistent memory, multi-turn reasoning, and cross-session
+  state. These threats do not exist in single-shot LLM usage and emerge from
+  the agent's ability to read context, make decisions, and take actions
+  across extended interactions.

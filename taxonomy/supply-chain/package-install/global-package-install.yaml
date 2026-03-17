@@ -42,7 +42,7 @@ examples:
     - "bundle install --path vendor/bundle"
 
 compliance:
-  owasp-llm-2025: ["LLM05"]
+  owasp-llm-2025: ["LLM03", "LLM05"]
   iso-27001-2022: ["A.8.28", "A.8.9"]
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MANAGE-4"]
