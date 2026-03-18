@@ -1,0 +1,6 @@
+id: "2.17"
+name: "Process Credential Access"
+kingdom_id: 2
+description: >
+  Reading another process's open file descriptors via /proc/PID/fd/ to steal in-flight
+  credentials and database connections.

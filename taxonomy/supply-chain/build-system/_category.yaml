@@ -1,0 +1,6 @@
+id: "7.6"
+name: "Build System Command Injection"
+kingdom_id: 7
+description: >
+  Injecting malicious commands into build tools via variable overrides (SHELL=, CC=,
+  CFLAGS=) that execute during the build process.

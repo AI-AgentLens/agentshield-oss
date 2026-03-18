@@ -1,0 +1,6 @@
+id: "4.5"
+name: "Interpreter Encoding Evasion"
+kingdom_id: 4
+description: >
+  Using interpreter-level encoding APIs (pack/fromhex/Buffer.from) to reconstruct
+  malicious commands at runtime, bypassing static command analysis.

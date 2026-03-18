@@ -1,0 +1,6 @@
+id: "6.8"
+name: "Covert Communication Channels"
+kingdom_id: 6
+description: >
+  Establishing hidden communication channels via named pipes, file descriptor redirection,
+  or /dev/tcp to evade network detection.

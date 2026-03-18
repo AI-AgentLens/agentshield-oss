@@ -1,0 +1,66 @@
+id: "data-exfiltration/log-extraction/journalctl-sensitive-export"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "System Log Extraction"
+category_id: "3.3"
+name: "Security Service Journal Structured Export"
+risk_level: "high"
+
+abstract: |
+  Exporting logs specifically from security-sensitive services (sshd, sudo, polkit, vault)
+  in structured JSON format, enabling automated credential extraction from authentication
+  service logs. Targeted service queries combined with structured output enable precise
+  credential mining.
+
+explanation: |
+  Targeting specific security-critical services with structured JSON output enables
+  automated post-processing to extract credentials:
+
+  ```
+  journalctl -u sshd -o json
+  journalctl -u sudo -o json-pretty
+  journalctl -u vault -o json --no-pager
+  journalctl -u polkit -o json
+  journalctl _COMM=sudo -o json | python3 -c "import sys,json;[print(json.loads(l)) for l in sys.stdin]"
+  ```
+
+  Security-sensitive services that commonly log credential material:
+  - **sshd**: Failed logins with attempted passwords, accepted key fingerprints
+  - **sudo**: Full command history with user identity (effective root command audit trail)
+  - **vault**: Token IDs, seal/unseal events, access denial reasons
+  - **polkit**: Authorization decisions with details of what was granted
+
+  The JSON output includes structured fields that are trivial to parse programmatically,
+  making this more dangerous than plain text log viewing.
+
+recommendation: |
+  - Block journalctl targeting security-sensitive units (-u sshd, -u sudo, -u vault)
+    combined with machine-parseable output formats.
+  - Apply field-level log redaction in journald for sensitive services.
+  - Require elevated privileges for reading security service journals.
+  - Monitor audit logs for structured journal export events.
+
+examples:
+  bad:
+    - "journalctl -u sshd -o json"
+    - "journalctl -u sudo -o json-pretty --no-pager"
+    - "journalctl -u vault -o json | python3 extract_tokens.py"
+    - "journalctl _COMM=sudo -o json"
+  good:
+    - "journalctl -u sshd -n 10"
+    - "journalctl -u vault -p err"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.3"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1552.003"]
+  cwe: ["CWE-200", "CWE-312"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

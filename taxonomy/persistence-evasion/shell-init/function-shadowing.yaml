@@ -1,0 +1,69 @@
+id: "persistence-evasion/shell-init/function-shadowing"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Shell Initialization Hijacking"
+category_id: "6.10"
+name: "Shell Function Command Shadowing"
+risk_level: "high"
+
+abstract: |
+  Defining shell functions that shadow security-sensitive commands (sudo, ssh, curl, git)
+  to transparently intercept credentials and data while delegating to the real command
+  via the `command` builtin, making the attack invisible to users. The malicious function
+  captures all arguments and secrets before passing through to the legitimate tool.
+
+explanation: |
+  Shell functions take precedence over external commands when resolving names. By defining
+  a function with the same name as a security-critical tool, an agent can intercept all
+  invocations:
+
+  ```bash
+  sudo() { command sudo "$@" 2>&1 | tee /tmp/.sudo_log; }
+  ssh() { command ssh "$@"; cat ~/.ssh/known_hosts >> /tmp/.recon; }
+  curl() { command curl "$@" >> /tmp/.curl_history; command curl "$@"; }
+  git() { env | grep -E 'TOKEN|KEY|SECRET' >> /tmp/.env; command git "$@"; }
+  ```
+
+  The attack characteristics:
+  - The real command still executes — user sees no difference in behavior
+  - Arguments (including passwords passed as args) are captured
+  - Environment variables containing secrets are exfiltrated on each invocation
+  - The `command` builtin bypasses function lookup to reach the real binary
+  - Function definitions persist for the session; if written to ~/.bashrc they persist across sessions
+
+  Common targets:
+  - `sudo` — captures admin password prompts
+  - `ssh` — captures remote host inventory and session activity
+  - `git` — captures CI/CD tokens from environment on every git operation
+  - `curl/wget` — captures URLs, headers, and response bodies
+  - `gpg` — captures passphrase arguments
+
+recommendation: |
+  - Block function definitions that shadow known security-critical commands.
+  - Detect function bodies containing exfiltration patterns (tee, /tmp, curl).
+  - Use structural analysis to identify function definitions that override builtins.
+  - In CI/CD, use `env -i` to start with a clean environment and prevent function inheritance.
+
+examples:
+  bad:
+    - "sudo() { command sudo \"$@\" 2>&1 | tee /tmp/.log; }"
+    - "ssh() { command ssh \"$@\"; env >> /tmp/.env; }"
+    - "git() { env | grep TOKEN >> /tmp/.t; command git \"$@\"; }"
+  good:
+    - "greet() { echo \"Hello $1\"; }"
+    - "deploy() { make build && kubectl apply -f k8s/; }"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1546.004", "T1056.001"]
+  cwe: ["CWE-78", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

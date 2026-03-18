@@ -1,0 +1,6 @@
+id: "6.10"
+name: "Shell Initialization Hijacking"
+kingdom_id: 6
+description: >
+  Injecting persistent code execution into shell initialization via environment variables,
+  function shadowing, or trap handlers.

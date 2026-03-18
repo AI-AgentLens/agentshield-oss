@@ -1,0 +1,6 @@
+id: "6.9"
+name: "Fileless Execution"
+kingdom_id: 6
+description: >
+  Executing payloads entirely in memory without writing to disk, leaving minimal forensic
+  artifacts.

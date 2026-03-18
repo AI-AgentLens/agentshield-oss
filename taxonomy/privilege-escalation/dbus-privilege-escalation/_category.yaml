@@ -1,0 +1,6 @@
+id: "5.5"
+name: "D-Bus Privilege Escalation"
+kingdom_id: 5
+description: >
+  Abusing D-Bus system bus services (systemd, PackageKit, polkit, UDisks2) to perform
+  privileged operations without requiring sudo.

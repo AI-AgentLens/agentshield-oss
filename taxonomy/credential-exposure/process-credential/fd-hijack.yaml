@@ -1,0 +1,67 @@
+id: "credential-exposure/process-credential/fd-hijack"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Process Credential Access"
+category_id: "2.17"
+name: "Process FD Credential Hijack"
+risk_level: "high"
+
+abstract: |
+  Reading /proc/PID/fd/ entries accesses another process's open file descriptors,
+  enabling theft of database connections, deleted secret files, and SSH agent sockets
+  still held open in memory. Because files deleted while still open remain accessible
+  through /proc, this bypasses standard filesystem deletion.
+
+explanation: |
+  The Linux /proc pseudo-filesystem exposes every process's open file descriptors at
+  `/proc/<PID>/fd/<N>`. Reading these symlinks provides access to any file the target
+  process has open, including:
+
+  - Secret files that have been deleted from the filesystem but are still open
+  - Database connection sockets containing credentials
+  - SSH agent Unix domain sockets
+  - Environment files loaded at process start that contain API keys
+
+  Attack patterns:
+  ```
+  ls -la /proc/$(pgrep vault)/fd/      # enumerate vault process file descriptors
+  cat /proc/$(pgrep postgres)/fd/3     # read database connection with credentials
+  cat /proc/1234/fd/5                  # read a deleted secrets file still open
+  strings /proc/$(pgrep app)/mem       # dump process memory directly
+  ```
+
+  This technique is particularly powerful because:
+  - Files deleted with `shred` or `rm` remain readable via /proc if still open
+  - No file-read commands targeting the original path are issued
+  - Parent process credentials can be stolen from child process /proc entries
+
+recommendation: |
+  - Block commands that enumerate or read /proc/PID/fd/ paths.
+  - Restrict access to /proc with hidepid=2 mount option (hides other users' processes).
+  - Use process isolation (namespaces, seccomp) to prevent /proc cross-process reads.
+  - Close sensitive file descriptors immediately after use in application code.
+
+examples:
+  bad:
+    - "ls -la /proc/$(pgrep vault)/fd/"
+    - "cat /proc/1234/fd/3"
+    - "cat /proc/$(pgrep ssh-agent)/fd/4"
+    - "strings /proc/$(pgrep app)/fd/0"
+  good:
+    - "ls -la /proc/$$/fd/"
+    - "ls /proc/self/fd"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.3"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1005"]
+  cwe: ["CWE-668", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

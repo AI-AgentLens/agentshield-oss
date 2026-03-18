@@ -1,0 +1,69 @@
+id: "privilege-escalation/filesystem-bypass/raw-filesystem-access"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Filesystem Permission Bypass"
+category_id: "5.6"
+name: "Raw Filesystem Access via debugfs"
+risk_level: "critical"
+
+abstract: |
+  Using debugfs with write or command execution flags to operate directly at the block
+  and inode level, bypassing all Unix file permissions, SELinux policies, and AppArmor
+  profiles. Can read /etc/shadow, modify files without updating timestamps, and inject
+  payloads directly into the filesystem.
+
+explanation: |
+  debugfs is an ext2/ext3/ext4 filesystem debugger that operates directly on block
+  devices, completely bypassing the VFS permission layer:
+
+  ```
+  debugfs -w /dev/sda1 -R 'cat /etc/shadow'
+  debugfs /dev/sda1 -R 'dump /etc/shadow /tmp/shadow_dump'
+  debugfs -w /dev/sda1 -R 'write /tmp/rootkit /sbin/rootkit'
+  echo "cat /etc/shadow" | debugfs /dev/sda1
+  debugfs -f /tmp/cmds /dev/sda1
+  ```
+
+  Capabilities that bypass OS security controls:
+  - **Read any file** regardless of Unix permissions, ACLs, or SELinux labels
+  - **Write any file** including setuid binaries, system files, and protected configs
+  - **Hide modifications** by directly setting mtime/ctime via `set_inode_field`
+  - **Access deleted files** by examining raw inode structures
+  - **Bypass AppArmor/SELinux** because access is at block device level, not VFS
+
+  This is one of the most dangerous techniques available because:
+  - Requires read access to the block device (typically requires root — but achievable via D-Bus UDisks)
+  - Modifications are invisible to filesystem monitoring tools
+  - Can read /etc/shadow to obtain password hashes for offline cracking
+  - Can inject files into the filesystem without triggering inotify/fanotify events
+
+recommendation: |
+  - Block debugfs invocations with -w (write mode) or -R (command execution) flags.
+  - Restrict block device access to root only.
+  - Use filesystem-level immutability (chattr +i) for critical system files.
+  - Monitor block device access with device-level audit rules (auditd -a always,exit -F arch=b64 -S open -F path=/dev/sda).
+
+examples:
+  bad:
+    - "debugfs -w /dev/sda1 -R 'cat /etc/shadow'"
+    - "debugfs /dev/sda1 -R 'dump /etc/shadow /tmp/dump'"
+    - "echo 'cat /etc/passwd' | debugfs /dev/sda1"
+    - "debugfs -w /dev/sda1 -R 'write /tmp/backdoor /usr/local/bin/backdoor'"
+  good:
+    - "debugfs -R 'stats' /dev/sda1"
+    - "debugfs /dev/sda1"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1006"]
+  cwe: ["CWE-269", "CWE-284"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

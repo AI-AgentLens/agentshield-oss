@@ -1,0 +1,67 @@
+id: "privilege-escalation/dbus-privilege-escalation/packagekit-install"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "D-Bus Privilege Escalation"
+category_id: "5.5"
+name: "D-Bus PackageKit Package Installation Abuse"
+risk_level: "critical"
+
+abstract: |
+  Using D-Bus to invoke PackageKit to install or remove packages without sudo, enabling
+  installation of backdoored packages or removal of security tools via polkit
+  authorization. PackageKit provides a system-wide package management interface that
+  desktop environments expose to active users.
+
+explanation: |
+  PackageKit exposes package management over D-Bus, allowing installation/removal of
+  system packages with root privileges through polkit authorization:
+
+  ```
+  dbus-send --system --dest=org.freedesktop.PackageKit /org/freedesktop/PackageKit \
+    org.freedesktop.PackageKit.InstallPackageNames uint32:0 array:string:"malicious-pkg"
+  gdbus call --system --dest org.freedesktop.PackageKit \
+    --object-path /org/freedesktop/PackageKit \
+    --method org.freedesktop.PackageKit.RemovePackages uint32:0 \
+    objectpath:'/org/freedesktop/PackageKit/Transaction/1' array:string:'auditd' false false
+  pkcon install malicious-package
+  ```
+
+  Attack scenarios:
+  - Install a backdoored version of a legitimate package
+  - Remove security monitoring tools (auditd, aide, rkhunter)
+  - Install packages that establish network services
+  - Downgrade packages to versions with known vulnerabilities
+
+  `pkcon` is the PackageKit command-line client that uses D-Bus internally — blocking
+  both the low-level dbus-send calls and the pkcon frontend is necessary.
+
+recommendation: |
+  - Block dbus-send/gdbus/busctl calls targeting org.freedesktop.PackageKit Install/Remove methods.
+  - Block pkcon install/remove commands.
+  - Configure polkit to require administrator authentication for PackageKit operations.
+  - Use package manager audit hooks to detect unauthorized installations.
+
+examples:
+  bad:
+    - "dbus-send --system --dest=org.freedesktop.PackageKit /org/freedesktop/PackageKit org.freedesktop.PackageKit.InstallPackageNames uint32:0 array:string:ncat"
+    - "pkcon install backdoor-package"
+    - "pkcon remove auditd"
+    - "gdbus call --system --dest org.freedesktop.PackageKit --object-path /org/freedesktop/PackageKit --method org.freedesktop.PackageKit.RemovePackages uint32:0 array:string:fail2ban false false"
+  good:
+    - "pkcon get-updates"
+    - "pkcon search name nginx"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1059.004", "T1195.002"]
+  cwe: ["CWE-269", "CWE-250"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

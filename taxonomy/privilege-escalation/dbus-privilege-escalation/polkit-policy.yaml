@@ -1,0 +1,69 @@
+id: "privilege-escalation/dbus-privilege-escalation/polkit-policy"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "D-Bus Privilege Escalation"
+category_id: "5.5"
+name: "D-Bus PolicyKit Authorization Policy Abuse"
+risk_level: "critical"
+
+abstract: |
+  Using D-Bus to invoke PolicyKit1 to register or modify authorization policies,
+  potentially granting unattended privilege escalation by modifying the polkit rules
+  that govern what operations are permitted. Polkit is the gatekeeper for all D-Bus
+  privilege escalation; compromising it enables all other D-Bus attacks.
+
+explanation: |
+  PolicyKit (polkit) is the authorization framework behind all D-Bus privilege
+  escalation. Direct manipulation of polkit authorization policies can open the door
+  to all subsequent privilege escalation:
+
+  ```
+  dbus-send --system --dest=org.freedesktop.PolicyKit1 \
+    /org/freedesktop/PolicyKit1/Authority \
+    org.freedesktop.PolicyKit1.Authority.CheckAuthorization ...
+  pkexec --disable-internal-agent /tmp/payload
+  ```
+
+  Polkit abuse patterns:
+  - Enumerate authorization policies to find permissive rules
+  - Exploit polkit CVEs (CVE-2021-4034 pkexec SUID exploit, CVE-2021-3560)
+  - Use `pkexec` to run arbitrary commands with root privileges
+  - Register custom polkit rules in /etc/polkit-1/rules.d/ to grant broad permissions
+
+  `pkexec` is the polkit equivalent of sudo — it runs the specified command with
+  elevated privileges via polkit authorization. Unlike sudo, it doesn't appear in
+  sudoers logs and may have more permissive default policies.
+
+  Historical vulnerabilities like PwnKit (CVE-2021-4034) made pkexec trivially
+  exploitable for local privilege escalation to root.
+
+recommendation: |
+  - Block pkexec invocations with suspicious command targets (/tmp, /dev/shm paths).
+  - Block dbus-send calls targeting org.freedesktop.PolicyKit1 from non-admin processes.
+  - Keep polkit updated to latest version (numerous historical CVEs).
+  - Restrict polkit rules to minimum necessary permissions.
+  - Monitor /etc/polkit-1/rules.d/ for unauthorized rule additions.
+
+examples:
+  bad:
+    - "pkexec /tmp/payload.sh"
+    - "pkexec chmod +s /bin/bash"
+    - "dbus-send --system --dest=org.freedesktop.PolicyKit1 /org/freedesktop/PolicyKit1/Authority org.freedesktop.PolicyKit1.Authority.CheckAuthorization ..."
+  good:
+    - "pkexec gedit /etc/hosts"
+    - "pkcheck --action-id org.freedesktop.packagekit.package-install --process $$"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1548"]
+  cwe: ["CWE-269", "CWE-250"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

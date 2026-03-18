@@ -1,0 +1,68 @@
+id: "privilege-escalation/dbus-privilege-escalation/udisks-management"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "D-Bus Privilege Escalation"
+category_id: "5.5"
+name: "D-Bus UDisks2 Disk Management Abuse"
+risk_level: "high"
+
+abstract: |
+  Using D-Bus to call UDisks2 disk management methods to mount, unmount, format, or
+  wipe disks without sudo, with potential for data destruction or exfiltration via
+  removable media. UDisks2 provides disk management capabilities to active desktop
+  session users via polkit.
+
+explanation: |
+  UDisks2 exposes disk management operations over D-Bus, including destructive operations:
+
+  ```
+  dbus-send --system --dest=org.freedesktop.UDisks2 \
+    /org/freedesktop/UDisks2/drives/... \
+    org.freedesktop.UDisks2.Drive.Erase ...
+  gdbus call --system --dest org.freedesktop.UDisks2 \
+    --object-path /org/freedesktop/UDisks2/block_devices/sdb \
+    --method org.freedesktop.UDisks2.Block.Format ext4 {}
+  udisksctl power-off -b /dev/sdb
+  ```
+
+  Abuse scenarios:
+  - `Format` — wipe and reformat a disk partition (data destruction)
+  - `Erase` — secure erase a drive
+  - `Mount`/`Unmount` — mount removable media to copy data to/from
+  - `PowerOff` — forcibly power off a disk (potential data corruption)
+
+  The `udisksctl` command-line tool provides a user-friendly interface to the
+  same D-Bus calls — both must be monitored.
+
+  On desktop Linux, active session users are typically granted mount/unmount
+  rights without authentication, enabling removable media exfiltration without sudo.
+
+recommendation: |
+  - Block dbus-send/gdbus calls to org.freedesktop.UDisks2 for destructive methods (Format, Erase).
+  - Block udisksctl format/erase/power-off invocations.
+  - Restrict removable media mounting in AI agent environments via polkit rules.
+  - Monitor for unexpected disk mount events in audit logs.
+
+examples:
+  bad:
+    - "udisksctl power-off -b /dev/sdb"
+    - "gdbus call --system --dest org.freedesktop.UDisks2 --object-path /org/freedesktop/UDisks2/block_devices/sdb --method org.freedesktop.UDisks2.Block.Format ext4 {}"
+    - "dbus-send --system --dest=org.freedesktop.UDisks2 /org/freedesktop/UDisks2/block_devices/sdb org.freedesktop.UDisks2.Drive.Erase a{sv} 0 {}"
+  good:
+    - "udisksctl status"
+    - "udisksctl info -b /dev/sda"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1"]
+  soc2-type2: ["CC6.1"]
+
+references:
+  mitre_attack: ["T1561"]
+  cwe: ["CWE-269"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

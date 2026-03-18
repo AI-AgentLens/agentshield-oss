@@ -1,0 +1,65 @@
+id: "data-exfiltration/steganography/xattr-data-hiding"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "Steganographic Data Hiding"
+category_id: "3.6"
+name: "Extended Attribute Data Hiding"
+risk_level: "high"
+
+abstract: |
+  Writing sensitive data (credentials, keys, secrets) to file extended attributes using
+  xattr or setfattr, hiding exfiltrated content in file metadata that is invisible to
+  standard ls/find/cat tools and most security scanners. Extended attributes persist
+  across file copies on compatible filesystems.
+
+explanation: |
+  File extended attributes (xattrs) are metadata key-value pairs attached to filesystem
+  objects. They are invisible to standard directory listings and file reads, making them
+  an effective covert storage channel:
+
+  ```
+  xattr -w user.secret "$(cat ~/.ssh/id_rsa | base64)" /tmp/innocent.txt
+  setfattr -n user.data -v "$(cat ~/.aws/credentials | base64)" /var/tmp/normal.log
+  attr -s hidden_data -V "$(env | base64)" /tmp/file.txt
+  ```
+
+  Properties that make xattrs effective for data hiding:
+  - Invisible to `ls`, `cat`, `find` (unless using `-xattr` filter)
+  - Not shown by most file managers or security scanners
+  - Preserved by `cp -p`, `rsync -X`, `tar --xattrs` — data travels with the file
+  - Available on ext4, XFS, Btrfs, APFS, and other modern filesystems
+  - Namespace `user.*` is writable by file owner without elevated privileges
+
+  The technique can also stage data for retrieval: write to xattr on a web-accessible
+  file, then exfiltrate via HTTP by reading the attribute server-side.
+
+recommendation: |
+  - Block xattr, setfattr, attr commands writing to `user.*` namespace with base64 or
+    large data values.
+  - Monitor xattr writes to files in publicly accessible or temp directories.
+  - Scan extended attributes during security audits with `getfattr -R -d /`.
+  - Use filesystem mount options to disable user xattr (no_user_xattr) in sensitive environments.
+
+examples:
+  bad:
+    - "xattr -w user.secret \"$(cat ~/.ssh/id_rsa | base64)\" /tmp/file.txt"
+    - "setfattr -n user.data -v \"$(cat ~/.aws/credentials)\" /var/tmp/log"
+    - "attr -s cache -V \"$(env | base64)\" /tmp/normal.txt"
+  good:
+    - "xattr -l /tmp/file.txt"
+    - "xattr -d com.apple.quarantine ~/Downloads/app.dmg"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.3"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1564.004"]
+  cwe: ["CWE-200", "CWE-312"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

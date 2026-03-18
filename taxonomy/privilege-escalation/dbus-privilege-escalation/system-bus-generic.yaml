@@ -1,0 +1,69 @@
+id: "privilege-escalation/dbus-privilege-escalation/system-bus-generic"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "D-Bus Privilege Escalation"
+category_id: "5.5"
+name: "Generic D-Bus System Bus Call"
+risk_level: "medium"
+
+abstract: |
+  Any invocation of D-Bus system bus tools (dbus-send, gdbus, busctl) targeting the
+  system bus, which interfaces with privileged system services running as root. The
+  system bus is distinct from the session bus and routes calls to system-level daemons
+  that perform privileged operations.
+
+explanation: |
+  The D-Bus system bus (`--system` flag) connects to the system message bus daemon,
+  which hosts privileged services running as root. Any system bus call is potentially
+  a privilege escalation attempt:
+
+  ```
+  dbus-send --system --dest=... --type=method_call ...
+  gdbus call --system --dest ... --method ...
+  busctl --system call ...
+  ```
+
+  This baseline entry captures all system bus calls that don't match more specific
+  entries. Risk is medium because:
+  - The specific method called determines actual risk
+  - Some system bus calls are legitimate (e.g., querying NetworkManager status)
+  - The pattern alone doesn't confirm malicious intent
+
+  High-risk targets on the system bus:
+  - org.freedesktop.systemd1 (service management)
+  - org.freedesktop.Accounts (user management)
+  - org.freedesktop.PackageKit (package installation)
+  - org.freedesktop.login1 (power management, session control)
+  - org.freedesktop.PolicyKit1 (authorization policy)
+  - org.freedesktop.UDisks2 (disk management)
+  - org.freedesktop.NetworkManager (network configuration)
+
+recommendation: |
+  - Audit all dbus-send/gdbus/busctl --system invocations in AI agent sessions.
+  - Apply allowlist of permitted system bus destinations for AI agent environments.
+  - Log all system bus calls with destination and method for forensic analysis.
+  - Block specific high-risk destinations with dedicated rules.
+
+examples:
+  bad:
+    - "dbus-send --system --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager.StartUnit string:evil.service string:replace"
+    - "gdbus call --system --dest org.freedesktop.NetworkManager --object-path /org/freedesktop/NetworkManager --method org.freedesktop.NetworkManager.AddConnection ..."
+    - "busctl --system call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts.CreateUser ssi backdoor '' 0"
+  good:
+    - "busctl --system status"
+    - "dbus-send --system --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1"]
+  soc2-type2: ["CC6.1"]
+
+references:
+  mitre_attack: ["T1548"]
+  cwe: ["CWE-269"]
+
+analyzers: ["regex", "structural"]
+related_rules: []
