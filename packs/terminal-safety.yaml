@@ -5051,6 +5051,50 @@ rules:
     confidence: 0.85
     reason: "huggingface-cli upload — pushing model artifacts to HuggingFace Hub may expose proprietary fine-tuned weights, LoRA adapters, or training datasets to public or unauthorized repositories. OWASP LLM02/LLM03."
 
+  # ── Cross-Tenant LLM/RAG Isolation Failures ─────────────────────────────────
+  #
+  # Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-data-leak
+  #           data-exfiltration/llm-data-flow/cross-tenant-rag-leakage
+  # OWASP LLM02 — Insecure Output Handling, LLM06 — Excessive Agency,
+  #        LLM08 — Excessive Permissions
+  # MITRE T1005 — Data from Local System, T1074 — Data Staged
+  # CWE-200 — Exposure of Sensitive Information, CWE-284 — Improper Access Control
+  # EU AI Act Art.10 (data governance); ISO 27001 A.5.12, A.8.10
+  #
+  # AI agents building or configuring multi-tenant LLM/RAG infrastructure can
+  # introduce cross-tenant isolation failures through shell commands:
+  #
+  # Cross-tenant data leak (inference layer):
+  #   SHARED_SYSTEM_PROMPT="You are helpful" python3 server.py
+  #   export GLOBAL_SYSTEM_PROMPT="Act as admin" && uvicorn app:app
+  #
+  # Cross-tenant RAG leakage (retrieval layer):
+  #   pinecone query --index shared-prod --top-k 10 "merger terms"
+  #   pinecone upsert --index prod vectors.json   (no --namespace)
+
+  # === AUDIT: shared/global system prompt env vars (cross-tenant data leak) ===
+  - id: "de-llmdf-audit-shared-system-prompt"
+    taxonomy: "data-exfiltration/llm-data-flow/cross-tenant-data-leak"
+    match:
+      command_regex: "(?i)(SHARED_SYSTEM_PROMPT|GLOBAL_SYSTEM_PROMPT|SYSTEM_PROMPT_OVERRIDE)\\s*="
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Setting a shared/global system prompt env var overrides per-tenant context isolation in multi-tenant LLM deployments — all tenants share the same prompt, enabling cross-tenant data exposure. OWASP LLM02/LLM06/LLM08."
+
+  # === AUDIT: Pinecone CLI vector query/upsert without --namespace (cross-tenant RAG) ===
+  #
+  # Querying or upserting into a shared Pinecone index without a --namespace
+  # argument places vectors in the default namespace, shared across all tenants.
+  # This is a RAG isolation failure: tenant A can retrieve tenant B's documents.
+  - id: "de-llmdf-audit-vector-query-no-namespace"
+    taxonomy: "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage"
+    match:
+      command_regex: "\\bpinecone\\b.*(query|fetch|list-vectors|upsert)\\b"
+      command_regex_exclude: "--namespace\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08."
+
   # ── Agent Capability Enumeration ────────────────────────────────────────────
   #
   # Taxonomy: reconnaissance/llm-introspection/agent-capability-enumeration
