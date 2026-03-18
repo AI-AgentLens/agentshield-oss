@@ -1,0 +1,66 @@
+id: "privilege-escalation/container-escape/cgroup-release-agent"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Container Escape"
+category_id: "5.3"
+name: "Cgroup Release Agent Escape"
+risk_level: "critical"
+
+abstract: |
+  An AI agent manipulates Linux cgroup control files (release_agent,
+  notify_on_release, cgroup.procs) to execute arbitrary commands as root
+  on the container host, escaping container isolation.
+
+explanation: |
+  The cgroup release_agent container escape (CVE-2022-0492) abuses the
+  kernel's cgroup notification mechanism:
+
+  1. Mount a new cgroup filesystem inside the container
+  2. Write `1` to `notify_on_release` to enable the release agent hook
+  3. Write a payload path to `release_agent` — the kernel executes this
+     path as **root on the host** when the cgroup becomes empty
+  4. Trigger cgroup emptying by writing a PID to `cgroup.procs`
+
+  This technique works from any privileged container or container with
+  `CAP_SYS_ADMIN`. The executed path resolves on the **host** filesystem,
+  so attackers typically first write a reverse shell script to a shared
+  volume, then trigger it via the release agent.
+
+  An AI agent prompted to "optimize container settings" or debugging
+  container resource limits may stumble onto these control files.
+
+recommendation: |
+  - Block all writes to `release_agent` and `notify_on_release` cgroup files.
+  - Block `mount -t cgroup` inside agent execution environments.
+  - Run containers without `CAP_SYS_ADMIN` and with `--no-new-privileges`.
+  - Use seccomp profiles to block `mount(2)` syscall in containers.
+
+examples:
+  bad:
+    - "echo 1 > /sys/fs/cgroup/notify_on_release"
+    - "echo /payload.sh > /sys/fs/cgroup/release_agent"
+    - "mount -t cgroup -o memory cgroup /mnt/cgroup"
+    - "echo $$ > /sys/fs/cgroup/cgroup.procs"
+  good:
+    - "cat /sys/fs/cgroup/memory/memory.usage_in_bytes"
+    - "systemctl status docker"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.26"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC7.1"]
+
+references:
+  mitre_attack: ["T1611"]
+  cwe: ["CWE-269"]
+  external:
+    - title: "MITRE ATT&CK: Escape to Host"
+      url: "https://attack.mitre.org/techniques/T1611/"
+    - title: "CVE-2022-0492: Linux kernel cgroup release_agent privilege escalation"
+      url: "https://nvd.nist.gov/vuln/detail/CVE-2022-0492"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-cgroup-release-agent-write", "ts-block-cgroup-notify-on-release", "ts-block-cgroup-mount", "ts-audit-cgroup-procs"]

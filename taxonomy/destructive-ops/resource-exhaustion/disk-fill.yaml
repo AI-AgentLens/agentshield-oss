@@ -1,0 +1,60 @@
+id: "destructive-ops/resource-exhaustion/disk-fill"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Resource Exhaustion"
+category_id: "1.3"
+name: "Disk Fill Attack"
+risk_level: "critical"
+
+abstract: |
+  An AI agent allocates or writes large amounts of data to disk, exhausting
+  available storage and causing database corruption, logging failures,
+  and system instability.
+
+explanation: |
+  Disk exhaustion is a denial-of-service vector that can corrupt running
+  databases (WAL writes fail), silence security logging (syslog stops),
+  and crash applications that require scratch space. Techniques include:
+
+  - `fallocate -l 100G /tmp/fill` — allocates space instantly without I/O,
+    can fill an entire volume in milliseconds
+  - `dd if=/dev/zero of=/tmp/big bs=1M` — slower but works on any OS
+  - `yes > /tmp/fill` — fills disk byte by byte via repeated newlines
+  - Writing large files to `/var`, `/tmp`, or `/` to exhaust root partition
+
+  An AI agent prompted to "free up space" or "create a large test file"
+  may inadvertently (or via prompt injection) generate disk-fill commands.
+
+recommendation: |
+  - Block `fallocate` calls with allocations ≥1GB.
+  - Audit large `dd` writes (>1GB `count*bs`).
+  - Set disk quotas in the agent execution environment.
+  - Monitor disk utilization — alert at 85%, block writes at 95%.
+
+examples:
+  bad:
+    - "fallocate -l 100G /tmp/fill"
+    - "dd if=/dev/zero of=/tmp/big bs=1M count=100000"
+    - "yes > /var/log/fill"
+  good:
+    - "df -h"
+    - "du -sh /var/log"
+    - "fallocate -l 10M /tmp/testfile"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06", "LLM10"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.26"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1499.001"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Endpoint Denial of Service - OS Exhaustion Flood"
+      url: "https://attack.mitre.org/techniques/T1499/001/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-fallocate-large", "ts-block-dd-large", "ts-block-yes-fill"]
