@@ -470,6 +470,57 @@ rules:
     confidence: 0.80
     reason: "joblib.load()/dill.load() deserializes Python objects via pickle — executing arbitrary code if the file is attacker-controlled. Review the source of any file loaded with these functions (OWASP LLM04, MITRE T1203)."
 
+  # ── Unsafe Model Loading — trust_remote_code, cloudpickle, yaml.unsafe_load ─
+  #
+  # Taxonomy: supply-chain/model-poisoning/unsafe-model-loading
+  # OWASP LLM04 — Model/Supply Chain Vulnerabilities | MITRE AML.T0010, T1203
+  #
+  # These three vectors all enable arbitrary code execution via ML model files:
+  #
+  # 1. trust_remote_code=True: HuggingFace Transformers/PEFT/Accelerate download
+  #    and execute custom Python modules from the model repo. Any repo listed on
+  #    HF Hub can ship malicious modeling_*.py files that run at load time.
+  #
+  # 2. cloudpickle.loads/loads(): cloudpickle extends pickle with closures and
+  #    lambdas, making deserialization even more permissive than standard pickle.
+  #    Commonly used in ML pipelines (Ray, Dask) — attacker-controlled files
+  #    execute arbitrary code on deserialize.
+  #
+  # 3. yaml.unsafe_load / yaml.load(Loader=yaml.Loader): PyYAML's full Loader
+  #    deserializes Python objects via !!python/object YAML tags. Model config
+  #    files (model_card.yaml, config.yaml) loaded with the unsafe Loader become
+  #    a code execution vector.
+
+  # === BLOCK: trust_remote_code=True (HuggingFace arbitrary repo code execution) ===
+
+  - id: "sc-block-unsafe-model-trust-remote"
+    taxonomy: "supply-chain/model-poisoning/unsafe-model-loading"
+    match:
+      command_regex: "trust[_-]remote[_-]code[\\s=:]+(?:True|true|1|yes)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "trust_remote_code=True downloads and executes arbitrary Python files from the HuggingFace model repository. A malicious repo can ship modeling_*.py that runs at load time — equivalent to executing untrusted code from the internet (OWASP LLM04, AML.T0010)."
+
+  # === BLOCK: cloudpickle.loads/load() — extended-pickle deserialization RCE ===
+
+  - id: "sc-block-cloudpickle-load"
+    taxonomy: "supply-chain/model-poisoning/unsafe-model-loading"
+    match:
+      command_regex: "\\bcloudpickle\\.(load|loads)\\s*\\("
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "cloudpickle.load()/loads() deserializes Python objects including closures and lambdas — executing arbitrary code if the source file is attacker-controlled. Even more permissive than standard pickle (OWASP LLM04, MITRE T1203)."
+
+  # === AUDIT: yaml.unsafe_load / yaml.load with full Loader (Python object deserialization) ===
+
+  - id: "sc-audit-yaml-unsafe-load"
+    taxonomy: "supply-chain/model-poisoning/unsafe-model-loading"
+    match:
+      command_regex: "\\byaml\\.(unsafe_load|load)\\s*\\([^)]*Loader\\s*=\\s*yaml\\.(?:Loader|UnsafeLoader|FullLoader)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "yaml.load() with yaml.Loader/UnsafeLoader/FullLoader deserializes Python objects from YAML (via !!python/object tags). Model config files (model_card.yaml, config.yaml) from untrusted sources become a code injection vector. Use yaml.safe_load() instead (OWASP LLM04)."
+
   # === AUDIT/BLOCK: Dockerfile and container image tampering (issue #171) ===
   #
   # Dockerfiles define the entire build environment for a container image.
