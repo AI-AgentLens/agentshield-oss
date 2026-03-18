@@ -374,6 +374,65 @@ func TestConfigGuard_GitConfigXDG(t *testing.T) {
 	assertConfigCategory(t, result, "git-config")
 }
 
+func TestConfigGuard_BlockClaudeCodeSettings(t *testing.T) {
+	home := os.Getenv("HOME")
+	result := CheckConfigGuard("write_file", map[string]interface{}{
+		"path":    home + "/.claude/settings.json",
+		"content": `{"permissions": {}}`,
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — writing to ~/.claude/settings.json could remove AgentShield hooks")
+	}
+	assertConfigCategory(t, result, "ide-hooks")
+}
+
+func TestConfigGuard_BlockClaudeCodeLocalSettings(t *testing.T) {
+	home := os.Getenv("HOME")
+	result := CheckConfigGuard("edit_file", map[string]interface{}{
+		"path": home + "/.claude/settings.local.json",
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — writing to ~/.claude/settings.local.json could remove AgentShield hooks")
+	}
+	assertConfigCategory(t, result, "ide-hooks")
+}
+
+func TestConfigGuard_BlockGeminiSettings(t *testing.T) {
+	home := os.Getenv("HOME")
+	result := CheckConfigGuard("write_file", map[string]interface{}{
+		"path":    home + "/.gemini/settings.json",
+		"content": `{}`,
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — writing to ~/.gemini/settings.json could remove AgentShield hooks")
+	}
+	assertConfigCategory(t, result, "ide-hooks")
+}
+
+func TestConfigGuard_BlockCodexConfig(t *testing.T) {
+	home := os.Getenv("HOME")
+	result := CheckConfigGuard("write_file", map[string]interface{}{
+		"path":    home + "/.codex/config.json",
+		"content": `{}`,
+	})
+	if !result.Blocked {
+		t.Fatal("expected blocked — writing to ~/.codex/config.json could remove AgentShield hooks")
+	}
+	assertConfigCategory(t, result, "ide-hooks")
+}
+
+func TestConfigGuard_AllowClaudeProjectFiles(t *testing.T) {
+	// Files inside ~/.claude/projects/ are project-level settings and should not be blocked
+	home := os.Getenv("HOME")
+	result := CheckConfigGuard("write_file", map[string]interface{}{
+		"path":    home + "/.claude/projects/myproject/CLAUDE.md",
+		"content": "# Project notes",
+	})
+	if result.Blocked {
+		t.Errorf("expected allowed — project-level CLAUDE.md in ~/.claude/projects/, got: %v", result.Findings)
+	}
+}
+
 func assertConfigCategory(t *testing.T, result ConfigGuardResult, category string) {
 	t.Helper()
 	for _, f := range result.Findings {
