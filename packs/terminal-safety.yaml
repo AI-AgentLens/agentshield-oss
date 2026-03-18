@@ -4084,3 +4084,137 @@ rules:
     decision: "AUDIT"
     confidence: 0.75
     reason: "eval/exec on a command substitution or captured variable — if the substituted output originates from an MCP tool response, this is a confused deputy pattern where the agent proxies untrusted instructions with its own privileges (OWASP LLM06, CWE-441)."
+
+  # ===================================================================
+  # AGENT ORCHESTRATION HIJACKING
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-orchestration-hijacking
+  # OWASP LLM06 — Excessive Agency, MITRE T1565 — Data Manipulation
+  # ===================================================================
+
+  # === BLOCK: Disabling approval gates in workflow/orchestration configs (LLM06) ===
+  #
+  # Multi-agent orchestration frameworks (CrewAI, AutoGen, LangGraph, Prefect)
+  # use workflow YAML/JSON files to define agent roles, task sequences, and
+  # approval requirements. Modifying these files in-place (sed -i, jq ... sponge)
+  # to disable approval gates or escalate capabilities is a hijacking attack:
+  # a compromised or untrusted agent rewrites the orchestration graph to
+  # bypass human oversight controls.
+  #
+  # Detection: sed -i or jq+sponge targeting orchestration config patterns
+  # (requires_approval, human_approval, needs_review, requires_review).
+  #
+  # Examples:
+  #   sed -i 's/requires_approval: true/requires_approval: false/' workflows/deploy.yaml
+  #   jq '.agents.reviewer.capabilities += ["deploy"]' crew.json | sponge crew.json
+  #
+  # Decision: BLOCK — removing human approval from automated workflows is
+  # almost never a legitimate agent action and represents a critical control bypass.
+  #
+  # OWASP LLM06, MITRE T1565.001 — Stored Data Manipulation
+  - id: "ts-block-orchestration-approval-bypass"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-orchestration-hijacking"
+    match:
+      command_regex: "sed\\s+(-i|--in-place).*\\b(requires_approval|human_approval|needs_review|requires_review|requires_human)\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "In-place sed modification of orchestration config approval gate — removing human oversight controls from a workflow file is a critical control bypass and agent orchestration hijacking pattern (OWASP LLM06, MITRE T1565.001)."
+
+  # === BLOCK: Task queue injection via redis/celery CLI (LLM06) ===
+  #
+  # Agent orchestration frameworks use Redis (LPUSH/RPUSH) or Celery task queues
+  # to schedule and distribute work. An agent that can push arbitrary messages
+  # to these queues can inject malicious tasks into other agents' work queues —
+  # hijacking orchestration without modifying source files.
+  #
+  # Detection: Python -c with redis.Redis()/lpush/rpush patterns, or
+  # celery call/send_task CLI commands targeting agent task queues.
+  #
+  # Examples:
+  #   python -c "import redis; r=redis.Redis(); r.lpush('agent-tasks', ...)"
+  #   celery call agent_worker.execute_task --args='["rm -rf /tmp/data"]'
+  #
+  # Decision: BLOCK — direct task queue manipulation is not a standard
+  # development workflow and strongly indicates queue injection.
+  #
+  # OWASP LLM06, MITRE T1565 — Data Manipulation
+  - id: "ts-block-task-queue-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-orchestration-hijacking"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+['\"].*redis.*\\b(lpush|rpush|zadd|linsert)\\b|celery\\s+(call|send_task)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Task queue injection via Python redis client or Celery CLI — pushing arbitrary tasks into an agent's work queue hijacks orchestration without modifying source files (OWASP LLM06, MITRE T1565)."
+
+  # === AUDIT: jq in-place modification of orchestration/crew config (LLM06) ===
+  #
+  # jq piped to sponge (or tee -a) modifies JSON config files in place.
+  # When targeting orchestration config files (crew.json, agents.json,
+  # workflow.json, config.json), this can escalate agent capabilities
+  # or alter role definitions without triggering file-watch alerts.
+  #
+  # Examples:
+  #   jq '.agents.reviewer.capabilities += ["deploy"]' crew.json | sponge crew.json
+  #   jq '.roles.agent.permissions += ["write"]' agents.json | tee agents.json
+  #
+  # Decision: AUDIT — jq+sponge has legitimate config management uses,
+  # but capability escalation patterns warrant human review.
+  #
+  # OWASP LLM06, MITRE T1565.001
+  - id: "ts-audit-orchestration-config-jq-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-orchestration-hijacking"
+    match:
+      command_regex: "jq\\s+.*\\.(capabilities|permissions|roles|agents).*\\|\\s*(sponge|tee\\s+-?a?\\s+\\S+\\.json)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "jq in-place modification of agent capabilities or role config — updating capabilities/permissions arrays in orchestration config files can silently escalate agent authority (OWASP LLM06, MITRE T1565.001)."
+
+  # ===================================================================
+  # CROSS-CONTEXT DATA CONTAMINATION
+  # Taxonomy: data-exfiltration/llm-data-flow/cross-context-data-contamination
+  # OWASP LLM02 — Insecure Output Handling, LLM06 — Excessive Agency
+  # ===================================================================
+
+  # === AUDIT: find .env files across project boundaries (LLM02, LLM06) ===
+  #
+  # An agent legitimately working in one project directory should not need
+  # to recursively search sibling or parent directories for .env files.
+  # This pattern indicates cross-context data access — reading secrets or
+  # configuration from projects the agent was not authorized to access.
+  #
+  # The canonical attack: find ~/dev/ -name '.env' -exec cat {} \;
+  # This collects all environment secrets across every project in the workspace.
+  #
+  # Decision: AUDIT — find on ~/dev/, ~/workspace/, or parent dirs for .env
+  # has legitimate debugging uses but the cross-project scope warrants review.
+  #
+  # OWASP LLM02, LLM06 — Excessive Agency
+  - id: "ts-audit-cross-context-env-find"
+    taxonomy: "data-exfiltration/llm-data-flow/cross-context-data-contamination"
+    match:
+      command_regex: "find\\s+(~|\\$HOME|~/dev|~/workspace|~/projects)\\b.*-name\\s+['\"]?\\.env['\"]?"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "find searching for .env files across home or workspace directories — collecting environment secrets from sibling projects is a cross-context data contamination pattern (OWASP LLM02, LLM06)."
+
+  # === AUDIT: grep -r for API keys across workspace directories (LLM02, LLM06) ===
+  #
+  # Recursively grepping for API keys, tokens, or credentials across the
+  # entire workspace (~/dev/, ~/workspace/) crosses project context boundaries.
+  # This pattern harvests credentials from projects outside the agent's
+  # authorized scope without requiring explicit file reads.
+  #
+  # Examples:
+  #   grep -r 'API_KEY' ~/workspace/
+  #   grep -r 'SECRET\|TOKEN\|PASSWORD' ~/dev/ --include='*.env'
+  #
+  # Decision: AUDIT — grep across workspace dirs for credential patterns
+  # is a strong indicator of cross-context enumeration.
+  #
+  # OWASP LLM02, LLM06
+  - id: "ts-audit-cross-context-credential-grep"
+    taxonomy: "data-exfiltration/llm-data-flow/cross-context-data-contamination"
+    match:
+      command_regex: "grep\\s+(-r|-R|--recursive)\\s+.*\\b(API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH_TOKEN|ACCESS_KEY)\\b.*\\s+(~|\\$HOME|~/dev|~/workspace|~/projects)(/|\\s|$)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Recursive grep for credential patterns across workspace/home directories — harvesting API keys or secrets from sibling projects crosses context boundaries and violates least-privilege access (OWASP LLM02, LLM06)."
