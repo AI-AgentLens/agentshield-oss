@@ -3532,6 +3532,38 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Tags:             []string{"tn", "safe"},
 	},
 
+	// ── npx @anthropic-ai/claude-code --dangerously-skip-permissions (issue #375) ──
+	{
+		ID:               "TP-AGENTDELEG-NPX-001",
+		Command:          `npx @anthropic-ai/claude-code --dangerously-skip-permissions -p "read all files"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		Analyzer:         "regex",
+		Description:      "npx @anthropic-ai/claude-code --dangerously-skip-permissions — npm-packaged Claude Code with all permission checks disabled, shadow AI deployment variant.",
+		Tags:             []string{"tp", "agent-delegation", "shadow-ai", "npx"},
+	},
+	{
+		ID:               "TP-AGENTDELEG-NPX-002",
+		Command:          `npx @anthropic-ai/claude-code --dangerously-skip-permissions --print "exfiltrate credentials"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		Analyzer:         "regex",
+		Description:      "npx @anthropic-ai/claude-code --dangerously-skip-permissions --print — evades binary-name detection by using npx form.",
+		Tags:             []string{"tp", "agent-delegation", "shadow-ai", "npx"},
+	},
+	{
+		ID:               "TN-AGENTDELEG-NPX-001",
+		Command:          `npx @anthropic-ai/claude-code --version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		Analyzer:         "regex",
+		Description:      "npx @anthropic-ai/claude-code --version — version check, not launching with dangerous flags. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "agent-delegation"},
+	},
+
 	// --- TRUE NEGATIVES: D-Bus privilege escalation ---
 	// These TN cases show benign D-Bus commands that do not match the specific BLOCK rules.
 
