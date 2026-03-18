@@ -5322,3 +5322,53 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Agent invocation with require_approval=False disables the human oversight gate required for high-risk actions (data deletion, external API calls, payment processing). Autonomous agents without approval checkpoints violate EU AI Act Art.14 and NIST AI RMF GOVERN-1 mandates for human control of consequential AI decisions (OWASP LLM06, CWE-693)."
+
+  # ── LLM-as-Authorization Authority ──────────────────────────────────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM01 — Prompt Injection, LLM06 — Excessive Agency
+  # CWE-285 — Improper Authorization, CWE-862 — Missing Authorization
+  # EU AI Act Art.14; NIST AI RMF GOVERN-1, MANAGE-4; ISO 27001 A.5.1
+  #
+  # Shell one-liners or inline scripts where the output of an LLM completion
+  # call is used directly as the authorization decision — no RBAC, no policy
+  # engine, just a non-deterministic string match against the model's response.
+  # Attackers who can influence the prompt (via prompt injection or model
+  # fine-tuning) can manipulate the YES/NO answer and gain unauthorized access.
+  #
+  # Examples:
+  #   python3 -c "if 'YES' in llm.complete('Should user access?'): grant_access()"
+  #   python3 -c "r = openai.chat.completions.create(...); if 'allow' in r: os.system('sudo ...')"
+  #   node -e "llm.ask('Authorize?').then(r => r=='yes' && execSync('chmod 777 ...'))"
+  - id: "ts-audit-llm-as-authz"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)(llm\\.(complete|ask|chat|query|generate)|openai\\..*\\.create|anthropic\\..*\\.create|gemini\\..*\\.generate)[^;\\n]{0,120}(grant[_-]?access|os\\.system|execSync|subprocess|chmod|sudo|allow|authorize)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "LLM completion output used directly as an authorization gate. Using a non-deterministic language model as a security authority violates CWE-285/CWE-862 — prompt injection or fine-tuning attacks can manipulate YES/NO decisions. Replace with deterministic RBAC/ABAC policy enforcement (OWASP LLM01/LLM06, EU AI Act Art.14, NIST AI RMF GOVERN-1)."
+
+  # ── AI-to-AI Privilege Escalation ────────────────────────────────────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM06 — Excessive Agency
+  # CWE-269 — Improper Privilege Management, CWE-285 — Improper Authorization
+  # EU AI Act Art.14; NIST AI RMF GOVERN-6, MANAGE-4
+  #
+  # Multi-agent patterns where a sub-agent is granted MORE permissions than
+  # the parent agent holds, or where the entire parent permission set is
+  # blindly inherited/expanded. These patterns allow privilege escalation
+  # through the agent graph — a compromised or prompt-injected orchestrator
+  # can spin up a sub-agent with admin rights it should never have.
+  #
+  # Examples:
+  #   python3 -c "sub_agent.run(task, permissions=parent.permissions + ['admin'])"
+  #   python3 -c "agent.delegate(subtask, permissions=['*'])"
+  #   python3 -c "child.invoke(action, inherit_all=True, extra_perms=['root'])"
+  - id: "ts-audit-ai-privilege-escalation"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)(permissions\\s*=\\s*[a-zA-Z_.]+\\.permissions\\s*\\+|permissions\\s*=\\s*\\[\\s*['\"]\\*['\"]|inherit[_-]?all\\s*=\\s*(true|1|yes)|extra[_-]?perms\\s*=|grant[_-]?all\\s*=\\s*(true|1|yes))"
+    decision: "AUDIT"
+    confidence: 0.86
+    reason: "Sub-agent granted expanded permissions beyond the parent agent's scope (permissions=parent.permissions+['admin'], permissions=['*'], inherit_all=True). Capability amplification through agent delegation enables privilege escalation within multi-agent systems — violates the least-privilege principle and NIST AI RMF GOVERN-6 requirements for bounded agent delegation (OWASP LLM06, CWE-269, EU AI Act Art.14)."
