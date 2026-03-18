@@ -1,0 +1,8 @@
+id: "4.5"
+name: "AI Resource Abuse"
+kingdom_id: 4
+description: >
+  Patterns where AI agents or LLM-integrated applications consume cloud resources,
+  API quotas, or financial budgets without bounds or authorization — including
+  unbounded token consumption, unrestricted model invocations, and automated
+  feedback loops that amplify cost without human oversight.
