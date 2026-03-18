@@ -4102,6 +4102,136 @@ var MCPServerImpersonationCases = []TestCase{
 	},
 
 	// ---------------------------------------------------------------------------
+	// AI Fine-Tuning Job Launch Without Authorization (ts-audit-ai-finetune-launch)
+	//
+	// Starting an LLM fine-tuning job is high-risk: unreviewed training data,
+	// unbounded compute cost, and creation of an unaudited model artifact.
+	// Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+	// OWASP LLM02/LLM06; EU AI Act Art.9/10/13; NIST AI RMF GOVERN-1/GOVERN-6
+	// ---------------------------------------------------------------------------
+
+	{
+		ID:               "TP-TS-AUDIT-AI-FINETUNE-001",
+		Command:          `openai api fine_tunes.create -t training.jsonl -m gpt-3.5-turbo`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "OpenAI CLI fine-tune job launch — unreviewed training data, unbounded cost, no model card. ts-audit-ai-finetune-launch.",
+		Tags:             []string{"tp", "ai-governance", "finetune"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-FINETUNE-002",
+		Command:          `openai fine_tuning.jobs.create --training-file file-abc123xyz --model gpt-4o-mini`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "OpenAI fine_tuning.jobs.create CLI command — creates model artifact without governance review. ts-audit-ai-finetune-launch.",
+		Tags:             []string{"tp", "ai-governance", "finetune"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-FINETUNE-003",
+		Command:          `python3 -c "import openai; openai.fine_tuning.jobs.create(training_file='file-abc123', model='gpt-3.5-turbo')"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "Python one-liner calling openai.fine_tuning.jobs.create — inline fine-tune launch without authorization check. ts-audit-ai-finetune-launch.",
+		Tags:             []string{"tp", "ai-governance", "finetune"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AI-FINETUNE-001",
+		Command:          `openai fine_tuning.jobs.list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "openai fine_tuning.jobs.list is a read-only status check — ts-audit-ai-finetune-launch NOT triggered (default AUDIT applies).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AI-FINETUNE-002",
+		Command:          `openai fine_tuning.jobs.retrieve ftjob-abc123`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "openai fine_tuning.jobs.retrieve is a read-only status check — ts-audit-ai-finetune-launch NOT triggered (default AUDIT applies).",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// ---------------------------------------------------------------------------
+	// AI Model Publishing Without Governance Review (ts-audit-ai-model-publish)
+	//
+	// Uploading model weights/adapters to a public registry exposes proprietary
+	// fine-tuning data, bypasses IP review, and creates an untracked artifact.
+	// Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+	// OWASP LLM02/LLM06; EU AI Act Art.13/53; NIST AI RMF GOVERN-1/GOVERN-6
+	// ---------------------------------------------------------------------------
+
+	{
+		ID:               "TP-TS-AUDIT-AI-MODELPUB-001",
+		Command:          `huggingface-cli upload my-org/my-llama-ft ./weights`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "huggingface-cli upload publishes model weights to public registry without governance review. ts-audit-ai-model-publish.",
+		Tags:             []string{"tp", "ai-governance", "model-publish"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-MODELPUB-002",
+		Command:          `python3 -c "model.push_to_hub('my-org/my-finetuned-llama')"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "model.push_to_hub() uploads model weights to HuggingFace Hub — no IP review or model card documented. ts-audit-ai-model-publish.",
+		Tags:             []string{"tp", "ai-governance", "model-publish"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-MODELPUB-003",
+		Command:          `python3 -c "trainer.push_to_hub()"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "trainer.push_to_hub() publishes fine-tuned model to HuggingFace Hub — training data may contain PII baked into weights. ts-audit-ai-model-publish.",
+		Tags:             []string{"tp", "ai-governance", "model-publish"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-MODELPUB-004",
+		Command:          `ollama push myorg/my-custom-model`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "ollama push publishes a custom model to the Ollama registry — unreviewed model artifact published without governance sign-off. ts-audit-ai-model-publish.",
+		Tags:             []string{"tp", "ai-governance", "model-publish"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AI-MODELPUB-001",
+		Command:          `python3 -c "from huggingface_hub import list_models; [print(m.id) for m in list_models(author='meta-llama')]"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "HuggingFace Hub list_models() is a read-only API call — ts-audit-ai-model-publish NOT triggered (default AUDIT applies).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AI-MODELPUB-002",
+		Command:          `python3 -c "model.save_pretrained('./my-model-dir')"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		Analyzer:         "regex",
+		Description:      "model.save_pretrained() saves locally — ts-audit-ai-model-publish NOT triggered (default AUDIT applies).",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// ---------------------------------------------------------------------------
 	// Network Pipe to LLM CLI — Prompt Injection Surface (ts-audit-network-pipe-to-llm)
 	//
 	// Piping curl/wget network output directly to LLM CLI tools creates a prompt
