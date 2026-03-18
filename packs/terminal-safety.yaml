@@ -5194,3 +5194,55 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "git push --no-verify bypasses pre-push hooks including remote security scanning gates — skipping final automated quality and security checks before LLM-generated code reaches shared branches. OWASP LLM05, MITRE T1059."
+
+  # ── AI Safety Control Bypass ────────────────────────────────────────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM01 — Prompt Injection, LLM06 — Excessive Agency
+  # MITRE T1078 — Valid Accounts, T1548 — Abuse Elevation Control Mechanism
+  # CWE-285 — Improper Authorization, CWE-862 — Missing Authorization
+  # EU AI Act Art.9, Art.13, Art.14; ISO 27001 A.5.1, A.5.23
+  #
+  # Shell invocations that pass safety bypass arguments to LLM SDKs or agent
+  # frameworks. Examples include environment variable overrides, Python one-liner
+  # argument injection, and CLI flags that disable content filtering or guardrails.
+  # AI agents that have been prompt-injected may be directed to disable safety
+  # controls to allow subsequent harmful output or unguarded tool invocations.
+  #
+  # Examples:
+  #   python3 -c "client = openai.OpenAI(); r = client.chat.completions.create(..., bypass_safety=True)"
+  #   HARM_BLOCK_THRESHOLD=BLOCK_NONE python3 agent.py
+  #   python3 run_agent.py --safe_mode=false --guardrails_disabled=true
+  #   export GUARDRAILS_DISABLED=true && python3 ai_app.py
+  - id: "ts-audit-ai-safety-bypass"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)(bypass[_-]safety\\s*[=:]\\s*(true|1|yes)|safe[_-]mode\\s*[=:]\\s*(false|0|no)|guardrails[_-]?disabled\\s*[=:]\\s*(true|1|yes)|HARM_BLOCK_THRESHOLD[=:]\\s*BLOCK_NONE)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Disabling LLM safety controls (bypass_safety, safe_mode=false, guardrails_disabled, HARM_BLOCK_THRESHOLD=BLOCK_NONE) removes the content filtering and governance guardrails required by OWASP LLM01/LLM06 and EU AI Act Art.14. Prompt-injected agents may be directed to disable these controls before issuing harmful requests."
+
+  # ── Unguarded AI Agent Loop — No Oversight or Iteration Limit ──────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1078 — Valid Accounts
+  # CWE-693 — Protection Mechanism Failure
+  # EU AI Act Art.14 (human oversight); NIST AI RMF GOVERN-1, MANAGE-4
+  #
+  # Agent invocations with require_approval=False and no max_iterations bound
+  # create an unaudited autonomous execution loop with no human oversight.
+  # A prompt-injected or misbehaving agent can take unlimited sensitive actions
+  # (delete data, send messages, make API calls) without any confirmation gate.
+  #
+  # Examples:
+  #   python3 -c "agent.run(task, max_iterations=None, require_approval=False)"
+  #   python3 agent.py --require-approval=false --max-iterations=0
+  #   agent.run(user_task, require_approval=False, max_iter=None)
+  - id: "ts-audit-ai-unguarded-agent-loop"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)require[_-]?approval\\s*[=:]\\s*(false|0|no)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Agent invocation with require_approval=False disables the human oversight gate required for high-risk actions (data deletion, external API calls, payment processing). Autonomous agents without approval checkpoints violate EU AI Act Art.14 and NIST AI RMF GOVERN-1 mandates for human control of consequential AI decisions (OWASP LLM06, CWE-693)."
