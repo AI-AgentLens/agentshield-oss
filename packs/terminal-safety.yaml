@@ -103,6 +103,42 @@ rules:
     confidence: 0.85
     reason: "High-count for-loop invoking AI agent or AI API — may spawn thousands of agent sessions or API calls, exhausting quota (OWASP LLM10)."
 
+  # === AUDIT: AI Denial of Wallet — bulk input / parallel dispatch (issue #349) ===
+  #
+  # Patterns that cause unbounded or excessive LLM API cost by flooding the API
+  # with large inputs or high-parallelism batch jobs — distinct from the infinite
+  # loop patterns above, which operate on *duration*. These patterns operate on
+  # *volume* and *parallelism*.
+  #
+  # Attack patterns:
+  #   cat /var/log/*.log | claude --prompt "summarize"     — glob pipe into LLM
+  #   find . -name "*.txt" | xargs -P50 claude             — parallel agent spawn
+  #   xargs -P100 llm < input.txt                          — bulk parallel dispatch
+  #   cat dump.sql | openai api completions.create          — large DB dump to LLM
+  #
+  # Decision: AUDIT — some bulk processing pipelines are legitimate (e.g. CI
+  # summarization); flag for human review. High-parallelism dispatch (>= 20
+  # parallel workers) is more suspicious and warrants attention.
+  #
+  # Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
+  # OWASP LLM10 — Unbounded Consumption | EU AI Act Art.9 (risk management)
+
+  - id: "ts-audit-ai-bulk-input-pipe"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet"
+    match:
+      command_regex: "(?i)\\bcat\\b.*\\*.*\\|\\s*(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere|anthropic)\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Piping glob-expanded file input (cat ../* | llm) into an AI CLI — may stuff unbounded token volumes into an LLM prompt, causing runaway API costs (AI Denial of Wallet, OWASP LLM10)."
+
+  - id: "ts-audit-ai-parallel-dispatch"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet"
+    match:
+      command_regex: "(?i)\\bxargs\\b.*-[Pp]\\s*([2-9]\\d|\\d{3,}).*\\b(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10)."
+
   # === BLOCK: Permission weakening ===
   - id: "ts-block-chmod-777"
     taxonomy: "destructive-ops/permission-weakening/chmod-world-writable"
