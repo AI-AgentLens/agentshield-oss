@@ -844,3 +844,71 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Appending AI API domain to /etc/hosts — overriding DNS resolution for api.openai.com or api.anthropic.com redirects agent AI calls at the network layer, bypassing TLS certificate validation context (OWASP LLM08, MITRE T1565, T1090)."
+
+  # ── Model Weight Extraction via API Querying ─────────────────────────────
+  #
+  # Taxonomy: supply-chain/model-poisoning/model-weight-extraction
+  # OWASP LLM03 — Supply Chain, LLM10 — Unbounded Consumption
+  # MITRE T1530 — Data from Cloud Storage Object, T1213 — Data from Information Repositories
+  # CWE-200 — Exposure of Sensitive Information, CWE-284 — Improper Access Control
+  # EU AI Act Art.15 — Accuracy, robustness, and cybersecurity
+  # NIST AI RMF MAP-5 — Estimate likelihood and magnitude of AI-specific risks
+  #
+  # Model stealing attacks reconstruct proprietary model weights by querying
+  # inference APIs systematically and collecting outputs (logprobs, embeddings,
+  # predictions) to train a surrogate model. Unlike direct file exfiltration,
+  # this attack requires only standard API access.
+  #
+  # Attack patterns:
+  #   python3 knockoffnets/extract.py --target-api https://api.example.com --queries 50000
+  #   python3 copycat_cnn/steal.py --model-url https://api.example.com/predict
+  #   for i in $(seq 1 100000); do curl .../predict -d ... >> outputs.jsonl; done
+  #   python3 -c '...openai.chat.completions.create(..., logprobs=True)...' >> train.jsonl
+  #   python3 -c '...client.embeddings.create(input=inputs_list...)...' >> embeddings.jsonl
+  #
+  # Decision: BLOCK for known extraction toolkits (high confidence, no benign use).
+  # AUDIT for systematic logprob/embedding collection patterns (dual-use: legitimate
+  # evals and fine-tuning share the same API patterns).
+
+  # --- BLOCK: known model extraction toolkit invocations ---
+  - id: "sc-block-model-extraction-toolkit"
+    taxonomy: "supply-chain/model-poisoning/model-weight-extraction"
+    match:
+      command_regex: "(?i)(knockoffnets|copycat[_-]cnn|model[_-]steal|steal[_-]model|modelextract|model-extract)[\\/\\s]"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Invocation of a known model extraction/stealing toolkit (knockoffnets, copycat-cnn, model-steal) — these tools systematically probe inference APIs to reconstruct proprietary model weights. No legitimate development use case. OWASP LLM03, EU AI Act Art.15."
+
+  # --- AUDIT: systematic logprobs/token probability collection loops ---
+  # Requesting logprobs from LLM APIs in a high-count loop gathers the
+  # probability distributions needed to reconstruct model decision boundaries.
+  - id: "sc-audit-logprob-collection-loop"
+    taxonomy: "supply-chain/model-poisoning/model-weight-extraction"
+    match:
+      command_regex: "(?i)(for\\s+\\w+\\s+in|while\\s+(true|1|:)).*\\b(logprobs?|log_probs?|top_logprobs?)\\s*[:=]\\s*(true|[1-9])"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Loop collecting logprob/token probability outputs from LLM API — logit distributions are the most informative signal for model weight reconstruction. Combined with systematic input variation, this pattern characterizes model extraction. OWASP LLM03, MITRE T1530."
+
+  # --- AUDIT: python one-liner collecting embeddings in bulk ---
+  # Bulk embedding requests systematically map the model's representation space
+  # for surrogate training. High-volume inline python with embeddings.create
+  # and output redirection is the primary shell-level signal.
+  - id: "sc-audit-bulk-embedding-collection"
+    taxonomy: "supply-chain/model-poisoning/model-weight-extraction"
+    match:
+      command_regex: "(?i)python3?\\s+-c\\s+['\"].*embeddings?\\.create.*>>\\s*\\S+"
+    decision: "AUDIT"
+    confidence: 0.83
+    reason: "Python one-liner bulk-collecting embeddings and appending to file — systematic embedding extraction maps model representation space for surrogate training. Dual-use pattern (also used in legitimate eval pipelines) but warrants review. OWASP LLM03."
+
+  # --- AUDIT: systematic inference API loop with output collection ---
+  # High-volume curl loop appending model predictions to a JSONL file is the
+  # primary bash-level model extraction signal.
+  - id: "sc-audit-inference-loop-collect"
+    taxonomy: "supply-chain/model-poisoning/model-weight-extraction"
+    match:
+      command_regex: "(?i)(for\\s+\\w+\\s+in\\s+\\$\\(seq\\s+\\d+\\s+\\d{3,}\\)|while\\s+(true|1|:)).*curl.*https?://.*\\b(predict|infer|completions|embeddings|classify)\\b.*>>\\s*\\S+"
+    decision: "AUDIT"
+    confidence: 0.86
+    reason: "High-count loop querying inference API endpoint and collecting outputs to file — loop+query+collect is the primary bash-level pattern for model extraction attacks. Review for model stealing activity. OWASP LLM03, MITRE T1530."

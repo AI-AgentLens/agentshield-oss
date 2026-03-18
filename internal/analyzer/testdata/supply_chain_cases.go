@@ -1476,6 +1476,7 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, BuildSystemInjectionCases...)
 	all = append(all, MCPConfigInjectionCases...)
 	all = append(all, ModelEndpointHijackingCases...)
+	all = append(all, ModelWeightExtractionCases...)
 	return all
 }
 
@@ -1999,6 +2000,116 @@ var ModelEndpointHijackingCases = []TestCase{
 		TaxonomyRef:      "supply-chain/model-poisoning/adversarial-embedding-manipulation",
 		Analyzer:         "regex",
 		Description:      "Python inline chromadb query (read-only) — does NOT call .add/.upsert; must not match adversarial write pattern.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ModelWeightExtractionCases tests detection of model stealing/extraction via API querying.
+// Taxonomy: supply-chain/model-poisoning/model-weight-extraction
+var ModelWeightExtractionCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: knockoffnets extraction toolkit
+	{
+		ID:               "TP-MODELEXTRACT-001",
+		Command:          `python3 knockoffnets/extract.py --target-api https://api.example.com/predict --queries 50000 --output surrogate.pt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "knockoffnets model extraction toolkit — systematically probes inference API to reconstruct surrogate model weights.",
+		Tags:             []string{"tp", "model-extraction", "knockoffnets"},
+	},
+	// TP-2: copycat-cnn model stealing toolkit
+	{
+		ID:               "TP-MODELEXTRACT-002",
+		Command:          `python3 copycat_cnn/steal.py --model-url https://classify.api.com/v1 --budget 100000`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "copycat_cnn model stealing toolkit — known model extraction framework targeting classification APIs.",
+		Tags:             []string{"tp", "model-extraction", "copycat-cnn"},
+	},
+	// TP-3: logprob collection loop
+	{
+		ID:               "TP-MODELEXTRACT-003",
+		Command:          `for i in $(seq 1 10000); do curl https://api.openai.com/v1/completions -d '{"logprobs": 5, "prompt": "'$i'"}' >> train.jsonl; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "High-count for-loop collecting logprobs from OpenAI API into JSONL — systematic logit distribution harvesting for model extraction.",
+		Tags:             []string{"tp", "model-extraction", "logprobs"},
+	},
+	// TP-4: python one-liner bulk embedding collection
+	{
+		ID:               "TP-MODELEXTRACT-004",
+		Command:          `python3 -c "import openai; [open('emb.jsonl','a').write(str(openai.embeddings.create(input=t, model='text-embedding-ada-002').data)+'\n') for t in texts]" >> embeddings.jsonl`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "Python one-liner bulk-collecting embeddings and appending to file — systematic embedding extraction for surrogate model training.",
+		Tags:             []string{"tp", "model-extraction", "embeddings"},
+	},
+	// TP-5: while loop collecting predictions
+	{
+		ID:               "TP-MODELEXTRACT-005",
+		Command:          `while true; do curl https://ml.company.com/v2/predict -d @probe.json >> outputs.jsonl; sleep 0.1; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "Infinite loop querying prediction endpoint and collecting outputs — continuous model extraction via prediction API probing.",
+		Tags:             []string{"tp", "model-extraction", "inference-loop"},
+	},
+	// TP-6: model-steal script
+	{
+		ID:               "TP-MODELEXTRACT-006",
+		Command:          `python3 model_steal/run_extraction.py --endpoint https://api.company.com/infer --samples 200000`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "model_steal extraction script — known toolkit pattern for systematic API-based model weight reconstruction.",
+		Tags:             []string{"tp", "model-extraction", "toolkit"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// TN-1: single API call for testing
+	{
+		ID:               "TN-MODELEXTRACT-001",
+		Command:          `curl https://api.openai.com/v1/completions -H "Authorization: Bearer $KEY" -d '{"prompt": "hello", "max_tokens": 10}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "Single OpenAI API call without logprobs or loop — model extraction rules do not trigger. Gets AUDIT from ne-audit-curl (general curl monitoring).",
+		Tags:             []string{"tn", "safe"},
+	},
+	// TN-2: legitimate batch embedding for RAG indexing
+	{
+		ID:               "TN-MODELEXTRACT-002",
+		Command:          `python3 scripts/index_docs.py --embed --model text-embedding-ada-002 --source docs/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "Legitimate script-based document embedding for RAG — script invocation, not python -c one-liner collecting embeddings. Gets AUDIT from script execution rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// TN-3: eval script checking model accuracy (not in extraction loop)
+	{
+		ID:               "TN-MODELEXTRACT-003",
+		Command:          `python3 evaluate.py --model gpt-4o --dataset benchmark.json --metric accuracy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/model-weight-extraction",
+		Analyzer:         "regex",
+		Description:      "Legitimate model evaluation script — standard eval, no loop+collect pattern. Gets AUDIT from script execution rule.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
