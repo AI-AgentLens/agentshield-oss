@@ -1630,6 +1630,65 @@ rules:
     confidence: 0.90
     reason: "Force pushing to main/master can destroy shared commit history."
 
+  # === BLOCK: git history destruction ===
+  # History-rewrite and commit-drop operations that permanently alter or discard
+  # git commit history. Unlike simple file changes, these cannot be reversed once
+  # the reflog expires or the remote is force-pushed.
+  #
+  # Covered operations:
+  #   git reset --hard HEAD~N / <sha> — drops N commits from the current branch
+  #   git filter-branch             — traverses and rewrites all commits in-place
+  #   git filter-repo               — modern replacement for filter-branch
+  #   bfg (BFG Repo Cleaner)        — specialized history-rewrite for secrets/files
+  #   git reflog expire --expire=now — destroys the reflog safety net
+  #
+  # MITRE T1485 (Data Destruction), T1070.004 (File Deletion).
+
+  - id: "ts-block-git-reset-hard-commits"
+    taxonomy: "destructive-ops/version-control/git-history-destruction"
+    match:
+      command_regex: "git\\s+reset\\s+--hard\\s+(HEAD[~^][0-9]*[0-9]|[0-9a-f]{4,40})"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "git reset --hard HEAD~N or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485)."
+
+  - id: "ts-block-git-filter-branch"
+    taxonomy: "destructive-ops/version-control/git-history-destruction"
+    match:
+      structural:
+        executable: ["git"]
+        subcommand: "filter-branch"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git filter-branch rewrites the entire repository commit graph. This permanently alters history for all branches and is irreversible once force-pushed to remotes (MITRE T1485, T1070.004)."
+
+  - id: "ts-block-git-filter-repo"
+    taxonomy: "destructive-ops/version-control/git-history-destruction"
+    match:
+      structural:
+        executable: ["git"]
+        subcommand: "filter-repo"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git filter-repo rewrites repository history (modern replacement for filter-branch). Permanent and irreversible once propagated to remotes (MITRE T1485, T1070.004)."
+
+  - id: "ts-block-bfg-repo-cleaner"
+    taxonomy: "destructive-ops/version-control/git-history-destruction"
+    match:
+      structural:
+        executable: ["bfg"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "BFG Repo Cleaner rewrites git history to remove large files or secrets. Creates a new commit graph incompatible with existing clones — irreversible once force-pushed (MITRE T1485)."
+
+  - id: "ts-block-git-reflog-expire-now"
+    taxonomy: "destructive-ops/version-control/git-history-destruction"
+    match:
+      command_regex: "git\\s+reflog\\s+expire\\s+.*--expire=now"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git reflog expire --expire=now immediately destroys all reflog entries, eliminating the only mechanism to recover commits dropped by git reset --hard. Typically paired with gc --prune=now to make orphaned commits permanently unrecoverable (MITRE T1485)."
+
   - id: "ts-block-git-clone-mirror"
     taxonomy: "data-exfiltration/version-control/git-mirror-clone"
     match:

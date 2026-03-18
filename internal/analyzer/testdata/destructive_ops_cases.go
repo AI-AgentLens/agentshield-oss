@@ -1407,6 +1407,183 @@ var GitForcePushCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// Category 1.8: Git History Destruction
+// Taxonomy: destructive-ops/version-control/git-history-destruction
+//
+// History-rewrite and commit-drop operations:
+//   git reset --hard HEAD~N  — drops N commits from the branch
+//   git filter-branch        — rewrites entire repository history
+//   git filter-repo          — modern replacement for filter-branch
+//   bfg (BFG Repo Cleaner)   — removes large files/secrets from history
+//   git reflog expire --expire=now — destroys reflog safety net
+//
+// MITRE T1485 (Data Destruction), T1070.004 (File Deletion)
+// ---------------------------------------------------------------------------
+
+var GitHistoryDestructionCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be blocked ---
+
+	{
+		ID:               "TP-GITHISTDEST-001",
+		Command:          `git reset --hard HEAD~3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "regex",
+		Description:      `git reset --hard HEAD~3 drops 3 commits permanently from the branch (ts-block-git-reset-hard-commits).`,
+		Tags:             []string{"canonical", "critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-002",
+		Command:          `git reset --hard HEAD~1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "regex",
+		Description:      `git reset --hard HEAD~1 discards the last commit (ts-block-git-reset-hard-commits).`,
+		Tags:             []string{"critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-003",
+		Command:          `git reset --hard abc123f`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "regex",
+		Description:      `git reset --hard to an arbitrary SHA drops all commits since that point (ts-block-git-reset-hard-commits).`,
+		Tags:             []string{"critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-004",
+		Command:          `git filter-branch --tree-filter 'rm -f .env' HEAD`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "structural",
+		Description:      `git filter-branch rewrites entire commit history — irreversible once force-pushed (ts-block-git-filter-branch).`,
+		Tags:             []string{"canonical", "critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-005",
+		Command:          `git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch secrets.txt' HEAD`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "structural",
+		Description:      `git filter-branch with index-filter to purge a file from all history (ts-block-git-filter-branch).`,
+		Tags:             []string{"critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-006",
+		Command:          `git filter-repo --path-glob '*.env' --invert-paths`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "structural",
+		Description:      `git filter-repo rewrites history removing .env files from all commits (ts-block-git-filter-repo).`,
+		Tags:             []string{"canonical", "critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-007",
+		Command:          `bfg --delete-files secrets.txt my-repo.git`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "structural",
+		Description:      `BFG Repo Cleaner rewrites git history to remove a file from all commits (ts-block-bfg-repo-cleaner).`,
+		Tags:             []string{"canonical", "critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-008",
+		Command:          `bfg --replace-text passwords.txt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "structural",
+		Description:      `BFG replace-text rewrites history substituting credentials in all historical commits (ts-block-bfg-repo-cleaner).`,
+		Tags:             []string{"critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-009",
+		Command:          `git reflog expire --expire=now --all`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "regex",
+		Description:      `git reflog expire --expire=now destroys reflog safety net — makes reset --hard commits permanently unrecoverable (ts-block-git-reflog-expire-now).`,
+		Tags:             []string{"canonical", "critical", "version-control"},
+	},
+	{
+		ID:               "TP-GITHISTDEST-010",
+		Command:          `git reflog expire --expire=now --all && git gc --prune=now --aggressive`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Analyzer:         "regex",
+		Description:      `Combined reflog expire + gc prune: destroys all orphaned commits making them permanently unrecoverable (ts-block-git-reflog-expire-now).`,
+		Tags:             []string{"critical", "version-control", "compound"},
+	},
+
+	// --- TRUE NEGATIVES: Must be allowed/audited ---
+
+	{
+		ID:               "TN-GITHISTDEST-001",
+		Command:          `git reset --hard HEAD`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git reset --hard HEAD only discards uncommitted working-tree changes, not committed history. Safe (no commits dropped).`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+	{
+		ID:               "TN-GITHISTDEST-002",
+		Command:          `git reset HEAD~1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git reset (soft) HEAD~1 unstages commits but preserves changes in the working tree. No history is destroyed.`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+	{
+		ID:               "TN-GITHISTDEST-003",
+		Command:          `git revert HEAD`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git revert creates a new commit that undoes changes without rewriting history. Safe.`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+	{
+		ID:               "TN-GITHISTDEST-004",
+		Command:          `git log --oneline -10`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git log is a read-only history inspection command. Completely safe.`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+	{
+		ID:               "TN-GITHISTDEST-005",
+		Command:          `git reflog`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git reflog (no expire flags) is a safe read-only reflog inspection. AUDIT is the default decision.`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+	{
+		ID:               "TN-GITHISTDEST-006",
+		Command:          `git gc`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/version-control/git-history-destruction",
+		Description:      `git gc without --prune=now respects the default 2-week grace period and is a routine housekeeping command.`,
+		Tags:             []string{"common-dev-operation", "version-control"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Category 1.X: Disk-Filling Denial of Service
 // Taxonomy: destructive-ops/resource-exhaustion/disk-fill
 //
@@ -1818,6 +1995,7 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, CloudCLIDestructiveCases...)
 	all = append(all, K8sDestructiveCases...)
 	all = append(all, GitForcePushCases...)
+	all = append(all, GitHistoryDestructionCases...)
 	all = append(all, DiskFillCases...)
 	all = append(all, UnboundedAgentConsumptionCases...)
 	all = append(all, DatabaseDestructionCases...)
