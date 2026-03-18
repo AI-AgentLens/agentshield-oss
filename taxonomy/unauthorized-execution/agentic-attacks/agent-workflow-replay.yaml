@@ -1,0 +1,102 @@
+id: "unauthorized-execution/agentic-attacks/agent-workflow-replay"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "Agent Workflow Replay Attack"
+risk_level: "high"
+
+abstract: |
+  An attacker captures a sequence of authorized agent tool calls (a workflow)
+  and replays them in a different context — against a different environment,
+  with elevated privileges, or at an unauthorized time — to reproduce
+  privileged operations without proper authorization for the new context.
+
+explanation: |
+  AI agents executing multi-step workflows generate sequences of tool calls
+  that, when replayed, can reproduce complex privileged operations. Unlike
+  traditional API replay attacks (which involve single requests), agent
+  workflow replay captures entire operational sequences that may include
+  authentication, configuration, and execution steps:
+
+  - **Environment context replay**: A deployment workflow authorized for
+    staging is captured and replayed against production. The workflow
+    includes legitimate tool calls (checkout code, build, deploy) that
+    are individually benign but collectively perform an unauthorized
+    production deployment.
+  - **Privilege context replay**: An admin user's agent session is
+    captured (via audit logs, shared terminal history, or compromised
+    logging). A less-privileged user replays the tool call sequence,
+    which may succeed if the tools rely on ambient credentials rather
+    than per-call authorization.
+  - **Temporal replay**: A workflow authorized for a maintenance window
+    is replayed outside that window, bypassing change management controls.
+    The individual tool calls don't encode time-based restrictions.
+  - **Cross-tenant replay**: In multi-tenant environments, an agent
+    workflow from one tenant's context is replayed in another tenant's
+    context, potentially accessing cross-tenant resources if tool calls
+    don't embed tenant identity.
+  - **Audit log weaponization**: Detailed agent audit logs (like those
+    produced by AgentShield) contain exact command sequences. If these
+    logs are accessible to unauthorized parties, they serve as replay
+    scripts for privileged operations.
+
+  This attack is particularly relevant as organizations adopt agent
+  orchestration platforms that store and share workflow templates.
+  A "helpful" workflow template shared between teams could be a replay
+  vector if it encodes environment-specific assumptions.
+
+recommendation: |
+  - Bind tool call authorization to execution context: each tool call
+    should verify not just "is this user authorized" but "is this user
+    authorized for this environment at this time."
+  - Include non-replayable elements in tool call chains: nonces, timestamps,
+    or context hashes that tie the workflow to its original authorization.
+  - Implement workflow-level authorization: don't just authorize individual
+    tool calls — authorize the workflow as a unit with explicit scope
+    (environment, time window, tenant).
+  - Protect agent audit logs with the same sensitivity as credential stores —
+    they contain executable operational playbooks.
+  - Implement environment-aware guardrails: AgentShield should detect when
+    a sequence of commands matches a known workflow pattern being executed
+    in a different environment context.
+  - Use short-lived, scoped tokens for multi-step workflows rather than
+    ambient credentials that work across environments.
+  - Add confirmation gates for high-risk workflow steps (production deploy,
+    data migration, permission changes) that require fresh authorization.
+
+examples:
+  bad:
+    - "attacker reads audit log and replays: git checkout main && make build && kubectl apply -f deploy.yaml --context=production"
+    - "staging deployment script captured and executed with KUBECONFIG pointing to production cluster"
+    - "admin's agent session history replayed by junior developer: terraform apply -auto-approve"
+    - "workflow template shared in wiki contains hardcoded production endpoints, copied and executed by unauthorized team"
+  good:
+    - "each tool call in workflow includes a nonce verified by the orchestrator — replay attempts fail"
+    - "deployment workflow requires fresh MFA confirmation at the production deploy step"
+    - "audit logs encrypt command details — readable for compliance review but not directly executable"
+    - "AgentShield stateful analyzer detects known deployment workflow pattern and verifies environment context"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM10"]
+  iso-27001-2022: ["A.5.23", "A.8.3", "A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.14"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC7.2", "CC8.1"]
+
+references:
+  mitre_attack: ["T1134", "T1078", "T1565"]
+  cwe: ["CWE-294", "CWE-384", "CWE-613"]
+  external:
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+    - title: "CWE-294 — Authentication Bypass by Capture-replay"
+      url: "https://cwe.mitre.org/data/definitions/294.html"
+
+analyzers: ["stateful", "semantic"]
+related_rules: ["autonomous-tool-chaining", "human-oversight-circumvention", "unrestricted-tool-invocation"]
+# Detection: Stateful analyzer should detect known workflow patterns
+# (sequences of commands that together constitute a deployment, migration,
+# or admin operation) and verify they are authorized for the current context.
+# Shield should flag when audit log contents are piped to execution commands.
