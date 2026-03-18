@@ -46,9 +46,13 @@ func init() {
 		{"~/.agentshield/mcp-policy.yaml", "agentshield-config", "Writing to MCP policy file could disable security protections."},
 
 		// IDE hooks (removing hooks disables command interception)
+		{"~/.claude/settings.json", "ide-hooks", "Writing to Claude Code settings could remove AgentShield command interception hooks."},
+		{"~/.claude/settings.local.json", "ide-hooks", "Writing to Claude Code local settings could remove AgentShield hooks."},
 		{"~/.codeium/windsurf/hooks.json", "ide-hooks", "Writing to Windsurf hooks could disable AgentShield command interception."},
 		{"~/.cursor/hooks.json", "ide-hooks", "Writing to Cursor hooks could disable AgentShield command interception."},
 		{"~/.openclaw/hooks/agentshield/**", "ide-hooks", "Writing to OpenClaw hooks could disable AgentShield command interception."},
+		{"~/.gemini/settings.json", "ide-hooks", "Writing to Gemini CLI settings could remove AgentShield command interception hooks."},
+		{"~/.codex/config.json", "ide-hooks", "Writing to Codex CLI config could remove AgentShield command interception hooks."},
 
 		// IDE MCP config (can inject malicious MCP servers)
 		{"~/.cursor/mcp.json", "ide-mcp-config", "Writing to Cursor MCP config could inject malicious MCP servers."},
