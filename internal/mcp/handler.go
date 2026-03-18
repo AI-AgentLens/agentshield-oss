@@ -10,10 +10,11 @@ import (
 // MessageHandler encapsulates the shared MCP message evaluation logic
 // used by both stdio and HTTP transport proxies.
 type MessageHandler struct {
-	Evaluator  *PolicyEvaluator
-	OnAudit    AuditFunc
-	Stderr     io.Writer
-	ServerName string // identifies the downstream MCP server in audit entries
+	Evaluator    *PolicyEvaluator
+	OnAudit      AuditFunc
+	Stderr       io.Writer
+	ServerName   string             // identifies the downstream MCP server in audit entries
+	SchemaDrift  *SchemaDriftScanner // optional; nil disables schema drift detection
 }
 
 // HandleToolCall evaluates a tools/call message against policy, content scanning,
@@ -200,6 +201,30 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	// Must have a tools array to be a tools/list response
 	if listResult.Tools == nil {
 		return nil
+	}
+
+	// Check for schema drift against the cached baseline.
+	if h.SchemaDrift != nil {
+		serverKey := h.ServerName
+		if serverKey == "" {
+			serverKey = "default"
+		}
+		drift := h.SchemaDrift.CheckDrift(serverKey, listResult.Tools)
+		if drift != nil && drift.Drifted {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] SCHEMA DRIFT detected for server %q: %s\n",
+				serverKey, drift.DriftSummary())
+			if h.OnAudit != nil {
+				h.OnAudit(AuditEntry{
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					Decision:       "AUDIT",
+					Flagged:        true,
+					TriggeredRules: []string{"mcp-supply-chain-schema-drift"},
+					Reasons:        []string{drift.DriftSummary()},
+					Source:         "mcp-proxy-schema-drift",
+					ServerName:     serverKey,
+				})
+			}
+		}
 	}
 
 	// Scan each tool and filter out poisoned ones
