@@ -2472,6 +2472,210 @@ var FileProtocolAbuseCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 6.X: ELF/Mach-O Binary Rewriting
+// Taxonomy: persistence-evasion/binary-rewriting/*
+//
+// patchelf, objcopy, elfedit, and install_name_tool modify binary structure
+// for library hijacking, payload injection, and execution redirection.
+// ---------------------------------------------------------------------------
+
+var ELFBinaryRewritingCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: patchelf changing interpreter to attacker-controlled ld.so
+	{
+		ID:               "TP-PATCHELF-001",
+		Command:          `patchelf --set-interpreter /tmp/evil-ld.so /usr/local/bin/app`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf replacing dynamic linker — evil ld.so runs code before main().",
+		Tags:             []string{"tp", "elf", "patchelf"},
+	},
+	// TP-2: patchelf poisoning RPATH
+	{
+		ID:               "TP-PATCHELF-002",
+		Command:          `patchelf --set-rpath /tmp/evil-libs:/usr/lib /usr/bin/python3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf setting RPATH to attacker dir first — binary loads malicious .so before system libs.",
+		Tags:             []string{"tp", "elf", "patchelf"},
+	},
+	// TP-3: patchelf adding needed library
+	{
+		ID:               "TP-PATCHELF-003",
+		Command:          `patchelf --add-needed libhook.so /usr/local/bin/node`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf --add-needed injects a mandatory library — binary loads libhook.so on every run.",
+		Tags:             []string{"tp", "elf", "patchelf"},
+	},
+	// TP-4: patchelf replacing a needed library
+	{
+		ID:               "TP-PATCHELF-004",
+		Command:          `patchelf --replace-needed libssl.so.3 /tmp/evil-ssl.so /usr/bin/curl`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf replacing libssl with attacker library — intercepts all TLS operations.",
+		Tags:             []string{"tp", "elf", "patchelf"},
+	},
+	// TP-5: objcopy injecting section
+	{
+		ID:               "TP-OBJCOPY-001",
+		Command:          `objcopy --add-section .payload=/tmp/shellcode /usr/bin/python3`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-section-injection",
+		Analyzer:         "regex",
+		Description:      "objcopy --add-section embeds shellcode into python3 binary — payload persists in trusted executable.",
+		Tags:             []string{"tp", "elf", "objcopy"},
+	},
+	// TP-6: objcopy updating existing section
+	{
+		ID:               "TP-OBJCOPY-002",
+		Command:          `objcopy --update-section .rodata=malicious.bin /usr/sbin/sshd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-section-injection",
+		Analyzer:         "regex",
+		Description:      "objcopy --update-section replaces rodata in sshd — modifies string constants or embedded data.",
+		Tags:             []string{"tp", "elf", "objcopy"},
+	},
+	// TP-7: elfedit modifying binary
+	{
+		ID:               "TP-ELFEDIT-001",
+		Command:          `elfedit --output-osabi linux /usr/local/bin/backdoor`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-header-modification",
+		Analyzer:         "regex",
+		Description:      "elfedit modifying ELF header OS/ABI — can alter binary execution properties.",
+		Tags:             []string{"tp", "elf", "elfedit"},
+	},
+	// TP-8: install_name_tool changing dylib path (macOS)
+	{
+		ID:               "TP-INSTALLNAME-001",
+		Command:          `install_name_tool -change /usr/lib/libSystem.dylib /tmp/evil.dylib /usr/local/bin/app`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/macho-dylib-hijack",
+		Analyzer:         "regex",
+		Description:      "install_name_tool replacing system dylib — macOS library hijack redirecting to attacker library.",
+		Tags:             []string{"tp", "macho", "install_name_tool"},
+	},
+	// TP-9: install_name_tool adding rpath (macOS)
+	{
+		ID:               "TP-INSTALLNAME-002",
+		Command:          `install_name_tool -add_rpath /tmp/evil-dylibs /usr/local/bin/app`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/macho-dylib-hijack",
+		Analyzer:         "regex",
+		Description:      "install_name_tool adding RPATH — macOS library search path poisoning.",
+		Tags:             []string{"tp", "macho", "install_name_tool"},
+	},
+	// TP-10: patchelf adding rpath to copied sudo binary
+	{
+		ID:               "TP-PATCHELF-005",
+		Command:          `patchelf --add-rpath /tmp/libs /tmp/sudo`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf --add-rpath to a copied sudo binary — trojanized with attacker library path.",
+		Tags:             []string{"tp", "elf", "patchelf"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// TN-1: patchelf --print-rpath (read-only query)
+	{
+		ID:               "TN-PATCHELF-001",
+		Command:          `patchelf --print-rpath /usr/bin/python3`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf --print-rpath is read-only — no modification. Gets AUDIT from audit rule.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+	// TN-2: patchelf --print-interpreter (read-only)
+	{
+		ID:               "TN-PATCHELF-002",
+		Command:          `patchelf --print-interpreter /usr/local/bin/node`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-interpreter-hijack",
+		Analyzer:         "regex",
+		Description:      "patchelf --print-interpreter is read-only query — no modification. Gets AUDIT from audit rule.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+	// TN-3: objcopy for debug symbols (legitimate development)
+	{
+		ID:               "TN-OBJCOPY-001",
+		Command:          `objcopy --only-keep-debug myapp myapp.debug`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-section-injection",
+		Analyzer:         "regex",
+		Description:      "objcopy extracting debug symbols — legitimate development operation. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+	// TN-4: objcopy stripping binary (legitimate build step)
+	{
+		ID:               "TN-OBJCOPY-002",
+		Command:          `objcopy --strip-debug myapp`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-section-injection",
+		Analyzer:         "regex",
+		Description:      "objcopy stripping debug info — standard build optimization. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+	// TN-5: readelf (read-only ELF inspection)
+	{
+		ID:               "TN-ELFEDIT-001",
+		Command:          `readelf -h /usr/bin/ls`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-header-modification",
+		Analyzer:         "regex",
+		Description:      "readelf is read-only — does not modify ELF. Not matched by elfedit rule. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+	// TN-6: otool (macOS read-only equivalent)
+	{
+		ID:               "TN-INSTALLNAME-001",
+		Command:          `otool -L /usr/local/bin/app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/macho-dylib-hijack",
+		Analyzer:         "regex",
+		Description:      "otool lists linked libraries — read-only Mach-O inspection. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "macho"},
+	},
+	// TN-7: file command on binary (read-only)
+	{
+		ID:               "TN-ELFEDIT-002",
+		Command:          `file /usr/bin/python3`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/binary-rewriting/elf-header-modification",
+		Analyzer:         "regex",
+		Description:      "file command identifies file type — completely read-only. ALLOWed.",
+		Tags:             []string{"tn", "safe", "elf"},
+	},
+}
+
 // AllPersistenceEvasionCases returns all test cases for Kingdom 6.
 func AllPersistenceEvasionCases() []TestCase {
 	var all []TestCase
@@ -2499,6 +2703,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, AgentInstructionFileTamperingCases...)
 	all = append(all, ReadlineMacroInjectionCases...)
 	all = append(all, CompletionCodeExecCases...)
+	all = append(all, ELFBinaryRewritingCases...)
 	return all
 }
 
