@@ -2334,6 +2334,8 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, AIDataResidencyViolationCases...)
 	all = append(all, CrossSessionContextLeakageCases...)
 	all = append(all, ModelArtifactExfiltrationCases...)
+	all = append(all, CrossTenantDataLeakCases...)
+	all = append(all, CrossTenantRAGLeakageCases...)
 	return all
 }
 
@@ -3192,6 +3194,120 @@ var ModelArtifactExfiltrationCases = []TestCase{
 		TaxonomyRef:      "data-exfiltration/llm-data-flow/model-artifact-exfiltration",
 		Analyzer:         "regex",
 		Description:      "huggingface-cli download — blocked by sc-block-hf-cli-download (unverified model download); model exfil upload rule does not add to this, but BLOCK is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// CrossTenantDataLeakCases tests detection of shared inference config env vars
+// that override per-tenant LLM context isolation.
+// Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-data-leak
+var CrossTenantDataLeakCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-XTENANT-001",
+		Command:          `SHARED_SYSTEM_PROMPT="You are a helpful assistant" python3 server.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-data-leak",
+		Analyzer:         "regex",
+		Description:      "SHARED_SYSTEM_PROMPT env var set before Python LLM server — overrides per-tenant context isolation, exposing all tenant sessions to the same shared prompt.",
+		Tags:             []string{"tp", "cross-tenant", "shared-prompt"},
+	},
+	{
+		ID:               "TP-XTENANT-002",
+		Command:          `export GLOBAL_SYSTEM_PROMPT="Act as admin assistant" && uvicorn app:app --host 0.0.0.0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-data-leak",
+		Analyzer:         "regex",
+		Description:      "export GLOBAL_SYSTEM_PROMPT before uvicorn — global prompt env var bypasses per-tenant isolation in multi-tenant LLM API.",
+		Tags:             []string{"tp", "cross-tenant", "global-prompt"},
+	},
+	{
+		ID:               "TP-XTENANT-003",
+		Command:          `SYSTEM_PROMPT_OVERRIDE="Answer only in formal English" python3 -m gunicorn app:app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-data-leak",
+		Analyzer:         "regex",
+		Description:      "SYSTEM_PROMPT_OVERRIDE env var — overrides all tenant-specific system prompts, collapsing per-tenant isolation in multi-tenant deployments.",
+		Tags:             []string{"tp", "cross-tenant", "prompt-override"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-XTENANT-001",
+		Command:          `TENANT_SYSTEM_PROMPT="You help tenant-abc" python3 server.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-data-leak",
+		Analyzer:         "regex",
+		Description:      "TENANT_SYSTEM_PROMPT env var — scoped per-tenant; does not match SHARED/GLOBAL/OVERRIDE pattern so the cross-tenant rule does not trigger. Gets AUDIT from default policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-XTENANT-002",
+		Command:          `export DEFAULT_SYSTEM_PROMPT="Be concise" && python3 app.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-data-leak",
+		Analyzer:         "regex",
+		Description:      "DEFAULT_SYSTEM_PROMPT env var — does not match SHARED/GLOBAL/OVERRIDE pattern; rule does not trigger. Gets AUDIT from default policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// CrossTenantRAGLeakageCases tests detection of vector DB CLI commands without
+// per-tenant namespace isolation.
+// Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-rag-leakage
+var CrossTenantRAGLeakageCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-RAGXTENANT-001",
+		Command:          `pinecone query --index shared-prod --top-k 10 "merger acquisition terms"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage",
+		Analyzer:         "regex",
+		Description:      "pinecone query against shared index without --namespace — retrieves documents from all tenants' data, enabling cross-tenant RAG leakage.",
+		Tags:             []string{"tp", "rag-leakage", "pinecone", "vector-db"},
+	},
+	{
+		ID:               "TP-RAGXTENANT-002",
+		Command:          `pinecone upsert --index prod vectors.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage",
+		Analyzer:         "regex",
+		Description:      "pinecone upsert without --namespace stores vectors in default namespace shared across all tenants — isolation failure in multi-tenant RAG.",
+		Tags:             []string{"tp", "rag-leakage", "pinecone", "vector-db"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-RAGXTENANT-001",
+		Command:          `pinecone query --index prod --namespace tenant-abc --top-k 10 "merger terms"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage",
+		Analyzer:         "regex",
+		Description:      "pinecone query with --namespace tenant-abc — excluded by command_regex_exclude; the cross-tenant rule does not trigger. Gets AUDIT from default policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-RAGXTENANT-002",
+		Command:          `pinecone list-indexes`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage",
+		Analyzer:         "regex",
+		Description:      "pinecone list-indexes — no query/upsert/fetch/list-vectors subcommand; the cross-tenant RAG rule does not trigger. Gets AUDIT from default policy.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
