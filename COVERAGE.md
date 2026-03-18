@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 560 |
+| Terminal rules | 562 |
 | MCP rules | 118 |
-| Total rules | 678 |
-| Test cases (TP+TN) | 1789 |
+| Total rules | 680 |
+| Test cases (TP+TN) | 1800 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -212,7 +212,7 @@
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 
-### governance-risk (4 rules)
+### governance-risk (6 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -220,6 +220,8 @@
 | `ts-audit-ai-unguarded-agent-loop` | AUDIT | regex | Agent invocation with require_approval=False disables the human oversight gate required for high-risk actions (data deletion, external API calls, payment processing). Autonomous agents without approval checkpoints violate EU AI Act Art.14 and NIST AI RMF GOVERN-1 mandates for human control of consequential AI decisions (OWASP LLM06, CWE-693). |
 | `ts-audit-llm-as-authz` | AUDIT | regex | LLM completion output used directly as an authorization gate. Using a non-deterministic language model as a security authority violates CWE-285/CWE-862 — prompt injection or fine-tuning attacks can manipulate YES/NO decisions. Replace with deterministic RBAC/ABAC policy enforcement (OWASP LLM01/LLM06, EU AI Act Art.14, NIST AI RMF GOVERN-1). |
 | `ts-audit-ai-privilege-escalation` | AUDIT | regex | Sub-agent granted expanded permissions beyond the parent agent's scope (permissions=parent.permissions+['admin'], permissions=['*'], inherit_all=True). Capability amplification through agent delegation enables privilege escalation within multi-agent systems — violates the least-privilege principle and NIST AI RMF GOVERN-6 requirements for bounded agent delegation (OWASP LLM06, CWE-269, EU AI Act Art.14). |
+| `ts-audit-ai-finetune-launch` | AUDIT | regex | AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285). |
+| `ts-audit-ai-model-publish` | AUDIT | regex | AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6). |
 
 ### persistence-evasion (80 rules)
 
@@ -324,7 +326,7 @@
 | `ts-audit-bpftrace-script` | AUDIT | regex | bpftrace script execution — eBPF tracing program warrants review for unauthorized surveillance or credential harvesting. |
 | `ts-audit-bpftool` | AUDIT | regex | bpftool usage flagged for review — eBPF inspection and management tools can be used for unauthorized kernel-level operations. |
 | `ts-block-ld-preload-privesc` | BLOCK | regex | LD_PRELOAD/LD_LIBRARY_PATH combined with a privileged command injects a malicious shared library into the elevated process, enabling authentication bypass and privilege escalation. |
-| `ts-audit-ld-preload-export` | BLOCK | regex | Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection. |
+| `ts-block-ld-preload-export` | BLOCK | regex | Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection. |
 | `ts-block-ld-audit-privesc` | BLOCK | regex | LD_AUDIT injects a GNU libc rtld-audit library into a privileged process, receiving callbacks for every symbol resolution — more powerful than LD_PRELOAD for credential interception. MITRE T1574.006. |
 | `ts-block-ld-audit-export` | BLOCK | regex | Exporting LD_AUDIT pointing to a writable path persistently injects an rtld-audit library into all child processes. Every dynamically linked binary will load the attacker's auditor. |
 | `ts-audit-ld-audit` | AUDIT | regex | LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use. |
@@ -805,6 +807,6 @@
 | privilege-escalation | 165 | 105 | 270 |
 | reconnaissance | 128 | 51 | 179 |
 | supply-chain | 93 | 63 | 156 |
-| unauthorized-execution | 198 | 135 | 333 |
-| **Total** | **1100** | **689** | **1789** |
+| unauthorized-execution | 205 | 139 | 344 |
+| **Total** | **1107** | **693** | **1800** |
 

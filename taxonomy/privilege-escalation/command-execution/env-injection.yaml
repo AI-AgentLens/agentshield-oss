@@ -61,4 +61,4 @@ references:
   cwe: ["CWE-426", "CWE-250"]
 
 analyzers: ["regex", "structural"]
-related_rules: ["ts-block-ld-preload-privesc", "ts-audit-ld-preload-export"]
+related_rules: ["ts-block-ld-preload-privesc", "ts-block-ld-preload-export"]
