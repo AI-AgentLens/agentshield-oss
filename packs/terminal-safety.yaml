@@ -5403,3 +5403,66 @@ rules:
     decision: "AUDIT"
     confidence: 0.86
     reason: "Sub-agent granted expanded permissions beyond the parent agent's scope (permissions=parent.permissions+['admin'], permissions=['*'], inherit_all=True). Capability amplification through agent delegation enables privilege escalation within multi-agent systems — violates the least-privilege principle and NIST AI RMF GOVERN-6 requirements for bounded agent delegation (OWASP LLM06, CWE-269, EU AI Act Art.14)."
+
+  # ── AI Fine-Tuning Job Launch Without Authorization ─────────────────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM06 — Excessive Agency
+  # CWE-285 — Improper Authorization, CWE-862 — Missing Authorization
+  # EU AI Act Art.9 (risk management), Art.10 (data governance for training data)
+  # NIST AI RMF GOVERN-1, GOVERN-6, MANAGE-1; ISO 27001 A.5.1, A.5.23, A.8.9
+  #
+  # Starting an LLM fine-tuning job is a high-governance-risk action:
+  # - Incurs unbounded compute costs that may violate budget controls
+  # - Processes training data that may contain PII or confidential information
+  #   in violation of EU AI Act Art.10 data governance requirements
+  # - Creates a new model artifact without a documented model card or risk
+  #   assessment as required by EU AI Act Art.13 and NIST AI RMF GOVERN-6
+  # - Bypasses organizational model governance and allowlist processes
+  # An AI agent directed to fine-tune a model may be acting on a prompt
+  # injection that aims to create a backdoored or jailbroken model variant.
+  #
+  # Examples:
+  #   openai api fine_tunes.create -t file.jsonl -m gpt-3.5-turbo
+  #   openai fine_tuning.jobs.create --training-file file-abc123 --model gpt-4o-mini
+  #   python3 -c "import openai; openai.fine_tuning.jobs.create(training_file='file-xxx', model='gpt-3.5-turbo')"
+  #   python3 -c "from anthropic import Anthropic; c=Anthropic(); c.beta.messages.batches.create(...)"
+  - id: "ts-audit-ai-finetune-launch"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)(openai\\s+(api\\s+fine_tunes?\\.create|fine_tuning\\.jobs\\.create)|fine[_-]?tun(?:e|ing)[_-]?(?:job|create|run|start|launch)|fine_tuning\\.jobs\\.create|finetune[\\s.]+create|\\bfine_tunes?\\.create\\b|trainer\\.train\\s*\\(|AutoModelForCausalLM.*from_pretrained.*train)"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285)."
+
+  # ── AI Model Publishing Without Governance Review ───────────────────────────
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM06 — Excessive Agency
+  # CWE-200 — Exposure of Sensitive Information, CWE-862 — Missing Authorization
+  # EU AI Act Art.13 (transparency/documentation), Art.53 (GPAI documentation)
+  # NIST AI RMF GOVERN-1, GOVERN-6; ISO 27001 A.5.23, A.8.9
+  #
+  # Uploading model weights, adapters, or tokenizers to a public model registry
+  # (HuggingFace Hub, Ollama registry, etc.) without governance review:
+  # - May expose proprietary fine-tuning data embedded in model weights (LLM02)
+  # - Bypasses IP review and classification processes
+  # - Creates an external, untracked model artifact with no model card or
+  #   risk assessment (EU AI Act Art.13, NIST GOVERN-6)
+  # - Can silently publish PII from training data baked into model embeddings
+  # An AI agent instructed to "save my work" could be manipulated into
+  # publishing proprietary model artifacts to a public registry.
+  #
+  # Examples:
+  #   huggingface-cli upload my-org/my-model ./weights
+  #   python3 -c "model.push_to_hub('my-org/my-llama-ft')"
+  #   python3 -c "tokenizer.push_to_hub('my-org/my-tokenizer')"
+  #   python3 -c "trainer.push_to_hub()"
+  #   python3 -c "pipeline.push_to_hub('my-org/my-pipeline')"
+  - id: "ts-audit-ai-model-publish"
+    taxonomy: "governance-risk/ai-governance-gap/ai-uncontrolled-invocations"
+    match:
+      command_regex: "(?i)(huggingface[_-]?cli\\s+upload|push[_-]?to[_-]?hub\\s*\\(|model\\.push_to_hub|tokenizer\\.push_to_hub|trainer\\.push_to_hub|pipeline\\.push_to_hub|save_pretrained.*push|ollama\\s+push\\s+\\S)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6)."
