@@ -4241,3 +4241,64 @@ rules:
     decision: "AUDIT"
     confidence: 0.87
     reason: "Recursive grep for credential patterns across workspace/home directories — harvesting API keys or secrets from sibling projects crosses context boundaries and violates least-privilege access (OWASP LLM02, LLM06)."
+
+  # ── AI-Assisted Social Engineering ────────────────────────────────────────
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/ai-assisted-social-engineering
+  # OWASP LLM09 — Misinformation, LLM06 — Excessive Agency
+  # MITRE T1534 — Internal Spearphishing, T1598 — Phishing for Information
+  #
+  # AI-assisted social engineering combines two capabilities:
+  #   1. Harvesting organisational context (git history, personnel, org charts)
+  #   2. Sending targeted messages to individuals (email, Slack webhook, mutt)
+  #
+  # When an AI agent harvests names + org context and immediately sends an
+  # unsolicited message, it is likely performing automated spearphishing. The
+  # detection approach is to block/audit direct message-sending commands that
+  # expose sender control to the agent. Legitimate workflows use email clients
+  # interactively and do not pipe git log output directly into sendmail.
+
+  # === BLOCK: sendmail / ssmtp invocation by agent ===
+  #
+  # sendmail and ssmtp deliver email directly from the command line.
+  # An AI agent running sendmail can send arbitrary emails — including
+  # phishing messages targeting personnel discovered via git log.
+  # Decision: BLOCK — AI agents must not send email unattended.
+
+  - id: "ts-block-sendmail-agent"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-assisted-social-engineering"
+    match:
+      structural:
+        executable: ["sendmail", "ssmtp", "msmtp"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "sendmail/ssmtp/msmtp called by AI agent — unattended email delivery is an AI-assisted social engineering vector. Agents must not send email without explicit human review and consent (OWASP LLM09, MITRE T1534)."
+
+  # === BLOCK: mutt / mail / mailx unattended email send ===
+  #
+  # mutt, mail, and mailx can send emails non-interactively with -s / -S flags.
+  # Piping content to them (echo "..." | mail -s "subject" victim@example.com)
+  # is a classic spearphishing delivery mechanism.
+
+  - id: "ts-block-mail-noninteractive"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-assisted-social-engineering"
+    match:
+      command_regex: "\\b(mutt|mail|mailx|alpine)\\b.*(-s|--subject).*@|\\|\\s*(mutt|mail|mailx)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Non-interactive email send via mutt/mail/mailx with subject flag and recipient — AI agent sending email is an AI-assisted social engineering risk. Humans must compose and send email (OWASP LLM09, MITRE T1534)."
+
+  # === AUDIT: curl POST to Slack/Teams/Discord webhook ===
+  #
+  # curl POSTing to Slack/Teams/Discord incoming webhooks delivers messages
+  # to organisational channels. While sometimes legitimate in CI/CD scripts,
+  # an AI agent sending webhook messages without human oversight can be
+  # exploited to deliver phishing payloads or impersonate automation systems.
+
+  - id: "ts-audit-slack-webhook-post"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-assisted-social-engineering"
+    match:
+      command_regex: "(curl|wget)\\b.*-X\\s+POST\\b.*(hooks\\.slack\\.com|webhook\\.office\\.com|discord\\.com/api/webhooks)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "curl POST to a Slack/Teams/Discord webhook — AI agent sending unsolicited messages to org channels is an AI-assisted social engineering risk. Confirm message content and intent before allowing (OWASP LLM09, MITRE T1534)."
