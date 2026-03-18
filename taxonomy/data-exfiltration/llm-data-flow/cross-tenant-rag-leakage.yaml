@@ -1,0 +1,84 @@
+id: "data-exfiltration/llm-data-flow/cross-tenant-rag-leakage"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Cross-Tenant RAG Knowledge Base Leakage"
+risk_level: "high"
+
+abstract: |
+  Retrieval-Augmented Generation (RAG) systems serving multiple tenants leak
+  confidential documents, embeddings, or retrieval results across tenant boundaries
+  when the vector store, retrieval pipeline, or re-ranking layer lacks strict
+  per-tenant data isolation.
+
+explanation: |
+  RAG architectures retrieve semantically relevant documents from a vector store and
+  inject them into the LLM's context window. In multi-tenant deployments, cross-tenant
+  leakage can occur at every stage of this pipeline:
+
+  - **Shared vector index without namespace filtering**: All tenants' documents are
+    embedded into the same vector index. A similarity search for Tenant A's query
+    returns Tenant B's documents when their embedding space overlaps — revealing
+    confidential strategies, PII, or proprietary data through the LLM's response.
+  - **Re-ranker cross-contamination**: Re-ranking models that score documents from
+    multiple tenants in a single batch may allow attention patterns to bleed across
+    tenant document boundaries.
+  - **Embedding model fine-tuning leakage**: If the embedding model is fine-tuned on
+    a shared corpus of tenant documents, the model itself may encode tenant-specific
+    information extractable via embedding inversion or membership inference.
+  - **Document chunk metadata exposure**: Retrieved chunks often carry metadata
+    (source filename, author, department, project ID) that directly identifies the
+    owning tenant when returned in the RAG context.
+  - **Keyword search hybrid fallback**: Systems that fall back to BM25 or full-text
+    search when vector similarity is low may execute cross-tenant keyword matches
+    against a shared search index.
+
+  This is distinct from `cross-tenant-agent-data-leakage` (which covers the agent
+  orchestration and MCP tool layer). This entry specifically covers the RAG retrieval
+  pipeline — from embedding generation through context injection.
+
+recommendation: |
+  - Use per-tenant vector namespaces or collections with enforced IAM access controls.
+    Never rely solely on metadata filters for security — filters can be bypassed by
+    crafted queries.
+  - Enforce tenant ID as a mandatory pre-filter applied at the vector store query
+    level, not as a post-retrieval filter.
+  - Strip or hash all document metadata that could identify the owning tenant before
+    returning chunks to the LLM context.
+  - Prefer separate embedding fine-tunes per tenant for high-sensitivity use cases;
+    avoid shared fine-tuning on multi-tenant corpora.
+  - Audit retrieval results before context injection: validate that all returned
+    document chunk tenant IDs match the requesting tenant's ID.
+  - Implement retrieval logging with tenant attribution to detect anomalous cross-tenant
+    result patterns.
+
+examples:
+  bad:
+    - "RAG query 'merger terms with Acme' returns documents from another tenant's M&A deal room because both companies used 'Acme' as a counterparty name"
+    - "Pinecone index shared across tenants; metadata filter 'tenant_id=T1' bypassed by crafted query vector near T2 documents"
+    - "Retrieved chunks include metadata: 'source: /teams/finance/board-deck-2025.pdf' — exposing Tenant B's internal path to Tenant A"
+  good:
+    - "Each tenant has a dedicated Pinecone namespace; namespace is set server-side from the authenticated session, not from user input"
+    - "Retrieval pipeline appends mandatory tenant ID filter at query construction; filter is not overridable by downstream code"
+    - "Chunk metadata stripped to content-only before LLM context injection; source attribution served from a separate ACL-gated endpoint"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06", "LLM08"]
+  iso-27001-2022: ["A.5.34", "A.8.3", "A.8.11", "A.8.31"]
+  eu-ai-act-2024: ["Art.10", "Art.13", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.3", "C1.1"]
+
+references:
+  mitre_attack: ["T1530"]
+  cwe: ["CWE-200", "CWE-668", "CWE-732"]
+  external:
+    - title: "OWASP LLM08 — Vector and Embedding Weaknesses"
+      url: "https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/"
+    - title: "Pinecone — Namespace-based multi-tenancy"
+      url: "https://docs.pinecone.io/guides/index-data/use-namespaces"
+
+analyzers: ["semantic", "dataflow"]
+related_rules: ["data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"]

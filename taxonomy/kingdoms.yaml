@@ -54,3 +54,12 @@ kingdoms:
       System enumeration, information gathering, and lateral movement preparation.
       Includes network scanning, process enumeration, file discovery,
       and route discovery. This is the "plus one" kingdom.
+
+  - id: 9
+    name: "Governance Risk"
+    description: >
+      Missing or inadequate governance, oversight, and accountability controls for
+      AI systems. Covers absent authorization frameworks for AI-driven decisions,
+      lack of human oversight mechanisms, uncontrolled AI-to-AI delegation chains,
+      LLM systems used as security authorities, and failures to meet emerging AI
+      regulations (EU AI Act, NIST AI RMF).

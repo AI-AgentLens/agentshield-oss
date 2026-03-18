@@ -1,0 +1,80 @@
+id: "data-exfiltration/llm-data-flow/cross-tenant-data-leak"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Cross-Tenant Data Leak via LLM Context"
+risk_level: "high"
+
+abstract: |
+  Sensitive data belonging to one tenant leaks into another tenant's LLM context
+  window, completions, or downstream artifacts when shared AI infrastructure lacks
+  adequate tenant isolation at the prompt-assembly, model-serving, or output-routing
+  layer.
+
+explanation: |
+  In multi-tenant AI platforms — shared inference endpoints, managed LLM APIs, or
+  multi-tenant agent orchestration services — tenant data can cross isolation
+  boundaries through several mechanisms:
+
+  - **Context contamination via shared cache**: Some inference servers maintain a
+    prompt KV-cache shared across requests. An improperly scoped cache can return
+    token embeddings computed from another tenant's prior prompt, leaking its content
+    into the current completion.
+  - **Shared system prompt exposure**: Platforms that inject a global system prompt
+    alongside tenant-specific instructions may inadvertently disclose operator
+    configurations, pricing tiers, or internal routing labels to tenants who craft
+    extraction prompts.
+  - **Output routing misconfiguration**: Streaming completions multiplexed over a
+    shared connection may be delivered to the wrong client session due to race
+    conditions or ID collision in the response dispatcher.
+  - **Logged prompt/completion reuse**: Platforms that log completions for fine-tuning
+    may inadvertently include another tenant's sensitive data in training batches
+    surfaced to a different tenant via model distillation.
+
+  This entry complements `cross-tenant-agent-data-leakage` (which focuses on MCP,
+  vector stores, and agent-layer isolation). This entry specifically addresses data
+  leakage that occurs at the LLM inference and context-assembly layer, before or
+  during model processing.
+
+recommendation: |
+  - Enforce per-tenant prompt namespacing — never share a system prompt cache
+    across tenants; invalidate on every new tenant session.
+  - Disable shared KV-cache across tenant sessions or use per-tenant cache
+    partitioning with cryptographic session keys.
+  - Validate response routing at the application layer: assert that the session ID
+    on a streaming completion matches the requesting tenant before forwarding.
+  - Exclude all tenant prompt/completion logs from cross-tenant training pipelines;
+    apply strict data-use agreements per tenant.
+  - Audit system prompt injection points — ensure no global operator context leaks
+    sensitive routing or business logic to end-user tenants.
+
+examples:
+  bad:
+    - "Shared GPT-4 endpoint returns a completion that begins 'As agreed with Acme Corp...' to a different tenant"
+    - "Inference server KV-cache hit for prompt 'SSN: 123-45' from Tenant A influences Tenant B's completion"
+    - "Streaming response chunks from Tenant A's request delivered to Tenant B's WebSocket session"
+  good:
+    - "Each tenant session uses an isolated inference context with no shared cache"
+    - "System prompt assembled per-tenant from isolated config store; no cross-tenant template reuse"
+    - "Streaming multiplexer validates tenant token on every chunk before forwarding"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.3", "A.8.11"]
+  eu-ai-act-2024: ["Art.10", "Art.13", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.3", "C1.1"]
+
+references:
+  mitre_attack: ["T1530"]
+  cwe: ["CWE-200", "CWE-668"]
+  external:
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+    - title: "NIST SP 800-204D: Strategies for the Integration of AI in API Gateways"
+      url: "https://csrc.nist.gov/publications/detail/sp/800-204d/final"
+
+analyzers: ["semantic", "dataflow"]
+related_rules: ["data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"]
