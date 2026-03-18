@@ -223,7 +223,7 @@ func (hp *HTTPProxy) forwardPost(w http.ResponseWriter, origReq *http.Request, b
 }
 
 // relayJSON reads a plain JSON response from upstream, scans it for
-// tools/list poisoning, and writes it to the client.
+// tools/list and tools/call poisoning, and writes it to the client.
 func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -233,8 +233,12 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 	}
 
 	// Scan for tools/list poisoning
-	filtered := hp.handler.FilterToolsListResponse(respBody)
-	if filtered != nil {
+	if filtered := hp.handler.FilterToolsListResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
+	// Scan for tools/call response poisoning
+	if filtered := hp.handler.FilterToolCallResponse(respBody); filtered != nil {
 		respBody = filtered
 	}
 
@@ -284,6 +288,13 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 
 			// Scan JSON-RPC data for tools/list poisoning
 			if filtered := hp.handler.FilterToolsListResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan JSON-RPC data for tools/call response poisoning
+			if filtered := hp.handler.FilterToolCallResponse(data); filtered != nil {
 				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
 				flusher.Flush()
 				continue

@@ -170,7 +170,8 @@ func (p *Proxy) proxyClientToServer(clientReader io.Reader, serverWriter io.Writ
 }
 
 // proxyServerToClient reads messages from the MCP server, scans tools/list
-// responses for poisoned tool descriptions, and forwards to the client.
+// responses for poisoned tool descriptions and tools/call responses for
+// poisoned content, then forwards to the client.
 func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writer) {
 	scanner := bufio.NewScanner(serverReader)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
@@ -178,8 +179,14 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
-		// Try to detect tools/list responses and scan for poisoned descriptions
+		// Scan tools/list responses for poisoned tool descriptions
 		if filtered := p.handler.FilterToolsListResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
+		// Scan tools/call responses for poisoned response content
+		if filtered := p.handler.FilterToolCallResponse(line); filtered != nil {
 			writeLineToWriter(clientWriter, filtered)
 			continue
 		}
