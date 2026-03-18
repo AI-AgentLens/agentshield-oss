@@ -2438,6 +2438,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, WildcardInjectionCases...)
 	all = append(all, CgroupReleaseAgentCases...)
 	all = append(all, UserNamespaceMapCases...)
+	all = append(all, DBusPrivilegeEscalationCases...)
 	return all
 }
 
@@ -2713,5 +2714,209 @@ var UserNamespaceMapCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "docker run with --user flag — legitimate container user specification. Gets AUDIT from docker rules but NOT BLOCK from uid_map rules.",
 		Tags:             []string{"tn", "safe", "docker", "opus-deepdive"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// D-Bus privilege escalation (dbus-send / gdbus / busctl)
+// ---------------------------------------------------------------------------
+
+var DBusPrivilegeEscalationCases = []TestCase{
+	// === TRUE POSITIVES ===
+
+	// --- systemd1 Manager ---
+	{
+		ID:               "TP-DBUS-SYSTEMD-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager.StartUnit string:malware.service string:replace`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/systemd-manager",
+		Analyzer:         "regex",
+		Description:      "dbus-send starting a systemd service — can launch malicious daemons without sudo.",
+		Tags:             []string{"tp", "dbus", "systemd", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-DBUS-SYSTEMD-002",
+		Command:          `busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager EnableUnitFiles as 1 backdoor.service b false b false`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/systemd-manager",
+		Analyzer:         "regex",
+		Description:      "busctl enabling a systemd unit — persistence via enabling a malicious service at boot.",
+		Tags:             []string{"tp", "dbus", "busctl", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-DBUS-SYSTEMD-003",
+		Command:          `gdbus call --system -d org.freedesktop.systemd1 -o /org/freedesktop/systemd1 -m org.freedesktop.systemd1.Manager.StopUnit "apparmor.service" "replace"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/systemd-manager",
+		Analyzer:         "regex",
+		Description:      "gdbus stopping AppArmor — disabling security daemons via D-Bus bypasses sudo detection.",
+		Tags:             []string{"tp", "dbus", "gdbus", "security-bypass", "opus-deepdive"},
+	},
+
+	// --- PackageKit ---
+	{
+		ID:               "TP-DBUS-PKGKIT-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.PackageKit /org/freedesktop/PackageKit org.freedesktop.PackageKit.CreateTransaction`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/packagekit-install",
+		Analyzer:         "regex",
+		Description:      "dbus-send creating a PackageKit transaction — first step to install packages without sudo.",
+		Tags:             []string{"tp", "dbus", "packagekit", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-DBUS-PKGKIT-002",
+		Command:          `busctl call org.freedesktop.PackageKit /org/freedesktop/PackageKit org.freedesktop.PackageKit.Transaction InstallPackages tas 0 1 "netcat;0.7.1;x86_64;fedora"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/packagekit-install",
+		Analyzer:         "regex",
+		Description:      "busctl installing netcat via PackageKit — installs attack tools without triggering sudo detection.",
+		Tags:             []string{"tp", "dbus", "busctl", "supply-chain", "opus-deepdive"},
+	},
+
+	// --- Accounts service ---
+	{
+		ID:               "TP-DBUS-ACCOUNTS-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts.CreateUser string:attacker string:"" int32:1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/accounts-management",
+		Analyzer:         "regex",
+		Description:      "dbus-send creating a user account — backdoor account creation without useradd/sudo.",
+		Tags:             []string{"tp", "dbus", "accounts", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-DBUS-ACCOUNTS-002",
+		Command:          `gdbus call --system -d org.freedesktop.Accounts -o /org/freedesktop/Accounts -m org.freedesktop.Accounts.DeleteUser 1001 true`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/accounts-management",
+		Analyzer:         "regex",
+		Description:      "gdbus deleting a user account — destructive account removal via D-Bus.",
+		Tags:             []string{"tp", "dbus", "gdbus", "destructive", "opus-deepdive"},
+	},
+
+	// --- login1 (power management) ---
+	{
+		ID:               "TP-DBUS-LOGIN1-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:true`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/login1-power",
+		Analyzer:         "regex",
+		Description:      "dbus-send rebooting the system — denial of service via D-Bus power management.",
+		Tags:             []string{"tp", "dbus", "login1", "destructive", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-DBUS-LOGIN1-002",
+		Command:          `busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager PowerOff b true`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/login1-power",
+		Analyzer:         "regex",
+		Description:      "busctl powering off the system via login1 Manager.",
+		Tags:             []string{"tp", "dbus", "busctl", "destructive", "opus-deepdive"},
+	},
+
+	// --- PolicyKit ---
+	{
+		ID:               "TP-DBUS-POLKIT-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.PolicyKit1 /org/freedesktop/PolicyKit1/Authority org.freedesktop.PolicyKit1.Authority.RegisterAuthenticationAgent`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/polkit-policy",
+		Analyzer:         "regex",
+		Description:      "dbus-send registering a polkit auth agent — can intercept or auto-approve privilege escalation requests.",
+		Tags:             []string{"tp", "dbus", "polkit", "opus-deepdive"},
+	},
+
+	// --- UDisks2 ---
+	{
+		ID:               "TP-DBUS-UDISKS-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.UDisks2 /org/freedesktop/UDisks2/block_devices/sda org.freedesktop.UDisks2.Block.Format string:ext4 a{sv} 0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/udisks-management",
+		Analyzer:         "regex",
+		Description:      "dbus-send formatting a disk via UDisks2 — destructive disk operation without sudo.",
+		Tags:             []string{"tp", "dbus", "udisks", "destructive", "opus-deepdive"},
+	},
+
+	// --- Generic system bus ---
+	{
+		ID:               "TP-DBUS-SYSBUS-001",
+		Command:          `dbus-send --system --type=method_call --dest=org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager.Enable boolean:false`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "dbus-send disabling NetworkManager — not a named dangerous service but still system bus. Gets AUDIT.",
+		Tags:             []string{"tp", "dbus", "sysbus", "opus-deepdive"},
+	},
+
+	// === TRUE NEGATIVES ===
+	{
+		ID:               "TN-DBUS-001",
+		Command:          `dbus-monitor --session`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "dbus-monitor on session bus — read-only monitoring, not dbus-send. Gets default AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "dbus", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-DBUS-002",
+		Command:          `busctl list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "busctl list — read-only enumeration of D-Bus services. Gets default AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "busctl", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-DBUS-003",
+		Command:          `busctl status org.freedesktop.DBus`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "busctl status — read-only introspection of D-Bus daemon. Gets default AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "busctl", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-DBUS-004",
+		Command:          `dbus-send --session --type=method_call --dest=org.gnome.Terminal /org/gnome/Terminal org.gnome.Terminal.GetAll`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "dbus-send on session bus — not --system. Gets default AUDIT but NOT BLOCK from D-Bus rules.",
+		Tags:             []string{"tn", "safe", "dbus", "session", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-DBUS-005",
+		Command:          `echo "org.freedesktop.systemd1 is a D-Bus service for systemd"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/systemd-manager",
+		Analyzer:         "regex",
+		Description:      "Echo mentioning systemd1 D-Bus name — must not trigger on string mentions without dbus-send/gdbus/busctl.",
+		Tags:             []string{"tn", "safe", "string-mention", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-DBUS-006",
+		Command:          `busctl tree --system`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/system-bus-generic",
+		Analyzer:         "regex",
+		Description:      "busctl tree --system — read-only service tree listing. Gets AUDIT from system bus rule but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "busctl", "opus-deepdive"},
 	},
 }

