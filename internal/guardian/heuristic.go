@@ -262,6 +262,10 @@ var agentshieldDisableRe = regexp.MustCompile(`(?i)AGENTSHIELD_DISABLE`)
 // echo/cat/printf/tee write to stdout which agents may consume and act on.
 var safeCallerRe = regexp.MustCompile(`(?i)^\s*(gh|git)\s`)
 
+// compoundOpRe matches shell compound-command operators used to split a command
+// into segments for per-segment analysis.
+var compoundOpRe = regexp.MustCompile(`\s*(?:&&|\|\||;)\s*`)
+
 // catFileWriteRe matches cat commands that write a heredoc body to a file
 // (e.g. `cat > /tmp/file << 'EOF'`). These are pure file-write operations
 // whose heredoc content is data, not commands — safe to strip.
@@ -524,6 +528,9 @@ var evalRiskPattern = regexp.MustCompile(
 //     stripped before matching. Prose text may reference eval() or exec() in
 //     code examples without any actual dynamic execution.
 //     Example: `git commit -m "fix bug where eval() caused crash"` → ALLOW.
+//   - Compound commands (e.g. `cd dir && git commit -m "exec() docs"`): each
+//     segment is evaluated independently. git/gh segments are stripped of quoted
+//     content; other segments are checked as-is.
 //   - cat file-write with heredoc: heredoc body is stripped (file content, not code).
 //   - All other commands: full text is matched.
 func matchesEvalRisk(cmd string) bool {
@@ -544,6 +551,38 @@ func matchesEvalRisk(cmd string) bool {
 		if idx := strings.Index(cmd, "<<"); idx != -1 {
 			return evalRiskPattern.MatchString(cmd[:idx])
 		}
+	}
+	// For compound commands (&&, ||, ;) that don't start with git/gh, evaluate each
+	// segment independently. git/gh segments may contain eval/exec in string arguments
+	// (commit messages, PR bodies) that are documentation, not code execution.
+	// Example: `cd ~/repo && git commit -m "fix exec() misuse"` → ALLOW.
+	if compoundOpRe.MatchString(cmd) {
+		for _, seg := range compoundOpRe.Split(cmd, -1) {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			if safeCallerRe.MatchString(seg) {
+				// git/gh segment: strip quoted arguments before checking.
+				stripped := stripQuotedRe.ReplaceAllString(seg, "")
+				if idx := strings.Index(stripped, "<<"); idx != -1 {
+					stripped = stripped[:idx]
+				}
+				if evalRiskPattern.MatchString(stripped) {
+					return true
+				}
+				continue
+			}
+			// Other segment: check as-is (but still strip heredoc body).
+			stripped := seg
+			if idx := strings.Index(stripped, "<<"); idx != -1 {
+				stripped = stripped[:idx]
+			}
+			if evalRiskPattern.MatchString(stripped) {
+				return true
+			}
+		}
+		return false
 	}
 	return evalRiskPattern.MatchString(cmd)
 }

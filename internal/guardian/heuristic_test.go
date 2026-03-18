@@ -369,6 +369,21 @@ func TestHeuristicProvider_EvalRisk_GitCommitFP(t *testing.T) {
 			name: "make build then cat heredoc with eval in content",
 			cmd:  "make build && cat > /tmp/testdata.go << 'EOF'\n// test: eval(malicious) pattern\nEOF",
 		},
+		// issue #389: compound command where git commit -m body contains exec() references.
+		// Real-world FP: `cd repo && git commit -m "...exec(), os.system()..."` was blocked
+		// because safeCallerRe only matched commands starting with git/gh, not sub-commands.
+		{
+			name: "cd then git commit with exec() in message (issue #389)",
+			cmd:  `cd ~/dev/repo && git commit -m "bytes.fromhex() results passed directly to exec(), os.system()"`,
+		},
+		{
+			name: "cd then git commit with heredoc message containing exec()",
+			cmd:  "cd ~/dev/repo && git commit -m \"$(cat <<'EOF'\nfeat(rules): detect exec() patterns\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
+		},
+		{
+			name: "make check then gh pr create with exec() in body",
+			cmd:  `make check && gh pr create --title "security rules" --body "Detects exec() and os.system() dynamic execution patterns"`,
+		},
 	}
 	for _, tc := range benign {
 		t.Run(tc.name, func(t *testing.T) {
