@@ -1198,6 +1198,67 @@ rules:
     confidence: 0.90
     reason: "Kubernetes bulk deletion of resources is destructive."
 
+  # === BLOCK: Database destruction operations ===
+  # AI agents with database CLI access (mysql, psql, mongosh, redis-cli) can
+  # silently destroy entire databases in a single command. Unlike cloud-infra
+  # delete commands, these go through the DB client — no file-system rules fire.
+  #
+  # DROP DATABASE / dropdb / db.dropDatabase() permanently removes all tables,
+  # indexes, and data. redis-cli FLUSHALL/FLUSHDB wipes every Redis key.
+  # These operations are irreversible without a backup and have no legitimate
+  # AI agent use case — they are human DBA operations requiring explicit intent.
+  #
+  # MITRE T1485 — Data Destruction
+  # OWASP LLM08 — Excessive Agency
+
+  - id: "ts-block-mysql-drop-database"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\b(mysql|mariadb)\\b.*\\bDROP\\s+DATABASE\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MySQL/MariaDB DROP DATABASE destroys all tables and data in the named database — irreversible without a backup. AI agents have no legitimate reason to drop a database. MITRE T1485."
+
+  - id: "ts-block-mysqladmin-drop"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\bmysqladmin\\b.*\\bdrop\\b"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "mysqladmin drop destroys a MySQL database. MITRE T1485."
+
+  - id: "ts-block-psql-drop-database"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\bpsql\\b.*\\bDROP\\s+DATABASE\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "PostgreSQL DROP DATABASE executed via psql CLI — permanently removes the database and all its objects. MITRE T1485."
+
+  - id: "ts-block-dropdb"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\bdropdb\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "dropdb is a PostgreSQL convenience wrapper for DROP DATABASE — it permanently destroys the named database. AI agents must not invoke this. MITRE T1485."
+
+  - id: "ts-block-mongo-drop-database"
+    taxonomy: "destructive-ops/database-destruction/nosql-database-drop"
+    match:
+      command_regex: "(?i)\\b(mongosh|mongo)\\b.*\\bdropDatabase\\s*\\(\\)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MongoDB db.dropDatabase() permanently removes the current database and all its collections. MITRE T1485."
+
+  - id: "ts-block-redis-flushall"
+    taxonomy: "destructive-ops/database-destruction/cache-flush"
+    match:
+      command_regex: "(?i)\\bredis-cli\\b.*\\bFLUSH(ALL|DB)\\b"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "redis-cli FLUSHALL wipes every key in every Redis database; FLUSHDB wipes all keys in the current database. Both are irreversible data destruction. AI agents must not flush production caches. MITRE T1485."
+
   - id: "ts-block-kubectl-get-secret"
     taxonomy: "credential-exposure/container-config/kubernetes-config-access"
     match:
