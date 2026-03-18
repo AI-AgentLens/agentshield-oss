@@ -56,11 +56,20 @@
 | mcp-rt-120-db-info-schema | query_database | AUDIT | AUDIT | ✅ | Database schema enumeration query detected — maps table... |
 | mcp-rt-121-db-show-tables | query_database | AUDIT | AUDIT | ✅ | Database schema enumeration query detected — maps table... |
 | mcp-rt-130-localhost-admin-probe | navigate | AUDIT | AUDIT | ✅ | HTTP probe to localhost or 127.0.0.1 flagged — may enum... |
-| mcp-rt-131-loopback-api-probe | http_get | AUDIT | AUDIT | ✅ | HTTP probe to localhost or 127.0.0.1 flagged — may enum... |
-| mcp-rt-132-spring-actuator-probe | fetch_url | AUDIT | AUDIT | ✅ | Spring Boot Actuator endpoint access flagged — exposes ... |
+| mcp-rt-131-loopback-api-probe | http_get | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
+| mcp-rt-132-spring-actuator-probe | fetch_url | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
+| mcp-rt-133-actuator-env-block | http_get | BLOCK | BLOCK | ✅ | Spring Boot Actuator credential-exposing endpoint blocked... |
+| mcp-rt-134-actuator-heapdump-block | fetch_url | BLOCK | BLOCK | ✅ | Spring Boot Actuator credential-exposing endpoint blocked... |
+| mcp-rt-135-actuator-configprops-block | http_get | BLOCK | BLOCK | ✅ | Spring Boot Actuator credential-exposing endpoint blocked... |
+| mcp-rt-136-k8s-secrets-block | http_get | BLOCK | BLOCK | ✅ | Kubernetes secrets API access blocked — exposes cluster... |
+| mcp-rt-137-k8s-namespace-secrets-block | fetch_url | BLOCK | BLOCK | ✅ | Kubernetes secrets API access blocked — exposes cluster... |
+| mcp-rt-138-admin-path-audit | navigate | AUDIT | AUDIT | ✅ | Generic management or admin path access flagged — commo... |
+| mcp-rt-139-management-path-audit | http_get | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
 | mcp-rt-140-safe-project-list | list_directory | AUDIT | AUDIT | ✅ | Listing /home directory contents flagged — enumerates l... |
-| mcp-rt-141-safe-external-url | http_get | AUDIT | AUDIT | ✅ | MCP tool classified as external network request |
+| mcp-rt-141-safe-external-url | http_get | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
 | mcp-rt-142-safe-db-select | query_database | AUDIT | AUDIT | ✅ |  |
+| mcp-rt-143-safe-actuator-health | http_get | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
+| mcp-rt-144-safe-k8s-healthz | http_get | AUDIT | AUDIT | ✅ | Web-fetch tool retrieves external content — responses m... |
 | mcp-rt-150-read-docker-socket | read_file | BLOCK | BLOCK | ✅ | Access to Docker socket blocked — enables container esc... |
 | mcp-rt-151-write-docker-socket | write_file | BLOCK | BLOCK | ✅ | Access to Docker socket blocked — enables container esc... |
 | mcp-rt-152-chmod-suid | set_permissions | BLOCK | BLOCK | ✅ | SUID bit set on executable blocked — allows local privi... |
@@ -71,4 +80,4 @@
 | mcp-rt-160-safe-chmod-normal | chmod | AUDIT | AUDIT | ✅ |  |
 | mcp-rt-161-safe-k8s-deployment | write_file | AUDIT | AUDIT | ✅ |  |
 
-**Results: 68/68 passed (100.0%)**
+**Results: 77/77 passed (100.0%)**
