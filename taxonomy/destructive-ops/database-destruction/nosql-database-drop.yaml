@@ -1,0 +1,84 @@
+id: "destructive-ops/database-destruction/nosql-database-drop"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "Database Destruction"
+category_id: "1.9"
+name: "NoSQL Database Drop"
+risk_level: "critical"
+
+abstract: |
+  A NoSQL database management command drops an entire collection, database,
+  or keyspace, permanently destroying all stored documents and data. AI agents
+  performing database administration tasks may trigger these commands when
+  given ambiguous cleanup instructions.
+
+explanation: |
+  NoSQL databases (MongoDB, Cassandra, CouchDB, DynamoDB) provide administrative
+  commands to delete entire collections or databases. Unlike SQL DDL, these
+  are often exposed through CLI tools and driver APIs:
+
+  MongoDB shell:
+  ```js
+  db.dropDatabase()
+  db.collection.drop()
+  ```
+  Via CLI:
+  ```bash
+  mongosh --eval "db.dropDatabase()" mydb
+  mongo mydb --eval "db.users.drop()"
+  ```
+
+  Cassandra CQL:
+  ```bash
+  cqlsh -e "DROP KEYSPACE production;"
+  ```
+
+  Redis (in-memory, but permanent if persisted):
+  ```bash
+  redis-cli FLUSHDB          # flush current database
+  redis-cli FLUSHALL         # flush all databases
+  ```
+
+  DynamoDB:
+  ```bash
+  aws dynamodb delete-table --table-name Users
+  ```
+
+  AI agents may use these when tasked with "resetting" or "cleaning" a database
+  environment, or when confused about scope of a delete operation.
+
+recommendation: |
+  - Block mongosh/mongo eval commands containing dropDatabase or collection.drop().
+  - Block Cassandra DROP KEYSPACE and DROP TABLE via cqlsh.
+  - Block Redis FLUSHDB and FLUSHALL commands.
+  - Block aws dynamodb delete-table commands from agent contexts.
+  - Require human confirmation for any destructive NoSQL operations.
+
+examples:
+  bad:
+    - "mongosh --eval \"db.dropDatabase()\" production"
+    - "mongo myapp --eval \"db.users.drop()\""
+    - "cqlsh -e \"DROP KEYSPACE myapp;\""
+    - "redis-cli FLUSHALL"
+  good:
+    - "mongosh --eval \"db.users.find({}).count()\" production"
+    - "redis-cli DBSIZE"
+    - "mongodump --db production --out /backups/"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC8.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1485", "T1565"]
+  cwe: ["CWE-400"]
+  external:
+    - title: "MITRE ATT&CK: Data Destruction"
+      url: "https://attack.mitre.org/techniques/T1485/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-nosql-drop-database", "ts-block-redis-flush"]

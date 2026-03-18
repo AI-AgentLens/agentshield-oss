@@ -1,0 +1,7 @@
+id: "1.9"
+name: "Database Destruction"
+kingdom_id: 1
+description: >
+  Irreversible deletion or destruction of database contents, schema, or entire
+  database instances. Includes SQL DDL DROP commands, NoSQL collection deletion,
+  and in-memory cache flushing that permanently erases data.
