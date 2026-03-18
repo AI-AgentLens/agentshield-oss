@@ -787,6 +787,40 @@ rules:
     confidence: 0.88
     reason: "Self-propagating prompt injection detected: directive to copy/forward the injection payload to other agents, files, or channels. This is a prompt-injection worm pattern (OWASP LLM01, LLM06)."
 
+  # === AUDIT: Unrestricted dynamic tool invocation (issue #350) ===
+  #
+  # AI agents that invoke OS tools, shells, or APIs without an allowlist or
+  # boundary check give LLM output direct access to the OS. The most dangerous
+  # pattern is using eval/exec to run LLM-generated text as shell code.
+  #
+  # Attack patterns:
+  #   eval(agent_response)                   — Python dynamic eval of agent output
+  #   exec(llm_output)                       — Python exec of LLM-generated code
+  #   allow_all_tools: true                  — agent config with unrestricted tools
+  #   tool_whitelist: []                     — empty allowlist ≡ allow everything
+  #
+  # Decision: AUDIT — dynamic dispatch from agent output is high-risk but may be
+  # legitimate in governed pipelines; flag for human review rather than blocking.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/unrestricted-tool-invocation
+  # OWASP LLM06 — Excessive Agency | CWE-78 OS Command Injection
+
+  - id: "ts-audit-unrestricted-tool-invoke-eval"
+    taxonomy: "unauthorized-execution/agentic-attacks/unrestricted-tool-invocation"
+    match:
+      command_regex: "(?i)\\b(eval|exec)\\s*\\(.*\\b(agent|llm|gpt|claude|openai|response|output|result|completion)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "eval/exec called on a variable referencing AI agent output — unrestricted dynamic tool invocation allows LLM-generated content to run arbitrary OS commands (OWASP LLM06, CWE-78)."
+
+  - id: "ts-audit-unrestricted-tool-invoke-config"
+    taxonomy: "unauthorized-execution/agentic-attacks/unrestricted-tool-invocation"
+    match:
+      command_regex: "(?i)(allow_all_tools\\s*:\\s*true|tool_whitelist\\s*:\\s*\\[\\s*\\])"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Agent configuration with allow_all_tools:true or an empty tool_whitelist grants unrestricted OS tool access — any LLM output can invoke arbitrary commands without boundary checks (OWASP LLM06)."
+
   # === STRUCTURAL RULES ===
   # These use the parsed shell AST instead of regex.
   # They handle flag reordering, long-form flags, and sudo automatically.
