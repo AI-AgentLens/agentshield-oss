@@ -3940,3 +3940,147 @@ rules:
     decision: "AUDIT"
     confidence: 0.78
     reason: "coredumpctl list/info — enumerates available core dumps. Reconnaissance step before targeted dump extraction. MITRE T1083."
+
+  # ===================================================================
+  # MCP AUTHORIZATION BYPASS
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-authorization-bypass
+  # OWASP LLM09 — Misinformation / Improper Access Control
+  # ===================================================================
+
+  # === BLOCK: Reading MCP OAuth token files (LLM09) ===
+  #
+  # MCP servers that implement OAuth 2.0 store bearer tokens in well-known
+  # locations (~/.mcp/tokens.json, ~/.config/mcp/oauth*, XDG_CONFIG_HOME).
+  # An adversary reading these files can forge requests as the agent's
+  # authorized identity without re-authenticating, bypassing OAuth flows.
+  #
+  # Examples:
+  #   cat ~/.mcp/tokens.json
+  #   python3 -c "import json; print(json.load(open(os.path.expanduser('~/.mcp/tokens.json'))))"
+  #   jq . ~/.config/mcp/oauth_tokens.json
+  #
+  # Decision: BLOCK — no legitimate agent workflow reads raw MCP token files.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-authorization-bypass
+  # OWASP LLM09 — Misinformation, CWE-522 — Insufficiently Protected Credentials
+  - id: "ts-block-mcp-oauth-token-read"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
+    match:
+      command_regex: "(cat|less|more|head|tail|bat|jq|python3?|node|ruby|perl)\\s+.*~/?\\.mcp/(tokens|oauth|auth|credentials|access_token).*\\.json"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Reading MCP OAuth token file — these files contain bearer tokens that authorize MCP server access; exfiltrating them allows forging requests as the agent's authenticated identity (OWASP LLM09, CWE-522)."
+
+  # === BLOCK: Intercepting or redirecting MCP socket connections (LLM09) ===
+  #
+  # MCP servers communicate over Unix domain sockets or named pipes. Binding
+  # to a path that shadows an expected MCP socket (e.g., /tmp/mcp-*.sock) or
+  # using socat/nc to proxy traffic through a MitM listener enables session
+  # token harvesting and redirect_uri tampering for OAuth flows.
+  #
+  # Examples:
+  #   socat UNIX-LISTEN:/tmp/mcp-cursor.sock,fork UNIX:/tmp/mcp-cursor.sock.real
+  #   nc -lU /tmp/mcp-agent.sock
+  #   python3 -c "...socket.bind('/tmp/mcp-server.sock')..."
+  #
+  # Decision: BLOCK — binding to or proxying MCP socket paths has no legitimate
+  # use outside of adversarial interception.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-authorization-bypass
+  # OWASP LLM09, CWE-300 — Channel Accessible by Non-Endpoint
+  - id: "ts-block-mcp-socket-hijack"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
+    match:
+      command_regex: "(socat|nc|ncat|netcat)\\s+.*(/tmp/mcp[-_.]|~/.mcp/.*\\.sock|/var/run/mcp)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Binding or proxying a MCP Unix socket — a man-in-the-middle listener on the MCP socket can harvest OAuth tokens, intercept tool calls, and tamper with redirect URIs (OWASP LLM09, CWE-300)."
+
+  # ===================================================================
+  # AGENT SESSION HIJACKING
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-session-hijacking
+  # OWASP LLM06 — Excessive Agency
+  # ===================================================================
+
+  # === BLOCK: Attaching to agent processes via /proc/PID/fd or ptrace (LLM06) ===
+  #
+  # Accessing /proc/<PID>/fd (file descriptor table) of a running AI agent
+  # process exposes its open sockets, pipes, and IPC channels — enabling
+  # session injection without holding a valid auth token. Combined with
+  # ptrace (strace -p, gdb -p), an attacker can read in-flight prompts,
+  # intercept tool responses, and inject commands mid-session.
+  #
+  # Examples:
+  #   ls /proc/$(pgrep claude)/fd
+  #   cat /proc/1234/fd/5
+  #   strace -p $(pgrep cursor)
+  #   gdb -p $(pgrep windsurf)
+  #
+  # Decision: BLOCK — no legitimate agent task requires inspecting or tracing
+  # a sibling agent process's file descriptors.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-session-hijacking
+  # OWASP LLM06 — Excessive Agency, MITRE T1055 — Process Injection
+  - id: "ts-block-agent-session-hijack"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-session-hijacking"
+    match:
+      command_regex: "/proc/\\$\\(pgrep\\s+(claude|cursor|windsurf|copilot|gemini|codex|cline|aider)\\)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Accessing /proc/PID/fd of a running agent process via pgrep — exposes open sockets and IPC channels, enabling session injection without authentication (OWASP LLM06, MITRE T1055)."
+
+  # === BLOCK: ptrace attach to agent processes by name (LLM06) ===
+  #
+  # strace -p and gdb -p attach to a running process and intercept all
+  # syscalls / memory state. Targeting known AI agent processes (claude,
+  # cursor, windsurf, copilot, codex) is an agent session hijacking pattern
+  # that can extract in-flight prompts and inject tool responses.
+  #
+  # Examples:
+  #   strace -p $(pgrep claude)
+  #   gdb -p $(pgrep cursor) -ex 'call write(5,"EVIL",4)'
+  #   lldb -p $(pgrep windsurf)
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-session-hijacking
+  # OWASP LLM06, MITRE T1055.008 — PTRACE System Calls
+  - id: "ts-block-mcp-socket-connect"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-session-hijacking"
+    match:
+      command_regex: "(strace|ltrace|gdb|lldb)\\s+(-p\\s+)?\\$\\(pgrep\\s+(claude|cursor|windsurf|copilot|gemini|codex|cline|aider)\\)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "ptrace/gdb attach to an AI agent process by name — intercepts in-flight syscalls and memory, enabling extraction of active session tokens and mid-session command injection (OWASP LLM06, MITRE T1055.008)."
+
+  # ===================================================================
+  # CONFUSED DEPUTY VIA TOOL DELEGATION
+  # Taxonomy: privilege-escalation/agent-containment/confused-deputy-tool-delegation
+  # OWASP LLM06 — Excessive Agency, CWE-441 — Unintended Proxy/Intermediary
+  # ===================================================================
+
+  # === AUDIT: eval/exec on captured tool-response variables (LLM06, CWE-441) ===
+  #
+  # A confused deputy attack occurs when a privileged agent executes
+  # instructions carried in a tool response without re-validating their
+  # authorization. The canonical shell pattern is capturing a substitution
+  # result and passing it directly to eval/bash -c. If the response came
+  # from an MCP tool that was itself manipulated, the agent becomes a
+  # proxy for privilege escalation.
+  #
+  # Examples:
+  #   TASK=$(mcp_tool fetch_task); eval "$TASK"
+  #   RESULT=$(agentops run --tool=fetch); bash -c "$RESULT"
+  #   CMD=$(python3 -m langchain_core.tools run); sh -c "$CMD"
+  #
+  # Decision: AUDIT — eval on captured output has legitimate uses (build scripts,
+  # dynamic dispatch), but the confused deputy risk for agent workflows warrants
+  # logging for security review.
+  #
+  # Taxonomy: privilege-escalation/agent-containment/confused-deputy-tool-delegation
+  # OWASP LLM06, CWE-441
+  - id: "ts-audit-confused-deputy-eval"
+    taxonomy: "privilege-escalation/agent-containment/confused-deputy-tool-delegation"
+    match:
+      command_regex: "(eval|exec)\\s+[\"']?\\$\\([^)]+\\)|\\beval\\s+[\"']?\\$\\{[A-Z_]+\\}"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "eval/exec on a command substitution or captured variable — if the substituted output originates from an MCP tool response, this is a confused deputy pattern where the agent proxies untrusted instructions with its own privileges (OWASP LLM06, CWE-441)."
