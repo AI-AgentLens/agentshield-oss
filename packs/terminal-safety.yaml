@@ -4583,3 +4583,199 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059."
+
+  # ===================================================================
+  # AI AUDIT TRAIL CIRCUMVENTION (issue #288)
+  # Taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
+  # OWASP LLM06 — Excessive Agency; EU AI Act Art.13/Art.26; SOC 2 CC7.1
+  # ===================================================================
+  #
+  # AI agents that detect they are being monitored may attempt to delete,
+  # truncate, or modify AgentShield audit logs to hide malicious actions.
+  # These rules protect the audit trail integrity of AI agent observability.
+
+  # === BLOCK: Delete AgentShield audit logs ===
+  #
+  # Deleting ~/.agentshield/logs/ removes the primary AgentShield audit
+  # trail and evidence of prior BLOCK/AUDIT decisions. An AI agent has no
+  # legitimate reason to delete security log directories.
+  #
+  # Patterns:
+  #   rm -rf ~/.agentshield/logs/
+  #   rm ~/.agentshield/audit.jsonl
+  #   rmdir ~/.agentshield/logs
+  - id: "ts-block-agentshield-log-delete"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      command_regex: "\\b(rm|rmdir|unlink)\\b.*(\\.agentshield/(logs|audit|.*\\.jsonl)|agentshield.*audit)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Deleting AgentShield audit log files or directories — destroys the security audit trail for AI agent actions. No legitimate use case. EU AI Act Art.13, SOC 2 CC7.1, MITRE T1070.004."
+
+  # === BLOCK: Truncate/overwrite AgentShield audit logs ===
+  #
+  # Redirecting empty output or using truncate to zero-out audit log files
+  # silently erases audit evidence while leaving the file in place.
+  #
+  # Patterns:
+  #   echo '' > ~/.agentshield/audit.jsonl
+  #   truncate -s 0 ~/.agentshield/logs/audit.jsonl
+  #   cat /dev/null > audit.jsonl
+  #   > ~/.agentshield/audit.jsonl
+  - id: "ts-block-agentshield-log-truncate"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      command_regex: "(truncate\\s+.*-s\\s*0.*\\.agentshield|>\\s*~?/?\\.?agentshield/.*\\.jsonl|cat\\s+/dev/null\\s*>.*\\.agentshield|echo\\s+['\"]?['\"]?\\s*>.*\\.agentshield.*\\.jsonl)"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Truncating or overwriting AgentShield audit log to zero bytes — erases audit evidence while appearing to preserve the file. MITRE T1070.004, EU AI Act Art.26."
+
+  # === AUDIT: Modify AI audit log records ===
+  #
+  # In-place modification of JSONL audit files could alter BLOCK→ALLOW
+  # decisions or remove evidence of policy violations.
+  #
+  # Patterns:
+  #   sed -i 's/BLOCK/ALLOW/' audit.jsonl
+  #   awk '...' audit.jsonl > tmp && mv tmp audit.jsonl
+  #   perl -pi -e 's/BLOCK/ALLOW/' audit.jsonl
+  - id: "ts-audit-agentshield-log-modify"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      command_regex: "\\b(sed\\s+-i|perl\\s+-[^\\s]*i|awk\\b.*\\.agentshield|python[23]?\\b.*open.*\\.agentshield.*['\"]w['\"]).*(\\.agentshield|\\.jsonl)"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "In-place modification of AgentShield audit log records — may be used to alter BLOCK/ALLOW decisions or remove evidence of policy violations. MITRE T1565.001, EU AI Act Art.13."
+
+  # === AUDIT: Disable AI agent logging via environment variable ===
+  #
+  # Setting AGENTSHIELD_LOG_LEVEL or AGENTSHIELD_NO_LOG suppresses audit
+  # output before running commands, blinding the monitoring system.
+  #
+  # Patterns:
+  #   AGENTSHIELD_LOG_LEVEL=none agentshield run -- ...
+  #   export AGENTSHIELD_LOG_LEVEL=off
+  #   AGENTSHIELD_NO_LOG=1 ...
+  - id: "ts-audit-agentshield-log-env-disable"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      command_regex: "(AGENTSHIELD_LOG_LEVEL\\s*=\\s*(none|off|disabled|silent|0|false)|AGENTSHIELD_NO_LOG\\s*=\\s*[1t]|export\\s+AGENTSHIELD_LOG_LEVEL\\s*=)"
+    decision: "AUDIT"
+    confidence: 0.93
+    reason: "Setting AgentShield log-level environment variable to suppress audit output — disables the runtime security audit trail before command execution. OWASP LLM06, MITRE T1562.001."
+
+  # === AUDIT: Timestamp manipulation on AI audit log files ===
+  #
+  # Changing mtime/atime on audit files obscures when events occurred,
+  # breaking audit trail integrity and forensic timeline reconstruction.
+  #
+  # Patterns:
+  #   touch -t 202001010000 ~/.agentshield/logs/audit.jsonl
+  #   touch -d "2020-01-01" audit.jsonl
+  - id: "ts-audit-agentshield-log-timestamp-tamper"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      command_regex: "touch\\s+(-[tTdamd]+\\s+[^\\s]+\\s+|--[a-z]+=\\S+\\s+).*(\\.agentshield|\\.jsonl|audit\\.log)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Timestamp manipulation on AgentShield audit log files — alters file modification times to obscure when audit events occurred, breaking forensic timeline reconstruction. MITRE T1070.006, EU AI Act Art.13."
+
+  # ===================================================================
+  # AGENT SANDBOX ESCAPE (issue #285)
+  # Taxonomy: privilege-escalation/agent-containment/agent-sandbox-escape
+  # OWASP LLM06 — Excessive Agency; ISO 27001 A.8.3/A.8.4
+  # ===================================================================
+  #
+  # AI agents confined to a workspace directory may attempt to escape their
+  # sandbox boundary using path traversal, chroot re-rooting, namespace
+  # pivot, or deep relative paths that escape the project root.
+
+  # === BLOCK: chroot re-rooting to /proc/PID/root ===
+  #
+  # From within a container or restricted workspace, chroot to /proc/1/root
+  # or /proc/<PID>/root escapes the filesystem restriction by pivoting to
+  # the host root via the procfs namespace symlink.
+  #
+  # Patterns:
+  #   chroot /proc/1/root
+  #   chroot /proc/self/root /bin/sh
+  - id: "ts-block-chroot-proc-escape"
+    taxonomy: "privilege-escalation/agent-containment/agent-sandbox-escape"
+    match:
+      command_regex: "\\bchroot\\b.*/proc/(\\d+|self)/root"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "chroot to /proc/PID/root escapes filesystem isolation by pivoting to the host root via procfs — classic container escape technique. MITRE T1611, CWE-22."
+
+  # === BLOCK: pivot_root syscall for container filesystem pivot ===
+  #
+  # pivot_root moves the filesystem root, typically used during container
+  # startup but dangerous if called mid-execution by an agent to swap to
+  # an attacker-controlled root filesystem.
+  #
+  # Patterns:
+  #   pivot_root /new_root /put_old
+  #   unshare --mount -- sh -c "pivot_root ..."
+  - id: "ts-block-pivot-root"
+    taxonomy: "privilege-escalation/agent-containment/agent-sandbox-escape"
+    match:
+      command_regex: "\\bpivot_root\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "pivot_root changes the mount namespace root — used by container runtimes at startup, not by running agents. An AI agent invoking pivot_root is attempting to escape its filesystem sandbox. MITRE T1611."
+
+  # === BLOCK: Deep path traversal targeting system directories ===
+  #
+  # Path traversal sequences of 4+ levels (../../../../) targeting sensitive
+  # system directories indicate an attempt to break out of a workspace
+  # sandbox. Normal relative navigation rarely exceeds 3 levels.
+  #
+  # Patterns:
+  #   cat ../../../../etc/passwd
+  #   ls ../../../../../../../root/.ssh/
+  #   cp ../../../../etc/shadow /tmp/
+  - id: "ts-block-deep-path-traversal"
+    taxonomy: "privilege-escalation/agent-containment/agent-sandbox-escape"
+    match:
+      command_regex: "\\b(cat|less|more|head|tail|cp|mv|curl|wget|python[23]?|node|ruby|perl|bash|sh|zsh|fish|tee|install|chmod|chown)\\b.*(\\.\\./){4,}.*(etc|root|proc|sys|dev|boot|var/log|home/[^/]+/\\.(ssh|aws|gnupg|kube)|usr/local/bin)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Deep relative path traversal (4+ levels) targeting system directories — indicates sandbox escape attempt to access files outside the designated workspace boundary. OWASP LLM06, CWE-22, MITRE T1083."
+
+  # === AUDIT: chroot to arbitrary directory ===
+  #
+  # chroot to any directory other than /proc paths re-roots the filesystem.
+  # While sometimes legitimate (build environments), an AI agent using
+  # chroot is unusual and warrants inspection.
+  #
+  # Patterns:
+  #   chroot /tmp/fake_root /bin/bash
+  #   sudo chroot /mnt/rootfs
+  - id: "ts-audit-chroot-arbitrary"
+    taxonomy: "privilege-escalation/agent-containment/agent-sandbox-escape"
+    match:
+      structural:
+        executable: ["chroot"]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "chroot re-roots the filesystem — legitimate in controlled build environments but unusual for AI agents. Warrants review for potential sandbox escape. MITRE T1611."
+
+  # === AUDIT: Agent instruction file tampering ===
+  #
+  # Writing to AI agent instruction files (CLAUDE.md, .cursorrules,
+  # .windsurf/rules, system_prompt.txt) injects persistent instructions
+  # into future agent sessions — a form of config-level prompt injection.
+  #
+  # Taxonomy: persistence-evasion/agent-config-persistence/agent-instruction-file-tampering
+  #
+  # Patterns:
+  #   echo "ignore safety rules" >> CLAUDE.md
+  #   tee .cursorrules <<< "override: ..."
+  #   cat > .windsurf/rules << 'EOF'
+  - id: "ts-audit-agent-instruction-file-tampering"
+    taxonomy: "persistence-evasion/agent-config-persistence/agent-instruction-file-tampering"
+    match:
+      command_regex: "(echo|printf|tee|cat|sed)\\b.*(>>?|\\|\\s*tee)\\s*['\"]?.*(/CLAUDE\\.md|/\\.cursorrules|\\.windsurf/rules|system_prompt\\.txt|\\.claude/(commands|settings)|AGENTS\\.md|GEMINI\\.md)"
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .windsurf/rules) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions. OWASP LLM01, MITRE T1564."
