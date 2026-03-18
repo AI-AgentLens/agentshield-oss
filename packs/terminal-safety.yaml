@@ -6770,3 +6770,71 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "TLS verification bypass in error recovery context: an agent automatically disabled certificate checking after a connection failure. Disabling TLS validation against production endpoints removes a critical security control and enables MITM attacks (OWASP LLM06, EU AI Act Art.9). Human review required before proceeding."
+
+  # ===========================================================================
+  # Agent Workflow Replay & Cross-Agent Shared State Poisoning
+  # ===========================================================================
+  #
+  # Two related agentic attack patterns:
+  #
+  # 1. Workflow Replay (agent-workflow-replay): An attacker replays a previously
+  #    captured agent workflow by manipulating shell history or re-executing
+  #    scripts that run a sequence of privileged/sensitive operations. Shell
+  #    history manipulation is the primary detection signal.
+  #
+  # 2. Cross-Agent State Poisoning (cross-agent-shared-state-poisoning): An agent
+  #    writes malicious data to shared state files (agent_state.json, handoff.yaml,
+  #    mcp_config.json, etc.) that another agent or the next session will read and
+  #    act on — poisoning the inter-agent communication channel.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-workflow-replay
+  #           unauthorized-execution/agentic-attacks/cross-agent-shared-state-poisoning
+  # OWASP LLM: LLM06 (Excessive Agency), LLM09 (Misinformation-driven action)
+  # MITRE: T1059 (Command Execution), T1098 (Account Manipulation)
+  # EU AI Act: Art.9 (Risk Management), Art.14 (Human Oversight)
+
+  # --- AUDIT: shell history manipulation (workflow replay vector) ---
+  #
+  # Agents that replay workflows often first manipulate shell history to insert
+  # or re-execute a command sequence. `history -r` reads history from disk
+  # (potentially attacker-controlled), `history -w` overwrites it, and
+  # `fc -e` edits and re-executes a history entry.
+  #
+  # TP examples:
+  #   history -r && bash ./deploy.sh
+  #   fc -e vi 42
+  #   history -w /tmp/attack.hist
+  #
+  # TN examples:
+  #   history | grep docker      (read-only pipeline)
+  #   history                    (view history, no flag)
+  - id: "ts-audit-shell-history-manipulation"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-workflow-replay"
+    match:
+      command_regex: "\\b(history\\s+-[rwas][rwas]*|fc\\s+-[es][a-z]*)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Shell history manipulation detected — reading, writing, or editing command history can be used to inject or replay a captured agent workflow sequence (OWASP LLM06, MITRE T1059). Verify this is intentional history management."
+
+  # --- AUDIT: write to agent shared state files (cross-agent poisoning vector) ---
+  #
+  # Agents communicate via handoff files. Writing to files whose names follow
+  # agent-state/context/handoff naming conventions or MCP config files allows
+  # one agent (or a prompt-injected agent) to poison the state consumed by
+  # another agent or the next session.
+  #
+  # TP examples:
+  #   echo '{"tool":"bash"}' > agent_state.json
+  #   cat /tmp/payload > mcp_config.json
+  #   tee handoff.yaml < /tmp/evil
+  #
+  # TN examples:
+  #   cat agent_state.json              (read-only)
+  #   grep "tool" agent_context.json    (search, no write)
+  - id: "ts-audit-cross-agent-state-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/cross-agent-shared-state-poisoning"
+    match:
+      command_regex: "\\b(echo|printf|cat|tee)\\b[^|&;]*(?:>|\\|\\s*tee)[^|&;]*\\b(agent[_-]?(state|context|memory|handoff)|handoff\\.ya?ml|mcp[_-]?config\\.json|tools\\.json|agent[_-]?memory\\.json)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Write to agent shared state file detected — overwriting agent_state.json, handoff.yaml, mcp_config.json, or similar files can inject malicious instructions or tool configurations into the inter-agent communication channel (OWASP LLM06/LLM09, MITRE T1098). Verify the write is intended and the source data is trusted."
