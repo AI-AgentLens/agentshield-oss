@@ -1486,6 +1486,77 @@ var DiskFillCases = []TestCase{
 	},
 }
 
+// UnboundedAgentConsumptionCases tests detection of unbounded AI agent resource consumption.
+// Taxonomy: destructive-ops/resource-exhaustion/unbounded-agent-consumption
+var UnboundedAgentConsumptionCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-DO-UNBOUNDED-API-LOOP-001",
+		Command:          `while true; do curl https://api.openai.com/v1/completions -d '{"model":"gpt-4","prompt":"x"}'; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "infinite loop calling OpenAI API — denial-of-wallet; must be blocked (ts-block-unbounded-api-loop).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+	{
+		ID:               "TP-DO-UNBOUNDED-API-LOOP-002",
+		Command:          `while true; do curl https://api.anthropic.com/v1/messages -H 'x-api-key: $KEY'; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "infinite loop calling Anthropic API — denial-of-wallet; must be blocked (ts-block-unbounded-api-loop).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+	{
+		ID:               "TP-DO-UNBOUNDED-AGENT-LOOP-001",
+		Command:          `while true; do claude --prompt "summarize this" < input.txt; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "infinite loop invoking claude CLI — unbounded agent sessions; must be blocked (ts-block-unbounded-agent-loop).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+	{
+		ID:               "TP-DO-MASS-AGENT-SPAWN-001",
+		Command:          `for i in $(seq 1 10000); do claude --prompt 'x'; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "10000-iteration loop invoking claude — mass agent spawn; must be audited (ts-audit-mass-agent-spawn).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-DO-UNBOUNDED-API-LOOP-001",
+		Command:          `curl https://api.openai.com/v1/models`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "single curl to OpenAI API — benign one-shot call. Gets AUDIT (ne-audit-curl) but must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-DO-UNBOUNDED-AGENT-LOOP-001",
+		Command:          `for f in *.go; do go vet "$f"; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "bounded for-loop over local files with go vet — normal development pattern. Gets AUDIT (default) but must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllDestructiveOpsCases returns all test cases for Kingdom 1.
 func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
@@ -1500,5 +1571,6 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, K8sDestructiveCases...)
 	all = append(all, GitForcePushCases...)
 	all = append(all, DiskFillCases...)
+	all = append(all, UnboundedAgentConsumptionCases...)
 	return all
 }

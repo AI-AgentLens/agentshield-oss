@@ -52,6 +52,57 @@ rules:
     confidence: 0.90
     reason: "Infinite loop spawning background processes is a fork bomb pattern."
 
+  # === BLOCK/AUDIT: Unbounded agent resource consumption (issue #289) ===
+  #
+  # AI agents executing unbounded loops against LLM/AI APIs cause denial-of-wallet
+  # attacks — each iteration consumes tokens/compute, potentially running up
+  # enormous API bills with no termination condition. Unlike fork bombs (which
+  # crash the local system), these attacks target cloud cost budgets.
+  #
+  # Attack patterns:
+  #   while true; do curl https://api.openai.com/v1/completions ...; done
+  #   while true; do claude --prompt "x"; done
+  #   for i in $(seq 1 10000); do claude --prompt "task"; done
+  #
+  # Taxonomy: destructive-ops/resource-exhaustion/unbounded-agent-consumption
+  # OWASP LLM10 — Unbounded Consumption | EU AI Act Art.9, Art.15
+
+  # --- BLOCK: infinite loop calling AI/LLM APIs ---
+  # while true / while 1 / while : with curl/wget to AI API endpoints or
+  # direct AI CLI tools (claude, openai, gemini, copilot) inside the loop body.
+
+  - id: "ts-block-unbounded-api-loop"
+    taxonomy: "destructive-ops/resource-exhaustion/unbounded-agent-consumption"
+    match:
+      command_regex: "while\\s+(true|1|:)\\s*;?\\s*do\\s+.*(curl|wget)\\s+https?://api\\.(openai|anthropic|gemini|cohere|mistral|huggingface)\\.(?:com|io|co)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Infinite loop making AI API calls — denial-of-wallet attack pattern that consumes unbounded tokens/compute with no termination condition (OWASP LLM10)."
+
+  # --- BLOCK: infinite loop invoking AI agent CLIs ---
+  # AI coding tools (claude, openai, gemini, copilot) invoked inside an
+  # infinite loop spawn unbounded agent sessions, consuming API quota.
+
+  - id: "ts-block-unbounded-agent-loop"
+    taxonomy: "destructive-ops/resource-exhaustion/unbounded-agent-consumption"
+    match:
+      command_regex: "while\\s+(true|1|:)\\s*;?\\s*do\\s+.*(\\bclaude\\b|\\bopenai\\b|\\bgemini\\b|\\bcopilot\\b|\\bcodex\\b|\\bchatgpt\\b)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Infinite loop invoking AI agent CLI — spawns unbounded agent sessions consuming API quota without termination condition (OWASP LLM10)."
+
+  # --- AUDIT: large-count loop calling AI agent CLIs ---
+  # for i in $(seq 1 10000); do claude ...; done — bounded but high-count
+  # loops with AI tools are suspicious and should be reviewed.
+
+  - id: "ts-audit-mass-agent-spawn"
+    taxonomy: "destructive-ops/resource-exhaustion/unbounded-agent-consumption"
+    match:
+      command_regex: "for\\s+\\w+\\s+in\\s+\\$\\(seq\\s+\\d+\\s+(\\d{4,})\\)\\s*;?\\s*do\\s+.*(\\bclaude\\b|\\bopenai\\b|\\bgemini\\b|\\bcopilot\\b|\\bcurl\\s+https?://api\\.)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "High-count for-loop invoking AI agent or AI API — may spawn thousands of agent sessions or API calls, exhausting quota (OWASP LLM10)."
+
   # === BLOCK: Permission weakening ===
   - id: "ts-block-chmod-777"
     taxonomy: "destructive-ops/permission-weakening/chmod-world-writable"
