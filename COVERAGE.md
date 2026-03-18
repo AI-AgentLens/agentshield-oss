@@ -6,21 +6,26 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 602 |
+| Terminal rules | 616 |
 | MCP rules | 118 |
-| Total rules | 720 |
-| Test cases (TP+TN) | 1934 |
+| Total rules | 734 |
+| Test cases (TP+TN) | 1997 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (51 rules)
+### credential-exposure (56 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m), as a heredoc body in a cat file-write operation, or as an echo/printf argument. |
 | `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (e.g. --body, --message) or as heredoc content written via cat. |
 | `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. |
+| `sec-block-linux-secret-tool` | BLOCK | regex | secret-tool accessing the freedesktop.org Secret Service (GNOME Keyring / KDE Wallet) — returns stored credentials in plaintext. A single lookup can expose cloud keys, database passwords, or API tokens without any user prompt. MITRE T1555.004. |
+| `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
+| `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
+| `sec-block-linux-keepassxc-cli` | BLOCK | regex | keepassxc-cli extracting credentials from a KeePassXC database — 'show' reveals passwords, 'clip' copies to clipboard, 'totp' generates 2FA codes, 'export' dumps the entire database. MITRE T1555.004. |
+| `sec-audit-linux-pass-list` | AUDIT | regex | pass/gopass listing or searching entries — reveals credential names/paths (metadata) but does not decrypt. Auditing for visibility. MITRE T1555.004. |
 | `sec-block-chrome-login-db` | BLOCK | regex | Access to Chrome/Chromium browser credential and cookie databases is blocked (MITRE T1555.003). |
 | `sec-block-firefox-login-db` | BLOCK | regex | Access to Firefox credential database files is blocked (MITRE T1555.003). |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
@@ -70,7 +75,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (98 rules)
+### data-exfiltration (103 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -120,6 +125,11 @@
 | `ne-block-doh-exfil-one-dot` | BLOCK | regex | DNS-over-HTTPS exfiltration via Cloudflare 1.1.1.1 DoH endpoint. Data hidden in DNS query names travels over HTTPS, bypassing all DNS-layer exfiltration detection. MITRE T1071.004, T1048.003. |
 | `ne-block-doh-exfil-quad9` | BLOCK | regex | DNS-over-HTTPS exfiltration via Quad9 DoH endpoint. Tunnels DNS queries through HTTPS to bypass traditional DNS monitoring. MITRE T1071.004, T1048.003. |
 | `ne-block-doh-exfil-generic` | BLOCK | regex | DNS-over-HTTPS request detected via content type header (application/dns-json or application/dns-message). Any DoH request from an AI agent is suspicious — DNS lookups should use standard tools. MITRE T1071.004, T1048.003. |
+| `ne-block-deferred-exfil-sleep` | BLOCK | regex | Sleep delay chained with a network/scripting tool — temporal evasion technique that defers exfiltration past the point of real-time human review. The network activity fires minutes/hours after command approval. MITRE T1029, T1048. |
+| `ne-block-deferred-exfil-nohup` | BLOCK | regex | nohup wrapping a shell with sleep + network tool — survives terminal close and defers exfiltration. Combines temporal evasion (sleep) with process decoupling (nohup) for maximum stealth. MITRE T1029, T1048. |
+| `ne-block-deferred-exfil-subshell` | BLOCK | regex | Background subshell with sleep + network tool — defers exfiltration in a detached subprocess. The ampersand backgrounds execution, the parentheses create a subshell, and sleep delays the network activity. MITRE T1029, T1048. |
+| `ne-block-nohup-network-exfil` | BLOCK | regex | nohup directly wrapping a network tool — detaches the network operation from the terminal so it survives session close. Even without a delay, nohup + network tool is suspicious in an AI agent context. MITRE T1048. |
+| `ne-audit-sleep-chain` | AUDIT | regex | Long sleep (300+ seconds) chained with another command — may be benign (wait for service) but long delays before follow-up commands are unusual and warrant review. MITRE T1029. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
@@ -229,7 +239,7 @@
 | `ts-audit-ai-finetune-launch` | AUDIT | regex | AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285). |
 | `ts-audit-ai-model-publish` | AUDIT | regex | AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6). |
 
-### persistence-evasion (97 rules)
+### persistence-evasion (101 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -330,6 +340,10 @@
 | `ts-block-python-pth-cp` | BLOCK | regex | Copying/moving a file into site-packages/dist-packages as a .pth file — installs persistent Python startup code executed on every Python invocation. MITRE T1546.016. |
 | `ts-block-python-sitecustomize-write` | BLOCK | regex | Writing to sitecustomize.py or usercustomize.py — these files are automatically imported during Python startup before any user code runs. Provides persistent, silent code execution on every Python invocation. MITRE T1546.016. |
 | `ts-audit-site-packages-write` | AUDIT | regex | Writing directly to a Python site-packages/dist-packages directory — may install persistent code that runs on Python startup. Legitimate package installation should use pip, not direct file writes. MITRE T1546.016. |
+| `ts-block-toctou-source-tmp` | BLOCK | regex | Check-then-source on a world-writable path — classic TOCTOU race condition. Between the existence check and the source command, an attacker can replace the file with malicious code. The agent will execute attacker-controlled content believing it verified the file. CWE-367, MITRE T1036.005. |
+| `ts-block-toctou-exec-tmp` | BLOCK | regex | Check-then-execute on a world-writable path — TOCTOU race window allows file substitution between the test and the shell execution. Attacker can replace the checked file with a payload. CWE-367, MITRE T1036.005. |
+| `ts-block-toctou-direct-exec-tmp` | BLOCK | regex | Check-then-direct-execute on a world-writable path — tests if file is executable then runs it directly. The same TOCTOU race applies: the file can be replaced between check and execution. CWE-367. |
+| `ts-audit-toctou-read-tmp` | AUDIT | regex | Check-then-read on a world-writable path — lower risk than execute but still a TOCTOU pattern. The read content may differ from what was checked. CWE-367. |
 
 ### privilege-escalation (89 rules)
 
@@ -840,13 +854,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 125 | 97 | 222 |
-| data-exfiltration | 167 | 100 | 267 |
+| credential-exposure | 139 | 105 | 244 |
+| data-exfiltration | 181 | 108 | 289 |
 | destructive-ops | 76 | 51 | 127 |
-| persistence-evasion | 189 | 116 | 305 |
+| persistence-evasion | 200 | 124 | 324 |
 | privilege-escalation | 197 | 124 | 321 |
 | reconnaissance | 128 | 51 | 179 |
 | supply-chain | 93 | 67 | 160 |
 | unauthorized-execution | 210 | 143 | 353 |
-| **Total** | **1185** | **749** | **1934** |
+| **Total** | **1224** | **773** | **1997** |
 

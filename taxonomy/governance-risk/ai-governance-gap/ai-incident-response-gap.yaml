@@ -1,0 +1,116 @@
+id: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "AI Incident Response Gap"
+risk_level: "high"
+
+abstract: |
+  Absence of AI-specific incident response procedures, playbooks, and
+  escalation paths — leaving organizations unable to effectively detect,
+  contain, and recover from AI-related security incidents such as model
+  compromise, hallucination-driven actions, prompt injection exploitation,
+  training data poisoning discovery, or AI-assisted data breaches.
+
+explanation: |
+  Traditional IT incident response procedures do not cover the unique
+  characteristics of AI-related security incidents. AI systems introduce
+  failure modes that have no counterpart in conventional software: models
+  can be silently poisoned, agents can take autonomous destructive actions
+  based on adversarial prompts, hallucinated outputs can propagate through
+  downstream systems, and compromised models may produce subtly wrong
+  results that evade standard monitoring.
+
+  Organizations that deploy AI systems without AI-specific IR procedures
+  face several concrete risks:
+
+  - **Delayed detection**: Traditional SIEM rules don't catch AI-specific
+    anomalies like sudden changes in model output distribution, unexpected
+    tool invocations by agents, or gradual drift in RAG retrieval quality
+    that indicates knowledge base poisoning.
+  - **Incorrect containment**: Standard "isolate the host" playbooks don't
+    apply when the incident is a poisoned model serving predictions across
+    a fleet, or a compromised agent that has already executed a chain of
+    tool calls. Containment requires model rollback, agent session
+    termination, and output quarantine — none of which exist in generic IR.
+  - **Missing forensics**: AI incidents require specialized forensics —
+    prompt replay analysis, attention weight inspection, embedding drift
+    measurement, tool call chain reconstruction. Without these capabilities,
+    root cause analysis is impossible.
+  - **Regulatory exposure**: The EU AI Act (Article 9) requires providers
+    of high-risk AI systems to establish risk management systems that
+    include post-market monitoring and incident handling. NIST AI RMF's
+    MANAGE function explicitly calls for monitoring and documenting risk
+    treatments, including incident response.
+
+  Real-world examples that demonstrate the gap:
+  - Organizations discovering months-old RAG knowledge base poisoning with
+    no playbook for assessing the blast radius of contaminated outputs.
+  - AI coding agents executing destructive commands (rm -rf, force push)
+    triggered by prompt injection, with no automated kill-switch or
+    rollback procedure.
+  - Fine-tuned models producing biased outputs after training data
+    contamination, with no procedure to identify affected predictions
+    and notify impacted users.
+
+recommendation: |
+  - Develop AI-specific incident response playbooks covering: model
+    compromise, prompt injection exploitation, data poisoning discovery,
+    agent containment, hallucination-driven incidents, and AI-assisted
+    data breaches.
+  - Establish AI incident classification criteria — distinguish between
+    model-level incidents (poisoning, drift, extraction), agent-level
+    incidents (unauthorized actions, session hijacking), and data-level
+    incidents (training data exposure, conversation log breach).
+  - Implement AI-specific monitoring: model output distribution tracking,
+    agent tool call anomaly detection, embedding drift alerts, and prompt
+    injection attempt logging.
+  - Define model rollback procedures including version pinning, A/B
+    traffic shifting, and output quarantine for affected time windows.
+  - Create agent kill-switch capabilities — the ability to immediately
+    terminate all agent sessions and revoke tool access when compromise
+    is detected.
+  - Train incident response teams on AI-specific forensics: prompt replay,
+    tool call chain reconstruction, and model behavior comparison.
+  - Conduct AI-specific tabletop exercises at least annually.
+  - Integrate AI incident reporting with regulatory obligations (EU AI Act
+    serious incident reporting, NIST AI RMF MANAGE-4 documentation).
+
+examples:
+  bad:
+    - "# No AI-specific IR playbook — generic IT IR used for all incidents"
+    - "# Model serving anomalous outputs for 3 weeks before anyone noticed — no AI monitoring"
+    - "# Agent compromised via prompt injection, executed 47 tool calls before manual intervention"
+    - "# RAG poisoning discovered but no procedure to assess contaminated output blast radius"
+  good:
+    - "# AI IR playbook defines: model rollback in <1hr, agent kill-switch in <5min"
+    - "agentshield scan --verify  # Runtime monitoring detects anomalous agent behavior"
+    - "# Model output distribution monitored with automated drift alerts"
+    - "# Quarterly AI incident tabletop exercise conducted with IR team"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM04"]
+  iso-27001-2022: ["A.5.1", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-4", "MANAGE-2", "GOVERN-1"]
+  soc2-type2: ["CC7.2", "CC7.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1562"]
+  cwe: ["CWE-778", "CWE-693"]
+  external:
+    - title: "EU AI Act Article 9 — Risk Management System"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "NIST AI RMF — MANAGE Function"
+      url: "https://airc.nist.gov/RMF/1"
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+
+analyzers: ["semantic"]
+related_rules: []
+# Detection: Primarily a governance/process concern. Semantic analyzer can
+# detect absence of AI-specific monitoring configurations and IR tooling.
+# Best addressed through organizational policy and tooling audits rather
+# than per-command analysis.
