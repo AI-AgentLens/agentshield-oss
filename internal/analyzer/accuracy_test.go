@@ -216,6 +216,10 @@ func TestAccuracy_NonStandardRegistry(t *testing.T) {
 	runTestCases(t, testdata.NonStandardRegistryCases)
 }
 
+func TestAccuracy_MCPToolSchemaDrift(t *testing.T) {
+	runTestCases(t, testdata.MCPToolSchemaDriftCases)
+}
+
 // ===========================================================================
 // Kingdom 8: Reconnaissance & Discovery
 // ===========================================================================

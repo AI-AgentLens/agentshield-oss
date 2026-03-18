@@ -1474,10 +1474,61 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, DockerfileTamperingCases...)
 	all = append(all, RAGKnowledgeBasePoisoningCases...)
 	all = append(all, BuildSystemInjectionCases...)
+	all = append(all, MCPToolSchemaDriftCases...)
 	all = append(all, MCPConfigInjectionCases...)
 	all = append(all, ModelEndpointHijackingCases...)
 	all = append(all, ModelWeightExtractionCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// MCP Tool Schema Drift
+// Taxonomy: supply-chain/config-tampering/mcp-tool-schema-drift
+//
+// When an MCP server's tool schemas change between sessions it may indicate
+// supply chain compromise or tool poisoning. Detection is performed at the
+// MCP proxy layer by SchemaDriftScanner (internal/mcp/schema_drift_scanner.go)
+// which persists per-server schema fingerprints and compares on each
+// tools/list response. The shell-level analyzer cannot observe this — the
+// TP case below is marked FN (known gap at shell layer; tested in
+// internal/mcp/schema_drift_scanner_test.go).
+// ---------------------------------------------------------------------------
+
+var MCPToolSchemaDriftCases = []TestCase{
+
+	// TP-1: schema drift detected (FN at shell layer — detection is at MCP proxy)
+	{
+		ID:       "FN-MCP-SC-SCHEMA-DRIFT-001",
+		Command:  `__mcp_schema_drift_detected__`,
+		// Expected at MCP proxy layer: AUDIT via mcp-supply-chain-schema-drift rule.
+		// At shell layer: no rule matches this sentinel — default AUDIT from policy.
+		// Marked FN because shell-level tests cannot exercise proxy-layer detection.
+		ExpectedDecision: "AUDIT",
+		Classification:   "FN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "mcp-proxy",
+		Description: `MCP tool schema drift — an MCP server's tool input schema changed since the
+			last session, indicating possible supply chain compromise or tool poisoning.
+			Detection is hardcoded in the MCP proxy layer (SchemaDriftScanner). The
+			shell-level analyzer has no visibility into MCP tools/list responses, so
+			this is a known gap at the shell layer. See schema_drift_scanner_test.go
+			for proxy-layer TP coverage.`,
+		Tags: []string{"fn", "known-gap", "mcp-proxy-layer"},
+	},
+
+	// TN-1: stable tool schema — benign MCP server inspection (no drift)
+	{
+		ID:               "TN-MCP-SC-SCHEMA-DRIFT-001",
+		Command:          `agentshield mcp-proxy --server github --list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "regex",
+		Description: `Inspecting an MCP server's tool list via the agentshield CLI — no schema
+			drift, purely read-only introspection. Does not trigger any BLOCK rule.
+			Gets AUDIT from the default policy (no allow-listed MCP CLI invocation).`,
+		Tags: []string{"tn", "safe", "mcp-proxy-layer"},
+	},
 }
 
 // ---------------------------------------------------------------------------
