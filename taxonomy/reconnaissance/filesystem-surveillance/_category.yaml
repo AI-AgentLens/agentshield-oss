@@ -1,0 +1,7 @@
+id: "8.4"
+name: "Filesystem Surveillance"
+kingdom_id: 8
+description: >
+  Filesystem event monitoring and surveillance techniques that allow attackers to
+  watch for credential creation, file access patterns, and sensitive file changes.
+  Includes inotify-based userspace watchers and fanotify kernel-level mount monitors.

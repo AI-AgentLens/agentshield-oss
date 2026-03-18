@@ -1,0 +1,62 @@
+id: "reconnaissance/filesystem-surveillance/inotify-persistent-monitor"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Filesystem Surveillance"
+category_id: "8.4"
+name: "inotify Recursive Persistent Filesystem Monitor"
+risk_level: "critical"
+
+abstract: |
+  Using inotifywait with recursive and persistent flags on broad filesystem paths
+  (/ or ~) to surveil all file operations system-wide or across the entire home
+  directory — a comprehensive surveillance technique enabling attack timing.
+
+explanation: |
+  Combining inotifywait's `-m` (monitor/persistent) and `-r` (recursive) flags
+  on broad paths turns the tool into a comprehensive filesystem surveillance
+  instrument:
+
+  - `-r /` recursively monitors the entire filesystem for all events
+  - `-r ~` watches every file access under the home directory
+  - `-m` keeps the monitor running indefinitely (background persistence)
+
+  The threat model:
+  1. An agent sets up `inotifywait -m -r ~ -e access,create,modify` as a background job
+  2. Every file the user touches, creates, or reads is logged with full path
+  3. The agent can correlate access patterns to find where credentials are stored
+  4. Combined with a timed exfiltration, this enables comprehensive secret harvesting
+
+  Unlike credential-targeted watches, recursive persistent monitors have no
+  legitimate use case in AI agent environments. They provide a complete file
+  activity map that can be used to build a profile of the user's workspace.
+
+recommendation: |
+  - BLOCK all inotifywait invocations combining recursive (-r) with persistent (-m) on root or home paths.
+  - Restrict inotify watches to project-local directories only.
+  - Audit any background inotifywait process spawned by agents.
+  - Enforce workspace sandboxing so agents cannot watch paths above the project root.
+
+examples:
+  bad:
+    - "inotifywait -m -r / -e access,create,modify"
+    - "inotifywait --monitor --recursive ~ -e access"
+    - "inotifywait -m -r ~/ | tee /tmp/fslog"
+    - "inotifywait -m -r --recursive / -e all-events"
+  good:
+    - "inotifywait -m ./logs/ -e create  # watch only project logs directory"
+    - "inotifywait ./build/ -e modify  # watch project build directory, one-shot"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.12", "A.5.10"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["GOVERN-6", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1083", "T1056.001", "T1074.001"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["regex"]
+related_rules: ["ts-block-inotify-persistent-monitor"]
