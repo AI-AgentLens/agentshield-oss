@@ -47,6 +47,11 @@ type ProxyConfig struct {
 	// recorded in audit entries so consumers know the call target.
 	// If empty, derived from ServerCmd by the caller.
 	ServerName string
+
+	// SchemaDriftCacheDir overrides the directory used for the schema drift cache.
+	// When empty, defaults to ~/.agentshield. Set to t.TempDir() in tests to avoid
+	// polluting the real cache and ensure test isolation.
+	SchemaDriftCacheDir string
 }
 
 // Proxy is a transparent MCP stdio proxy that intercepts tools/call requests.
@@ -67,10 +72,11 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:  cfg.Evaluator,
-			OnAudit:    cfg.OnAudit,
-			Stderr:     stderr,
-			ServerName: cfg.ServerName,
+			Evaluator:   cfg.Evaluator,
+			OnAudit:     cfg.OnAudit,
+			Stderr:      stderr,
+			ServerName:  cfg.ServerName,
+			SchemaDrift: newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
 		},
 	}
 }

@@ -35,6 +35,10 @@ type HTTPProxyConfig struct {
 	// ServerName is the human-readable name of the upstream MCP server,
 	// recorded in audit entries so consumers know the call target.
 	ServerName string
+
+	// SchemaDriftCacheDir overrides the directory used for the schema drift cache.
+	// When empty, defaults to ~/.agentshield. Set to t.TempDir() in tests.
+	SchemaDriftCacheDir string
 }
 
 // HTTPProxy is a transparent MCP Streamable HTTP reverse proxy that intercepts
@@ -64,10 +68,11 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:  cfg.Evaluator,
-			OnAudit:    cfg.OnAudit,
-			Stderr:     stderr,
-			ServerName: cfg.ServerName,
+			Evaluator:   cfg.Evaluator,
+			OnAudit:     cfg.OnAudit,
+			Stderr:      stderr,
+			ServerName:  cfg.ServerName,
+			SchemaDrift: newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
 		},
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // generous timeout for long-running tool calls

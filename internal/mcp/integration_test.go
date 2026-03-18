@@ -147,7 +147,8 @@ func TestIntegration_ProxyWithEchoServer(t *testing.T) {
 		OnAudit: func(e AuditEntry) {
 			auditLog = append(auditLog, e)
 		},
-		Stderr: os.Stderr,
+		Stderr:              os.Stderr,
+		SchemaDriftCacheDir: t.TempDir(), // isolate schema drift cache from real ~/.agentshield
 	})
 
 	// We'll use RunWithIO with the server's stdin/stdout pipes
