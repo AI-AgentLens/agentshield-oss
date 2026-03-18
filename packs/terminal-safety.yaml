@@ -4302,3 +4302,233 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "curl POST to a Slack/Teams/Discord webhook — AI agent sending unsolicited messages to org channels is an AI-assisted social engineering risk. Confirm message content and intent before allowing (OWASP LLM09, MITRE T1534)."
+
+  # ===================================================================
+  # GUARDRAIL EVASION VIA ENCODING (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  # OWASP LLM01 — Prompt Injection; MITRE T1027.013
+  # ===================================================================
+
+  # === BLOCK: Base64-encoded payload decoded and piped to shell ===
+  #
+  # Encoding a command in base64 and decoding it at runtime is a classic
+  # technique to bypass string-based guardrails. An AI agent can instruct
+  # a user to run: echo "cm0gLXJmIC8=" | base64 -d | bash
+  # The instruction looks innocuous when the AI outputs it; the guardrail
+  # only sees the base64 string, not the decoded destructive command.
+  #
+  # Pattern family:
+  #   echo "..." | base64 -d | bash
+  #   base64 -d <<< "..." | sh
+  #   echo "..." | base64 --decode | zsh
+  #
+  # Decision: BLOCK — piping base64 decoded output directly into a shell
+  # is almost never legitimate and is a strong encoding evasion signal.
+  # OWASP LLM01, MITRE T1027.013.
+  - id: "ts-block-base64-decode-pipe-shell"
+    taxonomy: "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding"
+    match:
+      command_regex: "base64\\s+(--decode|-d)\\s*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b)|\\|\\s*base64\\s+(--decode|-d)\\s*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b)"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "Base64-decoded payload piped to a shell — encoding commands in base64 is a standard guardrail evasion technique. The decoded payload is invisible to string-based policy enforcement. OWASP LLM01, MITRE T1027.013."
+
+  # === BLOCK: eval of base64 command substitution ===
+  #
+  # eval $(base64 -d <<< "...") or eval "$(echo ... | base64 -d)"
+  # executes the decoded string as shell code. Used to slip past
+  # command pattern matching by encoding the dangerous instruction.
+  - id: "ts-block-eval-base64-substitution"
+    taxonomy: "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding"
+    match:
+      command_regex: "eval\\s+[\"']?\\$\\(\\s*(echo\\s+.*\\||cat\\s+\\S+\\s+\\|)?\\s*base64\\s+(--decode|-d)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "eval of base64-decoded command substitution — executes a runtime-decoded payload, bypassing all static guardrail analysis. OWASP LLM01, MITRE T1027.013."
+
+  # ===================================================================
+  # HUMAN OVERSIGHT CIRCUMVENTION (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  # OWASP LLM06 — Excessive Agency; MITRE T1562.001
+  # ===================================================================
+
+  # === BLOCK: Stopping or disabling the system audit daemon ===
+  #
+  # The Linux audit daemon (auditd) generates the system call audit log
+  # that most SIEM/SOC products rely on. An AI agent disabling auditd
+  # eliminates the audit trail for all subsequent actions, achieving
+  # "silent" operation that circumvents human oversight.
+  #
+  # Patterns:
+  #   systemctl stop auditd / systemctl disable auditd
+  #   service auditd stop / service audit stop
+  #   pkill -f auditd / kill $(pgrep auditd)
+  #
+  # Decision: BLOCK — no legitimate agent workflow requires disabling auditd.
+  # OWASP LLM06, MITRE T1562.001.
+  - id: "ts-block-auditd-disable"
+    taxonomy: "unauthorized-execution/agentic-attacks/human-oversight-circumvention"
+    match:
+      command_regex: "\\b(systemctl\\s+(stop|disable|mask)|service\\s+audit\\w*\\s+stop|pkill\\s+-[fF]\\s+audit|killall\\s+audit)\\b.*\\baudit"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Stopping or disabling the audit daemon (auditd) — eliminates the system audit trail and bypasses all SIEM/SOC monitoring. No legitimate AI coding agent task requires disabling auditd. OWASP LLM06, MITRE T1562.001."
+
+  # === AUDIT: Backgrounding agent hooks or oversight processes via nohup ===
+  #
+  # Running an oversight-related process (hook, watcher, approval gate) in
+  # the background via nohup detaches it from the terminal, making it
+  # unresponsive to signals and harder to inspect. An AI agent can use
+  # this to start a shadow process that bypasses the approval workflow.
+  #
+  # Pattern: nohup ... agentshield|claudecode|cursor|windsurf ... &
+  - id: "ts-audit-nohup-agent-oversight"
+    taxonomy: "unauthorized-execution/agentic-attacks/human-oversight-circumvention"
+    match:
+      command_regex: "nohup\\s+.*\\b(agentshield|claude|cursor|windsurf|copilot|codeium|hook|approval|oversight)\\b.*&\\s*$"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "nohup backgrounding an agent hook or oversight process — detaches the process from the terminal, making it invisible to the session and potentially bypassing approval workflows. OWASP LLM06, MITRE T1562."
+
+  # ===================================================================
+  # CONTEXT WINDOW POISONING (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/context-window-poisoning
+  # OWASP LLM01 — Prompt Injection; MITRE T1059
+  # ===================================================================
+
+  # === AUDIT: Writing ANSI escape sequences or null bytes to agent context files ===
+  #
+  # Injecting ANSI escape codes (CSI sequences), null bytes, or overlong
+  # Unicode into files that AI agents read (CLAUDE.md, .cursor/rules, .env,
+  # memory files) can corrupt the agent's context window or hide malicious
+  # instructions from human reviewers while the terminal renders them
+  # as invisible or as benign-looking content.
+  #
+  # Patterns:
+  #   printf '\033[...' >> CLAUDE.md   (ANSI CSI injection)
+  #   echo $'\x00...' >> .cursor/rules  (null byte injection)
+  #   printf '\xe2\x80\x8b' >> README.md (zero-width space)
+  - id: "ts-audit-context-file-control-char-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/context-window-poisoning"
+    match:
+      command_regex: "(printf|echo)\\s+.*\\$?['\"].*\\\\(x00|x1b|u200[bBcCdDeEfF]|u00a0|u2060|ufeff|033\\[).*['\"].*>>?\\s*(CLAUDE\\.md|\\.claude|\\.cursor|\\.windsurf|\\.env|memory|context|instructions|system_prompt)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Writing ANSI escape codes, null bytes, or zero-width Unicode characters to an AI agent context file — injects invisible or display-corrupting content into the agent's context window, hiding malicious instructions from human review. OWASP LLM01, MITRE T1059."
+
+  # ===================================================================
+  # AUTONOMOUS TOOL CHAINING (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/autonomous-tool-chaining
+  # OWASP LLM06 — Excessive Agency; MITRE T1059
+  # ===================================================================
+
+  # === AUDIT: Credential-stage-encode-exfil 3-stage compound chain ===
+  #
+  # The canonical autonomous tool chaining attack: access credentials,
+  # encode them, then exfiltrate. Each step appears individually
+  # harmless; the combination creates a complete exfiltration pipeline.
+  # The stateful analyzer detects the cross-command sequence.
+  #
+  # Pattern: (cat cred file) && (base64 encode) && (curl POST to network)
+  - id: "ts-audit-autonomous-cred-encode-exfil-chain"
+    taxonomy: "unauthorized-execution/agentic-attacks/autonomous-tool-chaining"
+    match:
+      stateful:
+        chain:
+          - executable_any: ["cat", "cp", "mv", "grep", "find"]
+            operator: "&&"
+          - executable_any: ["base64", "xxd", "openssl", "python3", "python", "perl"]
+            operator: "&&"
+          - executable_any: ["curl", "wget", "nc", "ncat", "socat"]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "3-stage compound chain: file read → encoding → network transmission — matches the canonical credential-exfiltration pipeline (cat + base64 + curl). Each step is individually low-risk; the combination is a high-confidence exfiltration attempt. OWASP LLM06, MITRE T1059."
+
+  # ===================================================================
+  # AGENT-TO-AGENT LATERAL PIVOT (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-to-agent-lateral-pivot
+  # OWASP LLM06 — Excessive Agency; MITRE T1071
+  # ===================================================================
+
+  # === AUDIT: curl POST to localhost OpenAI-compatible API endpoints ===
+  #
+  # Many AI agent frameworks expose OpenAI-compatible REST APIs on localhost
+  # (Ollama :11434, LM Studio :1234, LiteLLM :4000, AutoGPT :8080,
+  # CrewAI :8000, Open-WebUI :3000). An agent curling these endpoints
+  # with a crafted message payload can inject instructions into a peer
+  # agent's context — the classic agent-to-agent lateral pivot.
+  #
+  # Pattern: curl http://localhost:PORT/v1/chat/completions -d '{"messages":[...]}'
+  - id: "ts-audit-localhost-agent-api-call"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-to-agent-lateral-pivot"
+    match:
+      command_regex: "(curl|wget)\\b.*http://(?:localhost|127\\.0\\.0\\.1):\\d+/v1/(chat/completions|messages|completions|generate)\\b"
+    decision: "AUDIT"
+    confidence: 0.83
+    reason: "curl POST to a localhost OpenAI-compatible API endpoint — calling a peer agent's API with a crafted payload injects instructions into the target agent's context (agent-to-agent lateral pivot). OWASP LLM06, MITRE T1071."
+
+  # ===================================================================
+  # STEGANOGRAPHIC EXFILTRATION VIA AI OUTPUT (issue #321)
+  # Taxonomy: data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output
+  # OWASP LLM02 — Insecure Output Handling; MITRE T1027.003
+  # ===================================================================
+
+  # === AUDIT: Classical steganography tool invocations ===
+  #
+  # steghide, stegosuite, stegsnow, and similar tools embed data in
+  # image or text files using classical steganographic algorithms.
+  # An AI agent invoking these tools can embed extracted secrets in
+  # AI-generated artifacts (images, documents) that bypass content
+  # scanners looking for binary data or network connections.
+  #
+  # Patterns:
+  #   steghide embed -cf output.jpg -sf secret.txt
+  #   stegsnow -C -m "secret" cover.txt output.txt
+  - id: "ts-audit-steganography-tool"
+    taxonomy: "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output"
+    match:
+      structural:
+        executable: ["steghide", "stegosuite", "stegsnow", "outguess", "stegdetect", "openstego"]
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "Classical steganography tool invoked — embedding data in image/text files allows secrets to be exfiltrated via AI-generated artifacts that evade content scanners. OWASP LLM02, MITRE T1027.003."
+
+  # === AUDIT: Zero-width Unicode character injection into source files ===
+  #
+  # Zero-width spaces (U+200B), zero-width non-joiners (U+200C),
+  # zero-width joiners (U+200D), and similar Unicode characters are
+  # invisible in most text editors and terminals but can encode bits
+  # using their presence/absence (Trojan Source variant).
+  # An agent injecting these into source files can hide data that
+  # survives code review and appears in AI-generated output.
+  #
+  # Pattern: printf/echo with Unicode zero-width chars written to .py/.js/.go files
+  - id: "ts-audit-zero-width-char-source-injection"
+    taxonomy: "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output"
+    match:
+      command_regex: "(printf|echo|sed)\\s+.*\\$?['\"].*\\\\u200[bBcCdD].*['\"].*(?:\\.(?:py|js|ts|go|rs|java|c|cpp|rb|php)|>>?\\s*\\S+\\.(?:py|js|ts|go|rs))"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Zero-width Unicode characters (U+200B/C/D) injected into source code files — these invisible characters encode data bits that survive code review and appear in AI-generated output, enabling covert exfiltration via generated artifacts. OWASP LLM02, MITRE T1027.003."
+
+  # ===================================================================
+  # MULTIMODAL PROMPT INJECTION (issue #321)
+  # Taxonomy: unauthorized-execution/agentic-attacks/multimodal-prompt-injection
+  # OWASP LLM01 — Prompt Injection; MITRE T1059
+  # ===================================================================
+
+  # === AUDIT: Image/audio file created from sensitive content via AI API ===
+  #
+  # Multimodal prompt injection embeds malicious instructions in image
+  # or audio files that are then submitted to a vision-capable AI model.
+  # An agent combining a sensitive file read with an image generation/
+  # submission API call is a strong signal of multimodal injection.
+  #
+  # Pattern: sensitive file path + image API call (GPT-4V, Claude Vision, Gemini)
+  - id: "ts-audit-multimodal-sensitive-file-api"
+    taxonomy: "unauthorized-execution/agentic-attacks/multimodal-prompt-injection"
+    match:
+      command_regex: "python[23]?\\b.*(?:openai|anthropic|google\\.generativeai).*(?:vision|image|audio).*open\\s*\\(['\"][/~]|python[23]?\\b.*open\\s*\\(['\"][/~].*(?:mode=['\"]rb['\"]|\\.(png|jpg|jpeg|gif|mp3|wav|m4a)).*(?:openai|anthropic|claude|gemini).*(?:chat|message|vision|image)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059."
