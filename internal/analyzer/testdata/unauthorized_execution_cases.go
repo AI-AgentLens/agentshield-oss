@@ -1684,7 +1684,7 @@ var IndirectPromptInjectionCases = []TestCase{
 // organizational approval, bypassing security controls and governance policies.
 // Rules: ts-audit-ollama-serve, ts-audit-ollama-pull, ts-audit-lmstudio-server,
 //        ts-audit-open-interpreter-install, ts-audit-open-interpreter-run,
-//        ts-audit-autogpt-install
+//        ts-audit-autogpt-install, ts-audit-vllm-tgi-serve
 var ShadowAIUsageCases = []TestCase{
 	// =========================================================================
 	// TP: Ollama serve / run — starts an unmonitored local inference server
@@ -1937,6 +1937,112 @@ var ShadowAIUsageCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
 		Analyzer:         "regex",
 		Description:      "pip install autopep8 — 'auto' prefix does not match \\bautogpt\\b. Shadow-AI rule not triggered.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	// =========================================================================
+	// TP: vLLM inference server — exposes OpenAI-compatible API locally
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-001",
+		Command:          "python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3-8b-instruct",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "vLLM OpenAI-compatible server startup — unmonitored local inference API outside governance.",
+		Tags:             []string{"tp", "shadow-ai", "vllm"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-002",
+		Command:          "python3 -m vllm.entrypoints.api_server --model mistralai/Mistral-7B-v0.1 --port 8000",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "vLLM legacy API server on custom port — local shadow AI inference endpoint.",
+		Tags:             []string{"tp", "shadow-ai", "vllm"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-003",
+		Command:          "vllm serve meta-llama/Llama-3.1-8B-Instruct --gpu-memory-utilization 0.9",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "vLLM CLI serve command (v0.4.0+) — starts unmonitored inference server.",
+		Tags:             []string{"tp", "shadow-ai", "vllm"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-004",
+		Command:          "text-generation-launcher --model-id meta-llama/Llama-3-8b --port 8080 --num-shard 2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "HuggingFace TGI launcher — creates local LLM inference endpoint outside governance.",
+		Tags:             []string{"tp", "shadow-ai", "tgi"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-005",
+		Command:          "docker run --gpus all -p 8080:80 ghcr.io/huggingface/text-generation-inference:latest --model-id mistralai/Mistral-7B-v0.1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "TGI Docker container — unmonitored AI inference API exposed via Docker.",
+		Tags:             []string{"tp", "shadow-ai", "tgi", "docker"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VLLM-TGI-SERVE-006",
+		Command:          "mlc_llm serve HF://mlc-ai/Llama-3-8B-Instruct-q4f16_1-MLC --device cuda",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "MLC-LLM serve command — compiler-based inference server, shadow AI deployment.",
+		Tags:             []string{"tp", "shadow-ai", "mlc-llm"},
+	},
+	// =========================================================================
+	// TN: vLLM/TGI — install or query commands that are not server startup
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-VLLM-TGI-SERVE-001",
+		Command:          "pip install vllm",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip install vllm — installation does not trigger vllm-tgi-serve. Gets AUDIT from sc-audit-pip-install.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VLLM-TGI-SERVE-002",
+		Command:          "pip install text-generation-inference",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "pip install text-generation-inference — installation only, vllm-tgi-serve not triggered.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VLLM-TGI-SERVE-003",
+		Command:          "vllm --version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "vllm --version is a version query — no 'serve' subcommand, vllm-tgi-serve not triggered.",
+		Tags:             []string{"tn", "shadow-ai", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VLLM-TGI-SERVE-004",
+		Command:          "docker pull ghcr.io/huggingface/text-generation-inference:latest",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/shadow-ai-usage",
+		Analyzer:         "regex",
+		Description:      "docker pull TGI image — image download, not server run. 'run' keyword absent, vllm-tgi-serve not triggered.",
 		Tags:             []string{"tn", "shadow-ai", "safe"},
 	},
 }

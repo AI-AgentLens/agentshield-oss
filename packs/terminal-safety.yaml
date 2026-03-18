@@ -1715,6 +1715,37 @@ rules:
     confidence: 0.85
     reason: "LM Studio inference server started — creates a local, unmonitored AI API endpoint outside governance controls (LLM06, EU AI Act Art.26). Verify organizational approval."
 
+  # === AUDIT: vLLM and Text Generation Inference (TGI) inference server startup ===
+  #
+  # Taxonomy: unauthorized-execution/ai-model-usage/shadow-ai-usage
+  # OWASP LLM06 — Excessive Agency
+  # EU AI Act Art.26 (deployer obligations); NIST AI RMF GOVERN-1
+  # CWE-441 — Unintended Proxy/Intermediary
+  #
+  # vLLM and HuggingFace TGI are the two most widely deployed production-grade
+  # LLM inference frameworks. Starting either exposes an OpenAI-compatible API
+  # endpoint on the developer machine, routing prompts through an unmonitored
+  # local model that bypasses organizational model governance, audit logging,
+  # and approved model registries.
+  #
+  # Also covers MLC-LLM, a compiler-based inference framework with similar
+  # shadow-deployment risk.
+  #
+  # Examples:
+  #   python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3-8b
+  #   vllm serve mistralai/Mistral-7B-v0.1
+  #   text-generation-launcher --model-id meta-llama/Llama-3-8b --port 8080
+  #   docker run ghcr.io/huggingface/text-generation-inference --model-id mistral
+  #   mlc_llm serve HF://mlc-ai/Llama-3-8B-Instruct-q4f16_1-MLC --device cuda
+
+  - id: "ts-audit-vllm-tgi-serve"
+    taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
+    match:
+      command_regex: "(?i)(python[23]?\\s+.*\\bvllm\\.entrypoints\\b|vllm\\s+serve\\b|text-generation-launcher\\b|docker\\s+run\\b.*\\btext-generation-inference\\b|mlc_llm\\s+serve\\b)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "vLLM / TGI / MLC-LLM inference server started — creates a local OpenAI-compatible AI API endpoint outside organizational governance controls. Prompts routed through unmonitored local models bypass model allowlists, audit logging, and data-residency requirements (OWASP LLM06, EU AI Act Art.26, NIST AI RMF GOVERN-1). Verify this deployment is approved."
+
   # === AUDIT: Open Interpreter installation or invocation ===
   # Open Interpreter gives an LLM unrestricted shell access. Installing or
   # running it grants an AI agent the ability to execute any OS command
