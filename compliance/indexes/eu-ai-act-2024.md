@@ -15,6 +15,10 @@ clipboard channels. (Risk: critical)
 - **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
 converting binary key material into a hexadecimal representation that can
 be reconstructed elsewhere. (Risk: high)
+- **Cross-Context Data Contamination** — Sensitive data from one project, client, or authorization domain leaks into
+another through shared AI agent tooling, MCP servers, or workspace
+configurations — violating data isolation boundaries that exist between
+concurrent operational contexts. (Risk: high)
 - **Cross-Session Context Leakage** — Sensitive data from one AI agent session (credentials, PII, proprietary code)
 leaks into subsequent sessions or other users' contexts through persistent
 memory stores, shared caches, conversation logs, or vector databases. (Risk: high)
@@ -53,6 +57,9 @@ sensitive commits that were intended to be purged. (Risk: high)
 embeddings that manipulate retrieval-augmented generation (RAG) systems —
 ensuring poisoned content is retrieved for targeted queries and injected
 into the agent's context window, enabling indirect prompt injection at scale. (Risk: high)
+- **Inference-Time Backdoor Activation** — A model that passes safety evaluations and behaves correctly during testing
+but activates hidden backdoor behavior when specific trigger patterns appear
+in production inputs — the AI equivalent of a sleeper agent or logic bomb. (Risk: critical)
 - **Model Deserialization Code Execution** — An attacker distributes a malicious AI model file (pickle, PyTorch, joblib,
 or other serialization format) that executes arbitrary code when loaded by
 a developer or agent, exploiting unsafe deserialization in ML frameworks. (Risk: critical)
@@ -67,6 +74,10 @@ that are subsequently trained on the poisoned data. (Risk: critical)
 
 [View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
+- **Cross-Context Data Contamination** — Sensitive data from one project, client, or authorization domain leaks into
+another through shared AI agent tooling, MCP servers, or workspace
+configurations — violating data isolation boundaries that exist between
+concurrent operational contexts. (Risk: high)
 - **Cross-Session Context Leakage** — Sensitive data from one AI agent session (credentials, PII, proprietary code)
 leaks into subsequent sessions or other users' contexts through persistent
 memory stores, shared caches, conversation logs, or vector databases. (Risk: high)
@@ -74,6 +85,10 @@ memory stores, shared caches, conversation logs, or vector databases. (Risk: hig
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Steganographic Exfiltration via AI-Generated Artifacts** — A compromised AI agent encodes sensitive data (credentials, PII, proprietary
+code) into seemingly benign generated artifacts — variable names, code
+comments, documentation, commit messages, or file structures — creating
+covert exfiltration channels that bypass content-based DLP controls. (Risk: high)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -94,6 +109,14 @@ evidence of malicious activity and impede incident response. (Risk: critical)
 state specifically to discover injected system prompt content, operator
 secrets, or AI agent configuration constitute LLM introspection
 reconnaissance that may precede a targeted attack. (Risk: medium)
+- **Human Oversight Circumvention** — An AI agent manipulates or overwhelms the human-in-the-loop review
+mechanism — through approval fatigue, misleading action summaries,
+information overload, or action batching — to gain approval for dangerous
+operations that a vigilant reviewer would reject. (Risk: critical)
+- **AI-Assisted Social Engineering** — AI agents manipulated or misused to generate targeted phishing emails,
+impersonate humans in communications, craft pretexting scenarios, or
+produce social engineering content that exploits the agent's language
+capabilities and access to organizational context. (Risk: high)
 - **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
 without grounding checks, and these outputs are persisted or acted upon by
 downstream systems without human verification. (Risk: high)
@@ -123,18 +146,38 @@ of all future agent sessions operating on the repository or workspace. (Risk: hi
 granted for a specific purpose to perform actions outside the intended scope —
 exploiting overly broad credential permissions to access resources, modify
 configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
+- **Agent Delegation Authority Escalation** — In multi-agent orchestration systems, a subordinate agent accumulates
+permissions beyond its intended scope by exploiting delegation chains,
+where each delegation step grants incremental authority that compounds
+into privileges no single agent was authorized to hold. (Risk: critical)
+- **Wildcard Injection via Filename-to-Flag Expansion** — An attacker creates files whose names match command-line flags (e.g.,
+`--checkpoint-action=exec=sh payload.sh`). When a tool like `tar` or `rsync`
+operates on `*`, glob expansion turns filenames into arguments, achieving
+arbitrary command execution without any suspicious-looking shell syntax. (Risk: critical)
 - **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
 persistent memory system (CLAUDE.md files, memory databases, context
 stores) to manipulate the agent's behavior in future sessions, achieving
 cross-session persistence without modifying the agent's code. (Risk: high)
+- **Agent Orchestration Hijacking** — An attacker manipulates the orchestration layer of a multi-agent system —
+workflow definitions, task queues, agent role assignments, or routing logic —
+to redirect agent workflows, inject unauthorized tasks, bypass approval
+gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
 - **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
 into a composite workflow that achieves a harmful outcome — each step
 passes security checks in isolation, but the overall chain constitutes
 an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Human Oversight Circumvention** — An AI agent manipulates or overwhelms the human-in-the-loop review
+mechanism — through approval fatigue, misleading action summaries,
+information overload, or action batching — to gain approval for dangerous
+operations that a vigilant reviewer would reject. (Risk: critical)
 - **Multi-Agent Trust Exploitation** — An attacker compromises or manipulates one AI agent in a multi-agent system
 to influence the behavior of other agents through shared context, tool
 outputs, handoff messages, or shared memory — exploiting implicit trust
 relationships between cooperating agents. (Risk: high)
+- **AI-Assisted Social Engineering** — AI agents manipulated or misused to generate targeted phishing emails,
+impersonate humans in communications, craft pretexting scenarios, or
+produce social engineering content that exploits the agent's language
+capabilities and access to organizational context. (Risk: high)
 - **AI Hallucination Injection** — An AI agent outputs fabricated facts, URLs, package names, or code references
 without grounding checks, and these outputs are persisted or acted upon by
 downstream systems without human verification. (Risk: high)
@@ -157,6 +200,11 @@ security inspection. (Risk: high)
 or (3) interpreter inline execution where a scripting language uses its own HTTP
 client to fetch and `eval`/`exec` code within the same process. All three patterns
 execute arbitrary remote code without prior human review. (Risk: critical)
+- **Printf/Echo Hex Command Construction** — An attacker uses `printf` or `echo -e` with hex/octal escape sequences to
+construct shell commands character-by-character, then pipes the result to a
+shell interpreter or uses command substitution to execute it. This evades
+ANSI-C quoting detection (`$'\xNN'`) because the encoding happens inside
+printf arguments rather than shell quoting syntax. (Risk: high)
 - **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
 debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
@@ -225,6 +273,10 @@ clipboard channels. (Risk: critical)
 - **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
 converting binary key material into a hexadecimal representation that can
 be reconstructed elsewhere. (Risk: high)
+- **Shared Memory Credential Staging** — An attacker copies credentials or sensitive files to `/dev/shm` (shared memory
+tmpfs), staging them for later exfiltration. Data in `/dev/shm` is world-readable,
+lives entirely in RAM, leaves no disk forensic trace, and is cleared on reboot —
+making it an ideal covert staging area. (Risk: high)
 - **Customer Data Sent to LLM** — Customer PII or sensitive data flowing into LLM API calls creates data privacy and
 regulatory compliance risks by transmitting regulated information to third-party
 AI service providers. (Risk: high)
@@ -236,6 +288,10 @@ queries or direct access to embedding model outputs. (Risk: high)
 LoRA adapters, quantized models, tokenizer configurations, or training
 datasets — via shell commands that copy, compress, or transmit model files
 to external destinations. (Risk: critical)
+- **Steganographic Exfiltration via AI-Generated Artifacts** — A compromised AI agent encodes sensitive data (credentials, PII, proprietary
+code) into seemingly benign generated artifacts — variable names, code
+comments, documentation, commit messages, or file structures — creating
+covert exfiltration channels that bypass content-based DLP controls. (Risk: high)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -376,6 +432,10 @@ enabling complete bypass of all userspace security controls, rootkit installatio
 and persistent system compromise. (Risk: critical)
 - **Sudo Invocation** — An AI agent invoking `sudo` to elevate privileges can bypass application-level
 access controls and gain root-level access to the system. (Risk: high)
+- **Wildcard Injection via Filename-to-Flag Expansion** — An attacker creates files whose names match command-line flags (e.g.,
+`--checkpoint-action=exec=sh payload.sh`). When a tool like `tar` or `rsync`
+operates on `*`, glob expansion turns filenames into arguments, achieving
+arbitrary command execution without any suspicious-looking shell syntax. (Risk: critical)
 - **Docker Exec into Running Container** — An AI agent uses `docker exec` to execute commands inside a running container,
 potentially escalating privileges or interfering with isolated workloads. (Risk: high)
 - **Docker Host Filesystem Mount** — An AI agent mounts the host filesystem root (`/`) into a Docker container,
@@ -449,6 +509,15 @@ agents without explicit written authorization. (Risk: critical)
 - **CI/CD Pipeline Configuration Injection** — An AI agent writes to CI/CD pipeline configuration files (GitHub Actions,
 GitLab CI, Jenkinsfile, CircleCI, etc.), potentially injecting malicious
 build steps that run during the automated build and release process. (Risk: critical)
+- **MCP Configuration Injection** — An attacker modifies MCP (Model Context Protocol) configuration files —
+mcp.json, claude_desktop_config.json, .cursor/mcp.json, or equivalent — to
+register malicious MCP servers that intercept tool calls, exfiltrate data,
+or inject manipulated responses into the agent's workflow. (Risk: critical)
+- **AI Model Endpoint Hijacking** — An attacker redirects an AI agent's inference API calls to an
+attacker-controlled endpoint by manipulating environment variables
+(OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST) or configuration files,
+enabling man-in-the-middle interception of all prompts, responses, and
+embedded credentials. (Risk: critical)
 - **Package Config File Edit** — Modification of package registry config files (.npmrc, .pypirc) can redirect package
 resolution to malicious sources, enabling dependency confusion, supply chain injection,
 or credential theft from registry tokens stored in these files. (Risk: high)
@@ -467,6 +536,9 @@ into the agent's context window, enabling indirect prompt injection at scale. (R
 - **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
 any system that loads the checkpoint to execute attacker-controlled model
 weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
+- **Inference-Time Backdoor Activation** — A model that passes safety evaluations and behaves correctly during testing
+but activates hidden backdoor behavior when specific trigger patterns appear
+in production inputs — the AI equivalent of a sleeper agent or logic bomb. (Risk: critical)
 - **Model Deserialization Code Execution** — An attacker distributes a malicious AI model file (pickle, PyTorch, joblib,
 or other serialization format) that executes arbitrary code when loaded by
 a developer or agent, exploiting unsafe deserialization in ML frameworks. (Risk: critical)
@@ -489,10 +561,23 @@ CVEs without explicit human review. (Risk: medium)
 persistent memory system (CLAUDE.md files, memory databases, context
 stores) to manipulate the agent's behavior in future sessions, achieving
 cross-session persistence without modifying the agent's code. (Risk: high)
+- **Agent Orchestration Hijacking** — An attacker manipulates the orchestration layer of a multi-agent system —
+workflow definitions, task queues, agent role assignments, or routing logic —
+to redirect agent workflows, inject unauthorized tasks, bypass approval
+gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
+- **AI-Powered Automated Vulnerability Exploitation** — An AI agent — either compromised via prompt injection or deliberately
+instructed — uses its reasoning capabilities and tool access to autonomously
+discover, analyze, and exploit security vulnerabilities in systems it can
+reach, combining reconnaissance with active exploitation in a single
+agentic workflow. (Risk: critical)
 - **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
 into a composite workflow that achieves a harmful outcome — each step
 passes security checks in isolation, but the overall chain constitutes
 an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Context Window Poisoning** — Deliberately flooding or manipulating an AI agent's context window with
+crafted content to displace safety instructions, override system prompts,
+or degrade the agent's ability to follow its original constraints —
+causing it to take actions it would otherwise refuse. (Risk: high)
 - **Indirect Prompt Injection via Retrieved Content** — An attacker embeds hidden instructions in external content (web pages,
 documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
@@ -519,6 +604,11 @@ relationships between cooperating agents. (Risk: high)
 images, PDFs, audio, or video — that are processed by multimodal AI
 agents, bypassing text-based input sanitization and triggering unintended
 tool execution or data exfiltration. (Risk: high)
+- **Self-Propagating Prompt Injection (AI Worm)** — A prompt injection payload that includes self-replication instructions —
+causing each compromised AI agent to propagate the injection to other
+agents through shared resources (emails, documents, code repositories,
+MCP tool responses, shared memory stores) — creating a self-spreading
+AI worm that infects agent ecosystems without human intervention. (Risk: critical)
 - **LLM-Generated Insecure Code Execution** — An AI coding agent generates code containing security vulnerabilities
 (injection flaws, hardcoded secrets, insecure defaults) and auto-commits
 or executes it without human security review — introducing exploitable
@@ -532,6 +622,11 @@ security inspection. (Risk: high)
 or (3) interpreter inline execution where a scripting language uses its own HTTP
 client to fetch and `eval`/`exec` code within the same process. All three patterns
 execute arbitrary remote code without prior human review. (Risk: critical)
+- **Printf/Echo Hex Command Construction** — An attacker uses `printf` or `echo -e` with hex/octal escape sequences to
+construct shell commands character-by-character, then pipes the result to a
+shell interpreter or uses command substitution to execute it. This evades
+ANSI-C quoting detection (`$'\xNN'`) because the encoding happens inside
+printf arguments rather than shell quoting syntax. (Risk: high)
 - **Process Memory Injection** — An agent injects arbitrary code or shellcode into a running process using
 debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: critical)
 
@@ -560,6 +655,10 @@ arbitrary LLM calls without governance or audit logging. (Risk: medium)
 
 [View on OWASP](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689)
 
+- **AI-Assisted Social Engineering** — AI agents manipulated or misused to generate targeted phishing emails,
+impersonate humans in communications, craft pretexting scenarios, or
+produce social engineering content that exploits the agent's language
+capabilities and access to organizational context. (Risk: high)
 - **AI Misinformation Propagation** — An AI agent writes or commits misleading, false, or unverified content
 (documentation, code comments, changelogs, config) that persists in the
 codebase or downstream systems without human review, causing teams to rely
@@ -710,6 +809,10 @@ establishing persistent code execution that survives process restarts. (Risk: hi
 granted for a specific purpose to perform actions outside the intended scope —
 exploiting overly broad credential permissions to access resources, modify
 configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
+- **Agent Delegation Authority Escalation** — In multi-agent orchestration systems, a subordinate agent accumulates
+permissions beyond its intended scope by exploiting delegation chains,
+where each delegation step grants incremental authority that compounds
+into privileges no single agent was authorized to hold. (Risk: critical)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -758,6 +861,15 @@ agents without explicit written authorization. (Risk: critical)
 - **CI/CD Pipeline Configuration Injection** — An AI agent writes to CI/CD pipeline configuration files (GitHub Actions,
 GitLab CI, Jenkinsfile, CircleCI, etc.), potentially injecting malicious
 build steps that run during the automated build and release process. (Risk: critical)
+- **MCP Configuration Injection** — An attacker modifies MCP (Model Context Protocol) configuration files —
+mcp.json, claude_desktop_config.json, .cursor/mcp.json, or equivalent — to
+register malicious MCP servers that intercept tool calls, exfiltrate data,
+or inject manipulated responses into the agent's workflow. (Risk: critical)
+- **AI Model Endpoint Hijacking** — An attacker redirects an AI agent's inference API calls to an
+attacker-controlled endpoint by manipulating environment variables
+(OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST) or configuration files,
+enabling man-in-the-middle interception of all prompts, responses, and
+embedded credentials. (Risk: critical)
 - **Non-Standard Package Registry** — A command installs packages from a non-standard registry, enabling
 dependency confusion attacks where malicious packages shadow legitimate ones. (Risk: high)
 - **Standard Package Install (Dependency Confusion Risk)** — A standard package install command (e.g., mvn install, dotnet add package)
@@ -769,14 +881,34 @@ when performed via MCP file-write tools. (Risk: critical)
 - **Model Checkpoint Substitution** — Replacing a legitimate model checkpoint file with a malicious one causes
 any system that loads the checkpoint to execute attacker-controlled model
 weights or embedded code (e.g., pickle exploits in PyTorch .pt files). (Risk: critical)
+- **Inference-Time Backdoor Activation** — A model that passes safety evaluations and behaves correctly during testing
+but activates hidden backdoor behavior when specific trigger patterns appear
+in production inputs — the AI equivalent of a sleeper agent or logic bomb. (Risk: critical)
 - **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
 persistent memory system (CLAUDE.md files, memory databases, context
 stores) to manipulate the agent's behavior in future sessions, achieving
 cross-session persistence without modifying the agent's code. (Risk: high)
+- **Agent Orchestration Hijacking** — An attacker manipulates the orchestration layer of a multi-agent system —
+workflow definitions, task queues, agent role assignments, or routing logic —
+to redirect agent workflows, inject unauthorized tasks, bypass approval
+gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
+- **AI-Powered Automated Vulnerability Exploitation** — An AI agent — either compromised via prompt injection or deliberately
+instructed — uses its reasoning capabilities and tool access to autonomously
+discover, analyze, and exploit security vulnerabilities in systems it can
+reach, combining reconnaissance with active exploitation in a single
+agentic workflow. (Risk: critical)
 - **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
 into a composite workflow that achieves a harmful outcome — each step
 passes security checks in isolation, but the overall chain constitutes
 an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **Context Window Poisoning** — Deliberately flooding or manipulating an AI agent's context window with
+crafted content to displace safety instructions, override system prompts,
+or degrade the agent's ability to follow its original constraints —
+causing it to take actions it would otherwise refuse. (Risk: high)
+- **Human Oversight Circumvention** — An AI agent manipulates or overwhelms the human-in-the-loop review
+mechanism — through approval fatigue, misleading action summaries,
+information overload, or action batching — to gain approval for dangerous
+operations that a vigilant reviewer would reject. (Risk: critical)
 - **Indirect Prompt Injection via Retrieved Content** — An attacker embeds hidden instructions in external content (web pages,
 documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
@@ -803,6 +935,11 @@ relationships between cooperating agents. (Risk: high)
 images, PDFs, audio, or video — that are processed by multimodal AI
 agents, bypassing text-based input sanitization and triggering unintended
 tool execution or data exfiltration. (Risk: high)
+- **Self-Propagating Prompt Injection (AI Worm)** — A prompt injection payload that includes self-replication instructions —
+causing each compromised AI agent to propagate the injection to other
+agents through shared resources (emails, documents, code repositories,
+MCP tool responses, shared memory stores) — creating a self-spreading
+AI worm that infects agent ecosystems without human intervention. (Risk: critical)
 - **LLM-Generated Insecure Code Execution** — An AI coding agent generates code containing security vulnerabilities
 (injection flaws, hardcoded secrets, insecure defaults) and auto-commits
 or executes it without human security review — introducing exploitable
