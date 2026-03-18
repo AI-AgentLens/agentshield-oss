@@ -521,6 +521,59 @@ rules:
     reason: "curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08."
 
   # ===================================================================
+  # EMBEDDING INVERSION ATTACK (issue #293)
+  # Taxonomy: data-exfiltration/llm-data-flow/embedding-inversion-attack
+  # OWASP LLM08 — Vector and Embedding Weaknesses; MITRE T1530
+  # ===================================================================
+
+  # === AUDIT: Python bulk vector extraction from vector databases ===
+  #
+  # Bulk-scrolling or fetching raw embedding vectors from vector databases
+  # enables offline embedding inversion attacks. Research (Vec2Text, Li et al.)
+  # shows that OpenAI text-embedding-ada-002 vectors can be inverted to recover
+  # 92%+ of original tokens.
+  #
+  # Attack patterns:
+  #   qdrant_client: .scroll() returns Point objects with .vector attribute
+  #   chromadb: .get(include=['embeddings']) returns raw float arrays
+  #   pinecone: .fetch([ids]) returns raw embedding vectors
+  #
+  # Decision: AUDIT — bulk vector reads are unusual during normal dev workflows
+  # and always warrant human review, but some legitimate uses exist (backup,
+  # migration, debugging).
+  #
+  # OWASP LLM08, MITRE T1530 (Data from Cloud Storage adapted for vector DBs)
+  - id: "sc-audit-vector-db-bulk-extract"
+    taxonomy: "data-exfiltration/llm-data-flow/embedding-inversion-attack"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py).*(?:qdrant_client.*\\.scroll\\s*\\(|chromadb.*\\.get\\s*\\([^)]*include.*embed|pinecone.*\\.fetch\\s*\\(|weaviate.*\\.data_object\\.get\\s*\\()"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Python bulk extraction of raw embedding vectors from a vector database (Qdrant scroll, ChromaDB get with embeddings, Pinecone fetch) — harvested vectors enable embedding inversion attacks that reconstruct sensitive source documents with high fidelity. OWASP LLM08, MITRE T1530."
+
+  # === AUDIT: Sensitive file content piped to an embedding API ===
+  #
+  # Sending the content of sensitive files (credentials, /etc files, SSH keys)
+  # to an embedding API via command substitution embeds the sensitive data into
+  # retrievable vectors. The vectors are transmitted to an external LLM provider
+  # and can later be inverted to recover the original content.
+  #
+  # Attack pattern:
+  #   curl ... /v1/embeddings -d '{"input": "$(cat ~/.aws/credentials)", ...}'
+  #
+  # Decision: AUDIT — the combination of embedding API + file substitution is
+  # suspicious, but the path may be benign (e.g., indexing a README).
+  #
+  # OWASP LLM08, LLM02; MITRE T1530, T1552
+  - id: "sc-audit-sensitive-file-embedding"
+    taxonomy: "data-exfiltration/llm-data-flow/embedding-inversion-attack"
+    match:
+      command_regex: "curl\\b.*(?:api\\.openai\\.com/v1/embeddings|api\\.anthropic\\.com|api\\.cohere\\.ai).*\\$\\(cat\\s+[/~]|python[23]?\\b.*(?:openai|anthropic|cohere).*embed.*(?:open\\s*\\(['\"][/~]|\\.read_text\\s*\\()"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Sensitive file content piped into an embedding API call — embedding /etc/passwd, credentials, or SSH keys through an external embedding model transmits sensitive data externally in vector form, which can be inverted. OWASP LLM08, MITRE T1530, T1552."
+
+  # ===================================================================
   # MCP CONFIGURATION INJECTION
   # Taxonomy: supply-chain/config-tampering/mcp-config-injection
   # OWASP LLM07 — System Prompt Leakage, LLM08 — Vector and Embedding

