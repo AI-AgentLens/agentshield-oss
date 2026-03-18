@@ -1,0 +1,71 @@
+id: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Command Execution"
+category_id: "5.1"
+name: "Setarch Personality ASLR Bypass"
+risk_level: "high"
+
+abstract: |
+  The setarch utility and personality(2) syscall can disable ASLR, enable
+  read-implies-exec, or map page zero — defeating fundamental exploit
+  mitigations for the entire process tree.
+
+explanation: |
+  `setarch <arch> -R` calls personality(2) with ADDR_NO_RANDOMIZE (0x40000),
+  disabling Address Space Layout Randomization for all child processes.
+  ASLR is the primary defense against memory corruption exploits — without it,
+  stack, heap, and library addresses become predictable, making buffer overflow,
+  use-after-free, and ROP chain attacks trivially reliable.
+
+  Additional dangerous personality flags:
+  - `-X` / `--read-implies-exec`: Makes all readable pages executable, bypassing
+    W^X (Write XOR Execute) protection. Code injected into data segments becomes
+    directly executable.
+  - `-Z` / `--mmap-page-zero`: Allows mapping page zero, enabling exploitation
+    of null pointer dereference vulnerabilities by placing controlled data at
+    address 0.
+
+  The personality(2) syscall can also be invoked programmatically via Python
+  ctypes (`ctypes.CDLL("libc.so.6").personality(0x40000)`), bypassing setarch
+  command detection.
+
+  Unlike sysctl changes, personality modifications are per-process and don't
+  require root — any user can disable their own ASLR.
+
+recommendation: |
+  - Block setarch with -R, -X, or -Z flags in agent contexts.
+  - Monitor for personality(2) syscalls via seccomp or auditd.
+  - Use `-c` kernel parameter to enforce ASLR globally regardless of personality.
+  - Block Python/Perl ctypes calls to personality(2).
+
+examples:
+  bad:
+    - "setarch x86_64 -R /bin/bash"
+    - "setarch $(uname -m) --addr-no-randomize ./exploit"
+    - "setarch x86_64 -X ./shellcode_test"
+    - "python3 -c 'import ctypes; ctypes.CDLL(\"libc.so.6\").personality(0x40000)'"
+  good:
+    - "setarch --list"
+    - "arch"
+    - "uname -m"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1562.001"]
+  cwe: ["CWE-693", "CWE-119"]
+
+analyzers: ["regex"]
+related_rules:
+  - "ts-block-setarch-aslr-disable"
+  - "ts-block-setarch-read-implies-exec"
+  - "ts-block-setarch-mmap-page-zero"
+  - "ts-block-python-personality-aslr"
+  - "ts-audit-setarch"

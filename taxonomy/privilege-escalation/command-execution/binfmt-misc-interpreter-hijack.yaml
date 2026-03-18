@@ -1,0 +1,65 @@
+id: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Command Execution"
+category_id: "5.1"
+name: "Binfmt_misc Interpreter Hijack"
+risk_level: "critical"
+
+abstract: |
+  Linux binfmt_misc allows registering custom interpreters for arbitrary file
+  formats via /proc/sys/fs/binfmt_misc/register. An attacker can transparently
+  hijack execution of any file type system-wide.
+
+explanation: |
+  The binfmt_misc kernel subsystem intercepts exec() calls and routes them
+  to registered interpreters based on magic bytes or file extensions. Writing
+  to `/proc/sys/fs/binfmt_misc/register` adds a new handler with the format:
+
+      :name:type:offset:magic:mask:interpreter:flags
+
+  Attack scenarios:
+  - Register a handler for Python scripts that routes through a malicious wrapper
+    before executing the real interpreter (transparent MITM on script execution).
+  - Register a handler with the 'F' (fix-binary) flag that preserves the
+    interpreter across mount namespace changes — enabling container escape.
+  - Intercept ELF binaries matching specific magic bytes to inject code before
+    execution of security tools.
+
+  Changes persist until reboot or explicit removal. The F flag is particularly
+  dangerous because it pre-opens the interpreter binary, allowing it to work
+  even in containers that don't have the interpreter mounted.
+
+recommendation: |
+  - Block all writes to /proc/sys/fs/binfmt_misc/register in agent contexts.
+  - Monitor binfmt_misc entries: `ls /proc/sys/fs/binfmt_misc/`.
+  - Use kernel lockdown mode to prevent binfmt_misc modifications.
+  - In containers, ensure /proc/sys/fs/binfmt_misc is mounted read-only.
+
+examples:
+  bad:
+    - "echo ':evil:M::MZ::/tmp/handler:' > /proc/sys/fs/binfmt_misc/register"
+    - "echo ':pyshim:E::py::/tmp/wrapper:F' > /proc/sys/fs/binfmt_misc/register"
+    - "mount -t binfmt_misc none /proc/sys/fs/binfmt_misc"
+  good:
+    - "cat /proc/sys/fs/binfmt_misc/status"
+    - "ls /proc/sys/fs/binfmt_misc/"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1546.004"]
+  cwe: ["CWE-427", "CWE-426"]
+
+analyzers: ["regex"]
+related_rules:
+  - "ts-block-binfmt-register"
+  - "ts-block-binfmt-modify"
+  - "ts-block-binfmt-mount"
+  - "ts-audit-binfmt-status"

@@ -6193,3 +6193,304 @@ rules:
     decision: "AUDIT"
     confidence: 0.70
     reason: "Check-then-read on a world-writable path — lower risk than execute but still a TOCTOU pattern. The read content may differ from what was checked. CWE-367."
+
+  # =========================================================================
+  # SYSCTL KERNEL MANIPULATION
+  # =========================================================================
+  #
+  # sysctl controls kernel parameters at runtime via /proc/sys/. Modifying
+  # these can:
+  #   - Disable ASLR (kernel.randomize_va_space=0) — defeats exploit mitigation
+  #   - Redirect core dumps to pipe (kernel.core_pattern=|/path) — code exec on crash
+  #   - Enable IP forwarding (net.ipv4.ip_forward=1) — turns host into router/MITM
+  #   - Disable source address validation (rp_filter=0) — enables IP spoofing
+  #   - Lower ASLR entropy (vm.mmap_rnd_bits) — weakens randomization
+  #   - Disable kernel pointer hiding (kptr_restrict=0) — leaks kernel addresses
+  #
+  # These are critical because they weaken the entire OS security posture,
+  # often silently, and persist until reboot.
+  #
+  # CWE-250 — Execution with Unnecessary Privileges
+  # CWE-269 — Improper Privilege Management
+  # MITRE T1082 — System Information Discovery
+  # MITRE T1562.001 — Impair Defenses: Disable or Modify Tools
+
+  # --- BLOCK: sysctl -w writing dangerous kernel parameters ---
+  - id: "ts-block-sysctl-write-security"
+    taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
+    match:
+      command_regex: "sysctl\\s+(-w\\s+|--write\\s+)(kernel\\.(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq)|net\\.ipv[46]\\.(ip_forward|conf\\.\\S+\\.accept_redirects|conf\\.\\S+\\.rp_filter|conf\\.\\S+\\.forwarding)|vm\\.mmap_rnd_bits)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, or expose kernel addresses. CWE-250, MITRE T1562.001."
+
+  # --- BLOCK: direct /proc/sys writes to security-critical paths ---
+  - id: "ts-block-procsys-write-security"
+    taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
+    match:
+      command_regex: "(echo|printf|tee|cat|dd)\\s+.*>\\s*/proc/sys/(kernel/(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq)|net/ipv[46]/(ip_forward|conf/\\S+/(accept_redirects|rp_filter|forwarding))|vm/mmap_rnd_bits)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. CWE-250."
+
+  # --- BLOCK: sysctl loading from attacker-controlled config ---
+  - id: "ts-block-sysctl-load-custom"
+    taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
+    match:
+      command_regex: "sysctl\\s+(-p|--load)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "sysctl --load from world-writable directory — an attacker can stage a sysctl.conf in /tmp with malicious parameters and trick an agent into loading it. CWE-427."
+
+  # --- AUDIT: sysctl -p with default config (may be legitimate) ---
+  - id: "ts-audit-sysctl-load"
+    taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
+    match:
+      command_regex: "sysctl\\s+(-p|--load|--system)"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "sysctl loading kernel parameters from configuration — may be legitimate system administration, but agents should rarely need to reload kernel parameters."
+
+  # --- BLOCK: kernel.core_pattern pipe handler (code execution via crash) ---
+  - id: "ts-block-core-pattern-pipe"
+    taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
+    match:
+      command_regex: "(echo|printf|tee)\\s+.*\\|.*>\\s*/proc/sys/kernel/core_pattern"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Writing a pipe handler to kernel.core_pattern — when any process crashes, the kernel will execute the specified program with the core dump as stdin. This is a code execution primitive triggered by any segfault. CWE-78."
+
+  # =========================================================================
+  # BINFMT_MISC ARBITRARY INTERPRETER REGISTRATION
+  # =========================================================================
+  #
+  # /proc/sys/fs/binfmt_misc/register allows registering custom interpreters
+  # for any file format. An attacker can:
+  #   - Register an interpreter for .py that runs bash instead of python
+  #   - Register a magic-byte handler that intercepts all ELF execution
+  #   - Create persistent interpreter hijacking (survives until reboot)
+  #   - Make seemingly safe file types execute arbitrary code
+  #
+  # This is particularly dangerous because:
+  #   1. Changes are transparent — programs don't know they're being intercepted
+  #   2. Affects all users on the system
+  #   3. Can intercept even setuid binaries if the F flag is used
+  #   4. Rarely monitored by EDR/security tools
+  #
+  # CWE-427 — Uncontrolled Search Path Element
+  # CWE-426 — Untrusted Search Path
+  # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
+
+  # --- BLOCK: writing to binfmt_misc register ---
+  - id: "ts-block-binfmt-register"
+    taxonomy: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
+    match:
+      command_regex: "(echo|printf|tee|cat)\\s+.*>\\s*/proc/sys/fs/binfmt_misc/register"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. All matching files system-wide will be routed through the attacker's handler. CWE-427, MITRE T1546.004."
+
+  # --- BLOCK: modifying existing binfmt_misc entries ---
+  - id: "ts-block-binfmt-modify"
+    taxonomy: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
+    match:
+      command_regex: "(echo|printf|tee)\\s+.*>\\s*/proc/sys/fs/binfmt_misc/[a-zA-Z]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to an existing binfmt_misc entry — can enable/disable or modify registered interpreters, disrupting expected execution behavior."
+
+  # --- BLOCK: mounting binfmt_misc filesystem (enabling the subsystem) ---
+  - id: "ts-block-binfmt-mount"
+    taxonomy: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
+    match:
+      command_regex: "mount\\s+.*-t\\s+binfmt_misc"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Mounting binfmt_misc filesystem — prerequisite for registering custom interpreters. An AI agent should never need to mount kernel pseudo-filesystems."
+
+  # --- AUDIT: reading binfmt_misc status (reconnaissance) ---
+  - id: "ts-audit-binfmt-status"
+    taxonomy: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
+    match:
+      command_regex: "(cat|less|head)\\s+/proc/sys/fs/binfmt_misc/(status|register)"
+    decision: "AUDIT"
+    confidence: 0.60
+    reason: "Reading binfmt_misc status — reconnaissance to discover registered interpreters. Low risk but unusual for an AI agent."
+
+  # =========================================================================
+  # SETARCH / PERSONALITY — ASLR BYPASS
+  # =========================================================================
+  #
+  # setarch changes the personality of the current process, which controls
+  # various kernel behaviors for that process tree. The key flags:
+  #   -R / --addr-no-randomize — Disables ASLR (Address Space Layout Randomization)
+  #   -Z / --mmap-page-zero — Allows mapping page zero (null-ptr deref exploitation)
+  #   -X / --read-implies-exec — Makes readable pages executable (W^X bypass)
+  #   -S / --short-inode — Legacy, minimal risk
+  #
+  # Disabling ASLR is the most common use: it makes memory addresses
+  # predictable, which is the critical first step for any memory corruption
+  # exploit (buffer overflow, use-after-free, ROP chains).
+  #
+  # This is subtle because:
+  #   1. setarch looks like a benign compatibility tool
+  #   2. It only affects the current process tree (harder to detect post-facto)
+  #   3. Commonly chained: setarch -R ./exploit
+  #   4. The personality(2) syscall can also be invoked via Python ctypes
+  #
+  # CWE-119 — Improper Restriction of Operations within Memory Buffer
+  # CWE-693 — Protection Mechanism Failure
+  # MITRE T1562.001 — Impair Defenses: Disable or Modify Tools
+
+  # --- BLOCK: setarch with ASLR disable ---
+  - id: "ts-block-setarch-aslr-disable"
+    taxonomy: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+    match:
+      command_regex: "setarch\\s+\\S+\\s+(-[A-Za-z]*R|-[A-Za-z]*-addr-no-randomize|--addr-no-randomize)"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "setarch with -R/--addr-no-randomize disables ASLR for the process tree — makes memory addresses predictable, enabling reliable exploitation of memory corruption vulnerabilities. CWE-693, MITRE T1562.001."
+
+  # --- BLOCK: setarch with read-implies-exec (W^X bypass) ---
+  - id: "ts-block-setarch-read-implies-exec"
+    taxonomy: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+    match:
+      command_regex: "setarch\\s+\\S+\\s+(-[A-Za-z]*X|-[A-Za-z]*-read-implies-exec|--read-implies-exec)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "setarch with -X/--read-implies-exec makes all readable memory pages executable — bypasses W^X (Write XOR Execute) protection, enabling code injection into data regions. CWE-693."
+
+  # --- BLOCK: setarch with mmap-page-zero (null deref exploitation) ---
+  - id: "ts-block-setarch-mmap-page-zero"
+    taxonomy: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+    match:
+      command_regex: "setarch\\s+\\S+\\s+(-[A-Za-z]*Z|-[A-Za-z]*-mmap-page-zero|--mmap-page-zero)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "setarch with -Z/--mmap-page-zero allows mapping page zero — enables exploitation of null pointer dereference vulnerabilities by placing controlled data at address 0. CWE-476."
+
+  # --- BLOCK: Python ctypes personality(2) call to disable ASLR ---
+  - id: "ts-block-python-personality-aslr"
+    taxonomy: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*personality.*0x0*40000"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693."
+
+  # --- AUDIT: setarch invocation without dangerous flags ---
+  - id: "ts-audit-setarch"
+    taxonomy: "privilege-escalation/command-execution/setarch-personality-aslr-bypass"
+    match:
+      command_regex: "\\bsetarch\\s+\\S+"
+    decision: "AUDIT"
+    confidence: 0.55
+    reason: "setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility."
+
+  # =========================================================================
+  # IPTABLES / NFTABLES FIREWALL MANIPULATION
+  # =========================================================================
+  #
+  # Firewall manipulation enables:
+  #   1. Disabling the firewall entirely (iptables -F / nft flush ruleset)
+  #   2. Creating covert channels via port redirects (REDIRECT/DNAT)
+  #   3. Hiding network traffic from monitoring (NFQUEUE interception)
+  #   4. Enabling NAT/masquerade for traffic pivoting
+  #   5. Blocking security tool updates or callback channels
+  #
+  # An AI agent should never modify firewall rules. Even "helpful" firewall
+  # changes (opening ports for dev servers) can create security holes.
+  #
+  # CWE-284 — Improper Access Control
+  # CWE-923 — Improper Restriction of Communication Channel to Intended Endpoints
+  # MITRE T1562.004 — Impair Defenses: Disable or Modify System Firewall
+
+  # --- BLOCK: flushing all firewall rules (disabling firewall) ---
+  - id: "ts-block-iptables-flush"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+(-F|--flush|-X|--delete-chain|-Z|--zero)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Flushing iptables rules removes all firewall protections — equivalent to disabling the firewall entirely. -F clears rules, -X deletes custom chains, -Z zeroes counters (anti-forensics). MITRE T1562.004."
+
+  # --- BLOCK: nftables flush ruleset ---
+  - id: "ts-block-nft-flush"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "nft\\s+(flush\\s+ruleset|delete\\s+table|delete\\s+chain)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "nft flush/delete removes firewall rules — nftables equivalent of iptables -F. Destroys all packet filtering, NAT, and traffic shaping rules. MITRE T1562.004."
+
+  # --- BLOCK: setting default policy to ACCEPT (disabling filtering) ---
+  - id: "ts-block-iptables-accept-all"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+-P\\s+(INPUT|FORWARD|OUTPUT)\\s+ACCEPT"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "Setting iptables default policy to ACCEPT on a primary chain — effectively disables packet filtering for that direction. An agent should never weaken firewall default policies. MITRE T1562.004."
+
+  # --- BLOCK: iptables NAT/REDIRECT rules (traffic hijacking) ---
+  - id: "ts-block-iptables-nat-redirect"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+.*-j\\s+(REDIRECT|DNAT|SNAT|MASQUERADE|TPROXY)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "iptables NAT/redirect rule — can hijack traffic to a different destination (DNAT), masquerade origin (MASQUERADE/SNAT), or intercept connections transparently (TPROXY/REDIRECT). Enables MITM and covert channels. CWE-923."
+
+  # --- BLOCK: nftables NAT/redirect rules ---
+  - id: "ts-block-nft-nat-redirect"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "nft\\s+.*\\b(dnat|snat|masquerade|redirect)\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "nftables NAT/redirect rule — nftables equivalent of iptables DNAT/SNAT/MASQUERADE/REDIRECT. Same traffic hijacking and covert channel risks. CWE-923."
+
+  # --- BLOCK: adding iptables rules to DROP security-related traffic ---
+  - id: "ts-block-iptables-drop-security"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+(-A|-I)\\s+OUTPUT\\s+.*-j\\s+DROP"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Adding DROP rule to OUTPUT chain — can selectively block outbound connections to security update servers, EDR callbacks, or audit log forwarding endpoints. MITRE T1562.004."
+
+  # --- BLOCK: iptables-save/restore from world-writable path ---
+  - id: "ts-block-iptables-restore-tmp"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables-restore|nft\\s+-f)\\s+.*(/tmp/|/dev/shm/|/var/tmp/|/run/)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Restoring firewall rules from world-writable directory — attacker can stage malicious ruleset in /tmp and trick agent into loading it. CWE-427."
+
+  # --- AUDIT: any iptables/nftables modification ---
+  - id: "ts-audit-iptables-modify"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+(-A|-I|-D|-R|--append|--insert|--delete|--replace)"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "iptables rule modification — any firewall rule change by an AI agent warrants visibility. Even benign changes (opening a dev port) may create unintended exposure."
+
+  # --- AUDIT: nftables rule addition ---
+  - id: "ts-audit-nft-modify"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "nft\\s+(add|insert|replace|create)\\s+(rule|chain|table|set)"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules."
+
+  # --- AUDIT: reading firewall rules (reconnaissance) ---
+  - id: "ts-audit-firewall-list"
+    taxonomy: "persistence-evasion/config-modification/firewall-manipulation"
+    match:
+      command_regex: "(iptables|ip6tables)\\s+(-L|-S|--list|--list-rules)|nft\\s+list\\s+(ruleset|table|chain)|iptables-save"
+    decision: "AUDIT"
+    confidence: 0.50
+    reason: "Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation."
