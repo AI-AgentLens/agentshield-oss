@@ -1,0 +1,113 @@
+id: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "AI Model and Agent Inventory Gap"
+risk_level: "high"
+
+abstract: |
+  Absence of a comprehensive, maintained inventory of AI models, agents,
+  and LLM-powered services deployed within an organization — making it
+  impossible to assess risk exposure, enforce governance policies, or
+  demonstrate regulatory compliance.
+
+explanation: |
+  An AI inventory (sometimes called an AI register or AI asset catalog)
+  is the foundational prerequisite for AI governance. Without knowing what
+  AI systems are deployed, organizations cannot assess risk, apply
+  appropriate controls, or comply with regulatory requirements. This entry
+  covers the absence of such an inventory at the code and configuration
+  level — detectable through missing model cards, untracked model artifacts,
+  and undocumented AI integrations.
+
+  The inventory gap manifests in several ways:
+
+  - **Undocumented model dependencies**: Application code that imports and
+    uses AI/ML models (Hugging Face, OpenAI, local ONNX models) without
+    corresponding model cards, version pinning, or risk classifications
+    recorded in an organizational registry.
+  - **Untracked AI agent configurations**: AI coding agents configured on
+    developer workstations without centralized visibility into which agents
+    are in use, what permissions they have, or what data they access.
+  - **Missing AI Bill of Materials (AI-BOM)**: AI applications deployed
+    without documentation of model provenance, training data sources,
+    fine-tuning datasets, or evaluation results — analogous to deploying
+    software without an SBOM.
+  - **Version drift and model sprawl**: Multiple versions of the same model
+    deployed across environments without tracking which version is in
+    production, which has been evaluated for bias, or which is approved
+    for customer-facing use.
+  - **Unregistered third-party AI services**: Integrations with external
+    AI APIs (translation, summarization, classification) treated as
+    ordinary SaaS dependencies without AI-specific risk documentation.
+
+  The EU AI Act Article 26 requires deployers of high-risk AI systems to
+  maintain documentation and logs. The proposed EU AI Act database of
+  high-risk AI systems (Article 71) will require registration. NIST AI RMF
+  GOVERN-1 requires policies and processes that presuppose an inventory
+  of AI systems. ISO 42001 (AI Management System) mandates an AI asset
+  inventory as a foundational control.
+
+  Without an inventory, incident response is compromised — when a
+  vulnerability is discovered in a model or AI library, organizations
+  cannot determine their exposure without a complete inventory.
+
+recommendation: |
+  - Establish and maintain a centralized AI asset inventory that records
+    every AI model, agent, and LLM integration with: model name/version,
+    provider, deployment location, data classification, risk level,
+    responsible owner, and approval status.
+  - Require AI-BOM (AI Bill of Materials) documentation for all AI
+    applications before production deployment, including model provenance,
+    training data sources, and evaluation results.
+  - Integrate AI inventory checks into CI/CD pipelines — flag new AI
+    library imports or model downloads that aren't registered.
+  - Implement automated discovery of AI model artifacts (.onnx, .pt,
+    .safetensors, .gguf files) and AI SDK imports in codebases.
+  - Pin model versions in deployment configurations and track which
+    version is approved for each use case.
+  - Map each inventoried AI system to its applicable regulatory
+    obligations (EU AI Act risk category, sector-specific requirements).
+  - Review and update the inventory quarterly, or whenever a new AI
+    system is deployed or an existing one is significantly modified.
+  - Use endpoint management to detect AI IDE plugins and local model
+    servers across the organization.
+
+examples:
+  bad:
+    - "from transformers import AutoModelForCausalLM; model = AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3-70b')  # no model card, no risk assessment, no inventory entry"
+    - "pip install openai langchain chromadb  # RAG stack deployed without AI-BOM"
+    - "ollama pull llama3:70b  # downloading large model without organizational tracking"
+    - "const ai = new OpenAI({ apiKey: process.env.OPENAI_KEY }); // third-party AI service not in AI register"
+  good:
+    - "# AI-BOM: model=gpt-4-turbo, provider=OpenAI, risk=medium, owner=ml-team, approved=2024-06-15"
+    - "agentshield scan --ai-inventory  # automated AI asset discovery"
+    - "# model_card.yaml accompanies every deployed model with provenance and evaluation results"
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.5.1", "A.5.10", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.13", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-1", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC7.1", "CC9.1"]
+
+references:
+  mitre_attack: ["T1195.002"]
+  cwe: ["CWE-1059", "CWE-710"]
+  external:
+    - title: "EU AI Act Article 26 — Obligations of Deployers"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "NIST AI RMF — GOVERN-1: Policies and Processes"
+      url: "https://airc.nist.gov/RMF/1"
+    - title: "OWASP LLM03 — Supply Chain Vulnerabilities"
+      url: "https://genai.owasp.org/llmrisk/llm032025-supply-chain/"
+
+analyzers: ["semantic"]
+related_rules: []
+# Detection: Semantic analyzer can classify model download/import patterns.
+# Primarily a governance concern — best detected through code scanning
+# (Semgrep rules for AI SDK imports) and endpoint monitoring rather than
+# runtime command analysis. AI_risk_compliance scanner is the primary
+# detection mechanism for this threat.

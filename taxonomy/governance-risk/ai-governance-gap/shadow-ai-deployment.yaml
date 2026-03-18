@@ -1,0 +1,108 @@
+id: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "Shadow AI Deployment"
+risk_level: "high"
+
+abstract: |
+  Deployment of AI agents, models, or LLM-powered features within an
+  organization without security review, risk assessment, policy enforcement,
+  or management approval — creating untracked AI systems that operate
+  outside the organization's governance framework.
+
+explanation: |
+  Shadow AI is the AI equivalent of shadow IT — employees and teams adopting
+  AI tools and deploying AI-powered capabilities without going through
+  established security, legal, and procurement processes. This is distinct
+  from unauthorized software installation (a traditional IT risk) because
+  AI systems introduce unique risks around data processing, decision-making
+  authority, and regulatory obligations that standard software governance
+  does not address.
+
+  Common manifestations in enterprise environments include:
+
+  - **Unregistered AI coding agents**: Developers installing and configuring
+    AI coding assistants (Cursor, Copilot, Claude Code, Windsurf) on
+    corporate workstations without security team review of data handling,
+    telemetry, and code exposure settings.
+  - **Ad-hoc LLM API integrations**: Engineers embedding OpenAI, Anthropic,
+    or other LLM API calls directly into production code without data
+    classification review — potentially sending customer PII, proprietary
+    algorithms, or regulated data to external model providers.
+  - **Unauthorized model deployment**: Teams deploying fine-tuned models or
+    RAG pipelines to production without model cards, risk assessments, or
+    bias evaluation — violating EU AI Act deployer obligations.
+  - **Browser-based AI tool usage**: Employees pasting sensitive documents,
+    source code, or internal communications into web-based AI chatbots
+    (ChatGPT, Claude, Gemini) without organizational data handling policies.
+  - **MCP server proliferation**: Developers configuring custom MCP servers
+    that bridge AI agents to internal APIs, databases, or cloud services
+    without security review of the authorization model or data exposure.
+
+  The EU AI Act (Article 26) imposes specific obligations on deployers of
+  high-risk AI systems — organizations cannot comply if they don't know what
+  AI systems are in use. NIST AI RMF's GOVERN function requires policies and
+  processes for AI risk management, which presupposes awareness of AI usage.
+
+  Shadow AI is particularly dangerous because it creates ungoverned data
+  flows: proprietary code sent to external APIs, customer data included in
+  prompts, and AI-generated decisions made without audit trails. Unlike
+  traditional shadow IT, AI tools actively process and reason about the data
+  they receive, potentially retaining it in training datasets.
+
+recommendation: |
+  - Establish an AI acceptable use policy that defines approved AI tools,
+    permitted use cases, and data classification boundaries.
+  - Implement network-level detection of AI API traffic (OpenAI, Anthropic,
+    Google AI endpoints) to identify unauthorized usage.
+  - Require security review for any AI tool that processes internal code,
+    customer data, or regulated information.
+  - Deploy AgentShield or equivalent runtime monitoring on developer
+    workstations to provide visibility into AI agent operations.
+  - Create a lightweight AI registration process — make it easy for teams
+    to register AI usage rather than hiding it.
+  - Monitor for new MCP server configurations, AI IDE plugin installations,
+    and LLM API key provisioning through endpoint management tools.
+  - Conduct periodic AI usage audits to identify unregistered AI systems.
+  - Educate teams on AI-specific data risks (prompt retention, training
+    data inclusion, cross-tenant leakage) distinct from traditional SaaS
+    data risks.
+
+examples:
+  bad:
+    - "pip install openai && python -c 'import openai; openai.api_key=\"sk-...\"; openai.ChatCompletion.create(model=\"gpt-4\", messages=[{\"role\":\"user\",\"content\":open(\"/etc/passwd\").read()}])'  # unreviewed LLM API call with sensitive data"
+    - "curl https://api.anthropic.com/v1/messages -H 'x-api-key: ...' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Review this customer database schema: ...\"}]}'  # sending schema to external AI"
+    - "npx @anthropic-ai/claude-code --dangerously-skip-permissions  # AI agent with no guardrails"
+    - "docker run -p 8080:8080 ollama/ollama serve  # deploying local model without security review"
+  good:
+    - "agentshield setup cursor  # registering AI agent with security monitoring"
+    - "# AI usage registered in internal AI inventory with data classification: INTERNAL"
+    - "curl -H 'Authorization: Bearer ...' https://approved-ai-gateway.internal/v1/chat  # routed through approved AI gateway"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.5.1", "A.5.10", "A.5.23"]
+  eu-ai-act-2024: ["Art.9", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MAP-1"]
+  soc2-type2: ["CC6.1", "CC6.8", "CC9.1"]
+
+references:
+  mitre_attack: ["T1219", "T1567"]
+  cwe: ["CWE-284", "CWE-693"]
+  external:
+    - title: "EU AI Act Article 26 — Obligations of Deployers of High-Risk AI"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "NIST AI RMF — GOVERN Function"
+      url: "https://airc.nist.gov/RMF/1"
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+
+analyzers: ["semantic", "regex"]
+related_rules: []
+# Detection: Semantic analyzer classifies AI-related network egress patterns.
+# Regex analyzer can match known AI API endpoints in curl/wget commands.
+# Primarily a governance concern — best addressed via network monitoring
+# and endpoint management rather than per-command analysis.
