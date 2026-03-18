@@ -82,7 +82,28 @@ func MatchStructuralRule(parsed *ParsedCommand, rule StructuralRule) bool {
 
 // matchSegment checks if a single CommandSegment satisfies all command-level
 // predicates in the rule. All non-empty predicates must match (AND logic).
+// If NO predicates are set the rule has no shell-level constraints; return false
+// so that under-specified rules (e.g. MCP-only rules loaded into the shell
+// pipeline) do not spuriously match every command.
 func matchSegment(seg CommandSegment, rule StructuralRule) bool {
+	// Guard: a structural rule with no shell constraints defined should not
+	// match any shell command. This prevents MCP-pack rules whose non-shell
+	// fields (args_match, tool_name_regex, etc.) are silently dropped by the
+	// YAML decoder from becoming catch-all BLOCKs.
+	noCommandConstraints := len(rule.Executable) == 0 &&
+		rule.SubCommand == "" &&
+		len(rule.FlagsAll) == 0 &&
+		len(rule.FlagsAny) == 0 &&
+		len(rule.FlagsNone) == 0 &&
+		len(rule.ArgsAny) == 0 &&
+		len(rule.ArgsNone) == 0
+	noPipeConstraints := rule.HasPipe == nil &&
+		len(rule.PipeTo) == 0 &&
+		len(rule.PipeFrom) == 0
+	if noCommandConstraints && noPipeConstraints && !rule.Negate {
+		return false
+	}
+
 	// --- Executable ---
 	if len(rule.Executable) > 0 {
 		if !stringInList(seg.Executable, rule.Executable) {
