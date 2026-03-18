@@ -113,7 +113,10 @@ references:
       url: "https://airc.nist.gov/RMF/1"
 
 analyzers: ["semantic"]
-related_rules: []
+related_rules:
+  - comply:ai-output-no-model-logging-python
+  - comply:ai-output-no-model-logging-typescript
+  - comply:ai-output-no-model-logging-go
 # Detection: Primarily a governance/process concern. Semantic analyzer can
 # detect absence of AI attribution in commit metadata and logging config.
 # AgentShield audit logs inherently provide agent action accountability.

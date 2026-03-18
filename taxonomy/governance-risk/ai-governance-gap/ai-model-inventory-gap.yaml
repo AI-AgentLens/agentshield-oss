@@ -105,7 +105,10 @@ references:
       url: "https://genai.owasp.org/llmrisk/llm032025-supply-chain/"
 
 analyzers: ["semantic"]
-related_rules: []
+related_rules:
+  - comply:ai-governance-unpinned-model-pretrained-python
+  - comply:ai-governance-unpinned-hf-inference-typescript
+  - comply:ai-governance-model-artifact-untracked-load-python
 # Detection: Semantic analyzer can classify model download/import patterns.
 # Primarily a governance concern — best detected through code scanning
 # (Semgrep rules for AI SDK imports) and endpoint monitoring rather than

@@ -109,7 +109,9 @@ references:
       url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
 
 analyzers: ["semantic"]
-related_rules: []
+related_rules:
+  - comply:ai-api-call-no-error-handling-python
+  - comply:ai-api-call-no-error-handling-typescript
 # Detection: Primarily a governance/process concern. Semantic analyzer can
 # detect absence of AI-specific monitoring configurations and IR tooling.
 # Best addressed through organizational policy and tooling audits rather
