@@ -3374,3 +3374,143 @@ rules:
     decision: "BLOCK"
     confidence: 0.88
     reason: "GIT_ASKPASS sets a program invoked to prompt for credentials — attacker replaces it with a script that steals passwords. MITRE T1556."
+
+  # ===================================================================
+  # BLOCK: memfd_create fileless execution
+  # ===================================================================
+  #
+  # memfd_create() creates an anonymous in-memory file descriptor that
+  # exists only in RAM — no file is ever written to disk. The attacker
+  # writes a payload into the fd, then executes it via /proc/self/fd/N.
+  #
+  # This is the gold standard for fileless malware on Linux:
+  #   python3 -c "import ctypes; fd=ctypes.CDLL(None).memfd_create(b'',1); ..."
+  #   perl -e 'require "syscall.ph"; $fd=syscall(319,"",1); ...'
+  #
+  # Why it evades existing rules:
+  # - No file written to /tmp, /dev/shm, or any filesystem path
+  # - No process name change (runs as python3/perl)
+  # - No network activity at creation time
+  # - The fd path (/proc/self/fd/N) is ephemeral and unpredictable
+  #
+  # Real-world use: Fileless cryptominers, in-memory implants (like
+  # Ezuri packer), and EDR-evasion payloads in APT campaigns.
+  #
+  # Decision: BLOCK — an AI coding agent has zero legitimate use for
+  # memfd_create. This is exclusively an offensive technique.
+
+  - id: "ts-block-memfd-create-python"
+    taxonomy: "persistence-evasion/fileless-execution/memfd-create"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*memfd_create"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Fileless execution via Python memfd_create — creates anonymous in-memory file descriptor for payload execution with zero disk artifacts. Used by APT-grade fileless malware. MITRE T1620."
+
+  - id: "ts-block-memfd-create-perl"
+    taxonomy: "persistence-evasion/fileless-execution/memfd-create"
+    match:
+      command_regex: "perl\\s+.*-e\\s+.*memfd_create"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Fileless execution via Perl memfd_create syscall — creates anonymous in-memory fd for payload execution without touching disk. MITRE T1620."
+
+  - id: "ts-block-memfd-create-generic"
+    taxonomy: "persistence-evasion/fileless-execution/memfd-create"
+    match:
+      command_regex: "\\bmemfd_create\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "memfd_create detected — creates anonymous in-memory file descriptors for fileless payload execution. No legitimate use case for AI coding agents. MITRE T1620."
+
+  - id: "ts-block-proc-self-fd-exec"
+    taxonomy: "persistence-evasion/fileless-execution/memfd-create"
+    match:
+      command_regex: "(bash|sh|exec|chmod\\s+\\+x)\\s+/proc/self/fd/[0-9]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Execution via /proc/self/fd/<N> — typically follows memfd_create to execute fileless payloads from anonymous memory-backed file descriptors. MITRE T1620."
+
+  # ===================================================================
+  # BLOCK: Interpreter encoding evasion (pack/fromhex/chr)
+  # ===================================================================
+  #
+  # Existing rules catch `perl -e 'system("rm -rf /")'` — but what
+  # about `perl -e 'system(pack("H*","726d202d7266202f"))'`? The
+  # hex-encoded string decodes to "rm -rf /" at runtime, completely
+  # bypassing regex-based command detection.
+  #
+  # Attack vectors:
+  #   perl -e 'system(pack("H*","..."))'                    # hex decode
+  #   python3 -c "exec(bytes.fromhex('...').decode())"      # hex decode
+  #   python3 -c "exec(compile(bytes([...]),'','exec'))"    # byte array
+  #   ruby -e 'system([0x72,0x6d].pack("C*"))'              # byte pack
+  #   ruby -e 'eval("\x72\x6d\x20\x2d\x72\x66\x20\x2f")'   # hex escapes
+  #   node -e "child_process.execSync(Buffer.from('...','hex'))"
+  #
+  # These bypass EVERY existing inline execution rule because the
+  # dangerous command string never appears in the shell command text.
+  # The decoder (pack/fromhex/Buffer.from) reconstructs it at runtime.
+  #
+  # This is distinct from ANSI-C quoting ($'\x...' in bash) which is
+  # already covered — these are interpreter-level encoding APIs that
+  # operate inside the language runtime, invisible to shell analysis.
+  #
+  # Decision: BLOCK — encoding functions combined with exec/system
+  # inside inline interpreter invocations have no benign explanation.
+
+  - id: "ts-block-perl-pack-exec"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "perl\\s+.*-e\\s+.*\\bpack\\s*\\(\\s*[\"']H"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Perl pack('H*',...) in one-liner decodes hex strings at runtime — reconstructs arbitrary commands invisible to static analysis. Used to evade shell command detection. MITRE T1027.013."
+
+  - id: "ts-block-python-fromhex-exec"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*(bytes\\.fromhex|bytearray\\.fromhex|codecs\\.decode).*\\b(exec|eval|system|popen)\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Python bytes.fromhex() combined with exec/eval in one-liner — decodes hex-encoded commands at runtime, bypassing all regex-based detection. MITRE T1027.013."
+
+  - id: "ts-block-python-exec-fromhex"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*\\b(exec|eval)\\s*\\(\\s*(bytes\\.fromhex|bytearray\\.fromhex|codecs\\.decode)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Python exec(bytes.fromhex(...)) in one-liner — hex-decodes and executes arbitrary code at runtime, completely invisible to shell-level command analysis. MITRE T1027.013."
+
+  - id: "ts-block-python-compile-bytes"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*\\bcompile\\s*\\(\\s*bytes\\s*\\("
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Python compile(bytes([...])) in one-liner — reconstructs code from raw byte arrays at runtime. Evades all text-based detection since the payload is a numeric array. MITRE T1027.013."
+
+  - id: "ts-block-ruby-pack-exec"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "ruby\\s+.*-e\\s+.*\\bpack\\s*\\(\\s*[\"']C.*(system|exec|eval|spawn|%x)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Ruby one-liner with byte pack('C*') feeding system/exec/eval — reconstructs commands from byte arrays at runtime. MITRE T1027.013."
+
+  - id: "ts-block-ruby-hex-exec"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "ruby\\s+.*-e\\s+.*(system|exec|eval|spawn).*\\\\x[0-9a-fA-F]{2}.*\\\\x[0-9a-fA-F]{2}"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Ruby one-liner with system/exec/eval and hex escape sequences — \\x.. escapes reconstruct commands invisible to static analysis. MITRE T1027.013."
+
+  - id: "ts-block-node-buffer-exec"
+    taxonomy: "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+    match:
+      command_regex: "(node|bun)\\s+.*-e\\s+.*Buffer\\.from\\s*\\([^)]*['\"]hex['\"]\\s*\\).*\\b(exec|spawn)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Node.js Buffer.from(...,'hex') with exec/spawn in one-liner — hex-decodes commands at runtime to evade static detection. MITRE T1027.013."
