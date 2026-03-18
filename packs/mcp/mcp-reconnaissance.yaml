@@ -97,6 +97,39 @@ structural_rules:
     decision: "AUDIT"
     reason: "HTTP probe to localhost or 127.0.0.1 flagged — may enumerate internal services (admin panels, dev servers, management APIs). LLM02, MITRE T1046."
 
+  # === BLOCK: Sensitive Spring Boot Actuator endpoints (credential exposure) ===
+  - id: mcp-recon-block-actuator-credentials
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/actuator/heapdump"
+            - "(?i)/actuator/env"
+            - "(?i)/actuator/configprops"
+            - "(?i)/actuator/mappings"
+            - "(?i)/actuator/logfile"
+    decision: "BLOCK"
+    reason: "Spring Boot Actuator credential-exposing endpoint blocked — /actuator/heapdump and /actuator/env directly leak secrets, passwords, and API keys. LLM02, CWE-200, MITRE T1082."
+    confidence: 0.95
+
+  # === BLOCK: Kubernetes secrets API access ===
+  - id: mcp-recon-block-k8s-secrets
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/api/v1/secrets"
+            - "(?i)/api/v1/namespaces/[^/]+/secrets"
+            - "(?i)/api/v1/serviceaccounts"
+            - "(?i)/apis/rbac\\.authorization\\.k8s\\.io"
+    decision: "BLOCK"
+    reason: "Kubernetes secrets API access blocked — exposes cluster secrets, service account tokens, and RBAC configuration. LLM02, CWE-284, MITRE T1213."
+    confidence: 0.95
+
   # === AUDIT: Spring Boot Actuator endpoint probing ===
   - id: mcp-recon-audit-spring-actuator
     taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
@@ -108,6 +141,24 @@ structural_rules:
             - "(?i)/actuator(/|$)"
     decision: "AUDIT"
     reason: "Spring Boot Actuator endpoint access flagged — exposes application metrics, env vars, heap dumps, and config. LLM02, MITRE T1082."
+
+  # === AUDIT: Generic management and admin paths ===
+  - id: mcp-recon-audit-admin-paths
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/management(/|$)"
+            - "(?i)/console(/|$)"
+            - "(?i)/_debug(/|$)"
+            - "(?i)/_admin(/|$)"
+            - "(?i)/dashboard(/|$)"
+            - "(?i)/admin(/|$)"
+            - "(?i)/__admin(/|$)"
+    decision: "AUDIT"
+    reason: "Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082."
 
   # === AUDIT: Database schema enumeration ===
   - id: mcp-recon-audit-db-schema-enum

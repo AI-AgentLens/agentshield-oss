@@ -1505,6 +1505,54 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "http_get to external API — audited for response poisoning risk; response scanner will check the returned content",
 	},
 
+	// === Admin Endpoint BLOCK: credential-exposing actuator paths (issue #340) ===
+	{
+		ID:               "MCP-TP-107",
+		ToolName:         "http_get",
+		Arguments:        map[string]interface{}{"url": "http://app-server:8080/actuator/env"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-actuator-credentials",
+		Description:      "/actuator/env directly leaks environment variables including secrets — must be BLOCK",
+	},
+	{
+		ID:               "MCP-TP-108",
+		ToolName:         "fetch_url",
+		Arguments:        map[string]interface{}{"url": "http://app-server:8080/actuator/heapdump"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-actuator-credentials",
+		Description:      "/actuator/heapdump dumps JVM heap containing plaintext credentials — must be BLOCK",
+	},
+	{
+		ID:               "MCP-TP-109",
+		ToolName:         "http_get",
+		Arguments:        map[string]interface{}{"url": "http://app:9090/actuator/configprops"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-actuator-credentials",
+		Description:      "/actuator/configprops exposes application config including DB passwords — must be BLOCK",
+	},
+	// === Admin Endpoint BLOCK: Kubernetes secrets API (issue #340) ===
+	{
+		ID:               "MCP-TP-110",
+		ToolName:         "http_get",
+		Arguments:        map[string]interface{}{"url": "http://k8s-api:8080/api/v1/secrets"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-k8s-secrets",
+		Description:      "Kubernetes /api/v1/secrets exposes cluster secrets and service account tokens — must be BLOCK",
+	},
+	{
+		ID:               "MCP-TP-111",
+		ToolName:         "fetch_url",
+		Arguments:        map[string]interface{}{"url": "http://k8s-dashboard/api/v1/namespaces/default/secrets"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-k8s-secrets",
+		Description:      "Kubernetes namespaced secrets endpoint leaks credentials scoped to namespace — must be BLOCK",
+	},
+
 	// === LLM Data-Flow: true negatives (safe operations, default AUDIT) ===
 	// The MCP policy defaults to AUDIT for all unmatched tool calls; TN here
 	// means "must not be escalated to BLOCK by the new LLM data-flow rules".
@@ -1543,6 +1591,27 @@ var TrueNegativeScenarios = []Scenario{
 		Classification:   "TN",
 		Category:         "safe-source-dir-list",
 		Description:      "list_directory on a source code directory — normal development operation, must not be BLOCKED by LLM data-flow rules",
+	},
+
+	// === Admin Endpoint: true negatives (issue #340) ===
+	// Safe paths that must NOT be blocked by the new BLOCK rules.
+	{
+		ID:               "MCP-TN-055",
+		ToolName:         "http_get",
+		Arguments:        map[string]interface{}{"url": "http://app-server:8080/actuator/health"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-actuator-health",
+		Description:      "/actuator/health is a standard readiness probe — must be AUDIT not BLOCK",
+	},
+	{
+		ID:               "MCP-TN-056",
+		ToolName:         "http_get",
+		Arguments:        map[string]interface{}{"url": "http://k8s-api:8080/healthz"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-k8s-healthz",
+		Description:      "Kubernetes /healthz is a standard health check — not a secrets API path, must not be BLOCK",
 	},
 
 	// === MCP Response Integrity: true negatives (issue #338) ===

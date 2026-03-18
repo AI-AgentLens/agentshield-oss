@@ -52,10 +52,14 @@ func TestStructuralRule_Executable(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "empty executable matches anything",
+			// An all-empty rule has no shell constraints — it should NOT match.
+			// Empty structural rules loaded from MCP packs (whose MCP-specific
+			// fields like args_match are silently dropped) must not catch all
+			// shell commands.
+			name:    "empty rule matches nothing",
 			command: "whoami",
 			rule:    StructuralRule{},
-			want:    true,
+			want:    false,
 		},
 	}
 
