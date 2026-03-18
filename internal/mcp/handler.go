@@ -258,3 +258,74 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	}
 	return out
 }
+
+// FilterToolCallResponse checks if a response is a tools/call result.
+// If it is, scans each text content item for prompt injection, action directives,
+// exfiltration instructions, and encoded payloads. When poisoned content is found
+// the entire response is replaced with an error to prevent the payload reaching
+// the LLM context.
+// Returns the replacement JSON bytes, or nil if the message is not a tools/call
+// response or no poisoning was detected.
+func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	// Try to parse as CallToolResult — must have a content array
+	var callResult CallToolResult
+	if err := json.Unmarshal(msg.Result, &callResult); err != nil {
+		return nil
+	}
+	if len(callResult.Content) == 0 {
+		return nil
+	}
+
+	scanResult := ScanToolCallResponse(callResult.Content)
+	if !scanResult.Poisoned {
+		return nil
+	}
+
+	// Build human-readable reason from the first finding
+	reason := "tool response contains injected instructions"
+	if len(scanResult.Findings) > 0 {
+		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED tool response blocked (%d signals)\n",
+		len(scanResult.Findings))
+	for _, f := range scanResult.Findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+	}
+
+	// Audit the poisoned response
+	if h.OnAudit != nil {
+		reasons := make([]string, 0, len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "unknown", // response path doesn't carry tool name
+			Decision:       "BLOCK",
+			Flagged:        true,
+			TriggeredRules: []string{"tool-response-poisoning"},
+			Reasons:        reasons,
+			Source:         "mcp-proxy-response-scan",
+			ServerName:     h.ServerName,
+		})
+	}
+
+	// Replace the response with a JSON-RPC error so the client is informed
+	// without the poisoned payload entering the LLM context.
+	replacement, err := NewBlockResponse(msg.ID, reason)
+	if err != nil {
+		return nil
+	}
+	return replacement
+}
