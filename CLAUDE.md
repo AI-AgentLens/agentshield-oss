@@ -107,7 +107,7 @@ rules:
 
 Test cases live in `internal/analyzer/testdata/` organized by threat kingdom (credential_exposure, data_exfiltration, destructive_ops, persistence_evasion, privilege_escalation, reconnaissance, supply_chain, unauthorized_execution). `all_cases.go` aggregates them. Each case has an ID, command, expected decision, taxonomy ref, and optional `KnownGap` flag.
 
-**Current status**: 1334 test cases, 99.8% recall, 2 known false negatives tracked in `FAILING_TESTS.md`. Known gaps:
+**Current status**: 1806 test cases, 99.8% recall, 2 known false negatives tracked in `FAILING_TESTS.md`. Known gaps:
 - `while true; do bash & done` fork bomb (while-loop structural detection — requires AST loop analysis)
 
 When adding new test cases, mark known gaps with the `KnownGap` field rather than leaving them as unexplained failures. Run `TestGenerateFailingTestsReport` to regenerate `FAILING_TESTS.md`.

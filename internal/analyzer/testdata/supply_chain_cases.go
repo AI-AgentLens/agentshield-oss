@@ -1555,6 +1555,26 @@ var MCPConfigInjectionCases = []TestCase{
 		Description:      "jq read-only query listing mcpServer keys — no write operation. Gets default AUDIT but NOT BLOCK.",
 		Tags:             []string{"tn", "safe"},
 	},
+	{
+		ID:               "TN-MCPCFGINJ-003",
+		Command:          `sed -i 's/debug=true/debug=false/' config/app-settings.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-config-injection",
+		Analyzer:         "regex",
+		Description:      "sed -i on a non-MCP JSON file — sc-block-mcp-config-sed-redirect should not fire on arbitrary JSON.",
+		Tags:             []string{"tn", "safe", "sed-non-mcp"},
+	},
+	{
+		ID:               "TN-MCPCFGINJ-004",
+		Command:          `jq '.database.host = "newhost"' config.json | sponge config.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-config-injection",
+		Analyzer:         "regex",
+		Description:      "jq writing non-.mcpServers key — sc-block-mcp-config-jq-write should not fire when .mcpServers is not in the filter.",
+		Tags:             []string{"tn", "safe", "jq-non-mcp"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -1632,6 +1652,26 @@ var ModelEndpointHijackingCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Read-only cat of /etc/hosts — no modification.",
 		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-ENDPTHIJACK-003",
+		Command:          `echo 'DATABASE_URL=postgres://localhost:5432/mydb' >> .env`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing non-AI env var to .env — sc-block-ai-endpoint-dotenv-write should not fire on DATABASE_URL.",
+		Tags:             []string{"tn", "safe", "dotenv-non-ai"},
+	},
+	{
+		ID:               "TN-ENDPTHIJACK-004",
+		Command:          `echo '127.0.0.1 myapp.local' >> /etc/hosts`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Appending non-AI domain to /etc/hosts — sc-block-ai-hosts-hijack should not fire on myapp.local.",
+		Tags:             []string{"tn", "safe", "hosts-non-ai"},
 	},
 
 	// ── Inference-Time Backdoor Activation ────────────────────────────────
