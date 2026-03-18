@@ -1,0 +1,123 @@
+id: "unauthorized-execution/agentic-attacks/agent-orchestration-hijacking"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "Agent Orchestration Hijacking"
+risk_level: "critical"
+
+abstract: |
+  An attacker manipulates the orchestration layer of a multi-agent system —
+  workflow definitions, task queues, agent role assignments, or routing logic —
+  to redirect agent workflows, inject unauthorized tasks, bypass approval
+  gates, or escalate agent capabilities beyond their intended scope.
+
+explanation: |
+  Modern AI agent deployments increasingly use orchestration frameworks
+  (LangGraph, CrewAI, AutoGen, Semantic Kernel, OpenAI Swarm) to coordinate
+  multiple specialized agents in complex workflows. The orchestration layer
+  defines which agents execute, in what order, with what permissions, and
+  under what approval requirements. Compromising this layer gives an attacker
+  control over the entire multi-agent system:
+
+  - **Workflow definition tampering**: Modifying workflow YAML/JSON files,
+    LangGraph state machines, or CrewAI crew definitions to alter the
+    execution sequence. An attacker can insert additional steps (e.g., an
+    exfiltration task between a code review and merge), remove approval gates
+    (bypassing human-in-the-loop checks), or redirect outputs to
+    attacker-controlled endpoints.
+  - **Task queue injection**: Inserting tasks into an agent's work queue
+    (Redis, Celery, database-backed queues) that appear to come from the
+    orchestrator. The agent processes these injected tasks with its full
+    permissions, performing actions the orchestrator never authorized.
+  - **Agent role manipulation**: Changing agent role definitions to grant
+    elevated capabilities — e.g., modifying a "code reviewer" agent's role
+    to include "deploy to production" permissions, or changing a "read-only
+    analyst" to a "write-enabled operator".
+  - **Routing logic subversion**: Manipulating the conditional logic that
+    determines which agent handles a given task. An attacker can redirect
+    sensitive tasks (credential management, deployment, database operations)
+    to a compromised or less-restricted agent.
+  - **Approval gate bypass**: Disabling or short-circuiting human approval
+    checkpoints in the workflow. Multi-agent systems often include gates
+    where a human must approve before proceeding — removing these gates
+    enables fully autonomous execution of dangerous operations.
+  - **State injection**: Manipulating the shared state object (LangGraph
+    state, CrewAI memory, AutoGen group chat history) to inject false
+    context that influences subsequent agent decisions — e.g., injecting a
+    "deployment approved by security team" state that causes the deploy
+    agent to proceed without actual approval.
+
+  This is distinct from:
+  - **Multi-agent trust exploitation** (which targets trust relationships
+    between agents, not the orchestration infrastructure itself).
+  - **Autonomous tool chaining** (which is about individual agent tool
+    sequences, not multi-agent workflow manipulation).
+  - **Human oversight circumvention** (which targets the human review
+    process, not the orchestration system that enforces it).
+
+  The orchestration layer is the control plane of multi-agent systems.
+  Compromising it is analogous to compromising a CI/CD pipeline — it grants
+  systemic control over all downstream operations.
+
+  MITRE equivalent: T1565.001 (Data Manipulation: Stored Data Manipulation)
+  combined with T1548 (Abuse Elevation Control Mechanism) adapted for AI
+  agent orchestration infrastructure.
+
+recommendation: |
+  - Treat orchestration configuration files (workflow definitions, agent
+    roles, routing rules) as security-critical infrastructure with integrity
+    monitoring and access controls.
+  - Implement cryptographic signing for workflow definitions — agents should
+    verify workflow authenticity before execution.
+  - Use authenticated, authorized task queues — agents should only accept
+    tasks from verified orchestrator sources.
+  - Enforce immutable approval gates that cannot be modified or bypassed
+    without privileged human intervention outside the agent system.
+  - Implement role-based access control for agent capabilities with
+    separation of duties — no single agent should be able to both modify
+    workflow definitions and execute tasks.
+  - Audit agent orchestration state transitions for anomalies — unexpected
+    role changes, skipped approval steps, or injected tasks.
+  - Store workflow definitions in version control with required human review
+    for changes, like CI/CD pipeline configurations.
+  - Implement state validation checkpoints that verify orchestration state
+    integrity at critical workflow boundaries.
+
+examples:
+  bad:
+    - "sed -i 's/requires_approval: true/requires_approval: false/' workflows/deploy.yaml  # disable approval gate"
+    - "python -c \"import redis; r=redis.Redis(); r.lpush('agent-tasks', '{\\\"action\\\": \\\"deploy\\\", \\\"target\\\": \\\"production\\\"}')\"  # inject task"
+    - "jq '.agents.reviewer.capabilities += [\"deploy\", \"delete\"]' crew.json | sponge crew.json  # escalate agent role"
+    - "echo '{\"approved_by\": \"security-team\", \"approved_at\": \"2025-01-01\"}' > .langraph/state/approval.json  # forge approval"
+    - "sed -i 's/route_to: security-reviewer/route_to: auto-approver/' orchestration/routing.yaml  # redirect sensitive tasks"
+  good:
+    - "cat workflows/deploy.yaml  # reading workflow definitions"
+    - "python -c \"import redis; r=redis.Redis(); print(r.lrange('agent-tasks', 0, -1))\"  # inspecting task queue"
+    - "git log --follow workflows/deploy.yaml  # auditing workflow changes"
+    - "Human manually approving deployment via authenticated web interface outside agent system"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM01", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.33"]
+  eu-ai-act-2024: ["Art.9", "Art.14", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MANAGE-1"]
+  soc2-type2: ["CC6.1", "CC6.8", "CC8.1"]
+
+references:
+  mitre_attack: ["T1565.001", "T1548", "T1078"]
+  cwe: ["CWE-284", "CWE-269", "CWE-345"]
+  external:
+    - title: "OWASP LLM06: Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+    - title: "OWASP LLM08: Vector and Embedding Weaknesses"
+      url: "https://genai.owasp.org/llmrisk/llm08-vector-and-embedding-weaknesses/"
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules: []
+# Detection: Regex/structural analyzers match writes to known orchestration
+# config files (workflow YAML, crew definitions, routing configs). Structural
+# analyzer detects task queue injection commands (redis lpush, celery send).
+# Semantic analyzer classifies orchestration manipulation intent — role
+# changes, approval bypasses, routing modifications.
