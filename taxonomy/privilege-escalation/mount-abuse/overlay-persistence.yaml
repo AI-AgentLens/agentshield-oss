@@ -1,0 +1,67 @@
+id: "privilege-escalation/mount-abuse/overlay-persistence"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Mount Abuse"
+category_id: "5.8"
+name: "OverlayFS Persistence on Protected Paths"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses an overlay filesystem mount to layer a writable upper
+  directory over read-only system paths, enabling persistent modification
+  of protected binaries (/usr/bin, /usr/sbin) that survives until the
+  overlay is unmounted.
+
+explanation: |
+  OverlayFS (overlayfs) merges a read-only lower directory with a writable
+  upper directory. All writes go to the upper directory, appearing as
+  modifications to the lower directory's view:
+
+    mount -t overlay overlay \
+      -o lowerdir=/usr/bin,upperdir=/tmp/upper,workdir=/tmp/work \
+      /usr/bin
+
+  Now:
+  - Reading /usr/bin/sudo returns the system binary (lowerdir)
+  - Writing /usr/bin/sudo creates /tmp/upper/sudo (writable upper)
+  - Subsequent reads of /usr/bin/sudo return the trojan from /tmp/upper
+
+  This effectively allows patching system binaries without touching the
+  underlying filesystem, bypassing read-only bind mounts and filesystem
+  integrity checks that inspect the raw device.
+
+  Requires CAP_SYS_ADMIN or CAP_SYS_ADMIN in a user namespace.
+
+recommendation: |
+  - Block `mount -t overlay` in AI agent execution environments.
+  - Remove CAP_SYS_ADMIN from AI agent containers.
+  - Monitor overlay mounts via auditd mount(2) syscall auditing.
+  - Use seccomp to block mount syscalls in containers.
+
+examples:
+  bad:
+    - "mount -t overlay overlay -o lowerdir=/usr/bin,upperdir=/tmp/u,workdir=/tmp/w /usr/bin"
+    - "sudo mount -t overlay -o lowerdir=/etc,upperdir=/tmp/upper,workdir=/tmp/work /etc"
+  good:
+    - "mount | grep overlay"
+    - "findmnt -t overlay"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC7.1"]
+
+references:
+  mitre_attack: ["T1601.001"]
+  cwe: ["CWE-269"]
+  external:
+    - title: "MITRE ATT&CK: Modify System Image: Patch System Image"
+      url: "https://attack.mitre.org/techniques/T1601/001/"
+    - title: "Linux OverlayFS documentation"
+      url: "https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-overlay-mount"]

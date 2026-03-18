@@ -1,0 +1,8 @@
+id: "5.8"
+name: "Mount Abuse"
+kingdom_id: 5
+description: >
+  Abuse of Linux mount operations by AI agents to escalate privileges,
+  weaken filesystem security, or escape container boundaries. Includes
+  bind mounts that overlay sensitive paths, remounting with weakened flags,
+  overlay filesystem persistence, and container escape via /proc/PID/root mounts.

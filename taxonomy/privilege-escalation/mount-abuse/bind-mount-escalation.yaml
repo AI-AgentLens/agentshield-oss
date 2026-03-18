@@ -1,0 +1,65 @@
+id: "privilege-escalation/mount-abuse/bind-mount-escalation"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Mount Abuse"
+category_id: "5.8"
+name: "Bind Mount Privilege Escalation"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses `mount --bind` to overlay one directory or file over
+  another, potentially exposing protected credentials in accessible locations,
+  bypassing filesystem access controls, or creating a writable view of
+  read-only system paths.
+
+explanation: |
+  `mount --bind source target` makes the source path accessible at the
+  target path without moving data. An AI agent can abuse this to:
+
+  1. **Credential exposure**: Bind-mount ~/.ssh/ over /tmp/share/ to make
+     SSH keys accessible from a world-readable location.
+
+  2. **ACL bypass**: Bind-mount a directory with looser permissions over
+     a restricted path, making the restricted content accessible.
+
+  3. **Container filesystem escape preparation**: Bind /proc/1/root paths
+     (combined with container-host-escape technique) to access host files.
+
+  4. **Read-only bypass**: Bind-mount a writable temp directory over a
+     read-only path to stage writes that appear to be in a protected location.
+
+  Bind mounts require CAP_SYS_ADMIN and are generally not needed by
+  AI agents performing legitimate development work.
+
+recommendation: |
+  - Block mount --bind and -o bind invocations.
+  - Run AI agent containers without CAP_SYS_ADMIN.
+  - Use user namespaces to prevent mount operations in containers.
+  - Audit all mount invocations in agent execution logs.
+
+examples:
+  bad:
+    - "mount --bind /etc/shadow /tmp/shadow"
+    - "mount -o bind ~/.ssh /var/www/html/ssh"
+    - "sudo mount --bind /proc/1/root/etc/creds /tmp/creds"
+  good:
+    - "mount | grep tmpfs"
+    - "findmnt /proc"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1611"]
+  cwe: ["CWE-269"]
+  external:
+    - title: "MITRE ATT&CK: Escape to Host"
+      url: "https://attack.mitre.org/techniques/T1611/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-bind-mount"]

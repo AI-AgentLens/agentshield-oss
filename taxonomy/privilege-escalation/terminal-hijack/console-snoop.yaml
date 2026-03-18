@@ -1,0 +1,68 @@
+id: "privilege-escalation/terminal-hijack/console-snoop"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Terminal Session Hijacking"
+category_id: "5.9"
+name: "Virtual Console Snooping via conspy"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses conspy to attach to a Linux virtual console (tty1-tty63),
+  displaying its contents and injecting keystrokes — a KVM-style remote
+  console attack that can capture credentials, observe sensitive output,
+  and inject commands into login sessions without physical access.
+
+explanation: |
+  Linux virtual consoles (tty1-tty63, accessible via Ctrl+Alt+F1-F12)
+  are separate from pseudoterminals (PTYs). conspy attaches to these
+  consoles, providing:
+
+  1. **Screen capture**: View everything displayed on a virtual console,
+     including passwords typed in plain text, sudo prompts, and sensitive
+     output from privileged commands.
+
+  2. **Keystroke injection**: Send keystrokes to the console as if they
+     were typed by a local keyboard — execute commands in the active session.
+
+  3. **Session monitoring**: Observe what an administrator is doing on
+     the physical console, including emergency recovery operations.
+
+  Unlike /dev/pts attacks (which target PTY sessions), conspy targets
+  the physical console interface — useful when SSH access is restricted
+  but the attacker has access to /dev/vcs* or the conspy socket.
+
+  AI agents have no legitimate reason to interact with virtual consoles.
+
+recommendation: |
+  - Block conspy invocations.
+  - Restrict access to /dev/vcs* and /dev/vcsa* devices.
+  - Monitor any access to /dev/tty[0-9]+ devices.
+
+examples:
+  bad:
+    - "conspy 1"
+    - "sudo conspy 2"
+    - "conspy -f 1"
+  good:
+    - "chvt 1"
+    - "ls /dev/tty*"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1056.001"]
+  cwe: ["CWE-287"]
+  external:
+    - title: "MITRE ATT&CK: Input Capture: Keylogging"
+      url: "https://attack.mitre.org/techniques/T1056/001/"
+    - title: "conspy: remote control of Linux virtual consoles"
+      url: "https://packages.debian.org/buster/conspy"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-conspy"]

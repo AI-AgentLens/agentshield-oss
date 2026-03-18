@@ -1,0 +1,69 @@
+id: "persistence-evasion/binary-rewriting/macho-dylib-hijack"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Binary Rewriting"
+category_id: "6.14"
+name: "Mach-O Dylib Hijack via install_name_tool"
+risk_level: "critical"
+
+abstract: |
+  An AI agent uses macOS install_name_tool to modify Mach-O binary load
+  commands, replacing dylib paths or injecting RPATH entries to redirect
+  dynamic library loading to attacker-controlled locations — the macOS
+  equivalent of ELF RPATH poisoning.
+
+explanation: |
+  macOS Mach-O binaries embed install names and RPATH entries in load
+  commands. install_name_tool modifies these at the binary level:
+
+  - `-change old new` replaces a specific dylib load path with an
+    attacker-controlled location. Any binary that imports libssl.dylib
+    can be redirected to /tmp/evil/libssl.dylib.
+
+  - `-id name` changes the install name of a dylib itself — used to
+    create a trojan dylib that impersonates a legitimate library.
+
+  - `-add_rpath path` injects a new RPATH entry. macOS searches RPATHs
+    in order before @loader_path and standard paths — poisoning RPATH
+    causes all dependent libraries to load from the attacker directory.
+
+  - `-rpath old new` replaces an existing RPATH entry.
+
+  This is particularly effective on macOS where SIP (System Integrity
+  Protection) prevents modification of system binaries, but third-party
+  apps and user-installed tools are vulnerable.
+
+recommendation: |
+  - Block install_name_tool -change, -id, -add_rpath, -rpath invocations.
+  - Audit any install_name_tool usage in CI/CD and agent environments.
+  - Enable macOS File System Events monitoring on application directories.
+  - Use code signing and notarization to detect tampered binaries.
+
+examples:
+  bad:
+    - "install_name_tool -change /usr/lib/libssl.dylib /tmp/evil/libssl.dylib /usr/local/bin/openssl"
+    - "install_name_tool -add_rpath /tmp/evil /Applications/MyApp.app/Contents/MacOS/MyApp"
+    - "install_name_tool -id /tmp/evil/libssl.dylib /tmp/evil/libssl.dylib"
+  good:
+    - "otool -L /usr/local/bin/openssl"
+    - "install_name_tool --help"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.26"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC7.1"]
+
+references:
+  mitre_attack: ["T1574.004"]
+  cwe: ["CWE-426"]
+  external:
+    - title: "MITRE ATT&CK: Hijack Execution Flow: Dylib Hijacking"
+      url: "https://attack.mitre.org/techniques/T1574/004/"
+    - title: "Apple: install_name_tool"
+      url: "https://www.unix.com/man-page/osx/1/install_name_tool/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-install-name-tool-hijack", "ts-audit-install-name-tool"]

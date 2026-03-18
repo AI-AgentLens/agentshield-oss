@@ -1,0 +1,64 @@
+id: "privilege-escalation/mount-abuse/remount-weaken"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Mount Abuse"
+category_id: "5.8"
+name: "Mount Remount to Weaken Security Flags"
+risk_level: "high"
+
+abstract: |
+  An AI agent uses `mount -o remount` with exec or suid flags to remove
+  security hardening from mount points, enabling SUID binary execution
+  or arbitrary code execution from world-writable locations like /tmp
+  and /dev/shm that are normally mounted noexec,nosuid.
+
+explanation: |
+  Linux mount points can have security flags that prevent certain operations:
+  - `noexec`: prevents execution of binaries from that mount
+  - `nosuid`: prevents SUID/SGID bits from taking effect
+
+  These flags protect /tmp, /dev/shm, and other world-writable directories
+  from being used as staging areas for malicious executables. An attacker
+  can remove these protections:
+
+    mount -o remount,exec,suid /tmp
+    → Now an attacker can chmod +s /tmp/evil && /tmp/evil runs as root
+
+    mount -o remount,exec /dev/shm
+    → Enables execution of code staged in shared memory
+
+  This is a classic privilege escalation setup step before executing a
+  setuid binary or exploiting a SUID vulnerability.
+
+recommendation: |
+  - Block `mount -o remount` with exec or suid flags.
+  - Prevent AI agents from running mount commands at all.
+  - Run AI agent containers without CAP_SYS_ADMIN.
+  - Monitor for attempts to modify mount flags on security-sensitive paths.
+
+examples:
+  bad:
+    - "mount -o remount,exec /tmp"
+    - "mount -o remount,exec,suid /dev/shm"
+    - "sudo mount -o remount,suid /var/tmp"
+  good:
+    - "mount | grep noexec"
+    - "findmnt -o TARGET,OPTIONS /tmp"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1548.001"]
+  cwe: ["CWE-269", "CWE-732"]
+  external:
+    - title: "MITRE ATT&CK: Abuse Elevation Control Mechanism: Setuid and Setgid"
+      url: "https://attack.mitre.org/techniques/T1548/001/"
+
+analyzers: ["regex"]
+related_rules: ["ts-block-remount-weaken"]

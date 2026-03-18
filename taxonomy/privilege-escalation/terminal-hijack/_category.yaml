@@ -1,0 +1,8 @@
+id: "5.9"
+name: "Terminal Session Hijacking"
+kingdom_id: 5
+description: >
+  Injection into, theft of, or surveillance of other users' terminal sessions
+  by AI agents. Includes writing directly to /dev/pts pseudoterminals,
+  reptyr-based process stealing, virtual console snooping via conspy,
+  and legacy writevt terminal injection.

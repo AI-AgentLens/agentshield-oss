@@ -1,0 +1,8 @@
+id: "6.14"
+name: "Binary Rewriting"
+kingdom_id: 6
+description: >
+  Direct modification of ELF (Linux) and Mach-O (macOS) binary structure by
+  AI agents to inject payloads, redirect dynamic linking, or embed backdoors
+  into trusted system binaries. Includes interpreter hijacking, section
+  injection, header modification, and dylib path manipulation.

@@ -1,0 +1,8 @@
+id: "4.8"
+name: "Shell Built-in Abuse for Code Injection"
+kingdom_id: 4
+description: >
+  Abuse of shell built-in mechanisms by AI agents to inject executable code
+  into the shell process or load arbitrary shared objects as shell extensions.
+  Includes bash enable -f loadable builtin loading which bypasses LD_PRELOAD
+  monitoring by loading .so files directly into bash's address space.
