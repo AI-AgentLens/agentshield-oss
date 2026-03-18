@@ -3206,4 +3206,58 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Description:      "claude --allowed-tools with specific scoped tool path — AUDIT by ai-model usage rule; does NOT trigger wildcard '*' pattern.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// --- TRUE NEGATIVES: D-Bus privilege escalation ---
+	// These TN cases show benign D-Bus commands that do not match the specific BLOCK rules.
+
+	{
+		ID:               "TN-DBUS-ACCOUNTS-001",
+		Command:          `dbus-send --session --dest=org.gnome.Shell /org/gnome/Shell org.gnome.Shell.Eval string:''`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/accounts-management",
+		Analyzer:         "regex",
+		Description:      "dbus-send to GNOME Shell on session bus — does not target org.freedesktop.Accounts. Gets AUDIT from system-bus rules but NOT BLOCK from accounts rule.",
+		Tags:             []string{"tn", "safe", "dbus"},
+	},
+	{
+		ID:               "TN-DBUS-LOGIN1-001",
+		Command:          `busctl list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/login1-power",
+		Analyzer:         "regex",
+		Description:      "busctl list — enumerates D-Bus services but does not target login1 power management. Gets AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "dbus"},
+	},
+	{
+		ID:               "TN-DBUS-PACKAGEKIT-001",
+		Command:          `dbus-send --system --dest=org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager.Enable boolean:true`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/packagekit-install",
+		Analyzer:         "regex",
+		Description:      "dbus-send to NetworkManager (not PackageKit) — does not match PackageKit destination. Gets AUDIT from system-bus generic rule but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "dbus"},
+	},
+	{
+		ID:               "TN-DBUS-POLKIT-001",
+		Command:          `dbus-send --session --dest=org.gnome.Terminal /org/gnome/Terminal org.gnome.Terminal.GetAll`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/polkit-policy",
+		Analyzer:         "regex",
+		Description:      "dbus-send to GNOME Terminal on session bus — does not target PolicyKit. Gets AUDIT but NOT BLOCK from polkit rule.",
+		Tags:             []string{"tn", "safe", "dbus"},
+	},
+	{
+		ID:               "TN-DBUS-UDISKS-001",
+		Command:          `dbus-send --system --dest=org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower.GetDisplayDevice`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/dbus-privilege-escalation/udisks-management",
+		Analyzer:         "regex",
+		Description:      "dbus-send to UPower (battery info) not UDisks2 — does not match UDisks2 destination. Gets AUDIT but NOT BLOCK from udisks rule.",
+		Tags:             []string{"tn", "safe", "dbus"},
+	},
 }

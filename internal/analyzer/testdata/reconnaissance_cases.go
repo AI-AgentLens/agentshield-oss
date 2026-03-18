@@ -1960,6 +1960,36 @@ var InotifySurveillanceCases = []TestCase{
 		Description:      "Printing inotify max watches count — diagnostic command. Must not trigger on the string 'inotify' alone.",
 		Tags:             []string{"tn", "safe", "diagnostic", "opus-deepdive"},
 	},
+	{
+		ID:               "TN-INOTIFY-CRED-001",
+		Command:          `inotifywait -e modify src/main.go`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "inotifywait on a source file — non-credential path. Gets AUDIT from general rule but NOT BLOCK from credential-watch rule.",
+		Tags:             []string{"tn", "safe", "development"},
+	},
+	{
+		ID:               "TN-INOTIFY-PERSIST-001",
+		Command:          `inotifywait -e modify ./build/output.log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-persistent-monitor",
+		Analyzer:         "regex",
+		Description:      "inotifywait on a specific file without -m --recursive on broad paths — not persistent surveillance. Gets AUDIT but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "build"},
+	},
+	{
+		ID:               "TN-FANOTIFY-001",
+		Command:          `cat /proc/sys/fs/inotify/max_user_watches`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/fanotify-mount-watch",
+		Analyzer:         "regex",
+		Description:      "Checking inotify limits — does not call fanotify_mark/fanotify_init. Does not trigger fanotify rule.",
+		Tags:             []string{"tn", "safe", "diagnostic"},
+	},
 
 	// ── Metasploit Framework (ne-block-metasploit) ────────────────────────
 	{
