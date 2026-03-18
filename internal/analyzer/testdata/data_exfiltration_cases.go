@@ -2046,6 +2046,201 @@ var CoprocExfilCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// /dev/shm Credential Staging
+// Taxonomy: data-exfiltration/encoded-exfil/shm-credential-staging
+//
+// Copying credentials or sensitive files to /dev/shm (shared memory tmpfs)
+// for later exfiltration. World-readable, RAM-only, no disk forensic trace,
+// cleared on reboot. MITRE T1074.001.
+// ---------------------------------------------------------------------------
+
+// ShmCredentialStagingCases tests detection of credential staging in /dev/shm.
+var ShmCredentialStagingCases = []TestCase{
+
+	// --- TRUE POSITIVES: cp/mv credentials to /dev/shm ---
+
+	{
+		ID:               "TP-SHM-CRED-001",
+		Command:          `cp ~/.ssh/id_rsa /dev/shm/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp SSH private key to /dev/shm — credential staging",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-002",
+		Command:          `cp -r ~/.aws /dev/shm/.a`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp AWS credentials directory to hidden file in /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-003",
+		Command:          `mv ~/.gnupg/secring.gpg /dev/shm/.k`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "mv GPG secret keyring to /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-004",
+		Command:          `cp /etc/shadow /dev/shm/.s`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp /etc/shadow to /dev/shm — password hash staging",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-005",
+		Command:          `rsync -a ~/.kube/config /dev/shm/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "rsync kube config to /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-006",
+		Command:          `cp ~/.ssh/id_ed25519 /run/shm/.key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp ed25519 key to /run/shm (alternative shm path)",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+	{
+		ID:               "TP-SHM-CRED-007",
+		Command:          `cp .env /dev/shm/.env.bak`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp .env file to /dev/shm — environment secrets staging",
+		Tags:             []string{"tp", "shm-staging", "credential"},
+	},
+
+	// --- TRUE POSITIVES: tar/zip archiving to /dev/shm ---
+
+	{
+		ID:               "TP-SHM-ARCHIVE-001",
+		Command:          `tar czf /dev/shm/data.tgz ~/.aws/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "tar archiving AWS credentials into /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "archive"},
+	},
+	{
+		ID:               "TP-SHM-ARCHIVE-002",
+		Command:          `tar czf /dev/shm/.loot.tgz ~/.ssh/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "tar archiving SSH directory into hidden file in /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "archive"},
+	},
+	{
+		ID:               "TP-SHM-ARCHIVE-003",
+		Command:          `zip /dev/shm/creds.zip ~/.gnupg/*`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "zip GPG keys into /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "archive"},
+	},
+
+	// --- TRUE POSITIVES: redirect sensitive content to /dev/shm ---
+
+	{
+		ID:               "TP-SHM-REDIR-001",
+		Command:          `cat /etc/shadow > /dev/shm/.shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cat /etc/shadow redirected to /dev/shm",
+		Tags:             []string{"tp", "shm-staging", "redirect"},
+	},
+	{
+		ID:               "TP-SHM-REDIR-002",
+		Command:          `base64 ~/.ssh/id_rsa > /dev/shm/.b64key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "base64 encode SSH key redirected to /dev/shm — encoded credential staging",
+		Tags:             []string{"tp", "shm-staging", "redirect", "encoded"},
+	},
+
+	// --- TRUE NEGATIVES: legitimate /dev/shm usage ---
+
+	{
+		ID:               "TN-SHM-CRED-001",
+		Command:          `cp data.csv /dev/shm/processing.csv`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp non-sensitive file to /dev/shm — legitimate shared memory use",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SHM-CRED-002",
+		Command:          `gcc -shared -o /dev/shm/test.so test.c`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "compile shared object to /dev/shm — legitimate build usage",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SHM-CRED-003",
+		Command:          `echo 'benchmark data' > /dev/shm/bench.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "echo writing benchmark data to /dev/shm — not credential staging",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SHM-CRED-004",
+		Command:          `cp ~/.ssh/config /tmp/ssh-config-backup`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "cp SSH config to /tmp (not /dev/shm) — different path",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SHM-CRED-005",
+		Command:          `tar czf /dev/shm/build.tgz ./src/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
+		Analyzer:         "regex",
+		Description:      "tar archiving source code to /dev/shm — not sensitive dirs",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -2067,5 +2262,6 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, XattrDataHidingCases...)
 	all = append(all, ProcessSubstitutionExfilCases...)
 	all = append(all, CoprocExfilCases...)
+	all = append(all, ShmCredentialStagingCases...)
 	return all
 }
