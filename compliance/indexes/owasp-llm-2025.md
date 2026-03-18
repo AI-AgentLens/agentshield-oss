@@ -48,6 +48,11 @@ cross-session persistence without modifying the agent's code. (Risk: high)
 workflow definitions, task queues, agent role assignments, or routing logic —
 to redirect agent workflows, inject unauthorized tasks, bypass approval
 gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
+- **Agent-to-Agent Lateral Pivot via Shared Artifacts** — A compromised AI agent creates artifacts — pull requests, commits, code
+review comments, documentation, wiki pages, or issue descriptions —
+specifically crafted to inject instructions into OTHER AI agents that
+subsequently process those artifacts, enabling cross-tool and cross-user
+propagation of compromise. (Risk: critical)
 - **AI-Powered Automated Vulnerability Exploitation** — An AI agent — either compromised via prompt injection or deliberately
 instructed — uses its reasoning capabilities and tool access to autonomously
 discover, analyze, and exploit security vulnerabilities in systems it can
@@ -61,6 +66,11 @@ an attack (data exfiltration, privilege escalation, or system compromise). (Risk
 crafted content to displace safety instructions, override system prompts,
 or degrade the agent's ability to follow its original constraints —
 causing it to take actions it would otherwise refuse. (Risk: high)
+- **Guardrail Evasion via Encoded Instructions** — An attacker encodes malicious instructions using format manipulation
+techniques — Base64, ROT13, Unicode homoglyphs, markdown/HTML rendering
+tricks, language switching, or token boundary manipulation — that bypass
+AI safety guardrails and content filters while being decoded and executed
+by the target LLM. (Risk: critical)
 - **Human Oversight Circumvention** — An AI agent manipulates or overwhelms the human-in-the-loop review
 mechanism — through approval fatigue, misleading action summaries,
 information overload, or action batching — to gain approval for dangerous
@@ -174,6 +184,14 @@ clipboard channels. (Risk: critical)
 - **Hex Dump of Sensitive Files** — A command hex-dumps credential files (SSH keys, AWS credentials, GPG keys),
 converting binary key material into a hexadecimal representation that can
 be reconstructed elsewhere. (Risk: high)
+- **AI-Amplified Insider Data Collection** — A legitimate user with authorized access leverages AI agent capabilities
+to systematically discover, collect, and prepare sensitive data for
+exfiltration at a scale and speed that would be impractical through
+manual effort — using the agent as a force multiplier for insider threats. (Risk: high)
+- **AI Data Residency and Sovereignty Violation** — An AI agent transmits regulated data — PII, PHI, financial records,
+classified information, or trade secrets — to LLM API endpoints hosted
+in jurisdictions that violate the organization's data residency
+requirements, regulatory obligations, or contractual commitments. (Risk: high)
 - **Cross-Context Data Contamination** — Sensitive data from one project, client, or authorization domain leaks into
 another through shared AI agent tooling, MCP servers, or workspace
 configurations — violating data isolation boundaries that exist between
@@ -483,6 +501,11 @@ and dependency integrity bypass. (Risk: critical)
 - **Standard Package Install** — Package install commands (npm, pip, yarn, brew, go get, cargo, gem) introduce
 third-party code that may contain vulnerabilities, malicious payloads, or known
 CVEs without explicit human review. (Risk: medium)
+- **Guardrail Evasion via Encoded Instructions** — An attacker encodes malicious instructions using format manipulation
+techniques — Base64, ROT13, Unicode homoglyphs, markdown/HTML rendering
+tricks, language switching, or token boundary manipulation — that bypass
+AI safety guardrails and content filters while being decoded and executed
+by the target LLM. (Risk: critical)
 - **Indirect Prompt Injection via Retrieved Content** — An attacker embeds hidden instructions in external content (web pages,
 documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
@@ -590,6 +613,14 @@ be reconstructed elsewhere. (Risk: high)
 tmpfs), staging them for later exfiltration. Data in `/dev/shm` is world-readable,
 lives entirely in RAM, leaves no disk forensic trace, and is cleared on reboot —
 making it an ideal covert staging area. (Risk: high)
+- **AI-Amplified Insider Data Collection** — A legitimate user with authorized access leverages AI agent capabilities
+to systematically discover, collect, and prepare sensitive data for
+exfiltration at a scale and speed that would be impractical through
+manual effort — using the agent as a force multiplier for insider threats. (Risk: high)
+- **AI Data Residency and Sovereignty Violation** — An AI agent transmits regulated data — PII, PHI, financial records,
+classified information, or trade secrets — to LLM API endpoints hosted
+in jurisdictions that violate the organization's data residency
+requirements, regulatory obligations, or contractual commitments. (Risk: high)
 - **Cross-Context Data Contamination** — Sensitive data from one project, client, or authorization domain leaks into
 another through shared AI agent tooling, MCP servers, or workspace
 configurations — violating data isolation boundaries that exist between
@@ -859,6 +890,11 @@ cross-session persistence without modifying the agent's code. (Risk: high)
 workflow definitions, task queues, agent role assignments, or routing logic —
 to redirect agent workflows, inject unauthorized tasks, bypass approval
 gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
+- **Agent-to-Agent Lateral Pivot via Shared Artifacts** — A compromised AI agent creates artifacts — pull requests, commits, code
+review comments, documentation, wiki pages, or issue descriptions —
+specifically crafted to inject instructions into OTHER AI agents that
+subsequently process those artifacts, enabling cross-tool and cross-user
+propagation of compromise. (Risk: critical)
 - **AI-Powered Automated Vulnerability Exploitation** — An AI agent — either compromised via prompt injection or deliberately
 instructed — uses its reasoning capabilities and tool access to autonomously
 discover, analyze, and exploit security vulnerabilities in systems it can
@@ -976,6 +1012,11 @@ cross-session persistence without modifying the agent's code. (Risk: high)
 workflow definitions, task queues, agent role assignments, or routing logic —
 to redirect agent workflows, inject unauthorized tasks, bypass approval
 gates, or escalate agent capabilities beyond their intended scope. (Risk: critical)
+- **Agent-to-Agent Lateral Pivot via Shared Artifacts** — A compromised AI agent creates artifacts — pull requests, commits, code
+review comments, documentation, wiki pages, or issue descriptions —
+specifically crafted to inject instructions into OTHER AI agents that
+subsequently process those artifacts, enabling cross-tool and cross-user
+propagation of compromise. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety
@@ -993,6 +1034,11 @@ tool execution or data exfiltration. (Risk: high)
 
 [View on OWASP](https://genai.owasp.org/llmrisk/llm092025-misinformation/)
 
+- **Guardrail Evasion via Encoded Instructions** — An attacker encodes malicious instructions using format manipulation
+techniques — Base64, ROT13, Unicode homoglyphs, markdown/HTML rendering
+tricks, language switching, or token boundary manipulation — that bypass
+AI safety guardrails and content filters while being decoded and executed
+by the target LLM. (Risk: critical)
 - **AI-Assisted Social Engineering** — AI agents manipulated or misused to generate targeted phishing emails,
 impersonate humans in communications, craft pretexting scenarios, or
 produce social engineering content that exploits the agent's language

