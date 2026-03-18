@@ -310,3 +310,30 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
     confidence: 0.82
+
+  # === AUDIT: MCP tool schema drift between sessions (issue #398) ===
+  #
+  # An MCP server that changes its tool schemas between sessions may indicate
+  # supply chain compromise or tool poisoning. Legitimate MCP servers rarely
+  # change tool input schemas without a version bump — unexpected schema drift
+  # is a signal that a malicious actor has tampered with the server.
+  #
+  # Detection is performed at the MCP proxy layer by SchemaDriftScanner
+  # (internal/mcp/schema_drift_scanner.go), which persists a per-server
+  # schema fingerprint cache (~/.agentshield/mcp-schema-cache-<server>.json)
+  # and compares on each tools/list response. When drift is detected the
+  # proxy emits an AUDIT event with rule ID "mcp-supply-chain-schema-drift".
+  #
+  # This rule documents the taxonomy linkage and surfaces the detection in
+  # `agentshield scan`. The sentinel tool_name_regex will never match a real
+  # MCP tool — actual detection is hardcoded in the proxy layer.
+  #
+  # OWASP LLM07 — System Prompt Leakage / Tool Injection
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: mcp-supply-chain-schema-drift
+    taxonomy: "supply-chain/config-tampering/mcp-tool-schema-drift"
+    match:
+      tool_name_regex: "^__mcp_schema_drift_detected__$"
+    decision: "AUDIT"
+    reason: "MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001."
+    confidence: 0.80
