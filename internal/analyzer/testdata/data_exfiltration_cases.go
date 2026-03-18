@@ -2303,6 +2303,95 @@ var EmbeddingInversionCases = []TestCase{
 	},
 }
 
+// ExifToolCredentialEmbeddingCases tests detection of exiftool-based EXIF credential embedding.
+// Taxonomy: data-exfiltration/steganography/exif-credential-embedding
+//
+// exiftool can write arbitrary content (including shell command output) into image
+// EXIF/IPTC/XMP metadata fields. Embedding stolen credentials in EXIF metadata before
+// exfiltrating an innocuous-looking image file evades content scanners. The strong
+// signal is shell command substitution $(...) in any exiftool field write.
+// MITRE T1027 — Obfuscated Files or Information, T1564 — Hide Artifacts.
+var ExifToolCredentialEmbeddingCases = []TestCase{
+
+	// --- TRUE POSITIVES: Commands that MUST be flagged ---
+
+	{
+		ID:               "TP-EXIFEMBED-001",
+		Command:          `exiftool -Comment="$(cat ~/.aws/credentials)" photo.jpg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool embedding AWS credentials via command substitution in EXIF Comment field. Classic steganographic credential exfiltration pattern. Must be BLOCK.",
+		Tags:             []string{"tp", "exfiltration", "steganography", "exiftool"},
+	},
+	{
+		ID:               "TP-EXIFEMBED-002",
+		Command:          `exiftool -Description="$(env | grep -i secret)" output.png`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool embedding environment variable dump (including secrets) in image Description field. Must be BLOCK.",
+		Tags:             []string{"tp", "exfiltration", "steganography", "exiftool"},
+	},
+	{
+		ID:               "TP-EXIFEMBED-003",
+		Command:          `exiftool -Copyright="$(base64 secretfile.txt)" image.jpg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool embedding base64-encoded secret file content in EXIF Copyright field. Command substitution with base64 encoding for steganographic exfiltration. Must be BLOCK.",
+		Tags:             []string{"tp", "exfiltration", "steganography", "exiftool"},
+	},
+	{
+		ID:               "TP-EXIFEMBED-004",
+		Command:          `exiftool -Artist="$(cat /etc/passwd)" photo.jpg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool embedding /etc/passwd content in EXIF Artist field via command substitution. Reconnaissance data embedded in image metadata. Must be BLOCK.",
+		Tags:             []string{"tp", "exfiltration", "steganography", "exiftool"},
+	},
+
+	// --- TRUE NEGATIVES: Commands that MUST NOT be BLOCK ---
+	// Note: exiftool with no command substitution gets AUDIT (default policy), not ALLOW.
+	// The key check is that these safe uses are NOT BLOCK.
+
+	{
+		ID:               "TN-EXIFEMBED-001",
+		Command:          `exiftool photo.jpg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool reading image metadata — legitimate use to inspect EXIF data. No command substitution, no embedding. Must NOT be BLOCK (AUDIT default is acceptable).",
+		Tags:             []string{"tn", "safe", "exiftool"},
+	},
+	{
+		ID:               "TN-EXIFEMBED-002",
+		Command:          `exiftool -Author="Jane Doe" -Copyright="2026 Acme Corp" photo.jpg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool setting literal copyright/author metadata — legitimate content tagging. No command substitution. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "exiftool"},
+	},
+	{
+		ID:               "TN-EXIFEMBED-003",
+		Command:          `exiftool -r -ext jpg ~/photos/ | grep GPS`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/steganography/exif-credential-embedding",
+		Analyzer:         "regex",
+		Description:      "exiftool recursive metadata read with grep for GPS data — photography workflow, not credential embedding. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "exiftool"},
+	},
+}
+
 // AllDataExfiltrationCases returns all test cases for Kingdom 3.
 func AllDataExfiltrationCases() []TestCase {
 	var all []TestCase
@@ -2338,6 +2427,7 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, CrossTenantRAGLeakageCases...)
 	all = append(all, DeferredExfilCases...)
 	all = append(all, AIConversationLogExposureCases...)
+	all = append(all, ExifToolCredentialEmbeddingCases...)
 	return all
 }
 

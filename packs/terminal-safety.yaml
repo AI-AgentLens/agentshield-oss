@@ -4706,6 +4706,72 @@ rules:
     confidence: 0.92
     reason: "Classical steganography tool invoked — embedding data in image/text files allows secrets to be exfiltrated via AI-generated artifacts that evade content scanners. OWASP LLM02, MITRE T1027.003."
 
+  # === BLOCK: exiftool EXIF credential embedding (issue #402) ===
+  #
+  # exiftool writes arbitrary content into EXIF/IPTC/XMP metadata fields of
+  # image and document files. When field values are populated by shell command
+  # substitution — `exiftool -Comment="$(cat credentials)" photo.jpg` — the
+  # agent embeds stolen data in image metadata before exfiltrating the
+  # seemingly-innocent image file.
+  #
+  # Why EXIF embedding evades detection:
+  #   - The image binary looks normal; content scanners check the image data
+  #   - Metadata fields like Comment, UserComment, Description are rarely
+  #     inspected at upload time (CDN, S3, Slack, email attachments)
+  #   - The agent can reconstruct the secret on the other end with
+  #     `exiftool -b -Comment exfiltrated.jpg`
+  #
+  # Shell command substitution in any exiftool field write is the strong signal:
+  #   exiftool -Comment="$(cat credentials)" photo.jpg
+  #   exiftool -Description="$(base64 secretfile)" image.jpg
+  #   exiftool -UserComment="$(env | grep SECRET)" out.png
+  #
+  # MITRE T1027 — Obfuscated Files or Information (Steganography)
+  # MITRE T1564 — Hide Artifacts
+  # OWASP LLM02 — Insecure Output Handling
+
+  - id: "ts-block-exiftool-cmd-sub"
+    taxonomy: "data-exfiltration/steganography/exif-credential-embedding"
+    match:
+      command_regex: "\\bexiftool\\b.*-[A-Za-z]+\\s*=\\s*[\"']?\\$\\("
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "exiftool writing shell command substitution output to an EXIF/IPTC/XMP field — embeds stolen credentials or secrets in image metadata for covert exfiltration. No legitimate agent use case. MITRE T1027, T1564."
+
+  # === AUDIT: exiftool reading credential file paths ===
+  #
+  # An agent using exiftool to read metadata from credential files (e.g.,
+  # a PKCS12 certificate or PEM image that happens to be in an SSH/TLS dir)
+  # may be extracting embedded key material from the metadata layer.
+  #
+  # Pattern: exiftool <path-to-credential-dir> or exiftool with a .pem/.p12 target
+
+  - id: "ts-audit-exiftool-credential-path"
+    taxonomy: "data-exfiltration/steganography/exif-credential-embedding"
+    match:
+      command_regex: "\\bexiftool\\b.*(~/.ssh|~/.aws|~/.gnupg|~/.kube|\\.pem\\b|\\.p12\\b|\\.pfx\\b|\\.jks\\b)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "exiftool accessing credential directory or certificate file — may extract key material or metadata embedded in certificate/key files. MITRE T1005."
+
+  # === AUDIT: exiftool -all= metadata stripping (anti-forensics) ===
+  #
+  # `exiftool -all= file.jpg` removes ALL metadata from an image file, including
+  # any GPS/timestamps that could reveal when/where the file was taken or last
+  # modified. Stripping metadata from files about to be exfiltrated erases
+  # forensic evidence of the agent's activity.
+  #
+  # Decision: AUDIT — legitimate anti-tracking privacy use case exists, but
+  # context of AI agents running this warrants review.
+
+  - id: "ts-audit-exiftool-strip-metadata"
+    taxonomy: "data-exfiltration/steganography/exif-credential-embedding"
+    match:
+      command_regex: "\\bexiftool\\b.*-all\\s*="
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "exiftool -all= stripping all image metadata — anti-forensics technique that removes timestamps and GPS coordinates before exfiltration. MITRE T1070."
+
   # === AUDIT: Zero-width Unicode character injection into source files ===
   #
   # Zero-width spaces (U+200B), zero-width non-joiners (U+200C),
