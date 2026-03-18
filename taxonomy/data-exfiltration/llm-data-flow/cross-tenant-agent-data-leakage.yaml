@@ -1,0 +1,88 @@
+id: "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Cross-Tenant Agent Data Leakage"
+risk_level: "high"
+
+abstract: |
+  Sensitive data leaks between tenants in shared AI agent infrastructure —
+  including shared MCP servers, vector stores, tool registries, or agent
+  orchestration platforms — due to insufficient tenant isolation in the
+  agent's context, memory, or tool execution environment.
+
+explanation: |
+  Enterprise deployments increasingly share AI agent infrastructure across
+  teams, projects, or customers to reduce costs and simplify management.
+  This shared infrastructure creates cross-tenant data leakage risks that
+  are unique to AI agents:
+
+  - **Shared vector store contamination**: Multiple tenants' documents are
+    indexed in the same vector database. RAG retrieval returns semantically
+    similar documents from other tenants, leaking confidential information
+    into the wrong agent's context window.
+  - **Shared MCP server state**: A multi-tenant MCP server maintains state
+    (caches, temporary files, database connections) that is not properly
+    isolated. One tenant's tool call can observe artifacts from another
+    tenant's prior invocations.
+  - **Agent memory cross-contamination**: Shared agent platforms that
+    persist conversation memory or learned preferences across sessions may
+    leak information between tenants if memory stores are not partitioned.
+  - **Tool registry namespace collision**: In shared tool registries, tenants
+    may register tools with identical names but different implementations.
+    Without namespace isolation, one tenant's agent may invoke another
+    tenant's tool, leaking request data.
+  - **Log and audit trail mixing**: Shared logging infrastructure captures
+    commands, tool calls, and context from all tenants. Insufficient access
+    controls on logs expose sensitive data across tenant boundaries.
+
+  This is distinct from cross-context-data-contamination (which addresses
+  LLM context mixing within a single deployment) and ai-data-residency-violation
+  (which addresses geographic constraints). Cross-tenant leakage specifically
+  targets the multi-tenancy isolation failures in shared agent platforms.
+
+recommendation: |
+  - Implement strict tenant isolation in vector stores — use separate
+    collections/namespaces per tenant with enforced access control.
+  - Ensure MCP servers are stateless or use per-tenant state partitioning
+    with no shared caches or temporary storage.
+  - Partition agent memory stores by tenant ID with cryptographic isolation
+    (separate encryption keys per tenant).
+  - Use namespaced tool registries that prevent cross-tenant tool resolution.
+  - Apply tenant-aware access controls to all audit logs and monitoring data.
+  - Prefer single-tenant agent deployments for high-sensitivity workloads;
+    use multi-tenancy only with verified isolation guarantees.
+  - Regularly test tenant isolation with cross-tenant probe queries to detect
+    data leakage.
+
+examples:
+  bad:
+    - "RAG query for 'Q3 revenue projections' returns documents from Tenant B's financial reports because both tenants share the same Pinecone index"
+    - "MCP file tool caches /tmp/mcp-workspace/ without tenant prefix — Tenant A's generated files visible to Tenant B's agent"
+    - "Agent platform persists conversation summaries in shared Redis instance keyed by user ID without tenant scoping"
+    - "Tenant A registers MCP tool 'deploy' — Tenant B's agent resolves 'deploy' to Tenant A's implementation, sending deployment config to wrong endpoint"
+  good:
+    - "Vector store uses separate Pinecone namespaces per tenant with IAM-enforced access policies"
+    - "MCP server creates per-session ephemeral directories with tenant-scoped paths and cleanup on disconnect"
+    - "Agent memory encrypted with per-tenant KMS keys; cross-tenant queries return empty results"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.34", "A.8.3", "A.8.11", "A.8.31"]
+  eu-ai-act-2024: ["Art.10", "Art.13", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.3", "C1.1"]
+
+references:
+  mitre_attack: ["T1199", "T1530"]
+  cwe: ["CWE-200", "CWE-668", "CWE-732"]
+  external:
+    - title: "OWASP: Multi-Tenancy Security Testing"
+      url: "https://owasp.org/www-project-web-security-testing-guide/"
+    - title: "NIST SP 800-144: Guidelines on Security and Privacy in Cloud Computing"
+      url: "https://csrc.nist.gov/publications/detail/sp/800-144/final"
+
+analyzers: ["semantic", "dataflow"]
+related_rules: []

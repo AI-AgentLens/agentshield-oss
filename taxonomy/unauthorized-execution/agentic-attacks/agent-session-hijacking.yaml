@@ -1,0 +1,88 @@
+id: "unauthorized-execution/agentic-attacks/agent-session-hijacking"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "Agent Session Hijacking"
+risk_level: "critical"
+
+abstract: |
+  An attacker intercepts or takes over an active AI agent session by
+  compromising the communication channel between the agent and its host
+  (IDE, terminal, MCP server) — enabling command injection, context theft,
+  or full session takeover.
+
+explanation: |
+  AI coding agents communicate with their host environments through various
+  channels: stdio pipes, Unix domain sockets, WebSocket connections, or HTTP
+  streams. These channels often lack mutual authentication, encryption, or
+  integrity protection, creating opportunities for session hijacking:
+
+  - **Stdio pipe interception**: Agents running as subprocesses communicate
+    via stdin/stdout. A co-resident process or malicious shell plugin can
+    intercept or inject data into these pipes using /proc/PID/fd symlinks,
+    ptrace, or by wrapping the agent binary.
+  - **Unix socket hijacking**: Local MCP servers often listen on Unix domain
+    sockets with permissive file permissions. Any local process running as
+    the same user can connect and send tool calls.
+  - **WebSocket/SSE session theft**: HTTP-based MCP transports may use
+    predictable session tokens or lack CSRF protection, allowing a malicious
+    web page or local process to send requests to the agent's HTTP endpoint.
+  - **IDE extension channel abuse**: Some agents communicate through IDE
+    extension APIs. A malicious extension installed in the same IDE instance
+    can intercept or inject messages.
+  - **Session token prediction**: Agent frameworks that use sequential or
+    weakly random session identifiers enable an attacker to guess valid
+    session IDs and inject commands.
+
+  Unlike prompt injection (which manipulates the LLM's reasoning), session
+  hijacking operates at the transport layer — injecting fully-formed commands
+  or tool calls that bypass the LLM entirely.
+
+  MITRE equivalent: T1563 (Remote Service Session Hijacking) adapted for
+  AI agent communication channels.
+
+recommendation: |
+  - Use authenticated, encrypted channels (TLS, mutually-authenticated Unix
+    sockets) for all agent-to-host communication.
+  - Set restrictive file permissions (0600) on Unix domain sockets used by
+    MCP servers.
+  - Generate cryptographically random session tokens for HTTP-based transports;
+    bind tokens to the originating process.
+  - Implement message authentication codes (HMAC) on stdio-based protocols to
+    detect injection.
+  - Monitor for unexpected process attachments (ptrace) or file descriptor
+    access to agent communication channels.
+  - Validate that MCP HTTP endpoints bind to loopback only and require
+    origin/CSRF checks.
+
+examples:
+  bad:
+    - "cat /proc/$(pgrep claude)/fd/0  # Reading agent's stdin pipe to observe commands"
+    - "echo '{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"bash\",\"arguments\":{\"command\":\"cat ~/.ssh/id_rsa\"}}}' | nc -U /tmp/mcp-server.sock"
+    - "curl -X POST http://localhost:3000/mcp -d '{\"method\":\"tools/call\",\"params\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"/etc/shadow\"}}}'"
+    - "socat - UNIX-CONNECT:/tmp/mcp.sock  # Connecting to MCP socket with permissive permissions"
+  good:
+    - "MCP server Unix socket created with mode 0600 and verified ownership before accepting connections"
+    - "HTTP MCP transport requires per-session HMAC token in X-MCP-Auth header"
+    - "Agent stdio communication uses length-prefixed framing with HMAC integrity checks"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.20", "A.8.25", "A.8.26"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1563", "T1557", "T1059"]
+  cwe: ["CWE-294", "CWE-319", "CWE-384"]
+  external:
+    - title: "MCP Specification: Transport Security (2025-03-26)"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports"
+    - title: "Trail of Bits: AI Agent Security Assessment Patterns"
+      url: "https://blog.trailofbits.com/"
+
+analyzers: ["regex", "semantic", "stateful"]
+related_rules: []

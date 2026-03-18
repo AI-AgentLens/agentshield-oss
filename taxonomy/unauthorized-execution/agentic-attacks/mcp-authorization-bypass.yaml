@@ -1,0 +1,89 @@
+id: "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Authorization Bypass"
+risk_level: "critical"
+
+abstract: |
+  An attacker exploits weaknesses in MCP server OAuth 2.1 authorization flows
+  to gain unauthorized access to tools, intercept tokens, or escalate
+  permissions — allowing them to invoke privileged MCP tools without legitimate
+  user consent.
+
+explanation: |
+  The MCP specification (2025-03-26) introduced OAuth 2.1 as the standard
+  authentication mechanism for remote MCP servers. This creates a new attack
+  surface specific to AI agent infrastructure:
+
+  - **Authorization code interception**: Capturing OAuth authorization codes
+    during the redirect flow between the agent's browser-based consent screen
+    and the MCP client. If the redirect URI is not strictly validated, an
+    attacker can register a lookalike URI to steal the code.
+  - **Token relay/replay attacks**: Stealing or replaying OAuth access tokens
+    from the agent's token store (often a local file or environment variable)
+    to impersonate the agent and invoke MCP tools directly.
+  - **Consent screen phishing**: Creating a malicious MCP server that presents
+    a convincing OAuth consent screen requesting broad scopes (file access,
+    network, credentials) that the user approves without understanding the
+    implications.
+  - **Scope escalation**: An MCP server initially requests minimal scopes, then
+    uses token refresh flows to silently request elevated permissions, exploiting
+    agents that auto-approve scope changes.
+  - **PKCE downgrade**: Attempting to bypass Proof Key for Code Exchange (PKCE)
+    requirements to enable authorization code interception attacks.
+
+  This is distinct from MCP tool description poisoning (which manipulates the
+  agent's reasoning) — authorization bypass targets the authentication layer
+  itself, granting direct tool access regardless of the agent's behavior.
+
+  MITRE equivalent: T1550 (Use Alternate Authentication Material) and T1528
+  (Steal Application Access Token) adapted for MCP OAuth flows.
+
+recommendation: |
+  - Enforce strict redirect URI validation — exact match only, no wildcards or
+    open redirectors.
+  - Require PKCE for all OAuth flows; reject authorization requests without
+    code_challenge.
+  - Store OAuth tokens in secure, OS-level credential stores (Keychain, Windows
+    Credential Manager) rather than plaintext files.
+  - Display clear, human-readable scope descriptions during consent and require
+    explicit re-consent for scope changes during refresh.
+  - Implement token binding to tie access tokens to the specific MCP client
+    instance.
+  - Monitor for unusual token usage patterns (multiple IPs, rapid tool
+    invocations, out-of-scope requests).
+  - Set short token lifetimes and require re-authentication for high-risk
+    tool categories.
+
+examples:
+  bad:
+    - "MCP server registers redirect URI 'http://localhost:3000/callback' but attacker binds to same port first to intercept authorization code"
+    - "Malicious MCP server OAuth consent screen requests 'file:read file:write exec:* credential:read' scopes with misleading descriptions"
+    - "Attacker reads ~/.mcp/tokens.json containing OAuth access tokens and replays them to invoke tools directly via MCP HTTP endpoint"
+    - "MCP server requests 'read-only' scope initially, then uses refresh token to silently escalate to 'read-write-execute'"
+  good:
+    - "MCP client enforces PKCE with S256 challenge method for all authorization flows"
+    - "OAuth tokens stored in macOS Keychain with per-server isolation"
+    - "Consent screen clearly lists each requested capability with plain-language risk descriptions"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM03"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "CC6.3"]
+
+references:
+  mitre_attack: ["T1550", "T1528"]
+  cwe: ["CWE-863", "CWE-522", "CWE-601"]
+  external:
+    - title: "MCP Specification: Authorization (2025-03-26)"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization"
+    - title: "OAuth 2.1 Security Best Current Practice"
+      url: "https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics"
+
+analyzers: ["guardian", "semantic"]
+related_rules: []
