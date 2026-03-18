@@ -4430,6 +4430,183 @@ var MCPServerImpersonationCases = []TestCase{
 	},
 
 	// ---------------------------------------------------------------------------
+	// Cloud AI Service Monitoring Disable (ts-block-aws-bedrock-logging-delete, etc.)
+	//
+	// Disabling cloud AI service invocation logging removes audit trails needed
+	// for incident detection, forensics, and regulatory compliance.
+	// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+	// EU AI Act Art.9, Art.15; NIST AI RMF MANAGE-4; SOC 2 CC7.1/CC7.2; CWE-778
+	// ---------------------------------------------------------------------------
+
+	// TP: AWS Bedrock — delete-model-invocation-logging-configuration (BLOCK)
+	{
+		ID:               "TP-BEDROCK-LOG-001",
+		Command:          "aws bedrock delete-model-invocation-logging-configuration",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes AWS Bedrock invocation logging config — all subsequent AI calls become unaudited. Must be BLOCK.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	{
+		ID:               "TP-BEDROCK-LOG-002",
+		Command:          "aws bedrock delete-model-invocation-logging-configuration --region us-east-1",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Bedrock logging delete with region flag — still must be BLOCK regardless of region.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	// TP: AWS Bedrock — disable text data delivery in logging config (AUDIT)
+	{
+		ID:               "TP-BEDROCK-LOG-003",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"textDataDeliveryEnabled":false}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Reconfigures Bedrock logging to disable text delivery — degrades AI audit trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	{
+		ID:               "TP-BEDROCK-LOG-004",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"imageDataDeliveryEnabled":false,"textDataDeliveryEnabled":false}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Reconfigures Bedrock logging to disable both text and image delivery — full AI audit trail degradation. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	// TP: AWS CloudWatch — delete Bedrock log group (AUDIT)
+	{
+		ID:               "TP-BEDROCK-LOG-005",
+		Command:          "aws logs delete-log-group --log-group-name /aws/bedrock/modelinvocations",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes the CloudWatch log group receiving Bedrock invocation logs — destroys AI audit trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	{
+		ID:               "TP-BEDROCK-LOG-006",
+		Command:          "aws logs delete-log-group --log-group-name /aws/bedrock/guardrails --region eu-west-1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes the Bedrock guardrails CloudWatch log group — removes guardrail audit trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "audit-trail"},
+	},
+	// TP: Azure Monitor — diagnostic settings delete (AUDIT)
+	{
+		ID:               "TP-AZURE-AI-DIAG-001",
+		Command:          "az monitor diagnostic-settings delete --name ai-audit --resource /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/my-aoai",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes Azure Monitor diagnostic settings for an Azure OpenAI resource — stops AI log shipping to SIEM. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "azure", "audit-trail"},
+	},
+	{
+		ID:               "TP-AZURE-AI-DIAG-002",
+		Command:          "az monitor diagnostic-settings delete --name ai-invocation-logs --resource /subscriptions/abc/resourceGroups/prod/providers/Microsoft.CognitiveServices/accounts/gpt4-prod",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes Azure diagnostic settings targeting a Cognitive Services account — removes AI audit log pipeline. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "azure", "audit-trail"},
+	},
+	// TP: Google Cloud Logging — bucket delete (AUDIT)
+	{
+		ID:               "TP-GCLOUD-AI-LOG-001",
+		Command:          "gcloud logging buckets delete ai-audit-bucket --location=global",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes a Google Cloud Logging bucket storing Vertex AI audit logs — destroys AI forensic trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "gcp", "audit-trail"},
+	},
+	{
+		ID:               "TP-GCLOUD-AI-LOG-002",
+		Command:          "gcloud logging buckets delete vertex-ai-logs --location=us-central1 --project=my-ml-project",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deletes a Cloud Logging bucket with a Vertex AI name in a specific project — removes AI model invocation history. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "cloud-ai", "gcp", "audit-trail"},
+	},
+	// TN: Read-only Bedrock logging operations — get AUDIT from ne-audit-aws-cli (cloud CLI baseline),
+	// not BLOCK. These verify my rules don't false-positive on benign cloud operations.
+	{
+		ID:               "TN-BEDROCK-LOG-001",
+		Command:          "aws bedrock get-model-invocation-logging-configuration",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Read-only Bedrock logging config check — ne-audit-aws-cli audits all aws commands. My delete rule must NOT escalate to BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud-ai"},
+	},
+	{
+		ID:               "TN-BEDROCK-LOG-002",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"textDataDeliveryEnabled":true,"imageDataDeliveryEnabled":true}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Enabling (not disabling) Bedrock logging — improves audit coverage. Must get AUDIT (from ne-audit-aws-cli baseline), not BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud-ai"},
+	},
+	{
+		ID:               "TN-BEDROCK-LOG-003",
+		Command:          "aws logs create-log-group --log-group-name /aws/bedrock/modelinvocations",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Creating (not deleting) the Bedrock log group — safe setup. Gets AUDIT from ne-audit-aws-cli, must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud-ai"},
+	},
+	{
+		ID:               "TN-BEDROCK-LOG-004",
+		Command:          "aws logs delete-log-group --log-group-name /aws/lambda/my-function",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Deleting a Lambda (non-Bedrock) log group — does not match ts-audit-aws-logs-delete-bedrock-group. Gets AUDIT from ne-audit-aws-cli, must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud-ai"},
+	},
+	{
+		ID:               "TN-AZURE-AI-DIAG-001",
+		Command:          "az monitor diagnostic-settings list --resource /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/my-aoai",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Read-only Azure diagnostic settings list — safe inspection. My delete rule must NOT fire; gets AUDIT from ne-audit-azure-cli baseline.",
+		Tags:             []string{"tn", "safe", "cloud-ai", "azure"},
+	},
+	{
+		ID:               "TN-GCLOUD-AI-LOG-001",
+		Command:          "gcloud logging buckets list --location=global",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Read-only Cloud Logging bucket list — safe. Gets AUDIT from ne-audit-gcloud; my bucket delete rule must NOT fire.",
+		Tags:             []string{"tn", "safe", "cloud-ai", "gcp"},
+	},
+
+	// ---------------------------------------------------------------------------
 	// Network Pipe to LLM CLI — Prompt Injection Surface (ts-audit-network-pipe-to-llm)
 	//
 	// Piping curl/wget network output directly to LLM CLI tools creates a prompt

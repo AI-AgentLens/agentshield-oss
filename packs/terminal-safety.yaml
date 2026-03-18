@@ -5875,6 +5875,94 @@ rules:
     reason: "AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6)."
 
   # ===========================================================================
+  # Cloud AI Service Monitoring Disable (AI Incident Response Gap)
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+  # OWASP LLM06 — Excessive Agency
+  # EU AI Act Art.9 (risk management), Art.15 (post-market monitoring)
+  # NIST AI RMF MANAGE-4 — Document and monitor risk treatments
+  # SOC 2 CC7.1/CC7.2 — Threat detection and response monitoring controls
+  # CWE-778 — Insufficient Logging
+  #
+  # Disabling cloud AI service invocation logging removes the audit trail
+  # required for incident detection, forensics, and regulatory compliance.
+  # Without invocation logs, organizations cannot:
+  #   - Detect anomalous AI behavior (model drift, prompt injection, data leakage)
+  #   - Reconstruct the blast radius of a compromised AI agent
+  #   - Meet EU AI Act post-market monitoring obligations
+  #   - Demonstrate compliance to auditors (SOC 2 CC7.1)
+  #
+  # AWS Bedrock examples:
+  #   aws bedrock delete-model-invocation-logging-configuration
+  #   aws bedrock put-model-invocation-logging-configuration \
+  #     --logging-config '{"textDataDeliveryEnabled":false}'
+  #   aws logs delete-log-group --log-group-name /aws/bedrock/modelinvocations
+  #
+  # Azure OpenAI / Cognitive Services examples:
+  #   az monitor diagnostic-settings delete --name ai-audit --resource <id>
+  #
+  # Google Vertex AI / Cloud AI examples:
+  #   gcloud logging buckets delete ai-audit-bucket --location=global
+
+  # === BLOCK: AWS Bedrock invocation logging delete ===
+  # Deleting the Bedrock logging configuration is irreversible in the sense that
+  # all future AI invocations will be unlogged immediately. A prompt-injected
+  # agent may delete this config to hide subsequent malicious AI interactions.
+  - id: "ts-block-aws-bedrock-logging-delete"
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      command_regex: "\\baws\\s+bedrock\\s+delete-model-invocation-logging-configuration\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Deletes the AWS Bedrock model invocation logging configuration — all subsequent AI model calls will be unaudited. Eliminates the forensic trail required for AI incident detection, EU AI Act Art.9 post-market monitoring, and SOC 2 CC7.2 threat response. Prompt-injected agents may issue this command to hide subsequent malicious interactions (NIST AI RMF MANAGE-4, CWE-778)."
+
+  # === AUDIT: AWS Bedrock logging reconfiguration to disable text/image delivery ===
+  # put-model-invocation-logging-configuration can selectively disable text or
+  # image data delivery, degrading the audit trail without fully removing config.
+  - id: "ts-audit-aws-bedrock-logging-disable"
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      command_regex: "\\baws\\s+bedrock\\s+put-model-invocation-logging-configuration\\b.*(?:textDataDeliveryEnabled|imageDataDeliveryEnabled|embeddingDataDeliveryEnabled).*false"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Reconfiguring AWS Bedrock invocation logging to disable text/image/embedding data delivery degrades the AI audit trail. May be legitimate capacity management but reduces visibility into model inputs/outputs, hindering incident forensics and EU AI Act Art.15 post-market monitoring compliance (NIST AI RMF MANAGE-4)."
+
+  # === AUDIT: AWS CloudWatch log group delete targeting Bedrock audit paths ===
+  # Deleting the CloudWatch log group where Bedrock ships invocation logs
+  # silently destroys the historical AI audit trail and stops future logging
+  # (Bedrock will fail to deliver logs once the group is gone).
+  - id: "ts-audit-aws-logs-delete-bedrock-group"
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      command_regex: "\\baws\\s+logs\\s+delete-log-group\\b.*(?:/aws/bedrock|bedrock.*invocation|bedrock.*guardrail)"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Deleting the CloudWatch log group that receives AWS Bedrock invocation logs destroys the historical AI audit trail and prevents future log delivery. Impacts EU AI Act Art.9 post-market monitoring, SOC 2 CC7.1 detection controls, and incident forensics capability (CWE-778, NIST AI RMF MANAGE-4)."
+
+  # === AUDIT: Azure Monitor diagnostic settings delete (AI service audit trail) ===
+  # Azure Cognitive Services / OpenAI resources export audit logs via diagnostic
+  # settings. Deleting these settings stops log shipping to Log Analytics / SIEM.
+  - id: "ts-audit-azure-ai-diagnostic-delete"
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      command_regex: "\\baz\\s+monitor\\s+diagnostic-settings\\s+delete\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Deleting Azure Monitor diagnostic settings stops audit log delivery to Log Analytics or SIEM — may target Azure OpenAI or Cognitive Services resources, removing AI invocation audit trails. Impacts incident detection, EU AI Act Art.9 monitoring, and SOC 2 CC7.1 controls. Verify the targeted resource is not an AI service before approving (CWE-778)."
+
+  # === AUDIT: Google Cloud Logging bucket delete (AI audit trail) ===
+  # Deleting a Cloud Logging bucket that stores Vertex AI / Cloud AI audit logs
+  # destroys historical AI invocation records.
+  - id: "ts-audit-gcloud-logging-bucket-delete"
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      command_regex: "\\bgcloud\\s+logging\\s+buckets\\s+delete\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Deleting a Google Cloud Logging bucket may destroy historical Vertex AI / Cloud AI invocation records. If targeting AI service audit logs, this removes forensic capability needed for EU AI Act post-market monitoring and incident response (CWE-778, NIST AI RMF MANAGE-4)."
+
+  # ===========================================================================
   # Bash Builtin Loading via enable -f (Arbitrary Code Execution)
   # ===========================================================================
   #
