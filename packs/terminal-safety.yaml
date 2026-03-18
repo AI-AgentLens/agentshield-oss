@@ -6131,3 +6131,65 @@ rules:
     decision: "AUDIT"
     confidence: 0.75
     reason: "chrpath detected — tool for viewing and modifying RPATH/RUNPATH in ELF binaries. May indicate shared library hijacking preparation. MITRE T1574.006."
+
+  # =========================================================================
+  # TOCTOU Check-Then-Execute on World-Writable Paths
+  # =========================================================================
+  #
+  # The pattern `[ -f /tmp/script.sh ] && source /tmp/script.sh` is a
+  # classic TOCTOU (time-of-check-time-of-use) race condition (CWE-367).
+  #
+  # Between the existence check (test -f, [ -f ], [[ -f ]]) and the use
+  # (source, ., bash, sh, exec, chmod +x), an attacker with write access
+  # to the same directory can:
+  #   1. Delete the original file
+  #   2. Replace it with a malicious script (or symlink)
+  #   3. The agent sources/executes attacker-controlled code
+  #
+  # World-writable directories (/tmp, /dev/shm, /var/tmp, /run) are
+  # especially dangerous because any local process can modify files.
+  #
+  # This is particularly relevant for AI agents because:
+  #   - Agents frequently create temp files for multi-step operations
+  #   - The check-then-use pattern feels "safe" to the agent
+  #   - The race window is reliably exploitable with inotifywait
+  #
+  # CWE-367 — Time-of-check Time-of-use (TOCTOU) Race Condition
+  # CWE-377 — Insecure Temporary File
+  # MITRE T1036.005 — Masquerading: Match Legitimate Name or Location
+
+  # --- BLOCK: check-then-source/dot-source in world-writable dirs ---
+  - id: "ts-block-toctou-source-tmp"
+    taxonomy: "persistence-evasion/fileless-execution/toctou-temp-file-race"
+    match:
+      command_regex: "(\\[\\[?\\s+-[fexr]\\s+|test\\s+-[fexr]\\s+)(/tmp/|/dev/shm/|/var/tmp/|/run/)\\S+\\s*\\]?\\]?\\s*(&&|;)\\s*(source|\\.)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Check-then-source on a world-writable path — classic TOCTOU race condition. Between the existence check and the source command, an attacker can replace the file with malicious code. The agent will execute attacker-controlled content believing it verified the file. CWE-367, MITRE T1036.005."
+
+  # --- BLOCK: check-then-execute (bash/sh/exec) in world-writable dirs ---
+  - id: "ts-block-toctou-exec-tmp"
+    taxonomy: "persistence-evasion/fileless-execution/toctou-temp-file-race"
+    match:
+      command_regex: "(\\[\\[?\\s+-[fexr]\\s+|test\\s+-[fexr]\\s+)(/tmp/|/dev/shm/|/var/tmp/|/run/)\\S+\\s*\\]?\\]?\\s*(&&|;)\\s*(bash|sh|zsh|dash|ksh|exec|chmod\\s+\\+x)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Check-then-execute on a world-writable path — TOCTOU race window allows file substitution between the test and the shell execution. Attacker can replace the checked file with a payload. CWE-367, MITRE T1036.005."
+
+  # --- BLOCK: check-then-direct-execute in world-writable dirs ---
+  - id: "ts-block-toctou-direct-exec-tmp"
+    taxonomy: "persistence-evasion/fileless-execution/toctou-temp-file-race"
+    match:
+      command_regex: "(\\[\\[?\\s+-x\\s+|test\\s+-x\\s+)(/tmp/|/dev/shm/|/var/tmp/|/run/)(\\S+)\\s*\\]?\\]?\\s*(&&|;)\\s*(/tmp/|/dev/shm/|/var/tmp/|/run/)\\3"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "Check-then-direct-execute on a world-writable path — tests if file is executable then runs it directly. The same TOCTOU race applies: the file can be replaced between check and execution. CWE-367."
+
+  # --- AUDIT: check-then-read (cat/less/head) in world-writable dirs ---
+  - id: "ts-audit-toctou-read-tmp"
+    taxonomy: "persistence-evasion/fileless-execution/toctou-temp-file-race"
+    match:
+      command_regex: "(\\[\\[?\\s+-[fexr]\\s+|test\\s+-[fexr]\\s+)(/tmp/|/dev/shm/|/var/tmp/|/run/)\\S+\\s*\\]?\\]?\\s*(&&|;)\\s*(cat|less|head|tail|more)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/)"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "Check-then-read on a world-writable path — lower risk than execute but still a TOCTOU pattern. The read content may differ from what was checked. CWE-367."

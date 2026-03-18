@@ -2802,6 +2802,271 @@ var ProcessSubstitutionBypassCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 2.16: Linux Credential Store Extraction
+// Taxonomy: credential-exposure/password-db-access/linux-credential-store-extraction
+//
+// Linux desktop environments provide CLI tools to query stored credentials:
+// secret-tool (GNOME Keyring / KDE Wallet), pass (GPG-encrypted store),
+// gopass (enhanced pass), keepassxc-cli (KeePassXC databases). These return
+// plaintext secrets and are high-value targets for credential theft.
+//
+// MITRE T1555.004 — Credentials from Password Stores
+// ---------------------------------------------------------------------------
+
+// LinuxCredentialStoreCases tests detection of Linux credential store extraction.
+// Taxonomy: credential-exposure/password-db-access/linux-credential-store-extraction
+var LinuxCredentialStoreCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: secret-tool lookup — GNOME Keyring / KDE Wallet
+	{
+		ID:               "TP-LINCRED-001",
+		Command:          `secret-tool lookup service github.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "secret-tool lookup queries GNOME Keyring by attribute — returns plaintext credential for the matching service. MITRE T1555.004.",
+		Tags:             []string{"canonical", "critical", "linux", "secret-tool"},
+	},
+	// TP-2: secret-tool search
+	{
+		ID:               "TP-LINCRED-002",
+		Command:          `secret-tool search --all service github`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "secret-tool search enumerates matching secrets from the keyring — can expose multiple credentials at once. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "secret-tool"},
+	},
+	// TP-3: secret-tool store (writes attacker-controlled secret)
+	{
+		ID:               "TP-LINCRED-003",
+		Command:          `echo "backdoor-token" | secret-tool store --label="GitHub" service github.com user attacker`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "secret-tool store writes a new credential to the keyring — attacker can plant a backdoor token that the user's apps will then use. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "secret-tool"},
+	},
+	// TP-4: pass show — decrypt GPG-encrypted password
+	{
+		ID:               "TP-LINCRED-004",
+		Command:          `pass show cloud/aws-access-key`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass show decrypts a GPG-encrypted password and prints to stdout — silently exposes cloud access keys. MITRE T1555.004.",
+		Tags:             []string{"canonical", "critical", "linux", "pass"},
+	},
+	// TP-5: pass -c — copy password to clipboard
+	{
+		ID:               "TP-LINCRED-005",
+		Command:          `pass -c work/database-password`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass -c copies decrypted password to clipboard — clipboard can be read by other processes. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "pass"},
+	},
+	// TP-6: pass otp — extract TOTP codes
+	{
+		ID:               "TP-LINCRED-006",
+		Command:          `pass otp work/github-2fa`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass otp generates a TOTP code — exposes 2FA secrets, enabling full account takeover when combined with password. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "pass"},
+	},
+	// TP-7: gopass show
+	{
+		ID:               "TP-LINCRED-007",
+		Command:          `gopass show -o work/production-db`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "gopass show -o outputs only the password (no metadata) — cleanest form of credential extraction. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "gopass"},
+	},
+	// TP-8: keepassxc-cli show
+	{
+		ID:               "TP-LINCRED-008",
+		Command:          `keepassxc-cli show ~/Passwords.kdbx github -s`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli show with -s flag reveals passwords — extracts specific entry from KeePassXC database. MITRE T1555.004.",
+		Tags:             []string{"canonical", "critical", "linux", "keepassxc"},
+	},
+	// TP-9: keepassxc-cli export (full database dump)
+	{
+		ID:               "TP-LINCRED-009",
+		Command:          `keepassxc-cli export ~/Passwords.kdbx`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli export dumps the entire KeePassXC database in plaintext XML — bulk credential extraction. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "keepassxc"},
+	},
+	// TP-10: keepassxc-cli totp
+	{
+		ID:               "TP-LINCRED-010",
+		Command:          `keepassxc-cli totp ~/Passwords.kdbx github`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli totp generates TOTP code from KeePassXC entry — enables 2FA bypass. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "keepassxc"},
+	},
+	// TP-11: pass generate (may overwrite existing passwords)
+	{
+		ID:               "TP-LINCRED-011",
+		Command:          `pass generate cloud/aws-access-key 32`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass generate creates a new password — can overwrite existing credentials, causing access disruption or replacing a real key with an attacker-known one. MITRE T1555.004.",
+		Tags:             []string{"tp", "linux", "pass"},
+	},
+	// TP-12: keepassxc-cli clip (copies password to clipboard)
+	{
+		ID:               "TP-LINCRED-012",
+		Command:          `keepassxc-cli clip ~/Passwords.kdbx email-account`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli clip copies password to clipboard — clipboard contents readable by other processes. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "keepassxc"},
+	},
+	// TP-13: sudo secret-tool lookup
+	{
+		ID:               "TP-LINCRED-013",
+		Command:          `sudo secret-tool lookup service production-db`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "sudo secret-tool lookup — escalated credential extraction from system keyring. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "secret-tool"},
+	},
+	// TP-14: pass show with absolute path qualifier
+	{
+		ID:               "TP-LINCRED-014",
+		Command:          `pass show infra/prod-ssh-key | head -1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass show piped to head — extracts only the first line (password). Common pattern to get just the secret. MITRE T1555.004.",
+		Tags:             []string{"tp", "critical", "linux", "pass"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// TN-1: pass ls — list entries (metadata only)
+	{
+		ID:               "TN-LINCRED-001",
+		Command:          `pass ls`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass ls lists password store entries — metadata only, no decryption. Gets AUDIT from sec-audit-linux-pass-list.",
+		Tags:             []string{"tn", "safe", "linux", "pass"},
+	},
+	// TN-2: pass git log — version history
+	{
+		ID:               "TN-LINCRED-002",
+		Command:          `pass git log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass git log shows version history of the password store — no credential decryption. Falls through to AUDIT default.",
+		Tags:             []string{"tn", "safe", "linux", "pass"},
+	},
+	// TN-3: keepassxc-cli ls — list entries
+	{
+		ID:               "TN-LINCRED-003",
+		Command:          `keepassxc-cli ls ~/Passwords.kdbx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli ls lists entries in a KeePassXC database — metadata only. Does not match show/clip/totp/export rules.",
+		Tags:             []string{"tn", "safe", "linux", "keepassxc"},
+	},
+	// TN-4: pass init (initialize store, does not extract)
+	{
+		ID:               "TN-LINCRED-004",
+		Command:          `pass init user@example.com`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass init initializes the password store with a GPG key — setup operation, no credential extraction.",
+		Tags:             []string{"tn", "safe", "linux", "pass"},
+	},
+	// TN-5: gopass ls — list entries
+	{
+		ID:               "TN-LINCRED-005",
+		Command:          `gopass ls`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "gopass ls lists entries — metadata only, gets AUDIT from sec-audit-linux-pass-list.",
+		Tags:             []string{"tn", "safe", "linux", "gopass"},
+	},
+	// TN-6: keepassxc-cli analyze (security audit)
+	{
+		ID:               "TN-LINCRED-006",
+		Command:          `keepassxc-cli analyze ~/Passwords.kdbx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keepassxc-cli analyze performs security audit (weak password detection) — no credential extraction.",
+		Tags:             []string{"tn", "safe", "linux", "keepassxc"},
+	},
+	// TN-7: pass find (search entry names, not decrypt)
+	{
+		ID:               "TN-LINCRED-007",
+		Command:          `pass find github`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "pass find searches entry names — metadata only, gets AUDIT from sec-audit-linux-pass-list.",
+		Tags:             []string{"tn", "safe", "linux", "pass"},
+	},
+	// TN-8: grep for "pass show" in documentation
+	{
+		ID:               "TN-LINCRED-008",
+		Command:          `grep "pass show" /usr/share/doc/pass/README.md`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "Searching for 'pass show' in documentation — read-only grep, not executing pass.",
+		Tags:             []string{"tn", "safe", "linux"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -2826,5 +3091,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, TTYRecordingCases...)
 	all = append(all, XtraceRedirectKeyloggerCases...)
 	all = append(all, ProcessSubstitutionBypassCases...)
+	all = append(all, LinuxCredentialStoreCases...)
 	return all
 }

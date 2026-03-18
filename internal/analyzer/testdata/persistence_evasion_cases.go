@@ -2705,6 +2705,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, CompletionCodeExecCases...)
 	all = append(all, ELFBinaryRewritingCases...)
 	all = append(all, PythonPthPersistenceCases...)
+	all = append(all, ToctouTempFileRaceCases...)
 	return all
 }
 
@@ -3635,5 +3636,238 @@ var PythonPthPersistenceCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Echo writing to a regular /tmp file — not a .pth file, not in site-packages. ALLOW from ts-allow-readonly.",
 		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// TOCTOU Check-Then-Execute on World-Writable Paths
+// Taxonomy: persistence-evasion/fileless-execution/toctou-temp-file-race
+//
+// The pattern `[ -f /tmp/script.sh ] && source /tmp/script.sh` is a classic
+// TOCTOU race condition (CWE-367). Between the existence check and the use,
+// an attacker can substitute the file with a malicious version. World-writable
+// directories (/tmp, /dev/shm, /var/tmp, /run) are especially dangerous.
+//
+// CWE-367 — Time-of-check Time-of-use (TOCTOU) Race Condition
+// CWE-377 — Insecure Temporary File
+// ---------------------------------------------------------------------------
+
+// ToctouTempFileRaceCases tests detection of TOCTOU race conditions in temp dirs.
+// Taxonomy: persistence-evasion/fileless-execution/toctou-temp-file-race
+var ToctouTempFileRaceCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	// TP-1: [ -f ] && source in /tmp — canonical TOCTOU
+	{
+		ID:               "TP-TOCTOU-001",
+		Command:          `[ -f /tmp/setup.sh ] && source /tmp/setup.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source in /tmp — classic TOCTOU race. File can be replaced between check and source. CWE-367.",
+		Tags:             []string{"canonical", "critical", "toctou"},
+	},
+	// TP-2: test -f && . (dot-source) in /tmp
+	{
+		ID:               "TP-TOCTOU-002",
+		Command:          `test -f /tmp/config.sh && . /tmp/config.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "test -f then dot-source in /tmp — TOCTOU with POSIX dot-source syntax. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-3: [[ -f ]] && source in /dev/shm (RAM-backed tmpfs)
+	{
+		ID:               "TP-TOCTOU-003",
+		Command:          `[[ -f /dev/shm/init.sh ]] && source /dev/shm/init.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source in /dev/shm — RAM-backed tmpfs is even more dangerous (files disappear on reboot, forensically volatile). CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-4: [ -f ] && bash in /var/tmp
+	{
+		ID:               "TP-TOCTOU-004",
+		Command:          `[ -f /var/tmp/installer.sh ] && bash /var/tmp/installer.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-bash in /var/tmp — TOCTOU with explicit shell execution. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-5: test -e && sh in /tmp
+	{
+		ID:               "TP-TOCTOU-005",
+		Command:          `test -e /tmp/deploy.sh && sh /tmp/deploy.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "test -e then sh in /tmp — existence check (-e) before shell execution. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-6: [ -x ] && exec in /tmp
+	{
+		ID:               "TP-TOCTOU-006",
+		Command:          `[ -x /tmp/binary ] && exec /tmp/binary`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check executable + exec in /tmp — replaces current process with temp file. Maximum TOCTOU impact. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-7: [ -f ] && chmod +x in /dev/shm
+	{
+		ID:               "TP-TOCTOU-007",
+		Command:          `[ -f /dev/shm/payload ] && chmod +x /dev/shm/payload`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-chmod+x in /dev/shm — makes a temp file executable after existence check. Pre-execution TOCTOU. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-8: [[ -r ]] && source in /run
+	{
+		ID:               "TP-TOCTOU-008",
+		Command:          `[[ -r /run/user/1000/env.sh ]] && source /run/user/1000/env.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source in /run — user runtime directory, often world-readable. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-9: test -f && zsh in /tmp
+	{
+		ID:               "TP-TOCTOU-009",
+		Command:          `test -f /tmp/hooks.zsh && zsh /tmp/hooks.zsh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "test -f then zsh execution in /tmp — TOCTOU with zsh shell. CWE-367.",
+		Tags:             []string{"tp", "critical", "toctou"},
+	},
+	// TP-10: check-then-read (AUDIT level) in /tmp
+	{
+		ID:               "TP-TOCTOU-010",
+		Command:          `[ -f /tmp/output.log ] && cat /tmp/output.log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-cat in /tmp — lower risk than execute but still TOCTOU. Content may differ from what was checked. AUDIT level. CWE-367.",
+		Tags:             []string{"tp", "toctou", "audit"},
+	},
+	// TP-11: check-then-read in /dev/shm (AUDIT)
+	{
+		ID:               "TP-TOCTOU-011",
+		Command:          `test -f /dev/shm/results.txt && head /dev/shm/results.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-head in /dev/shm — read-only TOCTOU. AUDIT level. CWE-367.",
+		Tags:             []string{"tp", "toctou", "audit"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	// TN-1: source from project directory (not world-writable)
+	{
+		ID:               "TN-TOCTOU-001",
+		Command:          `[ -f ./config.sh ] && source ./config.sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source in current directory — not a world-writable path. TOCTOU rules only target /tmp, /dev/shm, /var/tmp, /run.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-2: check-then-ls in /tmp (directory listing, not execute)
+	{
+		ID:               "TN-TOCTOU-002",
+		Command:          `[ -d /tmp/build ] && ls /tmp/build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check directory then ls — listing is not sourcing/executing. Does not match TOCTOU execute/source/read patterns.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-3: source from home directory
+	{
+		ID:               "TN-TOCTOU-003",
+		Command:          `test -f ~/.bashrc && source ~/.bashrc`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source ~/.bashrc — home directory is not world-writable. Standard shell init pattern.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-4: source from /etc (system config, not world-writable)
+	{
+		ID:               "TN-TOCTOU-004",
+		Command:          `[ -f /etc/profile.d/custom.sh ] && source /etc/profile.d/custom.sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source /etc/profile.d/ — system config directory, not world-writable. Standard login shell pattern.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-5: bash script from /usr/local/bin
+	{
+		ID:               "TN-TOCTOU-005",
+		Command:          `[ -x /usr/local/bin/my-tool ] && /usr/local/bin/my-tool`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-execute in /usr/local/bin — not a world-writable directory. Standard tool invocation.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-6: only test, no execute
+	{
+		ID:               "TN-TOCTOU-006",
+		Command:          `test -f /tmp/lockfile && echo "locked"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check /tmp file then echo — no source/bash/exec follows. TOCTOU execute rules do not trigger.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-7: source from project subdir
+	{
+		ID:               "TN-TOCTOU-007",
+		Command:          `[[ -f scripts/env.sh ]] && source scripts/env.sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "Check-then-source in project scripts/ dir — not a world-writable path.",
+		Tags:             []string{"tn", "safe", "toctou"},
+	},
+	// TN-8: mktemp (safe temp file creation)
+	{
+		ID:               "TN-TOCTOU-008",
+		Command:          `tmpfile=$(mktemp) && echo "data" > "$tmpfile"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/fileless-execution/toctou-temp-file-race",
+		Analyzer:         "regex",
+		Description:      "mktemp creates a unique temp file atomically — this is the SAFE alternative to TOCTOU patterns.",
+		Tags:             []string{"tn", "safe", "toctou"},
 	},
 }
