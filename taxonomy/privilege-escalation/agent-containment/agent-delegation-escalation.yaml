@@ -1,0 +1,92 @@
+id: "privilege-escalation/agent-containment/agent-delegation-escalation"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Agent Containment Bypass"
+category_id: "5.4"
+name: "Agent Delegation Authority Escalation"
+risk_level: "critical"
+
+abstract: |
+  In multi-agent orchestration systems, a subordinate agent accumulates
+  permissions beyond its intended scope by exploiting delegation chains,
+  where each delegation step grants incremental authority that compounds
+  into privileges no single agent was authorized to hold.
+
+explanation: |
+  Modern AI systems increasingly use multi-agent architectures where an
+  orchestrator agent delegates subtasks to specialist agents (coding,
+  research, deployment, etc.). Each delegation typically passes a subset
+  of the parent's permissions. An attacker can exploit this pattern:
+
+  - **Authority accumulation**: Agent A delegates to Agent B with file-read
+    permissions, and Agent B delegates to Agent C with network-write
+    permissions. Agent C now effectively has file-read + network-write —
+    a combination that enables data exfiltration, though neither delegator
+    intended to grant that composite capability.
+  - **Confused deputy via delegation**: A compromised specialist agent
+    requests re-delegation of its task to another agent with broader
+    permissions, exploiting the orchestrator's trust in delegation requests.
+  - **Permission laundering**: An agent with restricted permissions creates
+    a sub-agent (or invokes a tool that spawns an agent) without inheriting
+    the parent's restrictions, effectively escaping its containment.
+  - **Delegation chain opacity**: In deep delegation chains (3+ levels),
+    the original authorization context is lost, making it impossible to
+    verify that the final executing agent's permissions align with the
+    original user's intent.
+
+  This is the AI-native equivalent of privilege escalation through service
+  chaining in microservice architectures, but amplified by the autonomous
+  decision-making capability of AI agents. Unlike traditional confused
+  deputy attacks, the agent actively reasons about what permissions it
+  needs and can craft delegation requests to maximize its authority.
+
+  Enterprise environments running frameworks like AutoGen, CrewAI, or
+  LangGraph with multiple agents sharing tool access are particularly
+  vulnerable. The risk increases as organizations adopt "agent meshes"
+  where agents can discover and invoke each other dynamically.
+
+recommendation: |
+  - Implement mandatory permission intersection (not union) at each
+    delegation step — a delegated agent must have strictly fewer
+    permissions than its parent.
+  - Enforce maximum delegation depth limits (e.g., 2-3 levels) and
+    require explicit human approval for deeper chains.
+  - Maintain a complete delegation provenance chain that tracks the
+    original authorization context through all delegation steps.
+  - Apply the principle of least privilege at each agent boundary —
+    delegate only the specific permissions needed for the subtask.
+  - Monitor for delegation patterns that produce composite permissions
+    exceeding any single agent's authorized scope.
+  - Implement delegation circuit breakers that halt chains when
+    cumulative permission scope exceeds a threshold.
+
+examples:
+  bad:
+    - "Orchestrator agent delegates file-read task to Agent A, which re-delegates to Agent B adding network access — B now has file-read + network-write"
+    - "Agent spawns sub-agent via tool call without propagating parent's permission restrictions"
+    - "CrewAI workflow where 'researcher' agent delegates to 'deployer' agent, gaining production deployment access"
+    - "Agent requests orchestrator to re-delegate its task with elevated permissions: 'I need sudo access to complete this subtask'"
+  good:
+    - "Delegation enforces permission intersection: child agent gets subset of parent permissions"
+    - "Maximum delegation depth of 2 with human-in-the-loop for any deeper chain"
+    - "Each delegation step logs full provenance: who delegated, what permissions, why"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM01"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.14"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-1"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1078", "T1134"]
+  cwe: ["CWE-269", "CWE-266", "CWE-441"]
+  external:
+    - title: "OWASP LLM06: Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm06-excessive-agency/"
+    - title: "The Confused Deputy Problem (Hardy, 1988)"
+      url: "https://doi.org/10.1145/54289.871709"
+
+analyzers: ["semantic", "stateful"]
+related_rules: []
