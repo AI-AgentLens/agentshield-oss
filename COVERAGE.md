@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 616 |
+| Terminal rules | 649 |
 | MCP rules | 118 |
-| Total rules | 734 |
-| Test cases (TP+TN) | 1997 |
+| Total rules | 767 |
+| Test cases (TP+TN) | 2096 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -75,7 +75,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (103 rules)
+### data-exfiltration (108 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -176,6 +176,11 @@
 | `ts-audit-data-file-upload-to-llm-api` | AUDIT | regex | Uploading a structured data file via curl to an LLM API endpoint (-d @file) — potential AI data residency violation if file contains PII, PHI, or regulated data being sent to a non-compliant jurisdiction. OWASP LLM02. |
 | `ts-audit-agent-session-db-query` | AUDIT | regex | sqlite3 querying an AI agent session/conversation database — these databases may contain credentials, API keys, or PII from prior agent sessions, making them a cross-session data leakage vector. OWASP LLM02, MITRE T1552.001. |
 | `ts-audit-other-user-agent-memory-read` | AUDIT | regex | Reading another user's AI agent memory or session directory (/Users/<other>/.claude, .cursor, .windsurf) — cross-session context leakage: extracting credentials or PII persisted from another user's agent sessions. OWASP LLM02, MITRE T1005. |
+| `ts-audit-ai-conv-log-bulk-read` | AUDIT | regex | Reading AI conversation history files (Claude Code .claude/projects/, Cursor .cursor/conversations/, Copilot, Windsurf) — these files contain credentials, API keys, and PII shared in prior agent sessions. CWE-532, OWASP LLM02. |
+| `ts-audit-ai-conv-log-credential-mine` | AUDIT | regex | grep/ripgrep searching AI conversation log directories for credentials — systematic extraction of secrets from cached AI session histories. MITRE T1552.001, OWASP LLM02. |
+| `ts-block-ai-conv-log-archive` | BLOCK | regex | Archiving AI conversation log directories (tar/zip) — bulk collection of AI session histories for exfiltration. These archives contain accumulated credentials, PII, and proprietary code from all prior agent sessions. MITRE T1119, OWASP LLM02. |
+| `ts-block-ai-conv-log-exfil` | BLOCK | regex | AI conversation log content piped directly to a network exfiltration command — extracting and sending AI session histories containing credentials, PII, and proprietary code to external destinations. MITRE T1005+T1048, OWASP LLM02. |
+| `ts-block-ai-conv-log-stage` | BLOCK | regex | Copying AI conversation log directories to world-writable staging paths (/tmp, /dev/shm) — staging accumulated AI session histories (credentials, PII, source code) for subsequent exfiltration. MITRE T1074, OWASP LLM02. |
 | `ts-audit-model-artifact-scp-rsync` | AUDIT | regex | scp/rsync transferring AI model artifact files (.safetensors, .gguf, .pt, .onnx) to remote hosts — proprietary model weights, LoRA adapters, or quantized models represent high-value IP and should not be transferred without authorization. OWASP LLM02, MITRE T1048. |
 | `ts-audit-model-artifact-curl-upload` | AUDIT | regex | curl uploading model artifact files (.safetensors, .gguf, .pt) via multipart form or HTTP PUT — unauthorized exfiltration of proprietary AI model weights or adapters to external services. OWASP LLM02, MITRE T1048. |
 | `ts-audit-huggingface-cli-upload` | AUDIT | regex | huggingface-cli upload — pushing model artifacts to HuggingFace Hub may expose proprietary fine-tuned weights, LoRA adapters, or training datasets to public or unauthorized repositories. OWASP LLM02/LLM03. |
@@ -239,7 +244,7 @@
 | `ts-audit-ai-finetune-launch` | AUDIT | regex | AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285). |
 | `ts-audit-ai-model-publish` | AUDIT | regex | AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6). |
 
-### persistence-evasion (101 rules)
+### persistence-evasion (111 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -344,8 +349,18 @@
 | `ts-block-toctou-exec-tmp` | BLOCK | regex | Check-then-execute on a world-writable path — TOCTOU race window allows file substitution between the test and the shell execution. Attacker can replace the checked file with a payload. CWE-367, MITRE T1036.005. |
 | `ts-block-toctou-direct-exec-tmp` | BLOCK | regex | Check-then-direct-execute on a world-writable path — tests if file is executable then runs it directly. The same TOCTOU race applies: the file can be replaced between check and execution. CWE-367. |
 | `ts-audit-toctou-read-tmp` | AUDIT | regex | Check-then-read on a world-writable path — lower risk than execute but still a TOCTOU pattern. The read content may differ from what was checked. CWE-367. |
+| `ts-block-iptables-flush` | BLOCK | regex | Flushing iptables rules removes all firewall protections — equivalent to disabling the firewall entirely. -F clears rules, -X deletes custom chains, -Z zeroes counters (anti-forensics). MITRE T1562.004. |
+| `ts-block-nft-flush` | BLOCK | regex | nft flush/delete removes firewall rules — nftables equivalent of iptables -F. Destroys all packet filtering, NAT, and traffic shaping rules. MITRE T1562.004. |
+| `ts-block-iptables-accept-all` | BLOCK | regex | Setting iptables default policy to ACCEPT on a primary chain — effectively disables packet filtering for that direction. An agent should never weaken firewall default policies. MITRE T1562.004. |
+| `ts-block-iptables-nat-redirect` | BLOCK | regex | iptables NAT/redirect rule — can hijack traffic to a different destination (DNAT), masquerade origin (MASQUERADE/SNAT), or intercept connections transparently (TPROXY/REDIRECT). Enables MITM and covert channels. CWE-923. |
+| `ts-block-nft-nat-redirect` | BLOCK | regex | nftables NAT/redirect rule — nftables equivalent of iptables DNAT/SNAT/MASQUERADE/REDIRECT. Same traffic hijacking and covert channel risks. CWE-923. |
+| `ts-block-iptables-drop-security` | BLOCK | regex | Adding DROP rule to OUTPUT chain — can selectively block outbound connections to security update servers, EDR callbacks, or audit log forwarding endpoints. MITRE T1562.004. |
+| `ts-block-iptables-restore-tmp` | BLOCK | regex | Restoring firewall rules from world-writable directory — attacker can stage malicious ruleset in /tmp and trick agent into loading it. CWE-427. |
+| `ts-audit-iptables-modify` | AUDIT | regex | iptables rule modification — any firewall rule change by an AI agent warrants visibility. Even benign changes (opening a dev port) may create unintended exposure. |
+| `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
+| `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 
-### privilege-escalation (89 rules)
+### privilege-escalation (103 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -438,6 +453,20 @@
 | `ts-block-ld-library-path-poison` | BLOCK | regex | Exporting LD_LIBRARY_PATH pointing to a writable/temp directory — every subsequently launched binary searches this path first for shared libraries, enabling trojan library injection. Affects all child processes. MITRE T1574.007. |
 | `ts-audit-ld-library-path-export` | AUDIT | regex | Exporting LD_LIBRARY_PATH — changes shared library search order for all child processes. While sometimes legitimate (custom builds), it can be used for library hijacking. MITRE T1574.007. |
 | `ts-audit-chrpath` | AUDIT | regex | chrpath detected — tool for viewing and modifying RPATH/RUNPATH in ELF binaries. May indicate shared library hijacking preparation. MITRE T1574.006. |
+| `ts-block-sysctl-write-security` | BLOCK | regex | sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, or expose kernel addresses. CWE-250, MITRE T1562.001. |
+| `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. CWE-250. |
+| `ts-block-sysctl-load-custom` | BLOCK | regex | sysctl --load from world-writable directory — an attacker can stage a sysctl.conf in /tmp with malicious parameters and trick an agent into loading it. CWE-427. |
+| `ts-audit-sysctl-load` | AUDIT | regex | sysctl loading kernel parameters from configuration — may be legitimate system administration, but agents should rarely need to reload kernel parameters. |
+| `ts-block-core-pattern-pipe` | BLOCK | regex | Writing a pipe handler to kernel.core_pattern — when any process crashes, the kernel will execute the specified program with the core dump as stdin. This is a code execution primitive triggered by any segfault. CWE-78. |
+| `ts-block-binfmt-register` | BLOCK | regex | Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. All matching files system-wide will be routed through the attacker's handler. CWE-427, MITRE T1546.004. |
+| `ts-block-binfmt-modify` | BLOCK | regex | Writing to an existing binfmt_misc entry — can enable/disable or modify registered interpreters, disrupting expected execution behavior. |
+| `ts-block-binfmt-mount` | BLOCK | regex | Mounting binfmt_misc filesystem — prerequisite for registering custom interpreters. An AI agent should never need to mount kernel pseudo-filesystems. |
+| `ts-audit-binfmt-status` | AUDIT | regex | Reading binfmt_misc status — reconnaissance to discover registered interpreters. Low risk but unusual for an AI agent. |
+| `ts-block-setarch-aslr-disable` | BLOCK | regex | setarch with -R/--addr-no-randomize disables ASLR for the process tree — makes memory addresses predictable, enabling reliable exploitation of memory corruption vulnerabilities. CWE-693, MITRE T1562.001. |
+| `ts-block-setarch-read-implies-exec` | BLOCK | regex | setarch with -X/--read-implies-exec makes all readable memory pages executable — bypasses W^X (Write XOR Execute) protection, enabling code injection into data regions. CWE-693. |
+| `ts-block-setarch-mmap-page-zero` | BLOCK | regex | setarch with -Z/--mmap-page-zero allows mapping page zero — enables exploitation of null pointer dereference vulnerabilities by placing controlled data at address 0. CWE-476. |
+| `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
+| `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
 ### reconnaissance (55 rules)
 
@@ -499,7 +528,7 @@
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 
-### supply-chain (65 rules)
+### supply-chain (69 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -564,6 +593,10 @@
 | `sc-block-ai-endpoint-env-override` | BLOCK | regex | Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090). |
 | `sc-block-ai-endpoint-dotenv-write` | BLOCK | regex | Writing AI API endpoint env var to .env file — persisting endpoint override across sessions redirects all agent AI calls to attacker-controlled infrastructure (OWASP LLM08, MITRE T1565.001). |
 | `sc-block-ai-hosts-hijack` | BLOCK | regex | Appending AI API domain to /etc/hosts — overriding DNS resolution for api.openai.com or api.anthropic.com redirects agent AI calls at the network layer, bypassing TLS certificate validation context (OWASP LLM08, MITRE T1565, T1090). |
+| `sc-block-model-extraction-toolkit` | BLOCK | regex | Invocation of a known model extraction/stealing toolkit (knockoffnets, copycat-cnn, model-steal) — these tools systematically probe inference APIs to reconstruct proprietary model weights. No legitimate development use case. OWASP LLM03, EU AI Act Art.15. |
+| `sc-audit-logprob-collection-loop` | AUDIT | regex | Loop collecting logprob/token probability outputs from LLM API — logit distributions are the most informative signal for model weight reconstruction. Combined with systematic input variation, this pattern characterizes model extraction. OWASP LLM03, MITRE T1530. |
+| `sc-audit-bulk-embedding-collection` | AUDIT | regex | Python one-liner bulk-collecting embeddings and appending to file — systematic embedding extraction maps model representation space for surrogate training. Dual-use pattern (also used in legitimate eval pipelines) but warrants review. OWASP LLM03. |
+| `sc-audit-inference-loop-collect` | AUDIT | regex | High-count loop querying inference API endpoint and collecting outputs to file — loop+query+collect is the primary bash-level pattern for model extraction attacks. Review for model stealing activity. OWASP LLM03, MITRE T1530. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -855,12 +888,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 139 | 105 | 244 |
-| data-exfiltration | 181 | 108 | 289 |
+| data-exfiltration | 189 | 112 | 301 |
 | destructive-ops | 76 | 51 | 127 |
-| persistence-evasion | 200 | 124 | 324 |
-| privilege-escalation | 197 | 124 | 321 |
+| persistence-evasion | 226 | 128 | 354 |
+| privilege-escalation | 232 | 137 | 369 |
 | reconnaissance | 128 | 51 | 179 |
-| supply-chain | 93 | 67 | 160 |
+| supply-chain | 99 | 70 | 169 |
 | unauthorized-execution | 210 | 143 | 353 |
-| **Total** | **1224** | **773** | **1997** |
+| **Total** | **1299** | **797** | **2096** |
 
