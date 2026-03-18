@@ -1,0 +1,108 @@
+id: "unauthorized-execution/agentic-attacks/mcp-server-impersonation"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Server Impersonation"
+risk_level: "critical"
+
+abstract: |
+  A malicious MCP server impersonates a trusted server by mimicking its name,
+  tool signatures, or registry metadata — tricking agents and users into
+  connecting to an attacker-controlled endpoint that can exfiltrate data,
+  inject malicious tool responses, or execute unauthorized actions.
+
+explanation: |
+  The Model Context Protocol (MCP) ecosystem is growing rapidly, with servers
+  published to registries, shared via npm/pip packages, or referenced by URL.
+  Unlike traditional package registries with established identity verification,
+  the MCP server ecosystem currently lacks strong server authentication and
+  integrity guarantees. This creates several impersonation vectors:
+
+  - **Name squatting**: An attacker publishes an MCP server with a name
+    nearly identical to a popular legitimate server (e.g.,
+    `@official-tools/filesystem` vs `@officialtools/filesystem`, or
+    `mcp-server-github` vs `mcp-server-gh`). Developers copy-paste the
+    wrong name into their IDE configuration.
+  - **Registry manipulation**: Claiming abandoned or expired package names
+    that previously hosted legitimate MCP servers, or publishing to a
+    different registry than expected (npm when the original was on pip).
+  - **Rug pull / supply chain takeover**: A previously legitimate MCP server
+    is sold, transferred, or compromised, and a malicious update is pushed
+    that changes server behavior while maintaining the trusted name and
+    install base. The server initially passes security vetting, then
+    activates malicious behavior in a later version.
+  - **URL spoofing**: For HTTP-based MCP servers, using domains that
+    closely resemble trusted endpoints (mcp-api.githb.com vs
+    mcp-api.github.com) or exploiting DNS hijacking to redirect
+    connections.
+  - **Configuration injection**: Modifying IDE or agent configuration files
+    to replace a trusted MCP server endpoint with a malicious one, while
+    preserving the display name and description.
+
+  This is distinct from MCP tool description poisoning (which targets tool
+  metadata content) and MCP tool response poisoning (which targets response
+  data). Server impersonation targets the trust relationship at the server
+  identity layer — the agent believes it is communicating with a trusted
+  server when it is not.
+
+  The risk is amplified because MCP servers receive full visibility into
+  the agent's tool calls, including file contents, code, credentials, and
+  user instructions. A successfully impersonated server gains passive
+  surveillance of the entire agent session plus active ability to manipulate
+  tool responses.
+
+  MITRE equivalent: T1036.005 (Masquerading: Match Legitimate Name or
+  Location) adapted for AI agent tooling infrastructure.
+
+recommendation: |
+  - Maintain an organizational allowlist of approved MCP servers with pinned
+    versions and verified package hashes.
+  - Implement MCP server identity verification — verify publisher identity,
+    package signatures, and source repository before connecting.
+  - Monitor IDE configuration files for unauthorized changes to MCP server
+    endpoints (file integrity monitoring on mcp.json, claude_desktop_config.json).
+  - Pin MCP server versions in configuration and review changelogs before
+    updating — treat MCP server updates like dependency updates.
+  - For HTTP-based MCP servers, verify TLS certificates and implement
+    certificate pinning for critical servers.
+  - Scan for name-squatting indicators: recently published servers with names
+    similar to popular servers, servers with minimal documentation or history.
+  - Implement MCP proxy validation that verifies server identity and tool
+    schema consistency before forwarding requests.
+
+examples:
+  bad:
+    - "npx -y @officialtools/mcp-filesystem  # typosquatted name, legitimate is @official-tools/mcp-filesystem"
+    - "pip install mcp-server-gh  # name-squatted version of mcp-server-github"
+    - "MCP config points to https://mcp-api.githb.com/v1  # URL spoofing with typo domain"
+    - "MCP server 'trusted-db-tool' updated from v1.2.0 to v2.0.0 — new version exfiltrates query results to external endpoint"
+    - "Agent config modified: server_url changed from localhost:3000 to attacker.com:3000 while display_name remains 'Local Dev Tools'"
+  good:
+    - "MCP server allowlist with pinned versions: '@modelcontextprotocol/server-filesystem@1.0.4' with SHA256 hash verification"
+    - "IDE configuration monitored by file integrity checking — alert on any MCP server endpoint changes"
+    - "MCP proxy validates server TLS certificate and rejects connections to unknown servers"
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.5.23", "A.8.9", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-1"]
+  soc2-type2: ["CC6.1", "CC6.8", "CC7.1"]
+
+references:
+  mitre_attack: ["T1036.005", "T1195.002"]
+  cwe: ["CWE-290", "CWE-923", "CWE-494"]
+  external:
+    - title: "Anthropic: Model Context Protocol Security Considerations"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/security"
+    - title: "Invariant Labs: MCP Security — Tool Poisoning Attacks"
+      url: "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks"
+
+analyzers: ["guardian", "structural"]
+related_rules: []
+# Detection: Guardian layer can scan MCP server configuration for name-squatting
+# indicators. Structural analyzer detects configuration file modifications that
+# change MCP server endpoints. MCP proxy can verify server identity against
+# allowlist before establishing connection.

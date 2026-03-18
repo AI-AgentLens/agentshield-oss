@@ -25,6 +25,10 @@ AI service providers. (Risk: high)
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **Training Data Extraction from Models** — Systematic querying of an AI model to extract memorized training data —
 including PII, proprietary source code, medical records, or confidential
 business information — that the model inadvertently retained during training. (Risk: high)
@@ -115,6 +119,10 @@ infrastructure footprint on their own servers. (Risk: high)
 CLAUDE.md, .github/copilot-instructions.md, .aider.conf.yml, .continuerc.json,
 .gemini/settings.json) to inject persistent directives that alter the behavior
 of all future agent sessions operating on the repository or workspace. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Persistent Memory Poisoning** — Injecting malicious instructions or false context into an AI agent's
 persistent memory system (CLAUDE.md files, memory databases, context
 stores) to manipulate the agent's behavior in future sessions, achieving
@@ -224,6 +232,10 @@ AI service providers. (Risk: high)
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -345,6 +357,10 @@ lifecycle. (Risk: high)
 - **Shell Profile Backdoor** — An AI agent modifies shell startup scripts (.bashrc, .zshrc, .bash_profile, .profile,
 etc.) to inject commands that execute automatically on every new terminal session,
 establishing persistent code execution that survives process restarts. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -383,6 +399,9 @@ resources to the agent's user. (Risk: high)
 - **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
 privilege escalation backdoor: any user who runs the file gains the file owner's
 (typically root's) privileges for the duration of the process. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Database Schema Enumeration** — Database schema enumeration uses introspection queries against
 information_schema, pg_catalog, or SHOW TABLES/DATABASES to map table
 structures, column names, and relationships — establishing the intelligence
@@ -479,6 +498,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety
@@ -683,6 +706,10 @@ lifecycle. (Risk: high)
 - **Shell Profile Backdoor** — An AI agent modifies shell startup scripts (.bashrc, .zshrc, .bash_profile, .profile,
 etc.) to inject commands that execute automatically on every new terminal session,
 establishing persistent code execution that survives process restarts. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -721,6 +748,9 @@ resources to the agent's user. (Risk: high)
 - **SUID/SGID Bit Set** — Setting the SUID or SGID permission bit on an executable creates a persistent
 privilege escalation backdoor: any user who runs the file gains the file owner's
 (typically root's) privileges for the duration of the process. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Web Application Vulnerability Scanning** — Automated vulnerability scanning tools probe web applications for thousands
 of known CVEs, misconfigurations, and injection flaws. These tools go beyond
 reconnaissance into active exploitation attempts and must never be run by AI
@@ -752,6 +782,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety

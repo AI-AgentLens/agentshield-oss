@@ -7,6 +7,10 @@
 
 [View on OWASP](https://airc.nist.gov/RMF/1)
 
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -34,6 +38,10 @@ workflows. (Risk: high)
 - **CI/CD Pipeline Configuration Write** — An AI agent writes or modifies CI/CD pipeline configuration files
 (e.g., `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`),
 potentially injecting malicious steps that execute during automated builds. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **eBPF Kernel Surveillance** — Attaching eBPF programs to the kernel enables real-time interception of
 syscalls, user-space memory, network packets, and TLS plaintext — all without
 the visibility of traditional rootkits and without requiring CAP_SYS_MODULE. (Risk: critical)
@@ -75,6 +83,10 @@ cross-session persistence without modifying the agent's code. (Risk: high)
 into a composite workflow that achieves a harmful outcome — each step
 passes security checks in isolation, but the overall chain constitutes
 an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **Multi-Agent Trust Exploitation** — An attacker compromises or manipulates one AI agent in a multi-agent system
 to influence the behavior of other agents through shared context, tool
 outputs, handoff messages, or shared memory — exploiting implicit trust
@@ -235,6 +247,10 @@ AI service providers. (Risk: high)
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -341,6 +357,10 @@ prompts, or (2) directly injecting an attacker-controlled public key into
 techniques grant durable, password-free remote access. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -356,6 +376,9 @@ it full host capabilities and effectively removing all container isolation. (Ris
 resources — ClusterRoleBindings, RoleBindings, or ClusterRoles — to grant
 elevated permissions to a user, service account, or itself, achieving persistent
 cluster-admin access that survives container restarts. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Model Deserialization Code Execution** — An attacker distributes a malicious AI model file (pickle, PyTorch, joblib,
 or other serialization format) that executes arbitrary code when loaded by
 a developer or agent, exploiting unsafe deserialization in ML frameworks. (Risk: critical)
@@ -368,6 +391,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety
@@ -419,6 +446,10 @@ memory stores, shared caches, conversation logs, or vector databases. (Risk: hig
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **Training Data Extraction from Models** — Systematic querying of an AI model to extract memorized training data —
 including PII, proprietary source code, medical records, or confidential
 business information — that the model inadvertently retained during training. (Risk: high)
@@ -697,6 +728,9 @@ debugging interfaces (ptrace, gdb) or direct /proc filesystem access. (Risk: cri
 - **Cross-Session Context Leakage** — Sensitive data from one AI agent session (credentials, PII, proprietary code)
 leaks into subsequent sessions or other users' contexts through persistent
 memory stores, shared caches, conversation logs, or vector databases. (Risk: high)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Shadow AI Deployment and Usage** — Developers or employees deploy or connect to AI models, agents, or MCP
 servers without organizational approval — creating unregistered, unmonitored
 AI systems that bypass security controls, compliance requirements, and
@@ -748,10 +782,17 @@ including attacker-controlled forks or mirrors, using the authentication already
 configured in the local git credential store. (Risk: high)
 - **Shell History Clearing** — Commands that disable, clear, or redirect shell history files to destroy
 evidence of an agent's command activity and evade forensic investigation. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
 resources, or system capabilities outside its permitted scope. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Database Schema Enumeration** — Database schema enumeration uses introspection queries against
 information_schema, pg_catalog, or SHOW TABLES/DATABASES to map table
 structures, column names, and relationships — establishing the intelligence
@@ -832,6 +873,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety

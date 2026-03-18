@@ -43,6 +43,10 @@ AI service providers. (Risk: high)
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **System Prompt Exfiltration** — An AI agent reading system prompt files or environment variables containing
 system prompt content, and transmitting that data via network requests or
 writing it to exfiltration paths, exposes confidential operator instructions
@@ -132,6 +136,10 @@ memory stores, shared caches, conversation logs, or vector databases. (Risk: hig
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **AWS IAM User or Role Deletion** — An AI agent deletes an AWS IAM user or role, potentially breaking authentication,
 authorization chains, and service-to-service trust relationships. (Risk: high)
 - **Agent Instruction File Tampering** — An AI agent or attacker modifies AI instruction files (.cursorrules,
@@ -155,6 +163,10 @@ prompts, or (2) directly injecting an attacker-controlled public key into
 techniques grant durable, password-free remote access. (Risk: high)
 - **AT/Batch Job Scheduling** — An AI agent schedules a deferred or background job using `at` or `batch`,
 creating a persistent task that executes outside the current session context. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -170,10 +182,17 @@ it full host capabilities and effectively removing all container isolation. (Ris
 resources — ClusterRoleBindings, RoleBindings, or ClusterRoles — to grant
 elevated permissions to a user, service account, or itself, achieving persistent
 cluster-admin access that survives container restarts. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Autonomous Harmful Tool Composition** — An AI agent sequences multiple individually-safe tool calls or commands
 into a composite workflow that achieves a harmful outcome — each step
 passes security checks in isolation, but the overall chain constitutes
 an attack (data exfiltration, privilege escalation, or system compromise). (Risk: high)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **Shadow AI Deployment and Usage** — Developers or employees deploy or connect to AI models, agents, or MCP
 servers without organizational approval — creating unregistered, unmonitored
 AI systems that bypass security controls, compliance requirements, and
@@ -227,6 +246,10 @@ lifecycle. (Risk: high)
 - **Shell Profile Backdoor** — An AI agent modifies shell startup scripts (.bashrc, .zshrc, .bash_profile, .profile,
 etc.) to inject commands that execute automatically on every new terminal session,
 establishing persistent code execution that survives process restarts. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -345,6 +368,10 @@ techniques: (1) generating passwordless SSH key pairs by bypassing passphrase
 prompts, or (2) directly injecting an attacker-controlled public key into
 `~/.ssh/authorized_keys` — without necessarily generating a new key. Both
 techniques grant durable, password-free remote access. (Risk: high)
+- **Agent Credential Scope Abuse** — An AI agent uses credentials (API tokens, OAuth tokens, SSH keys) that were
+granted for a specific purpose to perform actions outside the intended scope —
+exploiting overly broad credential permissions to access resources, modify
+configurations, or escalate privileges beyond the agent's authorized role. (Risk: high)
 - **Agent Sandbox Escape** — An AI agent escapes its designated sandbox or workspace boundaries by
 exploiting tool capabilities, path traversal, symlink following, environment
 variable manipulation, or indirect execution to access files, network
@@ -423,6 +450,10 @@ memory stores, shared caches, conversation logs, or vector databases. (Risk: hig
 information by inverting or probing embedding vectors — reconstructing
 original text from dense vector representations through systematic API
 queries or direct access to embedding model outputs. (Risk: high)
+- **Model Artifact Exfiltration** — An attacker exfiltrates proprietary AI model artifacts — fine-tuned weights,
+LoRA adapters, quantized models, tokenizer configurations, or training
+datasets — via shell commands that copy, compress, or transmit model files
+to external destinations. (Risk: critical)
 - **Training Data Extraction from Models** — Systematic querying of an AI model to extract memorized training data —
 including PII, proprietary source code, medical records, or confidential
 business information — that the model inadvertently retained during training. (Risk: high)
@@ -545,6 +576,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety
@@ -652,6 +687,9 @@ of all future agent sessions operating on the repository or workspace. (Risk: hi
 - **AI Audit Trail Circumvention** — Tampering with, disabling, or circumventing AI agent audit logs and decision
 records that are required for regulatory compliance, incident investigation,
 and organizational accountability. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **CI/CD Pipeline Configuration Injection** — An AI agent writes to CI/CD pipeline configuration files (GitHub Actions,
 GitLab CI, Jenkinsfile, CircleCI, etc.), potentially injecting malicious
 build steps that run during the automated build and release process. (Risk: critical)
@@ -686,6 +724,10 @@ documents, emails, code comments, issue trackers) that an AI agent retrieves
 during normal operation. The agent interprets these instructions as legitimate
 directives, leading to unauthorized actions — data exfiltration, safety
 bypass, or arbitrary code execution — without the user's knowledge. (Risk: critical)
+- **MCP Server Impersonation** — A malicious MCP server impersonates a trusted server by mimicking its name,
+tool signatures, or registry metadata — tricking agents and users into
+connecting to an attacker-controlled endpoint that can exfiltrate data,
+inject malicious tool responses, or execute unauthorized actions. (Risk: critical)
 - **MCP Tool Description Poisoning** — A malicious or compromised MCP server injects hidden instructions into tool
 descriptions, parameter descriptions, or response metadata that manipulate
 the AI agent's behavior — causing it to exfiltrate data, bypass safety
@@ -722,6 +764,9 @@ evidence of malicious activity and impede incident response. (Risk: critical)
 - **eBPF Kernel Surveillance** — Attaching eBPF programs to the kernel enables real-time interception of
 syscalls, user-space memory, network packets, and TLS plaintext — all without
 the visibility of traditional rootkits and without requiring CAP_SYS_MODULE. (Risk: critical)
+- **Agent Capability Enumeration** — Systematic probing of an AI agent's available tools, file system access,
+network capabilities, and permission boundaries to map the attack surface
+before launching targeted exploitation. (Risk: medium)
 - **Adversarial Embedding Manipulation** — An attacker crafts documents or inputs designed to produce specific vector
 embeddings that manipulate retrieval-augmented generation (RAG) systems —
 ensuring poisoned content is retrieved for targeted queries and injected
