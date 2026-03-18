@@ -246,7 +246,7 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 
 ### Taxonomy
 
-`taxonomy/` contains 135 YAML entries organized by 8 kingdoms, each mapping to OWASP LLM Top 10 2025. `internal/taxonomy/` handles loading and compliance index generation.
+`taxonomy/` contains 139 YAML entries organized by 8 kingdoms, each mapping to OWASP LLM Top 10 2025. `internal/taxonomy/` handles loading and compliance index generation.
 
 ## Automated Rule Generation
 
