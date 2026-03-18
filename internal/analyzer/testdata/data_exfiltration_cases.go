@@ -2329,7 +2329,69 @@ func AllDataExfiltrationCases() []TestCase {
 	all = append(all, JournalctlExtractionCases...)
 	all = append(all, CrossContextDataContaminationCases...)
 	all = append(all, EmbeddingInversionCases...)
+	all = append(all, SteganographicAIOutputCases...)
 	return all
+}
+
+// SteganographicAIOutputCases tests detection of steganographic exfiltration via AI artifacts.
+// Taxonomy: data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output
+var SteganographicAIOutputCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-STEG-AI-001",
+		Command:          `steghide embed -cf generated_image.jpg -sf /tmp/secrets.txt -p "passphrase"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
+		Analyzer:         "structural",
+		Description:      "steghide embed — embedding secrets in a JPG file enables exfiltration through AI-generated image artifacts.",
+		Tags:             []string{"tp", "steganography", "steghide"},
+	},
+	{
+		ID:               "TP-STEG-AI-002",
+		Command:          `stegsnow -C -m "hide this secret message" cover.txt output.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
+		Analyzer:         "structural",
+		Description:      "stegsnow encoding text into whitespace of a text file — covert data encoding in AI-generated text output.",
+		Tags:             []string{"tp", "steganography", "stegsnow"},
+	},
+	{
+		ID:               "TP-STEG-AI-003",
+		Command:          `printf '\u200b\u200c\u200b\u200b\u200c' >> src/auth.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
+		Analyzer:         "regex",
+		Description:      "Zero-width Unicode characters appended to Python source — invisible bit-encoding in source code survives code review.",
+		Tags:             []string{"tp", "steganography", "zero-width-chars", "source-injection"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-STEG-AI-001",
+		Command:          `convert image.png -quality 85 output.jpg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
+		Analyzer:         "structural",
+		Description:      "ImageMagick convert for JPEG compression — ts-audit-steganography-tool should NOT trigger (convert is not a steg tool).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-STEG-AI-002",
+		Command:          `echo "Check steghide documentation for image formats" >> README.md`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
+		Analyzer:         "structural",
+		Description:      "echo mentioning 'steghide' in documentation — string in a doc write, not execution of steghide.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
 
 // ---------------------------------------------------------------------------
