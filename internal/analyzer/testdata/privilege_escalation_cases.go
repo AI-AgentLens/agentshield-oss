@@ -2436,5 +2436,282 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, RuntimeCodeInjectCases...)
 	all = append(all, HomeRedirectCases...)
 	all = append(all, WildcardInjectionCases...)
+	all = append(all, CgroupReleaseAgentCases...)
+	all = append(all, UserNamespaceMapCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// cgroup v1 release_agent Container Escape (CVE-2022-0492)
+// Taxonomy: privilege-escalation/container-escape/cgroup-release-agent
+//
+// The cgroup v1 release_agent mechanism executes a binary as root on
+// the HOST when the last process in a cgroup exits and notify_on_release
+// is set. This is the most reliable container escape technique:
+//
+//   1. Mount cgroup filesystem
+//   2. Create a child cgroup
+//   3. Set notify_on_release = 1
+//   4. Write attacker payload path to release_agent
+//   5. Move a process into the cgroup, then exit it → payload runs as root
+//
+// CVE-2022-0492 demonstrated this works even without CAP_SYS_ADMIN
+// in some configurations.
+// ---------------------------------------------------------------------------
+
+var CgroupReleaseAgentCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be BLOCKED ---
+
+	{
+		ID:               "TP-CGROUP-RA-001",
+		Command:          `echo /tmp/payload.sh > /tmp/cgrp/release_agent`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Classic cgroup release_agent write — sets the host-level binary that runs when the cgroup empties. Step 4 of the container escape chain.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "critical", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-CGROUP-RA-002",
+		Command:          `cat /sys/fs/cgroup/rdma/release_agent`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Reading cgroup release_agent — reconnaissance to check if an escape path is already configured. Even reading this file indicates container escape intent.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-CGROUP-RA-003",
+		Command:          `echo 1 > /tmp/cgrp/x/notify_on_release`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Enabling notify_on_release on a cgroup — arms the release_agent trigger. Without this, the release_agent binary is never executed.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-CGROUP-RA-004",
+		Command:          `mount -t cgroup -o rdma cgroup /tmp/cgrp`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Mounting cgroup filesystem with rdma controller — step 1 of the release_agent escape. The rdma controller is commonly used because it's often available and writable.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-CGROUP-RA-005",
+		Command:          `mount -t cgroup -o memory cgroup /mnt/cgroup`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Mounting cgroup filesystem with memory controller — alternative controller for the escape. Any cgroup v1 controller with release_agent support works.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-CGROUP-RA-006",
+		Command:          `sed -i 's/notify_on_release.*/notify_on_release 1/' /sys/fs/cgroup/cpu/docker/x/notify_on_release`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Using sed to modify notify_on_release — evasion of simple echo detection by using sed to set the flag. Same effect as echo 1 >.",
+		Tags:             []string{"tp", "container-escape", "cgroup", "evasion", "opus-deepdive"},
+	},
+
+	// --- TRUE NEGATIVES: Must be ALLOWED or AUDIT (not BLOCK) ---
+
+	{
+		ID:               "TN-CGROUP-RA-001",
+		Command:          `cat /proc/self/cgroup`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Reading own cgroup membership — standard container introspection. Does not reference release_agent or notify_on_release.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-CGROUP-RA-002",
+		Command:          `systemd-cgls`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "systemd-cgls lists cgroup hierarchy — read-only diagnostic tool, gets default AUDIT but NOT BLOCK from cgroup rules.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-CGROUP-RA-003",
+		Command:          `cat /sys/fs/cgroup/memory/memory.usage_in_bytes`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Reading memory cgroup usage — legitimate monitoring. Must not false-positive on /sys/fs/cgroup paths that don't involve release_agent.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-CGROUP-RA-004",
+		Command:          `mount -t tmpfs tmpfs /tmp/test`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Mounting tmpfs — not a cgroup mount. Must not trigger cgroup mount rule. Gets AUDIT from existing mount rules.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-CGROUP-RA-005",
+		Command:          `echo $$ > /sys/fs/cgroup/cpu/tasks`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
+		Analyzer:         "regex",
+		Description:      "Writing PID to cgroup tasks — legitimate cgroup management (e.g., resource limits). Does not involve release_agent or notify_on_release.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// User Namespace UID/GID Map Manipulation
+// Taxonomy: privilege-escalation/container-escape/user-namespace-map
+//
+// Writing to /proc/self/uid_map and /proc/self/gid_map inside a user
+// namespace maps external UIDs/GIDs to namespace-internal UIDs. The
+// classic attack:
+//
+//   echo "0 1000 1" > /proc/self/uid_map
+//   → "I am UID 0 (root) inside this namespace, mapped to UID 1000 outside"
+//
+// This grants CAP_SYS_ADMIN and other root capabilities inside the
+// namespace, which can be chained with kernel exploits or mount
+// operations for full privilege escalation.
+//
+// /proc/self/setgroups must be set to "deny" before gid_map can be
+// written in unprivileged user namespaces (kernel hardening since 3.19).
+// ---------------------------------------------------------------------------
+
+var UserNamespaceMapCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be BLOCKED ---
+
+	{
+		ID:               "TP-USERNS-MAP-001",
+		Command:          `echo "0 1000 1" > /proc/self/uid_map`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Classic uid_map write — maps UID 0 (root) inside namespace to UID 1000 outside. Grants root capabilities inside the namespace.",
+		Tags:             []string{"tp", "container-escape", "userns", "critical", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-USERNS-MAP-002",
+		Command:          `echo "0 0 65536" > /proc/self/gid_map`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "gid_map write mapping all GIDs — maps GID 0 (root group) plus 65536 GIDs into namespace. Full group access inside namespace.",
+		Tags:             []string{"tp", "container-escape", "userns", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-USERNS-MAP-003",
+		Command:          `echo "deny" > /proc/self/setgroups`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Writing deny to /proc/self/setgroups — prerequisite for unprivileged gid_map writes. Part of the user namespace escalation chain.",
+		Tags:             []string{"tp", "container-escape", "userns", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-USERNS-MAP-004",
+		Command:          `python3 -c "open('/proc/self/uid_map','w').write('0 1000 1')"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Python writing uid_map — evasion attempt using Python instead of shell redirect. Same effect as echo > uid_map.",
+		Tags:             []string{"tp", "container-escape", "userns", "evasion", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-USERNS-MAP-005",
+		Command:          `cat /proc/1234/uid_map`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Reading another process's uid_map — reconnaissance for namespace escape. Reveals the UID mapping of a target process.",
+		Tags:             []string{"tp", "container-escape", "userns", "recon", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-USERNS-MAP-006",
+		Command:          `CLONE_NEWUSER=0x10000000; unshare --user bash -c 'echo "0 $(id -u) 1" > /proc/self/uid_map'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Full namespace escalation chain — unshare into user namespace then write uid_map to become root inside. Matches both namespace-escape and uid_map rules.",
+		Tags:             []string{"tp", "container-escape", "userns", "chain", "opus-deepdive"},
+	},
+
+	// --- TRUE NEGATIVES: Must be ALLOWED or AUDIT (not BLOCK from these rules) ---
+
+	{
+		ID:               "TN-USERNS-MAP-001",
+		Command:          `cat /proc/self/status | grep -i uid`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Reading own UID from /proc/self/status — standard identity check. Does not reference uid_map.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-USERNS-MAP-002",
+		Command:          `id -u`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "id -u shows current UID — basic identity command with no namespace manipulation.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-USERNS-MAP-003",
+		Command:          `cat /proc/self/status`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "Reading /proc/self/status — shows UID/GID info but does not reference uid_map or gid_map. Must not trigger namespace map rules.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-USERNS-MAP-004",
+		Command:          `whoami`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "whoami shows current user — basic identity command with no namespace manipulation.",
+		Tags:             []string{"tn", "safe", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-USERNS-MAP-005",
+		Command:          `docker run --user 1000:1000 alpine id`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/user-namespace-map",
+		Analyzer:         "regex",
+		Description:      "docker run with --user flag — legitimate container user specification. Gets AUDIT from docker rules but NOT BLOCK from uid_map rules.",
+		Tags:             []string{"tn", "safe", "docker", "opus-deepdive"},
+	},
 }

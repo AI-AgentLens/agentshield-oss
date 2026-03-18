@@ -1788,5 +1788,175 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, DBSchemaEnumCases...)
 	all = append(all, InternalServiceProbeCases...)
 	all = append(all, CloudInfraReconCases...)
+	all = append(all, InotifySurveillanceCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// inotify/fanotify Filesystem Surveillance
+// Taxonomy: reconnaissance/filesystem-surveillance/*
+//
+// inotifywait and fanotify provide real-time filesystem event
+// monitoring. While useful for build tools (e.g., watching src/ for
+// changes), they become surveillance tools when pointed at:
+//
+//   - Credential directories (~/.ssh, ~/.aws, ~/.gnupg)
+//   - System auth files (/etc/shadow, /etc/passwd)
+//   - Home directories with recursive + persistent flags
+//
+// An attacker uses inotifywait to detect the exact moment a secret
+// is written, then immediately exfiltrates it — a TOCTOU-style attack
+// on the credential lifecycle.
+//
+// fanotify is the kernel-level equivalent (FAN_MARK_MOUNT watches an
+// entire mount point), accessible via Python ctypes or C.
+// ---------------------------------------------------------------------------
+
+var InotifySurveillanceCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be BLOCKED ---
+
+	{
+		ID:               "TP-INOTIFY-001",
+		Command:          `inotifywait -m -r ~/.ssh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Persistent recursive monitoring of ~/.ssh — watches for new key creation, config changes, and agent socket access in real-time.",
+		Tags:             []string{"tp", "surveillance", "inotify", "critical", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-002",
+		Command:          `inotifywait -e modify,create -m ~/.aws/credentials`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Watching AWS credentials file for modifications — enables instant exfiltration when tokens are rotated or new profiles added.",
+		Tags:             []string{"tp", "surveillance", "inotify", "aws", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-003",
+		Command:          `inotifywait -m -r --format '%w%f %e' ~/.gnupg`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Monitoring GPG keyring directory with output formatting — surveillance of encryption key operations.",
+		Tags:             []string{"tp", "surveillance", "inotify", "gpg", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-004",
+		Command:          `inotifywait -m -e access /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Watching /etc/shadow for access events — detects when authentication services read the password file, enabling timing attacks.",
+		Tags:             []string{"tp", "surveillance", "inotify", "passwd", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-005",
+		Command:          `inotifywait -m -r --recursive / --exclude '/proc|/sys'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-persistent-monitor",
+		Analyzer:         "regex",
+		Description:      "Recursive persistent watch on root filesystem — surveils all file operations system-wide. Even with /proc excluded, this is whole-system surveillance.",
+		Tags:             []string{"tp", "surveillance", "inotify", "broad", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-006",
+		Command:          `inotifywait -m -r ~/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-persistent-monitor",
+		Analyzer:         "regex",
+		Description:      "Recursive persistent watch on entire home directory — monitors all user file operations including credentials, code, and personal data.",
+		Tags:             []string{"tp", "surveillance", "inotify", "home", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-007",
+		Command:          `python3 -c "import ctypes; libc=ctypes.CDLL(None); libc.fanotify_init(0x00000010,0); libc.fanotify_mark(3, 0x00000100, 0, -1, b'/')"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/fanotify-mount-watch",
+		Analyzer:         "regex",
+		Description:      "Python fanotify_init + FAN_MARK_MOUNT — kernel-level filesystem surveillance watching an entire mount point. More powerful than inotify.",
+		Tags:             []string{"tp", "surveillance", "fanotify", "python", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-008",
+		Command:          `inotifywait -m -e create,modify ~/.kube/config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Watching Kubernetes config for changes — monitors for new cluster credentials and context switches.",
+		Tags:             []string{"tp", "surveillance", "inotify", "kube", "opus-deepdive"},
+	},
+	{
+		ID:               "TP-INOTIFY-009",
+		Command:          `inotifywait -m -r -e modify /home/user/.env`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-credential-watch",
+		Analyzer:         "regex",
+		Description:      "Monitoring .env file for modifications — watches for environment variable changes containing API keys and secrets.",
+		Tags:             []string{"tp", "surveillance", "inotify", "env", "opus-deepdive"},
+	},
+
+	// --- TRUE NEGATIVES: Must be ALLOWED or AUDIT (not BLOCK) ---
+
+	{
+		ID:               "TN-INOTIFY-001",
+		Command:          `inotifywait -e modify src/main.go`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-general",
+		Analyzer:         "regex",
+		Description:      "Watching a source file for changes — legitimate development workflow (e.g., auto-rebuild on save). Gets AUDIT from general inotifywait rule but NOT BLOCK.",
+		Tags:             []string{"tn", "safe", "development", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-INOTIFY-002",
+		Command:          `ls /proc/sys/fs/inotify`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-general",
+		Analyzer:         "regex",
+		Description:      "Listing inotify sysctl directory — diagnostic check, no active monitoring. Must not trigger inotifywait rules.",
+		Tags:             []string{"tn", "safe", "development", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-INOTIFY-003",
+		Command:          `ls /proc/sys/fs/inotify/max_user_watches`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-general",
+		Analyzer:         "regex",
+		Description:      "Checking inotify limits — common debugging step when editors/IDEs hit watch limits. No active monitoring.",
+		Tags:             []string{"tn", "safe", "debugging", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-INOTIFY-004",
+		Command:          `inotifywait -e modify ./build/output.log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-general",
+		Analyzer:         "regex",
+		Description:      "Watching a build output log — legitimate CI/build monitoring. Gets AUDIT but not BLOCK since path is non-sensitive.",
+		Tags:             []string{"tn", "safe", "build", "opus-deepdive"},
+	},
+	{
+		ID:               "TN-INOTIFY-005",
+		Command:          `echo "inotify watches: $(cat /proc/sys/fs/inotify/max_user_watches)"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/inotify-general",
+		Analyzer:         "regex",
+		Description:      "Printing inotify max watches count — diagnostic command. Must not trigger on the string 'inotify' alone.",
+		Tags:             []string{"tn", "safe", "diagnostic", "opus-deepdive"},
+	},
 }

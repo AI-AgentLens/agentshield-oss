@@ -3514,3 +3514,168 @@ rules:
     decision: "BLOCK"
     confidence: 0.92
     reason: "Node.js Buffer.from(...,'hex') with exec/spawn in one-liner — hex-decodes commands at runtime to evade static detection. MITRE T1027.013."
+
+  # ===================================================================
+  # BLOCK: cgroup v1 release_agent container escape (CVE-2022-0492)
+  # ===================================================================
+  #
+  # In cgroup v1, when a cgroup's last process exits and
+  # notify_on_release is set to 1, the kernel executes the path
+  # specified in the "release_agent" file as root. This is the
+  # classic container escape:
+  #
+  #   1. mkdir /tmp/cgrp && mount -t cgroup -o rdma cgroup /tmp/cgrp
+  #   2. mkdir /tmp/cgrp/x
+  #   3. echo 1 > /tmp/cgrp/x/notify_on_release
+  #   4. echo /path/to/payload > /tmp/cgrp/release_agent
+  #   5. echo $$ > /tmp/cgrp/x/cgroup.procs  (trigger)
+  #
+  # The release_agent runs on the HOST, not in the container, giving
+  # full host root access. CVE-2022-0492 showed this works even in
+  # unprivileged containers if cgroup v1 is mounted.
+  #
+  # Also covers: writing to notify_on_release (step 3 of the chain),
+  # mounting cgroup filesystems (step 1), and cgroup.procs manipulation.
+
+  - id: "ts-block-cgroup-release-agent-write"
+    taxonomy: "privilege-escalation/container-escape/cgroup-release-agent"
+    match:
+      command_regex: "release_agent"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to cgroup release_agent — the kernel executes this path as root when the cgroup empties (CVE-2022-0492). Classic container-to-host escape. MITRE T1611."
+
+  - id: "ts-block-cgroup-notify-on-release"
+    taxonomy: "privilege-escalation/container-escape/cgroup-release-agent"
+    match:
+      command_regex: "notify_on_release"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Enabling cgroup notify_on_release — prerequisite for the release_agent container escape. When set to 1, the kernel will invoke release_agent when the cgroup becomes empty. MITRE T1611."
+
+  - id: "ts-block-cgroup-mount"
+    taxonomy: "privilege-escalation/container-escape/cgroup-release-agent"
+    match:
+      command_regex: "mount\\s+.*-t\\s+cgroup"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Mounting cgroup filesystem — first step of the cgroup release_agent container escape chain. Provides access to cgroup control files on the host. MITRE T1611."
+
+  - id: "ts-audit-cgroup-procs-write"
+    taxonomy: "privilege-escalation/container-escape/cgroup-release-agent"
+    match:
+      command_regex: "cgroup\\.procs"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Accessing cgroup.procs — writing a PID here triggers the release_agent if notify_on_release is set. Also used legitimately in container tooling, so AUDIT rather than BLOCK. MITRE T1611."
+
+  # ===================================================================
+  # BLOCK: inotifywait/fanotify filesystem surveillance
+  # ===================================================================
+  #
+  # inotifywait monitors filesystem events (create, modify, access,
+  # delete) on specified paths. An attacker can use it to:
+  #
+  #   - Watch ~/.ssh/ for new key creation, then exfiltrate immediately
+  #   - Monitor ~/.aws/credentials for writes, steal tokens in real-time
+  #   - Watch /tmp for predictable filenames (TOCTOU exploitation)
+  #   - Surveil log files to detect when alerts fire
+  #
+  # The -m (monitor) flag runs indefinitely, making it a persistent
+  # surveillance tool. Combined with -e (event filter), the attacker
+  # gets surgical precision on what to watch.
+  #
+  # fanotify_mark is the kernel-level equivalent, used from C/Python
+  # to watch entire mount points without inotifywait.
+  #
+  # An AI coding agent has no legitimate reason to set up persistent
+  # filesystem watchers on credential directories.
+
+  - id: "ts-block-inotify-credential-watch"
+    taxonomy: "reconnaissance/filesystem-surveillance/inotify-credential-watch"
+    match:
+      command_regex: "inotifywait\\s+.*(\\.ssh|\\.aws|\\.gnupg|\\.kube|credentials|shadow|passwd|\\.env)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083."
+
+  - id: "ts-block-inotify-persistent-monitor"
+    taxonomy: "reconnaissance/filesystem-surveillance/inotify-persistent-monitor"
+    match:
+      command_regex: "inotifywait\\s+.*-m\\s+.*(-r\\s+/|-r\\s+~|--recursive\\s+/|--recursive\\s+~)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "inotifywait recursive persistent monitoring on broad paths — surveils all file operations under root or home directory. Enables attack timing and data harvesting. MITRE T1083."
+
+  - id: "ts-audit-inotifywait-general"
+    taxonomy: "reconnaissance/filesystem-surveillance/inotify-general"
+    match:
+      command_regex: "inotifywait\\s+"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "inotifywait filesystem event monitoring — can be used for legitimate file watching (e.g., build tools) but also for surveillance. AUDIT to log usage. MITRE T1083."
+
+  - id: "ts-block-fanotify-surveillance"
+    taxonomy: "reconnaissance/filesystem-surveillance/fanotify-mount-watch"
+    match:
+      command_regex: "(fanotify_mark|fanotify_init|FAN_MARK_MOUNT|FAN_MARK_FILESYSTEM)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "fanotify kernel-level filesystem monitoring — watches entire mount points or filesystems for access events. More powerful than inotify, enables mount-wide surveillance. MITRE T1083."
+
+  # ===================================================================
+  # BLOCK: User namespace UID/GID map manipulation
+  # ===================================================================
+  #
+  # Linux user namespaces allow unprivileged users to map UIDs/GIDs
+  # inside a namespace. By writing to /proc/self/uid_map or
+  # /proc/self/gid_map, an attacker can:
+  #
+  #   echo "0 1000 1" > /proc/self/uid_map
+  #   → Maps UID 0 (root) inside the namespace to UID 1000 outside
+  #
+  # This grants root-equivalent capabilities inside the namespace,
+  # which can be leveraged to:
+  #   - Mount filesystems (including FUSE)
+  #   - Create device nodes
+  #   - Exploit kernel vulnerabilities that require CAP_SYS_ADMIN
+  #   - Chain with other namespace operations for full escape
+  #
+  # The existing ts-block-namespace-escape rule catches unshare/nsenter,
+  # but misses direct /proc/self/uid_map writes (which can be done
+  # after clone(CLONE_NEWUSER) from C or via /proc/<pid>/uid_map).
+  #
+  # Also covers: setgroups denial (echo "deny" > /proc/self/setgroups),
+  # which is a prerequisite for gid_map writes in unprivileged namespaces.
+
+  - id: "ts-block-uid-map-write"
+    taxonomy: "privilege-escalation/container-escape/user-namespace-map"
+    match:
+      command_regex: "uid_map"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to /proc/self/uid_map or /proc/<pid>/uid_map — maps UID 0 (root) inside a user namespace. Prerequisite for namespace-based privilege escalation and container escape. MITRE T1611."
+
+  - id: "ts-block-gid-map-write"
+    taxonomy: "privilege-escalation/container-escape/user-namespace-map"
+    match:
+      command_regex: "gid_map"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to /proc/self/gid_map or /proc/<pid>/gid_map — maps GID 0 (root group) inside a user namespace. Combined with uid_map, enables full root inside namespace. MITRE T1611."
+
+  - id: "ts-block-setgroups-deny"
+    taxonomy: "privilege-escalation/container-escape/user-namespace-map"
+    match:
+      command_regex: "/proc/(self|[0-9]+)/setgroups"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Accessing /proc/self/setgroups — writing 'deny' here is a prerequisite for unprivileged gid_map writes. Part of the user namespace privilege escalation chain. MITRE T1611."
+
+  - id: "ts-block-clone-newuser"
+    taxonomy: "privilege-escalation/container-escape/user-namespace-map"
+    match:
+      command_regex: "CLONE_NEWUSER"
+    decision: "BLOCK"
+    confidence: 0.91
+    reason: "clone(CLONE_NEWUSER) creates a new user namespace — the foundation for unprivileged namespace-based privilege escalation. Often followed by uid_map/gid_map writes. MITRE T1611."
