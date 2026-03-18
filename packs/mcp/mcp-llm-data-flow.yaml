@@ -132,3 +132,71 @@ rules:
     decision: "AUDIT"
     reason: "Writing to an AI config file (ai_config*) may alter model selection or endpoint routing without authorization — LLM06 (Excessive Agency)."
     confidence: 0.80
+
+  # === AUDIT: Cross-session context leakage via MCP ===
+  # An MCP tool reading AI agent session databases or memory files can extract
+  # credentials, API keys, and PII persisted from prior agent sessions.
+  # Taxonomy: data-exfiltration/llm-data-flow/cross-session-context-leakage
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM07 — System Prompt Leakage
+  - id: mcp-llmdf-audit-agent-session-db-read
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.{cursor,windsurf,claude,continue,copilot,codeium}/**"
+    decision: "AUDIT"
+    reason: "Reading an AI agent session or conversation database via MCP — these files may contain credentials, API keys, and PII from prior sessions, creating a cross-session context leakage vector. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-memory-bulk-read
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "list_directory"
+        - "list_dir"
+        - "read_file"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/.claude/memory/**"
+    decision: "AUDIT"
+    reason: "Accessing Claude Code memory files via MCP — these files persist sensitive context (credentials, architectural decisions, API keys) across agent sessions and may expose prior session data to unauthorized readers. OWASP LLM02."
+    confidence: 0.85
+
+  # === AUDIT: Cross-tenant agent data leakage via MCP ===
+  # MCP tools accessing shared workspace paths without tenant-scoped isolation
+  # can expose one tenant's data to another in shared agent infrastructure.
+  # Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM06 — Excessive Agency
+  - id: mcp-llmdf-audit-cross-tenant-tmp-workspace
+    taxonomy: "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "list_directory"
+        - "list_dir"
+        - "get_file_contents"
+        - "cat_file"
+      argument_patterns:
+        path: "/tmp/mcp-workspace*"
+    decision: "AUDIT"
+    reason: "Accessing /tmp/mcp-workspace* via MCP — shared MCP workspace directories without tenant-scoped paths expose other tenants' tool call artifacts. Cross-tenant data leakage in shared agent infrastructure. OWASP LLM02/LLM06."
+    confidence: 0.82
+
+  - id: mcp-llmdf-audit-cross-tenant-shared-cache
+    taxonomy: "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "list_directory"
+        - "list_dir"
+        - "get_file_contents"
+      argument_patterns:
+        path: "/tmp/agent-cache*"
+    decision: "AUDIT"
+    reason: "Accessing /tmp/agent-cache* via MCP — shared agent cache directories in multi-tenant deployments may expose tool call results, session state, or intermediate data from other tenants. OWASP LLM02/LLM06."
+    confidence: 0.80
