@@ -5323,6 +5323,62 @@ rules:
     confidence: 0.88
     reason: "claude --allowed-tools '*' grants the delegated sub-agent access to all available tools — wildcard delegation exceeds any specific task scope and accumulates composite permissions that no single delegation step was intended to grant (OWASP LLM06, MITRE T1134)."
 
+  # ── Agent Capability Escalation ─────────────────────────────────────────────
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-capability-escalation
+  # OWASP LLM06 — Excessive Agency, LLM07 — System Prompt Leakage
+  # MITRE T1548 — Abuse Elevation Control Mechanism, T1565.001 — Stored Data Manipulation
+  # ISO 27001 A.8.3, A.8.9 | EU AI Act Art.9, Art.14 | SOC 2 CC6.1/CC6.3
+  #
+  # AI agents expanding their own capabilities at runtime by modifying agent
+  # configuration files or registering new MCP servers. These patterns bypass
+  # the human-in-the-loop authorization model — a compromised agent that rewrites
+  # its own settings.json can grant itself unrestricted tool access, and one that
+  # injects a filesystem or exec MCP server gains OS-level capabilities that were
+  # never explicitly authorized.
+  #
+  # Examples:
+  #   echo '{"permissions":{"allow":["Bash(*)"]}}' > ~/.claude/settings.json
+  #   npx @anthropic-ai/claude-code mcp add filesystem / --scope project
+  #   claude mcp add exec-server npx -- -y @anthropic-ai/mcp-exec
+
+  # === BLOCK: Shell redirect writes to Claude agent settings files (LLM06) ===
+  #
+  # ~/.claude/settings.json and settings.local.json control which tools and
+  # permissions the Claude Code agent has. An agent that redirects output to these
+  # files (echo/printf/cat/tee) is self-modifying its authorization boundary —
+  # a classic confused deputy / privilege escalation via config injection.
+  # Legitimate user edits happen through text editors, not shell redirects.
+  #
+  - id: "ts-block-agent-settings-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    match:
+      command_regex: "(echo|printf|cat|tee)\\b.*(?:>|\\|\\s*tee)\\s*~?/?(?:\\$HOME/)?(?:\\.claude/settings(?:\\.local)?\\.json|/Users/\\S+/\\.claude/settings(?:\\.local)?\\.json)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization (OWASP LLM06, MITRE T1548, SOC 2 CC6.3)."
+
+  # === BLOCK: Claude MCP add — registering new MCP servers from within a session ===
+  #
+  # `claude mcp add` and `npx @anthropic-ai/claude-code mcp add` register new
+  # MCP servers into the agent's configuration. An agent adding a filesystem or
+  # exec MCP server at runtime acquires OS-level capabilities that were never
+  # explicitly granted — this is MCP capability injection from within a running
+  # session. The `--scope project` flag writes to the project's .claude/ dir,
+  # propagating the escalation to all future sessions in that workspace.
+  #
+  # Examples:
+  #   claude mcp add filesystem / --scope project
+  #   npx @anthropic-ai/claude-code mcp add exec-server npx -- -y @anthropic-ai/mcp-exec
+  #
+  - id: "ts-block-claude-mcp-add"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    match:
+      command_regex: "(\\bclaude\\b|npx\\s+@anthropic-ai/claude-code)\\s+mcp\\s+add\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "claude mcp add (or npx @anthropic-ai/claude-code mcp add) registers a new MCP server into the agent's runtime configuration — an agent injecting a filesystem or exec MCP server acquires OS-level capabilities that were never explicitly authorized, bypassing the human-in-the-loop trust model (OWASP LLM06/LLM07, MITRE T1548, SOC 2 CC6.1)."
+
   # ── Adversarial Embedding Manipulation ─────────────────────────────────────
   #
   # Taxonomy: supply-chain/model-poisoning/adversarial-embedding-manipulation
