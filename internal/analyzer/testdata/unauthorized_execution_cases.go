@@ -669,6 +669,16 @@ var AIContentIntegrityCases = []TestCase{
 		Description:      "git commit targeting README.md — general documentation, not a security/compliance path. Default AUDIT decision only.",
 		Tags:             []string{"safe", "content-integrity"},
 	},
+	{
+		ID:               "TN-TS-AUDIT-HALLUC-001",
+		Command:          `echo 'Configuration updated' >> docs/setup.md`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-hallucination-injection",
+		Analyzer:         "regex",
+		Description:      "echo appending to setup.md — non-security documentation file. Does not match SECURITY/PRIVACY/CHANGELOG/runbook/audit/compliance paths. Gets ALLOW.",
+		Tags:             []string{"safe", "content-integrity"},
+	},
 }
 
 // ---------------------------------------------------------------------------

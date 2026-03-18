@@ -606,6 +606,26 @@ var GitCredentialTheftCases = []TestCase{
 		Description:      `Setting git user email is a safe non-credential configuration.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+	{
+		ID:               "TN-GITCRED-003",
+		Command:          `git credential-cache exit`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-extract",
+		Analyzer:         "regex",
+		Description:      `git credential-cache exit clears the in-memory credential cache — no credential extraction. Does not match credential fill/approve BLOCK regex. Gets AUDIT from git credential audit rule.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GITCRED-004",
+		Command:          `git status`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/git-credential-extract",
+		Analyzer:         "regex",
+		Description:      `git status is a benign read-only operation — no credential access.`,
+		Tags:             []string{"safe"},
+	},
 }
 
 // ---------------------------------------------------------------------------
