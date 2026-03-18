@@ -1,0 +1,126 @@
+name: "MCP Tool Response Integrity"
+description: "Pre-emptive audit/block of MCP tool calls that are primary vectors for response poisoning (OWASP LLM01, LLM05, LLM06)"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# MCP tool response poisoning occurs when a malicious/compromised MCP server
+# embeds hidden instructions, exfiltration payloads, or behavioral override
+# directives in tool call responses. Agents treat tool results as trusted data,
+# making this a critical attack surface.
+#
+# Defence strategy (defence in depth):
+#   Layer 1 — These pack rules: pre-emptively AUDIT high-risk tool calls that
+#              fetch external content before the response arrives.
+#   Layer 2 — Built-in response scanner in the MCP proxy: ScanToolCallResponse()
+#              scans actual response content for injection patterns, action
+#              directives, exfil instructions, base64 payloads, and behavioural
+#              override attempts (see internal/mcp/response_scanner.go).
+#
+# Taxonomy: unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning
+# Real-world: Invariant Labs demonstrated compromised MCP servers injecting
+# instructions into tool responses that caused agents to exfiltrate data.
+# References: T1659 (Content Injection), CWE-94, CWE-74, CWE-829
+
+rules:
+  # === AUDIT: External web/HTTP fetch tools (highest response-poisoning risk) ===
+  # Tools that retrieve content from URLs are the primary vector for response
+  # poisoning from attacker-controlled servers. Audit all such calls.
+  - id: mcp-response-integrity-audit-web-fetch
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "http_get"
+        - "http_request"
+        - "web_fetch"
+        - "web_search_fetch"
+        - "scrape_url"
+        - "scrape_webpage"
+        - "browser_navigate"
+        - "playwright_navigate"
+        - "puppeteer_navigate"
+    decision: "AUDIT"
+    reason: "Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning)"
+
+  # === AUDIT: Generic fetch/get tool names (broad pattern coverage) ===
+  - id: mcp-response-integrity-audit-fetch-pattern
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+    match:
+      tool_name_regex: "^(fetch|get|retrieve|load|pull)_(url|webpage|page|site|http|web|remote|external)"
+    decision: "AUDIT"
+    reason: "Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05)"
+
+  # === AUDIT: MCP tool calls with explicit URL arguments (any tool fetching URLs) ===
+  - id: mcp-response-integrity-audit-url-arg
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+    match:
+      argument_patterns:
+        url: "http*"
+    decision: "AUDIT"
+    reason: "Tool call passes an HTTP URL argument — external content will be returned as tool response, audit for injection risk (LLM01)"
+
+  # === BLOCK: Fetch tools targeting known exfiltration URL patterns ===
+  # If the URL argument contains classic exfil/C2 indicators, block immediately.
+  - id: mcp-response-integrity-block-exfil-url
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+    match:
+      structural:
+        args_match:
+          url:
+            pattern_any:
+              - "(?i)https?://[^/]*/?(collect|exfil|c2|c&c|receive|upload|beacon|drop|harvest)(/|$|\\?)"
+              - "(?i)https?://[^/]*/[^?]*[?&](data|key|token|secret|payload|creds?)="
+    decision: "BLOCK"
+    reason: "Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06)"
+
+structural_rules:
+  # === BLOCK: Fetch with suspicious exfil/C2 URL path indicators ===
+  - id: mcp-response-integrity-struct-block-c2-url
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "http_get"
+        - "http_request"
+        - "web_fetch"
+        - "scrape_url"
+        - "browser_navigate"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)attacker\\.com"
+            - "(?i)evil\\.com"
+            - "(?i)\\.ngrok\\.io"
+            - "(?i)\\.ngrok-free\\.app"
+            - "(?i)requestbin\\.com"
+            - "(?i)webhook\\.site"
+            - "(?i)burpcollaborator\\.net"
+            - "(?i)interact\\.sh"
+    decision: "BLOCK"
+    reason: "Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659)"
+    confidence: 0.95
+
+  # === AUDIT: Fetch with data/credential query parameters ===
+  - id: mcp-response-integrity-struct-audit-credential-url
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "browse_web"
+        - "http_get"
+        - "http_request"
+        - "web_fetch"
+        - "scrape_url"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)[?&](api_key|apikey|token|secret|password|passwd|credential)="
+            - "(?i)[?&](ssh|aws|gcp|azure|github)_"
+    decision: "AUDIT"
+    reason: "Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06)"
+    confidence: 0.90
