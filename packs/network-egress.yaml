@@ -507,6 +507,70 @@ rules:
     confidence: 0.90
     reason: "whatweb fingerprints web server technology (CMS, frameworks, versions). This is active reconnaissance; AI agents must not fingerprint target systems without authorization. MITRE T1592."
 
+  # ── Exploitation Frameworks ───────────────────────────────────────────────
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation
+  # OWASP LLM01, LLM06. MITRE T1587.004, T1588.005, T1203.
+
+  # === BLOCK: Metasploit Framework ===
+  #
+  # Metasploit (msfconsole, msfvenom, msfdb) is an exploitation framework that
+  # automates the development and execution of exploit code. An AI agent running
+  # Metasploit constitutes automated cyberattack capability with no legitimate
+  # coding-workflow justification.
+
+  - id: "ne-block-metasploit"
+    taxonomy: "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation"
+    match:
+      structural:
+        executable: ["msfconsole", "msfvenom", "msfdb", "msfrpc", "msfrpcd", "msfupdate"]
+    decision: "BLOCK"
+    confidence: 0.99
+    reason: "Metasploit framework component detected (msfconsole/msfvenom/msfdb). Metasploit automates exploit development and execution — an AI agent invoking Metasploit constitutes automated attack capability. No legitimate AI coding workflow requires this. MITRE T1587.004, T1203."
+
+  # === BLOCK: BeEF browser exploitation framework ===
+  #
+  # BeEF hooks browsers and runs client-side exploits. No legitimate coding use.
+
+  - id: "ne-block-beef"
+    taxonomy: "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation"
+    match:
+      structural:
+        executable: ["beef", "beef-xss"]
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "BeEF (Browser Exploitation Framework) detected. BeEF hooks browsers and runs client-side attacks. AI agents must not launch browser exploitation sessions. MITRE T1203."
+
+  # === BLOCK: exploit / searchsploit / exploitdb lookup ===
+  #
+  # searchsploit queries the Exploit-DB. An AI agent actively searching for
+  # CVE exploits or running `exploit` (msfconsole shorthand) is preparing
+  # an attack chain with no coding-workflow justification.
+
+  - id: "ne-block-searchsploit"
+    taxonomy: "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation"
+    match:
+      structural:
+        executable: ["searchsploit"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "searchsploit queries Exploit-DB for public exploits targeting specific CVEs or software versions. AI agents actively searching for exploits are preparing attack chains — requires explicit human authorization. MITRE T1588.005."
+
+  # === BLOCK: credential brute-force tools ===
+  #
+  # hydra, medusa, and ncrack automate credential-stuffing and brute-force
+  # attacks across protocols (SSH, HTTP, FTP, SMTP, RDP …). Running these
+  # tools from an AI agent constitutes automated unauthorized access.
+
+  - id: "ne-block-credential-bruteforce"
+    taxonomy: "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation"
+    match:
+      structural:
+        executable: ["hydra", "medusa", "ncrack", "crowbar", "thc-hydra"]
+    decision: "BLOCK"
+    confidence: 0.99
+    reason: "Credential brute-force tool detected (hydra/medusa/ncrack). These tools automate credential guessing across network services. An AI agent running credential attacks constitutes unauthorized access. MITRE T1110.001, T1110.003."
+
   # ── SQL Injection & Web Attack Tools ─────────────────────────────────────
 
   # === BLOCK: sqlmap automated SQL injection ===
