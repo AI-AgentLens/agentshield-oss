@@ -2964,6 +2964,7 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, AutonomousToolChainingCases...)
 	all = append(all, AgentToAgentLateralPivotCases...)
 	all = append(all, MultimodalPromptInjectionCases...)
+	all = append(all, MCPServerImpersonationCases...)
 	return all
 }
 
@@ -3552,6 +3553,67 @@ var AgentOrchestrationHijackingCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-assisted-social-engineering",
 		Analyzer:         "regex",
 		Description:      "curl GET to Slack API — reading channel list, not posting a message; social-engineering webhook rule should not fire on GET.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// MCPServerImpersonationCases tests detection of rogue MCP server installation via npx -y.
+// Taxonomy: unauthorized-execution/agentic-attacks/mcp-server-impersonation
+var MCPServerImpersonationCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-MCPIMPERS-001",
+		Command:          `npx -y mcp-server-filesystem`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/mcp-server-impersonation",
+		Analyzer:         "regex",
+		Description:      "npx -y installing mcp-server-filesystem — unverified MCP server package could be typosquatted or compromised.",
+		Tags:             []string{"tp", "mcp-impersonation", "npx"},
+	},
+	{
+		ID:               "TP-MCPIMPERS-002",
+		Command:          `npx --yes @modelcontextprotocol/server-brave-search`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/mcp-server-impersonation",
+		Analyzer:         "regex",
+		Description:      "npx --yes installing an @modelcontextprotocol/ MCP server package without interactive review.",
+		Tags:             []string{"tp", "mcp-impersonation", "npx"},
+	},
+	{
+		ID:               "TP-MCPIMPERS-003",
+		Command:          `npx -y @mcp/database-proxy --port 3000`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/mcp-server-impersonation",
+		Analyzer:         "regex",
+		Description:      "npx -y @mcp/ scoped package — could be a rogue proxy masquerading as a trusted MCP database server.",
+		Tags:             []string{"tp", "mcp-impersonation", "proxy"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-MCPIMPERS-001",
+		Command:          `npx -y create-react-app myapp`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/mcp-server-impersonation",
+		Analyzer:         "regex",
+		Description:      "npx -y create-react-app — AUDIT by sc-audit-npm-install (any npx -y); does NOT match mcp-server impersonation rule since 'create-react-app' has no mcp-server/mcp-proxy/mcp-tool prefix.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-MCPIMPERS-002",
+		Command:          `npx prettier --write src/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/mcp-server-impersonation",
+		Analyzer:         "regex",
+		Description:      "npx prettier — AUDIT by sc-audit-npm-install; does NOT trigger MCP server impersonation rule (no mcp-server prefix, no -y flag).",
 		Tags:             []string{"tn", "safe"},
 	},
 }
