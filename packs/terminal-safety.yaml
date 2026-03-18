@@ -926,6 +926,21 @@ rules:
     confidence: 0.95
     reason: "Structural: recursive force-delete on system directory (handles flag reordering and sudo)."
 
+  # === ALLOW: /tmp cleanup (FP fix for issue #412) ===
+  # rm -rf /tmp/<something> is standard temp file cleanup (e.g., CI scripts, agent workdir cleanup).
+  # Only applies when the target path starts with /tmp/ (not /tmp itself).
+  - id: "ts-allow-rm-tmp"
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      structural:
+        executable: "rm"
+        flags_all: ["r", "f"]
+        args_any: ["/tmp/**"]
+        args_none: ["/tmp"]
+    decision: "ALLOW"
+    confidence: 0.90
+    reason: "Recursive remove of /tmp subdirectory — standard temp file cleanup. /tmp is a transient space by OS design."
+
   - id: "ts-struct-block-chmod-world-writable"
     taxonomy: "destructive-ops/permission-weakening/chmod-world-writable"
     match:

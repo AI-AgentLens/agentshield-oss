@@ -108,13 +108,14 @@ var RecursiveRootDeleteCases = []TestCase{
 	{
 		ID:               "TN-FSDESTR-002",
 		Command:          `rm -rf /tmp/build-output`,
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/fs-destruction/recursive-root-delete",
+		Analyzer:         "structural",
 		Description: `Deleting temp build output. /tmp is not a system-critical
-			directory. The target path is specific, not root. Should not
-			trigger filesystem destruction rules.`,
-		Tags: []string{"common-dev-operation"},
+			directory. The ts-allow-rm-tmp structural rule explicitly allows
+			recursive rm on /tmp subdirectories (FP fix: issue #412).`,
+		Tags: []string{"common-dev-operation", "fp-fix", "issue-412"},
 	},
 
 	// --- FALSE POSITIVES: Benign commands that current regex INCORRECTLY flags ---
@@ -252,13 +253,44 @@ var SystemDirectoryDeleteCases = []TestCase{
 	{
 		ID:               "TN-SYSDIR-002",
 		Command:          `rm -rf /tmp/test-output`,
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
-		Description: `Deleting temp test output. /tmp is a temporary directory
-			designed for ephemeral data. This should not trigger system
-			directory protection rules.`,
-		Tags: []string{"common-dev-operation"},
+		Analyzer:         "structural",
+		Description: `Deleting temp test output under /tmp. /tmp is a transient directory
+			designed for ephemeral data. The ts-allow-rm-tmp structural rule explicitly
+			allows recursive rm on /tmp subdirectories (FP fix: issue #412).`,
+		Tags: []string{"common-dev-operation", "fp-fix", "issue-412"},
+	},
+	{
+		ID:               "TN-SYSDIR-006",
+		Command:          `rm -rf /tmp/remedy-abc123`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
+		Analyzer:         "structural",
+		Description:      "Baby Remedy temp cleanup — rm -rf on a /tmp subdirectory must be ALLOW, not AUDIT (FP fix: issue #412).",
+		Tags:             []string{"fp-fix", "issue-412", "baby-remedy"},
+	},
+	{
+		ID:               "TN-SYSDIR-007",
+		Command:          `rm -rf /tmp/remedy-*`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
+		Analyzer:         "structural",
+		Description:      "rm -rf with glob under /tmp — glob patterns targeting /tmp/* are standard CI cleanup (FP fix: issue #412).",
+		Tags:             []string{"fp-fix", "issue-412", "glob"},
+	},
+	{
+		ID:               "TP-SYSDIR-008",
+		Command:          `rm -rf /tmp`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
+		Analyzer:         "structural",
+		Description:      "rm -rf /tmp (the directory itself, not a subdirectory) — ts-allow-rm-tmp should NOT fire for /tmp itself, falls back to default AUDIT.",
+		Tags:             []string{"boundary", "issue-412"},
 	},
 	{
 		ID:               "TN-SYSDIR-003",
