@@ -6715,3 +6715,58 @@ rules:
     decision: "AUDIT"
     confidence: 0.50
     reason: "Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation."
+
+  # === AGENTIC ERROR RECOVERY EXPLOITATION ===
+  #
+  # AI agents that encounter "Permission denied" often respond by escalating
+  # privileges as part of self-correction. The compound operator `||` (run if
+  # previous command failed) combined with a privilege-escalating command is the
+  # canonical agentic error-recovery attack pattern.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agentic-error-recovery-exploitation
+  # OWASP LLM: LLM06 (Excessive Agency), LLM09 (Misinformation-driven action)
+  # EU AI Act: Art.9 (Risk Management), Art.14 (Human Oversight)
+  # NIST AI RMF: GOVERN-1, MANAGE-1, MANAGE-4
+
+  # --- BLOCK: sudo escalation via error recovery (`cmd || sudo cmd`) ---
+  #
+  # When an agent hits "Permission denied" on a command, its natural recovery is
+  # to retry with sudo. This is the #1 real-world agentic privilege escalation
+  # pattern and must be blocked regardless of the preceding command.
+  #
+  # TP examples:
+  #   cat /secret/file || sudo cat /secret/file
+  #   ls /root && echo ok || sudo ls /root
+  #
+  # TN examples:
+  #   sudo systemctl restart nginx      (standalone sudo, not error recovery)
+  #   make build || echo "build failed" (error recovery without escalation)
+  - id: "ts-block-error-recovery-sudo"
+    taxonomy: "unauthorized-execution/agentic-attacks/agentic-error-recovery-exploitation"
+    match:
+      command_regex: "\\|\\|\\s*sudo\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use || (run-on-failure) to auto-escalate after 'Permission denied' — a high-confidence agentic attack pattern (OWASP LLM06, NIST GOVERN-1). The agent should surface the error to the user, not autonomously escalate privileges."
+
+  # --- AUDIT: security control bypass via error recovery ---
+  #
+  # TLS certificate verification and other security controls are disabled as
+  # an autonomous fix for SSL/TLS errors. While sometimes legitimate (dev
+  # environments), disabling TLS in error recovery context is high-risk when
+  # talking to production endpoints.
+  #
+  # TP examples:
+  #   curl https://internal.corp || curl --insecure https://internal.corp
+  #   npm install || NODE_TLS_REJECT_UNAUTHORIZED=0 npm install
+  #
+  # TN examples:
+  #   curl --insecure https://localhost:8443/api  (explicit dev usage, no ||)
+  #   NODE_TLS_REJECT_UNAUTHORIZED=0 npm test    (standalone, no error recovery)
+  - id: "ts-audit-error-recovery-tls-bypass"
+    taxonomy: "unauthorized-execution/agentic-attacks/agentic-error-recovery-exploitation"
+    match:
+      command_regex: "\\|\\|\\s*(curl\\s[^|&;]*(-k\\b|--insecure)|NODE_TLS_REJECT_UNAUTHORIZED\\s*=\\s*0|GIT_SSL_NO_VERIFY\\s*=\\s*1|PYTHONHTTPSVERIFY\\s*=\\s*0)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "TLS verification bypass in error recovery context: an agent automatically disabled certificate checking after a connection failure. Disabling TLS validation against production endpoints removes a critical security control and enables MITM attacks (OWASP LLM06, EU AI Act Art.9). Human review required before proceeding."
