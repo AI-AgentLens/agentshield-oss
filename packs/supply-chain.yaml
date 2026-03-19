@@ -912,3 +912,50 @@ rules:
     decision: "AUDIT"
     confidence: 0.86
     reason: "High-count loop querying inference API endpoint and collecting outputs to file — loop+query+collect is the primary bash-level pattern for model extraction attacks. Review for model stealing activity. OWASP LLM03, MITRE T1530."
+
+  # === BLOCK: Publishing packages to public software registries ===
+  # An AI agent publishing to a public registry (npm, PyPI, crates.io, RubyGems, NuGet)
+  # is a critical supply chain attack vector — a single prompt-injected publish can
+  # distribute backdoored code to thousands of downstream consumers globally.
+  # Unlike local destructive ops, publishing is irreversible once users start installing.
+  # MITRE T1195.001 (Supply Chain Compromise). OWASP LLM06 (Excessive Agency).
+
+  - id: "sc-block-npm-publish"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?i)\\bnpm\\s+publish\\b"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "npm publish uploads the package to the npm registry, making it publicly installable. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored code to millions of users. MITRE T1195.001."
+
+  - id: "sc-block-twine-upload"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?i)(\\btwine\\s+upload\\b|\\bpython[0-9.]*\\s+-m\\s+twine\\s+upload\\b)"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "twine upload publishes Python packages to PyPI or a private index. Autonomous PyPI publishing by an AI agent is a supply chain attack vector — once published, malicious code is immediately installable by any pip user. MITRE T1195.001."
+
+  - id: "sc-block-cargo-publish"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?i)\\bcargo\\s+publish\\b"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001."
+
+  - id: "sc-block-gem-push"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?i)\\bgem\\s+push\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001."
+
+  - id: "sc-block-nuget-push"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?i)(\\bdotnet\\s+nuget\\s+push\\b|\\bnuget\\s+push\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001."
