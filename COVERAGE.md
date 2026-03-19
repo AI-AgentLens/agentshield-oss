@@ -6,21 +6,21 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 724 |
+| Terminal rules | 734 |
 | MCP rules | 126 |
-| Total rules | 850 |
-| Test cases (TP+TN) | 2378 |
+| Total rules | 860 |
+| Test cases (TP+TN) | 2426 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (64 rules)
+### credential-exposure (65 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m), as a heredoc body in a cat file-write operation, or as an echo/printf argument. |
-| `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (e.g. --body, --message) or as heredoc content written via cat. |
-| `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. |
+| `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (--body/--message to gh/git, -m for git commit/tag, -d/--data to curl) or as heredoc content written via cat. |
+| `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. Excludes commands where the keychain invocation appears as documentation text in a --body or --message flag passed to gh or git. |
 | `sec-block-linux-secret-tool` | BLOCK | regex | secret-tool accessing the freedesktop.org Secret Service (GNOME Keyring / KDE Wallet) — returns stored credentials in plaintext. A single lookup can expose cloud keys, database passwords, or API tokens without any user prompt. MITRE T1555.004. |
 | `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
@@ -47,6 +47,7 @@
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
+| `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
 | `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
@@ -517,7 +518,7 @@
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (57 rules)
+### reconnaissance (59 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -575,11 +576,13 @@
 | `ts-block-inotify-persistent-monitor` | BLOCK | regex | inotifywait recursive persistent monitoring on broad paths — surveils all file operations under root or home directory. Enables attack timing and data harvesting. MITRE T1083. |
 | `ts-audit-inotifywait-general` | AUDIT | regex | inotifywait filesystem event monitoring — can be used for legitimate file watching (e.g., build tools) but also for surveillance. AUDIT to log usage. MITRE T1083. |
 | `ts-block-fanotify-surveillance` | BLOCK | regex | fanotify kernel-level filesystem monitoring — watches entire mount points or filesystems for access events. More powerful than inotify, enables mount-wide surveillance. MITRE T1083. |
+| `ts-block-find-shadow-hunt` | BLOCK | regex | find searching for 'shadow' files across the filesystem is targeted reconnaissance for the system password database (/etc/shadow). No legitimate development task requires locating shadow files. MITRE T1083, T1552.001. |
+| `ts-audit-find-credential-hunt` | AUDIT | regex | find searching broad filesystem paths for credential file names (SSH keys, PEM/key files, keystores, credential files) is a reconnaissance pattern for credential enumeration. AI agents have no legitimate need to hunt for credential files system-wide. MITRE T1083, T1552.001, CWE-200. |
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 
-### supply-chain (78 rules)
+### supply-chain (85 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -653,6 +656,13 @@
 | `sc-block-cargo-publish` | BLOCK | regex | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
 | `sc-block-gem-push` | BLOCK | regex | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
 | `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
+| `sc-block-github-path-injection` | BLOCK | regex | Writing to $GITHUB_PATH prepends directories to $PATH for all subsequent GitHub Actions steps — enables malicious binary substitution (PATH hijacking). Any legitimate tool invoked in later steps may call attacker-controlled code. MITRE T1574.007, OWASP LLM08. |
+| `sc-audit-github-env-injection` | AUDIT | regex | Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
+| `sc-block-make-shell-cmd-inject` | BLOCK | regex | make SHELL= with -c flag injects commands into every Makefile recipe. The -c flag means the shell binary override also carries an embedded command, executing during the next routine make invocation. Supply chain attack: MITRE T1195.002, CWE-78. |
+| `sc-block-make-compiler-tmp-inject` | BLOCK | regex | make CC/CXX/LD= pointing to /tmp or /dev/shm replaces the compiler/linker with an attacker-staged binary. Any code compiled in this session produces backdoored artifacts. MITRE T1195.002, CWE-427. |
+| `sc-block-cmake-compiler-tmp-inject` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= pointing to /tmp or /dev/shm substitutes an attacker-controlled compiler binary. All compiled outputs for this project will be compromised. MITRE T1195.002, CWE-427. |
+| `sc-block-make-fplugin-inject` | BLOCK | regex | make CFLAGS=-fplugin= loading a GCC plugin from a temp or relative path injects arbitrary code into the compiler process. The plugin runs inside gcc and can modify all generated code or exfiltrate source files. MITRE T1195.002, CWE-78. |
+| `sc-block-make-ldpreload-inject` | BLOCK | regex | make LD_PRELOAD= pointing to /tmp or /dev/shm injects a shared library into every subprocess spawned by the build. The injected library intercepts libc calls and can exfiltrate data or tamper with build outputs. MITRE T1574.006, CWE-427. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -975,13 +985,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 159 | 118 | 277 |
+| credential-exposure | 163 | 128 | 291 |
 | data-exfiltration | 198 | 116 | 314 |
 | destructive-ops | 117 | 74 | 191 |
 | persistence-evasion | 246 | 138 | 384 |
 | privilege-escalation | 246 | 148 | 394 |
-| reconnaissance | 137 | 54 | 191 |
-| supply-chain | 118 | 81 | 199 |
+| reconnaissance | 146 | 58 | 204 |
+| supply-chain | 132 | 88 | 220 |
 | unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1474** | **904** | **2378** |
+| **Total** | **1501** | **925** | **2426** |
 
