@@ -4720,6 +4720,92 @@ var MCPServerImpersonationCases = []TestCase{
 	},
 
 	// ---------------------------------------------------------------------------
+	// Cloud AI Monitoring Disable — Anti-Forensics (ts-audit-aws-bedrock-logging-clear,
+	//   ts-audit-gcloud-logging-sink-delete)
+	//
+	// Anti-forensics rules under the new taxonomy that cover gaps not caught by
+	// the governance-risk/ai-governance-gap rules above:
+	//   1. AWS Bedrock empty logging config (clears all destinations via '{}')
+	//   2. GCloud logging sink delete (stops log routing pipeline)
+	// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
+	// MITRE T1562.008; OWASP LLM06, LLM08; CWE-778; NIST AI RMF MANAGE-4
+	// ---------------------------------------------------------------------------
+
+	// TP: AWS Bedrock — empty logging config clears all log destinations (AUDIT)
+	{
+		ID:               "TP-CLOUD-AI-MON-001",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Empty logging-config object clears all Bedrock log delivery destinations — anti-forensics bypass not caught by the false-value rule. Must be AUDIT.",
+		Tags:             []string{"tp", "anti-forensics", "cloud-ai", "bedrock"},
+	},
+	{
+		ID:               "TP-CLOUD-AI-MON-002",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --region us-west-2 --logging-config '{}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Empty logging-config with region flag — same anti-forensics bypass, different region. Must be AUDIT.",
+		Tags:             []string{"tp", "anti-forensics", "cloud-ai", "bedrock"},
+	},
+	// TP: GCloud logging sink delete (AUDIT)
+	{
+		ID:               "TP-CLOUD-AI-MON-003",
+		Command:          "gcloud logging sinks delete ai-audit-sink",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Deletes a GCloud logging sink, stopping AI audit log routing to all configured destinations. Must be AUDIT.",
+		Tags:             []string{"tp", "anti-forensics", "cloud-ai", "gcp"},
+	},
+	{
+		ID:               "TP-CLOUD-AI-MON-004",
+		Command:          "gcloud logging sinks delete vertex-ai-export --project=ml-prod",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Deletes a Vertex AI logging sink in a specific project — removes AI invocation log export pipeline. Must be AUDIT.",
+		Tags:             []string{"tp", "anti-forensics", "cloud-ai", "gcp"},
+	},
+	// TN: Read-only sink and safe Bedrock logging operations (must NOT escalate)
+	{
+		ID:               "TN-CLOUD-AI-MON-001",
+		Command:          "gcloud logging sinks list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Read-only GCloud logging sinks list — safe inspection. Gets AUDIT from ne-audit-gcloud; sink delete rule must NOT fire.",
+		Tags:             []string{"tn", "safe", "cloud-ai", "gcp"},
+	},
+	{
+		ID:               "TN-CLOUD-AI-MON-002",
+		Command:          "gcloud logging sinks describe ai-audit-sink",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Describing a GCloud logging sink is read-only — must NOT trigger the delete rule.",
+		Tags:             []string{"tn", "safe", "cloud-ai", "gcp"},
+	},
+	{
+		ID:               "TN-CLOUD-AI-MON-003",
+		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"cloudWatchConfig":{"logGroupName":"/aws/bedrock/invocations","roleArn":"arn:aws:iam::123456789012:role/BedrockLogging"}}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "Configuring Bedrock logging with actual destinations — safe setup, not empty. Must NOT trigger the empty-config rule; gets AUDIT from ne-audit-aws-cli baseline.",
+		Tags:             []string{"tn", "safe", "cloud-ai", "bedrock"},
+	},
+
+	// ---------------------------------------------------------------------------
 	// Network Pipe to LLM CLI — Prompt Injection Surface (ts-audit-network-pipe-to-llm)
 	//
 	// Piping curl/wget network output directly to LLM CLI tools creates a prompt
