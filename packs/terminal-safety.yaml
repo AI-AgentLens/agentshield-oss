@@ -1872,6 +1872,32 @@ rules:
     confidence: 0.82
     reason: "Downloading a model via Ollama introduces weights not reviewed by the security team. Unvetted models risk model-poisoning attacks (LLM03). Verify model origin and approval."
 
+  # === AUDIT: Direct model weight download from public model hubs (AI Model Inventory Gap) ===
+  # wget/curl downloading .gguf, .safetensors, .bin, .pt, .ckpt model weight
+  # files directly from model hub domains bypasses organizational model inventory
+  # registration and governance review. Downloaded weights are not tracked in
+  # any approved model registry.
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # EU AI Act Art.9 (risk management), NIST AI RMF GOVERN-1
+  #
+  # TP examples:
+  #   wget https://huggingface.co/TheBloke/Mistral-7B-v0.1-GGUF/resolve/main/mistral.gguf
+  #   curl -o model.safetensors https://huggingface.co/org/model/resolve/main/model.safetensors
+  #   wget https://civitai.com/api/download/models/12345 -O lora.safetensors
+  #
+  # TN examples:
+  #   pip install transformers          (library, not weights)
+  #   wget https://example.com/data.csv  (non-model file)
+  #   curl https://api.openai.com/v1/models  (API call, not download)
+  - id: "ts-audit-model-weight-download"
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      command_regex: "\\b(wget|curl)\\b[^|&;]*\\bhttps?://(huggingface\\.co|hf\\.co|civitai\\.com|ollama\\.com|replicate\\.com)[^|&;]*\\.(gguf|safetensors|bin|pt|pth|ckpt|pkl|h5)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Direct download of AI model weight files (.gguf, .safetensors, .bin, .pt, .ckpt) from a public model hub bypasses organizational model inventory registration and governance review. Downloaded weights are not tracked in any approved registry, creating an AI Model Inventory Gap (EU AI Act Art.9, NIST AI RMF GOVERN-1). Ensure the model is approved, registered in the organization's model inventory, and its provenance and license are verified before use."
+
   # === AUDIT: LM Studio inference server ===
   # `lms server start` exposes a local OpenAI-compatible API endpoint.
   # Like Ollama, this creates an unmonitored AI service on the developer
@@ -6011,6 +6037,61 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "Deleting a Google Cloud Logging bucket may destroy historical Vertex AI / Cloud AI invocation records. If targeting AI service audit logs, this removes forensic capability needed for EU AI Act post-market monitoring and incident response (CWE-778, NIST AI RMF MANAGE-4)."
+
+  # ===========================================================================
+  # AI Output Accountability Bypass (AI Output Accountability Gap)
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+  # OWASP LLM06 — Excessive Agency
+  # EU AI Act Art.13 (Transparency), Art.16 (Technical Documentation)
+  # SOC 2 CC7.2 — Security event monitoring and alerting
+  # CWE-778 — Insufficient Logging
+  # NIST AI RMF GOVERN-1.3 — Accountability documentation
+  #
+  # An AI agent can suppress accountability by deleting or truncating AI audit
+  # and attribution log files, erasing the forensic trail that proves which
+  # outputs were AI-generated. Without this trail, organizations cannot:
+  #   - Prove compliance with EU AI Act transparency requirements
+  #   - Attribute content accurately in audit reviews
+  #   - Detect AI-generated content in regulated documents
+  #   - Meet SOC 2 audit trail continuity obligations
+  #
+  # TP examples (should AUDIT):
+  #   rm -f ai_audit.log
+  #   rm -rf /var/log/ai_audit/
+  #   rm ai_attribution.log ai_output.jsonl
+  #   truncate -s 0 ai_attribution.log
+  #   truncate -s 0 /var/log/ai_output.log
+  #
+  # TN examples (should ALLOW):
+  #   cat ai_audit.log           (read-only)
+  #   grep "error" ai_output.log  (search, no write)
+  #   ls -la ai_attribution/      (directory listing)
+
+  # === AUDIT: Deletion of AI audit/attribution log files ===
+  # rm, unlink, or shred targeting files whose names match AI audit/attribution
+  # log naming conventions destroys the accountability trail required by EU AI
+  # Act Art.13 and SOC 2 CC7.2.
+  - id: "ts-audit-ai-audit-log-delete"
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      command_regex: "\\b(rm|unlink|shred)\\b[^|&;]*\\bai[_-]?(audit|output|attribution|log)[^/\\s]*(\\.log|\\.json|\\.jsonl|\\.csv)?\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists."
+
+  # === AUDIT: Truncation of AI audit/attribution log files ===
+  # truncate -s 0 silently empties the log file while preserving the filename,
+  # making the erasure harder to detect than deletion. Same accountability
+  # impact as deletion but with lower visibility.
+  - id: "ts-audit-ai-log-truncate"
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      command_regex: "\\btruncate\\b[^|&;]*(-s\\s*0|--size[=\\s]*0)[^|&;]*\\bai[_-]?(audit|output|attribution|log)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3)."
 
   # ===========================================================================
   # Bash Builtin Loading via enable -f (Arbitrary Code Execution)

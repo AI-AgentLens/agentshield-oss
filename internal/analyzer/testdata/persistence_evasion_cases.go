@@ -2707,6 +2707,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, ELFBinaryRewritingCases...)
 	all = append(all, PythonPthPersistenceCases...)
 	all = append(all, ToctouTempFileRaceCases...)
+	all = append(all, AIOutputAccountabilityBypassCases...)
 	return all
 }
 
@@ -4300,5 +4301,92 @@ var AgenticToolRegistrationPersistenceCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "cat reading MCP documentation — read-only access to a doc file, not writing mcpServers to agent config.",
 		Tags:             []string{"tn", "safe", "agent-config"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// AI Output Accountability Bypass (issue #410)
+// Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+//
+// Detects deletion or truncation of application-level AI accountability logs
+// (ai_audit*, ai_output*, ai_attribution*) that record AI-generated outputs.
+// Erasing these logs violates EU AI Act Art.13 transparency requirements and
+// SOC 2 CC7.2 audit trail continuity.
+// ---------------------------------------------------------------------------
+
+var AIOutputAccountabilityBypassCases = []TestCase{
+
+	// TP: Deletion of AI attribution/audit log files
+	{
+		ID:               "TP-TS-AUDIT-AI-AUDIT-LOG-DELETE-001",
+		Command:          "rm -f ai_audit.log",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "rm -f targeting ai_audit.log — deletes application AI audit trail, erasing accountability record.",
+		Tags:             []string{"tp", "ai-governance", "accountability"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-AUDIT-LOG-DELETE-002",
+		Command:          "rm -rf /var/log/ai_audit/",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "rm -rf deleting AI audit log directory — BLOCKed by ts-block-rm-force-recursive (most_restrictive_wins over ts-audit-ai-audit-log-delete).",
+		Tags:             []string{"tp", "ai-governance", "accountability"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-AUDIT-LOG-DELETE-003",
+		Command:          "rm ai_attribution.log",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "rm targeting ai_attribution.log — deletes AI authorship attribution record (EU AI Act Art.13).",
+		Tags:             []string{"tp", "ai-governance", "accountability"},
+	},
+	// TP: Truncation of AI log files
+	{
+		ID:               "TP-TS-AUDIT-AI-LOG-TRUNCATE-001",
+		Command:          "truncate -s 0 ai_attribution.log",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "truncate -s 0 on ai_attribution.log — silently zeros the AI attribution record without deleting the file.",
+		Tags:             []string{"tp", "ai-governance", "accountability"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AI-LOG-TRUNCATE-002",
+		Command:          "truncate --size=0 ai_output.log",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "truncate --size=0 on ai_output.log — erases AI output accountability log without leaving a deletion artifact.",
+		Tags:             []string{"tp", "ai-governance", "accountability"},
+	},
+	// TN: Read-only operations on AI log files
+	{
+		ID:               "TN-TS-AUDIT-AI-AUDIT-LOG-DELETE-001",
+		Command:          "cat ai_audit.log",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "cat reading ai_audit.log — read-only access, no deletion or truncation.",
+		Tags:             []string{"tn", "safe", "ai-governance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AI-AUDIT-LOG-DELETE-002",
+		Command:          "grep 'ERROR' ai_output.log",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		Analyzer:         "regex",
+		Description:      "grep searching ai_output.log — read-only search, no modification of accountability record.",
+		Tags:             []string{"tn", "safe", "ai-governance"},
 	},
 }
