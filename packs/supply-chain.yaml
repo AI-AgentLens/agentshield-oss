@@ -138,7 +138,7 @@ rules:
   - id: "sc-block-npmrc-edit"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
-      command_regex: "(echo|cat|sed|tee).*\\.npmrc"
+      command_regex: "^(sudo\\s+)?(echo|sed|tee)\\s+.*\\.npmrc"
     decision: "BLOCK"
     reason: "Modification of .npmrc blocked — may redirect package resolution."
 
