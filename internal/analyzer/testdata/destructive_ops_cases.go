@@ -818,6 +818,49 @@ var SystemShutdownCases = []TestCase{
 		Tags:             []string{"canonical", "critical"},
 	},
 
+	// --- TRUE POSITIVES: systemctl power management bypass (closes #464) ---
+
+	{
+		ID:               "TP-SHUTDOWN-004",
+		Command:          `systemctl poweroff`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `systemctl poweroff bypasses direct poweroff command block. Matches ts-block-systemctl-power.`,
+		Tags:             []string{"canonical", "critical", "bypass"},
+	},
+	{
+		ID:               "TP-SHUTDOWN-005",
+		Command:          `systemctl halt`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `systemctl halt bypasses direct halt command block. Matches ts-block-systemctl-power.`,
+		Tags:             []string{"critical", "bypass"},
+	},
+	{
+		ID:               "TP-SHUTDOWN-006",
+		Command:          `systemctl reboot`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `systemctl reboot bypasses direct reboot command block. Matches ts-block-systemctl-power.`,
+		Tags:             []string{"critical", "bypass"},
+	},
+	{
+		ID:               "TP-SHUTDOWN-007",
+		Command:          `sudo systemctl suspend`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `sudo systemctl suspend — suspends system causing denial of service. Matches ts-block-systemctl-power.`,
+		Tags:             []string{"critical", "bypass", "sudo"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
@@ -827,7 +870,17 @@ var SystemShutdownCases = []TestCase{
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
 		Analyzer:         "regex",
-		Description:      `Checking service status is benign. Does not match shutdown prefix.`,
+		Description:      `Checking service status is benign. Does not match shutdown prefix or power management pattern.`,
+		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-SHUTDOWN-002",
+		Command:          `systemctl restart nginx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/system-management/system-shutdown",
+		Analyzer:         "regex",
+		Description:      `Restarting a service is not a system power operation — must not be blocked.`,
 		Tags:             []string{"common-dev-operation"},
 	},
 }
