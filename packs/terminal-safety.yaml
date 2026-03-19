@@ -4825,6 +4825,70 @@ rules:
     confidence: 0.85
     reason: "find searching for .env files across home or workspace directories — collecting environment secrets from sibling projects is a cross-context data contamination pattern (OWASP LLM02, LLM06)."
 
+  # ===========================================================================
+  # Filesystem Credential Hunting via find
+  # Taxonomy: reconnaissance/network-discovery/filesystem-enumeration
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1083 — File and Directory Discovery, T1552.001 — Credentials In Files
+  # CWE-200 — Exposure of Sensitive Information
+  # ===========================================================================
+  #
+  # An AI agent using `find` to hunt for credential files by name (id_rsa,
+  # *.pem, *.key, credentials, .env) across the entire filesystem or /home is
+  # a reconnaissance pattern, not normal development activity. These commands
+  # fall through to ts-allow-readonly (which includes "find " as a prefix) and
+  # are incorrectly ALLOWED. AUDIT rules here win via most_restrictive_wins.
+  #
+  # Distinguishing malicious from benign:
+  #   - Broad scope (/, /home, ~, /root): almost always reconnaissance
+  #   - Credential-specific file names/extensions: clear intent signal
+  #   - Benign use: `find . -name '*.go'` (project-local, non-credential ext)
+  #
+  # TP examples (should AUDIT):
+  #   find / -name 'id_rsa' 2>/dev/null
+  #   find /home -name '*.pem' -type f
+  #   find ~ -name '*.key' 2>/dev/null
+  #   find / -name credentials -type f
+  #   find / -name '.env' -type f 2>/dev/null
+  #   find / -name '*.p12' -type f
+  #
+  # TN examples (should ALLOW — project-local or non-credential):
+  #   find . -name '*.go'
+  #   find /tmp -name '*.log'
+  #   find ./certs -name '*.pem'   (project-local path)
+
+  # === BLOCK: find hunting for system password file ===
+  #
+  # `find / -name shadow` is a targeted search for /etc/shadow (the hashed
+  # password database). No legitimate development task requires discovering
+  # where shadow files live. This is pure attacker reconnaissance.
+  - id: "ts-block-find-shadow-hunt"
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      command_regex: "find\\s+[/~].*-name\\s+['\"]?shadow['\"]?"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "find searching for 'shadow' files across the filesystem is targeted reconnaissance for the system password database (/etc/shadow). No legitimate development task requires locating shadow files. MITRE T1083, T1552.001."
+
+  # === AUDIT: find hunting for SSH keys, certs, and credential files ===
+  #
+  # find commands that search broad paths (/, /home, ~, /root) for credential
+  # file patterns indicate systematic credential enumeration. The combiner
+  # most_restrictive_wins ensures AUDIT overrides the ts-allow-readonly ALLOW.
+  #
+  # Covers:
+  #   - SSH private key filenames: id_rsa, id_ed25519, id_ecdsa, id_dsa
+  #   - Key/cert extensions: *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore
+  #   - Credential files: credentials, .env, secrets.yaml, secrets.json
+  #   - Scope: only when path is broad (/, /home, /root, ~, $HOME, /var, /etc)
+  - id: "ts-audit-find-credential-hunt"
+    taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
+    match:
+      command_regex: "find\\s+(/|/home|/root|~|\\$HOME|/var|/etc|/opt).*-name\\s+['\"]?(id_rsa|id_ed25519|id_ecdsa|id_dsa|\\*\\.pem|\\*\\.key|\\*\\.p12|\\*\\.pfx|\\*\\.jks|\\*\\.keystore|credentials|\\*\\.env|\\.env|secrets\\.yaml|secrets\\.json|\\*\\.pkcs12)['\"]?"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "find searching broad filesystem paths for credential file names (SSH keys, PEM/key files, keystores, credential files) is a reconnaissance pattern for credential enumeration. AI agents have no legitimate need to hunt for credential files system-wide. MITRE T1083, T1552.001, CWE-200."
+
   # === AUDIT: grep -r for API keys across workspace directories (LLM02, LLM06) ===
   #
   # Recursively grepping for API keys, tokens, or credentials across the
