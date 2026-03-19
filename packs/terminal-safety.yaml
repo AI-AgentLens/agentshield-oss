@@ -6039,6 +6039,57 @@ rules:
     reason: "Deleting a Google Cloud Logging bucket may destroy historical Vertex AI / Cloud AI invocation records. If targeting AI service audit logs, this removes forensic capability needed for EU AI Act post-market monitoring and incident response (CWE-778, NIST AI RMF MANAGE-4)."
 
   # ===========================================================================
+  # Cloud AI Monitoring Disable — Anti-Forensics (persistence-evasion)
+  # ===========================================================================
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
+  # MITRE ATT&CK: T1562.008 (Impair Defenses: Disable Cloud Logs)
+  # OWASP LLM: LLM06 (Excessive Agency), LLM08 (Excessive Permissions)
+  # EU AI Act Art.9 (post-market monitoring), Art.15 (accuracy/robustness logging)
+  # NIST AI RMF MANAGE-4; SOC 2 CC7.1; CWE-778
+  #
+  # An AI agent acting with excessive agency may disable cloud AI audit logging
+  # to erase the forensic trail of its own actions or hide subsequent malicious
+  # AI interactions. Unlike the governance-gap rules above (which focus on
+  # compliance), these rules classify the behaviour as active anti-forensics —
+  # an intentional evasion technique consistent with MITRE T1562.
+  #
+  # TP examples (should BLOCK or AUDIT):
+  #   aws bedrock put-model-invocation-logging-configuration --logging-config '{}'
+  #   gcloud logging sinks delete ai-audit-sink
+  #   gcloud logging sinks delete vertex-ai-sink --project=ml-prod
+  #
+  # TN examples (must NOT flag):
+  #   aws bedrock get-model-invocation-logging-configuration
+  #   gcloud logging sinks list
+  #   gcloud logging sinks describe ai-audit-sink
+
+  # === AUDIT: AWS Bedrock — clear logging config with empty object ===
+  # put-model-invocation-logging-configuration with '{}' clears ALL logging
+  # destinations, silently disabling the AI invocation audit trail without a
+  # separate delete call. The ts-audit-aws-bedrock-logging-disable rule only
+  # catches explicit 'false' values; this rule catches the empty-config bypass.
+  - id: "ts-audit-aws-bedrock-logging-clear"
+    taxonomy: "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable"
+    match:
+      command_regex: "\\baws\\s+bedrock\\s+put-model-invocation-logging-configuration\\b.*--logging-config\\s+['\"]?\\{\\s*\\}['\"]?"
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "Reconfiguring AWS Bedrock invocation logging with an empty config object clears all log delivery destinations, silently disabling the AI audit trail. This anti-forensics technique (MITRE T1562.008) erases forensic visibility without an explicit delete. Impacts EU AI Act Art.9 post-market monitoring and SOC 2 CC7.1 detection controls (CWE-778)."
+
+  # === AUDIT: Google Cloud Logging — delete logging sink ===
+  # Logging sinks route Cloud Audit Logs and Vertex AI / Cloud AI invocation logs
+  # to destinations (BigQuery, Cloud Storage, Pub/Sub). Deleting a sink permanently
+  # stops log routing — future AI invocations produce no audit records at the destination.
+  - id: "ts-audit-gcloud-logging-sink-delete"
+    taxonomy: "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable"
+    match:
+      command_regex: "\\bgcloud\\s+logging\\s+sinks\\s+delete\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Deleting a Google Cloud Logging sink stops audit log routing for all services that used it, including Vertex AI and Cloud AI invocation logs. This anti-forensics action (MITRE T1562.008) eliminates the export pipeline to SIEM/storage. Verify the sink is not routing AI compliance logs before approving (CWE-778, NIST AI RMF MANAGE-4)."
+
+  # ===========================================================================
   # AI Output Accountability Bypass (AI Output Accountability Gap)
   # ===========================================================================
   #
