@@ -4751,6 +4751,49 @@ rules:
     confidence: 0.93
     reason: "eval of base64-decoded command substitution — executes a runtime-decoded payload, bypassing all static guardrail analysis. OWASP LLM01, MITRE T1027.013."
 
+  # === BLOCK: xxd -r -p (hex reverse) piped to a shell interpreter (issue #436) ===
+  #
+  # xxd -r -p converts a hex dump back to binary and outputs to stdout.
+  # When piped to a shell, this executes an arbitrary command encoded as a
+  # hex string — completely invisible to string-based policy analysis:
+  #
+  #   echo "726d202d7266202f" | xxd -r -p | bash   # decodes to: rm -rf /
+  #   xxd -r -p hex_payload.txt | sh               # hex file to shell
+  #   cat hex_file.txt | xxd -r -p | bash          # cat + decode + execute
+  #
+  # This is a direct sibling to base64-decode-pipe-shell but uses the xxd
+  # tool instead of base64 for encoding. Both evade guardrails identically.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  # OWASP LLM01 — Prompt Injection, MITRE T1027.013
+  - id: "ts-block-xxd-hex-pipe-shell"
+    taxonomy: "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding"
+    match:
+      command_regex: "\\bxxd\\s+(-r\\s+-p|-p\\s+-r|--reverse).*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b|fish)|\\|\\s*xxd\\s+(-r\\s+-p|-p\\s+-r|--reverse)\\s*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b|fish)"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "xxd -r -p (hex reverse decode) piped to a shell interpreter — decodes hex-encoded commands at runtime, bypassing all string-based guardrail analysis. Sibling to base64-decode-pipe-shell. OWASP LLM01, MITRE T1027.013."
+
+  # === BLOCK: openssl enc -d piped to a shell interpreter (issue #436) ===
+  #
+  # openssl enc -d decrypts or decodes data using various algorithms.
+  # When piped to a shell, this executes an encoded payload — a common
+  # evasion variant that uses OpenSSL instead of base64 for decoding:
+  #
+  #   echo "payload" | openssl enc -d -base64 | bash
+  #   openssl enc -d -aes-256-cbc -in payload.enc | sh
+  #   openssl base64 -d < encoded.txt | bash
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  # OWASP LLM01 — Prompt Injection, MITRE T1027.013
+  - id: "ts-block-openssl-decode-pipe-shell"
+    taxonomy: "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding"
+    match:
+      command_regex: "openssl\\s+(enc\\s+)?(-[a-z0-9-]+\\s+)*-d\\b.*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b|fish)|\\|\\s*openssl\\s+(enc\\s+)?(-[a-z0-9-]+\\s+)*-d\\b.*\\|\\s*(ba?sh|zsh|ksh|dash|sh\\b|fish)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "openssl enc -d (decrypt/decode) piped to a shell interpreter — executes a decoded/decrypted payload at runtime, evading all static command analysis. Covers base64, AES, and other cipher modes. OWASP LLM01, MITRE T1027.013."
+
   # ===================================================================
   # HUMAN OVERSIGHT CIRCUMVENTION (issue #321)
   # Taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
