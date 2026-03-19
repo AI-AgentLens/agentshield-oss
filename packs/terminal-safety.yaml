@@ -384,6 +384,15 @@ rules:
     confidence: 0.90
     reason: "Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain."
 
+  # === BLOCK: LLM-controlled file permissions ===
+  - id: "ts-block-llm-chmod-dangerous"
+    taxonomy: "privilege-escalation/file-permissions/llm-controlled-permissions"
+    match:
+      command_regex: "^(sudo\\s+)?chmod\\s+(0777|\\$[A-Za-z_][A-Za-z0-9_]*)\\s+"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "World-writable (0777) or variable-mode chmod — LLM-controlled permissions enable prompt injection to set dangerous access bits. Use explicit safe modes (644, 755) instead."
+
   - id: "ts-block-kernel-module-load"
     taxonomy: "privilege-escalation/command-execution/kernel-module"
     match:
