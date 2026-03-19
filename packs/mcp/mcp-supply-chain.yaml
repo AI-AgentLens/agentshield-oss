@@ -162,6 +162,87 @@ structural_rules:
     reason: "MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002."
     confidence: 0.95
 
+  # === BLOCK: Package manager config file writes via MCP (issue #448) ===
+  #
+  # Shell-level rules in supply-chain.yaml block `echo > .npmrc`, `sed -i .pypirc`,
+  # and `npm config set registry <malicious>` at the command level. But an AI agent
+  # using MCP write_file bypasses shell evaluation entirely — no shell command is issued,
+  # no terminal rule fires.
+  #
+  # Writing to package manager config files redirects ALL future dependency resolution
+  # for that tool to an attacker-controlled registry. A single write_file call can:
+  #   - Redirect npm/pnpm installs to a malicious registry (DEEPSEEK_API_KEY-style squatting)
+  #   - Override pip's index-url, poisoning every subsequent pip install
+  #   - Set a custom Maven repository to serve backdoored JARs on next build
+  #   - Override Cargo registry to serve tampered crates
+  #
+  # This is a persistent attack — the config file survives process restarts, reboots,
+  # and shell restarts. One MCP call poisons all future package installs.
+  #
+  # Covered config files (files rarely written by agents in normal workflows):
+  #   pip:         pip.conf, ~/.pip/pip.conf, ~/.config/pip/pip.conf
+  #   PyPI upload: .pypirc, ~/.pypirc
+  #   yarn v1:     .yarnrc, ~/.yarnrc  (NOT .yarnrc.yml — yarn berry uses that for workspace)
+  #   conda:       .condarc, ~/.condarc
+  #   Maven:       ~/.m2/settings.xml
+  #   Gradle:      ~/.gradle/gradle.properties
+  #   Cargo:       ~/.cargo/config.toml, ~/.cargo/config
+  #   gem:         .gemrc, ~/.gemrc
+  #   NuGet:       ~/.nuget/NuGet/NuGet.Config
+  #   Bun:         bunfig.toml, ~/.bunfig.toml
+  #
+  # NOTE: .npmrc is intentionally excluded from this rule. Project-level .npmrc files
+  # are legitimately written by agents (e.g., setting save-exact=true, engine-strict=true).
+  # npm config writes via the CLI are already caught by the terminal-level
+  # sc-block-npmrc-edit rule. This gap is accepted as a trade-off against usability.
+  #
+  # Decision: BLOCK (not AUDIT) — the listed files are user/system-level config that
+  # agents have no legitimate need to directly overwrite. Registry changes must go through
+  # the package manager CLI, which is subject to shell-level detection rules.
+  #
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1072     — Software Deployment Tools
+  - id: mcp-sc-block-pkgmgr-config-write
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # pip configuration files (never legitimately written directly by agents)
+            - "(?:^|/)pip\\.conf$"
+            # PyPI upload config
+            - "(?:^|/)\\.pypirc$"
+            # yarn v1 (project and user-level)
+            - "(?:^|/)\\.yarnrc$"
+            # conda channel/registry config
+            - "(?:^|/)\\.condarc$"
+            # Maven repository settings (user-level)
+            - "(?:^|/)\\.m2/settings\\.xml$"
+            # Gradle repository properties (user-level)
+            - "(?:^|/)\\.gradle/gradle\\.properties$"
+            # Cargo (Rust) registry config (user-level)
+            - "(?:^|/)\\.cargo/config(?:\\.toml)?$"
+            # RubyGems source config
+            - "(?:^|/)\\.gemrc$"
+            # NuGet feed config
+            - "(?:^|/)NuGet\\.Config$"
+            # Bun package manager config
+            - "(?:^|/)bunfig\\.toml$"
+    decision: "BLOCK"
+    reason: "MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001."
+    confidence: 0.95
+
   # === BLOCK: ML training dataset and model checkpoint writes via MCP (issue #173) ===
   #
   # Shell-level rules block `echo > training/data.jsonl` and `cp > checkpoints/model.pt`.
