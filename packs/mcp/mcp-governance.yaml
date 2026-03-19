@@ -1,0 +1,151 @@
+name: "MCP AI Governance"
+description: "Detect MCP tool calls that erode AI output accountability, compliance records, and incident response artifacts — governance-risk kingdom coverage for the MCP layer"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# The terminal-safety pack covers shell commands that delete or truncate AI audit
+# logs (ts-audit-ai-audit-log-delete, ts-audit-ai-log-truncate). But an AI agent
+# using MCP file tools bypasses the shell entirely — there is no shell command to
+# intercept. These rules close that gap by auditing direct MCP tool calls that
+# target AI accountability artifacts.
+#
+# Taxonomy: governance-risk/ai-governance-gap/
+#   ai-output-accountability-gap — AI audit and attribution logs (EU AI Act Art.13,
+#                                  SOC 2 CC7.2, NIST AI RMF GOVERN-1.3, CWE-778)
+#   ai-model-inventory-gap       — AI compliance assessment and model registry files
+#   ai-incident-response-gap     — AI incident response playbooks and runbooks
+#
+# OWASP LLM Top 10 2025:
+#   LLM06 — Excessive Agency (unauthorized destruction of governance artifacts)
+#   LLM09 — Misinformation (erasing proof of AI involvement in outputs)
+
+rules:
+  # ===========================================================================
+  # AI Audit Log Deletion
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+  # OWASP LLM06/LLM09, EU AI Act Art.13, SOC 2 CC7.2, NIST AI RMF GOVERN-1.3
+  # CWE-778 — Insufficient Logging
+  # MITRE T1070.002 — Indicator Removal: Clear Linux or Mac System Logs
+  #
+  # AI audit logs record which outputs were AI-generated, which model was used,
+  # and what human review (if any) occurred. Deleting or truncating these files
+  # destroys the forensic record of AI involvement — making it impossible to
+  # audit AI risk exposure, respond to regulatory inquiries, or investigate
+  # post-incident accountability questions.
+
+  - id: mcp-gov-audit-ai-attribution-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_attribution*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI attribution log file — erases the forensic record of which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements and SOC 2 CC7.2 audit trail continuity (CWE-778, NIST AI RMF GOVERN-1.3)."
+
+  - id: mcp-gov-audit-ai-audit-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_audit*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI audit log file — destroys the audit trail of AI-assisted decisions and outputs. Required for regulatory accountability under EU AI Act Art.13 and NIST AI RMF GOVERN-1.3 (CWE-778)."
+
+  - id: mcp-gov-audit-ai-output-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_output*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI output log file — eliminates evidence of AI-generated content. Accountability records are required by EU AI Act Art.50 and SOC 2 PI1.3 (CWE-778)."
+
+  # ===========================================================================
+  # AI Compliance Assessment File Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Management), NIST AI RMF GOVERN-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # AI compliance assessment files document risk evaluation results, model
+  # inventory, and regulatory conformance status. An AI agent silently rewriting
+  # these files can mask policy violations or inflate compliance posture.
+
+  - id: mcp-gov-audit-ai-compliance-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+      argument_patterns:
+        path: "**/*ai*compliance*"
+    decision: "AUDIT"
+    reason: "MCP write to AI compliance assessment file — AI agents should not modify their own compliance records without human review. Silent modification can mask policy violations (CWE-693, EU AI Act Art.9)."
+
+  - id: mcp-gov-audit-ai-governance-report-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+      argument_patterns:
+        path: "**/*ai*governance*"
+    decision: "AUDIT"
+    reason: "MCP write to AI governance artifact — modifications to governance documentation by AI agents require human review to prevent silent compliance posture changes (CWE-693, NIST AI RMF GOVERN-1)."
+
+  # ===========================================================================
+  # AI Incident Response Playbook Deletion
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+  # OWASP LLM06, NIST AI RMF GOVERN-6, EU AI Act Art.73 (Serious Incident)
+  # CWE-778 — Insufficient Logging
+  #
+  # AI incident response playbooks and runbooks document procedures for
+  # responding to AI failures, bias events, and security incidents. Deleting
+  # these artifacts during or after an incident impairs forensic investigation
+  # and regulatory reporting obligations.
+
+  - id: mcp-gov-audit-ai-ir-playbook-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai*incident*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI incident response artifact — deleting incident playbooks or runbooks impairs post-incident investigation and EU AI Act Art.73 serious incident reporting obligations (CWE-778, NIST AI RMF GOVERN-6)."
