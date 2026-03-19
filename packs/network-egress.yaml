@@ -208,34 +208,34 @@ rules:
   - id: "ne-block-llm-exfil-curl"
     taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
     match:
-      command_regex: "(cat|less|head|tail|base64)\\s+.*(\\.(ssh|aws|gnupg|env|kube)|/etc/(shadow|passwd)).*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere)"
+      command_regex: "(cat|less|head|tail|base64)\\s+.*(\\.(ssh|aws|gnupg|env|kube)|/etc/(shadow|passwd)).*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere|deepseek|x\\.ai|perplexity\\.ai|fireworks\\.ai|cerebras\\.ai|together\\.xyz|groq\\.com|mistral\\.ai)"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Sensitive file contents piped to LLM API endpoint — likely exfiltration."
+    reason: "Sensitive file contents piped to LLM API endpoint — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral)."
 
   - id: "ne-block-llm-exfil-python"
     taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
     match:
-      command_regex: "python[23]?\\s+-c\\s+.*open\\(.*(\\.ssh|/etc/shadow|\\.aws|\\.env).*\\).*\\b(openai|anthropic|cohere)\\b"
+      command_regex: "python[23]?\\s+-c\\s+.*open\\(.*(\\.ssh|/etc/shadow|\\.aws|\\.env).*\\).*\\b(openai|anthropic|cohere|deepseek|xai|perplexity|fireworks|cerebras|together|groq|mistral)\\b"
     decision: "BLOCK"
     confidence: 0.85
-    reason: "Python one-liner reading sensitive files and targeting LLM API — likely exfiltration."
+    reason: "Python one-liner reading sensitive files and targeting LLM API — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral)."
 
   - id: "ne-block-llm-exfil-node"
     taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
     match:
-      command_regex: "node\\s+-e\\s+.*readFile.*(\\.ssh|\\.aws|\\.env|/etc/shadow).*\\b(openai|anthropic|cohere)\\b"
+      command_regex: "node\\s+-e\\s+.*readFile.*(\\.ssh|\\.aws|\\.env|/etc/shadow).*\\b(openai|anthropic|cohere|deepseek|xai|perplexity|fireworks|cerebras|together|groq|mistral)\\b"
     decision: "BLOCK"
     confidence: 0.85
-    reason: "Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration."
+    reason: "Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral)."
 
   - id: "ne-block-base64-to-llm"
     taxonomy: "data-exfiltration/network-egress/llm-api-exfil"
     match:
-      command_regex: "base64.*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere)"
+      command_regex: "base64.*\\|.*(curl|wget).*api\\.(openai|anthropic|cohere|deepseek|x\\.ai|perplexity\\.ai|fireworks\\.ai|cerebras\\.ai|together\\.xyz|groq\\.com|mistral\\.ai)"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration."
+    reason: "Base64-encoded data sent to LLM API endpoint — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral)."
 
   # === BLOCK: Customer data flowing to LLM APIs (LLM02/LLM06) ===
 
