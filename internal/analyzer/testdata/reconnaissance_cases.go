@@ -1528,11 +1528,11 @@ var InternalServiceProbeCases = []TestCase{
 	{
 		ID:               "TP-NE-AUDIT-ADMIN-PATH-001",
 		Command:          `curl http://localhost:8080/actuator/env`,
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
 		Analyzer:         "regex",
-		Description:      "curl to Spring Boot /actuator/env — dumps all environment variables including API keys and secrets. Caught by ne-audit-localhost-admin-path.",
+		Description:      "curl to Spring Boot /actuator/env on localhost — /actuator/env dumps all environment variables including API keys and secrets. Upgraded from AUDIT to BLOCK by ne-block-admin-endpoint-sensitive (closes #455).",
 		Tags:             []string{"tp", "recon", "internal-probe", "critical"},
 	},
 	{
@@ -1775,6 +1775,142 @@ var CloudInfraReconCases = []TestCase{
 	},
 }
 
+// AdminEndpointProbeCases covers shell-layer admin/management endpoint probing (closes #455).
+// Rules: ne-block-admin-endpoint-sensitive, ne-audit-admin-endpoint-probe.
+// Taxonomy: reconnaissance/web-application/admin-endpoint-probe
+// MITRE T1082, T1213, T1590.
+var AdminEndpointProbeCases = []TestCase{
+
+	// --- TRUE POSITIVES: high-sensitivity endpoints (BLOCK) ---
+
+	{
+		ID:               "TP-NE-BLOCK-ADMIN-EP-001",
+		Command:          `curl http://app:8080/actuator/heapdump`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Spring Boot /actuator/heapdump on internal host — heap dumps expose in-memory secrets including API keys and session tokens. Caught by ne-block-admin-endpoint-sensitive.",
+		Tags:             []string{"tp", "recon", "admin-endpoint", "critical"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ADMIN-EP-002",
+		Command:          `curl http://api-service:8080/actuator/env`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Spring Boot /actuator/env on named service — exposes all environment variables including database passwords and API keys. Caught by ne-block-admin-endpoint-sensitive.",
+		Tags:             []string{"tp", "recon", "admin-endpoint", "critical"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ADMIN-EP-003",
+		Command:          `curl http://k8s-api:6443/api/v1/namespaces/default/secrets`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Kubernetes secrets API — exposes all Kubernetes secrets in plaintext (base64-encoded). Caught by ne-block-admin-endpoint-sensitive.",
+		Tags:             []string{"tp", "recon", "admin-endpoint", "critical", "kubernetes"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ADMIN-EP-004",
+		Command:          `wget -qO- http://backend:8080/actuator/configprops`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "wget to Spring Boot /actuator/configprops — dumps all configuration properties including database credentials and encryption keys. Caught by ne-block-admin-endpoint-sensitive.",
+		Tags:             []string{"tp", "recon", "admin-endpoint", "critical"},
+	},
+
+	// --- TRUE POSITIVES: general admin paths on non-localhost hosts (AUDIT) ---
+
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-EP-001",
+		Command:          `curl http://myapp:8080/actuator`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /actuator root on named service — probing Spring Boot management interface on a non-localhost host. Caught by ne-audit-admin-endpoint-probe.",
+		Tags:             []string{"tp", "recon", "admin-endpoint"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-EP-002",
+		Command:          `curl http://internal-app/admin`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /admin on a named internal host — probing for admin panel on non-localhost service. Caught by ne-audit-admin-endpoint-probe.",
+		Tags:             []string{"tp", "recon", "admin-endpoint"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-EP-003",
+		Command:          `http GET http://service:3000/management/info`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "httpie GET to /management/info on named service — accessing Spring Boot management endpoint via httpie CLI. Caught by ne-audit-admin-endpoint-probe.",
+		Tags:             []string{"tp", "recon", "admin-endpoint"},
+	},
+	{
+		ID:               "TP-NE-AUDIT-ADMIN-EP-004",
+		Command:          `curl http://grafana:3000/dashboard`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to Grafana /dashboard on named container — probing visualization admin interface. Caught by ne-audit-admin-endpoint-probe.",
+		Tags:             []string{"tp", "recon", "admin-endpoint"},
+	},
+
+	// --- TRUE NEGATIVES: benign HTTP requests ---
+
+	{
+		ID:               "TN-NE-BLOCK-ADMIN-EP-001",
+		Command:          `curl https://api.example.com/health`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to a public /health endpoint — standard health check, not a sensitive admin path. ne-block-admin-endpoint-sensitive and ne-audit-admin-endpoint-probe must not fire.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ADMIN-EP-005",
+		Command:          `curl http://localhost:8080/actuator/configprops`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /actuator/configprops on localhost — dumps all configuration properties including database credentials. Caught by ne-block-admin-endpoint-sensitive regardless of host.",
+		Tags:             []string{"tp", "recon", "admin-endpoint", "critical"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-ADMIN-EP-001",
+		Command:          `curl http://service:8080/api/v1/users`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "curl to /api/v1/users on a named service — normal REST API call, not an admin or secrets path. ne-audit-admin-endpoint-probe must not fire.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-AUDIT-ADMIN-EP-002",
+		Command:          `wget https://releases.example.com/v1.0/app.tar.gz`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/web-application/admin-endpoint-probe",
+		Analyzer:         "regex",
+		Description:      "wget downloading a release artifact — no admin path. ne-audit-admin-endpoint-probe must not fire.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -1790,6 +1926,7 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, CloudInfraReconCases...)
 	all = append(all, InotifySurveillanceCases...)
 	all = append(all, AgentCapabilityEnumerationCases...)
+	all = append(all, AdminEndpointProbeCases...)
 	return all
 }
 

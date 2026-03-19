@@ -1005,6 +1005,40 @@ rules:
     reason: "HTTP request to a localhost admin or management endpoint detected (/admin, /actuator, /metrics, /env, /debug, etc.). Spring Boot /actuator/env leaks all environment variables including API keys. AI agents probing management paths may be performing reconnaissance before exfiltration. MITRE T1082, T1590."
 
   # ═══════════════════════════════════════════════════════════════════
+  # ADMIN & MANAGEMENT ENDPOINT PROBING — SHELL LAYER (closes #455)
+  #
+  # AI agents with shell access can probe admin/management endpoints
+  # directly via curl/wget/httpie without going through MCP tool calls.
+  # Two tiers:
+  #   1. BLOCK: highest-sensitivity endpoints that directly expose
+  #      credential material (Spring Boot /actuator/heapdump and
+  #      /actuator/env, Kubernetes /api/v1/secrets) on any host.
+  #   2. AUDIT: general admin/management paths on non-localhost hosts
+  #      (internal hostnames, private IPs, named services) — the
+  #      localhost variant is already caught by ne-audit-localhost-admin-path.
+  #
+  # Taxonomy: reconnaissance/web-application/admin-endpoint-probe
+  # MITRE T1082, T1213, T1590. OWASP LLM02, LLM06.
+
+  # === BLOCK: High-sensitivity admin endpoints (any host) ===
+  - id: "ne-block-admin-endpoint-sensitive"
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      command_regex: "\\b(curl|wget|http)\\b.*https?://[^\\s]+(/(actuator/(heapdump|env|configprops|logfile|threaddump|mappings)|api/v1/(secrets|namespaces/[^/]+/secrets)|v2/keys|config/[^\\s]*))"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "HTTP request to a high-sensitivity management endpoint (Spring Boot /actuator/heapdump or /actuator/env, Kubernetes /api/v1/secrets, etcd /v2/keys). These endpoints expose credential material — heap dumps contain secrets in memory, /actuator/env reveals all env vars including API keys, /api/v1/secrets exposes Kubernetes secrets in plaintext. AI agents must not access these endpoints. MITRE T1082, T1213."
+
+  # === AUDIT: General admin path probe on non-localhost hosts ===
+  - id: "ne-audit-admin-endpoint-probe"
+    taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
+    match:
+      command_regex: "\\b(curl|wget|http)\\b.*https?://(?!(localhost|127\\.0\\.0\\.1|::1)(:\\d+)?/)[^\\s]+/(actuator|admin|management|console|dashboard|_debug|_admin|__admin)(\\b|/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "HTTP request to an admin or management endpoint on a non-localhost host detected (/actuator, /admin, /management, /console, /dashboard). AI agents probing management interfaces on internal services or named containers may be performing unauthorized reconnaissance. Spring Boot /actuator leaks application context, bean graph, and configuration. MITRE T1590, T1082."
+
+  # ═══════════════════════════════════════════════════════════════════
   # WEBHOOK-BASED DATA EXFILTRATION (closes #211)
   #
   # AI agents can silently POST data to webhook endpoints that require
