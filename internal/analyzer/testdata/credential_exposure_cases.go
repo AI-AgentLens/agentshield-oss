@@ -1099,6 +1099,27 @@ var HistoryMiningCases = []TestCase{
 		Description:      `Viewing last 50 history entries without grepping for credentials. No grep present so the credential-mining pattern does not match. Falls through to AUDIT default.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+	// FP regression cases (closes #459): word "history" in argument text should NOT trigger block
+	{
+		ID:               "TN-HISTGRP-003",
+		Command:          `gh issue create --title "Rule: block git commit log mining for leaked credentials" --body-file /tmp/issue.md`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/history-mining/history-credential-grep",
+		Analyzer:         "regex",
+		Description:      `Creating a GitHub issue about commit log mining — "history" appears in argument text, not as shell command. Tightened regex requires history immediately before a pipe (|), so this is NOT blocked. Falls to AUDIT default.`,
+		Tags:             []string{"fp-regression", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-HISTGRP-004",
+		Command:          `grep 'history-mining' packs/secrets-pii.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/history-mining/history-credential-grep",
+		Analyzer:         "regex",
+		Description:      `Searching rule file for 'history-mining' taxonomy reference — "history" is in a grep argument string, not a shell history command. No pipe structure matching history->|->grep->creds. Not a match. ALLOW by default (grep on local files with no credential sink).`,
+		Tags:             []string{"fp-regression", "common-dev-operation"},
+	},
 }
 
 // ---------------------------------------------------------------------------
