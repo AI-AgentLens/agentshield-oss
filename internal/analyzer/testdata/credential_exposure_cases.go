@@ -3888,6 +3888,95 @@ var VaultSecretReadCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// SSH Agent Socket Abuse
+// Taxonomy: credential-exposure/private-key-access/ssh-agent-socket-abuse
+//
+// The SSH agent holds decrypted private keys in memory. Enumerating, deleting,
+// or adding keys — or hijacking another user's agent socket — enables credential
+// theft and lateral movement without ever touching private key files on disk.
+// ---------------------------------------------------------------------------
+
+// SSHAgentAbuseCase tests detection of SSH agent socket manipulation.
+var SSHAgentAbuseCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SSHAGENT-001",
+		Command:          "ssh-add -L",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "ssh-add -L enumerates loaded public keys — reconnaissance for lateral movement.",
+		Tags:             []string{"tp", "ssh-agent", "enumeration"},
+	},
+	{
+		ID:               "TP-SSHAGENT-002",
+		Command:          "ssh-add -D",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "ssh-add -D deletes all SSH agent keys — sabotage.",
+		Tags:             []string{"tp", "ssh-agent", "sabotage"},
+	},
+	{
+		ID:               "TP-SSHAGENT-003",
+		Command:          "SSH_AUTH_SOCK=/tmp/ssh-abc/agent.12345 ssh-add -L",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "SSH_AUTH_SOCK override to hijack another user's agent socket.",
+		Tags:             []string{"tp", "ssh-agent", "hijack", "lateral-movement"},
+	},
+	{
+		ID:               "TP-SSHAGENT-004",
+		Command:          "SSH_AUTH_SOCK=/run/user/1000/ssh-agent.socket ssh user@target",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "SSH_AUTH_SOCK override with ssh connection — lateral movement via hijacked agent.",
+		Tags:             []string{"tp", "ssh-agent", "hijack", "lateral-movement"},
+	},
+	{
+		ID:               "TP-SSHAGENT-005",
+		Command:          "ssh-add /tmp/stolen_key",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "ssh-add with a keyfile path — potentially loading a stolen or unauthorized key.",
+		Tags:             []string{"tp", "ssh-agent", "key-load"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SSHAGENT-001",
+		Command:          "ssh user@host",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "Normal SSH connection — no agent socket manipulation. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "ssh"},
+	},
+	{
+		ID:               "TN-SSHAGENT-002",
+		Command:          "ssh-add -l",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-agent-socket-abuse",
+		Analyzer:         "regex",
+		Description:      "ssh-add -l lists fingerprints only (not public keys, not key material). Default AUDIT.",
+		Tags:             []string{"tn", "safe", "ssh-agent"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Kerberos Credential Theft
 // Taxonomy: credential-exposure/cryptographic-keys/kerberos-keytab-theft
 //
@@ -4059,5 +4148,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, AzureGetAccessTokenCases...)
 	all = append(all, VaultSecretReadCases...)
 	all = append(all, KerberosCredentialTheftCases...)
+	all = append(all, SSHAgentAbuseCases...)
 	return all
 }
