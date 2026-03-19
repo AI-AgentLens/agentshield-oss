@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-18 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-19 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 681 |
-| MCP rules | 119 |
-| Total rules | 800 |
-| Test cases (TP+TN) | 2210 |
+| Terminal rules | 692 |
+| MCP rules | 125 |
+| Total rules | 817 |
+| Test cases (TP+TN) | 2265 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -193,7 +193,7 @@
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
 | `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
 
-### destructive-ops (51 rules)
+### destructive-ops (55 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -203,6 +203,9 @@
 | `ts-block-dd-zero` | BLOCK | regex | dd from /dev/zero or /dev/urandom can overwrite disks. |
 | `ts-block-fork-bomb` | BLOCK | regex | Fork bomb detected — can crash the system. |
 | `ts-block-while-fork-bomb` | BLOCK | regex | Infinite loop spawning background processes is a fork bomb pattern. |
+| `ts-block-stress-vm-large` | BLOCK | regex | stress/stress-ng with --vm-bytes ≥1GB fills all available RAM, causing OOM kills of critical services and system instability. MITRE T1499.001. |
+| `ts-audit-stress-vm` | AUDIT | regex | stress/stress-ng memory worker invocation — can exhaust RAM even without explicit --vm-bytes if the system has limited memory. MITRE T1499.001. |
+| `ts-audit-swapoff-all` | AUDIT | regex | swapoff -a disables all swap space, removing the OS safety valve for memory pressure. When combined with memory-intensive workloads, this accelerates OOM kills. MITRE T1499.001. |
 | `ts-block-unbounded-api-loop` | BLOCK | regex | Infinite loop making AI API calls — denial-of-wallet attack pattern that consumes unbounded tokens/compute with no termination condition (OWASP LLM10). |
 | `ts-block-unbounded-agent-loop` | BLOCK | regex | Infinite loop invoking AI agent CLI — spawns unbounded agent sessions consuming API quota without termination condition (OWASP LLM10). |
 | `ts-audit-mass-agent-spawn` | AUDIT | regex | High-count for-loop invoking AI agent or AI API — may spawn thousands of agent sessions or API calls, exhausting quota (OWASP LLM10). |
@@ -210,6 +213,7 @@
 | `ts-block-chmod-recursive-sensitive` | BLOCK | regex | Recursive permission change on sensitive system directory. |
 | `ts-block-shutdown` | BLOCK | prefix | System shutdown/reboot must be done manually. |
 | `ts-struct-block-rm-system` | BLOCK | structural | Structural: recursive force-delete on system directory (handles flag reordering and sudo). |
+| `ts-allow-rm-tmp` | ALLOW | structural | Recursive remove of /tmp subdirectory — standard temp file cleanup. /tmp is a transient space by OS design. |
 | `ts-struct-block-chmod-world-writable` | AUDIT | structural | Structural: chmod on system directory flagged for review. |
 | `ts-sem-block-disk-destroy` | BLOCK | semantic | Semantic: any command classified as disk-destroy intent is blocked. |
 | `ts-block-aws-terminate` | BLOCK | regex | AWS EC2 instance termination is a destructive cloud operation. |
@@ -249,10 +253,11 @@
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 
-### governance-risk (12 rules)
+### governance-risk (15 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `ts-audit-model-weight-download` | AUDIT | regex | Direct download of AI model weight files (.gguf, .safetensors, .bin, .pt, .ckpt) from a public model hub bypasses organizational model inventory registration and governance review. Downloaded weights are not tracked in any approved registry, creating an AI Model Inventory Gap (EU AI Act Art.9, NIST AI RMF GOVERN-1). Ensure the model is approved, registered in the organization's model inventory, and its provenance and license are verified before use. |
 | `ts-block-ai-api-sensitive-cmd-subst` | BLOCK | regex | curl to an AI API endpoint with shell command substitution reading sensitive files (passwd, shadow, SSH keys, AWS credentials, kubeconfig) — embedding credentials or system secrets in an LLM API payload exfiltrates sensitive data via the AI provider's infrastructure and may enable prompt injection (OWASP LLM02/LLM01, MITRE T1552, EU AI Act Art.26). |
 | `ts-audit-ai-safety-bypass` | AUDIT | regex | Disabling LLM safety controls (bypass_safety, safe_mode=false, guardrails_disabled, HARM_BLOCK_THRESHOLD=BLOCK_NONE) removes the content filtering and governance guardrails required by OWASP LLM01/LLM06 and EU AI Act Art.14. Prompt-injected agents may be directed to disable these controls before issuing harmful requests. |
 | `ts-audit-ai-unguarded-agent-loop` | AUDIT | regex | Agent invocation with require_approval=False disables the human oversight gate required for high-risk actions (data deletion, external API calls, payment processing). Autonomous agents without approval checkpoints violate EU AI Act Art.14 and NIST AI RMF GOVERN-1 mandates for human control of consequential AI decisions (OWASP LLM06, CWE-693). |
@@ -265,8 +270,10 @@
 | `ts-audit-aws-logs-delete-bedrock-group` | AUDIT | regex | Deleting the CloudWatch log group that receives AWS Bedrock invocation logs destroys the historical AI audit trail and prevents future log delivery. Impacts EU AI Act Art.9 post-market monitoring, SOC 2 CC7.1 detection controls, and incident forensics capability (CWE-778, NIST AI RMF MANAGE-4). |
 | `ts-audit-azure-ai-diagnostic-delete` | AUDIT | regex | Deleting Azure Monitor diagnostic settings stops audit log delivery to Log Analytics or SIEM — may target Azure OpenAI or Cognitive Services resources, removing AI invocation audit trails. Impacts incident detection, EU AI Act Art.9 monitoring, and SOC 2 CC7.1 controls. Verify the targeted resource is not an AI service before approving (CWE-778). |
 | `ts-audit-gcloud-logging-bucket-delete` | AUDIT | regex | Deleting a Google Cloud Logging bucket may destroy historical Vertex AI / Cloud AI invocation records. If targeting AI service audit logs, this removes forensic capability needed for EU AI Act post-market monitoring and incident response (CWE-778, NIST AI RMF MANAGE-4). |
+| `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
+| `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (113 rules)
+### persistence-evasion (115 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -352,6 +359,8 @@
 | `ts-audit-agent-instruction-file-tampering` | AUDIT | regex | Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .windsurf/rules) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions. OWASP LLM01, MITRE T1564. |
 | `ts-block-mcp-registration-agent-config-write` | BLOCK | regex | Shell redirect writing to an AI agent MCP config file (Windsurf/Gemini CLI/OpenAI Codex) — injecting attacker-controlled MCP server entries creates a persistent backdoor that reconnects on every future session without re-authorization (OWASP LLM07, MITRE T1543, T1565.001). |
 | `ts-block-mcp-registration-python-inline` | BLOCK | regex | Python one-liner modifying mcpServers in an agent config file — surgical JSON injection of attacker-controlled MCP server entries that persist across sessions and auto-connect without user re-authorization (OWASP LLM07, MITRE T1543, T1565.001). |
+| `ts-audit-aws-bedrock-logging-clear` | AUDIT | regex | Reconfiguring AWS Bedrock invocation logging with an empty config object clears all log delivery destinations, silently disabling the AI audit trail. This anti-forensics technique (MITRE T1562.008) erases forensic visibility without an explicit delete. Impacts EU AI Act Art.9 post-market monitoring and SOC 2 CC7.1 detection controls (CWE-778). |
+| `ts-audit-gcloud-logging-sink-delete` | AUDIT | regex | Deleting a Google Cloud Logging sink stops audit log routing for all services that used it, including Vertex AI and Cloud AI invocation logs. This anti-forensics action (MITRE T1562.008) eliminates the export pipeline to SIEM/storage. Verify the sink is not routing AI compliance logs before approving (CWE-778, NIST AI RMF MANAGE-4). |
 | `ts-block-bind-x-shell-exec` | BLOCK | regex | Readline key binding with shell command execution (bind -x) — maps a keypress to arbitrary shell command execution. Creates a stealth backdoor triggered by normal keyboard usage (Enter, Tab, Ctrl-L). The command runs silently on every keypress, ideal for keylogging, credential interception, or persistent beaconing. MITRE T1546.004, CWE-94. |
 | `ts-block-inputrc-override` | BLOCK | regex | INPUTRC environment override — forces readline to load macros from an attacker-controlled file. The malicious inputrc can map keys to shell commands ($if...\e[...\C-m), silently installing keyloggers or backdoors triggered by normal typing. MITRE T1546.004. |
 | `ts-audit-bind-macro` | AUDIT | regex | Readline key binding detected — while 'bind' without -x maps to readline functions (not shell commands), macros can still inject keystrokes that produce dangerous commands when replayed. Auditing for review. MITRE T1546.004. |
@@ -384,7 +393,7 @@
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 
-### privilege-escalation (104 rules)
+### privilege-escalation (105 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -395,6 +404,7 @@
 | `ts-block-suid-bit-set` | BLOCK | regex | Setting the SUID/SGID bit on a file grants it root-equivalent execution, enabling persistent privilege escalation. |
 | `ts-block-setcap` | BLOCK | regex | Setting Linux capabilities (e.g. cap_setuid, cap_net_admin) on a binary is a stealthy privilege escalation vector that bypasses sudo audit trails. |
 | `ts-block-suid-find-exec` | BLOCK | regex | Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain. |
+| `ts-block-llm-chmod-dangerous` | BLOCK | regex | World-writable (0777) or variable-mode chmod — LLM-controlled permissions enable prompt injection to set dangerous access bits. Use explicit safe modes (644, 755) instead. |
 | `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
 | `ts-block-bpftool-prog-load` | BLOCK | regex | bpftool prog load installs an eBPF program into the kernel — equivalent in risk to loading a kernel module. Can be used to intercept credentials, trace TLS plaintext, or establish a persistent kernel backdoor. |
 | `ts-block-bpftrace-inline` | BLOCK | regex | bpftrace inline expression (-e) attaches kernel/user-space probes that can intercept credentials from readline, decrypt TLS traffic via SSL_write tracing, or dump exec argv containing secrets. No file artifact — executes immediately. |
@@ -627,7 +637,7 @@
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (106 rules)
+### unauthorized-execution (107 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -638,6 +648,7 @@
 | `sec-block-credential-env-inline-network` | BLOCK | regex | Inline credential environment variable assignment before a network command — a compromised MCP tool explicitly setting a known credential key before curl/wget is the shell-level signature of credential relay exfiltration (OWASP LLM06, MITRE T1552.007, T1041). |
 | `ts-audit-ai-bulk-input-pipe` | AUDIT | regex | Piping glob-expanded file input (cat ../* \| llm) into an AI CLI — may stuff unbounded token volumes into an LLM prompt, causing runaway API costs (AI Denial of Wallet, OWASP LLM10). |
 | `ts-audit-ai-parallel-dispatch` | AUDIT | regex | xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10). |
+| `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
 | `ts-block-eval-subshell-rce` | BLOCK | regex | eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection. |
 | `ts-block-shell-c-remote-subshell` | BLOCK | regex | shell -c with remote subshell executes unreviewed remote code — pipe-to-shell evasion via -c flag. |
@@ -814,6 +825,17 @@
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
+### governance-risk (6 rules)
+
+| Rule ID | Decision | Match Type | Description |
+|---------|----------|------------|-------------|
+| `mcp-gov-audit-ai-attribution-log-delete` | AUDIT | mcp_rule | MCP delete targeting AI attribution log file — erases the forensic record of which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements and SOC 2 CC7.2 audit trail continuity (CWE-778, NIST AI RMF GOVERN-1.3). |
+| `mcp-gov-audit-ai-audit-log-delete` | AUDIT | mcp_rule | MCP delete targeting AI audit log file — destroys the audit trail of AI-assisted decisions and outputs. Required for regulatory accountability under EU AI Act Art.13 and NIST AI RMF GOVERN-1.3 (CWE-778). |
+| `mcp-gov-audit-ai-output-log-delete` | AUDIT | mcp_rule | MCP delete targeting AI output log file — eliminates evidence of AI-generated content. Accountability records are required by EU AI Act Art.50 and SOC 2 PI1.3 (CWE-778). |
+| `mcp-gov-audit-ai-compliance-write` | AUDIT | mcp_rule | MCP write to AI compliance assessment file — AI agents should not modify their own compliance records without human review. Silent modification can mask policy violations (CWE-693, EU AI Act Art.9). |
+| `mcp-gov-audit-ai-governance-report-write` | AUDIT | mcp_rule | MCP write to AI governance artifact — modifications to governance documentation by AI agents require human review to prevent silent compliance posture changes (CWE-693, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-ai-ir-playbook-delete` | AUDIT | mcp_rule | MCP delete targeting AI incident response artifact — deleting incident playbooks or runbooks impairs post-incident investigation and EU AI Act Art.73 serious incident reporting obligations (CWE-778, NIST AI RMF GOVERN-6). |
+
 ### mcp-safety (8 rules)
 
 | Rule ID | Decision | Match Type | Description |
@@ -922,11 +944,11 @@
 |---------|----|----|-------|
 | credential-exposure | 143 | 108 | 251 |
 | data-exfiltration | 193 | 115 | 308 |
-| destructive-ops | 98 | 63 | 161 |
-| persistence-evasion | 231 | 131 | 362 |
-| privilege-escalation | 240 | 142 | 382 |
+| destructive-ops | 105 | 69 | 174 |
+| persistence-evasion | 236 | 133 | 369 |
+| privilege-escalation | 246 | 148 | 394 |
 | reconnaissance | 128 | 51 | 179 |
-| supply-chain | 99 | 71 | 170 |
-| unauthorized-execution | 236 | 161 | 397 |
-| **Total** | **1368** | **842** | **2210** |
+| supply-chain | 102 | 74 | 176 |
+| unauthorized-execution | 245 | 169 | 414 |
+| **Total** | **1398** | **867** | **2265** |
 
