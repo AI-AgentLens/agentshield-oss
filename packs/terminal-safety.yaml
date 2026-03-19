@@ -1463,6 +1463,46 @@ rules:
     confidence: 0.98
     reason: "redis-cli FLUSHALL wipes every key in every Redis database; FLUSHDB wipes all keys in the current database. Both are irreversible data destruction. AI agents must not flush production caches. MITRE T1485."
 
+  # === BLOCK: SQL DROP TABLE via mysql/psql CLI ===
+  # DROP TABLE is just as destructive as DROP DATABASE but targets individual tables.
+  # Unlike DROP DATABASE, there is no mysqladmin/dropdb wrapper — it must be passed via -e/-c.
+  # These patterns cover the mysql and psql CLI clients (the two most common).
+  - id: "ts-block-mysql-drop-table"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\b(mysql|mariadb)\\b.*\\bDROP\\s+TABLE\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MySQL/MariaDB DROP TABLE permanently removes a table and all its data — irreversible without a backup. AI agents have no legitimate reason to drop tables in production. MITRE T1485."
+
+  - id: "ts-block-psql-drop-table"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\bpsql\\b.*\\bDROP\\s+TABLE\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "PostgreSQL DROP TABLE executed via psql CLI — permanently destroys the named table and all its rows. MITRE T1485."
+
+  # === BLOCK: SQL TRUNCATE TABLE via mysql/psql CLI ===
+  # TRUNCATE TABLE deletes every row in a table instantly, bypasses triggers,
+  # is non-transactional in many engines, and cannot be rolled back after commit.
+  # It is faster than DELETE FROM and leaves no row-level audit trail.
+  - id: "ts-block-mysql-truncate-table"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\b(mysql|mariadb)\\b.*\\bTRUNCATE\\s+(TABLE\\s+)?\\w"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "MySQL/MariaDB TRUNCATE TABLE destroys all rows in the target table instantly, bypassing triggers and row-level logging. Irreversible without a backup. MITRE T1485."
+
+  - id: "ts-block-psql-truncate-table"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
+    match:
+      command_regex: "(?i)\\bpsql\\b.*\\bTRUNCATE\\s+(TABLE\\s+)?\\w"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "PostgreSQL TRUNCATE TABLE executed via psql CLI — deletes all rows immediately, can CASCADE to child tables, and resets sequences. Irreversible without a backup. MITRE T1485."
+
   - id: "ts-block-kubectl-get-secret"
     taxonomy: "credential-exposure/container-config/kubernetes-config-access"
     match:
