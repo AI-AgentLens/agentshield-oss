@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 692 |
+| Terminal rules | 702 |
 | MCP rules | 125 |
-| Total rules | 817 |
-| Test cases (TP+TN) | 2265 |
+| Total rules | 827 |
+| Test cases (TP+TN) | 2308 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (58 rules)
+### credential-exposure (61 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -31,6 +31,9 @@
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
 | `sec-audit-env-dump` | AUDIT | prefix | Environment dump may expose secrets (API keys, tokens, passwords). |
 | `sec-audit-env-grep-secret` | AUDIT | regex | Targeted access to secret environment variables flagged for review. |
+| `sec-audit-docker-inspect-env` | AUDIT | regex | docker inspect exposes the full container configuration including environment variables — API keys, database passwords, and cloud credentials stored in container env vars are disclosed. Cross-container credential access crosses the isolation boundary (MITRE T1552.007, OWASP LLM02). |
+| `sec-audit-docker-exec-env-dump` | AUDIT | regex | docker exec with env/printenv dumps all environment variables from a running container — exposes secrets injected at container startup including API keys, tokens, and database credentials (MITRE T1552.007, OWASP LLM02). |
+| `sec-audit-kubectl-exec-env-dump` | AUDIT | regex | kubectl exec with env/printenv dumps environment variables from a Kubernetes pod — exposes Kubernetes Secrets mounted as env vars, service account tokens, and application credentials (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-dotenv` | AUDIT | regex | .env files often contain secrets. Flagged for review. |
 | `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. |
 | `sec-block-tfstate-read` | BLOCK | regex | Terraform state and variable files contain plaintext credentials (DB passwords, API keys, TLS keys). Direct access is blocked. MITRE T1552.001. |
@@ -39,7 +42,7 @@
 | `sec-audit-clipboard` | AUDIT | prefix | Clipboard operations flagged — may leak secrets. |
 | `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. |
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
-| `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review. |
+| `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
 | `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
@@ -101,10 +104,10 @@
 | `ne-audit-gcloud` | AUDIT | prefix | GCloud CLI command flagged — may access cloud resources. |
 | `ne-audit-az-cli` | AUDIT | prefix | Azure CLI command flagged — may access cloud resources. |
 | `ne-audit-git-push` | AUDIT | prefix | Git push sends data to remote — flagged for review. |
-| `ne-block-llm-exfil-curl` | BLOCK | regex | Sensitive file contents piped to LLM API endpoint — likely exfiltration. |
-| `ne-block-llm-exfil-python` | BLOCK | regex | Python one-liner reading sensitive files and targeting LLM API — likely exfiltration. |
-| `ne-block-llm-exfil-node` | BLOCK | regex | Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration. |
-| `ne-block-base64-to-llm` | BLOCK | regex | Base64-encoded data sent to LLM API endpoint — likely exfiltration. |
+| `ne-block-llm-exfil-curl` | BLOCK | regex | Sensitive file contents piped to LLM API endpoint — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral). |
+| `ne-block-llm-exfil-python` | BLOCK | regex | Python one-liner reading sensitive files and targeting LLM API — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral). |
+| `ne-block-llm-exfil-node` | BLOCK | regex | Node.js one-liner reading sensitive files and targeting LLM API — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral). |
+| `ne-block-base64-to-llm` | BLOCK | regex | Base64-encoded data sent to LLM API endpoint — likely exfiltration (covers OpenAI, Anthropic, Cohere, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq, Mistral). |
 | `ne-block-customer-data-to-llm` | BLOCK | regex | Python command reads customer/user data and passes it to an LLM API. Risk of PII exfiltration to third-party AI provider (LLM02/LLM06). |
 | `ne-audit-hardcoded-model-ref` | AUDIT | regex | Hardcoded model identifier in Python one-liner. Uncontrolled model selection bypasses governance controls and model allowlists (LLM05/LLM06). |
 | `ne-block-system-prompt-exfil` | BLOCK | regex | System prompt content piped to a network tool — likely system prompt exfiltration (LLM07). |
@@ -356,7 +359,7 @@
 | `ts-audit-agentshield-log-modify` | AUDIT | regex | In-place modification of AgentShield audit log records — may be used to alter BLOCK/ALLOW decisions or remove evidence of policy violations. MITRE T1565.001, EU AI Act Art.13. |
 | `ts-audit-agentshield-log-env-disable` | AUDIT | regex | Setting AgentShield log-level environment variable to suppress audit output — disables the runtime security audit trail before command execution. OWASP LLM06, MITRE T1562.001. |
 | `ts-audit-agentshield-log-timestamp-tamper` | AUDIT | regex | Timestamp manipulation on AgentShield audit log files — alters file modification times to obscure when audit events occurred, breaking forensic timeline reconstruction. MITRE T1070.006, EU AI Act Art.13. |
-| `ts-audit-agent-instruction-file-tampering` | AUDIT | regex | Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .windsurf/rules) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions. OWASP LLM01, MITRE T1564. |
+| `ts-audit-agent-instruction-file-tampering` | AUDIT | regex | Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .clinerules, .aider.conf.yml, .continuerc.json, .github/copilot-instructions.md, codex.md, etc.) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions and propagates via version control. OWASP LLM01, MITRE T1564. |
 | `ts-block-mcp-registration-agent-config-write` | BLOCK | regex | Shell redirect writing to an AI agent MCP config file (Windsurf/Gemini CLI/OpenAI Codex) — injecting attacker-controlled MCP server entries creates a persistent backdoor that reconnects on every future session without re-authorization (OWASP LLM07, MITRE T1543, T1565.001). |
 | `ts-block-mcp-registration-python-inline` | BLOCK | regex | Python one-liner modifying mcpServers in an agent config file — surgical JSON injection of attacker-controlled MCP server entries that persist across sessions and auto-connect without user re-authorization (OWASP LLM07, MITRE T1543, T1565.001). |
 | `ts-audit-aws-bedrock-logging-clear` | AUDIT | regex | Reconfiguring AWS Bedrock invocation logging with an empty config object clears all log delivery destinations, silently disabling the AI audit trail. This anti-forensics technique (MITRE T1562.008) erases forensic visibility without an explicit delete. Impacts EU AI Act Art.9 post-market monitoring and SOC 2 CC7.1 detection controls (CWE-778). |
@@ -637,7 +640,7 @@
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (107 rules)
+### unauthorized-execution (114 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -657,6 +660,11 @@
 | `ts-block-python-inline-os-exec` | BLOCK | regex | Python inline code executing OS commands (os.system/subprocess/__import__('os')) bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02). |
 | `ts-block-node-inline-child-process` | BLOCK | regex | Node.js inline code importing child_process bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02). |
 | `ts-block-perl-ruby-inline-system` | BLOCK | regex | Perl/Ruby inline code calling system()/exec() bypasses shell-level inspection — indirect code execution evasion (OWASP LLM02). |
+| `ts-allow-jupyter-interactive` | ALLOW | regex | Safe Jupyter commands that start interactive servers or manage configuration — require human interaction to execute any notebook code, no autonomous execution. |
+| `ts-allow-jupyter-nbconvert-format` | ALLOW | regex | jupyter nbconvert --to <format> without --execute only converts notebook format — no code cells are executed. The most_restrictive_wins combiner ensures --execute still triggers AUDIT even when this ALLOW matches. |
+| `ts-audit-jupyter-nbconvert-execute` | AUDIT | regex | jupyter nbconvert --execute runs all code cells in a notebook non-interactively. An AI agent could inject malicious code into a .ipynb file and trigger execution without visible shell-level commands. Review the notebook contents before allowing. (OWASP LLM06, MITRE T1059, CWE-78) |
+| `ts-audit-jupyter-execute-cmd` | AUDIT | regex | jupyter execute runs all code cells in a notebook non-interactively. Unlike jupyter lab/notebook (which require human interaction), this command executes notebooks autonomously — an AI agent could use it to run injected code. (OWASP LLM06, MITRE T1059) |
+| `ts-audit-papermill-execute` | AUDIT | prefix | papermill always executes a Jupyter notebook non-interactively, injecting parameters at runtime. An AI agent could use papermill to execute a compromised notebook or inject malicious parameters. Review notebook contents and parameters. (OWASP LLM06, MITRE T1059) |
 | `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
 | `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
@@ -728,6 +736,8 @@
 | `ts-audit-slack-webhook-post` | AUDIT | regex | curl POST to a Slack/Teams/Discord webhook — AI agent sending unsolicited messages to org channels is an AI-assisted social engineering risk. Confirm message content and intent before allowing (OWASP LLM09, MITRE T1534). |
 | `ts-block-base64-decode-pipe-shell` | BLOCK | regex | Base64-decoded payload piped to a shell — encoding commands in base64 is a standard guardrail evasion technique. The decoded payload is invisible to string-based policy enforcement. OWASP LLM01, MITRE T1027.013. |
 | `ts-block-eval-base64-substitution` | BLOCK | regex | eval of base64-decoded command substitution — executes a runtime-decoded payload, bypassing all static guardrail analysis. OWASP LLM01, MITRE T1027.013. |
+| `ts-block-xxd-hex-pipe-shell` | BLOCK | regex | xxd -r -p (hex reverse decode) piped to a shell interpreter — decodes hex-encoded commands at runtime, bypassing all string-based guardrail analysis. Sibling to base64-decode-pipe-shell. OWASP LLM01, MITRE T1027.013. |
+| `ts-block-openssl-decode-pipe-shell` | BLOCK | regex | openssl enc -d (decrypt/decode) piped to a shell interpreter — executes a decoded/decrypted payload at runtime, evading all static command analysis. Covers base64, AES, and other cipher modes. OWASP LLM01, MITRE T1027.013. |
 | `ts-block-auditd-disable` | BLOCK | regex | Stopping or disabling the audit daemon (auditd) — eliminates the system audit trail and bypasses all SIEM/SOC monitoring. No legitimate AI coding agent task requires disabling auditd. OWASP LLM06, MITRE T1562.001. |
 | `ts-audit-nohup-agent-oversight` | AUDIT | regex | nohup backgrounding an agent hook or oversight process — detaches the process from the terminal, making it invisible to the session and potentially bypassing approval workflows. OWASP LLM06, MITRE T1562. |
 | `ts-audit-context-file-control-char-injection` | AUDIT | regex | Writing ANSI escape codes, null bytes, or zero-width Unicode characters to an AI agent context file — injects invisible or display-corrupting content into the agent's context window, hiding malicious instructions from human review. OWASP LLM01, MITRE T1059. |
@@ -942,13 +952,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 143 | 108 | 251 |
-| data-exfiltration | 193 | 115 | 308 |
+| credential-exposure | 155 | 112 | 267 |
+| data-exfiltration | 198 | 116 | 314 |
 | destructive-ops | 105 | 69 | 174 |
-| persistence-evasion | 236 | 133 | 369 |
+| persistence-evasion | 241 | 135 | 376 |
 | privilege-escalation | 246 | 148 | 394 |
 | reconnaissance | 128 | 51 | 179 |
 | supply-chain | 102 | 74 | 176 |
-| unauthorized-execution | 245 | 169 | 414 |
-| **Total** | **1398** | **867** | **2265** |
+| unauthorized-execution | 253 | 175 | 428 |
+| **Total** | **1428** | **880** | **2308** |
 
