@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 738 |
+| Terminal rules | 757 |
 | MCP rules | 126 |
-| Total rules | 864 |
-| Test cases (TP+TN) | 2451 |
+| Total rules | 883 |
+| Test cases (TP+TN) | 2499 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (69 rules)
+### credential-exposure (86 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -26,6 +26,15 @@
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
 | `sec-block-linux-keepassxc-cli` | BLOCK | regex | keepassxc-cli extracting credentials from a KeePassXC database — 'show' reveals passwords, 'clip' copies to clipboard, 'totp' generates 2FA codes, 'export' dumps the entire database. MITRE T1555.004. |
 | `sec-audit-linux-pass-list` | AUDIT | regex | pass/gopass listing or searching entries — reveals credential names/paths (metadata) but does not decrypt. Auditing for visibility. MITRE T1555.004. |
+| `sec-block-1password-op-get` | BLOCK | regex | 1Password CLI (op) credential extraction — 'op item get' and 'op read' return plaintext secrets from 1Password vaults; 'op export' dumps all vault data. No AI agent workflow requires direct 1Password credential extraction. MITRE T1555.004. |
+| `sec-audit-1password-op-list` | AUDIT | regex | 1Password CLI listing or secret injection (op run) — listing enumerates vault contents (reconnaissance); 'op run' injects secrets into subprocess environment which may be captured. MITRE T1555.004. |
+| `sec-block-bitwarden-bw-get` | BLOCK | regex | Bitwarden CLI (bw) credential extraction — 'bw get password/item' decrypts and returns plaintext credentials; 'bw export' dumps the entire vault; 'bw unlock' prints the session key to stdout enabling further extraction. MITRE T1555.004. |
+| `sec-audit-bitwarden-bw-list` | AUDIT | regex | Bitwarden CLI listing vault contents — reveals credential names and metadata without decrypting, enabling targeted extraction in subsequent commands. MITRE T1555.004. |
+| `sec-block-infisical-secrets-get` | BLOCK | regex | Infisical CLI secret extraction — 'infisical secrets get/export' dumps plaintext secrets from Infisical projects; 'infisical export' emits all secrets in dotenv/json format. MITRE T1555.004. |
+| `sec-audit-infisical-run` | AUDIT | regex | Infisical run injects project secrets into a subprocess environment — legitimate for running apps with secrets, but combined with env/printenv dumps all injected credentials. MITRE T1555.004. |
+| `sec-block-doppler-secrets` | BLOCK | regex | Doppler CLI secret extraction — 'doppler secrets download' dumps all project secrets to stdout or a file; 'doppler secrets get' returns a specific plaintext secret value. MITRE T1555.004. |
+| `sec-audit-doppler-run` | AUDIT | regex | Doppler run injects project secrets into a subprocess environment — combined with env/printenv exposes all injected secrets. MITRE T1555.004. |
+| `sec-block-sops-decrypt` | BLOCK | regex | Mozilla SOPS decryption — 'sops --decrypt' outputs the full plaintext of an encrypted secrets file (YAML, JSON, .env, INI); 'sops exec-env' injects all decrypted secrets into a subprocess environment. MITRE T1555.001, T1552.001. |
 | `sec-block-chrome-login-db` | BLOCK | regex | Access to Chrome/Chromium browser credential and cookie databases is blocked (MITRE T1555.003). |
 | `sec-block-firefox-login-db` | BLOCK | regex | Access to Firefox credential database files is blocked (MITRE T1555.003). |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
@@ -62,9 +71,17 @@
 | `sec-block-gpg-export-secret` | BLOCK | regex | Exporting GPG secret keys exposes private key material enabling forgery of signed commits and decryption of secrets. MITRE T1552.004. |
 | `sec-block-gpg-connect-agent-keyinfo` | BLOCK | regex | gpg-connect-agent keyinfo enumerates GPG key IDs, enabling targeted key extraction. MITRE T1552.004. |
 | `sec-block-gpg-secret-structural` | BLOCK | structural | Structural detection of GPG secret key export flags — catches flag variations not caught by regex. |
+| `sec-audit-ssh-add-list-keys` | AUDIT | regex | ssh-add -L enumerates all public keys loaded in the SSH agent — reconnaissance step before lateral movement. Review before allowing. MITRE T1552.004, T1563.001, OWASP LLM06. |
+| `sec-block-ssh-add-delete-all` | BLOCK | regex | ssh-add -D deletes all keys from the SSH agent — sabotage that could lock users out of remote systems or disrupt CI/CD pipelines. AI agents must not modify SSH agent state. MITRE T1531, OWASP LLM06. |
+| `sec-block-ssh-agent-socket-hijack` | BLOCK | regex | SSH_AUTH_SOCK override with ssh or ssh-add — hijacks a different user's SSH agent socket to enumerate or use their loaded keys for lateral movement. MITRE T1563.001, OWASP LLM06. |
+| `sec-audit-ssh-add-key` | AUDIT | regex | ssh-add with a keyfile path — loads a private key into the SSH agent. Could be loading a stolen or unauthorized key. Review the key path before allowing. MITRE T1552.004, OWASP LLM06. |
 | `sec-block-archive-ssh-dir` | BLOCK | structural | Archiving a credential directory captures all private keys and secrets. |
 | `sec-audit-fake-credential-dialog` | AUDIT | regex | GUI credential dialog detected — possible fake authentication prompt injected via prompt injection or malicious MCP tool output (OWASP LLM01/LLM05, MITRE T1056). Verify this dialog is expected before continuing. |
 | `sec-audit-shell-credential-read` | AUDIT | regex | Silent credential read (read -s) with a credential-themed prompt — possible shell-based credential phishing injected by a compromised agent context (OWASP LLM01/LLM05, MITRE T1056/T1598). Verify this is a legitimate script input before proceeding. |
+| `sec-block-keytab-file-read` | BLOCK | regex | Keytab file access detected — keytab files contain hashed Kerberos service credentials enabling offline cracking and service account impersonation. AI agents must never read or exfiltrate keytab files. MITRE T1558.003, T1552.004, OWASP LLM06. |
+| `sec-block-kinit-keytab` | BLOCK | regex | kinit with keytab flag (-k) impersonates a service account using long-term key material — an AI agent using this pattern could silently assume a privileged service identity. MITRE T1558.003, T1550.003, OWASP LLM06. |
+| `sec-audit-klist-keytab` | AUDIT | regex | klist with keytab flag enumerates service principals and encryption types in a keytab file — reconnaissance step for Kerberoasting. Review before allowing. MITRE T1558.003, OWASP LLM06. |
+| `sec-block-krb5cc-copy` | BLOCK | regex | Kerberos ticket cache (krb5cc_*) copy or read detected — ticket caches contain active Kerberos TGTs that can be replayed for lateral movement without knowing the password. MITRE T1558, T1550.003, OWASP LLM06. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
@@ -586,7 +603,7 @@
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 
-### supply-chain (85 rules)
+### supply-chain (87 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -616,6 +633,8 @@
 | `sc-audit-npm-install` | AUDIT | prefix | npm package install flagged for supply-chain review. |
 | `sc-audit-pip-install` | AUDIT | prefix | pip package install flagged for supply-chain review. |
 | `sc-audit-yarn-add` | AUDIT | prefix | Yarn/pnpm package install flagged for supply-chain review. |
+| `sc-block-brew-tap-custom-remote` | BLOCK | regex | brew tap --custom-remote adds a Homebrew formula source from an arbitrary URL, bypassing GitHub. Attacker-controlled taps execute code during brew install. MITRE T1195.001. |
+| `sc-audit-brew-tap` | AUDIT | regex | brew tap adds a new Homebrew formula repository — introduces a new software source. Third-party taps can serve trojaned packages. Official taps (homebrew/*, microsoft/*, hashicorp/*) are safe; others require review. MITRE T1195.001. |
 | `sc-audit-brew-install` | AUDIT | prefix | Homebrew install flagged for supply-chain review. |
 | `sc-audit-go-get` | AUDIT | prefix | Go module fetch flagged for supply-chain review. |
 | `sc-audit-cargo-install` | AUDIT | prefix | Cargo package install flagged for supply-chain review. |
@@ -989,13 +1008,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 176 | 140 | 316 |
+| credential-exposure | 203 | 151 | 354 |
 | data-exfiltration | 198 | 116 | 314 |
 | destructive-ops | 117 | 74 | 191 |
 | persistence-evasion | 246 | 138 | 384 |
 | privilege-escalation | 246 | 148 | 394 |
 | reconnaissance | 146 | 58 | 204 |
-| supply-chain | 132 | 88 | 220 |
+| supply-chain | 138 | 92 | 230 |
 | unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1514** | **937** | **2451** |
+| **Total** | **1547** | **952** | **2499** |
 
