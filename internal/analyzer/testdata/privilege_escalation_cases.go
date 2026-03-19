@@ -2500,6 +2500,28 @@ var PTYSessionHijackCases = []TestCase{
 		Description:      "conspy attaching to tty1 — displays virtual console and allows keystroke injection.",
 		Tags:             []string{"tp", "pty", "conspy"},
 	},
+	// TP-CONSPY-002: conspy on tty2 with -s (readonly snoop mode)
+	{
+		ID:               "TP-CONSPY-002",
+		Command:          `conspy -s 2`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/terminal-hijack/console-snoop",
+		Analyzer:         "regex",
+		Description:      "conspy -s (snoop-only mode) on tty2 — observes keystrokes and screen content without injection, still violates terminal privacy. MITRE T1056.001.",
+		Tags:             []string{"tp", "pty", "conspy"},
+	},
+	// TN-CONSPY-001: tty command showing own terminal name (not conspy)
+	{
+		ID:               "TN-CONSPY-001",
+		Command:          `tty`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/terminal-hijack/console-snoop",
+		Analyzer:         "regex",
+		Description:      "tty command prints own terminal name — not conspy, no console attachment. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "pty"},
+	},
 	// TP-8: writevt legacy terminal injection
 	{
 		ID:               "TP-WRITEVT-001",
@@ -2661,6 +2683,28 @@ var BindMountEscalationCases = []TestCase{
 		Description:      "Overlay mount over /usr/bin — writable upper layer modifies protected system binaries.",
 		Tags:             []string{"tp", "mount", "overlay"},
 	},
+	// TP-OVERLAY-002: overlay mount over /etc to persist config changes
+	{
+		ID:               "TP-OVERLAY-002",
+		Command:          `mount -t overlay overlay -o lowerdir=/etc,upperdir=/tmp/etcupper,workdir=/tmp/etcwork /etc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/mount-abuse/overlay-persistence",
+		Analyzer:         "regex",
+		Description:      "Overlay mount over /etc — writable upper layer allows persistent modification of system config (sudoers, passwd, hosts) without changing inodes. MITRE T1611.",
+		Tags:             []string{"tp", "mount", "overlay"},
+	},
+	// TN-OVERLAY-001: regular ext4 mount (no overlay type)
+	{
+		ID:               "TN-OVERLAY-001",
+		Command:          `mount -t ext4 /dev/sda2 /mnt/backup`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/mount-abuse/overlay-persistence",
+		Analyzer:         "regex",
+		Description:      "Mounting an ext4 partition — not an overlay filesystem, no layering attack. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "mount"},
+	},
 	// TP-8: mount /proc/PID/root escape
 	{
 		ID:               "TP-MOUNT-PROC-ROOT-001",
@@ -2671,6 +2715,28 @@ var BindMountEscalationCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Mounting /proc/1/root/etc — accesses host /etc from within container.",
 		Tags:             []string{"tp", "mount", "container-escape"},
+	},
+	// TP-MOUNT-PROC-ROOT-002: mount host /var via a non-init PID's proc root
+	{
+		ID:               "TP-MOUNT-PROC-ROOT-002",
+		Command:          `sudo mount /proc/1234/root/var /mnt/hostvar`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/mount-abuse/container-host-escape",
+		Analyzer:         "regex",
+		Description:      "Mounting /proc/1234/root/var — targets a non-init host process to access its /var filesystem, bypassing container namespace isolation. MITRE T1611.",
+		Tags:             []string{"tp", "mount", "container-escape"},
+	},
+	// TN-MOUNT-PROC-ROOT-001: regular block device mount (no /proc path)
+	{
+		ID:               "TN-MOUNT-PROC-ROOT-001",
+		Command:          `mount /dev/sdb1 /mnt/external`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/mount-abuse/container-host-escape",
+		Analyzer:         "regex",
+		Description:      "Mounting a block device — no /proc/PID/root path, not a container escape vector. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "mount"},
 	},
 
 	// --- TRUE NEGATIVES ---
