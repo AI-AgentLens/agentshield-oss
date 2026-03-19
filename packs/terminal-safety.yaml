@@ -475,6 +475,14 @@ rules:
     decision: "BLOCK"
     reason: "System shutdown/reboot must be done manually."
 
+  - id: "ts-block-systemctl-power"
+    taxonomy: "destructive-ops/system-management/system-shutdown"
+    match:
+      command_regex: "\\b(sudo\\s+)?systemctl\\s+(poweroff|halt|reboot|suspend|hibernate)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "systemctl power management (poweroff/halt/reboot/suspend/hibernate) must be done manually — bypasses the direct shutdown command block."
+
   # === AUDIT: Privilege escalation tracking ===
   - id: "ts-audit-sudo"
     taxonomy: "privilege-escalation/command-execution/sudo-invocation"
