@@ -3791,6 +3791,102 @@ var AzureGetAccessTokenCases = []TestCase{
 	},
 }
 
+// Rules: sec-block-vault-read, sec-block-vault-kv-get
+var VaultSecretReadCases = []TestCase{
+	// --- True Positives: vault secret extraction ---
+	{
+		ID:               "TP-VASR-001",
+		Command:          "vault read secret/api-keys",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "Canonical vault read — extracts KV v1 secrets (API keys, passwords) to stdout. MITRE T1552.001.",
+		Tags:             []string{"tp", "canonical", "critical", "vault", "secret"},
+	},
+	{
+		ID:               "TP-VASR-002",
+		Command:          "vault read aws/creds/my-role",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault read on AWS dynamic credentials path — generates fresh AWS access key + secret.",
+		Tags:             []string{"tp", "vault", "secret", "dynamic-credentials", "aws"},
+	},
+	{
+		ID:               "TP-VASR-003",
+		Command:          "vault read database/creds/readonly",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault read on database dynamic credentials — generates a short-lived DB username/password.",
+		Tags:             []string{"tp", "vault", "secret", "dynamic-credentials", "database"},
+	},
+	{
+		ID:               "TP-VASR-004",
+		Command:          "vault kv get secret/database/credentials",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault kv get — reads KV v2 secret and prints all fields including passwords.",
+		Tags:             []string{"tp", "canonical", "vault", "kv", "secret"},
+	},
+	{
+		ID:               "TP-VASR-005",
+		Command:          "vault kv get -field=password secret/myapp/prod",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault kv get with -field flag — extracts a single plaintext field value (easy to pipe to curl).",
+		Tags:             []string{"tp", "vault", "kv", "secret", "exfiltration"},
+	},
+	// --- True Negatives: legitimate vault CLI usage ---
+	{
+		ID:               "TN-VASR-001",
+		Command:          "vault status",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault status — checks server health, no secrets accessed. Default AUDIT (no blocking rule).",
+		Tags:             []string{"tn", "safe", "vault"},
+	},
+	{
+		ID:               "TN-VASR-002",
+		Command:          "vault login -method=aws",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault login — initiates authentication, no secrets read from Vault.",
+		Tags:             []string{"tn", "safe", "vault"},
+	},
+	{
+		ID:               "TN-VASR-003",
+		Command:          "vault namespace list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault namespace list — lists namespaces, no secret values exposed. Default AUDIT (no blocking rule).",
+		Tags:             []string{"tn", "safe", "vault"},
+	},
+	{
+		ID:               "TN-VASR-004",
+		Command:          "vault kv list secret/myapp/",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "vault kv list — lists secret path names only, no secret values extracted.",
+		Tags:             []string{"tn", "safe", "vault", "reconnaissance"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -3822,5 +3918,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, GHAuthTokenCases...)
 	all = append(all, GCloudAuthTokenCases...)
 	all = append(all, AzureGetAccessTokenCases...)
+	all = append(all, VaultSecretReadCases...)
 	return all
 }

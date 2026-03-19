@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 736 |
+| Terminal rules | 738 |
 | MCP rules | 126 |
-| Total rules | 862 |
-| Test cases (TP+TN) | 2442 |
+| Total rules | 864 |
+| Test cases (TP+TN) | 2451 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (67 rules)
+### credential-exposure (69 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -50,6 +50,8 @@
 | `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
 | `sec-block-gcloud-auth-token` | BLOCK | regex | gcloud auth print-access-token/print-identity-token dumps a live GCP OAuth2/OIDC token to stdout — immediate credential extraction bypassing file monitoring. config-helper dumps full credential state. MITRE T1528, OWASP LLM06. |
 | `sec-block-az-get-access-token` | BLOCK | regex | az account get-access-token dumps a live Azure AD Bearer token to stdout — grants immediate access to Azure management APIs, Key Vault, and storage. MITRE T1528, OWASP LLM06. |
+| `sec-block-vault-read` | BLOCK | regex | vault read extracts secrets from HashiCorp Vault to stdout — can retrieve production API keys, database passwords, TLS certificates, and dynamic cloud credentials. Bypasses file-based monitoring. MITRE T1552.001, OWASP LLM06. |
+| `sec-block-vault-kv-get` | BLOCK | regex | vault kv get extracts KV v2 secrets from HashiCorp Vault to stdout — returns the full secret map or a single field value. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
 | `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
@@ -987,7 +989,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 171 | 136 | 307 |
+| credential-exposure | 176 | 140 | 316 |
 | data-exfiltration | 198 | 116 | 314 |
 | destructive-ops | 117 | 74 | 191 |
 | persistence-evasion | 246 | 138 | 384 |
@@ -995,5 +997,5 @@
 | reconnaissance | 146 | 58 | 204 |
 | supply-chain | 132 | 88 | 220 |
 | unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1509** | **933** | **2442** |
+| **Total** | **1514** | **937** | **2451** |
 
