@@ -75,7 +75,7 @@ rules:
 
   # --- BLOCK: stress/stress-ng with ≥1G memory allocation ---
   - id: "ts-block-stress-vm-large"
-    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    taxonomy: "destructive-ops/resource-exhaustion/memory-exhaustion"
     match:
       command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?stress(-ng)?\\s+.*--vm-bytes\\s*[0-9]+[GT]"
     decision: "BLOCK"
@@ -84,7 +84,7 @@ rules:
 
   # --- AUDIT: stress/stress-ng without explicit large size (could still exhaust) ---
   - id: "ts-audit-stress-vm"
-    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    taxonomy: "destructive-ops/resource-exhaustion/memory-exhaustion"
     match:
       command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?stress(-ng)?\\s+.*--vm\\b"
     decision: "AUDIT"
@@ -93,7 +93,7 @@ rules:
 
   # --- AUDIT: swapoff -a removes memory safety valve ---
   - id: "ts-audit-swapoff-all"
-    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    taxonomy: "destructive-ops/resource-exhaustion/memory-exhaustion"
     match:
       command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?swapoff\\s+-a\\b"
     decision: "AUDIT"
