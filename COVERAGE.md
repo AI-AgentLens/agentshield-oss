@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 702 |
-| MCP rules | 125 |
-| Total rules | 827 |
-| Test cases (TP+TN) | 2308 |
+| Terminal rules | 724 |
+| MCP rules | 126 |
+| Total rules | 850 |
+| Test cases (TP+TN) | 2378 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (61 rules)
+### credential-exposure (64 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -29,6 +29,9 @@
 | `sec-block-chrome-login-db` | BLOCK | regex | Access to Chrome/Chromium browser credential and cookie databases is blocked (MITRE T1555.003). |
 | `sec-block-firefox-login-db` | BLOCK | regex | Access to Firefox credential database files is blocked (MITRE T1555.003). |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
+| `sec-block-git-log-credential-mining` | BLOCK | dataflow | git log piped to credential-keyword grep mines the full commit graph for accidentally committed secrets. Git history is permanent — deleted files remain recoverable. MITRE T1552.001. |
+| `sec-block-git-pickaxe-mining` | BLOCK | regex | git pickaxe search (-S/-G) finds every commit that added or removed a string — purpose-built for mining secrets from git history. MITRE T1552.001. |
+| `sec-audit-git-log-all-env` | AUDIT | regex | git log --all with full diffs on sensitive file extensions traverses history for credential files — audit to detect accidental secret recovery attempts. MITRE T1552.001. |
 | `sec-audit-env-dump` | AUDIT | prefix | Environment dump may expose secrets (API keys, tokens, passwords). |
 | `sec-audit-env-grep-secret` | AUDIT | regex | Targeted access to secret environment variables flagged for review. |
 | `sec-audit-docker-inspect-env` | AUDIT | regex | docker inspect exposes the full container configuration including environment variables — API keys, database passwords, and cloud credentials stored in container env vars are disclosed. Cross-container credential access crosses the isolation boundary (MITRE T1552.007, OWASP LLM02). |
@@ -196,7 +199,7 @@
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
 | `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
 
-### destructive-ops (55 rules)
+### destructive-ops (60 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -215,6 +218,7 @@
 | `ts-block-chmod-777` | BLOCK | regex | chmod 777 on root paths removes all file protections. |
 | `ts-block-chmod-recursive-sensitive` | BLOCK | regex | Recursive permission change on sensitive system directory. |
 | `ts-block-shutdown` | BLOCK | prefix | System shutdown/reboot must be done manually. |
+| `ts-block-systemctl-power` | BLOCK | regex | systemctl power management (poweroff/halt/reboot/suspend/hibernate) must be done manually — bypasses the direct shutdown command block. |
 | `ts-struct-block-rm-system` | BLOCK | structural | Structural: recursive force-delete on system directory (handles flag reordering and sudo). |
 | `ts-allow-rm-tmp` | ALLOW | structural | Recursive remove of /tmp subdirectory — standard temp file cleanup. /tmp is a transient space by OS design. |
 | `ts-struct-block-chmod-world-writable` | AUDIT | structural | Structural: chmod on system directory flagged for review. |
@@ -245,6 +249,10 @@
 | `ts-block-dropdb` | BLOCK | regex | dropdb is a PostgreSQL convenience wrapper for DROP DATABASE — it permanently destroys the named database. AI agents must not invoke this. MITRE T1485. |
 | `ts-block-mongo-drop-database` | BLOCK | regex | MongoDB db.dropDatabase() permanently removes the current database and all its collections. MITRE T1485. |
 | `ts-block-redis-flushall` | BLOCK | regex | redis-cli FLUSHALL wipes every key in every Redis database; FLUSHDB wipes all keys in the current database. Both are irreversible data destruction. AI agents must not flush production caches. MITRE T1485. |
+| `ts-block-mysql-drop-table` | BLOCK | regex | MySQL/MariaDB DROP TABLE permanently removes a table and all its data — irreversible without a backup. AI agents have no legitimate reason to drop tables in production. MITRE T1485. |
+| `ts-block-psql-drop-table` | BLOCK | regex | PostgreSQL DROP TABLE executed via psql CLI — permanently destroys the named table and all its rows. MITRE T1485. |
+| `ts-block-mysql-truncate-table` | BLOCK | regex | MySQL/MariaDB TRUNCATE TABLE destroys all rows in the target table instantly, bypassing triggers and row-level logging. Irreversible without a backup. MITRE T1485. |
+| `ts-block-psql-truncate-table` | BLOCK | regex | PostgreSQL TRUNCATE TABLE executed via psql CLI — deletes all rows immediately, can CASCADE to child tables, and resets sequences. Irreversible without a backup. MITRE T1485. |
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-reset-hard-commits` | BLOCK | regex | git reset --hard HEAD~N or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485). |
@@ -276,7 +284,7 @@
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (115 rules)
+### persistence-evasion (118 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -288,7 +296,10 @@
 | `ts-block-security-daemon-deactivate-reverse` | BLOCK | regex | Deactivating a security daemon (reverse argument order). AI agents have no legitimate reason to stop security services. |
 | `ts-block-ufw-disable` | BLOCK | regex | Directly deactivating the system firewall via `ufw disable`. No legitimate agent use case. |
 | `ts-block-selinux-permissive` | BLOCK | regex | Setting SELinux to permissive mode removes mandatory access control enforcement. Defense evasion technique. |
+| `ts-block-setenforce-permissive-text` | BLOCK | regex | Setting SELinux to permissive mode (text form) disables kernel MAC enforcement. Equivalent to setenforce 0. |
+| `ts-block-selinux-config-disable` | BLOCK | regex | Writing SELINUX=disabled or SELINUX=permissive to config makes the disable persistent across reboots. |
 | `ts-block-apparmor-disable` | BLOCK | regex | Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion. |
+| `ts-block-apparmor-parser-remove` | BLOCK | regex | apparmor_parser -R unloads an AppArmor profile from the kernel, surgically removing confinement without disabling the entire service. |
 | `ts-block-systemd-user-persist` | BLOCK | regex | Writing to ~/.config/systemd/user/ via echo/cat creates a user-level systemd service that persists across sessions and auto-starts on login (MITRE T1543.002). |
 | `ts-block-systemd-user-persist-tee` | BLOCK | regex | Writing to ~/.config/systemd/user/ via tee creates a user-level systemd service that persists across sessions and auto-starts on login (MITRE T1543.002). |
 | `ts-block-systemd-local-persist` | BLOCK | regex | Writing to ~/.local/share/systemd/user/ via echo/cat creates a user-level systemd service that persists across sessions (MITRE T1543.002). |
@@ -506,7 +517,7 @@
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (55 rules)
+### reconnaissance (57 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -556,6 +567,8 @@
 | `ne-block-docker-daemon-probe` | BLOCK | regex | Direct access to the Docker daemon API (via unix socket or HTTP port 2375/2376) grants full container control — container escape, volume mount of host filesystem, and privilege escalation. AI agents must not query the Docker daemon API directly. MITRE T1611, T1609. |
 | `ne-audit-internal-infra-probe` | AUDIT | regex | HTTP probe to a localhost infrastructure management port detected (Prometheus :9090, ngrok :4040, RabbitMQ management :15672, Elasticsearch :9200, etc.). These ports expose unauthenticated metrics and admin APIs. AI agents must not probe internal management services. MITRE T1046, T1590. |
 | `ne-audit-localhost-admin-path` | AUDIT | regex | HTTP request to a localhost admin or management endpoint detected (/admin, /actuator, /metrics, /env, /debug, etc.). Spring Boot /actuator/env leaks all environment variables including API keys. AI agents probing management paths may be performing reconnaissance before exfiltration. MITRE T1082, T1590. |
+| `ne-block-admin-endpoint-sensitive` | BLOCK | regex | HTTP request to a high-sensitivity management endpoint (Spring Boot /actuator/heapdump or /actuator/env, Kubernetes /api/v1/secrets, etcd /v2/keys). These endpoints expose credential material — heap dumps contain secrets in memory, /actuator/env reveals all env vars including API keys, /api/v1/secrets exposes Kubernetes secrets in plaintext. AI agents must not access these endpoints. MITRE T1082, T1213. |
+| `ne-audit-admin-endpoint-probe` | AUDIT | regex | HTTP request to an admin or management endpoint on a non-localhost host detected (/actuator, /admin, /management, /console, /dashboard). AI agents probing management interfaces on internal services or named containers may be performing unauthorized reconnaissance. Spring Boot /actuator leaks application context, bean graph, and configuration. MITRE T1590, T1082. |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
@@ -566,7 +579,7 @@
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 
-### supply-chain (69 rules)
+### supply-chain (78 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -635,9 +648,18 @@
 | `sc-audit-logprob-collection-loop` | AUDIT | regex | Loop collecting logprob/token probability outputs from LLM API — logit distributions are the most informative signal for model weight reconstruction. Combined with systematic input variation, this pattern characterizes model extraction. OWASP LLM03, MITRE T1530. |
 | `sc-audit-bulk-embedding-collection` | AUDIT | regex | Python one-liner bulk-collecting embeddings and appending to file — systematic embedding extraction maps model representation space for surrogate training. Dual-use pattern (also used in legitimate eval pipelines) but warrants review. OWASP LLM03. |
 | `sc-audit-inference-loop-collect` | AUDIT | regex | High-count loop querying inference API endpoint and collecting outputs to file — loop+query+collect is the primary bash-level pattern for model extraction attacks. Review for model stealing activity. OWASP LLM03, MITRE T1530. |
+| `sc-block-npm-publish` | BLOCK | regex | npm publish uploads the package to the npm registry, making it publicly installable. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored code to millions of users. MITRE T1195.001. |
+| `sc-block-twine-upload` | BLOCK | regex | twine upload publishes Python packages to PyPI or a private index. Autonomous PyPI publishing by an AI agent is a supply chain attack vector — once published, malicious code is immediately installable by any pip user. MITRE T1195.001. |
+| `sc-block-cargo-publish` | BLOCK | regex | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
+| `sc-block-gem-push` | BLOCK | regex | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
+| `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
+| `ts-block-make-compiler-binary-replace` | BLOCK | regex | make CC= or CXX= pointing to /tmp, /dev/shm, or hidden paths replaces the compiler binary with an attacker-controlled executable — all compiled output is backdoored. MITRE T1195.002. |
+| `ts-block-cmake-compiler-override` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= or -DCMAKE_CXX_COMPILER= pointing to suspicious paths replaces the compiler for the entire CMake build tree. MITRE T1195.002. |
+| `ts-block-make-ldpreload` | BLOCK | regex | LD_PRELOAD injection via make pointing to /tmp, /dev/shm, or relative paths — injects a suspicious shared library into every subprocess spawned by the build. Legitimate debugging libs use bare filenames or system paths. MITRE T1574.006. |
+| `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
 ### unauthorized-execution (114 rules)
@@ -901,13 +923,14 @@
 | `mcp-recon-audit-admin-paths` | AUDIT | structural | Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082. |
 | `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213. |
 
-### supply-chain (8 rules)
+### supply-chain (9 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-sc-block-lockfile-write` | BLOCK | structural | MCP write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001. |
 | `mcp-sc-block-cicd-config-write` | BLOCK | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Requires human review. MITRE T1195.002. |
 | `mcp-sc-block-dockerfile-write` | BLOCK | structural | MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002. |
+| `mcp-sc-block-pkgmgr-config-write` | BLOCK | structural | MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001. |
 | `mcp-sc-block-training-data-write` | BLOCK | structural | MCP write to ML training dataset — injecting poisoned examples corrupts fine-tuned model behavior. MITRE AML.T0010, OWASP LLM04. |
 | `mcp-sc-block-model-checkpoint-write` | BLOCK | structural | MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001. |
 | `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
@@ -952,13 +975,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 155 | 112 | 267 |
+| credential-exposure | 159 | 118 | 277 |
 | data-exfiltration | 198 | 116 | 314 |
-| destructive-ops | 105 | 69 | 174 |
-| persistence-evasion | 241 | 135 | 376 |
+| destructive-ops | 117 | 74 | 191 |
+| persistence-evasion | 246 | 138 | 384 |
 | privilege-escalation | 246 | 148 | 394 |
-| reconnaissance | 128 | 51 | 179 |
-| supply-chain | 102 | 74 | 176 |
+| reconnaissance | 137 | 54 | 191 |
+| supply-chain | 118 | 81 | 199 |
 | unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1428** | **880** | **2308** |
+| **Total** | **1474** | **904** | **2378** |
 
