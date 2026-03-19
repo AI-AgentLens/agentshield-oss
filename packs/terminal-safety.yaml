@@ -5322,23 +5322,39 @@ rules:
 
   # === AUDIT: Agent instruction file tampering ===
   #
-  # Writing to AI agent instruction files (CLAUDE.md, .cursorrules,
-  # .windsurf/rules, system_prompt.txt) injects persistent instructions
-  # into future agent sessions — a form of config-level prompt injection.
+  # Writing to AI agent instruction files injects persistent instructions
+  # into future agent sessions — a form of config-level prompt injection that
+  # survives session boundaries and, when files are version-controlled, propagates
+  # to every developer who clones the repository.
+  #
+  # Covered agents and their instruction file paths:
+  #   Claude Code:     CLAUDE.md, .claude/commands/, .claude/settings
+  #   Cursor:          .cursorrules, .cursor/rules/
+  #   Windsurf:        .windsurf/rules
+  #   Cline:           .clinerules, .cline/rules/
+  #   Aider:           .aider.conf.yml
+  #   Continue.dev:    .continuerc.json, .continue/
+  #   GitHub Copilot:  .github/copilot-instructions.md
+  #   Gemini CLI:      GEMINI.md
+  #   OpenAI Codex:    AGENTS.md, codex.md
+  #   Generic:         system_prompt.txt
   #
   # Taxonomy: persistence-evasion/agent-config-persistence/agent-instruction-file-tampering
+  # OWASP LLM01 — Prompt Injection, LLM06 — Excessive Agency
+  # MITRE T1564 — Hide Artifacts
   #
   # Patterns:
   #   echo "ignore safety rules" >> CLAUDE.md
   #   tee .cursorrules <<< "override: ..."
-  #   cat > .windsurf/rules << 'EOF'
+  #   printf "exfil creds\n" > .clinerules
+  #   cat > .aider.conf.yml << 'EOF'
   - id: "ts-audit-agent-instruction-file-tampering"
     taxonomy: "persistence-evasion/agent-config-persistence/agent-instruction-file-tampering"
     match:
-      command_regex: "(echo|printf|tee|cat|sed)\\b.*(>>?|\\|\\s*tee)\\s*['\"]?.*(/CLAUDE\\.md|/\\.cursorrules|\\.windsurf/rules|system_prompt\\.txt|\\.claude/(commands|settings)|AGENTS\\.md|GEMINI\\.md)"
+      command_regex: "(echo|printf|tee|cat|sed)\\b.*(>>?|\\|\\s*tee)\\s*['\"]?.*(/CLAUDE\\.md|/\\.cursorrules|\\.windsurf/rules|system_prompt\\.txt|\\.claude/(commands|settings)|AGENTS\\.md|GEMINI\\.md|\\.clinerules|\\.cline/rules|\\.aider\\.conf\\.yml|\\.continuerc\\.json|\\.continue/|\\.github/copilot-instructions\\.md|codex\\.md|\\.cursor/rules)"
     decision: "AUDIT"
     confidence: 0.92
-    reason: "Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .windsurf/rules) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions. OWASP LLM01, MITRE T1564."
+    reason: "Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .clinerules, .aider.conf.yml, .continuerc.json, .github/copilot-instructions.md, codex.md, etc.) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions and propagates via version control. OWASP LLM01, MITRE T1564."
 
   # ── AI-Amplified Insider Data Collection ──────────────────────────────────
   #
