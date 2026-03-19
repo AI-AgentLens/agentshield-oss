@@ -1459,6 +1459,98 @@ var BuildSystemInjectionCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category: Config Tampering — .npmrc Edit
+// Taxonomy: supply-chain/config-tampering/package-config-edit
+//
+// Rule sc-block-npmrc-edit detects WRITE operations to .npmrc files that
+// could redirect package resolution to an attacker-controlled registry.
+// Only write executables (echo, sed, tee) at the start of the command are
+// blocked — read-only operations (cat, grep) and mentions of ".npmrc" in
+// non-filesystem contexts (issue body text) are allowed.
+// ---------------------------------------------------------------------------
+
+// NpmrcEditCases tests TP/TN coverage for sc-block-npmrc-edit (issue #420).
+var NpmrcEditCases = []TestCase{
+
+	// TP-1: tee writing to .npmrc (canonical write path)
+	{
+		ID:               "TP-SC-BLOCK-NPMRC-001",
+		Command:          `echo "registry=https://evil.com" | tee ~/.npmrc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `tee writing to ~/.npmrc — redirects npm registry to attacker-controlled
+			server. Rule sc-block-npmrc-edit anchored regex matches 'tee ... .npmrc'.`,
+		Tags: []string{"tp", "supply-chain", "npmrc", "write"},
+	},
+	// TP-2: echo redirect to .npmrc
+	{
+		ID:               "TP-SC-BLOCK-NPMRC-002",
+		Command:          `echo "registry=https://evil.com" > ~/.npmrc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `echo with redirect to ~/.npmrc — overwrites npm config to point at
+			malicious registry. Anchored regex matches 'echo ... .npmrc'.`,
+		Tags: []string{"tp", "supply-chain", "npmrc", "write"},
+	},
+	// TP-3: sed -i modifying .npmrc
+	{
+		ID:               "TP-SC-BLOCK-NPMRC-003",
+		Command:          `sed -i 's|registry=.*|registry=https://evil.com|' ~/.npmrc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `sed -i modifying ~/.npmrc in-place — substitutes registry URL.
+			Rule sc-block-npmrc-edit must BLOCK sed write operations to .npmrc.`,
+		Tags: []string{"tp", "supply-chain", "npmrc", "sed"},
+	},
+
+	// TN-1: cat reading .npmrc (read-only, should not be blocked)
+	{
+		ID:               "TN-SC-BLOCK-NPMRC-001",
+		Command:          `cat ~/.npmrc`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `Reading ~/.npmrc with cat is safe inspection. Rule sc-block-npmrc-edit
+			no longer includes 'cat' (read-only). ts-allow-readonly grants ALLOW.`,
+		Tags: []string{"tn", "safe", "npmrc", "readonly"},
+	},
+	// TN-2: grep searching for rule IDs referencing .npmrc (the FP from issue #420)
+	{
+		ID:               "TN-SC-BLOCK-NPMRC-002",
+		Command:          `grep -rl "sc-block-npmrc-edit" testdata/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `grep searching for the rule ID string — read-only search across test
+			files. Must not trigger sc-block-npmrc-edit. Anchored regex prevents
+			matching grep commands. ts-allow-readonly grants ALLOW.`,
+		Tags: []string{"tn", "safe", "npmrc", "grep", "fp-regression"},
+	},
+	// TN-3: gh issue create with body text mentioning .npmrc (the FP from issue #420)
+	{
+		ID:               "TN-SC-BLOCK-NPMRC-003",
+		Command:          `gh issue create --title "FP: sc-block-npmrc-edit" --body "cat ~/.npmrc is read-only"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `gh issue create whose body text mentions 'cat' and '.npmrc'. Old regex
+			matched anywhere in command string causing FP. Anchored regex requires
+			command to start with echo/sed/tee — gh command is unaffected. Gets AUDIT
+			(default — gh commands are not explicitly ALLOWed).`,
+		Tags: []string{"tn", "safe", "npmrc", "gh", "fp-regression"},
+	},
+}
+
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
 	all = append(all, NonStandardRegistryCases...)
@@ -1474,6 +1566,7 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, DockerfileTamperingCases...)
 	all = append(all, RAGKnowledgeBasePoisoningCases...)
 	all = append(all, BuildSystemInjectionCases...)
+	all = append(all, NpmrcEditCases...)
 	all = append(all, MCPToolSchemaDriftCases...)
 	all = append(all, MCPConfigInjectionCases...)
 	all = append(all, ModelEndpointHijackingCases...)
