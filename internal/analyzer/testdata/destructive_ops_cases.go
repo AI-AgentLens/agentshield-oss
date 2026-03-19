@@ -1746,8 +1746,8 @@ var DiskFillCases = []TestCase{
 }
 
 // MemoryExhaustionCases tests detection of memory exhaustion via stress tools
-// and large allocation one-liners (issue #423).
-// Taxonomy: destructive-ops/resource-exhaustion/disk-fill (shared; covers any resource-fill DoS)
+// and large allocation one-liners (issue #423, #440).
+// Taxonomy: destructive-ops/resource-exhaustion/memory-exhaustion
 // Rules: ts-block-stress-vm-large, ts-audit-stress-vm, ts-audit-swapoff-all
 var MemoryExhaustionCases = []TestCase{
 
@@ -1758,7 +1758,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "stress -m 1 --vm-bytes 16G --vm-keep",
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `stress with --vm-bytes 16G fills all available RAM instantly, causing OOM kills. Rule ts-block-stress-vm-large must BLOCK.`,
 		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress"},
@@ -1768,7 +1768,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "stress-ng -m 4 --vm-bytes 4G --vm-keep",
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `stress-ng with 4 workers × 4 GB = 16 GB fills RAM. Rule ts-block-stress-vm-large must BLOCK.`,
 		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress-ng"},
@@ -1778,7 +1778,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "sudo stress -m 2 --vm-bytes 8G --vm-keep --vm-hang 0",
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `sudo-prefixed stress command with 8 GB allocation. ts-block-stress-vm-large must handle sudo prefix.`,
 		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress", "sudo"},
@@ -1788,7 +1788,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "stress --vm 4 --vm-bytes 512M",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `stress with 4 workers at 512 MB each — below the 1G BLOCK threshold. ts-audit-stress-vm should AUDIT.`,
 		Tags:             []string{"tp", "memory-exhaustion", "stress"},
@@ -1798,7 +1798,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "stress-ng --vm 2",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `stress-ng --vm with no explicit size — default behavior still allocates memory. ts-audit-stress-vm must AUDIT.`,
 		Tags:             []string{"tp", "memory-exhaustion", "stress-ng"},
@@ -1808,7 +1808,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "sudo swapoff -a",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `swapoff -a disables all swap space, removing the OS memory safety valve and accelerating OOM under pressure. ts-audit-swapoff-all must AUDIT.`,
 		Tags:             []string{"tp", "memory-exhaustion", "swapoff"},
@@ -1821,7 +1821,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "stress --cpu 4",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `stress --cpu only — no memory workers involved. ts-block-stress-vm-large must not BLOCK; ts-audit-stress-vm must not trigger (no --vm flag). Falls to default AUDIT.`,
 		Tags:             []string{"tn"},
@@ -1831,7 +1831,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "apt-get install stress",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `Installing the stress package is not the same as running it. Memory-exhaustion rules must not trigger on package installation; falls to AUDIT (apt-get install is separately audited).`,
 		Tags:             []string{"tn"},
@@ -1841,7 +1841,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "swapon -s",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `swapon -s lists swap devices — read-only diagnostic. ts-audit-swapoff-all must not trigger (requires swapoff, not swapon). Falls to default AUDIT.`,
 		Tags:             []string{"tn"},
@@ -1851,7 +1851,7 @@ var MemoryExhaustionCases = []TestCase{
 		Command:          "swapoff /dev/sda2",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/memory-exhaustion",
 		Analyzer:         "regex",
 		Description:      `swapoff on a specific device (not -a) — ts-audit-swapoff-all only triggers on -a (disable all swap). Single-device swapoff falls to default AUDIT.`,
 		Tags:             []string{"tn"},
