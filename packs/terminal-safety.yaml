@@ -3956,6 +3956,38 @@ rules:
     confidence: 0.92
     reason: "Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002."
 
+  - id: "ts-block-make-compiler-binary-replace"
+    taxonomy: "supply-chain/build-system/build-command-injection"
+    match:
+      command_regex: "\\bmake\\b.*\\b(CC|CXX)\\s*=\\s*(/tmp/|/dev/shm/|/var/tmp/|\\./\\.)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "make CC= or CXX= pointing to /tmp, /dev/shm, or hidden paths replaces the compiler binary with an attacker-controlled executable — all compiled output is backdoored. MITRE T1195.002."
+
+  - id: "ts-block-cmake-compiler-override"
+    taxonomy: "supply-chain/build-system/build-command-injection"
+    match:
+      command_regex: "\\bcmake\\b.*-D(CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|CMAKE_LINKER|CMAKE_AR)\\s*=\\s*(/tmp/|/dev/shm/|/var/tmp/|\\./\\.)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "cmake -DCMAKE_C_COMPILER= or -DCMAKE_CXX_COMPILER= pointing to suspicious paths replaces the compiler for the entire CMake build tree. MITRE T1195.002."
+
+  - id: "ts-block-make-ldpreload"
+    taxonomy: "supply-chain/build-system/build-command-injection"
+    match:
+      command_regex: "(\\bmake\\b.*\\bLD_PRELOAD\\s*=\\s*(/tmp/|/dev/shm/|/var/tmp/|\\./)\\S*|\\bLD_PRELOAD\\s*=\\s*(/tmp/|/dev/shm/|/var/tmp/|\\./)\\S*\\s+make\\b)"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "LD_PRELOAD injection via make pointing to /tmp, /dev/shm, or relative paths — injects a suspicious shared library into every subprocess spawned by the build. Legitimate debugging libs use bare filenames or system paths. MITRE T1574.006."
+
+  - id: "ts-block-make-binary-replace"
+    taxonomy: "supply-chain/build-system/build-command-injection"
+    match:
+      command_regex: "\\bmake\\b.*\\bMAKE\\s*=\\s*(/tmp/|/dev/shm/|/var/tmp/|\\./\\.)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002."
+
   - id: "ts-block-git-ssh-command-env"
     taxonomy: "persistence-evasion/config-modification/git-config-code-execution"
     match:

@@ -1457,6 +1457,131 @@ var BuildSystemInjectionCases = []TestCase{
 		Description:      "cmake with Ninja generator — standard build configuration. Gets default AUDIT.",
 		Tags:             []string{"tn", "safe", "build-inject", "opus-deepdive"},
 	},
+
+	// --- TRUE POSITIVES: compiler binary replacement (ts-block-make-compiler-binary-replace) ---
+
+	// TP-8: make CC= pointing to /tmp binary
+	{
+		ID:               "TP-SC-BUILDINJ-008",
+		Command:          `make CC=/tmp/malicious_cc all`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "make CC= pointing to /tmp replaces the C compiler with an attacker binary — all compiled output is backdoored.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+	// TP-9: make CXX= pointing to /dev/shm
+	{
+		ID:               "TP-SC-BUILDINJ-009",
+		Command:          `make CXX=/dev/shm/g++ build`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "make CXX= pointing to /dev/shm replaces the C++ compiler — memory-resident attacker binary.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+
+	// --- TRUE POSITIVES: cmake compiler override (ts-block-cmake-compiler-override) ---
+
+	// TP-10: cmake -DCMAKE_C_COMPILER= with /tmp path
+	{
+		ID:               "TP-SC-BUILDINJ-010",
+		Command:          `cmake -DCMAKE_C_COMPILER=/tmp/evil_cc ..`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "cmake -DCMAKE_C_COMPILER= pointing to /tmp replaces the compiler for the entire CMake build tree.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+	// TP-11: cmake -DCMAKE_CXX_COMPILER= with /dev/shm path
+	{
+		ID:               "TP-SC-BUILDINJ-011",
+		Command:          `cmake -DCMAKE_CXX_COMPILER=/dev/shm/cc ..`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "cmake -DCMAKE_CXX_COMPILER= pointing to /dev/shm — memory-resident compiler replacement.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+
+	// --- TRUE POSITIVES: LD_PRELOAD injection (ts-block-make-ldpreload) ---
+
+	// TP-12: make with LD_PRELOAD= variable
+	{
+		ID:               "TP-SC-BUILDINJ-012",
+		Command:          `make LD_PRELOAD=/tmp/hook.so all`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "make LD_PRELOAD= injects a shared library into every subprocess spawned by the build — intercepts libc calls.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+	// TP-13: LD_PRELOAD= prefixed before make
+	{
+		ID:               "TP-SC-BUILDINJ-013",
+		Command:          `LD_PRELOAD=/dev/shm/intercept.so make build`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "LD_PRELOAD= set before make — shared library injection into build subprocess chain.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+
+	// --- TRUE POSITIVES: make binary replacement (ts-block-make-binary-replace) ---
+
+	// TP-14: make MAKE= pointing to /tmp
+	{
+		ID:               "TP-SC-BUILDINJ-014",
+		Command:          `make MAKE=/tmp/evil_make all`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "make MAKE= replaces the make binary for all recursive $(MAKE) calls — attacker controls sub-build orchestration.",
+		Tags:             []string{"tp", "supply-chain", "build-inject"},
+	},
+
+	// --- TRUE NEGATIVES: benign cmake and CC= usage ---
+
+	// TN-6: cmake with standard C compiler (system path)
+	{
+		ID:               "TN-SC-BUILDINJ-006",
+		Command:          `cmake -DCMAKE_C_COMPILER=gcc ..`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "cmake with system gcc — legitimate compiler selection, no suspicious path.",
+		Tags:             []string{"tn", "safe", "build-inject"},
+	},
+	// TN-7: make CC= with system clang
+	{
+		ID:               "TN-SC-BUILDINJ-007",
+		Command:          `make CC=clang-15 all`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "make CC=clang-15 — selecting a versioned system compiler, not a suspicious path.",
+		Tags:             []string{"tn", "safe", "build-inject"},
+	},
+	// TN-8: cmake -DCMAKE_C_COMPILER with /usr/bin path
+	{
+		ID:               "TN-SC-BUILDINJ-008",
+		Command:          `cmake -DCMAKE_C_COMPILER=/usr/bin/clang ..`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-system/build-command-injection",
+		Analyzer:         "regex",
+		Description:      "cmake -DCMAKE_C_COMPILER=/usr/bin/clang — standard system path, not suspicious.",
+		Tags:             []string{"tn", "safe", "build-inject"},
+	},
 }
 
 // ---------------------------------------------------------------------------
