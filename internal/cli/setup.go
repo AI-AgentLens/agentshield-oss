@@ -579,8 +579,10 @@ func disableOpenClawHook(hookDir string) error {
 // ─── Claude Code Setup ───────────────────────────────────────────────────────
 
 // agentshieldHookEntry is the hook object we insert into Claude Code settings.
+// No matcher field = catches ALL tool calls (Bash, MCP, Read, Write, etc.).
+// The hook handler routes Bash calls to the shell analyzer pipeline and
+// MCP calls to the MCP policy evaluator.
 var agentshieldHookEntry = map[string]interface{}{
-	"matcher": "Bash",
 	"hooks": []interface{}{
 		map[string]interface{}{
 			"type":    "command",
@@ -647,15 +649,16 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✅ PreToolUse hook installed: %s\n", settingsPath)
 	fmt.Println()
 	fmt.Println("How it works:")
-	fmt.Println("  1. Claude Code is about to run a Bash tool call")
+	fmt.Println("  1. Claude Code is about to run any tool call (Bash, MCP, etc.)")
 	fmt.Println("  2. The PreToolUse hook calls `agentshield hook`")
-	fmt.Println("  3. AgentShield evaluates the command against your policy")
-	fmt.Println("  4. If BLOCK: Claude Code is prevented from running the command")
-	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
+	fmt.Println("  3. Bash calls → shell analyzer pipeline (6-layer)")
+	fmt.Println("     MCP calls → MCP policy evaluator (packs + content scanner)")
+	fmt.Println("  4. If BLOCK: Claude Code is prevented from running the tool")
+	fmt.Println("  5. If ALLOW/AUDIT: the tool runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup claude-code --disable")
 	fmt.Println()
-	fmt.Println("Test by asking Claude Code to run: rm -rf /")
+	fmt.Println("Test: ask Claude Code to run 'rm -rf /' (shell) or use a blocked MCP tool")
 	fmt.Println()
 	printStatus()
 	return nil

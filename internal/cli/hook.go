@@ -12,6 +12,7 @@ import (
 	"github.com/security-researcher-ca/agentshield/internal/config"
 	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/security-researcher-ca/agentshield/internal/logger"
+	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/security-researcher-ca/agentshield/internal/normalize"
 	"github.com/security-researcher-ca/agentshield/internal/policy"
 	"github.com/spf13/cobra"
@@ -49,6 +50,12 @@ type toolInfo struct {
 type claudeToolInput struct {
 	Command string `json:"command"`
 	DirPath string `json:"dir_path,omitempty"` // Gemini CLI also sends dir_path
+}
+
+// rawHookInput is used for a second-pass parse to capture tool_input as raw JSON
+// (needed for MCP tool calls where arguments are arbitrary key-value pairs).
+type rawHookInput struct {
+	ToolInput json.RawMessage `json:"tool_input"`
 }
 
 // cursorHookOutput is the JSON response Cursor expects from hook scripts.
@@ -119,6 +126,10 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Also capture raw tool_input for MCP argument parsing
+	var raw rawHookInput
+	json.Unmarshal(data, &raw)
+
 	// Auto-detect IDE format based on input fields.
 	// Claude Code sends {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {...}}.
 	// Gemini CLI sends  {"hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": {...}}.
@@ -128,7 +139,7 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		return handleGeminiCLIHook(input)
 	}
 	if input.HookEventName != "" {
-		return handleClaudeCodeHook(input)
+		return handleClaudeCodeHook(input, raw.ToolInput)
 	}
 
 	if input.Command != "" {
@@ -334,34 +345,103 @@ func outputCursorAllow() {
 // handleClaudeCodeHook processes Claude Code PreToolUse hooks.
 // Only Bash tool calls are evaluated; other tools pass through.
 // Block → print reason to stdout + exit 2. Allow/Audit → exit 0.
-func handleClaudeCodeHook(input hookInput) error {
-	if input.ToolName != "Bash" {
-		return nil
-	}
-
-	cmdStr := input.ToolInput.Command
-	if cmdStr == "" {
-		return nil
-	}
-
-	evalResult, _, err := evaluateCommand(cmdStr, "", "claude-code-hook")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
-		return nil // fail open
-	}
-
-	if evalResult.Decision == policy.DecisionBlock {
-		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
-		if len(evalResult.TriggeredRules) > 0 {
-			fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(evalResult.TriggeredRules, ", "))
+func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
+	// Shell commands (Bash tool) → evaluate through the analyzer pipeline
+	if input.ToolName == "Bash" {
+		cmdStr := input.ToolInput.Command
+		if cmdStr == "" {
+			return nil
 		}
-		for _, reason := range evalResult.Reasons {
+		evalResult, _, err := evaluateCommand(cmdStr, "", "claude-code-hook")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
+			return nil // fail open
+		}
+		if evalResult.Decision == policy.DecisionBlock {
+			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
+			if len(evalResult.TriggeredRules) > 0 {
+				fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(evalResult.TriggeredRules, ", "))
+			}
+			for _, reason := range evalResult.Reasons {
+				fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
+			}
+			os.Exit(2)
+		}
+		return nil
+	}
+
+	// MCP tool calls → evaluate through MCP policy
+	return handleClaudeCodeMCPCall(input.ToolName, rawToolInput)
+}
+
+// handleClaudeCodeMCPCall evaluates an MCP tool call against MCP policy packs.
+func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage) error {
+	// Parse tool_input as map for MCP evaluation
+	var arguments map[string]interface{}
+	if len(rawToolInput) > 0 {
+		json.Unmarshal(rawToolInput, &arguments)
+	}
+
+	// Load MCP packs with an empty base policy (LoadMCPPacks requires non-nil base)
+	home, _ := os.UserHomeDir()
+	packsDir := filepath.Join(home, ".agentshield", "packs")
+	basePolicy := &mcp.MCPPolicy{
+		Defaults: mcp.MCPDefaults{Decision: policy.DecisionAudit},
+	}
+	mcpPolicy, _, err := mcp.LoadMCPPacks(packsDir, basePolicy)
+	if err != nil || mcpPolicy == nil {
+		// No MCP policy loaded — allow (fail open)
+		return nil
+	}
+
+	evaluator := mcp.NewPolicyEvaluator(mcpPolicy)
+	result := evaluator.EvaluateToolCall(toolName, arguments)
+
+	// Audit log
+	auditMCPCall(toolName, arguments, result)
+
+	if result.Decision == policy.DecisionBlock {
+		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n", toolName)
+		if len(result.TriggeredRules) > 0 {
+			fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(result.TriggeredRules, ", "))
+		}
+		for _, reason := range result.Reasons {
 			fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 		}
 		os.Exit(2)
 	}
 
+	if result.Decision == policy.DecisionAudit {
+		fmt.Fprintf(os.Stderr, "[AgentShield] AUDIT MCP tool: %s\n", toolName)
+		if len(result.TriggeredRules) > 0 {
+			fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(result.TriggeredRules, ", "))
+		}
+	}
+
 	return nil
+}
+
+// auditMCPCall writes an audit log entry for an MCP tool call evaluation.
+func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.MCPEvalResult) {
+	home, _ := os.UserHomeDir()
+	logPath := filepath.Join(home, ".agentshield", "audit.jsonl")
+	auditLogger, err := logger.New(logPath)
+	if err != nil {
+		return
+	}
+	defer auditLogger.Close()
+
+	event := logger.AuditEvent{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		ToolName:       toolName,
+		MCPArguments:   arguments,
+		Decision:       string(result.Decision),
+		Flagged:        result.Decision == policy.DecisionBlock,
+		TriggeredRules: result.TriggeredRules,
+		Reasons:        result.Reasons,
+		Source:         "claude-code-mcp-hook",
+	}
+	auditLogger.Log(event)
 }
 
 // handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
