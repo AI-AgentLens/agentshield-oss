@@ -1683,4 +1683,92 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "safe-claude-project-file",
 		Description:      "write_file to ~/.claude/projects/ — project-level files are not hook configs, must be AUDIT not BLOCK",
 	},
+
+	// === Financial Safety: true positives (issue #426) ===
+	// Validate that value_limits and structural_rules in mcp-financial.yaml
+	// correctly BLOCK unbounded transfers, sign-flip attacks, and ALL_BALANCE bypasses.
+	{
+		ID:               "MCP-TP-116",
+		ToolName:         "send_tokens",
+		Arguments:        map[string]interface{}{"to": "0xdeadbeef", "amount": float64(500)},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-cap-transfer-amount",
+		Description:      "Token transfer of 500 units exceeds safety limit of 100 — must be BLOCK (Lobstar Wilde class)",
+	},
+	{
+		ID:               "MCP-TP-117",
+		ToolName:         "transfer_funds",
+		Arguments:        map[string]interface{}{"recipient": "attacker", "amount": float64(-50)},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-block-negative-transfer",
+		Description:      "Negative transfer amount sign-flip attack — must be BLOCK via negative-value guard",
+	},
+	{
+		ID:               "MCP-TP-118",
+		ToolName:         "send_crypto",
+		Arguments:        map[string]interface{}{"to": "0xattacker", "amount": "ALL_BALANCE"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-block-all-balance-amount",
+		Description:      "ALL_BALANCE string bypasses numeric value_limits — structural rule must BLOCK it",
+	},
+	{
+		ID:               "MCP-TP-119",
+		ToolName:         "pay_invoice",
+		Arguments:        map[string]interface{}{"vendor": "evil-corp", "amount": float64(5000)},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-cap-payment-amount",
+		Description:      "Payment of $5,000 exceeds $1,000 safety limit — must be BLOCK",
+	},
+	{
+		ID:               "MCP-TP-120",
+		ToolName:         "provision_instances",
+		Arguments:        map[string]interface{}{"type": "gpu", "count": float64(200)},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-cap-provision-count",
+		Description:      "Provisioning 200 GPU instances exceeds safety limit of 50 — must be BLOCK",
+	},
+	{
+		ID:               "MCP-TP-121",
+		ToolName:         "withdraw_funds",
+		Arguments:        map[string]interface{}{"account": "checking", "amount": float64(1000)},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-fin-cap-withdrawal",
+		Description:      "Withdrawal of 1000 units exceeds safety limit of 500 — must be BLOCK",
+	},
+
+	// === Financial Safety: true negatives (issue #426) ===
+	// Under-limit financial calls must be AUDIT (not BLOCK).
+	{
+		ID:               "MCP-TN-058",
+		ToolName:         "pay_user",
+		Arguments:        map[string]interface{}{"user": "alice", "amount": float64(50)},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-financial-payment-under-limit",
+		Description:      "Payment of $50 is under the $1,000 limit — must be AUDIT not BLOCK",
+	},
+	{
+		ID:               "MCP-TN-059",
+		ToolName:         "provision_servers",
+		Arguments:        map[string]interface{}{"type": "web", "count": float64(10)},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-financial-provision-under-limit",
+		Description:      "Provisioning 10 servers is under the 50-instance limit — must be AUDIT not BLOCK",
+	},
+	{
+		ID:               "MCP-TN-060",
+		ToolName:         "withdraw_tokens",
+		Arguments:        map[string]interface{}{"account": "savings", "amount": float64(100)},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-financial-withdrawal-under-limit",
+		Description:      "Withdrawal of 100 units is under the 500-unit limit — must be AUDIT not BLOCK",
+	},
 }
