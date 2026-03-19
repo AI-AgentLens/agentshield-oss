@@ -610,6 +610,99 @@ var SecurityDaemonDeactivationCases = []TestCase{
 		Tags: []string{"critical", "defense-evasion", "apparmor"},
 	},
 
+	// --- TRUE POSITIVES: security-module-disable gaps (issue #462) ---
+
+	{
+		ID:               "TP-SMDIS-001",
+		Command:          `setenforce permissive`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `setenforce permissive (text form) is equivalent to setenforce 0 — switches
+			SELinux from enforcing to permissive mode. Blocked by ts-block-setenforce-permissive-text.`,
+		Tags: []string{"critical", "defense-evasion", "selinux"},
+	},
+	{
+		ID:               "TP-SMDIS-002",
+		Command:          `apparmor_parser -R /etc/apparmor.d/usr.sbin.nginx`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `apparmor_parser -R unloads an AppArmor profile directly from the kernel.
+			Stealthier than stopping the service — only removes one profile.
+			Blocked by ts-block-apparmor-parser-remove.`,
+		Tags: []string{"critical", "defense-evasion", "apparmor"},
+	},
+	{
+		ID:               "TP-SMDIS-003",
+		Command:          `echo 'SELINUX=disabled' >> /etc/selinux/config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `Writing SELINUX=disabled to /etc/selinux/config makes the disable persistent
+			across reboots. Blocked by ts-block-selinux-config-disable.`,
+		Tags: []string{"critical", "defense-evasion", "selinux", "persistent"},
+	},
+	{
+		ID:               "TP-SMDIS-004",
+		Command:          `sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `Editing SELinux config via sed to set SELINUX=disabled — persistent reboot-surviving
+			MAC disable. Blocked by ts-block-selinux-config-disable.`,
+		Tags: []string{"critical", "defense-evasion", "selinux", "persistent"},
+	},
+	{
+		ID:               "TP-SMDIS-005",
+		Command:          `apparmor_parser -Rq /etc/apparmor.d/sbin.dhclient`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `apparmor_parser -Rq (quiet remove) unloads a profile silently.
+			Combined flag form still caught by ts-block-apparmor-parser-remove.`,
+		Tags: []string{"critical", "defense-evasion", "apparmor"},
+	},
+
+	// --- TRUE NEGATIVES: safe service management ---
+
+	{
+		ID:               "TN-SMDIS-001",
+		Command:          `getenforce`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description:      `Read-only SELinux mode query — no modification. Must not be blocked (AUDIT is the safe default).`,
+		Tags:             []string{"safe", "selinux"},
+	},
+	{
+		ID:               "TN-SMDIS-002",
+		Command:          `apparmor_parser -r /etc/apparmor.d/usr.sbin.nginx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description: `apparmor_parser -r (lowercase) reloads/replaces a profile — not removes it.
+			Only -R (remove) is blocked; reload gets default AUDIT.`,
+		Tags: []string{"safe", "apparmor"},
+	},
+	{
+		ID:               "TN-SMDIS-003",
+		Command:          `cat /etc/selinux/config`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/security-module-disable",
+		Analyzer:         "regex",
+		Description:      `Read-only view of SELinux config — must not be blocked.`,
+		Tags:             []string{"safe", "selinux"},
+	},
+
 	// --- TRUE NEGATIVES: safe service management ---
 
 	{

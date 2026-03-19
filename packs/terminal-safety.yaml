@@ -724,19 +724,43 @@ rules:
     confidence: 0.99
 
   - id: "ts-block-selinux-permissive"
-    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    taxonomy: "persistence-evasion/config-modification/security-module-disable"
     match:
       command_regex: "\\bsetenforce\\b\\s+0\\b"
     decision: "BLOCK"
     reason: "Setting SELinux to permissive mode removes mandatory access control enforcement. Defense evasion technique."
     confidence: 0.99
 
+  - id: "ts-block-setenforce-permissive-text"
+    taxonomy: "persistence-evasion/config-modification/security-module-disable"
+    match:
+      command_regex: "\\bsetenforce\\b\\s+(?i:permissive)\\b"
+    decision: "BLOCK"
+    reason: "Setting SELinux to permissive mode (text form) disables kernel MAC enforcement. Equivalent to setenforce 0."
+    confidence: 0.99
+
+  - id: "ts-block-selinux-config-disable"
+    taxonomy: "persistence-evasion/config-modification/security-module-disable"
+    match:
+      command_regex: "SELINUX\\s*=\\s*(disabled|permissive)"
+    decision: "BLOCK"
+    reason: "Writing SELINUX=disabled or SELINUX=permissive to config makes the disable persistent across reboots."
+    confidence: 0.97
+
   - id: "ts-block-apparmor-disable"
-    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    taxonomy: "persistence-evasion/config-modification/security-module-disable"
     match:
       command_regex: "\\baa-(disable|complain)\\b"
     decision: "BLOCK"
     reason: "Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion."
+    confidence: 0.97
+
+  - id: "ts-block-apparmor-parser-remove"
+    taxonomy: "persistence-evasion/config-modification/security-module-disable"
+    match:
+      command_regex: "\\bapparmor_parser\\b.*\\s+-[a-zA-Z]*R[a-zA-Z]*\\b"
+    decision: "BLOCK"
+    reason: "apparmor_parser -R unloads an AppArmor profile from the kernel, surgically removing confinement without disabling the entire service."
     confidence: 0.97
 
   # === BLOCK: Systemd user service and launchd plist persistence ===
