@@ -1825,6 +1825,85 @@ var PackageRegistryPublishCases = []TestCase{
 	},
 }
 
+// GitHubActionsEnvInjectionCases tests detection of writes to GitHub Actions
+// special files ($GITHUB_PATH, $GITHUB_ENV) that control the CI environment.
+// Taxonomy: supply-chain/build-pipeline/github-actions-env-injection
+var GitHubActionsEnvInjectionCases = []TestCase{
+	// --- True Positives: $GITHUB_PATH injection (BLOCK) ---
+	{
+		ID:               "TP-GHPATH-001",
+		Command:          `echo "/tmp/evil/bin" >> $GITHUB_PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "Canonical $GITHUB_PATH injection — prepends attacker-controlled directory to CI $PATH. MITRE T1574.007.",
+		Tags:             []string{"tp", "canonical", "critical", "github-actions", "path-injection"},
+	},
+	{
+		ID:               "TP-GHPATH-002",
+		Command:          `printf '%s\n' "/tmp/x" >> "$GITHUB_PATH"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "printf variant of $GITHUB_PATH injection with quoted variable.",
+		Tags:             []string{"tp", "github-actions", "path-injection"},
+	},
+	// --- True Positives: $GITHUB_ENV injection (AUDIT) ---
+	{
+		ID:               "TP-GHENV-001",
+		Command:          `echo "AWS_ACCESS_KEY_ID=AKIAATTACKER" >> $GITHUB_ENV`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "AWS key injection into $GITHUB_ENV — overrides credential env var for subsequent steps. MITRE T1611.",
+		Tags:             []string{"tp", "canonical", "github-actions", "env-injection"},
+	},
+	{
+		ID:               "TP-GHENV-002",
+		Command:          `printf 'DEPLOY_KEY=%s\n' "$SECRET" >> "$GITHUB_ENV"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "Deploy key injection into $GITHUB_ENV via printf with quoted variable.",
+		Tags:             []string{"tp", "github-actions", "env-injection"},
+	},
+	// --- True Negatives: read-only or non-injection (ts-allow-readonly produces ALLOW) ---
+	{
+		ID:               "TN-GHPATH-001",
+		Command:          `cat $GITHUB_PATH`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "cat $GITHUB_PATH is read-only — ts-allow-readonly matches, ALLOW. No injection.",
+		Tags:             []string{"tn", "safe", "github-actions"},
+	},
+	{
+		ID:               "TN-GHENV-001",
+		Command:          `cat $GITHUB_ENV`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "cat $GITHUB_ENV is read-only — ts-allow-readonly matches, ALLOW. No injection.",
+		Tags:             []string{"tn", "safe", "github-actions"},
+	},
+	{
+		ID:               "TN-GHENV-002",
+		Command:          `echo "GITHUB_ENV=/tmp/test"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "echo with GITHUB_ENV as a string value — ts-allow-readonly matches echo, no file write, ALLOW.",
+		Tags:             []string{"tn", "safe", "github-actions"},
+	},
+}
+
 func AllSupplyChainCases() []TestCase {
 	var all []TestCase
 	all = append(all, NonStandardRegistryCases...)
@@ -1846,6 +1925,7 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, ModelEndpointHijackingCases...)
 	all = append(all, ModelWeightExtractionCases...)
 	all = append(all, PackageRegistryPublishCases...)
+	all = append(all, GitHubActionsEnvInjectionCases...)
 	return all
 }
 

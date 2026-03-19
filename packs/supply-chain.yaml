@@ -959,3 +959,48 @@ rules:
     decision: "BLOCK"
     confidence: 0.97
     reason: "dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001."
+
+  # === BLOCK: GitHub Actions $GITHUB_PATH injection ===
+  #
+  # Writing to $GITHUB_PATH prepends a directory to $PATH for all subsequent
+  # workflow steps. An AI agent can shadow legitimate tools with malicious binaries
+  # placed in a writable location (e.g., /tmp).
+  #
+  # TP examples:
+  #   echo "/tmp/evil/bin" >> $GITHUB_PATH
+  #   printf '%s\n' "/tmp/x" >> "$GITHUB_PATH"
+  #
+  # TN examples:
+  #   cat $GITHUB_PATH                         (read-only)
+  #   echo "GITHUB_PATH=/tmp/test"             (variable assignment, not file append)
+  - id: "sc-block-github-path-injection"
+    taxonomy: "supply-chain/build-pipeline/github-actions-env-injection"
+    match:
+      command_regex: ">>\\s*\"?\\$GITHUB_PATH\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to $GITHUB_PATH prepends directories to $PATH for all subsequent GitHub Actions steps — enables malicious binary substitution (PATH hijacking). Any legitimate tool invoked in later steps may call attacker-controlled code. MITRE T1574.007, OWASP LLM08."
+
+  # === AUDIT: GitHub Actions $GITHUB_ENV injection ===
+  #
+  # Writing to $GITHUB_ENV sets environment variables for subsequent CI steps.
+  # Legitimate uses exist but writes from agent-generated code warrant review —
+  # they can override CI secrets or manipulate deployment configuration.
+  #
+  # Decision: AUDIT rather than BLOCK because legitimate CI scripts do write to
+  # $GITHUB_ENV. The signal is that agent-generated commands doing this are
+  # unexpected and should surface for human review.
+  #
+  # TP examples:
+  #   echo "AWS_ACCESS_KEY_ID=stolen" >> $GITHUB_ENV
+  #   printf 'DEPLOY_KEY=%s\n' "$KEY" >> "$GITHUB_ENV"
+  #
+  # TN examples:
+  #   cat $GITHUB_ENV                          (read-only)
+  - id: "sc-audit-github-env-injection"
+    taxonomy: "supply-chain/build-pipeline/github-actions-env-injection"
+    match:
+      command_regex: ">>\\s*\"?\\$GITHUB_ENV\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08."

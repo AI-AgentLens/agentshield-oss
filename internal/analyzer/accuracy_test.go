@@ -232,6 +232,10 @@ func TestAccuracy_GHAuthToken(t *testing.T) {
 	runTestCases(t, testdata.GHAuthTokenCases)
 }
 
+func TestAccuracy_GitHubActionsEnvInjection(t *testing.T) {
+	runTestCases(t, testdata.GitHubActionsEnvInjectionCases)
+}
+
 // ===========================================================================
 // Aggregate: All kingdoms
 // ===========================================================================
