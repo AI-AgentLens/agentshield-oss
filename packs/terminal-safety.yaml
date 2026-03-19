@@ -139,6 +139,41 @@ rules:
     confidence: 0.82
     reason: "xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10)."
 
+  # === BLOCK: LLM CLI output piped to shell execution (LLM output injection) ===
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/llm-output-injection
+  # OWASP LLM01 (Prompt Injection), LLM07 | MITRE T1059
+  #
+  # Attack pattern: an attacker who can influence LLM context (prompt injection)
+  # causes the LLM to generate a "helpful script" that gets piped directly to bash.
+  # This turns prompt injection into arbitrary shell code execution.
+  #
+  # Example attack chain:
+  #   1. Attacker embeds hidden instructions in a file the agent reads
+  #   2. Agent runs:  llm "summarize file.txt" | bash
+  #   3. LLM output contains malicious shell commands → executed without review
+  #
+  # True Positives (BLOCK):
+  #   llm "write a script" | bash
+  #   ollama run codellama "fix this" | sh
+  #   claude --print "create setup script" | bash
+  #
+  # True Negatives (ALLOW):
+  #   llm "explain code"                  → no pipe to shell, output to terminal
+  #   ollama run llama3 "summarize file"  → no pipe to shell
+  #   git diff | llm "explain changes"    → data flows INTO llm, not out
+  - id: "ts-df-block-llm-output-to-shell"
+    taxonomy: "unauthorized-execution/ai-content-integrity/llm-output-injection"
+    match:
+      dataflow:
+        source:
+          commands: ["llm", "ollama", "claude", "aider", "sgpt", "mods", "gemini", "openai", "gpt", "copilot"]
+        sink:
+          commands: ["bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059)."
+
   # === BLOCK: Permission weakening ===
   - id: "ts-block-chmod-777"
     taxonomy: "destructive-ops/permission-weakening/chmod-world-writable"
