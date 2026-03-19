@@ -10,7 +10,7 @@ package testdata
 // Test count targets (high priority = 10 per weakness):
 //   - Category 1.1 Filesystem Destruction: recursive-root-delete (10), system-directory-delete (10)
 //   - Category 1.2 Disk Operations: disk-overwrite (10), filesystem-format (10)
-//   - Category 1.3 Resource Exhaustion: fork-bomb (10)
+//   - Category 1.3 Resource Exhaustion: fork-bomb (10), memory-exhaustion (10)
 //   - Category 1.4 Permission Weakening: chmod-world-writable (10)
 
 // ---------------------------------------------------------------------------
@@ -1745,6 +1745,119 @@ var DiskFillCases = []TestCase{
 	},
 }
 
+// MemoryExhaustionCases tests detection of memory exhaustion via stress tools
+// and large allocation one-liners (issue #423).
+// Taxonomy: destructive-ops/resource-exhaustion/disk-fill (shared; covers any resource-fill DoS)
+// Rules: ts-block-stress-vm-large, ts-audit-stress-vm, ts-audit-swapoff-all
+var MemoryExhaustionCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-TS-BLOCK-STRESS-VM-001",
+		Command:          "stress -m 1 --vm-bytes 16G --vm-keep",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `stress with --vm-bytes 16G fills all available RAM instantly, causing OOM kills. Rule ts-block-stress-vm-large must BLOCK.`,
+		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-STRESS-VM-002",
+		Command:          "stress-ng -m 4 --vm-bytes 4G --vm-keep",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `stress-ng with 4 workers × 4 GB = 16 GB fills RAM. Rule ts-block-stress-vm-large must BLOCK.`,
+		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress-ng"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-STRESS-VM-003",
+		Command:          "sudo stress -m 2 --vm-bytes 8G --vm-keep --vm-hang 0",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `sudo-prefixed stress command with 8 GB allocation. ts-block-stress-vm-large must handle sudo prefix.`,
+		Tags:             []string{"tp", "destructive", "memory-exhaustion", "stress", "sudo"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-STRESS-VM-001",
+		Command:          "stress --vm 4 --vm-bytes 512M",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `stress with 4 workers at 512 MB each — below the 1G BLOCK threshold. ts-audit-stress-vm should AUDIT.`,
+		Tags:             []string{"tp", "memory-exhaustion", "stress"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-STRESS-VM-002",
+		Command:          "stress-ng --vm 2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `stress-ng --vm with no explicit size — default behavior still allocates memory. ts-audit-stress-vm must AUDIT.`,
+		Tags:             []string{"tp", "memory-exhaustion", "stress-ng"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-SWAPOFF-001",
+		Command:          "sudo swapoff -a",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `swapoff -a disables all swap space, removing the OS memory safety valve and accelerating OOM under pressure. ts-audit-swapoff-all must AUDIT.`,
+		Tags:             []string{"tp", "memory-exhaustion", "swapoff"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TS-STRESS-VM-001",
+		Command:          "stress --cpu 4",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `stress --cpu only — no memory workers involved. ts-block-stress-vm-large must not BLOCK; ts-audit-stress-vm must not trigger (no --vm flag). Falls to default AUDIT.`,
+		Tags:             []string{"tn"},
+	},
+	{
+		ID:               "TN-TS-STRESS-VM-002",
+		Command:          "apt-get install stress",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `Installing the stress package is not the same as running it. Memory-exhaustion rules must not trigger on package installation; falls to AUDIT (apt-get install is separately audited).`,
+		Tags:             []string{"tn"},
+	},
+	{
+		ID:               "TN-TS-SWAPOFF-001",
+		Command:          "swapon -s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `swapon -s lists swap devices — read-only diagnostic. ts-audit-swapoff-all must not trigger (requires swapoff, not swapon). Falls to default AUDIT.`,
+		Tags:             []string{"tn"},
+	},
+	{
+		ID:               "TN-TS-SWAPOFF-002",
+		Command:          "swapoff /dev/sda2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
+		Analyzer:         "regex",
+		Description:      `swapoff on a specific device (not -a) — ts-audit-swapoff-all only triggers on -a (disable all swap). Single-device swapoff falls to default AUDIT.`,
+		Tags:             []string{"tn"},
+	},
+}
+
 // UnboundedAgentConsumptionCases tests detection of unbounded AI agent resource consumption.
 // Taxonomy: destructive-ops/resource-exhaustion/unbounded-agent-consumption
 var UnboundedAgentConsumptionCases = []TestCase{
@@ -2029,6 +2142,7 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, GitForcePushCases...)
 	all = append(all, GitHistoryDestructionCases...)
 	all = append(all, DiskFillCases...)
+	all = append(all, MemoryExhaustionCases...)
 	all = append(all, UnboundedAgentConsumptionCases...)
 	all = append(all, DatabaseDestructionCases...)
 	return all

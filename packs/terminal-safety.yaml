@@ -52,6 +52,54 @@ rules:
     confidence: 0.90
     reason: "Infinite loop spawning background processes is a fork bomb pattern."
 
+  # === BLOCK/AUDIT: Memory exhaustion via stress tools and allocation one-liners (issue #423) ===
+  #
+  # AI agents prompted to "load test", "benchmark", or "stress test" a system may
+  # execute stress/stress-ng with large --vm-bytes values that fill all available
+  # RAM, causing OOM kills of critical services and system instability. Python/Perl
+  # one-liners can silently allocate multi-gigabyte buffers in a single command.
+  # sudo swapoff removes the safety valve that normally allows the OS to page out
+  # under memory pressure, compounding the risk.
+  #
+  # Attack patterns:
+  #   stress -m 1 --vm-bytes 16G --vm-keep         # fill 16 GB of RAM instantly
+  #   stress-ng -m 4 --vm-bytes 4G --vm-keep        # fill 16 GB via 4 workers
+  #   python3 -c "x = 'A' * 10**10; input()"        # 10 GB Python allocation
+  #   perl -e '$x = "x" x (1024**3 * 8); sleep 999' # 8 GB Perl allocation
+  #   sudo swapoff -a                                # disables swap → faster OOM
+  #
+  # Taxonomy: destructive-ops/resource-exhaustion/disk-fill (reused; covers any
+  #   resource-fill DoS. A future memory-exhaustion leaf entry can refine this.)
+  # MITRE T1499.001 — Endpoint DoS: OS Exhaustion Flood
+  # OWASP LLM10 — Unbounded Consumption
+
+  # --- BLOCK: stress/stress-ng with ≥1G memory allocation ---
+  - id: "ts-block-stress-vm-large"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?stress(-ng)?\\s+.*--vm-bytes\\s*[0-9]+[GT]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "stress/stress-ng with --vm-bytes ≥1GB fills all available RAM, causing OOM kills of critical services and system instability. MITRE T1499.001."
+
+  # --- AUDIT: stress/stress-ng without explicit large size (could still exhaust) ---
+  - id: "ts-audit-stress-vm"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?stress(-ng)?\\s+.*--vm\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "stress/stress-ng memory worker invocation — can exhaust RAM even without explicit --vm-bytes if the system has limited memory. MITRE T1499.001."
+
+  # --- AUDIT: swapoff -a removes memory safety valve ---
+  - id: "ts-audit-swapoff-all"
+    taxonomy: "destructive-ops/resource-exhaustion/disk-fill"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?swapoff\\s+-a\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "swapoff -a disables all swap space, removing the OS safety valve for memory pressure. When combined with memory-intensive workloads, this accelerates OOM kills. MITRE T1499.001."
+
   # === BLOCK/AUDIT: Unbounded agent resource consumption (issue #289) ===
   #
   # AI agents executing unbounded loops against LLM/AI APIs cause denial-of-wallet
