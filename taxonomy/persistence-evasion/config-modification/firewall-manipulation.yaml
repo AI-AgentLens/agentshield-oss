@@ -1,6 +1,6 @@
 id: "persistence-evasion/config-modification/firewall-manipulation"
 version: "1.0.0"
-kingdom: "Persistence & Evasion"
+kingdom: "Persistence & Defense Evasion"
 kingdom_id: 6
 category: "Configuration Modification"
 category_id: "6.4"
