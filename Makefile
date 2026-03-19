@@ -58,4 +58,15 @@ test-mcp: ## Run MCP scenario tests
 compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy entries and standards
 	go run ./internal/taxonomy/generate_index.go
 
+deploy: build ## Build and deploy packs + binary to ~/.agentshield
+	@echo "Deploying packs..."
+	@mkdir -p ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
+	@cp packs/terminal-safety.yaml packs/network-egress.yaml packs/secrets-pii.yaml packs/supply-chain.yaml ~/.agentshield/packs/
+	@cp packs/mcp/mcp-safety.yaml packs/mcp/mcp-financial.yaml packs/mcp/mcp-secrets.yaml ~/.agentshield/packs/mcp/
+	@cp packs/mcp/mcp-safety.yaml packs/mcp/mcp-financial.yaml packs/mcp/mcp-secrets.yaml ~/.agentshield/mcp-packs/
+	@echo "Deploying binary..."
+	@cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY) 2>/dev/null || sudo cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY)
+	@echo "Verifying..."
+	@agentshield scan > /dev/null 2>&1 && echo "✅ AgentShield deployed and verified" || echo "⚠️  Deploy done but scan failed"
+
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
