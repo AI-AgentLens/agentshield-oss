@@ -9,7 +9,7 @@ package testdata
 //
 // Test count targets (high priority = 10 per weakness):
 //   - Category 2.1 Private Key Access: ssh-private-key-read (10)
-//   - Category 2.3 Secret Environment Exposure: env-dump (10)
+//   - Category 2.3 Secret Environment Exposure: env-dump (10), container-env-dump (11)
 
 // ---------------------------------------------------------------------------
 // Category 2.1: Private Key Access
@@ -387,6 +387,129 @@ var EnvDumpCases = []TestCase{
 			pattern as Python case but using Node's process.env. Requires
 			indirect execution parsing.`,
 		Tags: []string{"indirect-execution", "depth-2", "known-gap"},
+	},
+}
+
+// ContainerEnvDumpCases tests detection of container environment variable extraction
+// via docker inspect and kubectl exec (closes #442).
+// Taxonomy: credential-exposure/secret-env-exposure/env-dump
+// Rules: sec-audit-docker-inspect-env, sec-audit-docker-exec-env-dump, sec-audit-kubectl-exec-env-dump
+var ContainerEnvDumpCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CE-DOCKER-INSPECT-001",
+		Command:          "docker inspect myapp",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker inspect exposes full container config including all env vars (API_KEY, DATABASE_URL, etc.). sec-audit-docker-inspect-env must AUDIT.",
+		Tags:             []string{"tp", "docker", "container", "env-dump"},
+	},
+	{
+		ID:               "TP-CE-DOCKER-INSPECT-002",
+		Command:          `docker inspect myapp | jq '.[0].Config.Env[]'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker inspect piped to jq to extract Env array — targeted container credential extraction. sec-audit-docker-inspect-env must AUDIT.",
+		Tags:             []string{"tp", "docker", "container", "env-dump", "jq"},
+	},
+	{
+		ID:               "TP-CE-DOCKER-INSPECT-003",
+		Command:          "docker inspect --format '{{.Config.Env}}' myapp",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker inspect --format with .Config.Env extracts container environment variables directly. sec-audit-docker-inspect-env must AUDIT.",
+		Tags:             []string{"tp", "docker", "container", "env-dump", "format-string"},
+	},
+	{
+		ID:               "TP-CE-DOCKER-EXEC-ENV-001",
+		Command:          "docker exec myapp env",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker exec with env dumps all env vars from running container — exposes secrets injected at container startup. sec-audit-docker-exec-env-dump must AUDIT.",
+		Tags:             []string{"tp", "docker", "container", "env-dump"},
+	},
+	{
+		ID:               "TP-CE-DOCKER-EXEC-ENV-002",
+		Command:          "docker exec myapp printenv AWS_SECRET_ACCESS_KEY",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker exec with printenv targeting AWS secret key — targeted credential extraction from container. sec-audit-docker-exec-env-dump must AUDIT.",
+		Tags:             []string{"tp", "docker", "container", "env-dump", "aws"},
+	},
+	{
+		ID:               "TP-CE-KUBECTL-EXEC-ENV-001",
+		Command:          "kubectl exec mypod -- env",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "kubectl exec with env dumps all env vars from a Kubernetes pod — exposes Secrets mounted as env vars and service account tokens. sec-audit-kubectl-exec-env-dump must AUDIT.",
+		Tags:             []string{"tp", "kubectl", "k8s", "container", "env-dump"},
+	},
+	{
+		ID:               "TP-CE-KUBECTL-EXEC-ENV-002",
+		Command:          "kubectl exec mypod -c mycontainer -- printenv",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "kubectl exec with printenv in a specific container — exposes k8s Secret-backed env vars. sec-audit-kubectl-exec-env-dump must AUDIT.",
+		Tags:             []string{"tp", "kubectl", "k8s", "container", "env-dump"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CE-DOCKER-INSPECT-001",
+		Command:          "docker inspect --format '{{.State.Running}}' myapp",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker inspect checking container running state — does not expose env vars. sec-audit-docker-inspect-env fires (any docker inspect is audited), which is correct behavior since it's conservative.",
+		Tags:             []string{"tn", "docker", "container"},
+	},
+	{
+		ID:               "TN-CE-DOCKER-EXEC-001",
+		Command:          "docker exec myapp ls /app",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker exec listing directory — no env dump. sec-audit-docker-exec-env-dump must not trigger (no env/printenv command). Audited by existing ts-block-docker-exec rule, not by our new env-dump rule.",
+		Tags:             []string{"tn", "docker", "container"},
+	},
+	{
+		ID:               "TN-CE-KUBECTL-EXEC-001",
+		Command:          "kubectl exec mypod -- ls /app",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "kubectl exec listing directory — no env dump. sec-audit-kubectl-exec-env-dump must not trigger (no env/printenv command). Existing kubectl exec rules audit this independently.",
+		Tags:             []string{"tn", "kubectl", "k8s", "container"},
+	},
+	{
+		ID:               "TN-CE-DOCKER-PS-001",
+		Command:          "docker ps",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker ps lists running containers — no env extraction. Container env-dump rules must not trigger. Gets AUDIT from general docker monitoring rules.",
+		Tags:             []string{"tn", "docker", "safe"},
 	},
 }
 
@@ -3168,6 +3291,7 @@ func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
 	all = append(all, SSHPrivateKeyReadCases...)
 	all = append(all, EnvDumpCases...)
+	all = append(all, ContainerEnvDumpCases...)
 	all = append(all, ConfigFileAccessCases...)
 	all = append(all, GitCredentialTheftCases...)
 	all = append(all, IMDSTheftCases...)
