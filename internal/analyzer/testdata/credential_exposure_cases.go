@@ -1280,6 +1280,26 @@ var KeychainExtractionCases = []TestCase{
 		Description:      `Certificate verification via security CLI — a read-only PKI operation that does not access password storage. Does not match sec-block-keychain. Falls through to AUDIT default.`,
 		Tags:             []string{"common-dev-operation", "macos"},
 	},
+	{
+		ID:               "TN-KEYCHAIN-003",
+		Command:          `gh issue create --repo security-researcher-ca/AI_Agent_Shield --title "feat(rules): add credential store coverage" --body "Semgrep rules should detect: security find-generic-password -s MyApp or security dump-keychain"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/keychain-extraction",
+		Analyzer:         "regex",
+		Description:      `Creating a GitHub issue whose --body text mentions Keychain commands as documentation of attack patterns to detect. The keychain invocation is inside the --body flag value passed to gh, not an actual shell execution. Fixed by command_regex_exclude suppressing BLOCK when keychain pattern follows --body in a gh command.`,
+		Tags:             []string{"fp-fix", "gh-cli", "issue-467"},
+	},
+	{
+		ID:               "TN-KEYCHAIN-004",
+		Command:          `gh pr comment 42 --body "The Semgrep rule must detect 'security find-generic-password -s Service -a Account' as a keychain extraction pattern."`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/keychain-extraction",
+		Analyzer:         "regex",
+		Description:      `Adding a PR comment via gh whose --body text quotes a keychain command as a Semgrep rule target example. The keychain invocation is documentation inside the --body flag passed to gh, not an actual shell execution. Fixed by command_regex_exclude for gh --body flags.`,
+		Tags:             []string{"fp-fix", "gh-cli", "issue-467"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -1365,6 +1385,20 @@ var ShadowReadCases = []TestCase{
 			Fixed by command_regex_exclude matching ^\\s*cat\\s+> (cat is writing, not reading the path).
 			Returns ALLOW because "cat " prefix matches ts-allow-readonly.`,
 		Tags: []string{"fp-fix", "heredoc", "issue-175"},
+	},
+	{
+		ID:               "TN-SHADOW-005",
+		Command:          `gh issue create --repo security-researcher-ca/AI_Agent_Shield --title "feat(rules): add TS/Go coverage to system-credentials" --body "Rule IDs to implement: shadow-read (/etc/shadow), master-passwd (/etc/master.passwd). These patterns must be detected in Semgrep."`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Creating a GitHub issue whose --body text contains /etc/shadow as a Semgrep rule target reference.
+			Body text has commas and parentheses before the path, so the older character-class exclude pattern
+			(which stops at punctuation chars) is not sufficient. Fixed by the gh/git --body exclude pattern
+			added in issue-467: ^(gh|git)\\s.*--(?:body|message|...)\\b suppresses the block for any gh command
+			that uses a body/message flag regardless of body content.`,
+		Tags: []string{"fp-fix", "gh-cli", "issue-467"},
 	},
 }
 
