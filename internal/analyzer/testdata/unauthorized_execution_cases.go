@@ -2111,6 +2111,53 @@ var ShadowAIUsageCases = []TestCase{
 		Description:      "docker pull TGI image — image download, not server run. 'run' keyword absent, vllm-tgi-serve not triggered.",
 		Tags:             []string{"tn", "shadow-ai", "safe"},
 	},
+	// =========================================================================
+	// TP: Model weight download from public model hub (ts-audit-model-weight-download)
+	// Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+	// =========================================================================
+	{
+		ID:               "TP-TS-AUDIT-MODEL-WEIGHT-DOWNLOAD-001",
+		Command:          "wget https://huggingface.co/TheBloke/Mistral-7B-v0.1-GGUF/resolve/main/mistral-7b-v0.1.Q4_K_M.gguf",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "wget downloads a .gguf model weight file from HuggingFace Hub without governance registration.",
+		Tags:             []string{"tp", "model-inventory", "ai-governance"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-MODEL-WEIGHT-DOWNLOAD-002",
+		Command:          "curl -o model.safetensors https://huggingface.co/meta-llama/Llama-2-7b-hf/resolve/main/model.safetensors",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "curl downloads a .safetensors model weight file from HuggingFace Hub — bypasses model inventory.",
+		Tags:             []string{"tp", "model-inventory", "ai-governance"},
+	},
+	// =========================================================================
+	// TN: Model hub interactions that are not direct weight downloads
+	// =========================================================================
+	{
+		ID:               "TN-TS-AUDIT-MODEL-WEIGHT-DOWNLOAD-001",
+		Command:          "pip install transformers",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "pip install transformers installs the library, not model weights — model-weight-download rule not triggered (gets AUDIT from audit-package-installs, not from model-weight-download).",
+		Tags:             []string{"tn", "safe", "model-inventory"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-MODEL-WEIGHT-DOWNLOAD-002",
+		Command:          "curl https://api.openai.com/v1/models",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "curl to OpenAI API models endpoint — API call, not a .gguf/.safetensors download from a model hub. Gets AUDIT from ne-audit-curl, not from model-weight-download.",
+		Tags:             []string{"tn", "safe", "model-inventory"},
+	},
 }
 
 // ---------------------------------------------------------------------------
