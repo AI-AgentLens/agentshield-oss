@@ -5223,4 +5223,101 @@ var MCPCredentialRelayCases = []TestCase{
 		Description:      "grep for API_BASE_URL config — not a known credential key, no network command inline, must be allowed.",
 		Tags:             []string{"tn", "safe", "mcp-credential-relay"},
 	},
+
+	// ===========================================================================
+	// Jupyter Notebook Non-Interactive Execution
+	// Rule IDs: ts-audit-jupyter-nbconvert-execute, ts-audit-jupyter-execute-cmd,
+	//           ts-audit-papermill-execute
+	// Taxonomy: unauthorized-execution/remote-code-exec/indirect-code-exec
+	// ===========================================================================
+
+	// TP-1: jupyter nbconvert --execute — runs all code cells non-interactively
+	{
+		ID:               "TP-JNBE-001",
+		Command:          "jupyter nbconvert --to notebook --execute model_training.ipynb",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter nbconvert --execute runs all notebook code cells non-interactively. An AI agent could inject malicious code into the .ipynb file before executing.",
+		Tags:             []string{"tp", "jupyter", "notebook-execution", "indirect-code-exec"},
+	},
+	// TP-2: jupyter nbconvert --execute with --inplace flag
+	{
+		ID:               "TP-JNBE-002",
+		Command:          "jupyter nbconvert --execute --inplace analysis.ipynb",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter nbconvert --execute --inplace executes all code cells in-place. Same attack surface as TP-JNBE-001.",
+		Tags:             []string{"tp", "jupyter", "notebook-execution", "indirect-code-exec"},
+	},
+	// TP-3: jupyter execute (newer Jupyter >=7 CLI command)
+	{
+		ID:               "TP-JNBE-003",
+		Command:          "jupyter execute data_pipeline.ipynb",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter execute (Jupyter >=7) always executes all notebook code cells non-interactively.",
+		Tags:             []string{"tp", "jupyter", "notebook-execution", "indirect-code-exec"},
+	},
+	// TP-4: papermill notebook execution
+	{
+		ID:               "TP-JNBE-004",
+		Command:          "papermill input.ipynb output.ipynb -p epochs 100",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "papermill always executes Jupyter notebooks non-interactively. Injected parameters can control which code branches execute.",
+		Tags:             []string{"tp", "jupyter", "papermill", "notebook-execution", "indirect-code-exec"},
+	},
+
+	// TN-1: jupyter nbconvert without --execute flag (safe format conversion)
+	{
+		ID:               "TN-JNBE-001",
+		Command:          "jupyter nbconvert --to html report.ipynb",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter nbconvert without --execute only converts format — no code cells run.",
+		Tags:             []string{"tn", "safe", "jupyter", "notebook-execution"},
+	},
+	// TN-2: jupyter lab (interactive server — requires human interaction)
+	{
+		ID:               "TN-JNBE-002",
+		Command:          "jupyter lab",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter lab starts an interactive server — no autonomous code execution, requires human to run cells.",
+		Tags:             []string{"tn", "safe", "jupyter"},
+	},
+	// TN-3: jupyter nbconvert --to script (converts to Python, does not execute)
+	{
+		ID:               "TN-JNBE-003",
+		Command:          "jupyter nbconvert --to script notebook.ipynb",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter nbconvert --to script converts notebook to a Python file — no code execution occurs.",
+		Tags:             []string{"tn", "safe", "jupyter", "notebook-execution"},
+	},
+	// TN-4: jupyter notebook (interactive server — requires human interaction)
+	{
+		ID:               "TN-JNBE-004",
+		Command:          "jupyter notebook",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      "jupyter notebook starts an interactive server — no autonomous code execution.",
+		Tags:             []string{"tn", "safe", "jupyter"},
+	},
 }
