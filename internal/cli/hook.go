@@ -382,9 +382,10 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage) erro
 		json.Unmarshal(rawToolInput, &arguments)
 	}
 
-	// Load MCP packs with an empty base policy (LoadMCPPacks requires non-nil base)
+	// Load MCP packs with an empty base policy (LoadMCPPacks requires non-nil base).
+	// MCP pack YAMLs live in packs/mcp/ and mcp-packs/.
 	home, _ := os.UserHomeDir()
-	packsDir := filepath.Join(home, ".agentshield", "packs")
+	packsDir := filepath.Join(home, ".agentshield", "packs", "mcp")
 	basePolicy := &mcp.MCPPolicy{
 		Defaults: mcp.MCPDefaults{Decision: policy.DecisionAudit},
 	}
