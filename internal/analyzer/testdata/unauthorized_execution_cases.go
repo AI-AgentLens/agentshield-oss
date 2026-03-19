@@ -679,6 +679,72 @@ var AIContentIntegrityCases = []TestCase{
 		Description:      "echo appending to setup.md — non-security documentation file. Does not match SECURITY/PRIVACY/CHANGELOG/runbook/audit/compliance paths. Gets ALLOW.",
 		Tags:             []string{"safe", "content-integrity"},
 	},
+
+	// --- TRUE POSITIVES: LLM output injection into shell (issue #411) ---
+
+	{
+		ID:               "TP-TS-DF-LLM-INJECT-001",
+		Command:          `llm "write a startup script" | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "llm CLI output piped directly to bash — LLM-generated text becomes untrusted shell payload (OWASP LLM01, MITRE T1059).",
+		Tags:             []string{"tp", "llm-injection", "dataflow", "pipe-to-shell"},
+	},
+	{
+		ID:               "TP-TS-DF-LLM-INJECT-002",
+		Command:          `ollama run codellama "generate a fix script" | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "ollama CLI output piped to sh — local LLM output execution is equally dangerous as cloud LLM output injection.",
+		Tags:             []string{"tp", "llm-injection", "dataflow", "ollama"},
+	},
+	{
+		ID:               "TP-TS-DF-LLM-INJECT-003",
+		Command:          `claude --print "create setup script" | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "Claude CLI print output piped to bash — agent-to-shell injection via Claude CLI is a common automation anti-pattern.",
+		Tags:             []string{"tp", "llm-injection", "dataflow", "claude-cli"},
+	},
+
+	// --- TRUE NEGATIVES: LLM queries without shell pipe ---
+
+	{
+		ID:               "TN-TS-DF-LLM-INJECT-001",
+		Command:          `llm "explain this code"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "llm CLI with no pipe — output goes to terminal only, no execution sink. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "llm-injection"},
+	},
+	{
+		ID:               "TN-TS-DF-LLM-INJECT-002",
+		Command:          `git diff | llm "explain these changes"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "Data flows INTO llm, not out of it. No LLM→shell pipe. The rule only fires when llm is a source, not when it is a sink.",
+		Tags:             []string{"tn", "safe", "llm-injection"},
+	},
+	{
+		ID:               "TN-TS-DF-LLM-INJECT-003",
+		Command:          `ollama run llama3 "summarize the README"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
+		Analyzer:         "dataflow",
+		Description:      "ollama query with no pipe to shell — read-only LLM interaction. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "llm-injection", "ollama"},
+	},
 }
 
 // ---------------------------------------------------------------------------
