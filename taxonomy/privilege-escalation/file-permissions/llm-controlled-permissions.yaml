@@ -1,0 +1,68 @@
+id: "privilege-escalation/file-permissions/llm-controlled-permissions"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "File Permissions"
+category_id: "5.2"
+name: "LLM-Controlled File Permissions"
+risk_level: "high"
+
+abstract: |
+  An AI coding agent or agentic system passes LLM-determined permission modes
+  to filesystem calls (chmod/chown), allowing a prompt-injected attacker to
+  silently escalate privileges by steering the model toward dangerous values
+  such as world-writable (0o777), setuid (0o4755), or setgid (0o2755).
+
+explanation: |
+  Modern AI coding assistants (Cursor, Copilot, Claude Code) frequently generate
+  chmod or chown calls as part of deployment scripts, CI pipelines, and
+  configuration management. When the permission mode is derived from LLM output
+  rather than a hardcoded literal, an attacker who can influence the model's
+  response (prompt injection, jailbreak, or supply-chain poisoning) can cause
+  the application to set arbitrary file permissions.
+
+  Unlike static chmod detectors that match known-bad literals (e.g., "+s"),
+  this attack vector is invisible at the source-code level — the mode is a
+  variable populated at runtime by the model. Taint analysis is required to
+  trace the flow from LLM response → permission value → chmod/chown call.
+
+  Common exploitation scenarios:
+  - Attacker injects "set 0777 for broad compatibility" into a model prompt,
+    causing world-writable credentials or configuration files.
+  - Model is tricked into recommending setuid (0o4755) on a deployment artifact,
+    creating a persistent privilege escalation backdoor.
+  - LLM-generated infrastructure code passes user-controlled permission strings
+    to os.chmod() without validation.
+
+recommendation: |
+  - Validate all chmod/chown mode values against an allowlist before application.
+  - Treat permission mode values from LLM output as untrusted input.
+  - Flag taint flows from LLM response → filesystem permission calls in static analysis.
+  - Use declarative configuration systems (Ansible, Terraform) with reviewed
+    permission values rather than AI-generated runtime chmod calls.
+  - In code review, reject any chmod/chown where the mode is a variable
+    whose value originates from model output or external input.
+
+examples:
+  bad:
+    - "mode = llm.generate_permissions(context); os.chmod(path, int(mode, 8))"
+    - "perms = ai_suggest_perms(file_type); subprocess.run(['chmod', perms, path])"
+    - "os.chmod(target, llm_mode)  # mode comes from model recommendation"
+  good:
+    - "os.chmod(path, 0o644)  # hardcoded safe permissions"
+    - "os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # explicit bit flags"
+    - "ALLOWED_MODES = {0o644, 0o755, 0o600}; assert mode in ALLOWED_MODES"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.12"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1548.001"]
+  cwe: ["CWE-250", "CWE-732", "CWE-116"]
+
+analyzers: ["dataflow", "semantic"]
+related_rules: []

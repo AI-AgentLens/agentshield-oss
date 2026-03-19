@@ -1,0 +1,78 @@
+id: "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Anti-Forensics"
+category_id: "6.4"
+name: "Cloud AI Monitoring Disable"
+risk_level: "critical"
+
+abstract: |
+  Programmatically disabling or deleting cloud AI service audit logging
+  (AWS Bedrock invocation logging, Azure OpenAI diagnostic settings, GCP
+  Vertex AI audit logs) to suppress the audit trail before or after
+  unauthorized AI interactions — evading detection and compliance controls.
+
+explanation: |
+  Cloud AI services generate detailed audit logs of every model invocation:
+  input prompts, output tokens, requesting identities, timestamps, and
+  associated costs. These logs are required by AI governance frameworks
+  (EU AI Act, NIST AI RMF, SOC 2 CC7) and are the primary evidence source
+  for detecting prompt injection, data exfiltration, and unauthorized AI use.
+
+  A prompt-injected agentic system or a malicious insider may issue SDK or
+  CLI calls to disable this logging immediately before executing a sensitive
+  operation, creating an audit gap that conceals:
+  - Data exfiltration via model prompts
+  - Unauthorized model fine-tuning or access
+  - Jailbreaking attempts and safety filter bypasses
+  - Credential harvesting via AI-assisted generation
+
+  Attack patterns by cloud provider:
+  - **AWS Bedrock**: `delete_model_invocation_logging_configuration()`,
+    `put_model_invocation_logging_configuration(loggingConfig={...disabled...})`
+  - **Azure OpenAI / Azure Monitor**: `diagnostic_settings.delete()`,
+    updating diagnostic settings to remove audit log destinations
+  - **GCP Vertex AI**: `projects.locations.operations` audit log exclusions,
+    IAM audit config modifications disabling DATA_READ/DATA_WRITE logging
+
+  This technique mirrors T1562.008 (Disable Cloud Logs) from MITRE ATT&CK
+  but is specialized for AI service audit trails, which may be managed by
+  separate API surfaces from general cloud logging controls.
+
+recommendation: |
+  - Apply SCPs (AWS), Azure Policy, or GCP Organization Policies that prevent
+    disabling AI service audit logging at the organization level.
+  - Alert on any API call to delete or modify Bedrock/OpenAI/Vertex audit
+    logging configurations via CloudTrail, Azure Monitor, or GCP Audit Logs.
+  - Use immutable log storage (CloudTrail Lake, Azure Immutable Blob) to
+    prevent retrospective log deletion even if configuration is changed.
+  - Regularly verify that AI service logging configurations match a
+    known-good baseline as part of compliance monitoring.
+  - In agentic systems, deny AI agents IAM permissions to modify logging
+    configuration for the AI services they consume (least-privilege).
+
+examples:
+  bad:
+    - "client.delete_model_invocation_logging_configuration()  # disables Bedrock logging"
+    - "monitor_client.diagnostic_settings.delete(resource_uri, 'openai-audit')  # Azure"
+    - "gcp_logging_client.update_sink(sink_name, sink, update_mask='filter')  # GCP exclusion"
+    - "boto3.client('bedrock').put_model_invocation_logging_configuration(loggingConfig={})"
+  good:
+    - "client.get_model_invocation_logging_configuration()  # read-only check"
+    - "cloudtrail.get_trail_status(Name='ai-audit-trail')  # verify logging is enabled"
+    - "client.list_foundation_models()  # benign discovery"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.12"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-4", "GOVERN-6"]
+  soc2-type2: ["CC7.1", "CC7.2"]
+
+references:
+  mitre_attack: ["T1562.008"]
+  cwe: ["CWE-778", "CWE-223"]
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules: []
