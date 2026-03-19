@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 734 |
+| Terminal rules | 736 |
 | MCP rules | 126 |
-| Total rules | 860 |
-| Test cases (TP+TN) | 2426 |
+| Total rules | 862 |
+| Test cases (TP+TN) | 2442 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (65 rules)
+### credential-exposure (67 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -48,6 +48,8 @@
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
+| `sec-block-gcloud-auth-token` | BLOCK | regex | gcloud auth print-access-token/print-identity-token dumps a live GCP OAuth2/OIDC token to stdout — immediate credential extraction bypassing file monitoring. config-helper dumps full credential state. MITRE T1528, OWASP LLM06. |
+| `sec-block-az-get-access-token` | BLOCK | regex | az account get-access-token dumps a live Azure AD Bearer token to stdout — grants immediate access to Azure management APIs, Key Vault, and storage. MITRE T1528, OWASP LLM06. |
 | `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
 | `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
@@ -985,7 +987,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 163 | 128 | 291 |
+| credential-exposure | 171 | 136 | 307 |
 | data-exfiltration | 198 | 116 | 314 |
 | destructive-ops | 117 | 74 | 191 |
 | persistence-evasion | 246 | 138 | 384 |
@@ -993,5 +995,5 @@
 | reconnaissance | 146 | 58 | 204 |
 | supply-chain | 132 | 88 | 220 |
 | unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1501** | **925** | **2426** |
+| **Total** | **1509** | **933** | **2442** |
 
