@@ -1400,6 +1400,44 @@ var ShadowReadCases = []TestCase{
 			that uses a body/message flag regardless of body content.`,
 		Tags: []string{"fp-fix", "gh-cli", "issue-467"},
 	},
+	{
+		ID:               "TN-SHADOW-006",
+		Command:          `curl -X POST https://api.github.com/repos/org/repo/issues -d '{"body": "An attacker reads /etc/shadow to extract hashed passwords"}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `curl -d with a JSON body that mentions /etc/shadow as documentation text.
+			The path appears as a literal string inside a quoted -d argument — no file is being read.
+			Fixed by the curl -d/--data exclusion added in issue-473: ^curl\\s.*-d\\s+[\"'] suppresses
+			the block when curl's data argument starts with a quote (string literal, not @file syntax).`,
+		Tags: []string{"fp-fix", "curl", "issue-473"},
+	},
+	{
+		ID:               "TN-SHADOW-007",
+		Command:          `git commit -m "docs: explain /etc/shadow attack vector for shadow-read rule"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `git commit -m with /etc/shadow as documentation text in the commit message.
+			The -m flag is the short form of --message; the path is a text payload, not a file access.
+			Fixed by extending the gh/git exclude to also match -m/b short flags followed by a quoted string.`,
+		Tags: []string{"fp-fix", "git", "issue-473"},
+	},
+	{
+		ID:               "TN-SHADOW-008",
+		Command:          "cat << 'EOF' > /tmp/docs.md\nThis document describes the /etc/shadow attack vector.\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `cat heredoc (<<) writing documentation to a temp file.
+			The heredoc body contains /etc/shadow as illustrative text — cat is writing the content, not reading it.
+			Fixed by extending the cat exclude from ^\\s*cat\\s+> to ^\\s*cat\\s+(?:>|<<), covering both
+			redirect forms: 'cat > file' and 'cat << EOF > file'.`,
+		Tags: []string{"fp-fix", "heredoc", "issue-473"},
+	},
 }
 
 // ---------------------------------------------------------------------------
