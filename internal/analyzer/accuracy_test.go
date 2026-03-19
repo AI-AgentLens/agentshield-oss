@@ -228,6 +228,10 @@ func TestAccuracy_NetworkScanning(t *testing.T) {
 	runTestCases(t, testdata.NetworkScanningCases)
 }
 
+func TestAccuracy_GHAuthToken(t *testing.T) {
+	runTestCases(t, testdata.GHAuthTokenCases)
+}
+
 // ===========================================================================
 // Aggregate: All kingdoms
 // ===========================================================================

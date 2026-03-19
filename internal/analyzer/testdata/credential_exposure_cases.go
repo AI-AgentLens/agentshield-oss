@@ -3531,6 +3531,94 @@ var LLMCredentialPhishingCases = []TestCase{
 	},
 }
 
+// GHAuthTokenCases tests detection of GitHub CLI token extraction via `gh auth token`.
+// Taxonomy: credential-exposure/version-control/github-token-extract
+// Rule: sec-block-gh-auth-token
+var GHAuthTokenCases = []TestCase{
+	// --- True Positives: gh auth token extraction ---
+	{
+		ID:               "TP-GHAT-001",
+		Command:          "gh auth token",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "Canonical `gh auth token` — prints raw GitHub PAT to stdout. MITRE T1528.",
+		Tags:             []string{"tp", "canonical", "critical", "github", "token"},
+	},
+	{
+		ID:               "TP-GHAT-002",
+		Command:          "gh auth token --hostname github.com",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "gh auth token with explicit --hostname flag — same extraction, different variant.",
+		Tags:             []string{"tp", "github", "token"},
+	},
+	{
+		ID:               "TP-GHAT-003",
+		Command:          "gh auth status --show-token",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "gh auth status --show-token reveals the stored token in status output.",
+		Tags:             []string{"tp", "github", "token"},
+	},
+	{
+		ID:               "TP-GHAT-004",
+		Command:          "gh config get hosts.github.com.oauth_token",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "Direct config key access to the stored OAuth token via gh config get.",
+		Tags:             []string{"tp", "github", "token"},
+	},
+	// --- True Negatives: legitimate gh CLI usage (default: AUDIT, no rule match) ---
+	{
+		ID:               "TN-GHAT-001",
+		Command:          "gh auth status",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "gh auth status without --show-token — shows login state only, no token exposed.",
+		Tags:             []string{"tn", "safe", "github"},
+	},
+	{
+		ID:               "TN-GHAT-002",
+		Command:          "gh auth login",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "gh auth login — initiates OAuth flow, does not read the stored token.",
+		Tags:             []string{"tn", "safe", "github"},
+	},
+	{
+		ID:               "TN-GHAT-003",
+		Command:          "gh pr list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "Normal gh pr list — routine GitHub CLI usage with no token exposure.",
+		Tags:             []string{"tn", "safe", "github"},
+	},
+	{
+		ID:               "TN-GHAT-004",
+		Command:          "gh issue create --title \"Fix bug\" --body \"Details\"",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/version-control/github-token-extract",
+		Analyzer:         "regex",
+		Description:      "gh issue create — normal gh workflow that does not expose the stored token.",
+		Tags:             []string{"tn", "safe", "github"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -3559,5 +3647,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, ProcessSubstitutionBypassCases...)
 	all = append(all, LinuxCredentialStoreCases...)
 	all = append(all, LLMCredentialPhishingCases...)
+	all = append(all, GHAuthTokenCases...)
 	return all
 }
