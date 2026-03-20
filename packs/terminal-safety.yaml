@@ -1400,6 +1400,94 @@ rules:
     confidence: 0.95
     reason: "cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
 
+  # === AUDIT: Cloud over-provisioning / uncontrolled resource commitment (issue #507) ===
+  #
+  # AI agents asked to "scale up the infrastructure", "create a load test environment",
+  # or "deploy to all regions" can generate cloud CLI commands that commit enormous
+  # resources — GPU instances at $30/hr, large RDS clusters, mass VM arrays.
+  # Unlike IaC destroy (which deletes), these commands create and run up bills.
+  #
+  # Real-world precedent: the Lobstar Wilde incident (Feb 2026) where an AI agent
+  # sent 52M tokens instead of 4, resulting in $250K loss from a parsing error.
+  # The same failure mode applies to cloud provisioning: --count 1000 instead of 10.
+  #
+  # Decision: AUDIT (not BLOCK) because some provisioning is legitimate. Flag for
+  # human review when the count argument or instance type suggests high cost.
+  #
+  # Taxonomy: destructive-ops/resource-commitment/unbounded-transfer
+  # OWASP LLM05 — Improper Output Handling | LLM10 — Unbounded Consumption
+  # MITRE T1578.002 — Create Cloud Instance (at excessive scale)
+
+  # --- AUDIT: AWS EC2 run-instances with explicit count >10 ---
+  # aws ec2 run-instances --count 100 --instance-type p4d.24xlarge
+  - id: "ts-audit-aws-run-instances-bulk"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "aws\\s+ec2\\s+run-instances\\b.*--count\\s+([1-9][0-9]{1,})"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "AWS EC2 run-instances with explicit --count argument — launching many instances incurs significant cost. High counts (especially with expensive GPU/memory-optimized types) may reflect a scale misinterpretation. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: AWS EC2 run-instances with high-cost GPU instance types ---
+  # aws ec2 run-instances --instance-type p4d.24xlarge  (no --count needed; type signals intent)
+  - id: "ts-audit-aws-run-instances-gpu"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "aws\\s+ec2\\s+run-instances\\b.*--instance-type\\s+(p[234][dn]\\.[0-9]+xlarge|inf[12]\\.[0-9]+xlarge|trn[12]\\.[0-9]+xlarge|g[3456][dn]?\\.[0-9]+xlarge)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "AWS EC2 run-instances with high-cost GPU/accelerated instance type — GPU instances cost $3–$32/hr each. AI agents must not provision accelerated compute without human approval. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: GCP create multiple VM instances (space-separated list or brace expansion) ---
+  # gcloud compute instances create vm-1 vm-2 vm-3 vm-4 vm-5 vm-6 vm-7 vm-8 vm-9 vm-10 vm-11
+  - id: "ts-audit-gcloud-instances-bulk"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "gcloud\\s+compute\\s+instances\\s+create\\s+(\\S+\\s+){10,}"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "GCP compute instances create with 10+ VM names — bulk instance creation incurs significant recurring cost. AI agents may misinterpret scale requirements. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: GCP create GPU/accelerator VM instances ---
+  # gcloud compute instances create --machine-type a2-highgpu-8g
+  - id: "ts-audit-gcloud-gpu-instance"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "gcloud\\s+compute\\s+instances\\s+create\\b.*--machine-type\\s+(a[23]-(?:highgpu|ultragpu|megagpu)|g2-standard|n1-standard.*--accelerator)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "GCP compute instance creation with GPU/accelerator machine type — A2/A3 GPU instances cost $3–$30/hr each. Human approval required before provisioning accelerated compute. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: Azure VM create with high-memory/GPU SKU ---
+  # az vm create --size Standard_M128s
+  - id: "ts-audit-az-vm-create-gpu"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "az\\s+vm\\s+create\\b.*--size\\s+Standard_(M[0-9]+|N[CDV][0-9]+|H[0-9]+)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Azure VM creation with high-memory (M-series) or GPU/HPC (N-series/H-series) SKU — these instance types cost $5–$50/hr each. AI agents must not provision expensive compute without human review. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: Kubernetes scale-up to very high replica counts ---
+  # kubectl scale deployment web --replicas=500
+  - id: "ts-audit-kubectl-scale-bulk"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "kubectl\\s+scale\\b.*--replicas=([1-9][0-9]{2,})"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "kubectl scale with 100+ replicas — large replica counts trigger auto-scaling of underlying cloud VMs, incurring unexpected infrastructure cost. AI agents may misinterpret scale factors. (MITRE T1578.002, OWASP LLM10)"
+
+  # --- AUDIT: Stripe CLI bulk charge or large payment amount ---
+  # stripe charges create --amount 1000000 --currency usd
+  - id: "ts-audit-stripe-charge-large"
+    taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
+    match:
+      command_regex: "stripe\\s+(charges?\\s+create|payment-intents?\\s+create)\\b.*--amount\\s+([1-9][0-9]{4,})"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Stripe payment creation with amount >=10000 cents ($100+) — AI agents executing payment CLI commands risk charging incorrect amounts due to unit confusion (cents vs. dollars). (OWASP LLM05, OWASP LLM10)"
+
   # === BLOCK: Container escape & Kubernetes attacks ===
 
   - id: "ts-block-docker-privileged"

@@ -2306,6 +2306,213 @@ var DatabaseDestructionCases = []TestCase{
 	},
 }
 
+// CloudOverProvisioningCases tests detection of cloud CLI commands that commit
+// excessive resources — high-count instance launches, GPU provisioning, bulk
+// Kubernetes scaling, and large payment CLI operations.
+// Taxonomy: destructive-ops/resource-commitment/unbounded-transfer
+var CloudOverProvisioningCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-RESCOM-AWS-001",
+		Command:          "aws ec2 run-instances --image-id ami-12345678 --instance-type m5.xlarge --count 100",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "AWS EC2 run-instances with --count 100 — bulk provisioning should be flagged for human review.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "aws"},
+	},
+	{
+		ID:               "TP-RESCOM-AWS-002",
+		Command:          "aws ec2 run-instances --instance-type p4d.24xlarge --count 50 --image-id ami-abc123",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "AWS GPU instance (p4d.24xlarge) launch — high-cost type requires human review.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "aws", "gpu"},
+	},
+	{
+		ID:               "TP-RESCOM-AWS-003",
+		Command:          "aws ec2 run-instances --instance-type g4dn.12xlarge --image-id ami-xyz",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "AWS GPU instance (g4dn.12xlarge) launch — GPU type triggers AUDIT.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "aws", "gpu"},
+	},
+	{
+		ID:               "TP-RESCOM-GCP-001",
+		Command:          "gcloud compute instances create vm-1 vm-2 vm-3 vm-4 vm-5 vm-6 vm-7 vm-8 vm-9 vm-10 vm-11 vm-12 --zone us-central1-a",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "GCP compute instances create with 12 VMs listed — bulk creation should be flagged.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "gcp"},
+	},
+	{
+		ID:               "TP-RESCOM-GCP-002",
+		Command:          "gcloud compute instances create gpu-vm --machine-type a2-highgpu-8g --zone us-central1-a",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "GCP A2 GPU instance creation — high-cost GPU machine type requires human review.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "gcp", "gpu"},
+	},
+	{
+		ID:               "TP-RESCOM-AZ-001",
+		Command:          "az vm create --resource-group myRG --name bigvm --image UbuntuLTS --size Standard_M128s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Azure VM create with Standard_M128s (high-memory) SKU — expensive instance requires review.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "azure"},
+	},
+	{
+		ID:               "TP-RESCOM-AZ-002",
+		Command:          "az vm create --resource-group myRG --name gpuvm --image UbuntuLTS --size Standard_NC24",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Azure VM create with Standard_NC24 (GPU) SKU — GPU instance requires human review.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "azure", "gpu"},
+	},
+	{
+		ID:               "TP-RESCOM-K8S-001",
+		Command:          "kubectl scale deployment web-frontend --replicas=500 -n production",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "kubectl scale with 500 replicas — large scale-up triggers auto-provisioning of cloud VMs.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "kubernetes"},
+	},
+	{
+		ID:               "TP-RESCOM-K8S-002",
+		Command:          "kubectl scale statefulset redis --replicas=200",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "kubectl scale statefulset with 200 replicas — 100+ replica threshold triggers AUDIT.",
+		Tags:             []string{"tp", "cloud", "resource-commitment", "kubernetes"},
+	},
+	{
+		ID:               "TP-RESCOM-STRIPE-001",
+		Command:          "stripe charges create --amount 1000000 --currency usd --source tok_visa",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Stripe charge for 1,000,000 cents ($10,000) — large payment amount requires human review.",
+		Tags:             []string{"tp", "financial", "resource-commitment", "stripe"},
+	},
+	{
+		ID:               "TP-RESCOM-STRIPE-002",
+		Command:          "stripe payment-intents create --amount 50000 --currency usd --payment-method pm_card_visa",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Stripe payment-intent for 50,000 cents ($500) — threshold >=10000 cents triggers AUDIT.",
+		Tags:             []string{"tp", "financial", "resource-commitment", "stripe"},
+	},
+
+	// --- TRUE NEGATIVES ---
+	// The default decision is AUDIT, so benign commands that don't match
+	// the resource-commitment rules should get AUDIT (not BLOCK).
+	// The purpose of these TN cases is to verify the rules don't over-trigger
+	// (e.g., flagging a single t3.micro launch the same as 100 GPU instances).
+
+	{
+		ID:               "TN-RESCOM-AWS-001",
+		Command:          "aws ec2 run-instances --image-id ami-12345678 --instance-type t3.micro --count 2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "AWS EC2 run-instances with --count 2 (small count, cheap type) — must NOT be BLOCK. Gets AUDIT from broad ne-audit-aws-cli, which is acceptable.",
+		Tags:             []string{"tn", "safe", "cloud", "aws"},
+	},
+	{
+		ID:               "TN-RESCOM-AWS-002",
+		Command:          "aws ec2 run-instances --instance-type t3.medium --image-id ami-abc123",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "AWS EC2 run-instances with standard t3.medium, no explicit count — not a GPU/bulk pattern. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud", "aws"},
+	},
+	{
+		ID:               "TN-RESCOM-GCP-001",
+		Command:          "gcloud compute instances create my-vm --machine-type n1-standard-2 --zone us-central1-a",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "GCP single VM with n1-standard-2 — not a GPU/bulk pattern. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud", "gcp"},
+	},
+	{
+		ID:               "TN-RESCOM-AZ-001",
+		Command:          "az vm create --resource-group myRG --name myvm --image UbuntuLTS --size Standard_B2s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Azure VM create with Standard_B2s (burstable/cheap SKU) — must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "cloud", "azure"},
+	},
+	{
+		ID:               "TN-RESCOM-K8S-001",
+		Command:          "kubectl scale deployment web --replicas=5 -n staging",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "kubectl scale with 5 replicas — well below 100+ threshold. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "kubernetes"},
+	},
+	{
+		ID:               "TN-RESCOM-K8S-002",
+		Command:          "kubectl scale deployment api --replicas=20",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "kubectl scale with 20 replicas — below 100+ threshold, normal production scale. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "kubernetes"},
+	},
+	{
+		ID:               "TN-RESCOM-STRIPE-001",
+		Command:          "stripe charges list --limit 10",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Stripe charges list — read-only, no amount argument. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "stripe"},
+	},
+	{
+		ID:               "TN-RESCOM-STRIPE-002",
+		Command:          "stripe charges create --amount 500 --currency usd --source tok_visa",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-commitment/unbounded-transfer",
+		Analyzer:         "regex",
+		Description:      "Stripe charge for 500 cents ($5) — below the 10000 cent threshold. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "stripe"},
+	},
+}
+
 // AllDestructiveOpsCases returns all test cases for Kingdom 1.
 func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
@@ -2324,5 +2531,6 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, MemoryExhaustionCases...)
 	all = append(all, UnboundedAgentConsumptionCases...)
 	all = append(all, DatabaseDestructionCases...)
+	all = append(all, CloudOverProvisioningCases...)
 	return all
 }
