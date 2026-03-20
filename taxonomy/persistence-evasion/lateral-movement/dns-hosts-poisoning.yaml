@@ -1,0 +1,84 @@
+id: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Lateral Movement"
+category_id: "6.5"
+name: "DNS / Hosts File Poisoning"
+risk_level: "critical"
+
+abstract: |
+  An AI agent modifies DNS resolution (via /etc/hosts, /etc/resolv.conf, or
+  ARP/DNS poisoning tools) to silently redirect hostnames to attacker-controlled
+  infrastructure, enabling credential theft, LLM API hijacking, and
+  man-in-the-middle attacks.
+
+explanation: |
+  DNS and hosts file poisoning is a powerful lateral movement and persistence
+  technique that subverts name resolution at the host level, affecting all
+  applications that rely on system DNS without any visible indication to the user.
+
+  **Hosts file injection** adds entries to `/etc/hosts` that override legitimate
+  DNS responses for any process on the machine:
+  - `echo "127.0.0.1 api.openai.com" >> /etc/hosts` — redirects LLM API calls
+  - `echo "10.0.0.1 internal-vault.corp" >> /etc/hosts` — redirects secrets manager
+
+  **Resolver override** replaces `/etc/resolv.conf` with a nameserver under
+  attacker control, causing all DNS queries to be answered by the adversary:
+  - `echo "nameserver 192.168.1.100" > /etc/resolv.conf`
+
+  **ARP/DNS poisoning tools** perform active man-in-the-middle attacks on the
+  local network segment, intercepting traffic for other hosts:
+  - `arpspoof -i eth0 -t 192.168.1.1 192.168.1.254` — ARP cache poisoning
+  - `bettercap -eval "set arp.spoof.targets 192.168.1.0/24; arp.spoof on"`
+  - `Responder.py -I eth0` — captures NTLM authentication hashes
+
+  **AI agent threat model**: A compromised or prompt-injected agent could inject
+  entries that redirect its own LLM API traffic to a local proxy that logs all
+  prompts and responses, or redirect package manager traffic to serve malicious
+  packages. This is particularly dangerous because the modification persists
+  across agent restarts and affects the entire host.
+
+recommendation: |
+  - Block all writes to /etc/hosts and /etc/resolv.conf from AI agents.
+  - Block subprocess invocations of ARP/DNS poisoning tools.
+  - Monitor /etc/hosts and /etc/resolv.conf with file integrity monitoring.
+  - Use immutable infrastructure patterns where these files are managed via
+    configuration management, not ad-hoc writes.
+
+examples:
+  bad:
+    - "echo '127.0.0.1 api.openai.com' >> /etc/hosts"
+    - "tee -a /etc/hosts <<< '10.0.0.1 internal.corp'"
+    - "echo 'nameserver 192.168.1.100' > /etc/resolv.conf"
+    - "arpspoof -i eth0 -t 192.168.1.1 192.168.1.0"
+    - "bettercap -eval 'arp.spoof on'"
+    - "python Responder.py -I eth0"
+    - "ettercap -T -M arp /192.168.1.1// /192.168.1.0//"
+  good:
+    - "cat /etc/hosts"
+    - "nslookup api.example.com"
+    - "dig @8.8.8.8 api.example.com"
+    - "host api.example.com"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "GOVERN-6"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.8"]
+
+references:
+  mitre_attack: ["T1557", "T1565.002", "T1071.004"]
+  cwe: ["CWE-923", "CWE-350"]
+  external:
+    - title: "MITRE ATT&CK: Adversary-in-the-Middle"
+      url: "https://attack.mitre.org/techniques/T1557/"
+    - title: "MITRE ATT&CK: Data Manipulation: Transmitted Data Manipulation"
+      url: "https://attack.mitre.org/techniques/T1565/002/"
+
+analyzers: ["regex", "structural"]
+related_rules:
+  - "pe-block-hosts-file-write"
+  - "pe-block-resolv-conf-write"
+  - "pe-block-arp-poisoning"
