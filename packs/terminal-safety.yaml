@@ -944,6 +944,90 @@ rules:
     confidence: 0.82
     reason: "Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk."
 
+  # === AUDIT: Direct multi-agent CLI execution (issue #516) ===
+  #
+  # Catches direct CLI invocations of multi-agent orchestration frameworks —
+  # the gap between detecting Python one-liner imports and the already-covered
+  # pipe-to-shell pattern. An AI coding agent can:
+  #   crewai run                  ← launches the full CrewAI crew autonomously
+  #   crewai kickoff              ← alternate CrewAI entry point
+  #   langgraph run agent.json    ← executes a compiled LangGraph agent graph
+  #
+  # These invoke multi-step autonomous execution with broad tool access
+  # (filesystem, network, code execution) without human approval at each step.
+  #
+  # Taxonomy: unauthorized-execution/ai-model-usage/uncontrolled-agent-execution
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1059 — Command and Scripting Interpreter
+
+  - id: "ts-audit-crewai-cli-run"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution"
+    match:
+      command_regex: "\\bcrewai\\b\\s+(run|kickoff|flow\\s+run)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Direct CrewAI CLI execution launches a multi-agent crew with full tool access and no human-in-the-loop approval between steps (OWASP LLM06). Verify this autonomous crew run is intentional and supervised."
+
+  - id: "ts-audit-langgraph-cli-run"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution"
+    match:
+      command_regex: "\\blanggraph\\b\\s+run\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "LangGraph CLI running an agent graph — executes a compiled multi-agent workflow with potential code execution and network tool access outside a governance wrapper (OWASP LLM06)."
+
+  # === BLOCK: AutoGPT continuous mode (issue #516) ===
+  #
+  # autogpt --continuous disables the pause-after-each-action prompt, enabling
+  # AutoGPT to run until its goal is achieved or resources are exhausted.
+  # This is the canonical human-oversight-bypass pattern for AutoGPT.
+  #
+  # Taxonomy: unauthorized-execution/ai-model-usage/uncontrolled-agent-execution
+  # OWASP LLM06 — Excessive Agency, LLM04 — Model DoS (unbounded resource use)
+  # MITRE T1204 — User Execution
+
+  - id: "ts-block-autogpt-continuous"
+    taxonomy: "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution"
+    match:
+      command_regex: "\\bautogpt\\b.*--continuous\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "AutoGPT --continuous mode disables the human pause-after-each-action approval loop, enabling fully autonomous recursive self-direction until resource exhaustion or goal completion. No legitimate use case requires bypassing human review (OWASP LLM06, MITRE T1204)."
+
+  # === BLOCK: Backgrounded agent CLI execution (issue #516) ===
+  #
+  # Detects multi-agent framework CLI tools launched as background processes via
+  # nohup, disown, or detached screen/tmux sessions. Backgrounding an autonomous
+  # agent severs it from the interactive terminal where a human could intervene,
+  # constituting a deliberate human-oversight-circumvention (EU AI Act Art.14).
+  #
+  # Examples:
+  #   nohup crewai run &                         ← nohup + background
+  #   nohup autogpt --task "..." &               ← AutoGPT backgrounded
+  #   screen -dmS agent crewai run               ← detached screen session
+  #   tmux new-session -d -s a 'crewai run'      ← detached tmux session
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  # OWASP LLM06 — Excessive Agency
+  # EU AI Act Art.14 — Human Oversight
+  # MITRE T1204 — User Execution
+
+  - id: "ts-block-agent-cli-background"
+    taxonomy: "unauthorized-execution/agentic-attacks/human-oversight-circumvention"
+    match:
+      command_regex: "\\b(nohup|disown)\\b.*\\b(crewai|autogpt|langgraph|agentops|taskweaver)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate human-oversight-circumvention pattern (OWASP LLM06, EU AI Act Art.14)."
+
+  - id: "ts-block-agent-cli-detached-session"
+    taxonomy: "unauthorized-execution/agentic-attacks/human-oversight-circumvention"
+    match:
+      command_regex: "(screen\\s+.*-dm|tmux\\s+new(-session)?\\s+.*-d).*\\b(crewai|autogpt|langgraph|agentops|taskweaver)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (OWASP LLM06, EU AI Act Art.14, human-oversight-circumvention)."
+
   # === BLOCK: Multi-agent CLI output piped to interpreter (LLM06, LLM08) ===
   #
   # Detects a multi-agent trust exploitation pattern where the output of a

@@ -3397,6 +3397,7 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, MCPCredentialRelayCases...)
 	all = append(all, AgentWorkflowReplayCases...)
 	all = append(all, CrossAgentStatePoisoningCases...)
+	all = append(all, MultiAgentCLIExecutionCases...)
 	return all
 }
 
@@ -5447,5 +5448,158 @@ var MCPCredentialRelayCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Standard gcc compilation with no plugin flags — no DYNLIB rule fires, default AUDIT is acceptable (not blocked).",
 		Tags:             []string{"tn", "safe", "compilation"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Multi-Agent Framework CLI Execution (issue #516)
+// Taxonomy: unauthorized-execution/ai-model-usage/uncontrolled-agent-execution
+//           unauthorized-execution/agentic-attacks/human-oversight-circumvention
+// Rules: ts-audit-crewai-cli-run, ts-audit-langgraph-cli-run,
+//        ts-block-autogpt-continuous, ts-block-agent-cli-background,
+//        ts-block-agent-cli-detached-session
+//
+// Covers the gap between Python one-liner import detection and pipe-to-shell
+// detection: direct CLI execution of multi-agent orchestration frameworks.
+// ---------------------------------------------------------------------------
+
+var MultiAgentCLIExecutionCases = []TestCase{
+
+	// --- TRUE POSITIVES: uncontrolled-agent-execution ---
+
+	// TP-1: crewai run — direct CrewAI CLI crew launch
+	{
+		ID:               "TP-MACE-001",
+		Command:          "crewai run",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "crewai run launches the full CrewAI crew with multi-agent tool access and no human approval loop. ts-audit-crewai-cli-run must fire.",
+		Tags:             []string{"tp", "crewai", "multi-agent", "llm06"},
+	},
+	// TP-2: crewai kickoff — alternate entry point
+	{
+		ID:               "TP-MACE-002",
+		Command:          "crewai kickoff",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "crewai kickoff is an alternate CrewAI CLI entry point for crew execution — same autonomous risk as crewai run.",
+		Tags:             []string{"tp", "crewai", "multi-agent", "llm06"},
+	},
+	// TP-3: langgraph run — LangGraph agent graph CLI execution
+	{
+		ID:               "TP-MACE-003",
+		Command:          "langgraph run agent.json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "langgraph run executes a compiled multi-agent workflow from a graph file — autonomous execution outside a governance wrapper.",
+		Tags:             []string{"tp", "langgraph", "multi-agent", "llm06"},
+	},
+	// TP-4: autogpt --continuous — disables human pause-after-each-action
+	{
+		ID:               "TP-MACE-004",
+		Command:          `autogpt --task "audit codebase for vulnerabilities" --continuous`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "autogpt --continuous disables the pause-after-each-action human checkpoint, enabling fully autonomous recursive self-direction. ts-block-autogpt-continuous must BLOCK.",
+		Tags:             []string{"tp", "autogpt", "continuous", "autonomous", "llm06"},
+	},
+	// TP-5: nohup crewai run & — backgrounded crew to bypass oversight
+	{
+		ID:               "TP-MACE-005",
+		Command:          "nohup crewai run &",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		Analyzer:         "regex",
+		Description:      "nohup crewai run & severs the agent from the interactive terminal, running the multi-agent crew autonomously with no path for human intervention. ts-block-agent-cli-background must BLOCK.",
+		Tags:             []string{"tp", "crewai", "nohup", "background", "oversight-circumvention"},
+	},
+	// TP-6: nohup autogpt backgrounded
+	{
+		ID:               "TP-MACE-006",
+		Command:          `nohup autogpt --task "deploy to production" &`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		Analyzer:         "regex",
+		Description:      "nohup autogpt & runs AutoGPT as a background process, completely removing the human from the oversight loop (EU AI Act Art.14).",
+		Tags:             []string{"tp", "autogpt", "nohup", "background", "oversight-circumvention"},
+	},
+	// TP-7: screen -dmS detached agent session
+	{
+		ID:               "TP-MACE-007",
+		Command:          "screen -dmS myagent crewai run",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		Analyzer:         "regex",
+		Description:      "screen -dmS launches a detached (daemon) screen session running crewai — the agent operates with no observable terminal, circumventing human oversight.",
+		Tags:             []string{"tp", "crewai", "screen", "detached", "oversight-circumvention"},
+	},
+	// TP-8: tmux new-session -d running langgraph
+	{
+		ID:               "TP-MACE-008",
+		Command:          "tmux new-session -d -s agents 'langgraph run pipeline.json'",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		Analyzer:         "regex",
+		Description:      "tmux new-session -d creates a detached tmux session running a LangGraph pipeline — autonomous multi-agent execution hidden from operator view.",
+		Tags:             []string{"tp", "langgraph", "tmux", "detached", "oversight-circumvention"},
+	},
+
+	// --- TRUE NEGATIVES: Must not be blocked ---
+
+	// TN-1: crewai version — read-only metadata command
+	{
+		ID:               "TN-MACE-001",
+		Command:          "crewai version",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "crewai version prints version info — no autonomous execution. Multi-agent CLI rules must not BLOCK this; default AUDIT is acceptable.",
+		Tags:             []string{"tn", "safe", "crewai"},
+	},
+	// TN-2: pip install crewai — installation covered by shadow-ai-usage rules, not this set
+	{
+		ID:               "TN-MACE-002",
+		Command:          "pip install crewai",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "pip install crewai is covered by shadow-ai-usage install rules (AUDIT), not blocked by CLI execution rules.",
+		Tags:             []string{"tn", "safe", "crewai", "install"},
+	},
+	// TN-3: autogpt without --continuous — interactive mode retains human checkpoints
+	{
+		ID:               "TN-MACE-003",
+		Command:          `autogpt --task "summarize this file"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "autogpt without --continuous runs in interactive mode with pause-after-each-action — not blocked by ts-block-autogpt-continuous.",
+		Tags:             []string{"tn", "safe", "autogpt", "interactive"},
+	},
+	// TN-4: crewai --help — help flag, no crew execution
+	{
+		ID:               "TN-MACE-004",
+		Command:          "crewai --help",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-model-usage/uncontrolled-agent-execution",
+		Analyzer:         "regex",
+		Description:      "crewai --help prints usage information — no autonomous execution. Multi-agent CLI rules must not BLOCK this; default AUDIT is acceptable.",
+		Tags:             []string{"tn", "safe", "crewai", "help"},
 	},
 }
