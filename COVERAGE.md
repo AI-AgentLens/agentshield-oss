@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 813 |
-| MCP rules | 126 |
-| Total rules | 939 |
-| Test cases (TP+TN) | 2664 |
+| Terminal rules | 817 |
+| MCP rules | 127 |
+| Total rules | 944 |
+| Test cases (TP+TN) | 2686 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -575,7 +575,7 @@
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (63 rules)
+### reconnaissance (67 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -642,6 +642,10 @@
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
+| `ts-block-osint-email-harvesting` | BLOCK | regex | OSINT email/identity harvesting tool detected. theHarvester collects email addresses and hostnames from search engines and social networks; h8mail checks breach databases for compromised credentials; holehe enumerates account registrations across 120+ websites. These tools are purpose-built for pre-attack reconnaissance (MITRE T1589, T1596.005). AI agents have no legitimate use case for targeting external individuals or organizations. OWASP LLM02/LLM06. |
+| `ts-block-osint-subdomain-enum` | BLOCK | regex | OSINT subdomain and asset enumeration tool detected. subfinder/assetfinder discover subdomains via 40+ passive sources; amass maps the full attack surface via DNS, CT logs, and APIs; waybackurls/gau harvest all known URLs from Wayback Machine and Common Crawl. These tools build comprehensive target attack surface maps (MITRE T1589, T1593, T1596). AI agents have no legitimate use case for external attack surface enumeration. OWASP LLM02/LLM06. |
+| `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
+| `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
 ### supply-chain (89 rules)
 
@@ -1012,7 +1016,7 @@
 | `mcp-recon-audit-admin-paths` | AUDIT | structural | Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082. |
 | `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213. |
 
-### supply-chain (9 rules)
+### supply-chain (10 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1024,6 +1028,7 @@
 | `mcp-sc-block-model-checkpoint-write` | BLOCK | structural | MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001. |
 | `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
 | `mcp-sc-audit-rag-write` | AUDIT | structural | MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010. |
+| `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 
 ### unauthorized-execution (18 rules)
@@ -1069,8 +1074,8 @@
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 260 | 145 | 405 |
 | privilege-escalation | 262 | 159 | 421 |
-| reconnaissance | 151 | 61 | 212 |
+| reconnaissance | 165 | 69 | 234 |
 | supply-chain | 143 | 93 | 236 |
 | unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1654** | **1010** | **2664** |
+| **Total** | **1668** | **1018** | **2686** |
 
