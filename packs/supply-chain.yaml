@@ -302,6 +302,74 @@ rules:
     decision: "AUDIT"
     reason: "RubyGems install flagged for supply-chain review."
 
+  # === AUDIT: uv (Astral Python package manager) installs ===
+  #
+  # `uv` is the fastest-growing Python package manager (2025-26). AI agents
+  # use it heavily — Claude Code defaults to uv for Python projects.
+  # Standard install operations (uv add, uv pip install, uv sync) are
+  # equivalent risk to pip install and should be audited.
+  #
+  # Taxonomy: supply-chain/package-install/standard-package-install
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: "sc-audit-uv-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
+    match:
+      command_prefix: ["uv add ", "uv pip install", "uv sync", "uv lock"]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "uv package install — uv is a fast Python package manager used heavily by AI agents. Package installs introduce unreviewed third-party code. MITRE T1195.001."
+
+  # === AUDIT: uv tool/run ephemeral execution ===
+  #
+  # `uv run --with <pkg>` and `uvx <tool>` execute PyPI packages ephemerally
+  # without writing to site-packages — harder to audit than a standard install.
+  # `uv tool install` installs CLI tools globally (equivalent to pip install -g).
+  # All three vectors introduce third-party code execution risk.
+  #
+  # Taxonomy: supply-chain/package-install/global-package-install
+  # MITRE T1195.001 — Supply Chain Compromise
+  - id: "sc-audit-uv-tool-run"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_prefix: ["uv run", "uv tool install", "uv tool run", "uvx "]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "uv ephemeral/tool execution — 'uv run --with pkg' executes PyPI packages transiently without a permanent install record. 'uvx' runs tools without installing. 'uv tool install' adds tools globally. All introduce unreviewed code execution. MITRE T1195.001."
+
+  # === AUDIT: bun (JavaScript runtime/package manager) installs ===
+  #
+  # `bun` is an all-in-one JavaScript runtime that replaces npm/yarn/pnpm.
+  # `bun add` installs packages, `bun x` provides npx-like ephemeral execution.
+  # Package installs are npm-registry compatible and carry the same supply-chain
+  # risks as npm install, including typosquatting and malicious post-install scripts.
+  #
+  # Taxonomy: supply-chain/package-install/standard-package-install
+  # MITRE T1195.001 — Supply Chain Compromise
+  - id: "sc-audit-bun-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
+    match:
+      command_prefix: ["bun add ", "bun install", "bun x "]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "bun package install — bun is an npm-compatible package manager. Package installs introduce unreviewed third-party code; 'bun x' provides ephemeral execution similar to npx. MITRE T1195.001."
+
+  # === AUDIT: deno install and module execution ===
+  #
+  # Deno installs TypeScript/JavaScript modules directly from URLs, bypassing
+  # a central package registry entirely. `deno install <url>` creates a CLI
+  # wrapper from any internet URL. `deno run <url>` executes remote code
+  # directly — the URL can point to any attacker-controlled server.
+  #
+  # Taxonomy: supply-chain/package-install/standard-package-install
+  # MITRE T1195.001 — Supply Chain Compromise
+  - id: "sc-audit-deno-install"
+    taxonomy: "supply-chain/package-install/standard-package-install"
+    match:
+      command_prefix: ["deno install", "deno run", "deno add"]
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "deno package install/run — deno executes TypeScript modules from arbitrary URLs without a central registry. 'deno run <url>' fetches and executes remote code directly. MITRE T1195.001."
+
   # === BLOCK: Direct shell writes/overwrites to dependency lock files ===
   #
   # Lock files are machine-generated checksums — no human or agent has a
