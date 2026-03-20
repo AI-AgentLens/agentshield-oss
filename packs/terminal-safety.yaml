@@ -586,6 +586,57 @@ rules:
     confidence: 0.90
     reason: "Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain."
 
+  # === BLOCK: sudoers and PAM configuration write — permanent privilege backdoor ===
+  #
+  # Writing to /etc/sudoers, /etc/sudoers.d/, or /etc/pam.d/ grants permanent
+  # root access or bypasses authentication system-wide. An AI agent that writes
+  # "ALL ALL=(ALL) NOPASSWD:ALL" to /etc/sudoers.d/backdoor creates a persistent
+  # root backdoor that survives the agent session.
+  #
+  # Attack patterns:
+  #   echo "attacker ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers
+  #   echo "attacker ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/00-backdoor
+  #   echo "attacker ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers
+  #   sed -i 's/^root/root\nattacker ALL=(ALL) NOPASSWD:ALL/' /etc/sudoers
+  #   visudo -f /etc/sudoers.d/attacker
+  #   echo "auth sufficient pam_permit.so" > /etc/pam.d/sshd  # PAM auth bypass
+  #
+  # Taxonomy: privilege-escalation/command-execution/sudo-invocation
+  # MITRE T1548.003 (Sudo and Sudo Caching), T1556.003 (Pluggable Authentication Modules)
+  # OWASP LLM06 (Excessive Agency), EU AI Act Art.9 (Risk Management)
+
+  - id: "ts-block-sudoers-write"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_regex: "(echo|printf|cat|tee|dd|python[23]?|perl|ruby|node)(\\s+-\\S+)*\\s+.*[>|].*/?etc/(sudoers\\.d/|sudoers\\b)|>>?\\s*/?etc/(sudoers\\.d/\\S+|sudoers\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing to /etc/sudoers or /etc/sudoers.d/ grants permanent root access without a password. A prompt-injected NOPASSWD rule creates a persistent backdoor surviving the agent session. MITRE T1548.003."
+
+  - id: "ts-block-sudoers-sed"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_regex: "(sed|awk|perl|python[23]?)\\s+((-i|-i\\.\\S+)\\s+)?.*/?etc/(sudoers\\.d/\\S+|sudoers\\b)"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "In-place editing of /etc/sudoers or sudoers.d files via sed/awk/perl — persistent root privilege escalation. MITRE T1548.003."
+
+  - id: "ts-block-visudo"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_regex: "\\bvisudo\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "visudo directly edits the sudoers configuration. AI agents have no legitimate need to modify the privilege escalation policy. MITRE T1548.003."
+
+  - id: "ts-block-pam-config-write"
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      command_regex: "(echo|printf|cat|tee|dd|python[23]?|perl|ruby)(\\s+-\\S+)*\\s+.*[>|].*/?etc/pam\\.d/|>>?\\s*/?etc/pam\\.d/\\S+"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Writing to /etc/pam.d/ modifies the Pluggable Authentication Module configuration, bypassing system-wide authentication (e.g., pam_permit.so makes any auth succeed). MITRE T1556.003."
+
   # === BLOCK: LLM-controlled file permissions ===
   - id: "ts-block-llm-chmod-dangerous"
     taxonomy: "privilege-escalation/file-permissions/llm-controlled-permissions"
