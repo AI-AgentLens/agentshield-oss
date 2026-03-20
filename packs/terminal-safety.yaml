@@ -6884,6 +6884,75 @@ rules:
     reason: "AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6)."
 
   # ===========================================================================
+  # AI Inference Endpoint Deployment (AI Model Inventory Gap)
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06 — Excessive Agency, LLM02 — Sensitive Information Disclosure
+  # EU AI Act Art.9 (risk management), Art.13 (transparency)
+  # NIST AI RMF GOVERN-1, GOVERN-6 — Organizational risk governance
+  # CWE-285 — Improper Authorization, CWE-862 — Missing Authorization
+  #
+  # An AI agent deploying a model inference endpoint creates a live AI system
+  # outside the organizational governance process:
+  #   - The model is not registered in the AI system inventory
+  #   - No model card, risk assessment, or compliance review is completed
+  #   - Provisioned throughput (Bedrock, SageMaker) incurs unbounded costs
+  #   - The endpoint may expose models trained on PII or proprietary data
+  #   - Azure/GCP deployments may default to public access if misconfigured
+  #
+  # TP examples (should AUDIT):
+  #   aws sagemaker create-endpoint --endpoint-name prod-llm --endpoint-config-name llm-config
+  #   gcloud ai endpoints create --display-name=prod-inference --region=us-central1
+  #   az ml online-endpoint create -n prod-llm --file endpoint.yml
+  #   aws bedrock create-provisioned-model-throughput --model-id anthropic.claude-3 --commitment-duration SixMonths --model-units 1
+  #
+  # TN examples (should ALLOW):
+  #   aws sagemaker describe-endpoint --endpoint-name my-endpoint
+  #   gcloud ai endpoints list --region=us-central1
+  #   az ml online-endpoint list
+  - id: "ts-audit-ai-endpoint-deploy"
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      command_regex: "\\b(?:aws\\s+sagemaker\\s+create-endpoint(?:-config)?|gcloud\\s+ai\\s+endpoints\\s+(?:create|deploy-model)|az\\s+ml\\s+online-(?:endpoint|deployment)\\s+create|aws\\s+bedrock\\s+create-provisioned-model-throughput)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "AI model inference endpoint being created or provisioned (AWS SageMaker, Vertex AI, Azure ML, AWS Bedrock provisioned throughput). This deploys a live AI system outside the governance review pipeline — no model card, risk assessment, or organizational AI inventory registration is documented. May expose models trained on PII or proprietary data and incur unbounded cloud costs. Verify governance approval, model card completion, and cost authorization before proceeding (EU AI Act Art.9/Art.13, NIST AI RMF GOVERN-1, OWASP LLM06, CWE-285)."
+
+  # ===========================================================================
+  # AI Endpoint Public Access Grant (Shadow AI Deployment)
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+  # OWASP LLM06 — Excessive Agency, LLM08 — Excessive Permissions
+  # EU AI Act Art.9 (risk management), Art.26 (obligations for deployers)
+  # NIST AI RMF GOVERN-1, MANAGE-4; ISO 27001 A.5.1
+  # CWE-284 — Improper Access Control, CWE-732 — Incorrect Permission Assignment
+  #
+  # Granting unauthenticated or public access to an AI inference endpoint
+  # creates a shadow AI deployment:
+  #   - Any external user can query the model, potentially extracting training data
+  #   - Prompt injection from anonymous users has no attribution or rate limiting
+  #   - Violates least-privilege and data minimization principles
+  #   - Creates an unregistered public AI system under EU AI Act Art.26
+  #
+  # TP examples (should AUDIT):
+  #   gcloud ai endpoints update my-endpoint --region=us-central1 --allow-unauthenticated
+  #   gcloud run services add-iam-policy-binding llm-api --member=allUsers --role=roles/run.invoker
+  #   aws iam put-resource-policy --resource-arn arn:aws:sagemaker:... --policy '{"Principal":"*"}'
+  #
+  # TN examples (should ALLOW):
+  #   gcloud ai endpoints describe my-endpoint --region=us-central1
+  #   gcloud run services describe llm-api
+  - id: "ts-audit-ai-endpoint-public-access"
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      command_regex: "\\b(?:gcloud\\s+(?:ai\\s+endpoints\\s+update|run\\s+services\\s+(?:add-iam-policy-binding|set-iam-policy))\\b[^|&;]*\\b(?:--allow-unauthenticated|allUsers)|aws\\s+sagemaker\\s+update-endpoint\\b[^|&;]*\\b(?:PubliclyAccessible|allowPublic)|az\\s+ml\\s+online-endpoint\\s+update\\b[^|&;]*--(?:public-network-access\\s+enabled|auth-mode\\s+key))"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Granting public or unauthenticated access to an AI inference endpoint (Vertex AI, Cloud Run AI service, SageMaker, Azure ML) creates a shadow AI deployment — the model becomes accessible to any external party without attribution, rate limiting, or prompt injection controls. Creates an unregistered public AI system under EU AI Act Art.26, violates data minimization principles, and exposes the model to extraction and adversarial prompting (OWASP LLM06/LLM08, CWE-284, NIST AI RMF GOVERN-1)."
+
+  # ===========================================================================
   # Cloud AI Service Monitoring Disable (AI Incident Response Gap)
   # ===========================================================================
   #

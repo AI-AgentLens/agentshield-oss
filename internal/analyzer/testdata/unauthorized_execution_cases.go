@@ -5766,4 +5766,172 @@ var MultiAgentCLIExecutionCases = []TestCase{
 		Description:      "crewai --help prints usage information — no autonomous execution. Multi-agent CLI rules must not BLOCK this; default AUDIT is acceptable.",
 		Tags:             []string{"tn", "safe", "crewai", "help"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// AI Inference Endpoint Deployment (ts-audit-ai-endpoint-deploy)
+	// Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+	// OWASP LLM06; EU AI Act Art.9/13; NIST AI RMF GOVERN-1; CWE-285
+	// ---------------------------------------------------------------------------
+
+	// TP-1: AWS SageMaker create-endpoint — deploy live inference endpoint
+	{
+		ID:               "TP-AI-ENDPOINT-001",
+		Command:          "aws sagemaker create-endpoint --endpoint-name prod-llm --endpoint-config-name llm-config",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "SageMaker create-endpoint deploys a live AI inference endpoint without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "sagemaker", "cloud-ai"},
+	},
+	// TP-2: SageMaker create-endpoint-config — step before endpoint creation
+	{
+		ID:               "TP-AI-ENDPOINT-002",
+		Command:          "aws sagemaker create-endpoint-config --endpoint-config-name llm-config --production-variants '[{\"ModelName\":\"my-model\"}]'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "SageMaker create-endpoint-config configures an AI endpoint deployment without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "sagemaker", "cloud-ai"},
+	},
+	// TP-3: Vertex AI endpoint create
+	{
+		ID:               "TP-AI-ENDPOINT-003",
+		Command:          "gcloud ai endpoints create --display-name=prod-inference --region=us-central1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Vertex AI endpoint create deploys a new AI inference endpoint without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "vertex-ai", "gcp", "cloud-ai"},
+	},
+	// TP-4: Vertex AI deploy-model to endpoint
+	{
+		ID:               "TP-AI-ENDPOINT-004",
+		Command:          "gcloud ai endpoints deploy-model 1234567890 --region=us-central1 --model=my-model --display-name=prod",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Vertex AI deploy-model attaches a model to a live endpoint without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "vertex-ai", "gcp", "cloud-ai"},
+	},
+	// TP-5: Azure ML online-endpoint create
+	{
+		ID:               "TP-AI-ENDPOINT-005",
+		Command:          "az ml online-endpoint create -n prod-llm --file endpoint.yml",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Azure ML online-endpoint create deploys a managed AI inference endpoint without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "azure-ml", "cloud-ai"},
+	},
+	// TP-6: Azure ML online-deployment create
+	{
+		ID:               "TP-AI-ENDPOINT-006",
+		Command:          "az ml online-deployment create -n blue --endpoint prod-llm --file deployment.yml",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Azure ML online-deployment create provisions a model deployment on an AI endpoint without governance review. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "azure-ml", "cloud-ai"},
+	},
+	// TP-7: AWS Bedrock create-provisioned-model-throughput — cost-incurring commitment
+	{
+		ID:               "TP-AI-ENDPOINT-007",
+		Command:          "aws bedrock create-provisioned-model-throughput --model-id anthropic.claude-3-sonnet --commitment-duration SixMonths --model-units 1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Bedrock provisioned throughput commits to 6 months of AI capacity without cost or governance approval. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "bedrock", "cloud-ai"},
+	},
+	// TN-1: SageMaker describe-endpoint — read-only; gets AUDIT from ne-audit-aws-cli but NOT from ts-audit-ai-endpoint-deploy
+	{
+		ID:               "TN-AI-ENDPOINT-001",
+		Command:          "aws sagemaker describe-endpoint --endpoint-name my-endpoint",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "SageMaker describe-endpoint is read-only — the endpoint deploy rule must NOT fire (AUDIT comes from the general AWS CLI audit rule, not ts-audit-ai-endpoint-deploy).",
+		Tags:             []string{"tn", "safe", "sagemaker", "cloud-ai"},
+	},
+	// TN-2: Vertex AI endpoints list — read-only; AUDIT from general GCP rule, NOT from ts-audit-ai-endpoint-deploy
+	{
+		ID:               "TN-AI-ENDPOINT-002",
+		Command:          "gcloud ai endpoints list --region=us-central1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Vertex AI endpoints list is read-only — must not trigger the endpoint deployment governance rule (AUDIT from general GCP CLI rule).",
+		Tags:             []string{"tn", "safe", "vertex-ai", "gcp", "cloud-ai"},
+	},
+	// TN-3: Azure ML online-endpoint list — read-only; AUDIT from general Azure CLI rule
+	{
+		ID:               "TN-AI-ENDPOINT-003",
+		Command:          "az ml online-endpoint list --resource-group myRG --workspace-name myWS",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-inventory-gap",
+		Analyzer:         "regex",
+		Description:      "Azure ML online-endpoint list is read-only — must not trigger the deployment governance rule (AUDIT from general Azure CLI rule).",
+		Tags:             []string{"tn", "safe", "azure-ml", "cloud-ai"},
+	},
+
+	// ---------------------------------------------------------------------------
+	// AI Endpoint Public Access Grant (ts-audit-ai-endpoint-public-access)
+	// Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+	// OWASP LLM06/LLM08; EU AI Act Art.9/26; CWE-284; NIST AI RMF GOVERN-1
+	// ---------------------------------------------------------------------------
+
+	// TP-1: Vertex AI endpoint allow-unauthenticated
+	{
+		ID:               "TP-AI-PUBACCESS-001",
+		Command:          "gcloud ai endpoints update my-endpoint --region=us-central1 --allow-unauthenticated",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "Granting unauthenticated access to a Vertex AI endpoint makes the model publicly accessible without attribution or rate limiting. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "vertex-ai", "public-access", "shadow-ai"},
+	},
+	// TP-2: Cloud Run AI service — grant allUsers invoker
+	{
+		ID:               "TP-AI-PUBACCESS-002",
+		Command:          "gcloud run services add-iam-policy-binding llm-api --member=allUsers --role=roles/run.invoker",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "Granting allUsers invoker on a Cloud Run AI service exposes the AI endpoint to any public caller without governance approval. Must be AUDIT.",
+		Tags:             []string{"tp", "governance-risk", "cloud-run", "public-access", "shadow-ai"},
+	},
+	// TN-1: Vertex AI endpoint describe — read-only; AUDIT from general GCP rule, NOT from ts-audit-ai-endpoint-public-access
+	{
+		ID:               "TN-AI-PUBACCESS-001",
+		Command:          "gcloud ai endpoints describe my-endpoint --region=us-central1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "Describing a Vertex AI endpoint is read-only — the public access grant rule must NOT fire (AUDIT from general GCP CLI rule).",
+		Tags:             []string{"tn", "safe", "vertex-ai", "cloud-ai"},
+	},
+	// TN-2: Cloud Run service describe — read-only; AUDIT from general GCP rule, NOT from ts-audit-ai-endpoint-public-access
+	{
+		ID:               "TN-AI-PUBACCESS-002",
+		Command:          "gcloud run services describe llm-api --region=us-central1",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "Describing a Cloud Run service is read-only — must not be flagged by the public access grant rule (AUDIT from general GCP CLI rule).",
+		Tags:             []string{"tn", "safe", "cloud-run", "gcp"},
+	},
 }
