@@ -3658,6 +3658,60 @@ var CrossTenantRAGLeakageCases = []TestCase{
 		Description:      "pinecone list-indexes — no query/upsert/fetch/list-vectors subcommand; the cross-tenant RAG rule does not trigger. Gets AUDIT from default policy.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// Cross-Tenant Agent Data Leakage (shared workspace directories)
+	// Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage
+	// Rule: de-llmdf-audit-cross-tenant-agent-workspace
+	// ---------------------------------------------------------------------------
+
+	// TP-1: listing shared MCP workspace directory
+	{
+		ID:               "TP-XTENANT-AGENT-001",
+		Command:          `ls /tmp/mcp-workspace/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage",
+		Analyzer:         "regex",
+		Description:      "Listing /tmp/mcp-workspace/ — shared MCP workspace directory used by multi-tenant agent infrastructure. Without tenant-scoped paths this exposes other tenants' tool call artifacts. Must trigger de-llmdf-audit-cross-tenant-agent-workspace (AUDIT).",
+		Tags:             []string{"tp", "cross-tenant", "mcp-workspace"},
+	},
+
+	// TP-2: reading a file in /var/mcp/sessions
+	{
+		ID:               "TP-XTENANT-AGENT-002",
+		Command:          `cat /var/mcp/sessions/session-001/context.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage",
+		Analyzer:         "regex",
+		Description:      "Reading /var/mcp/sessions/session-001/context.json — accessing another agent's session context in a shared MCP sessions directory. Must trigger de-llmdf-audit-cross-tenant-agent-workspace (AUDIT).",
+		Tags:             []string{"tp", "cross-tenant", "mcp-sessions"},
+	},
+
+	// TN-1: accessing a tenant-scoped path under /tmp (no cross-tenant pattern)
+	{
+		ID:               "TN-XTENANT-AGENT-001",
+		Command:          `ls /tmp/my-tenant-data/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage",
+		Analyzer:         "regex",
+		Description:      "Listing /tmp/my-tenant-data/ — a tenant-scoped directory not matching the shared workspace patterns (mcp-workspace, mcp/sessions, agent-). de-llmdf-audit-cross-tenant-agent-workspace must not fire; ts-allow-readonly matches this as safe.",
+		Tags:             []string{"tn", "safe", "cross-tenant"},
+	},
+
+	// TN-2: reading a local project file — no cross-tenant pattern
+	{
+		ID:               "TN-XTENANT-AGENT-002",
+		Command:          `cat ./context.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage",
+		Analyzer:         "regex",
+		Description:      "Reading a local project context.json file — no cross-tenant path. de-llmdf-audit-cross-tenant-agent-workspace requires an absolute path to a known shared workspace directory; a relative path must not trigger it.",
+		Tags:             []string{"tn", "safe", "cross-tenant"},
+	},
 }
 
 // ---------------------------------------------------------------------------
