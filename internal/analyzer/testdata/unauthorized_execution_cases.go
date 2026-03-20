@@ -5320,4 +5320,132 @@ var MCPCredentialRelayCases = []TestCase{
 		Description:      "jupyter notebook starts an interactive server — no autonomous code execution.",
 		Tags:             []string{"tn", "safe", "jupyter"},
 	},
+
+	// =========================================================================
+	// Taxonomy: unauthorized-execution/dynamic-library-injection/ld-preload-code-injection
+	// Rule: ts-block-dynlib-ld-preload-writable
+	// =========================================================================
+
+	// TP-1: LD_PRELOAD pointing to /tmp — classic code injection into target process
+	{
+		ID:               "TP-DYNLIB-LDPRELOAD-001",
+		Command:          "LD_PRELOAD=/tmp/hook.so curl https://internal-api/secrets",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "LD_PRELOAD pointing to /tmp injects a malicious shared library into curl, intercepting TLS handshakes and credential exfiltration.",
+		Tags:             []string{"tp", "ld-preload", "code-injection", "dynamic-library"},
+	},
+	// TP-2: LD_AUDIT pointing to /dev/shm — kernel-level hook injection
+	{
+		ID:               "TP-DYNLIB-LDPRELOAD-002",
+		Command:          "LD_AUDIT=/dev/shm/audit.so python3 manage.py runserver",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "LD_AUDIT pointing to /dev/shm injects an rtld-audit library into the python process, receiving callbacks for every dynamic symbol resolution.",
+		Tags:             []string{"tp", "ld-audit", "code-injection", "dynamic-library"},
+	},
+	// TN-1: LD_PRELOAD pointing to a system/distro library path — legitimate tuning
+	{
+		ID:               "TN-DYNLIB-LDPRELOAD-001",
+		Command:          "LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4 ./my-app",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "LD_PRELOAD pointing to /usr/lib is legitimate performance tuning — no rule fires, default AUDIT is acceptable (not blocked).",
+		Tags:             []string{"tn", "safe", "ld-preload", "performance"},
+	},
+	// TN-2: valgrind memory check — uses LD_PRELOAD internally but safe invocation
+	{
+		ID:               "TN-DYNLIB-LDPRELOAD-002",
+		Command:          "valgrind --tool=memcheck --leak-check=full ./my-app",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "valgrind is a legitimate debugging tool — no DYNLIB rule fires, default AUDIT is acceptable (not blocked).",
+		Tags:             []string{"tn", "safe", "debugging"},
+	},
+
+	// =========================================================================
+	// Taxonomy: unauthorized-execution/dynamic-library-injection/ld-preload-code-injection
+	// Rule: ts-block-dynlib-compile-and-preload
+	// =========================================================================
+
+	// TP-1: Compile shared library then immediately inject via LD_PRELOAD
+	{
+		ID:               "TP-DYNLIB-COMPILE-001",
+		Command:          "gcc -shared -fPIC -o /tmp/evil.so inject.c && LD_PRELOAD=/tmp/evil.so python3 app.py",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "Compiling a shared library and immediately setting LD_PRELOAD is a purpose-built code injection pattern with no legitimate use case.",
+		Tags:             []string{"tp", "ld-preload", "compile-inject", "dynamic-library"},
+	},
+	// TP-2: clang variant — compile .so then inject
+	{
+		ID:               "TP-DYNLIB-COMPILE-002",
+		Command:          "clang -shared -fPIC -o /tmp/hook.so hook.c && LD_PRELOAD=/tmp/hook.so ssh user@server",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "clang compile-and-inject pattern targeting ssh — injects code to intercept credentials during SSH handshake.",
+		Tags:             []string{"tp", "ld-preload", "compile-inject", "credential-theft"},
+	},
+
+	// =========================================================================
+	// Taxonomy: unauthorized-execution/dynamic-library-injection/compiler-plugin-injection
+	// Rule: ts-block-dynlib-compiler-plugin
+	// =========================================================================
+
+	// TP-1: gcc -fplugin pointing to /tmp — code execution during compilation
+	{
+		ID:               "TP-DYNLIB-PLUGIN-001",
+		Command:          "gcc -fplugin=/tmp/steal.so main.c -o app",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection",
+		Analyzer:         "regex",
+		Description:      "gcc -fplugin pointing to /tmp loads arbitrary code inside the compiler process, executing during every compilation with access to all build environment secrets.",
+		Tags:             []string{"tp", "compiler-plugin", "code-injection", "dynamic-library"},
+	},
+	// TP-2: clang -fpass-plugin pointing to /dev/shm
+	{
+		ID:               "TP-DYNLIB-PLUGIN-002",
+		Command:          "clang -fpass-plugin=/dev/shm/inject.so app.c -o app",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection",
+		Analyzer:         "regex",
+		Description:      "clang -fpass-plugin pointing to /dev/shm injects an LLVM pass into the compiler, executing code during compilation.",
+		Tags:             []string{"tp", "compiler-plugin", "clang", "code-injection"},
+	},
+	// TN-1: gcc -fplugin pointing to a trusted system path — legitimate
+	{
+		ID:               "TN-DYNLIB-PLUGIN-001",
+		Command:          "gcc -fplugin=/usr/lib/gcc/plugin/dragonegg.so main.c -o app",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection",
+		Analyzer:         "regex",
+		Description:      "gcc -fplugin pointing to /usr/lib/gcc is a legitimate compiler extension — no rule fires, default AUDIT is acceptable (not blocked).",
+		Tags:             []string{"tn", "safe", "compiler-plugin"},
+	},
+	// TN-2: standard gcc compilation without plugins
+	{
+		ID:               "TN-DYNLIB-PLUGIN-002",
+		Command:          "gcc -O2 -Wall -o myapp main.c",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection",
+		Analyzer:         "regex",
+		Description:      "Standard gcc compilation with no plugin flags — no DYNLIB rule fires, default AUDIT is acceptable (not blocked).",
+		Tags:             []string{"tn", "safe", "compilation"},
+	},
 }

@@ -1,0 +1,9 @@
+id: "4.7"
+name: "Dynamic Library Injection"
+kingdom_id: 4
+description: >
+  Injecting arbitrary code into running or soon-to-be-launched processes via
+  dynamic linker mechanisms (LD_PRELOAD, LD_AUDIT, dlopen) or compiler plugin
+  hooks. Unlike LD_PRELOAD privilege escalation (which targets privileged
+  processes), this category covers general-purpose code injection into any
+  process to intercept function calls, steal data, or establish persistence.

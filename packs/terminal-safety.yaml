@@ -678,6 +678,49 @@ rules:
     confidence: 0.80
     reason: "LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use."
 
+  # === BLOCK: LD_PRELOAD/LD_AUDIT to writable paths for code injection ===
+  #
+  # Taxonomy: unauthorized-execution/dynamic-library-injection/ld-preload-code-injection
+  # Setting LD_PRELOAD or LD_AUDIT to a shared library in a world-writable path
+  # injects arbitrary code into the target process. This differs from the privilege-
+  # escalation variant (which targets sudo/su) — this catches code injection into
+  # any process (curl, python, ssh, etc.) for credential interception or backdooring.
+  - id: "ts-block-dynlib-ld-preload-writable"
+    taxonomy: "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection"
+    match:
+      command_regex: "LD_(PRELOAD|AUDIT)=(/tmp|/dev/shm|/var/tmp|/run/user|~/|\\$HOME)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "LD_PRELOAD or LD_AUDIT pointing to a world-writable or home-relative path injects a malicious shared library into the target process, intercepting any function call. MITRE T1574.006."
+
+  # === BLOCK: Inline .so compilation followed by LD_PRELOAD use ===
+  #
+  # Taxonomy: unauthorized-execution/dynamic-library-injection/ld-preload-code-injection
+  # Compiling a shared library and immediately setting LD_PRELOAD to it is a
+  # classic code injection pattern — the library is purpose-built to intercept
+  # calls in the next process. No legitimate workflow combines these in one command.
+  - id: "ts-block-dynlib-compile-and-preload"
+    taxonomy: "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection"
+    match:
+      command_regex: "(gcc|g\\+\\+|clang)\\s+.*-shared.*&&.*LD_PRELOAD="
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Inline shared library compilation followed immediately by LD_PRELOAD injection — purpose-built to inject code into the next launched process. MITRE T1574.006."
+
+  # === BLOCK: Compiler plugin injection to writable paths ===
+  #
+  # Taxonomy: unauthorized-execution/dynamic-library-injection/compiler-plugin-injection
+  # GCC -fplugin and Clang -fplugin/-fpass-plugin load a shared library inside the
+  # compiler process. When pointed at a writable path, an attacker can execute code
+  # during every compilation — accessing build secrets, env vars, and source code.
+  - id: "ts-block-dynlib-compiler-plugin"
+    taxonomy: "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection"
+    match:
+      command_regex: "(gcc|g\\+\\+|clang|cc)\\s+.*-f(pass-)?plugin=(/tmp|/dev/shm|/var/tmp|/run/user)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Compiler -fplugin or -fpass-plugin pointing to a writable path loads arbitrary code inside the compiler process during every build, with access to all build environment secrets. MITRE T1574.006."
+
   # === BLOCK: PATH hijacking via export ===
   # An AI agent prepending a world-writable or attacker-controlled directory to
   # $PATH causes all subsequent commands to resolve from the malicious path first.

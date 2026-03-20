@@ -1,0 +1,50 @@
+id: "unauthorized-execution/dynamic-library-injection/compiler-plugin-injection"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Dynamic Library Injection"
+category_id: "4.7"
+name: "Compiler Plugin Code Injection"
+risk_level: "high"
+
+abstract: |
+  Using GCC (-fplugin), Clang (-fplugin, -fpass-plugin), or Rust compiler
+  plugin flags to load a shared library that executes arbitrary code during
+  compilation — a supply-chain injection technique that runs attacker-controlled
+  code in the build environment.
+
+explanation: |
+  Modern compilers support plugins that extend their behavior: GCC plugins
+  (gcc -fplugin=foo.so), Clang plugins (clang -fplugin=foo.so), and LLVM
+  pass plugins (clang -fpass-plugin=foo.so). These plugins run inside the
+  compiler process with full access to the build environment — any secrets,
+  tokens, or credentials present during the build are accessible.
+
+  Attack patterns:
+  - Inject plugin pointing to /tmp or /dev/shm: `gcc -fplugin=/tmp/steal.so app.c`
+  - Combined with build system compromise: patch Makefile to add -fplugin flag
+  - Load plugin that exfiltrates AWS_* env vars or SSH_AUTH_SOCK during build
+
+  This is distinct from supply-chain attacks on packages — the attacker needs
+  to influence compiler invocations rather than package sources, making it a
+  targeted technique against specific build pipelines.
+
+recommendation: |
+  - BLOCK -fplugin and -fpass-plugin pointing to world-writable paths.
+  - AUDIT all -fplugin/-fpass-plugin usage — legitimate in compiler development
+    but rare in application builds.
+  - Verify compiler plugin .so files are from trusted sources (distro packages).
+  - Use reproducible build environments (containers) to detect Makefile tampering.
+
+examples:
+  bad:
+    - "gcc -fplugin=/tmp/steal.so main.c -o app"
+    - "clang -fpass-plugin=/dev/shm/inject.so app.c"
+    - "g++ -fplugin=/var/tmp/hook.so -o binary source.cpp"
+  good:
+    - "gcc -fplugin=/usr/lib/gcc/plugin/dragonegg.so main.c"
+    - "clang -fpass-plugin=/usr/local/lib/llvm-pass.so app.c"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.28", "A.5.10"]
