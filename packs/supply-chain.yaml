@@ -1530,3 +1530,109 @@ rules:
     decision: "BLOCK"
     confidence: 0.97
     reason: "make LD_PRELOAD= pointing to /tmp or /dev/shm injects a shared library into every subprocess spawned by the build. The injected library intercepts libc calls and can exfiltrate data or tamper with build outputs. MITRE T1574.006, CWE-427."
+
+  # ===================================================================
+  # CONTAINER IMAGE TRUST BYPASS (issue #578)
+  # Taxonomy: supply-chain/build-pipeline/cicd-config-injection
+  # Covers: Disabling container image signing gates in the release pipeline
+  # OWASP LLM03 — Training Data Poisoning, LLM08 — Vector and Embedding Weaknesses
+  # MITRE T1195.002 — Compromise Software Supply Chain, T1612 — Build Image on Host
+  # CWE-693 — Protection Mechanism Failure, CWE-285 — Improper Authorization
+  # ===================================================================
+
+  # === BLOCK: Docker Content Trust disabled via env var export ===
+  #
+  # DOCKER_CONTENT_TRUST enforces image signature verification via Docker
+  # Notary (DCT). Setting it to 0 or false silently disables all signature
+  # checking for the entire shell session — every subsequent docker pull/push
+  # in that session skips verification. An AI agent running this allows
+  # pulling unsigned/backdoored images without any validation error.
+  #
+  # TP: export DOCKER_CONTENT_TRUST=0
+  # TP: DOCKER_CONTENT_TRUST=0 docker pull untrusted.registry.io/image:latest
+  # TN: export DOCKER_CONTENT_TRUST=1   (enabling trust — safe)
+  # TN: docker pull ubuntu:22.04        (no trust override)
+  - id: "sc-block-docker-content-trust-disable"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\bDOCKER_CONTENT_TRUST\\s*=\\s*[\"']?0[\"']?\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "DOCKER_CONTENT_TRUST=0 disables Docker Notary image signature verification for the entire shell session — all subsequent docker pull/push operations skip signature checks, allowing unsigned or backdoored container images to be used without validation. MITRE T1195.002, CWE-693."
+
+  # === BLOCK: Cosign transparency log bypass ===
+  #
+  # Cosign signs container images and records entries in the Rekor transparency
+  # log for auditability. COSIGN_SKIP_TLOG=1 or --force bypasses this audit
+  # trail, making signed images non-attributable and breaking compliance audit.
+  #
+  # TP: COSIGN_SKIP_TLOG=1 cosign sign myimage:latest
+  # TP: cosign sign --force myimage:latest
+  # TN: cosign sign myimage:latest            (normal signing with tlog)
+  # TN: cosign verify myimage:latest          (verification, not bypass)
+  - id: "sc-block-cosign-tlog-skip"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\bCOSIGN_SKIP_TLOG\\s*=\\s*[\"']?1[\"']?\\b.*\\bcosign\\b|\\bcosign\\b.*\\bsign\\b.*--force\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Cosign transparency log bypass (COSIGN_SKIP_TLOG=1 or cosign sign --force) — skipping the Rekor transparency log makes container image signatures non-auditable, breaking supply chain provenance and violating SLSA L2+ requirements. MITRE T1195.002, CWE-693."
+
+  # === AUDIT: skopeo copy with TLS or auth bypass ===
+  #
+  # skopeo copies container images directly between OCI registries, bypassing
+  # the Docker daemon and its content trust enforcement. With --dest-tls-verify=false
+  # or --src-no-creds/--dest-no-creds it copies images to/from registries
+  # without any authentication or TLS verification. An AI agent can silently
+  # replace a production image with a malicious one via skopeo.
+  #
+  # TP: skopeo copy --dest-tls-verify=false docker://malicious/img docker://prod/app:latest
+  # TP: skopeo copy --src-no-creds --dest-no-creds docker://src/img docker://dst/img
+  # TN: skopeo copy docker://registry.example.com/app:1.0 docker://backup-reg/app:1.0
+  # TN: skopeo inspect docker://registry.example.com/app:latest   (read-only inspect)
+  - id: "sc-audit-skopeo-trust-bypass"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\bskopeo\\b.*\\bcopy\\b.*(--dest-tls-verify\\s*=\\s*false|--src-tls-verify\\s*=\\s*false|--src-no-creds|--dest-no-creds)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "skopeo copy with TLS verification disabled or no-creds flag — copying container images between registries without TLS or authentication bypasses Docker Content Trust and allows unsigned/malicious images to be pushed to production registries outside normal daemon controls. MITRE T1195.002."
+
+  # === AUDIT: crane push/cp — direct OCI registry image manipulation ===
+  #
+  # crane is a low-level OCI registry client that pushes arbitrary container
+  # layers directly to registries, bypassing Docker's image signing, content
+  # trust, and daemon-level policy enforcement. 'crane push' from a tar file
+  # can push any image without provenance. 'crane cp' copies across registries
+  # without verification.
+  #
+  # TP: crane push malicious.tar registry.example.com/app:latest
+  # TP: crane cp untrusted-source/image:tag prod-registry/app:stable
+  # TN: crane digest registry.example.com/app:latest    (read-only)
+  # TN: crane ls registry.example.com/app               (listing tags, read-only)
+  - id: "sc-audit-crane-registry-push"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\bcrane\\b\\s+(push|cp|tag)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "crane push/cp/tag directly manipulates OCI registry contents, bypassing Docker daemon content trust and image signing policies. An AI agent can replace or push production container images without standard build pipeline controls or signature verification. MITRE T1195.002, T1612."
+
+  # === AUDIT: oras push/copy with --plain-http (insecure registry) ===
+  #
+  # oras (OCI Registry As Storage) pushes arbitrary OCI artifacts to registries.
+  # --plain-http disables TLS, allowing push to insecure registries without
+  # certificate validation. This enables supply chain attacks via artifact
+  # substitution in registries that accept plain-HTTP.
+  #
+  # TP: oras push --plain-http myregistry.io/myartifact:latest ./payload
+  # TP: oras copy --from-plain-http source.registry/image:tag dest.registry/app:prod
+  # TN: oras push registry.example.com/artifact:1.0 ./app.wasm   (uses TLS)
+  # TN: oras pull registry.example.com/artifact:1.0              (read-only pull)
+  - id: "sc-audit-oras-plain-http-push"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\boras\\b\\s+(push|copy)\\b.*--plain-http\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002."

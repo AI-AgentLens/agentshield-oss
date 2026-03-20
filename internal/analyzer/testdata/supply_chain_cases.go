@@ -2483,6 +2483,7 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, GitHubActionsEnvInjectionCases...)
 	all = append(all, ADOPipelineInjectionCases...)
 	all = append(all, BrewTapCases...)
+	all = append(all, ContainerTrustBypassCases...)
 	return all
 }
 
@@ -3959,5 +3960,250 @@ var BrewTapCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Standard cargo install to ~/.cargo/bin — no --root flag, no volatile path. Caught as AUDIT by sc-audit-cargo-install.",
 		Tags:             []string{"tn", "safe", "cargo", "standard-install"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Container Image Trust Bypass (issue #578)
+// Taxonomy: supply-chain/build-pipeline/cicd-config-injection
+//
+// Covers bypassing Docker Content Trust (DCT), Cosign transparency log,
+// and direct OCI registry manipulation via skopeo/crane/oras without
+// standard image signing or verification controls.
+// ---------------------------------------------------------------------------
+
+var ContainerTrustBypassCases = []TestCase{
+
+	// TP-1: Docker Content Trust disabled via export
+	{
+		ID:               "TP-SC-CTB-001",
+		Command:          `export DOCKER_CONTENT_TRUST=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "export DOCKER_CONTENT_TRUST=0 disables Docker Notary image signing enforcement for the session. sc-block-docker-content-trust-disable fires BLOCK.",
+		Tags:             []string{"tp", "docker", "content-trust", "container-signing"},
+	},
+	// TP-2: Docker Content Trust disabled inline before docker pull
+	{
+		ID:               "TP-SC-CTB-002",
+		Command:          `DOCKER_CONTENT_TRUST=0 docker pull untrusted.registry.io/image:latest`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Inline DOCKER_CONTENT_TRUST=0 before docker pull — bypasses signature verification for this specific pull. sc-block-docker-content-trust-disable fires BLOCK.",
+		Tags:             []string{"tp", "docker", "content-trust", "inline-env"},
+	},
+	// TP-3: Docker Content Trust disabled before docker push (backdoored image)
+	{
+		ID:               "TP-SC-CTB-003",
+		Command:          `DOCKER_CONTENT_TRUST=0 docker push myregistry.com/app:latest`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Inline DOCKER_CONTENT_TRUST=0 before docker push — disables content trust for pushing unsigned images, enabling silent supply chain backdoor. sc-block-docker-content-trust-disable fires BLOCK.",
+		Tags:             []string{"tp", "docker", "content-trust", "push"},
+	},
+	// TP-4: Cosign transparency log skip with env var
+	{
+		ID:               "TP-SC-CTB-004",
+		Command:          `COSIGN_SKIP_TLOG=1 cosign sign --key cosign.key myimage:latest`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "COSIGN_SKIP_TLOG=1 skips recording in the Rekor transparency log — signed image is non-attributable and breaks supply chain auditability. sc-block-cosign-tlog-skip fires BLOCK.",
+		Tags:             []string{"tp", "cosign", "transparency-log", "signing-bypass"},
+	},
+	// TP-5: cosign sign --force bypasses policy
+	{
+		ID:               "TP-SC-CTB-005",
+		Command:          `cosign sign --force --key cosign.key registry.example.com/app:latest`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "cosign sign --force bypasses signing policy enforcement (e.g., key pinning, required annotations), breaking supply chain provenance controls. sc-block-cosign-tlog-skip fires BLOCK.",
+		Tags:             []string{"tp", "cosign", "force-sign", "signing-bypass"},
+	},
+	// TP-6: skopeo copy with dest-tls-verify=false
+	{
+		ID:               "TP-SC-CTB-006",
+		Command:          `skopeo copy --dest-tls-verify=false docker://malicious/image docker://prod-registry.example.com/app:latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "skopeo copy --dest-tls-verify=false copies a container image to the production registry without TLS verification, bypassing Docker daemon content trust. sc-audit-skopeo-trust-bypass fires AUDIT.",
+		Tags:             []string{"tp", "skopeo", "tls-bypass", "registry-push"},
+	},
+	// TP-7: skopeo copy with no-creds flags
+	{
+		ID:               "TP-SC-CTB-007",
+		Command:          `skopeo copy --src-no-creds --dest-no-creds docker://source.io/image:tag docker://dest-registry.io/app:prod`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "skopeo copy --src-no-creds --dest-no-creds bypasses authentication for both source and destination registries, enabling unauthenticated push of arbitrary images. sc-audit-skopeo-trust-bypass fires AUDIT.",
+		Tags:             []string{"tp", "skopeo", "no-creds", "auth-bypass"},
+	},
+	// TP-8: crane push arbitrary tar to production registry
+	{
+		ID:               "TP-SC-CTB-008",
+		Command:          `crane push malicious.tar registry.example.com/app:latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "crane push uploads an arbitrary container image from a tar file to a production registry, bypassing Docker daemon policies and image signing controls. sc-audit-crane-registry-push fires AUDIT.",
+		Tags:             []string{"tp", "crane", "oci-push", "registry-manipulation"},
+	},
+	// TP-9: crane cp across registries without verification
+	{
+		ID:               "TP-SC-CTB-009",
+		Command:          `crane cp untrusted-source/image:compromised prod-registry/app:stable`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "crane cp copies a container image between registries without any signing or policy enforcement, enabling silent replacement of production images. sc-audit-crane-registry-push fires AUDIT.",
+		Tags:             []string{"tp", "crane", "oci-copy", "registry-manipulation"},
+	},
+	// TP-10: oras push with --plain-http (insecure registry)
+	{
+		ID:               "TP-SC-CTB-010",
+		Command:          `oras push --plain-http myregistry.io/myartifact:latest ./malicious-binary`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "oras push --plain-http pushes an OCI artifact over unencrypted HTTP, bypassing TLS certificate validation. Enables supply chain attacks via man-in-the-middle or insecure registry injection. sc-audit-oras-plain-http-push fires AUDIT.",
+		Tags:             []string{"tp", "oras", "plain-http", "insecure-push"},
+	},
+	// TP-11: oras copy with --from-plain-http
+	{
+		ID:               "TP-SC-CTB-011",
+		Command:          `oras copy --from-plain-http source.registry/image:tag dest.registry/app:prod`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "oras copy --from-plain-http fetches from an insecure HTTP source registry — MITM-susceptible pull into production registry. sc-audit-oras-plain-http-push fires AUDIT.",
+		Tags:             []string{"tp", "oras", "plain-http", "insecure-copy"},
+	},
+
+	// TN-1: DOCKER_CONTENT_TRUST=1 (enabling trust, not bypassing)
+	{
+		ID:               "TN-SC-CTB-001",
+		Command:          `export DOCKER_CONTENT_TRUST=1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "export DOCKER_CONTENT_TRUST=1 enables Docker Content Trust — this is the secure configuration. No block rule matches; default AUDIT.",
+		Tags:             []string{"tn", "safe", "docker", "content-trust-enabled"},
+	},
+	// TN-2: Standard docker pull without trust override
+	{
+		ID:               "TN-SC-CTB-002",
+		Command:          `docker pull ubuntu:22.04`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Standard docker pull of a public image with no DOCKER_CONTENT_TRUST override. No container trust bypass rule fires; default AUDIT.",
+		Tags:             []string{"tn", "safe", "docker", "standard-pull"},
+	},
+	// TN-3: cosign sign without bypass flags
+	{
+		ID:               "TN-SC-CTB-003",
+		Command:          `cosign sign --key cosign.key registry.example.com/app:v1.0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "Standard cosign sign with a key — no COSIGN_SKIP_TLOG or --force. Normal signing workflow, no bypass detected. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "cosign", "standard-signing"},
+	},
+	// TN-4: cosign verify (read-only verification)
+	{
+		ID:               "TN-SC-CTB-004",
+		Command:          `cosign verify --key cosign.pub registry.example.com/app:latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "cosign verify is a read-only signature verification step — safe and recommended. No bypass rule fires; default AUDIT.",
+		Tags:             []string{"tn", "safe", "cosign", "verification"},
+	},
+	// TN-5: skopeo copy with TLS (no bypass flags)
+	{
+		ID:               "TN-SC-CTB-005",
+		Command:          `skopeo copy docker://registry.example.com/app:1.0 docker://backup-registry.example.com/app:1.0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "skopeo copy without any TLS bypass or no-creds flags — standard authenticated registry-to-registry copy. sc-audit-skopeo-trust-bypass does not fire; default AUDIT.",
+		Tags:             []string{"tn", "safe", "skopeo", "standard-copy"},
+	},
+	// TN-6: skopeo inspect (read-only)
+	{
+		ID:               "TN-SC-CTB-006",
+		Command:          `skopeo inspect docker://registry.example.com/app:latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "skopeo inspect reads image metadata — no image push or registry write. No rule fires; default AUDIT.",
+		Tags:             []string{"tn", "safe", "skopeo", "read-only"},
+	},
+	// TN-7: crane digest (read-only lookup)
+	{
+		ID:               "TN-SC-CTB-007",
+		Command:          `crane digest registry.example.com/app:latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "crane digest fetches the image content hash — read-only operation. sc-audit-crane-registry-push matches push/cp/tag only; default AUDIT.",
+		Tags:             []string{"tn", "safe", "crane", "read-only"},
+	},
+	// TN-8: crane ls (list tags, read-only)
+	{
+		ID:               "TN-SC-CTB-008",
+		Command:          `crane ls registry.example.com/app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "crane ls lists available tags — read-only operation. No push/cp/tag subcommand detected; default AUDIT.",
+		Tags:             []string{"tn", "safe", "crane", "list-tags"},
+	},
+	// TN-9: oras pull (read-only)
+	{
+		ID:               "TN-SC-CTB-009",
+		Command:          `oras pull registry.example.com/artifact:1.0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "oras pull downloads an OCI artifact — read-only and uses TLS. sc-audit-oras-plain-http-push matches push/copy with --plain-http only; default AUDIT.",
+		Tags:             []string{"tn", "safe", "oras", "read-only"},
+	},
+	// TN-10: oras push without --plain-http (uses TLS)
+	{
+		ID:               "TN-SC-CTB-010",
+		Command:          `oras push registry.example.com/artifact:1.0 ./app.wasm`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/cicd-config-injection",
+		Analyzer:         "regex",
+		Description:      "oras push without --plain-http uses TLS for the registry connection — standard OCI artifact push to a secured registry. No bypass detected; default AUDIT.",
+		Tags:             []string{"tn", "safe", "oras", "tls-push"},
 	},
 }
