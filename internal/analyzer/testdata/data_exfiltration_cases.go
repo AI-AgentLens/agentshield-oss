@@ -4313,6 +4313,140 @@ var ReverseTunnelToolCases = []TestCase{
 	},
 
 	// =========================================================================
+	// Rules: ne-block-localtunnel, ne-block-devtunnel-host, ne-block-zrok-share-public
+	// (issue #566)
+	// Taxonomy: data-exfiltration/network-egress/reverse-tunnel-tool
+	// Missing reverse tunnel tools — localtunnel, devtunnel, zrok
+	// =========================================================================
+
+	// localtunnel TP cases
+	{
+		ID:               "TP-NE-BLOCK-LOCALTUNNEL-001",
+		Command:          `lt --port 11434`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "localtunnel (lt) with --port flag exposes local Ollama server to internet — ne-block-localtunnel must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "localtunnel"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-LOCALTUNNEL-002",
+		Command:          `npx localtunnel --port 8080`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "npx localtunnel zero-install tunnel exposes local LM Studio port — ne-block-localtunnel must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "localtunnel", "npx"},
+	},
+	// localtunnel TN cases
+	{
+		ID:               "TN-NE-BLOCK-LOCALTUNNEL-001",
+		Command:          `npm install localtunnel`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "Installing the localtunnel npm package — no tunnel created. Gets AUDIT from sc-audit-npm-install (supply-chain audit) but localtunnel-specific BLOCK must NOT fire.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-LOCALTUNNEL-002",
+		Command:          `lt --help`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "lt --help shows usage, creates no tunnel — ne-block-localtunnel must NOT fire. Gets default AUDIT from policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// devtunnel TP cases
+	{
+		ID:               "TP-NE-BLOCK-DEVTUNNEL-001",
+		Command:          `devtunnel host -p 4000`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "Microsoft devtunnel host exposing LiteLLM port — ne-block-devtunnel-host must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "devtunnel"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DEVTUNNEL-002",
+		Command:          `devtunnel host --port 11434 --allow-anonymous`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "devtunnel host with --allow-anonymous flag exposes Ollama with no authentication — ne-block-devtunnel-host must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "devtunnel"},
+	},
+	// devtunnel TN cases
+	{
+		ID:               "TN-NE-BLOCK-DEVTUNNEL-001",
+		Command:          `devtunnel list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "devtunnel list is read-only — no tunnel created. ne-block-devtunnel-host must NOT fire. Gets default AUDIT from policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-DEVTUNNEL-002",
+		Command:          `devtunnel show myproject`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "devtunnel show retrieves status — no tunnel created. ne-block-devtunnel-host must NOT fire. Gets default AUDIT from policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// zrok TP cases
+	{
+		ID:               "TP-NE-BLOCK-ZROK-001",
+		Command:          `zrok share public localhost:3000`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "zrok share public exposes Open-WebUI to internet — ne-block-zrok-share-public must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "zrok"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ZROK-002",
+		Command:          `zrok share public localhost:11434`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "zrok share public exposing Ollama AI server on port 11434 — ne-block-zrok-share-public must BLOCK.",
+		Tags:             []string{"tp", "tunnel", "zrok"},
+	},
+	// zrok TN cases
+	{
+		ID:               "TN-NE-BLOCK-ZROK-001",
+		Command:          `zrok status`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "zrok status is read-only — no tunnel created. ne-block-zrok-share-public must NOT fire. Gets default AUDIT from policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-ZROK-002",
+		Command:          `zrok share private localhost:8080`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
+		Analyzer:         "regex",
+		Description:      "zrok share private creates an access-controlled share, not a public tunnel — ne-block-zrok-share-public must NOT fire. Gets default AUDIT from policy.",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// =========================================================================
 	// Rule: ne-block-env-dump-network (issue #527)
 	// Taxonomy: data-exfiltration/network-egress/env-variable-exfiltration
 	// Bulk env var dump piped to network tool — exfiltrates ALL secrets at once
