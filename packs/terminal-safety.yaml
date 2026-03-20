@@ -1904,6 +1904,57 @@ rules:
     confidence: 0.85
     reason: "kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers."
 
+  # === AUDIT: kubectl proxy — exposes full Kubernetes API on localhost ===
+  #
+  # Taxonomy: privilege-escalation/container-escape/k8s-rbac-escalation
+  # OWASP LLM06 — Excessive Agency | MITRE T1021.006 (Remote Services)
+  #
+  # `kubectl proxy` starts an unauthenticated HTTP reverse proxy to the Kubernetes
+  # API server on localhost:8001 (or a custom port). Any process running on the
+  # developer's machine can then make arbitrary API calls — read all Secrets,
+  # exec into pods, modify RBAC bindings — without presenting credentials, because
+  # the proxy forwards the user's kubeconfig credentials transparently.
+  #
+  # This is functionally equivalent to granting every local process the same
+  # Kubernetes permissions as the developer. An AI agent running kubectl proxy
+  # creates an unguarded API surface that subsequent malicious commands can exploit.
+  #
+  # Decision: AUDIT (not BLOCK) — valid for local development dashboards
+  # (Kubernetes Dashboard, k9s, Lens backends). The goal is visibility: flag it
+  # so humans know a local cluster proxy is running.
+  #
+  - id: "ts-audit-kubectl-proxy"
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      command_regex: "kubectl\\s+proxy\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "kubectl proxy starts an unauthenticated HTTP reverse proxy to the Kubernetes API server on localhost. Any local process can read Secrets, exec into pods, or modify RBAC without presenting credentials — a significant local privilege escalation surface. (OWASP LLM06, MITRE T1021.006)"
+
+  # === AUDIT: kubectl port-forward — tunnels cluster-internal services to localhost ===
+  #
+  # Taxonomy: data-exfiltration/network-egress/internal-service-tunneling
+  # OWASP LLM06 — Excessive Agency | MITRE T1090 (Proxy), T1552 (Unsecured Credentials)
+  #
+  # `kubectl port-forward` maps a local TCP port to a port on a pod or service.
+  # This exposes cluster-internal resources — databases, caches, internal APIs,
+  # admin panels — on localhost without going through ingress, network policies,
+  # or authentication gateways. Common exploitation patterns:
+  #   - Forward to a database pod (port 5432, 3306, 27017) and bulk-extract records
+  #   - Forward to a secret management sidecar and read credentials
+  #   - Forward to an admin API (port 9090, 8080) not intended for external access
+  #
+  # Decision: AUDIT — port-forward is essential for debugging. Flag it for human
+  # review so the operator knows which internal services are being accessed.
+  #
+  - id: "ts-audit-kubectl-port-forward"
+    taxonomy: "reconnaissance/network-discovery/internal-service-probe"
+    match:
+      command_regex: "kubectl\\s+port-forward\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552)"
+
   - id: "ts-block-docker-exec"
     taxonomy: "privilege-escalation/container-escape/docker-exec"
     match:

@@ -485,6 +485,50 @@ var ContainerEscapeCases = []TestCase{
 		Description:      `nerdctl images lists container images — read-only, ts-audit-nerdctl-exec must not fire.`,
 		Tags:             []string{"tn", "safe", "nerdctl"},
 	},
+
+	// === kubectl proxy — unauthenticated local API server exposure (issue #548) ===
+	// Rule: ts-audit-kubectl-proxy
+	// Taxonomy: privilege-escalation/container-escape/k8s-rbac-escalation
+	{
+		ID:               "TP-CNTESC-025",
+		Command:          `kubectl proxy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl proxy starts an unauthenticated HTTP proxy to the full Kubernetes API on localhost:8001 — any local process can read Secrets, exec into pods, or modify RBAC. (ts-audit-kubectl-proxy)`,
+		Tags:             []string{"tp", "kubernetes", "kubectl", "privilege-escalation"},
+	},
+	{
+		ID:               "TP-CNTESC-026",
+		Command:          `kubectl proxy --port=9000 --address=0.0.0.0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl proxy with --address=0.0.0.0 exposes the cluster API to the entire local network — broader attack surface than default localhost binding. (ts-audit-kubectl-proxy)`,
+		Tags:             []string{"tp", "kubernetes", "kubectl", "privilege-escalation", "network-exposure"},
+	},
+	{
+		ID:               "TN-CNTESC-025",
+		Command:          `kubectl get deployments -n kube-system`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl get is a read-only list operation — ts-audit-kubectl-proxy must not fire on innocuous kubectl commands.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
+	{
+		ID:               "TN-CNTESC-026",
+		Command:          `kubectl describe service my-app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/k8s-rbac-escalation",
+		Analyzer:         "regex",
+		Description:      `kubectl describe service is read-only — ts-audit-kubectl-proxy must not fire.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
 }
 
 // ---------------------------------------------------------------------------
