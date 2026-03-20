@@ -3224,4 +3224,204 @@ var BrewTapCases = []TestCase{
 			Should not match brew-tap rules since the command is echo, not brew.`,
 		Tags: []string{"tn", "safe", "string-literal"},
 	},
+
+	// =========================================================================
+	// Taxonomy: supply-chain/package-install/standard-package-install
+	// Rule: sc-audit-uv-install
+	// =========================================================================
+
+	// TP-1: uv add — installs a PyPI package into the current project
+	{
+		ID:               "TP-SC-UV-INSTALL-001",
+		Command:          `uv add requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "uv add installs a PyPI package — introduces unreviewed third-party code. Must be audited (sc-audit-uv-install).",
+		Tags:             []string{"tp", "uv", "package-install", "supply-chain"},
+	},
+	// TP-2: uv pip install — PyPI install via uv's pip compatibility layer
+	{
+		ID:               "TP-SC-UV-INSTALL-002",
+		Command:          `uv pip install torch transformers`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "uv pip install with multiple packages — large ML dependency install introduces unreviewed third-party code. Must be audited (sc-audit-uv-install).",
+		Tags:             []string{"tp", "uv", "pip", "package-install", "supply-chain"},
+	},
+	// TN-1: uv --version — read-only version query, not an install
+	{
+		ID:               "TN-SC-UV-INSTALL-001",
+		Command:          `uv --version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "uv --version queries the tool version — no package install, must not match sc-audit-uv-install.",
+		Tags:             []string{"tn", "safe", "uv", "version-check"},
+	},
+	// TN-2: uv venv — creates a virtual environment, no package install
+	{
+		ID:               "TN-SC-UV-INSTALL-002",
+		Command:          `uv venv .venv`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "uv venv creates a virtual environment — no third-party code installed. Must not match sc-audit-uv-install.",
+		Tags:             []string{"tn", "safe", "uv", "venv"},
+	},
+
+	// =========================================================================
+	// Taxonomy: supply-chain/package-install/global-package-install
+	// Rule: sc-audit-uv-tool-run
+	// =========================================================================
+
+	// TP-1: uvx — ephemeral tool execution without install record
+	{
+		ID:               "TP-SC-UV-TOOL-RUN-001",
+		Command:          `uvx ruff check .`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "uvx runs a PyPI tool ephemerally without install — no audit trail. Must be audited (sc-audit-uv-tool-run).",
+		Tags:             []string{"tp", "uv", "uvx", "ephemeral-execution", "supply-chain"},
+	},
+	// TP-2: uv run --with — runs code with an ephemeral extra dependency
+	{
+		ID:               "TP-SC-UV-TOOL-RUN-002",
+		Command:          `uv run --with httpx fetch_data.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "uv run --with adds a transient dependency at runtime — no lockfile update, harder to audit. Must be audited (sc-audit-uv-tool-run).",
+		Tags:             []string{"tp", "uv", "run", "ephemeral-execution", "supply-chain"},
+	},
+	// TN-1: uv run without --with — executes project script, no extra deps
+	{
+		ID:               "TN-SC-UV-TOOL-RUN-001",
+		Command:          `uv run python main.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "uv run python main.py executes the project's own script — matches sc-audit-uv-tool-run (uv run prefix) and gets AUDIT. Acceptable: legitimate workflow.",
+		Tags:             []string{"tn", "safe", "uv", "script-exec"},
+	},
+	// TN-2: uv lock — regenerates the lockfile, no code downloaded
+	{
+		ID:               "TN-SC-UV-TOOL-RUN-002",
+		Command:          `uv lock --upgrade`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "uv lock --upgrade regenerates the lockfile — matches sc-audit-uv-install (uv lock prefix) and gets AUDIT. Acceptable: standard dependency maintenance.",
+		Tags:             []string{"tn", "safe", "uv", "lockfile"},
+	},
+
+	// =========================================================================
+	// Taxonomy: supply-chain/package-install/standard-package-install
+	// Rule: sc-audit-bun-install
+	// =========================================================================
+
+	// TP-1: bun add — installs an npm package
+	{
+		ID:               "TP-SC-BUN-INSTALL-001",
+		Command:          `bun add express`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "bun add installs an npm package via bun — introduces unreviewed third-party code with post-install scripts. Must be audited (sc-audit-bun-install).",
+		Tags:             []string{"tp", "bun", "package-install", "supply-chain"},
+	},
+	// TP-2: bun x — ephemeral npx-like execution
+	{
+		ID:               "TP-SC-BUN-INSTALL-002",
+		Command:          `bun x create-react-app my-app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "bun x runs an npm package ephemerally — similar to npx, downloads and executes unreviewed code. Must be audited (sc-audit-bun-install).",
+		Tags:             []string{"tp", "bun", "bun-x", "ephemeral-execution", "supply-chain"},
+	},
+	// TN-1: bun run — executes a script from package.json, no install
+	{
+		ID:               "TN-SC-BUN-INSTALL-001",
+		Command:          `bun run dev`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "bun run dev executes a package.json script — no new packages installed. Must not match sc-audit-bun-install (prefix is 'bun run', not 'bun add'/'bun install'/'bun x ').",
+		Tags:             []string{"tn", "safe", "bun", "script"},
+	},
+	// TN-2: bun --version — version query
+	{
+		ID:               "TN-SC-BUN-INSTALL-002",
+		Command:          `bun --version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "bun --version queries tool version — no package install or execution. Must not match sc-audit-bun-install.",
+		Tags:             []string{"tn", "safe", "bun", "version-check"},
+	},
+
+	// =========================================================================
+	// Taxonomy: supply-chain/package-install/standard-package-install
+	// Rule: sc-audit-deno-install
+	// =========================================================================
+
+	// TP-1: deno run <url> — fetches and executes remote code directly
+	{
+		ID:               "TP-SC-DENO-INSTALL-001",
+		Command:          `deno run https://deno.land/x/cliffy/prompt/mod.ts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "deno run <url> fetches and executes a remote TypeScript module — no central registry, arbitrary URLs allowed. Must be audited (sc-audit-deno-install).",
+		Tags:             []string{"tp", "deno", "remote-code-exec", "supply-chain"},
+	},
+	// TP-2: deno install — creates a CLI wrapper from a URL
+	{
+		ID:               "TP-SC-DENO-INSTALL-002",
+		Command:          `deno install --allow-net --allow-read https://deno.land/x/deployctl/main.ts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "deno install creates a CLI wrapper from a remote URL — installs executable code from an arbitrary internet source. Must be audited (sc-audit-deno-install).",
+		Tags:             []string{"tp", "deno", "deno-install", "supply-chain"},
+	},
+	// TN-1: deno fmt — code formatter, no network/install
+	{
+		ID:               "TN-SC-DENO-INSTALL-001",
+		Command:          `deno fmt src/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "deno fmt formats source code — built-in formatter, no module install or remote fetch. Must not match sc-audit-deno-install.",
+		Tags:             []string{"tn", "safe", "deno", "formatter"},
+	},
+	// TN-2: deno lint — linter, no network activity
+	{
+		ID:               "TN-SC-DENO-INSTALL-002",
+		Command:          `deno lint --rules`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "deno lint --rules lists linter rules — no module install, no network. Must not match sc-audit-deno-install.",
+		Tags:             []string{"tn", "safe", "deno", "lint"},
+	},
 }
