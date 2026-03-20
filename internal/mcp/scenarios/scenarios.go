@@ -2142,6 +2142,64 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "write_file to package.json — package manifest, audited by mcp-sc-audit-package-manifest-write, not blocked by pkgmgr-config-write",
 	},
 
+	// === MCP LLM Data-Flow: cross-tenant agent data leakage (issue #503) ===
+	// Rules: mcp-llmdf-audit-cross-tenant-tmp-workspace, mcp-llmdf-audit-cross-tenant-shared-cache
+	// Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage
+	{
+		ID:               "MCP-TP-151",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/tmp/mcp-workspace/tenant-a/secrets.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-cross-tenant-workspace-read",
+		Description:      "read_file accessing /tmp/mcp-workspace/tenant-a/ — shared MCP workspace without tenant-scoped isolation, cross-tenant data leakage risk (LLM02/LLM06)",
+	},
+	{
+		ID:               "MCP-TP-152",
+		ToolName:         "list_directory",
+		Arguments:        map[string]interface{}{"path": "/tmp/agent-cache/session-abc123"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-cross-tenant-cache-list",
+		Description:      "list_directory on /tmp/agent-cache/session-abc123 — shared agent cache may contain other tenants' tool call results or session state (LLM02/LLM06)",
+	},
+	{
+		ID:               "MCP-TP-153",
+		ToolName:         "get_file_contents",
+		Arguments:        map[string]interface{}{"path": "/tmp/mcp-workspace/output.txt"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-cross-tenant-workspace-get",
+		Description:      "get_file_contents on /tmp/mcp-workspace/ root — accessing top-level shared MCP workspace exposes all tenants' artifacts (LLM02/LLM06)",
+	},
+	{
+		ID:               "MCP-TP-154",
+		ToolName:         "list_dir",
+		Arguments:        map[string]interface{}{"path": "/tmp/agent-cache"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-cross-tenant-cache-list-root",
+		Description:      "list_dir on /tmp/agent-cache root — enumerating shared agent cache reveals all active tenant sessions (LLM02/LLM06)",
+	},
+	{
+		ID:               "MCP-TN-076",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/tmp/myapp-workspace/output.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-cross-tenant-non-matching-workspace",
+		Description:      "read_file on /tmp/myapp-workspace/ — does not match /tmp/mcp-workspace* pattern, cross-tenant workspace rule must not fire",
+	},
+	{
+		ID:               "MCP-TN-077",
+		ToolName:         "list_directory",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/agent-data"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-cross-tenant-project-workspace",
+		Description:      "list_directory on /workspace/project/agent-data — tenant-scoped project directory, not a shared cache path, cross-tenant cache rule must not fire",
+	},
+
 	// === MCP Governance: TN verify scenarios (issue #432) ===
 	// Safe file operations that must NOT trigger governance rules.
 	{
