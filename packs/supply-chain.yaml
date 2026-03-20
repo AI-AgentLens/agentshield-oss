@@ -680,6 +680,31 @@ rules:
     confidence: 0.80
     reason: "Global npm/pip install has wider system impact than a local install — flagged for review (MITRE T1195)."
 
+  # === AUDIT: pip install --target/--prefix to volatile/writable paths (issue #570) ===
+  #
+  # pip install --target <path> installs packages into an arbitrary directory rather
+  # than the venv/site-packages. When the target is a volatile or world-writable path
+  # (/tmp, /dev/shm, /var/tmp, /run/shm), the install:
+  #   - Leaves no disk trace on reboot (/dev/shm is RAM-backed)
+  #   - Enables cross-user package hijacking when added to sys.path
+  #   - Bypasses virtual environment isolation and audit trails
+  #
+  # Examples:
+  #   pip install --target /dev/shm/pylib malicious-backdoor
+  #   pip3 install -t /tmp/.pylib cryptominer
+  #   pip install --prefix /var/tmp/fake requests
+  #
+  # Taxonomy: supply-chain/package-install/global-package-install
+  # MITRE T1195.001 — Supply Chain Compromise
+  # CWE-829 — Inclusion of Functionality from Untrusted Control Sphere
+  - id: "sc-audit-pip-volatile-target"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "pip[23]?\\s+install\\b[^;&|]*(-t|--target|--prefix)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/shm/|/run/user/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "pip install --target/--prefix to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside virtual environment isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829."
+
   # === AUDIT: yarn and pnpm global installs ===
   # yarn v1 uses 'yarn global add <pkg>' and 'yarn add --global <pkg>'.
   # pnpm uses 'pnpm add -g <pkg>' or 'pnpm install -g <pkg>'.
