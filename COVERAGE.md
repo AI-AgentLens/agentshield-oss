@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 823 |
+| Terminal rules | 828 |
 | MCP rules | 127 |
-| Total rules | 950 |
-| Test cases (TP+TN) | 2707 |
+| Total rules | 955 |
+| Test cases (TP+TN) | 2728 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -116,7 +116,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (118 rules)
+### data-exfiltration (121 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -163,6 +163,9 @@
 | `ne-audit-slack-webhook` | AUDIT | regex | Slack incoming webhook call detected. While legitimate for notifications, AI agents autonomously POSTing to Slack webhooks may be exfiltrating data via prompt injection. Review the message payload. MITRE T1567.002. |
 | `ne-audit-discord-webhook` | AUDIT | regex | Discord webhook call detected. Attackers use Discord webhooks to receive exfiltrated data from compromised AI agents. Review the payload before allowing. MITRE T1567.002. |
 | `ne-audit-teams-webhook` | AUDIT | regex | Microsoft Teams webhook call detected. Review the payload to ensure the agent is not exfiltrating data to an attacker-controlled Teams channel. MITRE T1567.002. |
+| `ne-block-gh-gist-credential-exfil` | BLOCK | regex | gh gist create targeting a credential or key file detected. Uploading SSH keys, AWS credentials, or .env files to GitHub Gist exposes secrets publicly (or to authenticated GitHub users). AI agents have no legitimate reason to gist credential files. MITRE T1567.001, CWE-312. |
+| `ne-audit-gh-gist-create-public` | AUDIT | regex | gh gist create --public detected. AI agent autonomously publishing files as public GitHub Gists is unusual — verify the file contents do not include secrets, internal paths, or sensitive source code. MITRE T1567.001. |
+| `ne-block-paste-site-upload` | BLOCK | regex | Upload to an anonymous paste site detected (termbin, ix.io, 0x0.st, hastebin, ghostbin, sprunge, pastebin API). These services require no authentication and are commonly used for one-way data exfiltration — attackers retrieve the paste via a short URL. AI agents have no legitimate need to upload content to anonymous paste services. MITRE T1567.003. |
 | `ne-audit-python-http-server` | AUDIT | regex | Python HTTP file server detected. This exposes the working directory over the network, enabling passive data exfiltration. Confirm this is intentional local development and not a response to prompt injection. MITRE T1105, T1041. |
 | `ne-audit-npx-http-server` | AUDIT | regex | npx HTTP file server (http-server/serve) detected. This exposes the working directory over the network to any peer with access to the port. Confirm intent is legitimate development, not staged exfiltration. MITRE T1105. |
 | `ne-audit-ruby-http-server` | AUDIT | regex | Ruby one-liner HTTP file server detected (ruby -run -e httpd). Exposes the current directory to network peers. Review whether this was triggered by a prompt injection attack. MITRE T1105. |
@@ -459,7 +462,7 @@
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 
-### privilege-escalation (114 rules)
+### privilege-escalation (115 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -494,6 +497,7 @@
 | `ts-block-kubectl-create-rolebinding` | BLOCK | regex | kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
 | `ts-block-kubectl-patch-rbac` | BLOCK | regex | kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098) |
 | `ts-audit-kubectl-exec` | AUDIT | regex | kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets. |
+| `ts-audit-kubectl-proxy` | AUDIT | regex | kubectl proxy starts an unauthenticated HTTP reverse proxy to the Kubernetes API server on localhost. Any local process can read Secrets, exec into pods, or modify RBAC without presenting credentials — a significant local privilege escalation surface. (OWASP LLM06, MITRE T1021.006) |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
 | `ts-audit-podman-exec` | AUDIT | regex | podman exec executes commands inside a running container — same lateral movement risk as docker exec. May access application secrets, env vars, or escalate privileges if container runs as root. MITRE T1609. |
 | `ts-audit-nerdctl-exec` | AUDIT | regex | nerdctl exec (containerd CLI) executes commands inside a running container — same lateral movement risk as docker exec. MITRE T1609. |
@@ -578,7 +582,7 @@
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (67 rules)
+### reconnaissance (68 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -634,6 +638,7 @@
 | `ne-block-tshark-live-capture` | BLOCK | regex | tshark live interface capture detected (-i without -r). Captures and dissects all traffic on the interface. AI agents must not perform live packet capture. MITRE T1040. |
 | `ne-block-dumpcap-live-capture` | BLOCK | regex | dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040. |
 | `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
+| `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
@@ -1076,12 +1081,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 221 | 158 | 379 |
-| data-exfiltration | 215 | 124 | 339 |
+| data-exfiltration | 225 | 131 | 356 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 260 | 147 | 407 |
-| privilege-escalation | 267 | 162 | 429 |
+| privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 165 | 69 | 234 |
 | supply-chain | 149 | 96 | 245 |
 | unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1679** | **1028** | **2707** |
+| **Total** | **1691** | **1037** | **2728** |
 
