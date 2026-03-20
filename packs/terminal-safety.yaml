@@ -7627,6 +7627,78 @@ rules:
     confidence: 0.75
     reason: "chrpath detected — tool for viewing and modifying RPATH/RUNPATH in ELF binaries. May indicate shared library hijacking preparation. MITRE T1574.006."
 
+  # ===================================================================
+  # DYNAMIC LINKER CACHE POISONING (ldconfig / ld.so.conf)
+  # Taxonomy: privilege-escalation/library-hijack/rpath-runpath-poisoning
+  # OWASP LLM06 — Excessive Agency; MITRE T1574.006
+  # ===================================================================
+  #
+  # The Linux dynamic linker (ld.so) maintains a cache of known library
+  # paths in /etc/ld.so.cache. This cache is rebuilt from:
+  #   /etc/ld.so.conf     — main config listing search directories
+  #   /etc/ld.so.conf.d/  — drop-in config snippets (one path per file)
+  #
+  # An attacker can poison this cache to inject libraries into ALL
+  # dynamically linked programs on the system:
+  #
+  #   1. Write a malicious dir to ld.so.conf.d, then rebuild cache:
+  #        echo '/tmp/evil' > /etc/ld.so.conf.d/evil.conf && ldconfig
+  #      Now every program searches /tmp/evil before /usr/lib
+  #
+  #   2. Append directly to ld.so.conf:
+  #        echo '/tmp/evil' >> /etc/ld.so.conf && ldconfig
+  #
+  #   3. Load a custom conf file directly:
+  #        ldconfig -f /tmp/evil-ld.so.conf
+  #      Rebuilds cache using attacker-controlled config
+  #
+  #   4. Install a trojan library and refresh cache:
+  #        cp /tmp/libssl.so.3 /usr/local/lib/ && ldconfig
+  #      Makes the trojan visible to all processes
+  #
+  # Unlike LD_PRELOAD (session-scoped) or RPATH modification (binary-scoped),
+  # ld.so.conf.d writes are SYSTEM-WIDE and PERSISTENT — all users, all
+  # processes, all reboots. Requires root on most systems, but an AI agent
+  # with sudo access can execute this silently.
+  #
+  # TP examples:
+  #   echo '/tmp/evil' > /etc/ld.so.conf.d/evil.conf && ldconfig
+  #   ldconfig -f /tmp/custom.conf
+  #   sudo ldconfig
+  #   echo /tmp/evil >> /etc/ld.so.conf
+  #
+  # TN examples:
+  #   ldconfig -p                  (print cache — read-only)
+  #   cat /etc/ld.so.conf          (read config — no modification)
+  #   ldconfig -v -N               (verbose, no-update)
+
+  # --- BLOCK: writes to /etc/ld.so.conf or /etc/ld.so.conf.d/ ---
+  - id: "ts-block-ldso-conf-write"
+    taxonomy: "privilege-escalation/library-hijack/rpath-runpath-poisoning"
+    match:
+      command_regex: "((echo|printf|cat)\\b[^|&;\\n]*>>?\\s*/etc/ld\\.so\\.conf(\\.d/\\S*)?\\b|\\btee\\b[^|&;\\n]*\\s/etc/ld\\.so\\.conf(\\.d/\\S*)?\\b|(cp|mv)\\b[^|&;\\n]*\\s/etc/ld\\.so\\.conf(\\.d/\\S*)?\\b)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426."
+
+  # --- BLOCK: ldconfig loading an attacker-supplied config file ---
+  - id: "ts-block-ldconfig-custom-conf"
+    taxonomy: "privilege-escalation/library-hijack/rpath-runpath-poisoning"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?ldconfig\\s+(-f|--format)\\s+\\S"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "ldconfig -f <file> rebuilds the dynamic linker cache from an attacker-supplied config file — bypasses /etc/ld.so.conf.d/ monitoring and loads arbitrary directories into the system-wide library cache. MITRE T1574.006."
+
+  # --- AUDIT: standalone ldconfig (could activate prior cache poisoning) ---
+  - id: "ts-audit-ldconfig-run"
+    taxonomy: "privilege-escalation/library-hijack/rpath-runpath-poisoning"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?ldconfig\\b(?!\\s+(-p|--print-cache|-N|--dont-build-cache|-v|--verbose|\\s*$))"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "ldconfig invoked without read-only flags — rebuilds the system-wide dynamic linker cache. If /etc/ld.so.conf.d/ was modified prior to this command (within the session), this activates the library path injection. Review for combined ldconfig cache poisoning. MITRE T1574.006."
+
   # =========================================================================
   # TOCTOU Check-Then-Execute on World-Writable Paths
   # =========================================================================
