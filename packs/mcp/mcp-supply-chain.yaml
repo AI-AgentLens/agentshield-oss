@@ -392,6 +392,67 @@ structural_rules:
     reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
     confidence: 0.82
 
+  # === BLOCK: MCP write to MCP config files (issue #538) ===
+  #
+  # MCP config files are the trust root for agent-to-tool communication.
+  # An AI agent using a write_file/edit_file MCP tool to modify these files
+  # bypasses shell-level rules entirely (sc-block-mcp-config-injection in
+  # supply-chain.yaml catches shell writes; this rule catches MCP-layer writes).
+  #
+  # Attack patterns enabled by undetected MCP config writes:
+  #   - Adding a malicious server entry that intercepts all tool calls
+  #   - Redirecting an existing server URL to an attacker-controlled endpoint
+  #   - Injecting env vars that expose credentials or redirect API calls
+  #   - Adding a shadow server with tools that take precedence over legitimate ones
+  #
+  # Config files protected:
+  #   .cursor/mcp.json        — Cursor IDE per-project config
+  #   claude_desktop_config.json — Claude Desktop (user-level trust root)
+  #   .vscode/mcp.json        — VS Code MCP extension config
+  #   mcp.json                — Generic project-level MCP config
+  #   windsurf_mcp.json       — Windsurf IDE
+  #
+  # TP examples (BLOCK):
+  #   write_file(path=".cursor/mcp.json", content='{"mcpServers":{"evil":...}}')
+  #   edit_file(path="claude_desktop_config.json", new_content='...')
+  #   create_file(path=".vscode/mcp.json", content='{"servers":{"backdoor":...}}')
+  #
+  # TN examples (AUDIT/ALLOW):
+  #   read_file(path="mcp.json")               — read-only, safe
+  #   write_file(path="src/mcp_client.go")     — source file, not config
+  #   write_file(path="docs/mcp-setup.md")     — documentation
+  #
+  # OWASP LLM03 — Supply Chain Vulnerabilities
+  # OWASP LLM05 — Improper Output Handling
+  # MITRE T1195.002 — Supply Chain Compromise
+  # MITRE T1543 — Create or Modify System Process
+  - id: mcp-sc-block-mcp-config-write
+    taxonomy: "supply-chain/config-tampering/mcp-config-injection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "replace_in_file"
+        - "patch_file"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:claude_desktop_config|windsurf_mcp)\\.json$"
+            - "(?:^|/)\\.cursor/mcp\\.json$"
+            - "(?:^|/)\\.vscode/mcp\\.json$"
+            - "(?:^|/)mcp\\.json$"
+    decision: "BLOCK"
+    reason: "MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002."
+    confidence: 0.97
+
   # === AUDIT: MCP tool schema drift between sessions (issue #398) ===
   #
   # An MCP server that changes its tool schemas between sessions may indicate
