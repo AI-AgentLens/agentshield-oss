@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (823 terminal rules, 127 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 817 |
+| Terminal rules | 823 |
 | MCP rules | 127 |
-| Total rules | 944 |
-| Test cases (TP+TN) | 2686 |
+| Total rules | 950 |
+| Test cases (TP+TN) | 2703 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -459,7 +454,7 @@
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 
-### privilege-escalation (111 rules)
+### privilege-escalation (114 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -560,6 +555,9 @@
 | `ts-block-ld-library-path-poison` | BLOCK | regex | Exporting LD_LIBRARY_PATH pointing to a writable/temp directory — every subsequently launched binary searches this path first for shared libraries, enabling trojan library injection. Affects all child processes. MITRE T1574.007. |
 | `ts-audit-ld-library-path-export` | AUDIT | regex | Exporting LD_LIBRARY_PATH — changes shared library search order for all child processes. While sometimes legitimate (custom builds), it can be used for library hijacking. MITRE T1574.007. |
 | `ts-audit-chrpath` | AUDIT | regex | chrpath detected — tool for viewing and modifying RPATH/RUNPATH in ELF binaries. May indicate shared library hijacking preparation. MITRE T1574.006. |
+| `ts-block-ldso-conf-write` | BLOCK | regex | Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426. |
+| `ts-block-ldconfig-custom-conf` | BLOCK | regex | ldconfig -f <file> rebuilds the dynamic linker cache from an attacker-supplied config file — bypasses /etc/ld.so.conf.d/ monitoring and loads arbitrary directories into the system-wide library cache. MITRE T1574.006. |
+| `ts-audit-ldconfig-run` | AUDIT | regex | ldconfig invoked without read-only flags — rebuilds the system-wide dynamic linker cache. If /etc/ld.so.conf.d/ was modified prior to this command (within the session), this activates the library path injection. Review for combined ldconfig cache poisoning. MITRE T1574.006. |
 | `ts-block-sysctl-write-security` | BLOCK | regex | sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, or expose kernel addresses. CWE-250, MITRE T1562.001. |
 | `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. CWE-250. |
 | `ts-block-sysctl-load-custom` | BLOCK | regex | sysctl --load from world-writable directory — an attacker can stage a sysctl.conf in /tmp with malicious parameters and trick an agent into loading it. CWE-427. |
@@ -647,7 +645,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (89 rules)
+### supply-chain (92 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -727,6 +725,9 @@
 | `sc-audit-github-env-injection` | AUDIT | regex | Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
 | `sc-audit-github-output-injection` | AUDIT | regex | Writing to $GITHUB_OUTPUT sets step output variables consumed by subsequent GitHub Actions jobs — can inject attacker-controlled values into deployment logic or approval gates. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
 | `sc-audit-github-step-summary-injection` | AUDIT | regex | Writing to $GITHUB_STEP_SUMMARY injects Markdown content into the GitHub Actions workflow summary — can exfiltrate data as visible CI output or embed misleading content for human reviewers. Agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
+| `sc-block-ado-prependpath` | BLOCK | regex | Azure DevOps pipeline logging command ##vso[task.prependpath] prepends a directory to $PATH for all subsequent pipeline tasks — enables malicious binary substitution (PATH hijacking) without modifying version-controlled files. ADO equivalent of $GITHUB_PATH injection. MITRE T1574.007, OWASP LLM08. |
+| `sc-audit-ado-setvariable` | AUDIT | regex | Azure DevOps pipeline logging command ##vso[task.setvariable] sets a variable for all subsequent tasks in the job/stage. Can override deployment targets, approval variables, or inject attacker-controlled values into downstream logic. ADO equivalent of $GITHUB_ENV injection. MITRE T1611, OWASP LLM08. |
+| `sc-audit-ado-uploadfile` | AUDIT | regex | Azure DevOps pipeline logging commands ##vso[task.uploadfile] and ##vso[task.addattachment] upload local files as pipeline artifacts or diagnostic attachments — can exfiltrate arbitrary files by attaching them to the pipeline run. MITRE T1567, OWASP LLM08. |
 | `sc-block-make-shell-cmd-inject` | BLOCK | regex | make SHELL= with -c flag injects commands into every Makefile recipe. The -c flag means the shell binary override also carries an embedded command, executing during the next routine make invocation. Supply chain attack: MITRE T1195.002, CWE-78. |
 | `sc-block-make-compiler-tmp-inject` | BLOCK | regex | make CC/CXX/LD= pointing to /tmp or /dev/shm replaces the compiler/linker with an attacker-staged binary. Any code compiled in this session produces backdoored artifacts. MITRE T1195.002, CWE-427. |
 | `sc-block-cmake-compiler-tmp-inject` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= pointing to /tmp or /dev/shm substitutes an attacker-controlled compiler binary. All compiled outputs for this project will be compromised. MITRE T1195.002, CWE-427. |
@@ -1073,9 +1074,9 @@
 | data-exfiltration | 215 | 122 | 337 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 260 | 145 | 405 |
-| privilege-escalation | 262 | 159 | 421 |
+| privilege-escalation | 267 | 162 | 429 |
 | reconnaissance | 165 | 69 | 234 |
-| supply-chain | 143 | 93 | 236 |
+| supply-chain | 149 | 96 | 245 |
 | unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1668** | **1018** | **2686** |
+| **Total** | **1679** | **1024** | **2703** |
 
