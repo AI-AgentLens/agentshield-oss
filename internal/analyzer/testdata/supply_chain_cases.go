@@ -1806,6 +1806,254 @@ var NpmrcEditCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// Persistent package registry config manipulation (issue #574)
+// Taxonomy: supply-chain/config-tampering/package-config-edit
+// Rules: sc-block-pip-conf-write, sc-block-npm-config-set-registry,
+//        sc-block-gem-sources-add, sc-block-gemrc-write,
+//        sc-block-cargo-config-write
+//
+// Unlike per-command registry overrides (--index-url, --registry),
+// these attacks modify config files that persist across sessions,
+// redirecting ALL future package installs to attacker-controlled registries.
+// ---------------------------------------------------------------------------
+var PkgMgrRegistryConfigTamperCases = []TestCase{
+	// --- pip.conf write ---
+
+	// TP-1: echo to ~/.pip/pip.conf with index-url
+	{
+		ID:               "TP-SC-PIP-CONF-001",
+		Command:          `echo '[global]\nindex-url = http://evil.com/simple/' > ~/.pip/pip.conf`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "echo to ~/.pip/pip.conf sets persistent index-url — all future pip installs route to malicious registry. Dependency confusion setup.",
+		Tags:             []string{"tp", "pip", "registry-config", "persistent", "supply-chain"},
+	},
+	// TP-2: tee ~/.config/pip/pip.conf
+	{
+		ID:               "TP-SC-PIP-CONF-002",
+		Command:          `tee ~/.config/pip/pip.conf <<< '[global]\nextra-index-url = http://evil.com/'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "tee writing to ~/.config/pip/pip.conf — persistent extra-index-url override via tee heredoc.",
+		Tags:             []string{"tp", "pip", "registry-config", "persistent", "supply-chain"},
+	},
+	// TP-3: sed edit of /etc/pip.conf
+	{
+		ID:               "TP-SC-PIP-CONF-003",
+		Command:          `sed -i 's|index-url.*|index-url = http://evil.com/simple/|' /etc/pip.conf`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "sed in-place edit of /etc/pip.conf — system-wide persistent registry redirect.",
+		Tags:             []string{"tp", "pip", "registry-config", "persistent", "system-wide"},
+	},
+	// TN-1: cat pip.conf (read-only)
+	{
+		ID:               "TN-SC-PIP-CONF-001",
+		Command:          `cat ~/.pip/pip.conf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "Reading ~/.pip/pip.conf is safe inspection — no write operation. Not blocked.",
+		Tags:             []string{"tn", "safe", "pip", "read-only"},
+	},
+	// TN-2: grep inside pip.conf (read-only search)
+	{
+		ID:               "TN-SC-PIP-CONF-002",
+		Command:          `grep "index-url" ~/.pip/pip.conf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "grep reading pip.conf to inspect index-url — read-only, no config tampering.",
+		Tags:             []string{"tn", "safe", "pip", "read-only"},
+	},
+
+	// --- npm config set registry ---
+
+	// TP-1: npm config set registry to HTTP URL
+	{
+		ID:               "TP-SC-NPM-CONFIG-REGISTRY-001",
+		Command:          `npm config set registry http://evil-registry.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "npm config set registry to HTTP — persists malicious registry URL to ~/.npmrc, redirecting all future npm installs.",
+		Tags:             []string{"tp", "npm", "registry-config", "persistent", "supply-chain"},
+	},
+	// TP-2: npm config set registry to HTTPS attacker URL
+	{
+		ID:               "TP-SC-NPM-CONFIG-REGISTRY-002",
+		Command:          `npm config set registry https://attacker.example.com/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "npm config set registry to non-standard HTTPS URL — persistent npm registry override via config command.",
+		Tags:             []string{"tp", "npm", "registry-config", "persistent", "supply-chain"},
+	},
+	// TN-1: npm config get registry (read-only) — gets AUDIT from npm install audit rules
+	{
+		ID:               "TN-SC-NPM-CONFIG-REGISTRY-001",
+		Command:          `npm config get registry`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "npm config get registry — read-only inspection of current registry URL, no tampering. Gets AUDIT from general npm audit rule (not the registry-change rule).",
+		Tags:             []string{"tn", "safe", "npm", "read-only"},
+	},
+	// TN-2: npm config list (read-only)
+	{
+		ID:               "TN-SC-NPM-CONFIG-REGISTRY-002",
+		Command:          `npm config list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "npm config list — shows all npm config values; read-only, no registry change.",
+		Tags:             []string{"tn", "safe", "npm", "read-only"},
+	},
+
+	// --- gem sources --add ---
+
+	// TP-1: gem sources --add HTTP URL
+	{
+		ID:               "TP-SC-GEM-SOURCES-001",
+		Command:          `gem sources --add http://evil-gems.example.com/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "gem sources --add with HTTP URL — adds malicious gem source globally; enables version shadowing where higher-versioned evil gem wins.",
+		Tags:             []string{"tp", "gem", "registry-config", "persistent", "supply-chain"},
+	},
+	// TP-2: gem sources --add then --remove rubygems.org
+	{
+		ID:               "TP-SC-GEM-SOURCES-002",
+		Command:          `gem sources --add https://internal.attacker.com/ --remove https://rubygems.org/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "gem sources --add followed by --remove rubygems.org — fully redirects gem installs to attacker-controlled source.",
+		Tags:             []string{"tp", "gem", "registry-config", "persistent", "supply-chain"},
+	},
+	// TN-1: gem sources (list) — read-only; gets AUDIT from sc-audit-gem-install
+	{
+		ID:               "TN-SC-GEM-SOURCES-001",
+		Command:          `gem sources`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "gem sources with no arguments — lists current gem sources; read-only, no tampering. Gets AUDIT from sc-audit-gem-install catch-all.",
+		Tags:             []string{"tn", "safe", "gem", "read-only"},
+	},
+	// TN-2: gem sources --remove (removing a source, not adding); gets AUDIT
+	{
+		ID:               "TN-SC-GEM-SOURCES-002",
+		Command:          `gem sources --remove http://evil-gems.example.com/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "gem sources --remove — removing a source is a cleanup action, not adding a malicious one. Only --add is blocked. Gets AUDIT from sc-audit-gem-install.",
+		Tags:             []string{"tn", "safe", "gem", "source-remove"},
+	},
+
+	// --- ~/.gemrc write ---
+
+	// TP-1: echo to ~/.gemrc with :sources override
+	{
+		ID:               "TP-SC-GEMRC-WRITE-001",
+		Command:          `echo ':sources: ["http://evil.com/"]' > ~/.gemrc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "echo to ~/.gemrc with :sources override — persistently redirects gem installs to attacker-controlled source via .gemrc :sources key.",
+		Tags:             []string{"tp", "gem", "gemrc", "registry-config", "persistent"},
+	},
+	// TP-2: tee ~/.gemrc
+	{
+		ID:               "TP-SC-GEMRC-WRITE-002",
+		Command:          `tee ~/.gemrc <<< ':sources: ["http://evil-gems.com/"]'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "tee writing to ~/.gemrc — persistent gem source override via tee heredoc.",
+		Tags:             []string{"tp", "gem", "gemrc", "registry-config", "persistent"},
+	},
+	// TN-1: cat ~/.gemrc (read-only)
+	{
+		ID:               "TN-SC-GEMRC-WRITE-001",
+		Command:          `cat ~/.gemrc`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "Reading ~/.gemrc — safe inspection of gem config, no write operation.",
+		Tags:             []string{"tn", "safe", "gem", "read-only"},
+	},
+
+	// --- ~/.cargo/config.toml write ---
+
+	// TP-1: echo to ~/.cargo/config.toml with replace-with
+	{
+		ID:               "TP-SC-CARGO-CONFIG-001",
+		Command:          `echo '[source.crates-io]\nreplace-with = "evil"' >> ~/.cargo/config.toml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "echo to ~/.cargo/config.toml with replace-with — redirects all cargo downloads to a custom registry, persistent dependency confusion setup.",
+		Tags:             []string{"tp", "cargo", "registry-config", "persistent", "supply-chain"},
+	},
+	// TP-2: sed edit of .cargo/config.toml
+	{
+		ID:               "TP-SC-CARGO-CONFIG-002",
+		Command:          `sed -i 's|replace-with.*|replace-with = "evil-registry"|' .cargo/config.toml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "sed in-place edit of .cargo/config.toml to inject replace-with — persistent cargo source redirect.",
+		Tags:             []string{"tp", "cargo", "registry-config", "persistent", "supply-chain"},
+	},
+	// TN-1: cat ~/.cargo/config.toml (read-only)
+	{
+		ID:               "TN-SC-CARGO-CONFIG-001",
+		Command:          `cat ~/.cargo/config.toml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "Reading ~/.cargo/config.toml — safe inspection of cargo config, no write operation.",
+		Tags:             []string{"tn", "safe", "cargo", "read-only"},
+	},
+	// TN-2: cargo config get (read-only CLI) — gets AUDIT from sc-audit-cargo-install
+	{
+		ID:               "TN-SC-CARGO-CONFIG-002",
+		Command:          `cargo config get source`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "cargo config get — reads cargo config values; no file write, no registry tampering. Gets AUDIT from sc-audit-cargo-install catch-all.",
+		Tags:             []string{"tn", "safe", "cargo", "read-only"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Package Registry Publish
 // Taxonomy: supply-chain/build-pipeline/cicd-config-injection
 //
@@ -2226,6 +2474,7 @@ func AllSupplyChainCases() []TestCase {
 	all = append(all, RAGKnowledgeBasePoisoningCases...)
 	all = append(all, BuildSystemInjectionCases...)
 	all = append(all, NpmrcEditCases...)
+	all = append(all, PkgMgrRegistryConfigTamperCases...)
 	all = append(all, MCPToolSchemaDriftCases...)
 	all = append(all, MCPConfigInjectionCases...)
 	all = append(all, ModelEndpointHijackingCases...)
