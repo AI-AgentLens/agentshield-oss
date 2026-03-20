@@ -9,7 +9,7 @@
 | Terminal rules | 823 |
 | MCP rules | 127 |
 | Total rules | 950 |
-| Test cases (TP+TN) | 2705 |
+| Test cases (TP+TN) | 2707 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1076,12 +1076,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 221 | 158 | 379 |
-| data-exfiltration | 215 | 122 | 337 |
+| data-exfiltration | 215 | 124 | 339 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 260 | 147 | 407 |
 | privilege-escalation | 267 | 162 | 429 |
 | reconnaissance | 165 | 69 | 234 |
 | supply-chain | 149 | 96 | 245 |
 | unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1679** | **1026** | **2705** |
+| **Total** | **1679** | **1028** | **2707** |
 

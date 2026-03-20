@@ -369,6 +369,10 @@ rules:
     taxonomy: "data-exfiltration/network-egress/env-variable-exfiltration"
     match:
       command_regex: "\\b(env|printenv|set)\\b\\s*\\|.*\\b(curl|wget|nc|ncat|socat|telnet)\\b"
+      # Exclude git/gh commands — tool names appearing in commit messages, tag
+      # annotations, or PR descriptions are documentation text, not executable
+      # shell. git and gh never interpret their -m/-b argument as a shell command.
+      command_regex_exclude: "^(git|gh)\\s"
     decision: "BLOCK"
     confidence: 0.92
     reason: "All process environment variables piped to a network tool — bulk exfiltration of every secret (API keys, cloud tokens, database credentials) in a single command. AI agents in cloud environments accumulate dozens of secrets in env vars (OWASP LLM02, MITRE T1552.007, T1041)."
