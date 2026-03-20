@@ -1902,6 +1902,72 @@ var GitHubActionsEnvInjectionCases = []TestCase{
 		Description:      "echo with GITHUB_ENV as a string value — ts-allow-readonly matches echo, no file write, ALLOW.",
 		Tags:             []string{"tn", "safe", "github-actions"},
 	},
+
+	// --- True Positives: $GITHUB_OUTPUT injection (AUDIT) ---
+	{
+		ID:               "TP-SC-AUDIT-GITHUB-OUTPUT-001",
+		Command:          `echo "deploy_target=prod" >> $GITHUB_OUTPUT`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "Writing deploy target to $GITHUB_OUTPUT — sets step output variable for downstream jobs. MITRE T1611, OWASP LLM08.",
+		Tags:             []string{"tp", "supply-chain", "github-actions", "ci"},
+	},
+	{
+		ID:               "TP-SC-AUDIT-GITHUB-OUTPUT-002",
+		Command:          `printf 'approved_by=%s\n' "admin" >> $GITHUB_OUTPUT`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "printf variant injecting approval value into $GITHUB_OUTPUT — can manipulate downstream approval gate logic.",
+		Tags:             []string{"tp", "supply-chain", "github-actions", "ci"},
+	},
+
+	// --- True Positives: $GITHUB_STEP_SUMMARY injection (AUDIT) ---
+	{
+		ID:               "TP-SC-AUDIT-GITHUB-STEP-SUMMARY-001",
+		Command:          `echo "## Results" >> $GITHUB_STEP_SUMMARY`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "Writing to $GITHUB_STEP_SUMMARY injects Markdown into the CI workflow summary page — agent-generated writes warrant review.",
+		Tags:             []string{"tp", "supply-chain", "github-actions", "ci"},
+	},
+	{
+		ID:               "TP-SC-AUDIT-GITHUB-STEP-SUMMARY-002",
+		Command:          `printf '## Output\n%s\n' "$DATA" >> $GITHUB_STEP_SUMMARY`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "printf variant writing variable-interpolated data to $GITHUB_STEP_SUMMARY — can exfiltrate data as visible CI output.",
+		Tags:             []string{"tp", "supply-chain", "github-actions", "ci"},
+	},
+
+	// --- True Negatives ---
+	{
+		ID:               "TN-SC-GITHUB-OUTPUT-001",
+		Command:          `cat $GITHUB_OUTPUT`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "cat $GITHUB_OUTPUT is read-only — no injection, ALLOW.",
+		Tags:             []string{"tn", "safe", "github-actions"},
+	},
+	{
+		ID:               "TN-SC-GITHUB-STEP-SUMMARY-001",
+		Command:          `cat $GITHUB_STEP_SUMMARY`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/build-pipeline/github-actions-env-injection",
+		Analyzer:         "regex",
+		Description:      "cat $GITHUB_STEP_SUMMARY is read-only — no injection, ALLOW.",
+		Tags:             []string{"tn", "safe", "github-actions"},
+	},
 }
 
 func AllSupplyChainCases() []TestCase {
