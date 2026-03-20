@@ -176,6 +176,64 @@ rules:
     confidence: 0.95
     reason: "bore creates zero-config reverse tunnels: 'bore local 22 --to bore.pub' immediately exposes the local SSH daemon to the internet with no credentials. AI agents have no legitimate need to create public reverse tunnels. MITRE T1572."
 
+  # --- BLOCK: localtunnel (lt / npx localtunnel) — npm zero-config reverse tunnel ---
+  #
+  # localtunnel is an npm package that exposes any local port to the internet via
+  # a random subdomain at localtunnel.me. It requires no account or install —
+  # `npx localtunnel --port N` works immediately. An AI agent running this would
+  # expose AI model servers (Ollama :11434, LM Studio :1234, LiteLLM :4000,
+  # Open-WebUI :3000) to the public internet with no authentication.
+  #
+  # TN: `npm install localtunnel` — install only, no tunnel
+  # TN: `lt --help` — help output, no tunnel created
+  # TP: `lt --port 11434` — expose Ollama
+  # TP: `npx localtunnel --port 8080` — zero-install tunnel
+  - id: "ne-block-localtunnel"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "(?:^|\\|\\|?|&&|;)\\s*(?:lt\\b.*--port|npx\\s+localtunnel\\b)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "localtunnel (lt / npx localtunnel) creates a zero-config public HTTPS tunnel to a local port. Exposes AI model servers (Ollama, LM Studio, LiteLLM) to the public internet with no authentication — identical risk to ngrok. No legitimate AI agent coding workflow requires public tunnel creation. MITRE T1572."
+
+  # --- BLOCK: devtunnel (Microsoft Dev Tunnel) — VS Code / Azure tunnel ---
+  #
+  # Microsoft Dev Tunnels (`devtunnel host`) is integrated into VS Code and Azure
+  # and provides persistent, named tunnels for remote development. It is
+  # specifically designed for AI coding agent workflows (GitHub Codespaces,
+  # VS Code Remote). An AI agent running `devtunnel host -p N` would expose local
+  # AI model servers with optional persistent, authenticated public URLs.
+  #
+  # TN: `devtunnel list` — read-only list
+  # TN: `devtunnel show` — read-only status
+  # TP: `devtunnel host -p 4000` — expose LiteLLM
+  # TP: `devtunnel host --port 11434 --allow-anonymous` — expose Ollama, no auth
+  - id: "ne-block-devtunnel-host"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "\\bdevtunnel\\s+host\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "devtunnel host (Microsoft Dev Tunnel) creates a public reverse tunnel to a local port via Azure infrastructure. Can expose AI model servers to the internet with optional anonymous access. No legitimate AI agent coding workflow requires public Dev Tunnel creation. MITRE T1572."
+
+  # --- BLOCK: zrok (OpenZiti-based zero-trust reverse tunnel) ---
+  #
+  # zrok is a zero-trust reverse tunnel built on OpenZiti. `zrok share public`
+  # creates a publicly accessible URL for any local port. Unlike ngrok, it requires
+  # no outbound TCP — uses HTTPS only, making it harder to firewall.
+  #
+  # TN: `zrok status` — read-only status
+  # TN: `zrok list` — list active shares
+  # TP: `zrok share public localhost:3000` — expose Open-WebUI
+  # TP: `zrok share public localhost:11434` — expose Ollama
+  - id: "ne-block-zrok-share-public"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "\\bzrok\\s+share\\s+public\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "zrok share public creates a publicly accessible URL for a local port via OpenZiti infrastructure — exposes AI model servers to the internet over HTTPS. No legitimate AI agent coding workflow requires public zrok share creation. MITRE T1572."
+
   # --- AUDIT: ngrok HTTP tunnel (some legitimate webhook dev use) ---
   - id: "ne-audit-ngrok-http"
     taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
