@@ -2142,6 +2142,100 @@ var ExecFdHijackCases = []TestCase{
 		Description:      `exec bash without --norc — loads normal init files including security hooks. Gets AUDIT from default policy.`,
 		Tags:             []string{"tn", "accepted-tradeoff", "exec"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// Terminal-Sharing Backdoor Tools (tmate, upterm, ttyd, gotty)
+	// ---------------------------------------------------------------------------
+	// These tools give external parties live interactive PTY access to the agent's
+	// terminal. All are BLOCK — no legitimate use in AI agent contexts.
+	// Rules: ts-block-tmate-session, ts-block-upterm-host, ts-block-ttyd-shell,
+	//        ts-block-gotty-shell
+	// Taxonomy: persistence-evasion/covert-channels/named-pipe
+	// MITRE T1219 (Remote Access Tools), T1071.001 (Covert Channel)
+
+	{
+		ID:               "TP-TERMSHARE-001",
+		Command:          `tmate`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `tmate with no args starts a shareable SSH terminal session. Attacker receives SSH link with full agent-level shell. Matched by ts-block-tmate-session.`,
+		Tags:             []string{"tp", "canonical", "terminal-sharing", "backdoor"},
+	},
+	{
+		ID:               "TP-TERMSHARE-002",
+		Command:          `tmate new-session -d`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `tmate new-session -d creates a detached shareable session. Backdoor persists in background after agent action completes. Matched by ts-block-tmate-session.`,
+		Tags:             []string{"tp", "terminal-sharing", "backdoor", "detached"},
+	},
+	{
+		ID:               "TP-TERMSHARE-003",
+		Command:          `upterm host -- bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `upterm host creates an SSH-accessible shared terminal session (modern tmate replacement). Full PTY access for anyone with the shared link. Matched by ts-block-upterm-host.`,
+		Tags:             []string{"tp", "canonical", "terminal-sharing", "backdoor"},
+	},
+	{
+		ID:               "TP-TERMSHARE-004",
+		Command:          `ttyd bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `ttyd bash starts an HTTP terminal server on 0.0.0.0:7681 exposing a browser-accessible shell. Any reachable host can interact with the terminal. Matched by ts-block-ttyd-shell.`,
+		Tags:             []string{"tp", "canonical", "terminal-sharing", "backdoor", "http-shell"},
+	},
+	{
+		ID:               "TP-TERMSHARE-005",
+		Command:          `ttyd -p 8080 /bin/bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `ttyd with custom port and explicit /bin/bash path — still starts an HTTP shell server. Matched by ts-block-ttyd-shell.`,
+		Tags:             []string{"tp", "terminal-sharing", "backdoor"},
+	},
+	{
+		ID:               "TP-TERMSHARE-006",
+		Command:          `gotty bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `gotty bash starts a browser-based shell server. Functionally identical to ttyd — HTTP terminal access for any reachable host. Matched by ts-block-gotty-shell.`,
+		Tags:             []string{"tp", "canonical", "terminal-sharing", "backdoor", "http-shell"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TERMSHARE-001",
+		Command:          `tmux new-session -s dev`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `tmux is a local terminal multiplexer — sessions are not shared externally. ts-block-tmate-session does NOT fire (matches "tmate", not "tmux"). Common legitimate dev tool.`,
+		Tags:             []string{"tn", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-TERMSHARE-002",
+		Command:          `ttyd --version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/covert-channels/named-pipe",
+		Analyzer:         "regex",
+		Description:      `ttyd --version checks the installed version without exposing a shell. ts-block-ttyd-shell does NOT fire (requires a shell executable after ttyd). AUDIT is the default decision.`,
+		Tags:             []string{"tn", "safe-query"},
+	},
 }
 
 // GitConfigCodeExecCases tests detection of git config keys that execute arbitrary commands.

@@ -4043,6 +4043,70 @@ rules:
     reason: "exec with numeric file descriptor redirect — may be used for covert channels, sensitive file access, or network connections via /dev/tcp. Auditing for review."
 
   # ==========================================================================
+  # Terminal-Sharing Backdoor Tools
+  # ==========================================================================
+  #
+  # Tools that give external parties live interactive access to the terminal
+  # session. An AI agent running any of these effectively hands the attacker
+  # a full PTY with the agent's privileges:
+  #
+  #   tmate         — SSH-shareable terminal via tmate.io; attacker receives an
+  #                   SSH link granting full interactive shell access.
+  #   upterm        — Modern SSH-based session sharing (upterm.dev / self-hosted).
+  #   ttyd          — HTTP terminal: `ttyd bash` opens a web shell on 0.0.0.0:7681.
+  #   gotty         — Same model as ttyd; `gotty bash` exposes a browser shell.
+  #
+  # Unlike named pipes or /dev/tcp channels, these tools:
+  #   - Require no open inbound port from the agent's host (tmate/upterm are
+  #     outbound to relay servers)
+  #   - Provide fully interactive PTY access (not just read-only output)
+  #   - Are designed specifically for session sharing — no legitimate dev use
+  #     inside an AI agent context
+  #
+  # Taxonomy: persistence-evasion/covert-channels/named-pipe (covert channel category)
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1071.001 — Application Layer Protocol: Web Protocols (covert C2)
+  # MITRE T1219 — Remote Access Tools
+  # CWE-668 — Exposure of Resource to Wrong Sphere
+  # ==========================================================================
+
+  # --- BLOCK: tmate terminal session sharing ---
+  - id: "ts-block-tmate-session"
+    taxonomy: "persistence-evasion/covert-channels/named-pipe"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)\\s*tmate(\\s|$)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "tmate creates a shareable SSH terminal session via tmate.io. An AI agent running tmate hands an attacker a full interactive shell with agent-level privileges. No legitimate use in agent contexts. MITRE T1219."
+
+  # --- BLOCK: upterm host (SSH-based session sharing) ---
+  - id: "ts-block-upterm-host"
+    taxonomy: "persistence-evasion/covert-channels/named-pipe"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)\\s*upterm\\s+(host|session)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "upterm host/session creates an SSH-accessible shared terminal session. Functionally equivalent to tmate — provides an attacker with full PTY access to the agent's terminal. MITRE T1219."
+
+  # --- BLOCK: ttyd shell broadcasting (HTTP terminal server) ---
+  - id: "ts-block-ttyd-shell"
+    taxonomy: "persistence-evasion/covert-channels/named-pipe"
+    match:
+      command_regex: "\\bttyd\\b.*\\b(bash|sh|zsh|fish|dash|/bin/sh|/bin/bash)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "ttyd starts an HTTP terminal server exposing a shell via browser. Any host that can reach the listening port gets an interactive shell. MITRE T1219, T1071.001."
+
+  # --- BLOCK: gotty shell broadcasting (HTTP terminal server) ---
+  - id: "ts-block-gotty-shell"
+    taxonomy: "persistence-evasion/covert-channels/named-pipe"
+    match:
+      command_regex: "\\bgotty\\b.*\\b(bash|sh|zsh|fish|dash|/bin/sh|/bin/bash)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "gotty starts an HTTP terminal server exposing a shell via browser. Any reachable host gets an interactive web-based shell. MITRE T1219, T1071.001."
+
+  # ==========================================================================
   # Wildcard Injection via Filename-to-Flag Expansion
   # ==========================================================================
   #
