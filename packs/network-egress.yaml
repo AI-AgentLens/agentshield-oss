@@ -1398,3 +1398,104 @@ rules:
     decision: "AUDIT"
     confidence: 0.65
     reason: "Long sleep (300+ seconds) chained with another command — may be benign (wait for service) but long delays before follow-up commands are unusual and warrant review. MITRE T1029."
+
+  # ============================================================
+  # DNS / Hosts File Poisoning (taxonomy: persistence-evasion/lateral-movement/dns-hosts-poisoning)
+  # ============================================================
+
+  # --- BLOCK: general /etc/hosts writes ---
+  # Any write to /etc/hosts can redirect DNS resolution for arbitrary domains —
+  # a classic lateral movement and MITM technique (MITRE T1565.001, T1090).
+  # The existing sc-block-ai-hosts-hijack only targets AI API domains; this rule
+  # covers all other /etc/hosts write attempts from an AI agent.
+  # Patterns covered:
+  #   echo '...' >> /etc/hosts
+  #   printf '...' > /etc/hosts
+  #   cat > /etc/hosts
+  #   tee -a /etc/hosts  (no inline redirect needed — tee writes directly)
+  - id: "ne-block-etc-hosts-write"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "(echo|printf|cat)\\b.*(>>|>)\\s*/etc/hosts\\b|\\btee\\b.*\\s/etc/hosts\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Write to /etc/hosts — overrides DNS resolution for arbitrary hostnames, enabling MITM attacks, lateral movement, and credential theft. AI agents have no legitimate need to modify /etc/hosts. MITRE T1565.001, T1090."
+
+  # --- BLOCK: /etc/resolv.conf modification ---
+  # Changing the system nameserver redirects all DNS queries to an attacker-controlled
+  # resolver, enabling DNS spoofing and exfiltration (MITRE T1565.001).
+  # Patterns covered:
+  #   echo 'nameserver ...' > /etc/resolv.conf
+  #   tee /etc/resolv.conf  (no redirect needed — tee writes directly)
+  - id: "ne-block-resolv-conf-write"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "(echo|printf|cat)\\b.*(>>|>)\\s*/etc/resolv\\.conf\\b|\\btee\\b.*\\s/etc/resolv\\.conf\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001."
+
+  # --- BLOCK: ARP/DNS poisoning tools ---
+  # arpspoof, bettercap, ettercap, Responder, and dnsspoof are dedicated MITM and
+  # credential-harvesting attack tools — no legitimate development use case.
+  - id: "ne-block-arp-dns-poisoning-tools"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "\\b(arpspoof|bettercap|ettercap|dnsspoof|Responder\\.py|responder)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040."
+
+  # ============================================================
+  # Packet Capture (taxonomy: reconnaissance/network-discovery/packet-capture)
+  # ============================================================
+
+  # --- BLOCK: tcpdump live interface capture ---
+  # tcpdump with -i <interface> captures all network traffic, including plaintext
+  # credentials, session tokens, and sensitive protocol data (MITRE T1040).
+  # Reading an existing file (-r) is benign offline analysis — excluded via
+  # command_regex_exclude. Go regexp does not support lookaheads, so we use
+  # the built-in exclusion field instead.
+  - id: "ne-block-tcpdump-live-capture"
+    taxonomy: "reconnaissance/network-discovery/packet-capture"
+    match:
+      command_regex: "\\btcpdump\\b.*\\s-i\\s"
+      command_regex_exclude: "\\btcpdump\\b.*\\s-r\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "tcpdump live interface capture detected (-i without -r). Captures all traffic on the interface, including plaintext credentials and session tokens. AI agents must not perform live packet capture. MITRE T1040."
+
+  # --- BLOCK: tshark live interface capture ---
+  # tshark is the CLI frontend for Wireshark — same risk profile as tcpdump when
+  # used with -i <interface> for live capture. Reading files (-r) is excluded.
+  - id: "ne-block-tshark-live-capture"
+    taxonomy: "reconnaissance/network-discovery/packet-capture"
+    match:
+      command_regex: "\\btshark\\b.*\\s-i\\s"
+      command_regex_exclude: "\\btshark\\b.*\\s-r\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "tshark live interface capture detected (-i without -r). Captures and dissects all traffic on the interface. AI agents must not perform live packet capture. MITRE T1040."
+
+  # --- BLOCK: dumpcap live interface capture ---
+  # dumpcap is Wireshark's low-level capture engine, always used for live capture
+  # when invoked with -i. No legitimate AI agent workflow requires live capture.
+  - id: "ne-block-dumpcap-live-capture"
+    taxonomy: "reconnaissance/network-discovery/packet-capture"
+    match:
+      command_regex: "\\bdumpcap\\b.*\\s-i\\s"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040."
+
+  # --- AUDIT: wireshark invoked from shell ---
+  # Launching Wireshark from a shell with -i is rare and always suspicious in an
+  # automated agent context. AUDIT rather than BLOCK to avoid breaking legitimate
+  # developer workflow that opens the GUI for offline analysis.
+  - id: "ne-audit-wireshark-live"
+    taxonomy: "reconnaissance/network-discovery/packet-capture"
+    match:
+      command_regex: "\\bwireshark\\b.*\\s-i\\s"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040."

@@ -2167,12 +2167,12 @@ var ModelEndpointHijackingCases = []TestCase{
 	{
 		ID:               "TN-ENDPTHIJACK-004",
 		Command:          `echo '127.0.0.1 myapp.local' >> /etc/hosts`,
-		ExpectedDecision: "ALLOW",
-		Classification:   "TN",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
 		Analyzer:         "regex",
-		Description:      "Appending non-AI domain to /etc/hosts — sc-block-ai-hosts-hijack should not fire on myapp.local.",
-		Tags:             []string{"tn", "safe", "hosts-non-ai"},
+		Description:      "Appending non-AI domain to /etc/hosts — now correctly blocked by ne-block-etc-hosts-write (general hosts write rule added in issue #512). sc-block-ai-hosts-hijack does not fire, but general rule does.",
+		Tags:             []string{"tp", "hosts-write", "lateral-movement"},
 	},
 
 	// ── Inference-Time Backdoor Activation ────────────────────────────────
