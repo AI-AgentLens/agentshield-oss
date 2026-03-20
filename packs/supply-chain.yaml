@@ -1093,6 +1093,69 @@ rules:
     confidence: 0.80
     reason: "Writing to $GITHUB_STEP_SUMMARY injects Markdown content into the GitHub Actions workflow summary — can exfiltrate data as visible CI output or embed misleading content for human reviewers. Agent-generated writes warrant human review. MITRE T1611, OWASP LLM08."
 
+  # ===================================================================
+  # Azure DevOps Pipeline Logging Command Injection (##vso[...])
+  # Taxonomy: supply-chain/build-pipeline/cicd-config-injection
+  # OWASP LLM08 (Weak Guardrails); MITRE T1611, T1574.007
+  # ===================================================================
+  #
+  # Azure DevOps uses special "logging commands" prefixed with ##vso[...]
+  # in task stdout to communicate with the pipeline agent host. An AI agent
+  # running inside an ADO pipeline step can inject these commands into its
+  # own output to influence subsequent pipeline steps.
+  #
+  # High-risk logging commands:
+  #   ##vso[task.setvariable variable=NAME;issecret=false]VALUE
+  #     → sets a pipeline variable for all subsequent tasks in the job
+  #   ##vso[task.prependpath]/tmp/evil/bin
+  #     → prepends a directory to $PATH for all subsequent tasks (T1574.007)
+  #   ##vso[task.uploadfile]/etc/passwd
+  #     → uploads an arbitrary local file as a pipeline attachment
+  #   ##vso[task.addattachment type=log;name=exfil]/tmp/stolen
+  #     → attaches arbitrary file as a diagnostic log artifact
+  #
+  # Similar to $GITHUB_ENV/$GITHUB_PATH, but specific to Azure DevOps.
+  # Used in enterprise environments — often connects to Azure resources
+  # with managed identity credentials (high blast radius).
+  #
+  # TP examples (malicious):
+  #   echo "##vso[task.prependpath]/tmp/evil/bin"
+  #   printf "##vso[task.setvariable variable=TOKEN]$(cat ~/.ssh/id_rsa)"
+  #   echo "##vso[task.uploadfile]/etc/shadow"
+  #   echo '##vso[task.addattachment type=log;name=creds]/tmp/stolen'
+  #
+  # TN examples (legitimate or read-only):
+  #   echo "##vso[task.logmessage]Build completed"      (audit log message)
+  #   echo "##[command]make build"                      (section marker)
+  #   echo "##vso[build.updatebuildnumber]1.0.0"        (version update, no path/var)
+
+  # --- BLOCK: ##vso[task.prependpath] — PATH poisoning ---
+  - id: "sc-block-ado-prependpath"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "##vso\\[task\\.prependpath\\]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Azure DevOps pipeline logging command ##vso[task.prependpath] prepends a directory to $PATH for all subsequent pipeline tasks — enables malicious binary substitution (PATH hijacking) without modifying version-controlled files. ADO equivalent of $GITHUB_PATH injection. MITRE T1574.007, OWASP LLM08."
+
+  # --- AUDIT: ##vso[task.setvariable] — variable injection ---
+  - id: "sc-audit-ado-setvariable"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "##vso\\[task\\.setvariable\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Azure DevOps pipeline logging command ##vso[task.setvariable] sets a variable for all subsequent tasks in the job/stage. Can override deployment targets, approval variables, or inject attacker-controlled values into downstream logic. ADO equivalent of $GITHUB_ENV injection. MITRE T1611, OWASP LLM08."
+
+  # --- AUDIT: ##vso[task.uploadfile] / ##vso[task.addattachment] --- file exfiltration
+  - id: "sc-audit-ado-uploadfile"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "##vso\\[task\\.(uploadfile|addattachment)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Azure DevOps pipeline logging commands ##vso[task.uploadfile] and ##vso[task.addattachment] upload local files as pipeline artifacts or diagnostic attachments — can exfiltrate arbitrary files by attaching them to the pipeline run. MITRE T1567, OWASP LLM08."
+
   # === BLOCK: Build tool variable command injection ===
   #
   # Build tools (make, cmake) accept variable overrides on the command line and
