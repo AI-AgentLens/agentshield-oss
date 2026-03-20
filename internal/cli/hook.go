@@ -128,7 +128,7 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 
 	// Also capture raw tool_input for MCP argument parsing
 	var raw rawHookInput
-	json.Unmarshal(data, &raw)
+	_ = json.Unmarshal(data, &raw)
 
 	// Auto-detect IDE format based on input fields.
 	// Claude Code sends {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {...}}.
@@ -379,7 +379,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage) erro
 	// Parse tool_input as map for MCP evaluation
 	var arguments map[string]interface{}
 	if len(rawToolInput) > 0 {
-		json.Unmarshal(rawToolInput, &arguments)
+		_ = json.Unmarshal(rawToolInput, &arguments)
 	}
 
 	// Load MCP packs with an empty base policy (LoadMCPPacks requires non-nil base).
@@ -430,7 +430,7 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 	if err != nil {
 		return
 	}
-	defer auditLogger.Close()
+	defer func() { _ = auditLogger.Close() }()
 
 	event := logger.AuditEvent{
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -442,7 +442,7 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		Reasons:        result.Reasons,
 		Source:         "claude-code-mcp-hook",
 	}
-	auditLogger.Log(event)
+	_ = auditLogger.Log(event)
 }
 
 // handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
