@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (838 terminal rules, 127 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 836 |
+| Terminal rules | 838 |
 | MCP rules | 127 |
-| Total rules | 963 |
-| Test cases (TP+TN) | 2748 |
+| Total rules | 965 |
+| Test cases (TP+TN) | 2762 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -315,7 +310,7 @@
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
 
-### governance-risk (15 rules)
+### governance-risk (17 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -327,6 +322,8 @@
 | `ts-audit-ai-privilege-escalation` | AUDIT | regex | Sub-agent granted expanded permissions beyond the parent agent's scope (permissions=parent.permissions+['admin'], permissions=['*'], inherit_all=True). Capability amplification through agent delegation enables privilege escalation within multi-agent systems — violates the least-privilege principle and NIST AI RMF GOVERN-6 requirements for bounded agent delegation (OWASP LLM06, CWE-269, EU AI Act Art.14). |
 | `ts-audit-ai-finetune-launch` | AUDIT | regex | AI fine-tuning job launched without authorization check. Fine-tuning LLMs processes training data (potential PII/confidential content — EU AI Act Art.10), creates unreviewed model artifacts (Art.13/NIST GOVERN-6), and incurs unbounded compute costs. A prompt-injected agent may launch fine-tuning to create a backdoored model variant. Verify training data provenance, budget approval, and model governance sign-off before proceeding (OWASP LLM02/LLM06, CWE-285). |
 | `ts-audit-ai-model-publish` | AUDIT | regex | AI model artifact uploaded to a public registry without governance review. Publishing model weights may expose proprietary fine-tuning data or PII embedded in model parameters (OWASP LLM02, EU AI Act Art.13). No model card, risk assessment, or IP review documented. Verify organizational approval and data classification before publishing (CWE-200, NIST AI RMF GOVERN-6). |
+| `ts-audit-ai-endpoint-deploy` | AUDIT | regex | AI model inference endpoint being created or provisioned (AWS SageMaker, Vertex AI, Azure ML, AWS Bedrock provisioned throughput). This deploys a live AI system outside the governance review pipeline — no model card, risk assessment, or organizational AI inventory registration is documented. May expose models trained on PII or proprietary data and incur unbounded cloud costs. Verify governance approval, model card completion, and cost authorization before proceeding (EU AI Act Art.9/Art.13, NIST AI RMF GOVERN-1, OWASP LLM06, CWE-285). |
+| `ts-audit-ai-endpoint-public-access` | AUDIT | regex | Granting public or unauthenticated access to an AI inference endpoint (Vertex AI, Cloud Run AI service, SageMaker, Azure ML) creates a shadow AI deployment — the model becomes accessible to any external party without attribution, rate limiting, or prompt injection controls. Creates an unregistered public AI system under EU AI Act Art.26, violates data minimization principles, and exposes the model to extraction and adversarial prompting (OWASP LLM06/LLM08, CWE-284, NIST AI RMF GOVERN-1). |
 | `ts-block-aws-bedrock-logging-delete` | BLOCK | regex | Deletes the AWS Bedrock model invocation logging configuration — all subsequent AI model calls will be unaudited. Eliminates the forensic trail required for AI incident detection, EU AI Act Art.9 post-market monitoring, and SOC 2 CC7.2 threat response. Prompt-injected agents may issue this command to hide subsequent malicious interactions (NIST AI RMF MANAGE-4, CWE-778). |
 | `ts-audit-aws-bedrock-logging-disable` | AUDIT | regex | Reconfiguring AWS Bedrock invocation logging to disable text/image/embedding data delivery degrades the AI audit trail. May be legitimate capacity management but reduces visibility into model inputs/outputs, hindering incident forensics and EU AI Act Art.15 post-market monitoring compliance (NIST AI RMF MANAGE-4). |
 | `ts-audit-aws-logs-delete-bedrock-group` | AUDIT | regex | Deleting the CloudWatch log group that receives AWS Bedrock invocation logs destroys the historical AI audit trail and prevents future log delivery. Impacts EU AI Act Art.9 post-market monitoring, SOC 2 CC7.1 detection controls, and incident forensics capability (CWE-778, NIST AI RMF MANAGE-4). |
@@ -1095,6 +1092,6 @@
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 165 | 69 | 234 |
 | supply-chain | 157 | 100 | 257 |
-| unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1705** | **1043** | **2748** |
+| unauthorized-execution | 283 | 195 | 478 |
+| **Total** | **1714** | **1048** | **2762** |
 
