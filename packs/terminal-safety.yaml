@@ -6509,6 +6509,30 @@ rules:
     confidence: 0.87
     reason: "find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592."
 
+  # === AUDIT: Chained ls enumeration of credential directories (issue #568) ===
+  #
+  # Taxonomy: reconnaissance/llm-introspection/agent-capability-enumeration
+  # OWASP LLM01 — Prompt Injection (attacker-controlled recon), LLM06 — Excessive Agency
+  # MITRE T1083 — File and Directory Discovery, T1592 — Gather Victim Host Information
+  #
+  # Before exfiltrating credentials an attacker maps which credential stores exist.
+  # The pattern is 2+ ls commands on distinct credential directories within a single
+  # compound command (;, &&, ||), e.g.:
+  #   ls ~/.ssh/ 2>/dev/null; ls ~/.aws/ 2>/dev/null; ls ~/.gnupg/ 2>/dev/null
+  #   ls -la ~/.ssh && ls -la ~/.kube && ls -la ~/.aws
+  #   ls ~/.config/gcloud 2>/dev/null; ls ~/.azure 2>/dev/null
+  #
+  # A single `ls ~/.ssh` is a legitimate developer operation (TN); the compound
+  # multi-directory chain is the high-confidence signal.
+  #
+  - id: "ts-audit-credential-dir-ls-chain"
+    taxonomy: "reconnaissance/llm-introspection/agent-capability-enumeration"
+    match:
+      command_regex: "ls\\b[^;&|]*(\\.ssh|\\.aws|\\.gnupg|\\.kube|\\.azure|\\.config/gcloud|credentials)[^;&|]*(;|&&|\\|\\|)[^;&|]*ls\\b[^;&|]*(\\.ssh|\\.aws|\\.gnupg|\\.kube|\\.azure|\\.config/gcloud|credentials)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Chained ls on 2+ credential directories in a single compound command — systematic enumeration of available credential stores is a pre-exfiltration reconnaissance step. OWASP LLM01, MITRE T1083/T1592."
+
   # ── Agent Credential Scope Abuse ────────────────────────────────────────────
   #
   # Taxonomy: privilege-escalation/agent-containment/agent-credential-scope-abuse
