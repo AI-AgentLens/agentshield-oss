@@ -705,6 +705,59 @@ rules:
     confidence: 0.88
     reason: "pip install --target/--prefix to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside virtual environment isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829."
 
+  # === AUDIT: npm/yarn/pnpm install to volatile/writable paths (issue #572) ===
+  #
+  # Mirrors pip volatile target pattern (#570). An AI agent directed to install
+  # a package "temporarily" into /tmp or /dev/shm avoids persistent disk trace
+  # after reboot (/dev/shm is memory-mapped), bypassing forensic detection.
+  #
+  # npm uses --prefix <dir>, yarn v1 uses --modules-folder <dir>,
+  # pnpm uses --dir <dir>.
+  #
+  # Examples:
+  #   npm install --prefix /tmp/payloads lodash
+  #   yarn add --modules-folder /dev/shm/libs axios
+  #   pnpm install --dir /var/tmp/cache express
+  - id: "sc-audit-npm-volatile-prefix"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "(npm\\s+(install|i|add)|yarn\\s+add|pnpm\\s+(install|add))\\b[^;&|]*(--prefix|--modules-folder|--dir)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/shm/|/run/user/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "npm/yarn/pnpm install with --prefix/--modules-folder/--dir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside project isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829."
+
+  # === AUDIT: gem install to volatile/writable paths (issue #572) ===
+  #
+  # gem install --install-dir /tmp/evil <pkg> or --bindir /tmp/evil <pkg>
+  # installs the gem and its executables into a volatile directory.
+  #
+  # Examples:
+  #   gem install --install-dir /tmp/gems evil-pkg
+  #   gem install --bindir /dev/shm/bin evil-pkg
+  - id: "sc-audit-gem-volatile-install-dir"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "gem\\s+install\\b[^;&|]*(--install-dir|--bindir)\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/shm/|/run/user/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "gem install --install-dir/--bindir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs gems outside system gem isolation — no disk trace after reboot (/dev/shm). MITRE T1195.001, CWE-829."
+
+  # === AUDIT: cargo install to volatile/writable paths (issue #572) ===
+  #
+  # cargo install --root /tmp/tools <crate> installs a Rust binary to a
+  # custom volatile root instead of ~/.cargo/bin, evading persistence detection.
+  #
+  # Examples:
+  #   cargo install --root /tmp/tools sccache
+  #   cargo install --root /dev/shm/bins evil-crate
+  - id: "sc-audit-cargo-volatile-root"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "cargo\\s+install\\b[^;&|]*--root\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/shm/|/run/user/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "cargo install --root to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs Rust binaries outside ~/.cargo/bin — no disk trace after reboot (/dev/shm), evades persistence detection. MITRE T1195.001, CWE-829."
+
   # === AUDIT: yarn and pnpm global installs ===
   # yarn v1 uses 'yarn global add <pkg>' and 'yarn add --global <pkg>'.
   # pnpm uses 'pnpm add -g <pkg>' or 'pnpm install -g <pkg>'.

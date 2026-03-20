@@ -3536,4 +3536,179 @@ var BrewTapCases = []TestCase{
 		Description:      "Standard pip install to venv/site-packages — no --target flag, no volatile path. Caught as AUDIT by sc-audit-pip-install (standard install rule).",
 		Tags:             []string{"tn", "safe", "pip", "standard-install"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// npm/yarn/pnpm install to volatile paths (issue #572)
+	// Taxonomy: supply-chain/package-install/global-package-install
+	// Rule: sc-audit-npm-volatile-prefix
+	// ---------------------------------------------------------------------------
+
+	// TP-1: npm install --prefix /tmp/payloads
+	{
+		ID:               "TP-SC-NPM-VOLATILE-001",
+		Command:          `npm install --prefix /tmp/payloads lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "npm install --prefix /tmp — installs package outside project isolation to world-writable /tmp; enables covert dependency injection.",
+		Tags:             []string{"tp", "npm", "volatile-path", "supply-chain"},
+	},
+	// TP-2: npm install --prefix /dev/shm — fileless install to RAM filesystem
+	{
+		ID:               "TP-SC-NPM-VOLATILE-002",
+		Command:          `npm install --prefix /dev/shm/cache axios`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "npm install --prefix /dev/shm — installs to RAM filesystem; no disk trace after reboot. Fileless supply chain evasion.",
+		Tags:             []string{"tp", "npm", "volatile-path", "supply-chain", "fileless"},
+	},
+	// TP-3: yarn add --modules-folder /tmp
+	{
+		ID:               "TP-SC-NPM-VOLATILE-003",
+		Command:          `yarn add --modules-folder /tmp/yarn-libs express`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "yarn add --modules-folder /tmp — installs yarn package to volatile /tmp directory; same risk as npm --prefix to volatile path.",
+		Tags:             []string{"tp", "yarn", "volatile-path", "supply-chain"},
+	},
+	// TP-4: pnpm install --dir /var/tmp
+	{
+		ID:               "TP-SC-NPM-VOLATILE-004",
+		Command:          `pnpm install --dir /var/tmp/pnpm-store fast-xml-parser`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "pnpm install --dir /var/tmp — installs to /var/tmp which is world-writable and may survive reboots.",
+		Tags:             []string{"tp", "pnpm", "volatile-path", "supply-chain"},
+	},
+	// TN-1: npm install --prefix to local project directory
+	{
+		ID:               "TN-SC-NPM-VOLATILE-001",
+		Command:          `npm install --prefix ./local_modules lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "npm install --prefix ./local_modules — relative path inside project; not a volatile path. Gets AUDIT from standard install rule.",
+		Tags:             []string{"tn", "safe", "npm", "local-path"},
+	},
+	// TN-2: npm install without --prefix
+	{
+		ID:               "TN-SC-NPM-VOLATILE-002",
+		Command:          `npm install react react-dom`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "Standard npm install to local node_modules — no --prefix flag, no volatile path. Caught as AUDIT by sc-audit-npm-install.",
+		Tags:             []string{"tn", "safe", "npm", "standard-install"},
+	},
+
+	// ---------------------------------------------------------------------------
+	// gem install to volatile paths (issue #572)
+	// Taxonomy: supply-chain/package-install/global-package-install
+	// Rule: sc-audit-gem-volatile-install-dir
+	// ---------------------------------------------------------------------------
+
+	// TP-1: gem install --install-dir /tmp
+	{
+		ID:               "TP-SC-GEM-VOLATILE-001",
+		Command:          `gem install --install-dir /tmp/gems evil-pkg`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "gem install --install-dir /tmp — installs gem to volatile /tmp directory, bypassing system gem isolation.",
+		Tags:             []string{"tp", "gem", "volatile-path", "supply-chain"},
+	},
+	// TP-2: gem install --bindir /dev/shm — executables to RAM filesystem
+	{
+		ID:               "TP-SC-GEM-VOLATILE-002",
+		Command:          `gem install --bindir /dev/shm/bin malicious-gem`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "gem install --bindir /dev/shm/bin — places gem executables in RAM filesystem; no trace after reboot. Fileless evasion.",
+		Tags:             []string{"tp", "gem", "volatile-path", "supply-chain", "fileless"},
+	},
+	// TN-1: gem install --install-dir to user home directory
+	{
+		ID:               "TN-SC-GEM-VOLATILE-001",
+		Command:          `gem install --install-dir /home/user/.gems rails`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "gem install --install-dir /home/user/.gems — user home directory is not volatile; normal per-user gem isolation. Gets AUDIT from sc-audit-gem-install.",
+		Tags:             []string{"tn", "safe", "gem", "home-dir"},
+	},
+	// TN-2: gem install without path flags
+	{
+		ID:               "TN-SC-GEM-VOLATILE-002",
+		Command:          `gem install bundler rake`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "Standard gem install — no --install-dir or --bindir flag. Caught as AUDIT by sc-audit-gem-install.",
+		Tags:             []string{"tn", "safe", "gem", "standard-install"},
+	},
+
+	// ---------------------------------------------------------------------------
+	// cargo install to volatile paths (issue #572)
+	// Taxonomy: supply-chain/package-install/global-package-install
+	// Rule: sc-audit-cargo-volatile-root
+	// ---------------------------------------------------------------------------
+
+	// TP-1: cargo install --root /tmp
+	{
+		ID:               "TP-SC-CARGO-VOLATILE-001",
+		Command:          `cargo install --root /tmp/tools sccache`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "cargo install --root /tmp — installs Rust binary to volatile /tmp instead of ~/.cargo/bin; evades persistence detection.",
+		Tags:             []string{"tp", "cargo", "volatile-path", "supply-chain"},
+	},
+	// TP-2: cargo install --root /dev/shm — binary to RAM filesystem
+	{
+		ID:               "TP-SC-CARGO-VOLATILE-002",
+		Command:          `cargo install --root /dev/shm/bins evil-crate`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "cargo install --root /dev/shm — installs Rust binary to RAM filesystem; no disk trace after reboot. Fileless evasion.",
+		Tags:             []string{"tp", "cargo", "volatile-path", "supply-chain", "fileless"},
+	},
+	// TN-1: cargo install --root to user directory
+	{
+		ID:               "TN-SC-CARGO-VOLATILE-001",
+		Command:          `cargo install --root /home/user/.local ripgrep`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "cargo install --root /home/user/.local — user home directory is not volatile; normal custom install path. Gets AUDIT from sc-audit-cargo-install.",
+		Tags:             []string{"tn", "safe", "cargo", "home-dir"},
+	},
+	// TN-2: cargo install without --root
+	{
+		ID:               "TN-SC-CARGO-VOLATILE-002",
+		Command:          `cargo install ripgrep fd-find`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "Standard cargo install to ~/.cargo/bin — no --root flag, no volatile path. Caught as AUDIT by sc-audit-cargo-install.",
+		Tags:             []string{"tn", "safe", "cargo", "standard-install"},
+	},
 }
