@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 828 |
+| Terminal rules | 836 |
 | MCP rules | 127 |
-| Total rules | 955 |
-| Test cases (TP+TN) | 2728 |
+| Total rules | 963 |
+| Test cases (TP+TN) | 2748 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -335,7 +335,7 @@
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (122 rules)
+### persistence-evasion (126 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -404,6 +404,10 @@
 | `ts-block-exec-shell-norc` | BLOCK | regex | exec replacing the current shell with one that skips init files — bypasses .bashrc hooks, PROMPT_COMMAND monitoring, and shell-level security wrappers while keeping the same PID (invisible in ps). MITRE T1562.001. |
 | `ts-block-exec-fd-credential` | BLOCK | regex | exec opening a credential or sensitive file via file descriptor — reads sensitive data through an FD handle that may bypass path-based monitoring. The FD persists for later reads via cat <&N. CWE-200. |
 | `ts-audit-exec-fd-redirect` | AUDIT | regex | exec with numeric file descriptor redirect — may be used for covert channels, sensitive file access, or network connections via /dev/tcp. Auditing for review. |
+| `ts-block-tmate-session` | BLOCK | regex | tmate creates a shareable SSH terminal session via tmate.io. An AI agent running tmate hands an attacker a full interactive shell with agent-level privileges. No legitimate use in agent contexts. MITRE T1219. |
+| `ts-block-upterm-host` | BLOCK | regex | upterm host/session creates an SSH-accessible shared terminal session. Functionally equivalent to tmate — provides an attacker with full PTY access to the agent's terminal. MITRE T1219. |
+| `ts-block-ttyd-shell` | BLOCK | regex | ttyd starts an HTTP terminal server exposing a shell via browser. Any host that can reach the listening port gets an interactive shell. MITRE T1219, T1071.001. |
+| `ts-block-gotty-shell` | BLOCK | regex | gotty starts an HTTP terminal server exposing a shell via browser. Any reachable host gets an interactive web-based shell. MITRE T1219, T1071.001. |
 | `ts-block-git-config-sshcommand` | BLOCK | regex | git config core.sshCommand replaces the SSH binary for all remote git operations — attacker can execute arbitrary commands on every push/pull/fetch. MITRE T1574. |
 | `ts-block-git-config-pager` | BLOCK | regex | git config core.pager replaces the pager command for git log/diff/show — runs arbitrary command every time output is paged. MITRE T1574. |
 | `ts-block-git-config-fsmonitor` | BLOCK | regex | git config core.fsmonitor sets a command that runs automatically on every git status — persistent background code execution. CVE-2022-24765 abused this. MITRE T1546. |
@@ -655,7 +659,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (92 rules)
+### supply-chain (96 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -691,6 +695,10 @@
 | `sc-audit-go-get` | AUDIT | prefix | Go module fetch flagged for supply-chain review. |
 | `sc-audit-cargo-install` | AUDIT | prefix | Cargo package install flagged for supply-chain review. |
 | `sc-audit-gem-install` | AUDIT | prefix | RubyGems install flagged for supply-chain review. |
+| `sc-audit-uv-install` | AUDIT | prefix | uv package install — uv is a fast Python package manager used heavily by AI agents. Package installs introduce unreviewed third-party code. MITRE T1195.001. |
+| `sc-audit-uv-tool-run` | AUDIT | prefix | uv ephemeral/tool execution — 'uv run --with pkg' executes PyPI packages transiently without a permanent install record. 'uvx' runs tools without installing. 'uv tool install' adds tools globally. All introduce unreviewed code execution. MITRE T1195.001. |
+| `sc-audit-bun-install` | AUDIT | prefix | bun package install — bun is an npm-compatible package manager. Package installs introduce unreviewed third-party code; 'bun x' provides ephemeral execution similar to npx. MITRE T1195.001. |
+| `sc-audit-deno-install` | AUDIT | prefix | deno package install/run — deno executes TypeScript modules from arbitrary URLs without a central registry. 'deno run <url>' fetches and executes remote code directly. MITRE T1195.001. |
 | `sc-block-lockfile-overwrite` | BLOCK | regex | Direct shell write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001. |
 | `sc-audit-lockfile-edit` | AUDIT | regex | Lock file modification flagged — may indicate supply-chain tampering. MITRE T1195.001. |
 | `sc-block-ml-dataset-write` | BLOCK | regex | Writing to ML training dataset files blocked. May introduce poisoned examples into fine-tuning pipeline (LLM04). |
@@ -1083,10 +1091,10 @@
 | credential-exposure | 221 | 158 | 379 |
 | data-exfiltration | 225 | 131 | 356 |
 | destructive-ops | 128 | 82 | 210 |
-| persistence-evasion | 260 | 147 | 407 |
+| persistence-evasion | 266 | 149 | 415 |
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 165 | 69 | 234 |
-| supply-chain | 149 | 96 | 245 |
+| supply-chain | 157 | 100 | 257 |
 | unauthorized-execution | 274 | 190 | 464 |
-| **Total** | **1691** | **1037** | **2728** |
+| **Total** | **1705** | **1043** | **2748** |
 
