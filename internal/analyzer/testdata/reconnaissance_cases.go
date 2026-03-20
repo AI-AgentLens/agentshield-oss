@@ -2450,4 +2450,98 @@ var FindCredentialHuntingCases = []TestCase{
 		Description:      "find . searching for text files — project-local scope, non-credential extension. Completely benign.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ===========================================================
+	// Packet Capture (issue #513)
+	// taxonomy: reconnaissance/network-discovery/packet-capture
+	// ===========================================================
+
+	// TP: tcpdump live capture
+	{
+		ID:               "TP-NE-BLOCK-TCPDUMP-LIVE-001",
+		Command:          "tcpdump -i eth0 -nn -w /tmp/capture.pcap",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tcpdump live capture on eth0 writing to a pcap file — captures all interface traffic.",
+		Tags:             []string{"tp", "packet-capture", "tcpdump"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-TCPDUMP-LIVE-002",
+		Command:          "tcpdump -i any port 80",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tcpdump live capture on all interfaces filtering port 80.",
+		Tags:             []string{"tp", "packet-capture", "tcpdump"},
+	},
+
+	// TP: tshark live capture
+	{
+		ID:               "TP-NE-BLOCK-TSHARK-LIVE-001",
+		Command:          "tshark -i any -T fields -e http.authorization",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tshark live capture extracting HTTP Authorization headers — credential harvesting via packet capture.",
+		Tags:             []string{"tp", "packet-capture", "tshark", "credential-harvesting"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-TSHARK-LIVE-002",
+		Command:          "tshark -i eth0 -w /tmp/out.pcap",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tshark live capture on eth0 writing to pcap.",
+		Tags:             []string{"tp", "packet-capture", "tshark"},
+	},
+
+	// TP: dumpcap live capture
+	{
+		ID:               "TP-NE-BLOCK-DUMPCAP-LIVE-001",
+		Command:          "dumpcap -i eth0 -w out.pcap",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "dumpcap live capture on eth0 — Wireshark's capture engine performing network sniffing.",
+		Tags:             []string{"tp", "packet-capture", "dumpcap"},
+	},
+
+	// TN: reading existing capture files (offline analysis) — default AUDIT since no
+	// explicit ALLOW rule exists for these tools; the key invariant is they are NOT blocked.
+	{
+		ID:               "TN-NE-BLOCK-TCPDUMP-LIVE-001",
+		Command:          "tcpdump -r existing.pcap",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tcpdump reading an existing pcap file (-r only, no -i) — offline analysis, excluded from live-capture block rule. Gets default AUDIT (not BLOCK).",
+		Tags:             []string{"tn", "safe", "packet-capture"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-TSHARK-LIVE-001",
+		Command:          "tshark -r capture.pcap -Y dns",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "tshark reading existing pcap file (-r only, no -i) — offline DNS filter analysis. Excluded from live-capture block rule. Gets default AUDIT (not BLOCK).",
+		Tags:             []string{"tn", "safe", "packet-capture"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-TCPDUMP-LIVE-002",
+		Command:          "grep -r 'eth0' /etc/network/interfaces",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/packet-capture",
+		Analyzer:         "regex",
+		Description:      "grep reading network interface config — read-only, explicitly allowed by ts-allow-readonly. Not packet capture.",
+		Tags:             []string{"tn", "safe"},
+	},
 }

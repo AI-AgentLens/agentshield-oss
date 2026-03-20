@@ -4554,4 +4554,117 @@ var AIOutputAccountabilityBypassCases = []TestCase{
 		Description:      "grep searching ai_output.log — read-only search, no modification of accountability record.",
 		Tags:             []string{"tn", "safe", "ai-governance"},
 	},
+
+	// ===========================================================
+	// DNS / Hosts File Poisoning (issue #512)
+	// taxonomy: persistence-evasion/lateral-movement/dns-hosts-poisoning
+	// ===========================================================
+
+	// TP: /etc/hosts write
+	{
+		ID:               "TP-NE-BLOCK-ETC-HOSTS-WRITE-001",
+		Command:          "echo '10.0.0.1 internal.corp' >> /etc/hosts",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "echo appending a new hostname mapping to /etc/hosts — DNS poisoning for lateral movement.",
+		Tags:             []string{"tp", "dns-poisoning", "lateral-movement"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ETC-HOSTS-WRITE-002",
+		Command:          "tee -a /etc/hosts <<< '192.168.1.100 evil.internal'",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "tee appending a malicious hostname entry to /etc/hosts.",
+		Tags:             []string{"tp", "dns-poisoning"},
+	},
+
+	// TP: /etc/resolv.conf modification
+	{
+		ID:               "TP-NE-BLOCK-RESOLV-CONF-WRITE-001",
+		Command:          "echo 'nameserver 192.168.1.100' > /etc/resolv.conf",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "echo overwriting /etc/resolv.conf with attacker-controlled nameserver.",
+		Tags:             []string{"tp", "dns-poisoning", "resolv-conf"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-RESOLV-CONF-WRITE-002",
+		Command:          "tee /etc/resolv.conf <<< 'nameserver 10.10.10.1'",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "tee overwriting /etc/resolv.conf with a rogue nameserver.",
+		Tags:             []string{"tp", "dns-poisoning"},
+	},
+
+	// TP: ARP/DNS poisoning tools
+	{
+		ID:               "TP-NE-BLOCK-ARP-DNS-TOOLS-001",
+		Command:          "arpspoof -i eth0 -t 192.168.1.1 192.168.1.100",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "arpspoof performing ARP poisoning to intercept traffic between two hosts.",
+		Tags:             []string{"tp", "arp-poisoning", "mitm"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ARP-DNS-TOOLS-002",
+		Command:          "bettercap -iface eth0 -caplet arp-spoof.cap",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "bettercap running an ARP spoof caplet — dedicated MITM attack framework.",
+		Tags:             []string{"tp", "bettercap", "mitm"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-ARP-DNS-TOOLS-003",
+		Command:          "responder -I eth0 -wrf",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Responder performing LLMNR/NBT-NS poisoning to harvest NTLM credentials.",
+		Tags:             []string{"tp", "responder", "credential-harvesting"},
+	},
+
+	// TN: Read-only /etc/hosts access and benign DNS tools
+	{
+		ID:               "TN-NE-BLOCK-ETC-HOSTS-WRITE-001",
+		Command:          "cat /etc/hosts",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "cat reading /etc/hosts — read-only access, no modification.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-ETC-HOSTS-WRITE-002",
+		Command:          "cat /etc/resolv.conf",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "cat reading /etc/resolv.conf — read-only access to current nameserver config, no modification.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-ETC-HOSTS-WRITE-003",
+		Command:          "grep 'localhost' /etc/hosts",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "grep searching /etc/hosts — read-only content search.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
