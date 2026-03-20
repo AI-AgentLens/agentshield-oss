@@ -3474,4 +3474,66 @@ var BrewTapCases = []TestCase{
 		Description:      "deno lint --rules lists linter rules — no module install, no network. Must not match sc-audit-deno-install.",
 		Tags:             []string{"tn", "safe", "deno", "lint"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// pip install --target/--prefix to volatile paths (issue #570)
+	// Taxonomy: supply-chain/package-install/global-package-install
+	// Rule: sc-audit-pip-volatile-target
+	// ---------------------------------------------------------------------------
+
+	// TP-1: pip install --target /dev/shm — fileless install to RAM filesystem
+	{
+		ID:               "TP-SC-PIP-VOLATILE-001",
+		Command:          `pip install --target /dev/shm/pylib requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "pip install --target /dev/shm — installs to RAM filesystem, no disk trace after reboot. Fileless supply chain evasion.",
+		Tags:             []string{"tp", "pip", "volatile-path", "supply-chain", "fileless"},
+	},
+	// TP-2: pip3 install -t /tmp/ — install to world-writable /tmp
+	{
+		ID:               "TP-SC-PIP-VOLATILE-002",
+		Command:          `pip3 install -t /tmp/.pylib cryptominer`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "pip3 install -t /tmp — short form --target to world-writable /tmp; enables cross-user path injection if added to sys.path.",
+		Tags:             []string{"tp", "pip", "volatile-path", "supply-chain"},
+	},
+	// TP-3: pip install --prefix /var/tmp/
+	{
+		ID:               "TP-SC-PIP-VOLATILE-003",
+		Command:          `pip install --prefix /var/tmp/fake-system httpx`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "pip install --prefix /var/tmp — installs to /var/tmp which is world-writable and persists across reboots on many distros.",
+		Tags:             []string{"tp", "pip", "volatile-path", "supply-chain"},
+	},
+	// TN-1: pip install --target inside project directory
+	{
+		ID:               "TN-SC-PIP-VOLATILE-001",
+		Command:          `pip install --target ./vendor requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "pip install --target ./vendor — installs to project-local directory; not a volatile path. Gets AUDIT from sc-audit-global-install (npm/pip install), not the volatile rule.",
+		Tags:             []string{"tn", "safe", "pip", "local-vendor"},
+	},
+	// TN-2: pip install without --target flag
+	{
+		ID:               "TN-SC-PIP-VOLATILE-002",
+		Command:          `pip install requests numpy`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/standard-package-install",
+		Analyzer:         "regex",
+		Description:      "Standard pip install to venv/site-packages — no --target flag, no volatile path. Caught as AUDIT by sc-audit-pip-install (standard install rule).",
+		Tags:             []string{"tn", "safe", "pip", "standard-install"},
+	},
 }
