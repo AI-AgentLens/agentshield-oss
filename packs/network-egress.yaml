@@ -117,6 +117,74 @@ rules:
     confidence: 0.97
     reason: "SSH dynamic SOCKS proxy (-D port) routes all traffic through the SSH connection, bypassing network egress controls entirely (LLM06). MITRE T1090.003."
 
+  # === BLOCK/AUDIT: Reverse tunnel tools (ngrok, cloudflared, chisel, frp, bore) ===
+  #
+  # These tools create covert outbound tunnels that bypass firewall rules, expose
+  # internal services to the internet, and enable persistent C2 channels. Unlike
+  # SSH tunnels, they use HTTP/HTTPS and require no inbound access, making them
+  # extremely effective for evasion.
+  #
+  # Threat: prompt injection instructs agent to run `ngrok tcp 22` → attacker
+  # connects to a public ngrok address with full SSH access to the developer's machine.
+  #
+  # Taxonomy: data-exfiltration/network-egress/reverse-tunnel-tool
+  # MITRE: T1572 (Protocol Tunneling), T1090 (Proxy)
+  # OWASP LLM: LLM06 (Excessive Agency), LLM02 (Sensitive Information Disclosure)
+
+  # --- BLOCK: ngrok TCP tunnel (exposes any local service to internet) ---
+  - id: "ne-block-ngrok-tcp"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^ngrok\\s+(tcp|start)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "ngrok TCP tunnel exposes a local service (e.g., SSH on port 22) to the public internet via a random ngrok subdomain. AI agents have no legitimate need to create public TCP tunnels — this is a covert C2/exfiltration channel. MITRE T1572."
+
+  # --- BLOCK: cloudflared tunnel (persistent covert C2 channel) ---
+  - id: "ne-block-cloudflared-tunnel"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^cloudflared\\s+(tunnel\\s+(run|create|route|delete)|service\\s+install)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "cloudflared tunnel commands create persistent Cloudflare Tunnel channels. 'tunnel run' starts a covert C2 channel that survives reboots; 'service install' creates a system daemon. AI agents have no legitimate need to create Cloudflare tunnels. MITRE T1572."
+
+  # --- BLOCK: chisel tunnel (HTTP-based firewall bypass, red-team tool) ---
+  - id: "ne-block-chisel"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^chisel\\s+(server|client)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "chisel is an HTTP-based TCP tunnel designed for firewall bypass, used almost exclusively in red team operations. 'chisel client' with R: prefix creates reverse SOCKS proxies. No legitimate AI agent coding workflow requires chisel. MITRE T1572."
+
+  # --- BLOCK: frp (fast reverse proxy — red team C2 framework) ---
+  - id: "ne-block-frp"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^(frpc|frps)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "frpc/frps is a fast reverse proxy framework used in red team operations to establish persistent C2 channels. No legitimate AI agent coding workflow requires frp. MITRE T1572, T1090."
+
+  # --- BLOCK: bore local (zero-config reverse tunnel, no legitimate dev use) ---
+  - id: "ne-block-bore-local"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^bore\\s+local\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "bore creates zero-config reverse tunnels: 'bore local 22 --to bore.pub' immediately exposes the local SSH daemon to the internet with no credentials. AI agents have no legitimate need to create public reverse tunnels. MITRE T1572."
+
+  # --- AUDIT: ngrok HTTP tunnel (some legitimate webhook dev use) ---
+  - id: "ne-audit-ngrok-http"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^ngrok\\s+http\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "ngrok HTTP tunnel creates a public HTTPS endpoint for a local HTTP server. While sometimes used legitimately for webhook testing, it exposes internal services and should be logged and reviewed. MITRE T1572."
+
   # === AUDIT: SSH connections ===
   - id: "ne-audit-ssh"
     taxonomy: "data-exfiltration/network-egress/lateral-movement-ssh"
