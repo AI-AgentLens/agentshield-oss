@@ -1,0 +1,51 @@
+id: "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Dynamic Library Injection"
+category_id: "4.7"
+name: "LD_PRELOAD / LD_AUDIT Code Injection"
+risk_level: "critical"
+
+abstract: |
+  Setting LD_PRELOAD or LD_AUDIT to a shared library in a writable or
+  world-accessible path before executing any command — injecting arbitrary
+  code into the target process's address space at startup.
+
+explanation: |
+  The GNU dynamic linker (ld.so) loads libraries listed in LD_PRELOAD before
+  all others, allowing injected code to intercept and replace any standard
+  library function (malloc, fopen, getuid, etc.). When used with LD_AUDIT,
+  the injected library receives callbacks for every symbol resolution, giving
+  an attacker complete visibility into all dynamic calls.
+
+  Unlike the privilege-escalation variant (LD_PRELOAD + sudo), this pattern
+  targets arbitrary processes for code execution, data interception, or
+  persistence. Key indicators:
+  - LD_PRELOAD or LD_AUDIT pointing to /tmp, /dev/shm, /var/tmp, or ~/ paths
+  - Inline compilation (gcc -shared -fPIC) followed immediately by LD_PRELOAD
+  - Setting LD_PRELOAD to intercept network calls (libcurl, libssl hooks)
+
+  Attack flow:
+  1. Agent compiles a malicious .so: `gcc -shared -fPIC -o /tmp/hook.so hook.c`
+  2. Sets: `LD_PRELOAD=/tmp/hook.so target_binary`
+  3. target_binary launches with hook.so loaded — all function calls intercepted
+
+recommendation: |
+  - BLOCK LD_PRELOAD/LD_AUDIT pointing to writable paths (/tmp, /dev/shm, home dirs).
+  - BLOCK inline .so compilation immediately followed by LD_PRELOAD use.
+  - AUDIT all other LD_PRELOAD usage — legitimate use in dev/test exists but is rare.
+  - Enforce no-new-privileges (seccomp/AppArmor) to prevent linker env overrides.
+
+examples:
+  bad:
+    - "LD_PRELOAD=/tmp/hook.so curl https://internal-api/secrets"
+    - "gcc -shared -fPIC -o /tmp/evil.so inject.c && LD_PRELOAD=/tmp/evil.so python3 app.py"
+    - "LD_AUDIT=/dev/shm/audit.so ls /etc/shadow"
+  good:
+    - "LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4 ./my-app"
+    - "valgrind --tool=memcheck ./my-app"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.28", "A.5.10"]
