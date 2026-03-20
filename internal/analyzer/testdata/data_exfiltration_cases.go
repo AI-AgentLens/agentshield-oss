@@ -4150,4 +4150,48 @@ var ReverseTunnelToolCases = []TestCase{
 		Description:      "git commit message mentioning printenv|nc as documentation text — git never executes its -m argument as shell. ne-block-env-dump-network must NOT BLOCK (issue #546).",
 		Tags:             []string{"tn", "safe", "fp-fix"},
 	},
+
+	// === kubectl port-forward — internal cluster service tunneling (issue #548) ===
+	// Rule: ts-audit-kubectl-port-forward
+	// Taxonomy: data-exfiltration/network-egress/internal-service-tunneling
+	{
+		ID:               "TP-PORTFWD-001",
+		Command:          `kubectl port-forward pod/postgres-0 5432:5432`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      `kubectl port-forward to a database pod (port 5432) — exposes internal Postgres directly on localhost, bypassing network policies. Enables bulk data extraction without going through ingress or authentication gateways. (ts-audit-kubectl-port-forward)`,
+		Tags:             []string{"tp", "kubernetes", "kubectl", "port-forward", "data-exfiltration"},
+	},
+	{
+		ID:               "TP-PORTFWD-002",
+		Command:          `kubectl port-forward svc/vault 8200:8200 -n vault`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      `kubectl port-forward to HashiCorp Vault service — exposes secret management API on localhost, enabling credential extraction without going through the Vault auth gateway. (ts-audit-kubectl-port-forward)`,
+		Tags:             []string{"tp", "kubernetes", "kubectl", "port-forward", "credential-access"},
+	},
+	{
+		ID:               "TN-PORTFWD-001",
+		Command:          `kubectl get svc -n production`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      `kubectl get svc is a read-only list operation — ts-audit-kubectl-port-forward must not fire on innocuous kubectl commands.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
+	{
+		ID:               "TN-PORTFWD-002",
+		Command:          `kubectl apply -f deployment.yaml`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/internal-service-probe",
+		Analyzer:         "regex",
+		Description:      `kubectl apply is a manifest deployment command — ts-audit-kubectl-port-forward must not fire on non-port-forward kubectl subcommands.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
 }
