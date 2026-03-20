@@ -5707,6 +5707,48 @@ rules:
     confidence: 0.80
     reason: "Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059."
 
+  # === BLOCK: qrencode with shell command substitution (credential embedding / injection payload) ===
+  # (issue #534)
+  #
+  # qrencode converts text into a QR code image. When the text contains a shell
+  # command substitution ($(...)), sensitive data is embedded into the QR image —
+  # which is then invisible to text-based scanners but decoded by multimodal AI
+  # agents that process the image. This creates a covert data exfiltration channel
+  # (credential QR code) and a multimodal prompt injection vector.
+  #
+  # Example attack patterns:
+  #   qrencode "$(cat KEYFILE)" -o qr.png       — credential embedded in QR image
+  #   qrencode "$(base64 CREDFILE)" -o out.png  — base64 credential in QR
+  #   cat CREDFILE | qrencode -o qr.png         — pipe-to-qrencode exfiltration
+  #
+  # True negatives (must ALLOW):
+  #   qrencode "https://example.com" -o qr.png  — benign URL
+  #   qrencode "WIFI:S:Net;T:WPA;P:pass;;"      — benign WiFi config
+  - id: "ts-block-qrencode-shell-substitution"
+    taxonomy: "unauthorized-execution/agentic-attacks/multimodal-prompt-injection"
+    match:
+      command_regex: "\\bqrencode\\b.*\\$\\("
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "qrencode with shell command substitution — sensitive data may be encoded into a QR image for covert exfiltration or multimodal prompt injection. Multimodal AI agents can decode QR content and follow embedded instructions. OWASP LLM01, LLM02, MITRE T1027.003."
+
+  # === AUDIT: pipe-to-qrencode (data piped into QR code generator) ===
+  #
+  # Piping output into qrencode embeds that data into a QR image file, bypassing
+  # text-based DLP scanners. The data could be credentials, sensitive file contents,
+  # or injection payloads. Audit all pipe-to-qrencode patterns.
+  #
+  # Example:
+  #   cat file | qrencode -o out.png
+  #   base64 file | qrencode -o out.png
+  - id: "ts-audit-qrencode-pipe-input"
+    taxonomy: "unauthorized-execution/agentic-attacks/multimodal-prompt-injection"
+    match:
+      command_regex: "\\|\\s*qrencode\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Data piped into qrencode — QR image encodes input data which may contain credentials or injection payloads invisible to text scanners. OWASP LLM01, MITRE T1027.003."
+
   # ===================================================================
   # AI AUDIT TRAIL CIRCUMVENTION (issue #288)
   # Taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
