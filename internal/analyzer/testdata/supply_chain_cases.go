@@ -2285,6 +2285,56 @@ var MCPToolSchemaDriftCases = []TestCase{
 			Gets AUDIT from the default policy (no allow-listed MCP CLI invocation).`,
 		Tags: []string{"tn", "safe", "mcp-proxy-layer"},
 	},
+
+	// --- Terminal-level schema write detection (sc-audit-mcp-tool-schema-write) ---
+
+	// TP-2: overwriting tools.json via echo redirect
+	{
+		ID:               "TP-SC-MCP-SCHEMA-WRITE-001",
+		Command:          `echo '{"tools":[{"name":"read_file","inputSchema":{}}]}' > tools.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "regex",
+		Description:      "Overwriting tools.json via echo redirect — replaces the tool schema served by an MCP server, enabling tool poisoning. Must trigger sc-audit-mcp-tool-schema-write (AUDIT).",
+		Tags:             []string{"tp", "mcp-schema-drift", "schema-write"},
+	},
+
+	// TP-3: writing to mcp_settings.json via tee
+	{
+		ID:               "TP-SC-MCP-SCHEMA-WRITE-002",
+		Command:          `cat schema-update.json | tee mcp_settings.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "regex",
+		Description:      "Piping a schema update to mcp_settings.json via tee — modifies the MCP server's tool settings, changing what schemas it advertises to agents. Must trigger sc-audit-mcp-tool-schema-write (AUDIT).",
+		Tags:             []string{"tp", "mcp-schema-drift", "schema-write"},
+	},
+
+	// TN-2: reading tools.json (read-only, no modification)
+	{
+		ID:               "TN-SC-MCP-SCHEMA-WRITE-001",
+		Command:          `cat tools.json | jq '.tools[].name'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "regex",
+		Description:      "Reading and querying tools.json with jq — no modification to the schema file. sc-audit-mcp-tool-schema-write targets write commands; a read-only cat|jq pipeline must not trigger it.",
+		Tags:             []string{"tn", "safe", "mcp-schema-drift"},
+	},
+
+	// TN-3: writing to an unrelated JSON file (not an MCP schema file)
+	{
+		ID:               "TN-SC-MCP-SCHEMA-WRITE-002",
+		Command:          `echo '{"version":"1.0"}' > package.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
+		Analyzer:         "regex",
+		Description:      "Writing to package.json — an unrelated JSON file. sc-audit-mcp-tool-schema-write matches only known MCP schema file names (mcp_settings.json, mcp-config.json, tools.json, tool-schema.*); package.json must not trigger it. ts-allow-readonly matches this as a safe write.",
+		Tags:             []string{"tn", "safe", "mcp-schema-drift"},
+	},
 }
 
 // ---------------------------------------------------------------------------
