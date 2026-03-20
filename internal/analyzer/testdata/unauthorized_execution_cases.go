@@ -5023,6 +5023,87 @@ var MCPServerImpersonationCases = []TestCase{
 	},
 
 	// ---------------------------------------------------------------------------
+	// Third-Party AI Observability Disable — Incident Response Gap
+	// (ts-audit-ai-monitoring-disable-export, ts-audit-ai-monitoring-disable-persist)
+	//
+	// Disabling third-party AI monitoring tools (LangSmith, Weights & Biases,
+	// LangFuse, Helicone) via env var manipulation erases the forensic audit
+	// trail for AI-driven actions.
+	// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+	// MITRE T1562.001; OWASP LLM06, LLM08; CWE-778; EU AI Act Art.9; NIST GOVERN-6
+	// ---------------------------------------------------------------------------
+
+	// TP-576-001: Disabling LangSmith/LangChain tracing via export
+	{
+		ID:               "TP-AI-MON-DISABLE-001",
+		Command:          "export LANGCHAIN_TRACING_V2=false",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Disabling LangSmith tracing by setting LANGCHAIN_TRACING_V2=false — erases LangChain AI forensic audit trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "monitoring-disable", "langsmith"},
+	},
+	// TP-576-002: Disabling Weights & Biases monitoring via export
+	{
+		ID:               "TP-AI-MON-DISABLE-002",
+		Command:          "export WANDB_MODE=disabled",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Disabling W&B monitoring by setting WANDB_MODE=disabled — removes AI experiment tracking and audit trail. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "monitoring-disable", "wandb"},
+	},
+	// TP-576-003: Persisting LangChain tracing disable to .env file
+	{
+		ID:               "TP-AI-MON-DISABLE-003",
+		Command:          `echo "LANGCHAIN_TRACING_V2=false" >> .env`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Persisting LANGCHAIN_TRACING_V2=false to .env — makes LangSmith monitoring disable durable across sessions. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "monitoring-disable", "langsmith", "persistent"},
+	},
+	// TP-576-004: Persisting W&B disabled flag to .env file
+	{
+		ID:               "TP-AI-MON-DISABLE-004",
+		Command:          `echo "WANDB_DISABLED=true" >> .env`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Persisting WANDB_DISABLED=true to .env — durably disables W&B AI monitoring. Must be AUDIT.",
+		Tags:             []string{"tp", "ai-governance", "monitoring-disable", "wandb", "persistent"},
+	},
+	// TN-576-001: Enabling LangSmith tracing (not disabling — safe direction)
+	// Gets AUDIT from a baseline security audit rule on export commands, but
+	// the monitoring-disable rule itself must NOT fire for a =true value.
+	{
+		ID:               "TN-AI-MON-DISABLE-001",
+		Command:          "export LANGCHAIN_TRACING_V2=true",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Enabling LangSmith tracing (LANGCHAIN_TRACING_V2=true) — opposite direction. My monitoring-disable rule must NOT fire; baseline AUDIT from other rules is expected.",
+		Tags:             []string{"tn", "safe", "ai-governance"},
+	},
+	// TN-576-002: Read-only inspection of tracing env var — gets AUDIT from sec-audit-env-dump
+	// (printenv is an env-dump tool), but the monitoring-disable rule must NOT fire.
+	{
+		ID:               "TN-AI-MON-DISABLE-002",
+		Command:          "printenv LANGCHAIN_TRACING_V2",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		Analyzer:         "regex",
+		Description:      "Read-only env-dump of LANGCHAIN_TRACING_V2 — gets AUDIT from sec-audit-env-dump. My monitoring-disable rule must NOT escalate this to BLOCK.",
+		Tags:             []string{"tn", "safe", "ai-governance"},
+	},
+
+	// ---------------------------------------------------------------------------
 	// Network Pipe to LLM CLI — Prompt Injection Surface (ts-audit-network-pipe-to-llm)
 	//
 	// Piping curl/wget network output directly to LLM CLI tools creates a prompt
