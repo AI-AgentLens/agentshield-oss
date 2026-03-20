@@ -5425,6 +5425,63 @@ rules:
     confidence: 0.96
     reason: "Stopping or disabling the audit daemon (auditd) — eliminates the system audit trail and bypasses all SIEM/SOC monitoring. No legitimate AI coding agent task requires disabling auditd. OWASP LLM06, MITRE T1562.001."
 
+  # === BLOCK: auditctl audit subsystem disable and rule flush (issue #532) ===
+  #
+  # auditctl is the userspace tool for configuring the Linux Audit subsystem
+  # directly via the kernel netlink API (distinct from starting/stopping auditd).
+  # These flags completely blind auditing while the auditd process keeps running:
+  #   auditctl -e 0       — disables the audit subsystem entirely (enabled=0)
+  #   auditctl -D         — deletes ALL audit rules (blanks the policy)
+  #   auditctl --flush    — flushes the audit rule queue (loses in-flight events)
+  #
+  # An AI agent can use auditctl -e 0 to silently disable audit while auditd
+  # appears healthy in `systemctl status` — bypassing ts-block-auditd-disable.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  # MITRE T1562.001 (Impair Defenses: Disable or Modify Tools)
+  - id: "ts-block-auditctl-disable"
+    taxonomy: "unauthorized-execution/agentic-attacks/human-oversight-circumvention"
+    match:
+      command_regex: "\\bauditctl\\s+.*(-e\\s*0|--disable|--enabled\\s+0|-D\\b|--delete-rules|--flush\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "auditctl disabling the Linux audit subsystem (-e 0), deleting all rules (-D), or flushing the rule queue — blinds kernel-level auditing while auditd appears healthy. Bypasses ts-block-auditd-disable. MITRE T1562.001."
+
+  # === BLOCK: dmesg --clear — wipes kernel ring buffer (anti-forensics) ===
+  #
+  # dmesg --clear (-C) empties the kernel ring buffer, destroying boot messages,
+  # OOM kill records, kernel security events (SELinux/AppArmor denials), and
+  # hardware/driver error logs that are critical for forensic reconstruction.
+  # An AI agent has no legitimate need to clear kernel messages.
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/log-tampering
+  # MITRE T1070 (Indicator Removal on Host)
+  - id: "ts-block-dmesg-clear"
+    taxonomy: "persistence-evasion/anti-forensics/log-tampering"
+    match:
+      command_regex: "\\bdmesg\\s+.*(-C|--clear|--read-clear|-c\\b)"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "dmesg --clear/-C wipes the kernel ring buffer, destroying boot messages, OOM kills, and security event logs needed for forensic investigation. MITRE T1070."
+
+  # === BLOCK: /proc/sysrq-trigger writes — kernel crash/reboot bypass ===
+  #
+  # Writing to /proc/sysrq-trigger invokes SysRQ keys directly from userspace:
+  #   echo c > /proc/sysrq-trigger — kernel crash (useful for analysis but destructive)
+  #   echo b > /proc/sysrq-trigger — immediate reboot without sync (data loss)
+  #   echo o > /proc/sysrq-trigger — power off
+  # This bypasses the ts-block-shutdown rule entirely (no shutdown binary involved).
+  #
+  # Taxonomy: destructive-ops/system-management/system-shutdown
+  # MITRE T1485 (Data Destruction), T1529 (System Shutdown/Reboot)
+  - id: "ts-block-sysrq-trigger"
+    taxonomy: "destructive-ops/system-management/system-shutdown"
+    match:
+      command_regex: "(echo|printf|tee|dd|python[23]?)\\s+.*>+\\s*/proc/sysrq-trigger"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485."
+
   # === AUDIT: Backgrounding agent hooks or oversight processes via nohup ===
   #
   # Running an oversight-related process (hook, watcher, approval gate) in
