@@ -4327,6 +4327,154 @@ var EnterpriseSecretsManagerCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// VPN Credential Theft
+// Taxonomy: credential-exposure/cryptographic-keys/vpn-credential-theft
+//
+// WireGuard configs, NetworkManager VPN profiles, and IPsec secrets contain
+// private keys and pre-shared keys that enable unauthorized VPN access.
+//
+// Rules: sec-block-wireguard-conf-read, sec-block-wg-showconf,
+//        sec-audit-wg-show, sec-block-nmcli-show-secrets,
+//        sec-block-nmcli-vpn-export, sec-block-ipsec-secrets-read,
+//        sec-audit-nm-connections-list
+var VPNCredentialTheftCases = []TestCase{
+	// --- True Positives: WireGuard ---
+	{
+		ID:               "TP-VPNCT-001",
+		Command:          `cat /etc/wireguard/wg0.conf`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "Reading WireGuard config file — contains PrivateKey (Curve25519) enabling VPN peer impersonation. MITRE T1552.004.",
+		Tags:             []string{"tp", "canonical", "critical", "wireguard", "vpn"},
+	},
+	{
+		ID:               "TP-VPNCT-002",
+		Command:          `sudo cat /etc/wireguard/vpn-tunnel.conf`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "sudo cat on WireGuard config — escalated read of VPN private key material. MITRE T1552.004.",
+		Tags:             []string{"tp", "critical", "wireguard", "vpn"},
+	},
+	{
+		ID:               "TP-VPNCT-003",
+		Command:          `wg showconf wg0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "wg showconf dumps the running WireGuard interface config including PrivateKey and PresharedKey — bypasses filesystem permissions. MITRE T1552.004.",
+		Tags:             []string{"tp", "canonical", "critical", "wireguard", "wg"},
+	},
+	{
+		ID:               "TP-VPNCT-004",
+		Command:          `sudo wg showconf wg1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "sudo wg showconf on second WireGuard interface — full key dump with root. MITRE T1552.004.",
+		Tags:             []string{"tp", "critical", "wireguard", "wg"},
+	},
+	// --- True Positives: NetworkManager ---
+	{
+		ID:               "TP-VPNCT-005",
+		Command:          `nmcli --show-secrets connection show "Corporate-VPN"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "nmcli --show-secrets explicitly dumps VPN credentials including PSK and passwords. MITRE T1552.001.",
+		Tags:             []string{"tp", "canonical", "critical", "nmcli", "vpn"},
+	},
+	{
+		ID:               "TP-VPNCT-006",
+		Command:          `sudo nmcli --show-secrets con show "Office-WireGuard"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "sudo nmcli --show-secrets con show — abbreviated form dumping WireGuard VPN secrets. MITRE T1552.001.",
+		Tags:             []string{"tp", "critical", "nmcli", "vpn"},
+	},
+	{
+		ID:               "TP-VPNCT-007",
+		Command:          `nmcli connection export "Corporate-VPN" /tmp/corp.ovpn`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "nmcli connection export writes full OpenVPN config with embedded credentials to a file. MITRE T1552.004.",
+		Tags:             []string{"tp", "canonical", "critical", "nmcli", "vpn", "exfiltration"},
+	},
+	// --- True Positives: IPsec ---
+	{
+		ID:               "TP-VPNCT-008",
+		Command:          `cat /etc/ipsec.secrets`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "Reading /etc/ipsec.secrets — contains PSKs and RSA private keys for IKEv1/IKEv2 authentication. MITRE T1552.004.",
+		Tags:             []string{"tp", "canonical", "critical", "ipsec", "vpn"},
+	},
+	{
+		ID:               "TP-VPNCT-009",
+		Command:          `sudo cat /etc/swanctl/conf.d/remote-access.conf`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "Reading strongSwan swanctl config — contains IKEv2 credentials and certificate references. MITRE T1552.004.",
+		Tags:             []string{"tp", "critical", "ipsec", "strongswan", "vpn"},
+	},
+	// --- True Negatives: safe operations ---
+	{
+		ID:               "TN-VPNCT-001",
+		Command:          `wg show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "wg show lists interface status and peer public keys — no private key material. Audited not blocked.",
+		Tags:             []string{"tn", "wireguard", "wg", "audit"},
+	},
+	{
+		ID:               "TN-VPNCT-002",
+		Command:          `systemctl status wg-quick@wg0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "Checking WireGuard service status — no credential access. Triggers ts-audit-systemctl by default policy.",
+		Tags:             []string{"tn", "wireguard", "systemctl", "audit"},
+	},
+	{
+		ID:               "TN-VPNCT-003",
+		Command:          `nmcli connection show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "nmcli connection show without --show-secrets lists connection names — no credential exposure. Default AUDIT by policy.",
+		Tags:             []string{"tn", "nmcli", "audit"},
+	},
+	{
+		ID:               "TN-VPNCT-004",
+		Command:          `ls /etc/NetworkManager/system-connections`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cryptographic-keys/vpn-credential-theft",
+		Analyzer:         "regex",
+		Description:      "Listing NM connections directory — reveals VPN connection names but not credentials. Audited.",
+		Tags:             []string{"tn", "nmcli", "audit"},
+	},
+}
+
 // AllCredentialExposureCases returns all test cases for Kingdom 2.
 func AllCredentialExposureCases() []TestCase {
 	var all []TestCase
@@ -4362,5 +4510,6 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, KerberosCredentialTheftCases...)
 	all = append(all, SSHAgentAbuseCases...)
 	all = append(all, EnterpriseSecretsManagerCases...)
+	all = append(all, VPNCredentialTheftCases...)
 	return all
 }
