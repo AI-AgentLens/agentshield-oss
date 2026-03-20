@@ -1,20 +1,20 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-19 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 757 |
+| Terminal rules | 813 |
 | MCP rules | 126 |
-| Total rules | 883 |
-| Test cases (TP+TN) | 2499 |
+| Total rules | 939 |
+| Test cases (TP+TN) | 2664 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (86 rules)
+### credential-exposure (97 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -46,7 +46,11 @@
 | `sec-audit-docker-inspect-env` | AUDIT | regex | docker inspect exposes the full container configuration including environment variables — API keys, database passwords, and cloud credentials stored in container env vars are disclosed. Cross-container credential access crosses the isolation boundary (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-docker-exec-env-dump` | AUDIT | regex | docker exec with env/printenv dumps all environment variables from a running container — exposes secrets injected at container startup including API keys, tokens, and database credentials (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-kubectl-exec-env-dump` | AUDIT | regex | kubectl exec with env/printenv dumps environment variables from a Kubernetes pod — exposes Kubernetes Secrets mounted as env vars, service account tokens, and application credentials (MITRE T1552.007, OWASP LLM02). |
-| `sec-audit-dotenv` | AUDIT | regex | .env files often contain secrets. Flagged for review. |
+| `sec-audit-dotenv` | AUDIT | regex | .env file read detected — .env and its variants (.env.local, .env.production, .env.staging) contain API keys, database passwords, and other runtime secrets. MITRE T1552.001. |
+| `sec-audit-dotenv-source` | AUDIT | regex | Shell sourcing of .env file — `source .env` or `. .env` injects all secret environment variables from the file into the current shell session, making credentials available to any subsequent process. MITRE T1552.001. |
+| `sec-audit-dotenv-xargs-export` | AUDIT | regex | Bulk export of .env variables via xargs — `export $(cat .env \| xargs)` loads all key=value pairs from the .env file into the shell environment, exposing all secrets to subsequent commands. MITRE T1552.001. |
+| `sec-audit-python-dotenv-load` | AUDIT | regex | Python dotenv library invocation detected — load_dotenv(), dotenv_values(), or environs Config() reads .env file secrets into os.environ. An AI agent loading .env programmatically has access to all application secrets. MITRE T1552.001. |
+| `sec-audit-node-dotenv-load` | AUDIT | regex | Node.js dotenv library invocation detected — require('dotenv').config() or npx dotenv-cli loads .env file secrets into process.env. An AI agent loading .env programmatically has access to all application secrets. MITRE T1552.001. |
 | `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. |
 | `sec-block-tfstate-read` | BLOCK | regex | Terraform state and variable files contain plaintext credentials (DB passwords, API keys, TLS keys). Direct access is blocked. MITRE T1552.001. |
 | `sec-audit-terraform-output` | AUDIT | structural | terraform/tofu output dumps declared output values including sensitive ones (passwords, API keys, connection strings). Flagged for review. MITRE T1552.001. |
@@ -82,6 +86,13 @@
 | `sec-block-kinit-keytab` | BLOCK | regex | kinit with keytab flag (-k) impersonates a service account using long-term key material — an AI agent using this pattern could silently assume a privileged service identity. MITRE T1558.003, T1550.003, OWASP LLM06. |
 | `sec-audit-klist-keytab` | AUDIT | regex | klist with keytab flag enumerates service principals and encryption types in a keytab file — reconnaissance step for Kerberoasting. Review before allowing. MITRE T1558.003, OWASP LLM06. |
 | `sec-block-krb5cc-copy` | BLOCK | regex | Kerberos ticket cache (krb5cc_*) copy or read detected — ticket caches contain active Kerberos TGTs that can be replayed for lateral movement without knowing the password. MITRE T1558, T1550.003, OWASP LLM06. |
+| `sec-block-wireguard-conf-read` | BLOCK | regex | Reading a WireGuard configuration file — contains raw Curve25519 PrivateKey and optional PresharedKey. Equivalent to SSH private key theft: grants permanent VPN access to all peers in the AllowedIPs list. MITRE T1552.004, T1133. |
+| `sec-block-wg-showconf` | BLOCK | regex | wg showconf dumps the complete running WireGuard interface configuration including PrivateKey and all PresharedKeys — equivalent to reading the config file but bypasses file permission checks on the config directory. MITRE T1552.004. |
+| `sec-audit-wg-show` | AUDIT | regex | wg show lists active WireGuard interfaces and peer public keys (no private key material); wg genkey/pubkey generate new key material that may be stored unsafely. Auditing for visibility. MITRE T1133. |
+| `sec-block-nmcli-show-secrets` | BLOCK | regex | nmcli --show-secrets explicitly dumps all stored credentials for a connection including VPN passwords, pre-shared keys, and certificate passphrases. No AI agent workflow requires direct access to stored VPN secrets. MITRE T1552.001. |
+| `sec-block-nmcli-vpn-export` | BLOCK | regex | nmcli connection export writes a full VPN config file (OpenVPN/WireGuard format) including embedded credentials, certificates, and private keys. MITRE T1552.004. |
+| `sec-block-ipsec-secrets-read` | BLOCK | regex | Reading IPsec/strongSwan secrets or config — /etc/ipsec.secrets contains pre-shared keys and RSA private keys for IKEv1/IKEv2 VPN authentication. Stolen credentials enable unauthorized VPN tunnel establishment. MITRE T1552.004, T1133. |
+| `sec-audit-nm-connections-list` | AUDIT | regex | Accessing NetworkManager system-connections directory — lists VPN and network connection profiles. Individual .nmconnection files may contain embedded credentials. Auditing for visibility. MITRE T1552.001. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
@@ -105,7 +116,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (111 rules)
+### data-exfiltration (118 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -121,6 +132,12 @@
 | `ne-block-ssh-remote-forward` | BLOCK | regex | SSH remote port forwarding (-R port:host:port) establishes a reverse tunnel to the remote host — used for C2 and covert exfiltration. Agents have no legitimate need to set up reverse tunnels (LLM06, LLM08). MITRE T1572. |
 | `ne-block-ssh-local-forward` | BLOCK | regex | SSH local port forwarding (-L port:host:port) tunnels internal services to local ports — used to pivot to internal infrastructure. Agents have no legitimate need to forward internal service ports (LLM06). MITRE T1572. |
 | `ne-block-ssh-socks-proxy` | BLOCK | regex | SSH dynamic SOCKS proxy (-D port) routes all traffic through the SSH connection, bypassing network egress controls entirely (LLM06). MITRE T1090.003. |
+| `ne-block-ngrok-tcp` | BLOCK | regex | ngrok TCP tunnel exposes a local service (e.g., SSH on port 22) to the public internet via a random ngrok subdomain. AI agents have no legitimate need to create public TCP tunnels — this is a covert C2/exfiltration channel. MITRE T1572. |
+| `ne-block-cloudflared-tunnel` | BLOCK | regex | cloudflared tunnel commands create persistent Cloudflare Tunnel channels. 'tunnel run' starts a covert C2 channel that survives reboots; 'service install' creates a system daemon. AI agents have no legitimate need to create Cloudflare tunnels. MITRE T1572. |
+| `ne-block-chisel` | BLOCK | regex | chisel is an HTTP-based TCP tunnel designed for firewall bypass, used almost exclusively in red team operations. 'chisel client' with R: prefix creates reverse SOCKS proxies. No legitimate AI agent coding workflow requires chisel. MITRE T1572. |
+| `ne-block-frp` | BLOCK | regex | frpc/frps is a fast reverse proxy framework used in red team operations to establish persistent C2 channels. No legitimate AI agent coding workflow requires frp. MITRE T1572, T1090. |
+| `ne-block-bore-local` | BLOCK | regex | bore creates zero-config reverse tunnels: 'bore local 22 --to bore.pub' immediately exposes the local SSH daemon to the internet with no credentials. AI agents have no legitimate need to create public reverse tunnels. MITRE T1572. |
+| `ne-audit-ngrok-http` | AUDIT | regex | ngrok HTTP tunnel creates a public HTTPS endpoint for a local HTTP server. While sometimes used legitimately for webhook testing, it exposes internal services and should be logged and reviewed. MITRE T1572. |
 | `ne-audit-ssh` | AUDIT | prefix | SSH connection flagged for lateral movement review. |
 | `ne-audit-scp` | AUDIT | prefix | SCP file transfer flagged for data exfiltration review. |
 | `ne-audit-rsync-remote` | AUDIT | regex | Remote rsync flagged for data exfiltration review. |
@@ -137,6 +154,7 @@
 | `ne-audit-hardcoded-model-ref` | AUDIT | regex | Hardcoded model identifier in Python one-liner. Uncontrolled model selection bypasses governance controls and model allowlists (LLM05/LLM06). |
 | `ne-block-system-prompt-exfil` | BLOCK | regex | System prompt content piped to a network tool — likely system prompt exfiltration (LLM07). |
 | `ne-block-sysprompt-env-exfil` | BLOCK | regex | System prompt environment variable piped to network or encoding tool — system prompt exfiltration (LLM07). |
+| `ne-block-env-dump-network` | BLOCK | regex | All process environment variables piped to a network tool — bulk exfiltration of every secret (API keys, cloud tokens, database credentials) in a single command. AI agents in cloud environments accumulate dozens of secrets in env vars (OWASP LLM02, MITRE T1552.007, T1041). |
 | `ne-block-ml-dataset-pipe-exfil` | BLOCK | regex | ML dataset file piped to a network tool — likely bulk training data exfiltration (LLM06, T1530). Review the destination before proceeding. |
 | `ne-block-ml-cache-exfil` | BLOCK | regex | HuggingFace or PyTorch model cache accessed and sent to a remote destination — training data / model weight exfiltration (LLM06, T1530). |
 | `ne-block-webhook-capture-services` | BLOCK | regex | HTTP request to a known data-capture / request-inspection service detected. These endpoints (webhook.site, requestbin, beeceptor, etc.) exist to collect and expose HTTP payloads and have no legitimate use in AI agent workflows — this is almost certainly data exfiltration. MITRE T1567. |
@@ -221,7 +239,7 @@
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
 | `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
 
-### destructive-ops (60 rules)
+### destructive-ops (68 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -263,6 +281,13 @@
 | `ts-block-terragrunt-destroy` | BLOCK | regex | terragrunt destroy (especially run-all destroy) tears down infrastructure across multiple Terraform stacks in a directory tree — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
 | `ts-block-pulumi-destroy` | BLOCK | regex | pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
 | `ts-block-cdk-destroy` | BLOCK | regex | cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-audit-aws-run-instances-bulk` | AUDIT | regex | AWS EC2 run-instances with explicit --count argument — launching many instances incurs significant cost. High counts (especially with expensive GPU/memory-optimized types) may reflect a scale misinterpretation. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-aws-run-instances-gpu` | AUDIT | regex | AWS EC2 run-instances with high-cost GPU/accelerated instance type — GPU instances cost $3–$32/hr each. AI agents must not provision accelerated compute without human approval. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-gcloud-instances-bulk` | AUDIT | regex | GCP compute instances create with 10+ VM names — bulk instance creation incurs significant recurring cost. AI agents may misinterpret scale requirements. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-gcloud-gpu-instance` | AUDIT | regex | GCP compute instance creation with GPU/accelerator machine type — A2/A3 GPU instances cost $3–$30/hr each. Human approval required before provisioning accelerated compute. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-az-vm-create-gpu` | AUDIT | regex | Azure VM creation with high-memory (M-series) or GPU/HPC (N-series/H-series) SKU — these instance types cost $5–$50/hr each. AI agents must not provision expensive compute without human review. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-kubectl-scale-bulk` | AUDIT | regex | kubectl scale with 100+ replicas — large replica counts trigger auto-scaling of underlying cloud VMs, incurring unexpected infrastructure cost. AI agents may misinterpret scale factors. (MITRE T1578.002, OWASP LLM10) |
+| `ts-audit-stripe-charge-large` | AUDIT | regex | Stripe payment creation with amount >=10000 cents ($100+) — AI agents executing payment CLI commands risk charging incorrect amounts due to unit confusion (cents vs. dollars). (OWASP LLM05, OWASP LLM10) |
 | `ts-block-kubectl-delete-namespace` | BLOCK | regex | Kubernetes namespace deletion destroys all resources in the namespace. |
 | `ts-block-kubectl-delete-all` | BLOCK | regex | Kubernetes bulk deletion of resources is destructive. |
 | `ts-block-mysql-drop-database` | BLOCK | regex | MySQL/MariaDB DROP DATABASE destroys all tables and data in the named database — irreversible without a backup. AI agents have no legitimate reason to drop a database. MITRE T1485. |
@@ -285,6 +310,7 @@
 | `ts-block-fallocate-large` | BLOCK | regex | fallocate creating a file >=1GB — instantly allocates disk space without I/O. Can fill disk in milliseconds, causing database corruption, logging failure, and system instability. MITRE T1499.001. |
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
+| `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
 
 ### governance-risk (15 rules)
 
@@ -306,10 +332,13 @@
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (118 rules)
+### persistence-evasion (122 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `ne-block-etc-hosts-write` | BLOCK | regex | Write to /etc/hosts — overrides DNS resolution for arbitrary hostnames, enabling MITM attacks, lateral movement, and credential theft. AI agents have no legitimate need to modify /etc/hosts. MITRE T1565.001, T1090. |
+| `ne-block-resolv-conf-write` | BLOCK | regex | Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
+| `ne-block-arp-dns-poisoning-tools` | BLOCK | regex | ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040. |
 | `ts-block-pipe-to-crontab` | BLOCK | regex | Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively. |
 | `ts-block-at-schedule` | BLOCK | regex | at schedules a persistent one-time job. AI agents must not schedule deferred execution. |
 | `ts-block-batch-schedule` | BLOCK | prefix | batch schedules a persistent background job when system load permits. |
@@ -387,6 +416,7 @@
 | `ts-block-systemd-run-system` | BLOCK | regex | systemd-run --system creates a transient unit running as root — provides root-level command execution without sudo appearing in command history. MITRE T1543.002. |
 | `ts-block-systemd-run-named` | BLOCK | regex | systemd-run with --unit — creates a named transient unit, which can be referenced by other services and is harder to identify as malicious in systemctl output. MITRE T1036.005. |
 | `ts-audit-systemd-run` | AUDIT | regex | systemd-run creates transient systemd units — any invocation from an AI agent is unusual and warrants logging, even without explicit persistence flags. MITRE T1053.006. |
+| `ts-block-dmesg-clear` | BLOCK | regex | dmesg --clear/-C wipes the kernel ring buffer, destroying boot messages, OOM kills, and security event logs needed for forensic investigation. MITRE T1070. |
 | `ts-block-agentshield-log-delete` | BLOCK | regex | Deleting AgentShield audit log files or directories — destroys the security audit trail for AI agent actions. No legitimate use case. EU AI Act Art.13, SOC 2 CC7.1, MITRE T1070.004. |
 | `ts-block-agentshield-log-truncate` | BLOCK | regex | Truncating or overwriting AgentShield audit log to zero bytes — erases audit evidence while appearing to preserve the file. MITRE T1070.004, EU AI Act Art.26. |
 | `ts-audit-agentshield-log-modify` | AUDIT | regex | In-place modification of AgentShield audit log records — may be used to alter BLOCK/ALLOW decisions or remove evidence of policy violations. MITRE T1565.001, EU AI Act Art.13. |
@@ -429,7 +459,7 @@
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 
-### privilege-escalation (105 rules)
+### privilege-escalation (111 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -440,6 +470,10 @@
 | `ts-block-suid-bit-set` | BLOCK | regex | Setting the SUID/SGID bit on a file grants it root-equivalent execution, enabling persistent privilege escalation. |
 | `ts-block-setcap` | BLOCK | regex | Setting Linux capabilities (e.g. cap_setuid, cap_net_admin) on a binary is a stealthy privilege escalation vector that bypasses sudo audit trails. |
 | `ts-block-suid-find-exec` | BLOCK | regex | Discovering SUID/SGID binaries and executing them is a classic post-exploit privilege escalation chain. |
+| `ts-block-sudoers-write` | BLOCK | regex | Writing to /etc/sudoers or /etc/sudoers.d/ grants permanent root access without a password. A prompt-injected NOPASSWD rule creates a persistent backdoor surviving the agent session. MITRE T1548.003. |
+| `ts-block-sudoers-sed` | BLOCK | regex | In-place editing of /etc/sudoers or sudoers.d files via sed/awk/perl — persistent root privilege escalation. MITRE T1548.003. |
+| `ts-block-visudo` | BLOCK | regex | visudo directly edits the sudoers configuration. AI agents have no legitimate need to modify the privilege escalation policy. MITRE T1548.003. |
+| `ts-block-pam-config-write` | BLOCK | regex | Writing to /etc/pam.d/ modifies the Pluggable Authentication Module configuration, bypassing system-wide authentication (e.g., pam_permit.so makes any auth succeed). MITRE T1556.003. |
 | `ts-block-llm-chmod-dangerous` | BLOCK | regex | World-writable (0777) or variable-mode chmod — LLM-controlled permissions enable prompt injection to set dangerous access bits. Use explicit safe modes (644, 755) instead. |
 | `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
 | `ts-block-bpftool-prog-load` | BLOCK | regex | bpftool prog load installs an eBPF program into the kernel — equivalent in risk to loading a kernel module. Can be used to intercept credentials, trace TLS plaintext, or establish a persistent kernel backdoor. |
@@ -461,6 +495,8 @@
 | `ts-block-kubectl-patch-rbac` | BLOCK | regex | kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098) |
 | `ts-audit-kubectl-exec` | AUDIT | regex | kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets. |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
+| `ts-audit-podman-exec` | AUDIT | regex | podman exec executes commands inside a running container — same lateral movement risk as docker exec. May access application secrets, env vars, or escalate privileges if container runs as root. MITRE T1609. |
+| `ts-audit-nerdctl-exec` | AUDIT | regex | nerdctl exec (containerd CLI) executes commands inside a running container — same lateral movement risk as docker exec. MITRE T1609. |
 | `ts-block-namespace-escape` | BLOCK | regex | Creating or entering Linux namespaces is used for container escape and user namespace privilege escalation. |
 | `ts-block-docker-host-namespace` | BLOCK | regex | Sharing host PID/IPC/network/UTS namespaces breaks container isolation and enables host process inspection, shared-memory attacks, and network policy bypass. |
 | `ts-block-docker-dangerous-caps` | BLOCK | regex | Granting SYS_ADMIN, SYS_PTRACE, SYS_MODULE, NET_ADMIN or similar capabilities to a container enables kernel exploits, ptrace-based escapes, and raw device access. |
@@ -539,7 +575,7 @@
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (59 rules)
+### reconnaissance (63 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -591,6 +627,10 @@
 | `ne-audit-localhost-admin-path` | AUDIT | regex | HTTP request to a localhost admin or management endpoint detected (/admin, /actuator, /metrics, /env, /debug, etc.). Spring Boot /actuator/env leaks all environment variables including API keys. AI agents probing management paths may be performing reconnaissance before exfiltration. MITRE T1082, T1590. |
 | `ne-block-admin-endpoint-sensitive` | BLOCK | regex | HTTP request to a high-sensitivity management endpoint (Spring Boot /actuator/heapdump or /actuator/env, Kubernetes /api/v1/secrets, etcd /v2/keys). These endpoints expose credential material — heap dumps contain secrets in memory, /actuator/env reveals all env vars including API keys, /api/v1/secrets exposes Kubernetes secrets in plaintext. AI agents must not access these endpoints. MITRE T1082, T1213. |
 | `ne-audit-admin-endpoint-probe` | AUDIT | regex | HTTP request to an admin or management endpoint on a non-localhost host detected (/actuator, /admin, /management, /console, /dashboard). AI agents probing management interfaces on internal services or named containers may be performing unauthorized reconnaissance. Spring Boot /actuator leaks application context, bean graph, and configuration. MITRE T1590, T1082. |
+| `ne-block-tcpdump-live-capture` | BLOCK | regex | tcpdump live interface capture detected (-i without -r). Captures all traffic on the interface, including plaintext credentials and session tokens. AI agents must not perform live packet capture. MITRE T1040. |
+| `ne-block-tshark-live-capture` | BLOCK | regex | tshark live interface capture detected (-i without -r). Captures and dissects all traffic on the interface. AI agents must not perform live packet capture. MITRE T1040. |
+| `ne-block-dumpcap-live-capture` | BLOCK | regex | dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040. |
+| `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
@@ -603,7 +643,7 @@
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 
-### supply-chain (87 rules)
+### supply-chain (89 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -681,6 +721,8 @@
 | `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
 | `sc-block-github-path-injection` | BLOCK | regex | Writing to $GITHUB_PATH prepends directories to $PATH for all subsequent GitHub Actions steps — enables malicious binary substitution (PATH hijacking). Any legitimate tool invoked in later steps may call attacker-controlled code. MITRE T1574.007, OWASP LLM08. |
 | `sc-audit-github-env-injection` | AUDIT | regex | Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
+| `sc-audit-github-output-injection` | AUDIT | regex | Writing to $GITHUB_OUTPUT sets step output variables consumed by subsequent GitHub Actions jobs — can inject attacker-controlled values into deployment logic or approval gates. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
+| `sc-audit-github-step-summary-injection` | AUDIT | regex | Writing to $GITHUB_STEP_SUMMARY injects Markdown content into the GitHub Actions workflow summary — can exfiltrate data as visible CI output or embed misleading content for human reviewers. Agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
 | `sc-block-make-shell-cmd-inject` | BLOCK | regex | make SHELL= with -c flag injects commands into every Makefile recipe. The -c flag means the shell binary override also carries an embedded command, executing during the next routine make invocation. Supply chain attack: MITRE T1195.002, CWE-78. |
 | `sc-block-make-compiler-tmp-inject` | BLOCK | regex | make CC/CXX/LD= pointing to /tmp or /dev/shm replaces the compiler/linker with an attacker-staged binary. Any code compiled in this session produces backdoored artifacts. MITRE T1195.002, CWE-427. |
 | `sc-block-cmake-compiler-tmp-inject` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= pointing to /tmp or /dev/shm substitutes an attacker-controlled compiler binary. All compiled outputs for this project will be compromised. MITRE T1195.002, CWE-427. |
@@ -695,7 +737,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (114 rules)
+### unauthorized-execution (128 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -706,6 +748,8 @@
 | `sec-block-credential-env-inline-network` | BLOCK | regex | Inline credential environment variable assignment before a network command — a compromised MCP tool explicitly setting a known credential key before curl/wget is the shell-level signature of credential relay exfiltration (OWASP LLM06, MITRE T1552.007, T1041). |
 | `ts-audit-ai-bulk-input-pipe` | AUDIT | regex | Piping glob-expanded file input (cat ../* \| llm) into an AI CLI — may stuff unbounded token volumes into an LLM prompt, causing runaway API costs (AI Denial of Wallet, OWASP LLM10). |
 | `ts-audit-ai-parallel-dispatch` | AUDIT | regex | xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10). |
+| `ts-audit-ai-find-xargs-dispatch` | AUDIT | regex | find piped to xargs dispatching an AI CLI — bulk file discovery feeds unbounded file count to the LLM, causing runaway token consumption and API costs (AI Denial of Wallet, OWASP LLM10, CWE-400). |
+| `ts-audit-ai-watch-loop` | AUDIT | regex | watch executing an AI CLI — creates an infinite timed loop of API calls with no iteration budget. Even at 2s intervals this fires 1800 API calls/hour; a denial-of-wallet vector (OWASP LLM10, CWE-834). |
 | `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
 | `ts-block-eval-subshell-rce` | BLOCK | regex | eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection. |
@@ -720,8 +764,16 @@
 | `ts-audit-jupyter-nbconvert-execute` | AUDIT | regex | jupyter nbconvert --execute runs all code cells in a notebook non-interactively. An AI agent could inject malicious code into a .ipynb file and trigger execution without visible shell-level commands. Review the notebook contents before allowing. (OWASP LLM06, MITRE T1059, CWE-78) |
 | `ts-audit-jupyter-execute-cmd` | AUDIT | regex | jupyter execute runs all code cells in a notebook non-interactively. Unlike jupyter lab/notebook (which require human interaction), this command executes notebooks autonomously — an AI agent could use it to run injected code. (OWASP LLM06, MITRE T1059) |
 | `ts-audit-papermill-execute` | AUDIT | prefix | papermill always executes a Jupyter notebook non-interactively, injecting parameters at runtime. An AI agent could use papermill to execute a compromised notebook or inject malicious parameters. Review notebook contents and parameters. (OWASP LLM06, MITRE T1059) |
+| `ts-block-dynlib-ld-preload-writable` | BLOCK | regex | LD_PRELOAD or LD_AUDIT pointing to a world-writable or home-relative path injects a malicious shared library into the target process, intercepting any function call. MITRE T1574.006. |
+| `ts-block-dynlib-compile-and-preload` | BLOCK | regex | Inline shared library compilation followed immediately by LD_PRELOAD injection — purpose-built to inject code into the next launched process. MITRE T1574.006. |
+| `ts-block-dynlib-compiler-plugin` | BLOCK | regex | Compiler -fplugin or -fpass-plugin pointing to a writable path loads arbitrary code inside the compiler process during every build, with access to all build environment secrets. MITRE T1574.006. |
 | `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
+| `ts-audit-crewai-cli-run` | AUDIT | regex | Direct CrewAI CLI execution launches a multi-agent crew with full tool access and no human-in-the-loop approval between steps (OWASP LLM06). Verify this autonomous crew run is intentional and supervised. |
+| `ts-audit-langgraph-cli-run` | AUDIT | regex | LangGraph CLI running an agent graph — executes a compiled multi-agent workflow with potential code execution and network tool access outside a governance wrapper (OWASP LLM06). |
+| `ts-block-autogpt-continuous` | BLOCK | regex | AutoGPT --continuous mode disables the human pause-after-each-action approval loop, enabling fully autonomous recursive self-direction until resource exhaustion or goal completion. No legitimate use case requires bypassing human review (OWASP LLM06, MITRE T1204). |
+| `ts-block-agent-cli-background` | BLOCK | regex | Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate human-oversight-circumvention pattern (OWASP LLM06, EU AI Act Art.14). |
+| `ts-block-agent-cli-detached-session` | BLOCK | regex | Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (OWASP LLM06, EU AI Act Art.14, human-oversight-circumvention). |
 | `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
@@ -794,11 +846,14 @@
 | `ts-block-xxd-hex-pipe-shell` | BLOCK | regex | xxd -r -p (hex reverse decode) piped to a shell interpreter — decodes hex-encoded commands at runtime, bypassing all string-based guardrail analysis. Sibling to base64-decode-pipe-shell. OWASP LLM01, MITRE T1027.013. |
 | `ts-block-openssl-decode-pipe-shell` | BLOCK | regex | openssl enc -d (decrypt/decode) piped to a shell interpreter — executes a decoded/decrypted payload at runtime, evading all static command analysis. Covers base64, AES, and other cipher modes. OWASP LLM01, MITRE T1027.013. |
 | `ts-block-auditd-disable` | BLOCK | regex | Stopping or disabling the audit daemon (auditd) — eliminates the system audit trail and bypasses all SIEM/SOC monitoring. No legitimate AI coding agent task requires disabling auditd. OWASP LLM06, MITRE T1562.001. |
+| `ts-block-auditctl-disable` | BLOCK | regex | auditctl disabling the Linux audit subsystem (-e 0), deleting all rules (-D), or flushing the rule queue — blinds kernel-level auditing while auditd appears healthy. Bypasses ts-block-auditd-disable. MITRE T1562.001. |
 | `ts-audit-nohup-agent-oversight` | AUDIT | regex | nohup backgrounding an agent hook or oversight process — detaches the process from the terminal, making it invisible to the session and potentially bypassing approval workflows. OWASP LLM06, MITRE T1562. |
 | `ts-audit-context-file-control-char-injection` | AUDIT | regex | Writing ANSI escape codes, null bytes, or zero-width Unicode characters to an AI agent context file — injects invisible or display-corrupting content into the agent's context window, hiding malicious instructions from human review. OWASP LLM01, MITRE T1059. |
 | `ts-audit-autonomous-cred-encode-exfil-chain` | AUDIT | stateful | 3-stage compound chain: file read → encoding → network transmission — matches the canonical credential-exfiltration pipeline (cat + base64 + curl). Each step is individually low-risk; the combination is a high-confidence exfiltration attempt. OWASP LLM06, MITRE T1059. |
 | `ts-audit-localhost-agent-api-call` | AUDIT | regex | curl POST to a localhost OpenAI-compatible API endpoint — calling a peer agent's API with a crafted payload injects instructions into the target agent's context (agent-to-agent lateral pivot). OWASP LLM06, MITRE T1071. |
 | `ts-audit-multimodal-sensitive-file-api` | AUDIT | regex | Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059. |
+| `ts-block-qrencode-shell-substitution` | BLOCK | regex | qrencode with shell command substitution — sensitive data may be encoded into a QR image for covert exfiltration or multimodal prompt injection. Multimodal AI agents can decode QR content and follow embedded instructions. OWASP LLM01, LLM02, MITRE T1027.003. |
+| `ts-audit-qrencode-pipe-input` | AUDIT | regex | Data piped into qrencode — QR image encodes input data which may contain credentials or injection payloads invisible to text scanners. OWASP LLM01, MITRE T1027.003. |
 | `ts-audit-network-pipe-to-llm` | AUDIT | regex | Network content piped directly to an LLM CLI tool — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl\|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77). |
 | `ts-audit-mcp-server-npx-install` | AUDIT | regex | npx -y installing an MCP server package without interactive review — typosquatted or compromised MCP server packages can impersonate trusted tools and gain full access to agent context, tool execution, and data flows. OWASP LLM08, MITRE T1195. |
 | `ts-block-agent-settings-write` | BLOCK | regex | Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization (OWASP LLM06, MITRE T1548, SOC 2 CC6.3). |
@@ -811,6 +866,7 @@
 | `ts-block-signal-freeze-pgrep` | BLOCK | regex | SIGSTOP/SIGCONT via command substitution (e.g., kill -STOP $(pgrep auditd)) — dynamically discovers and freezes monitoring processes. The substitution makes detection harder. MITRE T1562.001. |
 | `ts-block-error-recovery-sudo` | BLOCK | regex | Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use \|\| (run-on-failure) to auto-escalate after 'Permission denied' — a high-confidence agentic attack pattern (OWASP LLM06, NIST GOVERN-1). The agent should surface the error to the user, not autonomously escalate privileges. |
 | `ts-audit-error-recovery-tls-bypass` | AUDIT | regex | TLS verification bypass in error recovery context: an agent automatically disabled certificate checking after a connection failure. Disabling TLS validation against production endpoints removes a critical security control and enables MITM attacks (OWASP LLM06, EU AI Act Art.9). Human review required before proceeding. |
+| `ts-audit-error-recovery-chmod` | AUDIT | regex | Permission weakening in error recovery context: a failed command is followed by chmod to world-writable (777, o+w, a+w). AI agents autonomously weaken file permissions as a self-correction for 'Permission denied' errors — directly undermining least-privilege security controls (OWASP LLM06, EU AI Act Art.9). Human review required. |
 | `ts-audit-shell-history-manipulation` | AUDIT | regex | Shell history manipulation detected — reading, writing, or editing command history can be used to inject or replay a captured agent workflow sequence (OWASP LLM06, MITRE T1059). Verify this is intentional history management. |
 | `ts-audit-cross-agent-state-write` | AUDIT | regex | Write to agent shared state file detected — overwriting agent_state.json, handoff.yaml, mcp_config.json, or similar files can inject malicious instructions or tool configurations into the inter-agent communication channel (OWASP LLM06/LLM09, MITRE T1098). Verify the write is intended and the source data is trusted. |
 
@@ -1008,13 +1064,13 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 203 | 151 | 354 |
-| data-exfiltration | 198 | 116 | 314 |
-| destructive-ops | 117 | 74 | 191 |
-| persistence-evasion | 246 | 138 | 384 |
-| privilege-escalation | 246 | 148 | 394 |
-| reconnaissance | 146 | 58 | 204 |
-| supply-chain | 138 | 92 | 230 |
-| unauthorized-execution | 253 | 175 | 428 |
-| **Total** | **1547** | **952** | **2499** |
+| credential-exposure | 221 | 158 | 379 |
+| data-exfiltration | 215 | 122 | 337 |
+| destructive-ops | 128 | 82 | 210 |
+| persistence-evasion | 260 | 145 | 405 |
+| privilege-escalation | 262 | 159 | 421 |
+| reconnaissance | 151 | 61 | 212 |
+| supply-chain | 143 | 93 | 236 |
+| unauthorized-execution | 274 | 190 | 464 |
+| **Total** | **1654** | **1010** | **2664** |
 
