@@ -1,10 +1,15 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (838 terminal rules, 127 MCP rules)
-Metric | Count |
+# AgentShield Coverage Report
+
+*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
+
+## Summary
+
+| Metric | Count |
 |--------|-------|
-| Terminal rules | 838 |
+| Terminal rules | 861 |
 | MCP rules | 127 |
-| Total rules | 965 |
-| Test cases (TP+TN) | 2762 |
+| Total rules | 988 |
+| Test cases (TP+TN) | 2884 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -111,7 +116,7 @@ Metric | Count |
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (121 rules)
+### data-exfiltration (126 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -132,6 +137,9 @@ Metric | Count |
 | `ne-block-chisel` | BLOCK | regex | chisel is an HTTP-based TCP tunnel designed for firewall bypass, used almost exclusively in red team operations. 'chisel client' with R: prefix creates reverse SOCKS proxies. No legitimate AI agent coding workflow requires chisel. MITRE T1572. |
 | `ne-block-frp` | BLOCK | regex | frpc/frps is a fast reverse proxy framework used in red team operations to establish persistent C2 channels. No legitimate AI agent coding workflow requires frp. MITRE T1572, T1090. |
 | `ne-block-bore-local` | BLOCK | regex | bore creates zero-config reverse tunnels: 'bore local 22 --to bore.pub' immediately exposes the local SSH daemon to the internet with no credentials. AI agents have no legitimate need to create public reverse tunnels. MITRE T1572. |
+| `ne-block-localtunnel` | BLOCK | regex | localtunnel (lt / npx localtunnel) creates a zero-config public HTTPS tunnel to a local port. Exposes AI model servers (Ollama, LM Studio, LiteLLM) to the public internet with no authentication — identical risk to ngrok. No legitimate AI agent coding workflow requires public tunnel creation. MITRE T1572. |
+| `ne-block-devtunnel-host` | BLOCK | regex | devtunnel host (Microsoft Dev Tunnel) creates a public reverse tunnel to a local port via Azure infrastructure. Can expose AI model servers to the internet with optional anonymous access. No legitimate AI agent coding workflow requires public Dev Tunnel creation. MITRE T1572. |
+| `ne-block-zrok-share-public` | BLOCK | regex | zrok share public creates a publicly accessible URL for a local port via OpenZiti infrastructure — exposes AI model servers to the internet over HTTPS. No legitimate AI agent coding workflow requires public zrok share creation. MITRE T1572. |
 | `ne-audit-ngrok-http` | AUDIT | regex | ngrok HTTP tunnel creates a public HTTPS endpoint for a local HTTP server. While sometimes used legitimately for webhook testing, it exposes internal services and should be logged and reviewed. MITRE T1572. |
 | `ne-audit-ssh` | AUDIT | prefix | SSH connection flagged for lateral movement review. |
 | `ne-audit-scp` | AUDIT | prefix | SCP file transfer flagged for data exfiltration review. |
@@ -191,6 +199,7 @@ Metric | Count |
 | `ts-sem-allow-dns-safe` | ALLOW | semantic | Semantic: safe DNS queries (DMARC/SPF/DKIM) are allowed. |
 | `ts-sf-block-recon-then-exfil` | BLOCK | stateful | Stateful: reconnaissance → archive → exfiltrate chain detected. |
 | `ts-block-git-clone-mirror` | BLOCK | regex | git clone --mirror copies entire repository including all refs — potential exfiltration. |
+| `ts-audit-git-clone-bare` | AUDIT | regex | git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003. |
 | `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). |
 | `ts-block-git-archive-pipe-network` | BLOCK | regex | git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041). |
 | `ts-audit-git-archive` | AUDIT | regex | git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately. |
@@ -235,6 +244,7 @@ Metric | Count |
 | `ts-audit-huggingface-cli-upload` | AUDIT | regex | huggingface-cli upload — pushing model artifacts to HuggingFace Hub may expose proprietary fine-tuned weights, LoRA adapters, or training datasets to public or unauthorized repositories. OWASP LLM02/LLM03. |
 | `de-llmdf-audit-shared-system-prompt` | AUDIT | regex | Setting a shared/global system prompt env var overrides per-tenant context isolation in multi-tenant LLM deployments — all tenants share the same prompt, enabling cross-tenant data exposure. OWASP LLM02/LLM06/LLM08. |
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
+| `de-llmdf-audit-cross-tenant-agent-workspace` | AUDIT | regex | Accessing shared MCP workspace or agent session directories without tenant-scoped paths — /tmp/mcp-workspace, /var/mcp/sessions, and /tmp/agent-* are shared across tenants in multi-agent infrastructure. Reading these may expose another tenant's tool call artifacts, session context, or uploaded documents. OWASP LLM02/LLM06, EU AI Act Art.10. |
 | `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
 
 ### destructive-ops (68 rules)
@@ -310,7 +320,7 @@ Metric | Count |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
 
-### governance-risk (17 rules)
+### governance-risk (19 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -329,6 +339,8 @@ Metric | Count |
 | `ts-audit-aws-logs-delete-bedrock-group` | AUDIT | regex | Deleting the CloudWatch log group that receives AWS Bedrock invocation logs destroys the historical AI audit trail and prevents future log delivery. Impacts EU AI Act Art.9 post-market monitoring, SOC 2 CC7.1 detection controls, and incident forensics capability (CWE-778, NIST AI RMF MANAGE-4). |
 | `ts-audit-azure-ai-diagnostic-delete` | AUDIT | regex | Deleting Azure Monitor diagnostic settings stops audit log delivery to Log Analytics or SIEM — may target Azure OpenAI or Cognitive Services resources, removing AI invocation audit trails. Impacts incident detection, EU AI Act Art.9 monitoring, and SOC 2 CC7.1 controls. Verify the targeted resource is not an AI service before approving (CWE-778). |
 | `ts-audit-gcloud-logging-bucket-delete` | AUDIT | regex | Deleting a Google Cloud Logging bucket may destroy historical Vertex AI / Cloud AI invocation records. If targeting AI service audit logs, this removes forensic capability needed for EU AI Act post-market monitoring and incident response (CWE-778, NIST AI RMF MANAGE-4). |
+| `ts-audit-ai-monitoring-disable-export` | AUDIT | regex | Shell export disabling a third-party AI observability tool (LangSmith LANGCHAIN_TRACING_V2=false, W&B WANDB_MODE=disabled/WANDB_DISABLED=true, LangFuse LANGFUSE_SECRET_KEY='', Helicone HELICONE_ENABLED=false). Disabling these monitors erases the forensic audit trail needed for AI incident response, violating EU AI Act Art.9 post-market monitoring, NIST AI RMF GOVERN-6 accountability, and SOC 2 CC7.1 detection controls (MITRE T1562.001, CWE-778). |
+| `ts-audit-ai-monitoring-disable-persist` | AUDIT | regex | Persisting an AI observability tool disable flag to a .env file or shell config (echo 'LANGCHAIN_TRACING_V2=false' >> .env, echo 'WANDB_DISABLED=true' >> .bashrc) makes the monitoring blackout durable across all future sessions. This anti-forensics pattern (MITRE T1562.001) prevents detection of subsequent AI-driven malicious activity and violates EU AI Act Art.9 post-market monitoring, NIST AI RMF GOVERN-6, and SOC 2 CC7.1 (CWE-778). |
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
@@ -583,7 +595,7 @@ Metric | Count |
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
 
-### reconnaissance (68 rules)
+### reconnaissance (69 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -651,12 +663,13 @@ Metric | Count |
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
+| `ts-audit-credential-dir-ls-chain` | AUDIT | regex | Chained ls on 2+ credential directories in a single compound command — systematic enumeration of available credential stores is a pre-exfiltration reconnaissance step. OWASP LLM01, MITRE T1083/T1592. |
 | `ts-block-osint-email-harvesting` | BLOCK | regex | OSINT email/identity harvesting tool detected. theHarvester collects email addresses and hostnames from search engines and social networks; h8mail checks breach databases for compromised credentials; holehe enumerates account registrations across 120+ websites. These tools are purpose-built for pre-attack reconnaissance (MITRE T1589, T1596.005). AI agents have no legitimate use case for targeting external individuals or organizations. OWASP LLM02/LLM06. |
 | `ts-block-osint-subdomain-enum` | BLOCK | regex | OSINT subdomain and asset enumeration tool detected. subfinder/assetfinder discover subdomains via 40+ passive sources; amass maps the full attack surface via DNS, CT logs, and APIs; waybackurls/gau harvest all known URLs from Wayback Machine and Common Crawl. These tools build comprehensive target attack surface maps (MITRE T1589, T1593, T1596). AI agents have no legitimate use case for external attack surface enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (96 rules)
+### supply-chain (111 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -676,6 +689,11 @@ Metric | Count |
 | `sc-block-npm-url-install` | BLOCK | regex | npm install from URL bypasses registry verification. |
 | `sc-block-npmrc-edit` | BLOCK | regex | Modification of .npmrc blocked — may redirect package resolution. |
 | `sc-block-pypirc-edit` | BLOCK | regex | Modification of .pypirc blocked — may redirect package resolution. |
+| `sc-block-pip-conf-write` | BLOCK | regex | Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829. |
+| `sc-block-npm-config-set-registry` | BLOCK | regex | npm config set registry — persistently overrides the npm registry in ~/.npmrc, redirecting all future installs to a potentially malicious source. MITRE T1195.001. |
+| `sc-block-gem-sources-add` | BLOCK | regex | gem sources --add — adds a custom gem source globally, enabling dependency shadowing where a malicious higher-versioned gem can be installed instead of the legitimate package. MITRE T1195.001. |
+| `sc-block-gemrc-write` | BLOCK | regex | Write to ~/.gemrc — persistently overrides gem sources, enabling dependency confusion attacks on all subsequent gem installs. MITRE T1195.001. |
+| `sc-block-cargo-config-write` | BLOCK | regex | Write to Cargo config.toml — the [source.crates-io] replace-with field redirects all cargo downloads to a custom registry, enabling persistent dependency confusion. MITRE T1195.001. |
 | `sc-block-go-mod-replace` | BLOCK | regex | go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings. |
 | `sc-block-go-env-proxy-custom` | BLOCK | regex | go env -w GOPROXY= with a non-official proxy redirects all Go module downloads to an attacker-controlled server. Only proxy.golang.org and goproxy.io are sanctioned public proxies. |
 | `sc-block-go-env-nosum` | BLOCK | regex | go env -w GONOSUMCHECK/GONOSUMDB= disables the Go checksum database, allowing tampered modules to pass integrity checks undetected. |
@@ -718,12 +736,17 @@ Metric | Count |
 | `sc-block-dockerfile-tee` | BLOCK | regex | tee write to Dockerfile detected — tee copies stdin to file as positional arg. Injecting malicious content backdoors every container built from this image. MITRE T1612. |
 | `sc-block-docker-compose-write` | BLOCK | regex | Shell write to docker-compose.yml detected. Tampering with compose files can mount host paths, disable security options, or add malicious service definitions. MITRE T1612. |
 | `sc-audit-global-install` | AUDIT | regex | Global npm/pip install has wider system impact than a local install — flagged for review (MITRE T1195). |
+| `sc-audit-pip-volatile-target` | AUDIT | regex | pip install --target/--prefix to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside virtual environment isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829. |
+| `sc-audit-npm-volatile-prefix` | AUDIT | regex | npm/yarn/pnpm install with --prefix/--modules-folder/--dir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside project isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829. |
+| `sc-audit-gem-volatile-install-dir` | AUDIT | regex | gem install --install-dir/--bindir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs gems outside system gem isolation — no disk trace after reboot (/dev/shm). MITRE T1195.001, CWE-829. |
+| `sc-audit-cargo-volatile-root` | AUDIT | regex | cargo install --root to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs Rust binaries outside ~/.cargo/bin — no disk trace after reboot (/dev/shm), evades persistence detection. MITRE T1195.001, CWE-829. |
 | `sc-audit-yarn-pnpm-global-install` | AUDIT | regex | Global yarn/pnpm install has wider system impact than a local install — flagged for review (MITRE T1195). |
 | `sc-audit-vector-db-write` | AUDIT | regex | Python invocation writing to a vector database (ChromaDB/Pinecone/Weaviate/Qdrant/FAISS) — injecting adversarial documents into a RAG knowledge base poisons AI-grounded outputs. OWASP LLM08, MITRE AML.T0010. |
 | `sc-audit-vector-db-rest-write` | AUDIT | regex | curl POST/PUT to vector database REST API endpoint — injecting content into a RAG knowledge base via HTTP bypasses Python library detection. OWASP LLM08. |
 | `sc-block-mcp-config-injection` | BLOCK | regex | Shell-redirect write to an MCP config file — overwriting agent-to-tool trust roots with attacker-controlled server entries is an MCP configuration injection attack (OWASP LLM07, MITRE T1565.001). |
 | `sc-block-mcp-config-sed-redirect` | BLOCK | regex | In-place sed modification of an MCP config file — surgically replacing server endpoints redirects agent tool calls to attacker-controlled infrastructure (OWASP LLM07, MITRE T1565.001). |
 | `sc-block-mcp-config-jq-write` | BLOCK | regex | jq rewriting .mcpServers entries in an MCP config file — replacing trusted server commands or args with malicious ones is a precision MCP configuration injection (OWASP LLM07, MITRE T1565.001). |
+| `sc-audit-mcp-tool-schema-write` | AUDIT | regex | Writing to an MCP server tool schema file can alter the schemas returned on tools/list — enabling tool poisoning where a trusted tool's input schema is widened to accept attacker-controlled parameters. OWASP LLM07, MITRE T1195.001. |
 | `sc-block-ai-endpoint-env-override` | BLOCK | regex | Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090). |
 | `sc-block-ai-endpoint-dotenv-write` | BLOCK | regex | Writing AI API endpoint env var to .env file — persisting endpoint override across sessions redirects all agent AI calls to attacker-controlled infrastructure (OWASP LLM08, MITRE T1565.001). |
 | `sc-block-ai-hosts-hijack` | BLOCK | regex | Appending AI API domain to /etc/hosts — overriding DNS resolution for api.openai.com or api.anthropic.com redirects agent AI calls at the network layer, bypassing TLS certificate validation context (OWASP LLM08, MITRE T1565, T1090). |
@@ -748,6 +771,11 @@ Metric | Count |
 | `sc-block-cmake-compiler-tmp-inject` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= pointing to /tmp or /dev/shm substitutes an attacker-controlled compiler binary. All compiled outputs for this project will be compromised. MITRE T1195.002, CWE-427. |
 | `sc-block-make-fplugin-inject` | BLOCK | regex | make CFLAGS=-fplugin= loading a GCC plugin from a temp or relative path injects arbitrary code into the compiler process. The plugin runs inside gcc and can modify all generated code or exfiltrate source files. MITRE T1195.002, CWE-78. |
 | `sc-block-make-ldpreload-inject` | BLOCK | regex | make LD_PRELOAD= pointing to /tmp or /dev/shm injects a shared library into every subprocess spawned by the build. The injected library intercepts libc calls and can exfiltrate data or tamper with build outputs. MITRE T1574.006, CWE-427. |
+| `sc-block-docker-content-trust-disable` | BLOCK | regex | DOCKER_CONTENT_TRUST=0 disables Docker Notary image signature verification for the entire shell session — all subsequent docker pull/push operations skip signature checks, allowing unsigned or backdoored container images to be used without validation. MITRE T1195.002, CWE-693. |
+| `sc-block-cosign-tlog-skip` | BLOCK | regex | Cosign transparency log bypass (COSIGN_SKIP_TLOG=1 or cosign sign --force) — skipping the Rekor transparency log makes container image signatures non-auditable, breaking supply chain provenance and violating SLSA L2+ requirements. MITRE T1195.002, CWE-693. |
+| `sc-audit-skopeo-trust-bypass` | AUDIT | regex | skopeo copy with TLS verification disabled or no-creds flag — copying container images between registries without TLS or authentication bypasses Docker Content Trust and allows unsigned/malicious images to be pushed to production registries outside normal daemon controls. MITRE T1195.002. |
+| `sc-audit-crane-registry-push` | AUDIT | regex | crane push/cp/tag directly manipulates OCI registry contents, bypassing Docker daemon content trust and image signing policies. An AI agent can replace or push production container images without standard build pipeline controls or signature verification. MITRE T1195.002, T1612. |
+| `sc-audit-oras-plain-http-push` | AUDIT | regex | oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -1086,12 +1114,12 @@ Metric | Count |
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 221 | 158 | 379 |
-| data-exfiltration | 225 | 131 | 356 |
+| data-exfiltration | 241 | 146 | 387 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 266 | 149 | 415 |
 | privilege-escalation | 269 | 164 | 433 |
-| reconnaissance | 165 | 69 | 234 |
-| supply-chain | 157 | 100 | 257 |
-| unauthorized-execution | 283 | 195 | 478 |
-| **Total** | **1714** | **1048** | **2762** |
+| reconnaissance | 168 | 71 | 239 |
+| supply-chain | 200 | 137 | 337 |
+| unauthorized-execution | 287 | 197 | 484 |
+| **Total** | **1780** | **1104** | **2884** |
 
