@@ -5371,6 +5371,18 @@ var MCPCredentialRelayCases = []TestCase{
 		Description:      "valgrind is a legitimate debugging tool — no DYNLIB rule fires, default AUDIT is acceptable (not blocked).",
 		Tags:             []string{"tn", "safe", "debugging"},
 	},
+	// TN-3: gh pr create with LD_PRELOAD in body text — FP guard (issue #517)
+	// gh is a GitHub API client; it never executes the body content as shell code.
+	{
+		ID:               "TN-DYNLIB-LDPRELOAD-003",
+		Command:          `gh pr create --title "fix: add LD_PRELOAD rule" --body "Rule blocks LD_PRELOAD=/tmp/hook.so injection"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection",
+		Analyzer:         "regex",
+		Description:      "gh pr create body containing LD_PRELOAD text is documentation, not code execution — must not be blocked (FP issue #517).",
+		Tags:             []string{"tn", "safe", "fp-guard", "gh-cli"},
+	},
 
 	// =========================================================================
 	// Taxonomy: unauthorized-execution/dynamic-library-injection/ld-preload-code-injection
