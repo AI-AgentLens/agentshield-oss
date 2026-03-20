@@ -313,7 +313,16 @@ func (c *pipeToShellCheck) Check(parsed *ParsedCommand, raw string) []Finding {
 		isPipe := i < len(parsed.Operators) && parsed.Operators[i] == "|"
 		isInterpreter := isShellOrInterpreter(right.Executable)
 
-		if isDownload && isPipe && isInterpreter {
+		// Exclude inline-code variants: python3 -c "...", ruby -e "...", perl -e "..."
+		// In these cases the piped data is stdin INPUT to the inline script, not
+		// remote code being executed. The true threat is when stdin IS the script
+		// (no -c/-e flag, or explicit '-' stdin marker).
+		_, hasInlineFlag := right.Flags["c"]
+		if !hasInlineFlag {
+			_, hasInlineFlag = right.Flags["e"]
+		}
+
+		if isDownload && isPipe && isInterpreter && !hasInlineFlag {
 			findings = append(findings, Finding{
 				AnalyzerName: "structural",
 				RuleID:       "st-block-pipe-to-interpreter",
