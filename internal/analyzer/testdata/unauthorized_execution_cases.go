@@ -4228,6 +4228,106 @@ var MCPServerImpersonationCases = []TestCase{
 		Tags:             []string{"tn", "safe"},
 	},
 
+	// =========================================================================
+	// Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
+	// Rule: ts-audit-ai-find-xargs-dispatch
+	// =========================================================================
+
+	// TP-1: find piped to xargs claude — bulk file discovery → LLM dispatch
+	{
+		ID:               "TP-AIDOW-FINDXARGS-001",
+		Command:          `find . -name "*.log" | xargs llm "analyze each file for anomalies"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "find piped to xargs llm — bulk file discovery feeds unbounded file count to the LLM, causing runaway token consumption (ts-audit-ai-find-xargs-dispatch).",
+		Tags:             []string{"tp", "ai-dos", "find-xargs", "denial-of-wallet"},
+	},
+	// TP-2: find all Python files piped to xargs claude for code review
+	{
+		ID:               "TP-AIDOW-FINDXARGS-002",
+		Command:          `find /workspace -type f -name "*.py" | xargs claude "review for vulnerabilities"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "find all Python files piped to xargs claude — workspace-wide file discovery dispatching one API call per file is an unbounded cost pattern (ts-audit-ai-find-xargs-dispatch).",
+		Tags:             []string{"tp", "ai-dos", "find-xargs", "denial-of-wallet"},
+	},
+	// TN-1: find piped to xargs wc — no AI CLI involved, safe
+	{
+		ID:               "TN-AIDOW-FINDXARGS-001",
+		Command:          `find . -name "*.py" | xargs wc -l`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "find piped to xargs wc — no AI CLI involved; does NOT trigger ts-audit-ai-find-xargs-dispatch. Safe read-only operation.",
+		Tags:             []string{"tn", "safe", "find-xargs"},
+	},
+	// TN-2: find piped to xargs grep — no AI CLI, safe file search
+	{
+		ID:               "TN-AIDOW-FINDXARGS-002",
+		Command:          `find . -name "*.go" | xargs grep "TODO"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "find piped to xargs grep — standard code search; no AI CLI involved. Does NOT trigger ts-audit-ai-find-xargs-dispatch.",
+		Tags:             []string{"tn", "safe", "find-xargs"},
+	},
+
+	// =========================================================================
+	// Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
+	// Rule: ts-audit-ai-watch-loop
+	// =========================================================================
+
+	// TP-1: watch claude — infinite timed loop of AI API calls
+	{
+		ID:               "TP-AIDOW-WATCHLOOP-001",
+		Command:          `watch -n 1 "claude 'what should I do next?'"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "watch with 1s interval calling claude — creates an infinite timed loop of LLM API calls with no iteration budget (1800 calls/hour); denial-of-wallet pattern (ts-audit-ai-watch-loop).",
+		Tags:             []string{"tp", "ai-dos", "watch-loop", "denial-of-wallet"},
+	},
+	// TP-2: watch llm at 0.5s interval — higher frequency looping
+	{
+		ID:               "TP-AIDOW-WATCHLOOP-002",
+		Command:          `watch -n 0.5 llm "generate next implementation step"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "watch at 0.5s interval calling llm — fires 7200 API calls/hour with no cost cap; infinite timed denial-of-wallet loop (ts-audit-ai-watch-loop).",
+		Tags:             []string{"tp", "ai-dos", "watch-loop", "denial-of-wallet"},
+	},
+	// TN-1: watch kubectl — no AI CLI, standard ops monitoring (gets default AUDIT)
+	{
+		ID:               "TN-AIDOW-WATCHLOOP-001",
+		Command:          `watch -n 5 kubectl get pods`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "watch kubectl get pods — standard ops monitoring; no AI CLI involved. Does NOT trigger ts-audit-ai-watch-loop (no AI CLI keyword). Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "watch-loop"},
+	},
+	// TN-2: watch df — disk usage monitoring, no AI CLI (gets default AUDIT)
+	{
+		ID:               "TN-AIDOW-WATCHLOOP-002",
+		Command:          `watch df -h`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet",
+		Analyzer:         "regex",
+		Description:      "watch df -h — disk usage monitoring; no AI CLI involved. Does NOT trigger ts-audit-ai-watch-loop. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "watch-loop"},
+	},
+
 	// ── AI Safety Control Bypass (ts-audit-ai-safety-bypass) ─────────────────
 
 	{
