@@ -376,6 +376,115 @@ var ContainerEscapeCases = []TestCase{
 		Description:      `CHOWN capability is harmless — allows changing file ownership, not a container escape vector.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+
+	// === kubectl exec: lateral movement into Kubernetes pods (issue #505) ===
+	// Rule: ts-audit-kubectl-exec — previously had zero test cases
+	{
+		ID:               "TP-CNTESC-020",
+		Command:          `kubectl exec -it payment-service -- /bin/sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `kubectl exec -it into a running pod — interactive shell gives direct access to application runtime, env vars, and secrets. Lateral movement vector. (ts-audit-kubectl-exec)`,
+		Tags:             []string{"tp", "container-escape", "kubectl"},
+	},
+	{
+		ID:               "TP-CNTESC-021",
+		Command:          `kubectl exec backend-pod -- env | grep SECRET`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `kubectl exec to dump secret env vars from a running pod — direct credential extraction via container exec. (ts-audit-kubectl-exec)`,
+		Tags:             []string{"tp", "container-escape", "kubectl", "credential-access"},
+	},
+	{
+		ID:               "TN-CNTESC-020",
+		Command:          `kubectl get pods -n production`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `kubectl get pods is a read-only list operation — does not exec into any container, ts-audit-kubectl-exec must not fire.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
+	{
+		ID:               "TN-CNTESC-021",
+		Command:          `kubectl logs -f payment-service --tail=100`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `kubectl logs tails container stdout/stderr — read-only, no code execution inside container, ts-audit-kubectl-exec must not fire.`,
+		Tags:             []string{"tn", "safe", "kubectl"},
+	},
+
+	// === podman exec: rootless container lateral movement (issue #505) ===
+	// Rule: ts-audit-podman-exec (new rule)
+	{
+		ID:               "TP-CNTESC-022",
+		Command:          `podman exec -it mycontainer bash`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `podman exec into a running container — rootless Docker alternative with same lateral movement risk as docker exec. (ts-audit-podman-exec)`,
+		Tags:             []string{"tp", "container-escape", "podman"},
+	},
+	{
+		ID:               "TP-CNTESC-023",
+		Command:          `podman exec webapp -- cat /run/secrets/db_password`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `podman exec reading container secret from /run/secrets — credential access via container exec in rootless podman environment. (ts-audit-podman-exec)`,
+		Tags:             []string{"tp", "container-escape", "podman", "credential-access"},
+	},
+	{
+		ID:               "TN-CNTESC-022",
+		Command:          `podman ps -a`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `podman ps lists containers — read-only, no container exec, ts-audit-podman-exec must not fire.`,
+		Tags:             []string{"tn", "safe", "podman"},
+	},
+	{
+		ID:               "TN-CNTESC-023",
+		Command:          `podman logs backend-service`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `podman logs views container output — read-only operation, ts-audit-podman-exec must not fire.`,
+		Tags:             []string{"tn", "safe", "podman"},
+	},
+
+	// === nerdctl exec: containerd CLI lateral movement (issue #505) ===
+	// Rule: ts-audit-nerdctl-exec (new rule)
+	{
+		ID:               "TP-CNTESC-024",
+		Command:          `nerdctl exec -it service-container sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `nerdctl exec (containerd CLI) into a running container — same lateral movement risk as docker exec in Kubernetes-adjacent environments. (ts-audit-nerdctl-exec)`,
+		Tags:             []string{"tp", "container-escape", "nerdctl"},
+	},
+	{
+		ID:               "TN-CNTESC-024",
+		Command:          `nerdctl images`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-exec",
+		Analyzer:         "regex",
+		Description:      `nerdctl images lists container images — read-only, ts-audit-nerdctl-exec must not fire.`,
+		Tags:             []string{"tn", "safe", "nerdctl"},
+	},
 }
 
 // ---------------------------------------------------------------------------
