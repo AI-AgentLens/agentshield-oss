@@ -1596,6 +1596,28 @@ rules:
     confidence: 0.85
     reason: "docker exec into a container may enable lateral movement or escape."
 
+  # === AUDIT: podman exec and nerdctl exec (issue #505) ===
+  # podman (rootless Docker alternative) and nerdctl (containerd CLI) share the
+  # same lateral movement risk as docker exec — direct code execution inside a
+  # running container that may hold application secrets or elevated privileges.
+  # Taxonomy: privilege-escalation/container-escape/docker-exec
+  # OWASP LLM06 — Excessive Agency | MITRE T1609 (Container Administration Command)
+  - id: "ts-audit-podman-exec"
+    taxonomy: "privilege-escalation/container-escape/docker-exec"
+    match:
+      command_regex: "\\bpodman\\s+exec\\s+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "podman exec executes commands inside a running container — same lateral movement risk as docker exec. May access application secrets, env vars, or escalate privileges if container runs as root. MITRE T1609."
+
+  - id: "ts-audit-nerdctl-exec"
+    taxonomy: "privilege-escalation/container-escape/docker-exec"
+    match:
+      command_regex: "\\bnerdctl\\s+exec\\s+"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "nerdctl exec (containerd CLI) executes commands inside a running container — same lateral movement risk as docker exec. MITRE T1609."
+
   - id: "ts-block-namespace-escape"
     taxonomy: "privilege-escalation/container-escape/namespace-escape"
     match:
