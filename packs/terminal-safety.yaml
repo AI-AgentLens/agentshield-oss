@@ -6441,6 +6441,34 @@ rules:
     confidence: 0.75
     reason: "Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08."
 
+  # === AUDIT: Cross-tenant agent data leakage via shared workspace directories ===
+  #
+  # Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage
+  # OWASP LLM02 — Insecure Output Handling, LLM06 — Excessive Agency
+  # MITRE T1005 — Data from Local System, T1083 — File and Directory Discovery
+  # CWE-200 — Exposure of Sensitive Information | EU AI Act Art.10, Art.13
+  # ISO 27001-2022: A.5.34, A.8.3, A.8.11
+  #
+  # Shared MCP workspace directories (/tmp/mcp-workspace, /var/mcp/sessions,
+  # /tmp/agent-*) are used by multi-tenant agent infrastructure to store tool
+  # call artifacts, session state, and intermediate results. These directories
+  # lack per-tenant isolation — reading them without tenant-scoped paths exposes
+  # another tenant's data (cross-tenant agent data leakage).
+  #
+  # Examples:
+  #   ls /tmp/mcp-workspace/
+  #   cat /var/mcp/sessions/session-001/context.json
+  #   find /tmp/agent- -name "*.json"
+  #   cat /tmp/mcp-workspace/uploads/user-doc.pdf
+
+  - id: "de-llmdf-audit-cross-tenant-agent-workspace"
+    taxonomy: "data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage"
+    match:
+      command_regex: "\\b(ls|cat|find|head|tail|grep|read|less|more|cp|mv)\\b.*/(?:tmp/mcp-workspace|var/mcp/sessions|tmp/agent-)"
+    decision: "AUDIT"
+    confidence: 0.78
+    reason: "Accessing shared MCP workspace or agent session directories without tenant-scoped paths — /tmp/mcp-workspace, /var/mcp/sessions, and /tmp/agent-* are shared across tenants in multi-agent infrastructure. Reading these may expose another tenant's tool call artifacts, session context, or uploaded documents. OWASP LLM02/LLM06, EU AI Act Art.10."
+
   # ── Agent Capability Enumeration ────────────────────────────────────────────
   #
   # Taxonomy: reconnaissance/llm-introspection/agent-capability-enumeration
