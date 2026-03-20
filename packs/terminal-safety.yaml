@@ -689,6 +689,7 @@ rules:
     taxonomy: "unauthorized-execution/dynamic-library-injection/ld-preload-code-injection"
     match:
       command_regex: "LD_(PRELOAD|AUDIT)=(/tmp|/dev/shm|/var/tmp|/run/user|~/|\\$HOME)"
+      command_regex_exclude: "^\\s*gh\\b"
     decision: "BLOCK"
     confidence: 0.93
     reason: "LD_PRELOAD or LD_AUDIT pointing to a world-writable or home-relative path injects a malicious shared library into the target process, intercepting any function call. MITRE T1574.006."
