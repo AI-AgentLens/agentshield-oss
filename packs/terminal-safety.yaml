@@ -2362,6 +2362,24 @@ rules:
     confidence: 0.85
     reason: "git clone --mirror copies entire repository including all refs — potential exfiltration."
 
+  # === AUDIT: git clone --bare — full object store copy including purged history ===
+  # git clone --bare copies all git objects (commits, blobs, trees) and refs into a
+  # bare repository. Unlike a regular clone it preserves all branches, tags, and the
+  # complete commit graph — including commits that were force-pushed or scrubbed from
+  # the default branch. This makes it an effective exfiltration vector for recovering
+  # accidentally committed secrets. --bare has legitimate server-side hosting uses
+  # (setting up a remote), so AUDIT rather than BLOCK; require human review.
+  # Distinguish from `git init --bare` (creates an empty local repo, no remote data).
+  # Taxonomy: data-exfiltration/version-control/git-mirror-clone
+  # MITRE T1213.003 — Code Repositories
+  - id: "ts-audit-git-clone-bare"
+    taxonomy: "data-exfiltration/version-control/git-mirror-clone"
+    match:
+      command_regex: "git\\s+clone\\s+.*--bare\\b"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003."
+
   # === BLOCK: git bundle create — portable full-repo snapshot for offline transfer ===
   # git bundle create packages all git objects (commits, blobs, refs) into a single
   # portable file explicitly designed for transfer to another machine. An AI agent

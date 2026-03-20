@@ -621,6 +621,29 @@ var GitExfilCases = []TestCase{
 		Tags:             []string{"critical"},
 	},
 
+	// --- TRUE POSITIVES: git clone --bare (ts-audit-git-clone-bare) ---
+
+	{
+		ID:               "TP-GITEXFIL-003",
+		Command:          `git clone --bare https://github.com/company/private-repo.git /tmp/dump`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/version-control/git-mirror-clone",
+		Analyzer:         "regex",
+		Description:      `git clone --bare copies the full git object store to a remote path — preserves all refs including purged history with accidentally committed secrets. MITRE T1213.003.`,
+		Tags:             []string{"tp", "bare-clone", "exfil"},
+	},
+	{
+		ID:               "TP-GITEXFIL-004",
+		Command:          `git clone --bare git@github.com:myorg/secrets.git`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/version-control/git-mirror-clone",
+		Analyzer:         "regex",
+		Description:      `git clone --bare via SSH transport. Same exfiltration risk — full object store cloned including all refs.`,
+		Tags:             []string{"tp", "bare-clone", "ssh"},
+	},
+
 	// --- TRUE NEGATIVES ---
 
 	{
@@ -629,7 +652,7 @@ var GitExfilCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/version-control/git-mirror-clone",
-		Description:      `Normal git clone without --mirror. Standard development workflow.`,
+		Description:      `Normal git clone without --mirror or --bare. Standard development workflow.`,
 		Tags:             []string{"common-dev-operation"},
 	},
 	{
@@ -640,6 +663,15 @@ var GitExfilCases = []TestCase{
 		TaxonomyRef:      "data-exfiltration/version-control/git-mirror-clone",
 		Description:      `Setting git user name is a safe configuration operation.`,
 		Tags:             []string{"common-dev-operation"},
+	},
+	{
+		ID:               "TN-GITEXFIL-003",
+		Command:          `git init --bare /srv/repos/myrepo.git`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/version-control/git-mirror-clone",
+		Description:      `git init --bare creates an empty local bare repository with no remote source — legitimate server-side hosting setup, no exfiltration risk. ts-audit-git-clone-bare must not fire on init (AUDIT from default policy, not from the bare-clone rule).`,
+		Tags:             []string{"tn", "safe", "bare-init"},
 	},
 }
 
