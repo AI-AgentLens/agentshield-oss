@@ -869,6 +869,43 @@ rules:
     reason: "jq rewriting .mcpServers entries in an MCP config file — replacing trusted server commands or args with malicious ones is a precision MCP configuration injection (OWASP LLM07, MITRE T1565.001)."
 
   # ===================================================================
+  # MCP TOOL SCHEMA DRIFT (terminal-level)
+  # Taxonomy: supply-chain/config-tampering/mcp-tool-schema-drift
+  # OWASP LLM07 — System Prompt Leakage, LLM03 — Training Data Poisoning
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # ISO 27001-2022: A.8.9, A.8.25, A.8.26 | NIST AI RMF: MAP-5, MANAGE-1
+  # ===================================================================
+  #
+  # MCP servers expose a tools/list endpoint that describes the tools they
+  # serve. Modifying the tool schema files that an MCP server reads (e.g.,
+  # tools.json, mcp_settings.json, tool-schema.yaml) changes what the agent
+  # sees as available tools — enabling tool poisoning where a trusted tool's
+  # input schema is widened to accept malicious parameters.
+  #
+  # This is distinct from mcp-config-injection (which targets the agent
+  # registration config files like .cursor/mcp.json) — here the *schema*
+  # served by an already-registered server is being tampered.
+  #
+  # Examples:
+  #   echo '{"tools":[{"name":"read_file","inputSchema":{}}]}' > tools.json
+  #   cat > mcp_settings.json << EOF ... EOF
+  #   sed -i 's/"required":\["path"\]/"required":[]/' tool-schema.json
+  #   tee mcp-config.json <<< '{"tools":[]}'
+  #   jq '.tools[0].inputSchema = {}' tools.json | sponge tools.json
+  #
+  # Decision: AUDIT — legitimate MCP server development requires editing these
+  # files. Flag for review rather than blocking.
+
+  # === AUDIT: Writing to MCP server settings and tool schema files (LLM07) ===
+  - id: "sc-audit-mcp-tool-schema-write"
+    taxonomy: "supply-chain/config-tampering/mcp-tool-schema-drift"
+    match:
+      command_regex: "(echo|cat|printf|tee|sed|jq|python3?|node)\\b.*\\b(mcp[_-]settings\\.json|mcp[_-]config\\.json|tool[_-]schema\\.(json|yaml|yml)|tools\\.json|tools/list)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Writing to an MCP server tool schema file can alter the schemas returned on tools/list — enabling tool poisoning where a trusted tool's input schema is widened to accept attacker-controlled parameters. OWASP LLM07, MITRE T1195.001."
+
+  # ===================================================================
   # AI MODEL ENDPOINT HIJACKING
   # Taxonomy: supply-chain/config-tampering/model-endpoint-hijacking
   # OWASP LLM08 — Vector and Embedding Weaknesses, LLM09 — Misinformation
