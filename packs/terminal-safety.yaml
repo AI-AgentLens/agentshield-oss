@@ -7895,6 +7895,32 @@ rules:
     confidence: 0.85
     reason: "TLS verification bypass in error recovery context: an agent automatically disabled certificate checking after a connection failure. Disabling TLS validation against production endpoints removes a critical security control and enables MITM attacks (OWASP LLM06, EU AI Act Art.9). Human review required before proceeding."
 
+  # --- AUDIT: chmod world-write in error recovery (`cmd || chmod ... 777`) ---
+  #
+  # When a command fails with "Permission denied", an agent's self-correction may
+  # chmod the target to world-writable (777, o+w, a+w) as an automated "fix".
+  # This weakens access controls on the target file/directory and is the permission
+  # weakening variant of agentic error recovery exploitation.
+  #
+  # Decision: AUDIT (not BLOCK) because chmod has many legitimate uses. The || operator
+  # preceding chmod is the risk signal indicating automated error recovery escalation.
+  #
+  # TP examples:
+  #   cat /etc/app/config.json || chmod 777 /etc/app/config.json
+  #   ls /var/private/data || chmod -R 777 /var/private/data
+  #   cp file.txt /root/ || chmod o+w /root && cp file.txt /root/
+  #
+  # TN examples:
+  #   chmod 777 /tmp/my_script.sh   (standalone, no error recovery context)
+  #   make build || echo "build failed"   (error recovery without permission change)
+  - id: "ts-audit-error-recovery-chmod"
+    taxonomy: "unauthorized-execution/agentic-attacks/agentic-error-recovery-exploitation"
+    match:
+      command_regex: "\\|\\|\\s*chmod\\s+.*\\b(777|0777|o\\+w|a\\+w)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Permission weakening in error recovery context: a failed command is followed by chmod to world-writable (777, o+w, a+w). AI agents autonomously weaken file permissions as a self-correction for 'Permission denied' errors — directly undermining least-privilege security controls (OWASP LLM06, EU AI Act Art.9). Human review required."
+
   # ===========================================================================
   # Agent Workflow Replay & Cross-Agent Shared State Poisoning
   # ===========================================================================
