@@ -12,5 +12,6 @@ func AllTestCases() []TestCase {
 	all = append(all, AllPersistenceEvasionCases()...)
 	all = append(all, AllSupplyChainCases()...)
 	all = append(all, AllReconnaissanceCases()...)
+	all = append(all, AllGovernanceRiskCases()...)
 	return all
 }
