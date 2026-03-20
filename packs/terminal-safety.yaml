@@ -187,6 +187,55 @@ rules:
     confidence: 0.82
     reason: "xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10)."
 
+  # === AUDIT: find | xargs AI-CLI bulk file dispatch ===
+  #
+  # Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
+  # OWASP LLM10 — Unbounded Consumption | CWE-400 (Uncontrolled Resource Consumption)
+  #
+  # Attack: agent uses `find` to discover all matching files in the repo and
+  # pipes them to an AI CLI via xargs, dispatching one API call per file or
+  # combining all file paths into a single massive prompt. Either way, the
+  # number of tokens consumed is proportional to the number of files found,
+  # not the cost the user intended.
+  #
+  # TP: find . -name "*.log" | xargs llm "analyze"
+  # TP: find /workspace -type f -name "*.py" | xargs claude "review"
+  # TP: find . -name "*.md" | xargs -I{} claude "summarize {}"
+  # TN: find . -name "*.py" | xargs wc -l          (no AI CLI)
+  # TN: cat report.log | claude "summarize"         (single file, no find)
+  #
+  - id: "ts-audit-ai-find-xargs-dispatch"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet"
+    match:
+      command_regex: "(?i)\\bfind\\b.*\\|.*\\bxargs\\b.*\\b(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere|anthropic)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "find piped to xargs dispatching an AI CLI — bulk file discovery feeds unbounded file count to the LLM, causing runaway token consumption and API costs (AI Denial of Wallet, OWASP LLM10, CWE-400)."
+
+  # === AUDIT: watch <AI-CLI> — time-looping denial-of-wallet ===
+  #
+  # Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
+  # OWASP LLM10 — Unbounded Consumption | CWE-834 (Excessive Iteration)
+  #
+  # `watch` repeatedly executes a command at a fixed interval (default: 2s).
+  # Combined with an AI CLI, this creates an infinite, timed loop of API calls
+  # with no iteration budget, no completion condition, and no cost cap. Even at
+  # a 2-second interval, `watch llm "..."` fires 1800 API calls/hour.
+  #
+  # TP: watch -n 1 "claude 'what should I do next?'"
+  # TP: watch -n 0.5 llm "generate next step"
+  # TP: watch claude "analyze current state"
+  # TN: watch -n 5 kubectl get pods       (no AI CLI)
+  # TN: watch df -h                       (no AI CLI)
+  #
+  - id: "ts-audit-ai-watch-loop"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet"
+    match:
+      command_regex: "(?i)\\bwatch\\b.*\\b(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere|anthropic)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "watch executing an AI CLI — creates an infinite timed loop of API calls with no iteration budget. Even at 2s intervals this fires 1800 API calls/hour; a denial-of-wallet vector (OWASP LLM10, CWE-834)."
+
   # === BLOCK: LLM CLI output piped to shell execution (LLM output injection) ===
   #
   # Taxonomy: unauthorized-execution/ai-content-integrity/llm-output-injection
