@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 868 |
+| Terminal rules | 873 |
 | MCP rules | 127 |
-| Total rules | 995 |
-| Test cases (TP+TN) | 2897 |
+| Total rules | 1000 |
+| Test cases (TP+TN) | 2899 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -65,7 +65,7 @@
 | `sec-block-az-get-access-token` | BLOCK | regex | az account get-access-token dumps a live Azure AD Bearer token to stdout — grants immediate access to Azure management APIs, Key Vault, and storage. MITRE T1528, OWASP LLM06. |
 | `sec-block-vault-read` | BLOCK | regex | vault read extracts secrets from HashiCorp Vault to stdout — can retrieve production API keys, database passwords, TLS certificates, and dynamic cloud credentials. Bypasses file-based monitoring. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-vault-kv-get` | BLOCK | regex | vault kv get extracts KV v2 secrets from HashiCorp Vault to stdout — returns the full secret map or a single field value. MITRE T1552.001, OWASP LLM06. |
-| `sec-block-aws-imds` | BLOCK | regex | Access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Agents have no legitimate need to query instance metadata. |
+| `sec-block-aws-imds` | BLOCK | regex | HTTP/HTTPS access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Requires URL prefix to avoid false positives on grep/cat/echo commands that reference the IP as text. |
 | `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
 | `sec-block-kubeconfig-file-access` | BLOCK | regex | Direct read or copy of ~/.kube/config exposes cluster credentials (embedded certs, bearer tokens, client keys). Excludes matches where the path appears as prose text in a named flag value (e.g. git commit -m, gh issue --body). MITRE T1552.001. |
@@ -116,7 +116,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (133 rules)
+### data-exfiltration (138 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -253,6 +253,11 @@
 | `de-llmdf-audit-vector-query-no-namespace` | AUDIT | regex | Pinecone CLI query/fetch/upsert without --namespace uses a shared index without per-tenant isolation, risking cross-tenant RAG data leakage where one tenant retrieves another's documents. OWASP LLM02/LLM06/LLM08. |
 | `de-llmdf-audit-cross-tenant-agent-workspace` | AUDIT | regex | Accessing shared MCP workspace or agent session directories without tenant-scoped paths — /tmp/mcp-workspace, /var/mcp/sessions, and /tmp/agent-* are shared across tenants in multi-agent infrastructure. Reading these may expose another tenant's tool call artifacts, session context, or uploaded documents. OWASP LLM02/LLM06, EU AI Act Art.10. |
 | `ts-block-procsub-exfil` | BLOCK | regex | Output process substitution piping data to a network tool — exfiltrates data through an ephemeral file descriptor. The source command (tar, cat) has no network references, making the exfiltration invisible to single-command analysis. MITRE T1048. |
+| `ts-block-doh-google` | BLOCK | regex | Direct call to Google's DNS-over-HTTPS API (dns.google/resolve or /dns-query). AI agents have no legitimate need for DoH resolver calls — these are used to tunnel exfiltrated data as subdomain labels bypassing DNS monitoring. MITRE T1071.004, T1048.003. |
+| `ts-block-doh-cloudflare` | BLOCK | regex | Direct call to Cloudflare's DNS-over-HTTPS API (cloudflare-dns.com/dns-query). Used to tunnel data as subdomain labels in DoH queries, bypassing network-layer DNS monitoring. MITRE T1071.004, T1048.003. |
+| `ts-block-doh-1111` | BLOCK | regex | Direct call to Cloudflare's DoH endpoint via IP (1.1.1.1/dns-query or 1.0.0.1/dns-query). Identical attack surface to cloudflare-dns.com but uses IP address to avoid hostname-based filtering. MITRE T1071.004, T1048.003. |
+| `ts-block-doh-quad9` | BLOCK | regex | Direct call to Quad9's DNS-over-HTTPS API (dns.quad9.net or dns9.quad9.net /dns-query). Quad9 provides RFC 8484 DoH; querying it directly is a DoH exfiltration channel. MITRE T1071.004, T1048.003. |
+| `ts-block-doh-content-type` | BLOCK | regex | RFC 8484 DNS-over-HTTPS content type (application/dns-json or application/dns-message) in a curl/wget header. These MIME types are exclusively used for DoH wire-format queries — any agent command referencing them is performing DoH-based DNS tunneling. MITRE T1071.004. |
 
 ### destructive-ops (68 rules)
 
@@ -1120,7 +1125,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 221 | 158 | 379 |
+| credential-exposure | 221 | 160 | 381 |
 | data-exfiltration | 249 | 151 | 400 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 266 | 149 | 415 |
@@ -1128,5 +1133,5 @@
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 200 | 137 | 337 |
 | unauthorized-execution | 287 | 197 | 484 |
-| **Total** | **1788** | **1109** | **2897** |
+| **Total** | **1788** | **1111** | **2899** |
 
