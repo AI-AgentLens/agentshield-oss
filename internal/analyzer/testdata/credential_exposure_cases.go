@@ -956,6 +956,43 @@ var IMDSTheftCases = []TestCase{
 			present. Matched by ne-audit-wget (AUDIT), not IMDS block.`,
 		Tags: []string{"common-dev-operation"},
 	},
+	{
+		ID:               "TN-IMDS-003",
+		Command:          `grep "169.254.169.254" packs/secrets-pii.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `grep searching for the IMDS IP string in a local file. This is a file read
+			operation — not network access. The updated regex requires http:// or https:// prefix
+			to avoid this FP (issue #584).`,
+		Tags: []string{"fp-regression", "file-search"},
+	},
+	{
+		ID:               "TN-IMDS-004",
+		Command:          `cat /etc/hosts | grep 169.254.169.254`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `Reading /etc/hosts and piping to grep for the IMDS IP. Safe file-read
+			operation — no URL prefix so the IMDS regex does not fire.`,
+		Tags: []string{"fp-regression", "file-search"},
+	},
+	{
+		// nc 169.254.169.254 80 would bypass the URL-prefix regex.
+		// Known gap: nc rarely speaks HTTP correctly and this attack pattern
+		// is very uncommon. A separate structural rule can address this later.
+		ID:               "FN-IMDS-001",
+		Command:          `nc 169.254.169.254 80`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "FN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description: `nc connecting to IMDS port — known gap after tightening regex to require
+			http:// prefix (issue #584). nc rarely speaks HTTP correctly so risk is low.`,
+		Tags: []string{"known-gap", "nc", "imds"},
+	},
 
 	// --- TRUE POSITIVES: GCP IMDS via metadata.google.internal hostname ---
 
