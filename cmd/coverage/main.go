@@ -281,6 +281,7 @@ func countTestCases(dir string) map[string]kingdomTestCounts {
 		"destructive_ops_cases.go":       "destructive-ops",
 		"credential_exposure_cases.go":   "credential-exposure",
 		"data_exfiltration_cases.go":     "data-exfiltration",
+		"governance_risk_cases.go":       "governance-risk",
 		"persistence_evasion_cases.go":   "persistence-evasion",
 		"privilege_escalation_cases.go":  "privilege-escalation",
 		"reconnaissance_cases.go":        "reconnaissance",
