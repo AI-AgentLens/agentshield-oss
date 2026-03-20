@@ -1468,10 +1468,14 @@ rules:
   # --- BLOCK: ARP/DNS poisoning tools ---
   # arpspoof, bettercap, ettercap, Responder, and dnsspoof are dedicated MITM and
   # credential-harvesting attack tools — no legitimate development use case.
+  # Exclude heredoc file-writing commands (cat/tee ... << EOF) where the tool name
+  # appears as a string literal in the heredoc body, not as an actual execution
+  # (e.g. writing a Python test file that references the tool in subprocess.run()).
   - id: "ne-block-arp-dns-poisoning-tools"
     taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
     match:
       command_regex: "\\b(arpspoof|bettercap|ettercap|dnsspoof|Responder\\.py|responder)\\b"
+      command_regex_exclude: "^\\s*(cat|tee)\\b.*<<"
     decision: "BLOCK"
     confidence: 0.97
     reason: "ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040."
