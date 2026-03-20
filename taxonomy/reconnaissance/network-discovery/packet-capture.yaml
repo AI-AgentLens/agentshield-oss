@@ -1,0 +1,85 @@
+id: "reconnaissance/network-discovery/packet-capture"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Network Discovery"
+category_id: "8.1"
+name: "Network Packet Capture"
+risk_level: "critical"
+
+abstract: |
+  An AI agent invokes packet capture tools (tcpdump, tshark, wireshark) or
+  uses packet capture libraries (pyshark, dpkt, pcapy, gopacket) to sniff
+  network traffic, enabling credential theft, session hijacking, LLM API key
+  interception, and internal network traffic analysis.
+
+explanation: |
+  Packet capture gives an agent complete visibility into network traffic flowing
+  through or past its host's network interface. This is one of the most powerful
+  reconnaissance and credential-theft primitives available to a compromised agent.
+
+  **CLI tool invocations** capture traffic with full protocol dissection:
+  - `tcpdump -i eth0 -w /tmp/cap.pcap` — raw capture to file for offline analysis
+  - `tshark -i any -Y "http" -T fields -e http.authorization` — extract auth headers
+  - `dumpcap -i eth0 -w out.pcap` — Wireshark's capture daemon
+
+  **Library-level capture** embeds sniffing directly in generated code:
+  - `pyshark.LiveCapture(interface='eth0')` — Python network analysis
+  - `gopacket/pcap.OpenLive("eth0", 65536, true, ...)` — Go packet capture
+  - `pcapy.open_live("eth0", 65536, 1, 0)` — Python C binding to libpcap
+  - `SharpPcap.CaptureDeviceList.Instance[0].Open()` — .NET capture
+
+  **AI agent threat model**: A compromised or prompt-injected agent sniffing
+  traffic can intercept:
+  - Plaintext credentials (HTTP Basic Auth, FTP, SMTP)
+  - API keys and tokens in HTTP headers or query strings
+  - LLM API requests/responses through a local gateway, exposing all prompts
+  - Internal service-to-service tokens and session cookies
+  - Kerberos tickets and NTLM challenge-response for offline cracking
+
+  Packet capture typically requires root or CAP_NET_RAW, so this threat often
+  co-occurs with privilege escalation.
+
+recommendation: |
+  - Block all subprocess invocations of tcpdump, tshark, dumpcap, wireshark from AI agents.
+  - Block packet capture library imports (pyshark, dpkt, pcapy, gopacket, SharpPcap).
+  - Monitor for CAP_NET_RAW privilege grants in containerized environments.
+  - Use network segmentation to limit what traffic is visible to agent hosts.
+  - Encrypt all internal service traffic (mTLS) to reduce value of captured packets.
+
+examples:
+  bad:
+    - "tcpdump -i eth0 -nn -w /tmp/capture.pcap"
+    - "tshark -i any -T fields -e http.authorization"
+    - "dumpcap -i eth0 -w out.pcap"
+    - "import pyshark; cap = pyshark.LiveCapture(interface='eth0')"
+    - "pcap.OpenLive(\"eth0\", 65536, true, pcap.BlockForever)"
+    - "pcapy.open_live('eth0', 65536, 1, 0)"
+  good:
+    - "tcpdump -r existing.pcap"
+    - "wireshark existing.pcap"
+    - "tshark -r capture.pcap -Y 'dns'"
+    - "netstat -an"
+    - "ss -tlnp"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.12", "A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6", "MANAGE-1"]
+  soc2-type2: ["CC6.6", "CC6.7", "CC7.2"]
+
+references:
+  mitre_attack: ["T1040", "T1552"]
+  cwe: ["CWE-200", "CWE-319"]
+  external:
+    - title: "MITRE ATT&CK: Network Sniffing"
+      url: "https://attack.mitre.org/techniques/T1040/"
+    - title: "MITRE ATT&CK: Unsecured Credentials"
+      url: "https://attack.mitre.org/techniques/T1552/"
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules:
+  - "rec-block-tcpdump-capture"
+  - "rec-block-tshark-capture"
+  - "rec-block-packet-capture-libs"
