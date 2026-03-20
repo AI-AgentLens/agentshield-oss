@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 861 |
+| Terminal rules | 868 |
 | MCP rules | 127 |
-| Total rules | 988 |
-| Test cases (TP+TN) | 2884 |
+| Total rules | 995 |
+| Test cases (TP+TN) | 2897 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -116,7 +116,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (126 rules)
+### data-exfiltration (133 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -203,6 +203,13 @@
 | `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). |
 | `ts-block-git-archive-pipe-network` | BLOCK | regex | git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041). |
 | `ts-audit-git-archive` | AUDIT | regex | git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately. |
+| `ts-block-aws-s3-upload-sensitive-path` | BLOCK | regex | aws s3 cp uploading a home directory, system path, or workspace root to S3 — an AI agent copying the home directory or system paths to cloud storage is a high-confidence exfiltration pattern. Legitimate deployments upload build artifacts (./build/, ./dist/), not root directories (OWASP LLM02, MITRE T1048, CWE-200). |
+| `ts-block-aws-s3-sync-sensitive-path` | BLOCK | regex | aws s3 sync uploading home directory, system path, or workspace root to S3 — bulk sync of sensitive directory trees to cloud storage is a data exfiltration pattern. Legitimate CI/CD deployments sync build outputs (./build/, ./dist/), not root directories (OWASP LLM02, MITRE T1048, T1560). |
+| `ts-block-gsutil-cp-sensitive-path` | BLOCK | regex | gsutil cp uploading home directory, system path, or workspace root to GCS — transferring root-level directories to Google Cloud Storage is a data exfiltration pattern (OWASP LLM02, MITRE T1048, CWE-200). |
+| `ts-block-gsutil-rsync-sensitive-path` | BLOCK | regex | gsutil rsync uploading home directory, system path, or workspace root to GCS — bulk sync of root-level directories to Google Cloud Storage exfiltrates the full environment (OWASP LLM02, MITRE T1048, T1560). |
+| `ts-block-az-storage-upload` | BLOCK | regex | az storage blob upload/upload-batch sending local files to Azure Blob Storage — uploading local workspace data to Azure is a data exfiltration pattern with no legitimate AI agent use case (OWASP LLM02, MITRE T1048, CWE-200). |
+| `ts-audit-rclone-upload` | AUDIT | regex | rclone transfer command detected — rclone supports 40+ cloud providers and is commonly used in exfiltration toolkits (MITRE T1048). Audit for review; verify the destination is an authorized remote and the source data is not sensitive. |
+| `ts-audit-s3cmd-upload` | AUDIT | regex | s3cmd S3 operation detected — s3cmd is a third-party S3 client not covered by AWS CLI monitoring. put/sync upload local files to S3; audit for review to verify authorized bucket and non-sensitive data (OWASP LLM02, MITRE T1048). |
 | `ts-block-xattr-write-subshell` | BLOCK | regex | Writing command substitution output to extended attributes — hides exfiltrated data (credentials, keys, secrets) in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-block-xattr-write-backtick` | BLOCK | regex | Writing backtick command output to extended attributes — hides exfiltrated data in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-audit-xattr-write` | AUDIT | regex | Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004. |
@@ -1114,12 +1121,12 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 221 | 158 | 379 |
-| data-exfiltration | 241 | 146 | 387 |
+| data-exfiltration | 249 | 151 | 400 |
 | destructive-ops | 128 | 82 | 210 |
 | persistence-evasion | 266 | 149 | 415 |
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 200 | 137 | 337 |
 | unauthorized-execution | 287 | 197 | 484 |
-| **Total** | **1780** | **1104** | **2884** |
+| **Total** | **1788** | **1109** | **2897** |
 
