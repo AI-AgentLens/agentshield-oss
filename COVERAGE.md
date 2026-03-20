@@ -1,5 +1,10 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (823 terminal rules, 127 MCP rules)
-Metric | Count |
+# AgentShield Coverage Report
+
+*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
+
+## Summary
+
+| Metric | Count |
 |--------|-------|
 | Terminal rules | 823 |
 | MCP rules | 127 |
