@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 893 |
+| Terminal rules | 899 |
 | MCP rules | 127 |
-| Total rules | 1020 |
-| Test cases (TP+TN) | 3094 |
+| Total rules | 1026 |
+| Test cases (TP+TN) | 3112 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (102 rules)
+### credential-exposure (105 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -98,6 +98,9 @@
 | `sec-block-nmcli-vpn-export` | BLOCK | regex | nmcli connection export writes a full VPN config file (OpenVPN/WireGuard format) including embedded credentials, certificates, and private keys. MITRE T1552.004. |
 | `sec-block-ipsec-secrets-read` | BLOCK | regex | Reading IPsec/strongSwan secrets or config — /etc/ipsec.secrets contains pre-shared keys and RSA private keys for IKEv1/IKEv2 VPN authentication. Stolen credentials enable unauthorized VPN tunnel establishment. MITRE T1552.004, T1133. |
 | `sec-audit-nm-connections-list` | AUDIT | regex | Accessing NetworkManager system-connections directory — lists VPN and network connection profiles. Individual .nmconnection files may contain embedded credentials. Auditing for visibility. MITRE T1552.001. |
+| `sec-audit-docker-build-arg-secret` | AUDIT | regex | docker build --build-arg passing a credential-named variable bakes it into the Docker image manifest, visible via 'docker history --no-trunc' to anyone with image access. Rotate the credential after the build and prefer Docker BuildKit --secret for runtime secrets. MITRE T1552.001, OWASP LLM06. |
+| `sec-block-docker-build-secret-cred-file` | BLOCK | regex | docker build --secret src= passing a production credential file (~/.aws/, ~/.ssh/, ~/.kube/) to the build context exposes it to all RUN --mount=type=secret instructions in the Dockerfile, including those in malicious transitive base images. Use per-build scoped credentials instead. MITRE T1552.001, T1552.004. |
+| `sec-audit-docker-build-ssh-forward` | AUDIT | regex | docker build --ssh forwards the SSH agent socket into the Docker build environment, allowing all RUN --mount=type=ssh instructions (including those in untrusted base images) to authenticate using any key loaded in the SSH agent. Review the Dockerfile for malicious RUN --mount=type=ssh instructions before proceeding. MITRE T1552.004, OWASP LLM06. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
@@ -697,7 +700,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (113 rules)
+### supply-chain (116 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -763,6 +766,9 @@
 | `sc-block-dockerfile-write` | BLOCK | regex | Shell write to Dockerfile detected. Injecting malicious RUN/COPY/ENV instructions can backdoor every container built from this image. MITRE T1612. |
 | `sc-block-dockerfile-tee` | BLOCK | regex | tee write to Dockerfile detected — tee copies stdin to file as positional arg. Injecting malicious content backdoors every container built from this image. MITRE T1612. |
 | `sc-block-docker-compose-write` | BLOCK | regex | Shell write to docker-compose.yml detected. Tampering with compose files can mount host paths, disable security options, or add malicious service definitions. MITRE T1612. |
+| `sc-block-devcontainer-write` | BLOCK | regex | Shell write to devcontainer.json detected. Injecting postCreateCommand, postStartCommand, or a malicious image field backdoors the developer's container on every rebuild — a persistent supply chain attack (MITRE T1612, T1546). |
+| `sc-block-devcontainer-tee` | BLOCK | regex | tee write to devcontainer.json detected — tee copies stdin to file as positional arg. Tampered lifecycle hooks execute on every container rebuild (MITRE T1612, T1546). |
+| `sc-block-devcontainer-sed` | BLOCK | regex | sed --in-place modification of devcontainer.json — in-place edit can redirect the image field to a malicious registry or inject postCreateCommand backdoors (MITRE T1612, T1546). |
 | `sc-audit-global-install` | AUDIT | regex | Global npm/pip install has wider system impact than a local install — flagged for review (MITRE T1195). |
 | `sc-audit-pip-volatile-target` | AUDIT | regex | pip install --target/--prefix to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside virtual environment isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829. |
 | `sc-audit-npm-volatile-prefix` | AUDIT | regex | npm/yarn/pnpm install with --prefix/--modules-folder/--dir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs packages outside project isolation — no disk trace after reboot (/dev/shm), potential cross-user path injection. MITRE T1195.001, CWE-829. |
@@ -1145,14 +1151,14 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 233 | 163 | 396 |
+| credential-exposure | 240 | 167 | 407 |
 | data-exfiltration | 253 | 154 | 407 |
 | destructive-ops | 132 | 87 | 219 |
 | governance-risk | 57 | 46 | 103 |
 | persistence-evasion | 269 | 153 | 422 |
 | privilege-escalation | 273 | 167 | 440 |
 | reconnaissance | 168 | 71 | 239 |
-| supply-chain | 204 | 139 | 343 |
+| supply-chain | 209 | 141 | 350 |
 | unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1901** | **1193** | **3094** |
+| **Total** | **1913** | **1199** | **3112** |
 
