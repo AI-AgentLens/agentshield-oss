@@ -1,20 +1,15 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-21 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (890 terminal rules, 127 MCP rules)
+Metric | Count |
 |--------|-------|
-| Terminal rules | 880 |
+| Terminal rules | 890 |
 | MCP rules | 127 |
-| Total rules | 1007 |
-| Test cases (TP+TN) | 3043 |
+| Total rules | 1017 |
+| Test cases (TP+TN) | 3077 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (97 rules)
+### credential-exposure (102 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -25,6 +20,11 @@
 | `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
 | `sec-block-linux-keepassxc-cli` | BLOCK | regex | keepassxc-cli extracting credentials from a KeePassXC database — 'show' reveals passwords, 'clip' copies to clipboard, 'totp' generates 2FA codes, 'export' dumps the entire database. MITRE T1555.004. |
+| `sec-block-keyctl-read` | BLOCK | regex | keyctl read/print/pipe extracts the raw payload of a kernel keyring key to stdout — can expose cached SSH passphrases, LUKS disk encryption keys, Kerberos TGTs, and PAM authentication tokens without touching any file on disk. MITRE T1552.004, T1003, CWE-522. |
+| `sec-block-keyctl-setperm` | BLOCK | regex | keyctl setperm grants arbitrary permission flags on a kernel keyring key — can make a private key world-readable, enabling any process to extract its payload. Privilege escalation via keyring permission weakening. MITRE T1548, CWE-732. |
+| `sec-block-keyctl-destroy` | BLOCK | regex | keyctl clear/revoke/unlink deletes keys or clears keyring contents — can destroy session authentication tokens, disk encryption keys, or Kerberos tickets, causing service disruption and locking users out. MITRE T1531, CWE-522. |
+| `sec-block-keyctl-session-hijack` | BLOCK | regex | keyctl session - <cmd> runs a command joined to a new anonymous session keyring, but can also be used to attach to and enumerate another session's keyring inheritance. Combined with show/read subcommands, enables lateral credential access. MITRE T1563, CWE-522. |
+| `sec-audit-keyctl-show` | AUDIT | regex | keyctl show/list/describe enumerates keys in the kernel keyring — reveals cached credentials, session tokens, and disk encryption keys held in memory. Reconnaissance step before targeted extraction. MITRE T1552.004. |
 | `sec-audit-linux-pass-list` | AUDIT | regex | pass/gopass listing or searching entries — reveals credential names/paths (metadata) but does not decrypt. Auditing for visibility. MITRE T1555.004. |
 | `sec-block-1password-op-get` | BLOCK | regex | 1Password CLI (op) credential extraction — 'op item get' and 'op read' return plaintext secrets from 1Password vaults; 'op export' dumps all vault data. No AI agent workflow requires direct 1Password credential extraction. MITRE T1555.004. |
 | `sec-audit-1password-op-list` | AUDIT | regex | 1Password CLI listing or secret injection (op run) — listing enumerates vault contents (reconnaissance); 'op run' injects secrets into subprocess environment which may be captured. MITRE T1555.004. |
@@ -260,7 +260,7 @@
 | `ts-block-doh-quad9` | BLOCK | regex | Direct call to Quad9's DNS-over-HTTPS API (dns.quad9.net or dns9.quad9.net /dns-query). Quad9 provides RFC 8484 DoH; querying it directly is a DoH exfiltration channel. MITRE T1071.004, T1048.003. |
 | `ts-block-doh-content-type` | BLOCK | regex | RFC 8484 DNS-over-HTTPS content type (application/dns-json or application/dns-message) in a curl/wget header. These MIME types are exclusively used for DoH wire-format queries — any agent command referencing them is performing DoH-based DNS tunneling. MITRE T1071.004. |
 
-### destructive-ops (68 rules)
+### destructive-ops (70 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -332,6 +332,8 @@
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
+| `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. (MITRE T1222.002; CWE-732; OWASP LLM06) |
+| `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
 ### governance-risk (21 rules)
 
@@ -359,7 +361,7 @@
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (126 rules)
+### persistence-evasion (127 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -489,8 +491,9 @@
 | `ts-audit-iptables-modify` | AUDIT | regex | iptables rule modification — any firewall rule change by an AI agent warrants visibility. Even benign changes (opening a dev port) may create unintended exposure. |
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
+| `ts-audit-chattr-immutable-tmp` | AUDIT | regex | chattr +i on a file in a world-writable directory (e.g. /tmp, /dev/shm) makes it undeletable even by root, a technique used to protect malware payloads and persistence artifacts from cleanup. Legitimate uses rarely involve making temporary files immutable. (MITRE T1564; OWASP LLM05) |
 
-### privilege-escalation (115 rules)
+### privilege-escalation (117 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -609,6 +612,8 @@
 | `ts-block-setarch-mmap-page-zero` | BLOCK | regex | setarch with -Z/--mmap-page-zero allows mapping page zero — enables exploitation of null pointer dereference vulnerabilities by placing controlled data at address 0. CWE-476. |
 | `ts-block-python-personality-aslr` | BLOCK | regex | Python invoking personality(2) with ADDR_NO_RANDOMIZE (0x40000) — programmatic ASLR disable that bypasses setarch detection. CWE-693. |
 | `ts-audit-setarch` | AUDIT | regex | setarch invocation — while some uses are benign (32-bit compatibility), the tool can modify process personality flags. Audit for visibility. |
+| `ts-block-chattr-remove-immutable` | BLOCK | regex | chattr -i removes the immutable flag from a system file, enabling modification of critical paths such as /etc/passwd, /etc/sudoers, or /etc/shadow. This is a prerequisite for privilege escalation attacks that need to write to otherwise-hardened system files. (MITRE T1222.002, T1548; CWE-269; OWASP LLM06) |
+| `ts-block-chattr-recursive-remove-immutable` | BLOCK | regex | Recursive chattr with flag removal (-R) on any path strips immutable/append-only protections across a directory tree. Even if the target is not explicitly a system path, recursive attribute removal is a broad destructive action that warrants blocking. (MITRE T1222.002; OWASP LLM06) |
 
 ### reconnaissance (69 rules)
 
@@ -1132,14 +1137,14 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 221 | 160 | 381 |
+| credential-exposure | 233 | 163 | 396 |
 | data-exfiltration | 251 | 152 | 403 |
-| destructive-ops | 128 | 82 | 210 |
+| destructive-ops | 132 | 85 | 217 |
 | governance-risk | 52 | 42 | 94 |
-| persistence-evasion | 266 | 149 | 415 |
-| privilege-escalation | 269 | 164 | 433 |
+| persistence-evasion | 269 | 151 | 420 |
+| privilege-escalation | 273 | 167 | 440 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 204 | 139 | 343 |
 | unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1871** | **1172** | **3043** |
+| **Total** | **1894** | **1183** | **3077** |
 
