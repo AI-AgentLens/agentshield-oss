@@ -8994,3 +8994,81 @@ rules:
     decision: "BLOCK"
     confidence: 0.92
     reason: "OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06."
+
+  # ---------------------------------------------------------------------------
+  # chattr / setfacl — file attribute and ACL manipulation (issue #614)
+  # ---------------------------------------------------------------------------
+  #
+  # chattr -i removes the Linux immutable flag from system files, enabling
+  # subsequent writes to /etc/passwd, /etc/sudoers, /etc/shadow, etc.
+  #
+  # chattr +i in world-writable directories (e.g. /tmp, /dev/shm) protects
+  # malware or persistence artifacts from cleanup (anti-forensics).
+  #
+  # setfacl with world grants (o::) or on sensitive paths grants stealthy
+  # broad access that bypasses standard POSIX permissions.
+  #
+  # MITRE T1222.002, T1564, T1548 | OWASP LLM05/LLM06 | CWE-269, CWE-732
+  #
+  # TP examples (should BLOCK):
+  #   chattr -i /etc/passwd
+  #   sudo chattr -ia /etc/sudoers
+  #   chattr -R -i /etc
+  #   setfacl -m o::rwx /etc/shadow
+  #   setfacl -m u::rwx /etc/passwd
+  #   sudo setfacl -Rm o::rx /etc
+  #
+  # TP examples (should AUDIT):
+  #   chattr +i /tmp/backdoor.sh
+  #   chattr +i /dev/shm/agent
+  #
+  # TN examples (should ALLOW):
+  #   lsattr /etc/passwd
+  #   chattr +i ~/important-config.json
+  #   getfacl /etc/passwd
+  #   setfacl -m u:webuser:rx /var/www/html
+
+  # --- BLOCK: chattr -i removes immutable flag from system paths ---
+  - id: "ts-block-chattr-remove-immutable"
+    taxonomy: "privilege-escalation/file-permissions/immutable-flag-removal"
+    match:
+      command_regex: "(?:^|[\\s|;&])(sudo\\s+)?chattr\\s+(-[a-zA-Z]*i[a-zA-Z]*|-i)\\s+(-[a-zA-Z]+\\s+)*(/etc/|/usr/|/var/|/boot/|/root/|/bin/|/sbin/|/lib)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "chattr -i removes the immutable flag from a system file, enabling modification of critical paths such as /etc/passwd, /etc/sudoers, or /etc/shadow. This is a prerequisite for privilege escalation attacks that need to write to otherwise-hardened system files. (MITRE T1222.002, T1548; CWE-269; OWASP LLM06)"
+
+  # --- BLOCK: chattr -R recursive removal of immutable flag ---
+  - id: "ts-block-chattr-recursive-remove-immutable"
+    taxonomy: "privilege-escalation/file-permissions/immutable-flag-removal"
+    match:
+      command_regex: "(?:^|[\\s|;&])(sudo\\s+)?chattr\\s+(-R|-R\\s+-[a-zA-Z]*i[a-zA-Z]*|-[a-zA-Z]*i[a-zA-Z]*\\s+-R)"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Recursive chattr with flag removal (-R) on any path strips immutable/append-only protections across a directory tree. Even if the target is not explicitly a system path, recursive attribute removal is a broad destructive action that warrants blocking. (MITRE T1222.002; OWASP LLM06)"
+
+  # --- AUDIT: chattr +i in world-writable directories (anti-forensics) ---
+  - id: "ts-audit-chattr-immutable-tmp"
+    taxonomy: "persistence-evasion/anti-forensics/immutable-malware"
+    match:
+      command_regex: "(?:^|[\\s|;&])(sudo\\s+)?chattr\\s+\\+[a-zA-Z]*i[a-zA-Z]*\\s+(/tmp/|/dev/shm/|/var/tmp/|/run/|/proc/)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "chattr +i on a file in a world-writable directory (e.g. /tmp, /dev/shm) makes it undeletable even by root, a technique used to protect malware payloads and persistence artifacts from cleanup. Legitimate uses rarely involve making temporary files immutable. (MITRE T1564; OWASP LLM05)"
+
+  # --- BLOCK: setfacl with world grant (o::) on any path ---
+  - id: "ts-block-setfacl-world-grant"
+    taxonomy: "destructive-ops/permission-weakening/acl-weakening"
+    match:
+      command_regex: "(?:^|[\\s|;&])(sudo\\s+)?setfacl\\s+.*\\bo::[rwx]"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. (MITRE T1222.002; CWE-732; OWASP LLM06)"
+
+  # --- BLOCK: setfacl targeting sensitive system paths ---
+  - id: "ts-block-setfacl-sensitive-path"
+    taxonomy: "destructive-ops/permission-weakening/acl-weakening"
+    match:
+      command_regex: "(?:^|[\\s|;&])(sudo\\s+)?setfacl\\s+(-[a-zA-Z]*[mRb]+[a-zA-Z]*\\s+).*(/etc/|/root/|~/\\.ssh/|~/.aws/|~/.gnupg/|~/.kube/)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06)"

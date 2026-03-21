@@ -3086,7 +3086,97 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, AgentErrorRecoveryCases...)
 	all = append(all, LLMControlledPermissionsCases...)
 	all = append(all, SudoersPAMWriteCases...)
+	all = append(all, ChAttrImmutableRemovalCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// chattr Immutable Flag Removal (issue #614)
+// Taxonomy: privilege-escalation/file-permissions/immutable-flag-removal
+//
+// Removing the Linux immutable attribute from system files is a prerequisite
+// for modifying /etc/passwd, /etc/sudoers, /etc/shadow, etc.
+// Rules: ts-block-chattr-remove-immutable, ts-block-chattr-recursive-remove-immutable
+// ---------------------------------------------------------------------------
+
+// ChAttrImmutableRemovalCases tests detection of chattr -i on system paths.
+var ChAttrImmutableRemovalCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CHATTR-IMMUT-001",
+		Command:          `chattr -i /etc/passwd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "chattr -i on /etc/passwd removes immutable protection, enabling privilege escalation via passwd modification.",
+		Tags:             []string{"tp", "canonical"},
+	},
+	{
+		ID:               "TP-CHATTR-IMMUT-002",
+		Command:          `sudo chattr -ia /etc/sudoers`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "sudo chattr -ia strips both immutable and append-only flags from /etc/sudoers, enabling write access for privilege escalation.",
+		Tags:             []string{"tp", "sudo"},
+	},
+	{
+		ID:               "TP-CHATTR-IMMUT-003",
+		Command:          `chattr -i /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "chattr -i on /etc/shadow enables modification of hashed passwords — credential takeover.",
+		Tags:             []string{"tp", "credential"},
+	},
+	{
+		ID:               "TP-CHATTR-IMMUT-004",
+		Command:          `chattr -R -i /etc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "Recursive chattr -R -i on /etc strips immutable flags across all system config files.",
+		Tags:             []string{"tp", "recursive"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CHATTR-IMMUT-001",
+		Command:          `lsattr /etc/passwd`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "lsattr reads file attributes — read-only, should not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-CHATTR-IMMUT-002",
+		Command:          `chattr +i ~/important-config.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "chattr +i on a user home file is adding protection — not blocked by immutable-flag-removal rules (those target -i removal). Gets default AUDIT.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-CHATTR-IMMUT-003",
+		Command:          `chattr +i /etc/hosts`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
+		Analyzer:         "regex",
+		Description:      "chattr +i adds immutability — not blocked by -i removal rules. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
 
 // ---------------------------------------------------------------------------
