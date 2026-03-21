@@ -2896,7 +2896,77 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, ToctouTempFileRaceCases...)
 	all = append(all, AIOutputAccountabilityBypassCases...)
 	all = append(all, AuditctlDmesgSysrqCases...)
+	all = append(all, ChAttrImmutableMalwareCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// chattr Immutable Malware (issue #614)
+// Taxonomy: persistence-evasion/anti-forensics/immutable-malware
+//
+// Setting chattr +i on files in world-writable directories makes them
+// undeletable even by root — protecting malware/persistence artifacts.
+// Rule: ts-audit-chattr-immutable-tmp
+// ---------------------------------------------------------------------------
+
+// ChAttrImmutableMalwareCases tests detection of chattr +i in suspicious paths.
+var ChAttrImmutableMalwareCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-CHATTR-MALWARE-001",
+		Command:          `chattr +i /tmp/backdoor.sh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/immutable-malware",
+		Analyzer:         "regex",
+		Description:      "chattr +i on /tmp file makes it undeletable — protects staged payload from cleanup.",
+		Tags:             []string{"tp", "canonical"},
+	},
+	{
+		ID:               "TP-CHATTR-MALWARE-002",
+		Command:          `chattr +i /dev/shm/c2-agent`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/immutable-malware",
+		Analyzer:         "regex",
+		Description:      "chattr +i on /dev/shm file protects in-memory-backed persistence artifact.",
+		Tags:             []string{"tp", "devshm"},
+	},
+	{
+		ID:               "TP-CHATTR-MALWARE-003",
+		Command:          `chattr +i /var/tmp/evil.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/immutable-malware",
+		Analyzer:         "regex",
+		Description:      "chattr +i on /var/tmp script protects long-lived persistence artifact.",
+		Tags:             []string{"tp", "persistence"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-CHATTR-MALWARE-001",
+		Command:          `chattr +i ~/important-config.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/immutable-malware",
+		Analyzer:         "regex",
+		Description:      "chattr +i on a user home file is legitimate protection — not in /tmp or /dev/shm so immutable-malware rule doesn't trigger. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-CHATTR-MALWARE-002",
+		Command:          `lsattr /tmp`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/immutable-malware",
+		Analyzer:         "regex",
+		Description:      "lsattr reads file attributes — read-only enumeration, should not be blocked.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
 
 // ---------------------------------------------------------------------------

@@ -2532,5 +2532,96 @@ func AllDestructiveOpsCases() []TestCase {
 	all = append(all, UnboundedAgentConsumptionCases...)
 	all = append(all, DatabaseDestructionCases...)
 	all = append(all, CloudOverProvisioningCases...)
+	all = append(all, SetFACLWeakeningCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// setfacl ACL Weakening (issue #614)
+// Taxonomy: destructive-ops/permission-weakening/acl-weakening
+//
+// setfacl grants stealthy ACL-based permissions that bypass standard POSIX
+// permission visibility. World grants (o::) or grants on sensitive paths
+// weaken the access control model.
+// Rules: ts-block-setfacl-world-grant, ts-block-setfacl-sensitive-path
+// ---------------------------------------------------------------------------
+
+// SetFACLWeakeningCases tests detection of dangerous setfacl invocations.
+var SetFACLWeakeningCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-SETFACL-001",
+		Command:          `setfacl -m o::rwx /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "setfacl world grant (o::rwx) on /etc/shadow makes password hashes world-readable.",
+		Tags:             []string{"tp", "canonical", "credential"},
+	},
+	{
+		ID:               "TP-SETFACL-002",
+		Command:          `setfacl -m u::rwx /etc/passwd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "setfacl grants write ACL on /etc/passwd — sensitive system path ACL modification.",
+		Tags:             []string{"tp", "sensitive-path"},
+	},
+	{
+		ID:               "TP-SETFACL-003",
+		Command:          `sudo setfacl -Rm o::rx /etc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "Recursive setfacl world-read grant on /etc exposes all system config files.",
+		Tags:             []string{"tp", "recursive", "world-grant"},
+	},
+	{
+		ID:               "TP-SETFACL-004",
+		Command:          `setfacl -m o::rw /root/.ssh/authorized_keys`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "setfacl world-write grant on root SSH authorized_keys enables unauthorized SSH access.",
+		Tags:             []string{"tp", "ssh", "world-grant"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-SETFACL-001",
+		Command:          `getfacl /etc/passwd`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "getfacl reads ACL entries — read-only, triggers default AUDIT (not blocked by acl-weakening rules).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SETFACL-002",
+		Command:          `setfacl -m u:webuser:rx /var/www/html`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "setfacl granting a specific named user (webuser) read+execute on web dir — not a world grant, not on a sensitive path. Gets AUDIT (not BLOCK) from acl-weakening rules.",
+		Tags:             []string{"tn", "legitimate"},
+	},
+	{
+		ID:               "TN-SETFACL-003",
+		Command:          `setfacl -b /tmp/myfile`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "setfacl -b removes all ACLs (cleanup) — not a grant, not on a sensitive path. Gets AUDIT (not BLOCK).",
+		Tags:             []string{"tn", "safe"},
+	},
 }
