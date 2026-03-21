@@ -9,7 +9,7 @@
 | Terminal rules | 878 |
 | MCP rules | 127 |
 | Total rules | 1005 |
-| Test cases (TP+TN) | 3008 |
+| Test cases (TP+TN) | 3030 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1138,6 +1138,6 @@
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 204 | 139 | 343 |
-| unauthorized-execution | 298 | 203 | 501 |
-| **Total** | **1851** | **1157** | **3008** |
+| unauthorized-execution | 312 | 211 | 523 |
+| **Total** | **1865** | **1165** | **3030** |
 
