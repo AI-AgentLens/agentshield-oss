@@ -4836,4 +4836,130 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Description:      "Reading the keyctl man page — documentation access, no credential extraction.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ============================================================
+	// Docker Build Credential Injection (issue #622)
+	// Taxonomy: credential-exposure/container-config/docker-build-credential-injection
+	// ============================================================
+
+	// --- TP: docker build --build-arg with credential-named variable ---
+	{
+		ID:               "TP-DOCKER-BUILD-ARG-001",
+		Command:          "docker build --build-arg API_KEY=$OPENAI_API_KEY .",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "pipeline",
+		Description:      "docker build --build-arg API_KEY=$OPENAI_API_KEY: regex fires AUDIT (build-arg-secret rule); guardian escalates to BLOCK on AI API key pattern in command.",
+		Tags:             []string{"tp", "docker", "build-arg", "credential-exposure"},
+	},
+	{
+		ID:               "TP-DOCKER-BUILD-ARG-002",
+		Command:          "docker build --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY --build-arg AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --build-arg passing AWS credentials bakes them into image layers, exposing secrets to any image consumer.",
+		Tags:             []string{"tp", "docker", "build-arg", "aws", "credential-exposure"},
+	},
+	{
+		ID:               "TP-DOCKER-BUILD-ARG-003",
+		Command:          "docker build --build-arg DATABASE_PASSWORD=s3cr3t .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --build-arg with DATABASE_PASSWORD bakes credential into image manifest.",
+		Tags:             []string{"tp", "docker", "build-arg", "credential-exposure"},
+	},
+
+	// --- TP: docker build --secret src= pointing to credential files ---
+	{
+		ID:               "TP-DOCKER-BUILD-SECRET-001",
+		Command:          "docker build --secret id=aws,src=$HOME/.aws/credentials .",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --secret src= passing ~/.aws/credentials to build context exposes AWS keys to all RUN --mount=type=secret instructions.",
+		Tags:             []string{"tp", "docker", "build-secret", "aws", "credential-exposure"},
+	},
+	{
+		ID:               "TP-DOCKER-BUILD-SECRET-002",
+		Command:          "docker build --secret id=sshkey,src=~/.ssh/id_rsa .",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --secret src= passing SSH private key to build context exposes it to all RUN --mount=type=secret instructions.",
+		Tags:             []string{"tp", "docker", "build-secret", "ssh", "credential-exposure"},
+	},
+
+	// --- TP: docker build --ssh forwarding SSH agent ---
+	{
+		ID:               "TP-DOCKER-BUILD-SSH-001",
+		Command:          "docker build --ssh default .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --ssh default forwards SSH agent socket to all RUN --mount=type=ssh instructions including those in malicious base images.",
+		Tags:             []string{"tp", "docker", "ssh-forward", "credential-exposure"},
+	},
+	{
+		ID:               "TP-DOCKER-BUILD-SSH-002",
+		Command:          "docker buildx build --ssh default=$SSH_AUTH_SOCK --tag myapp:latest .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker buildx build --ssh forwarding SSH_AUTH_SOCK to build context with buildx.",
+		Tags:             []string{"tp", "docker", "buildx", "ssh-forward", "credential-exposure"},
+	},
+
+	// --- TN: normal docker build without credential injection ---
+	// Note: docker build falls through to the default AUDIT decision since it's
+	// not in the explicit safe-prefix list (docker build can execute RUN instructions).
+	// The rules only trigger on credential-specific flags, so these are correctly AUDIT.
+	{
+		ID:               "TN-DOCKER-BUILD-001",
+		Command:          "docker build -t myapp .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "Normal docker build without credential injection flags — falls through to default AUDIT (no rule matches).",
+		Tags:             []string{"tn", "docker"},
+	},
+	{
+		ID:               "TN-DOCKER-BUILD-002",
+		Command:          "docker build --build-arg NODE_ENV=production --build-arg APP_VERSION=1.2.3 .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --build-arg with non-credential env vars (NODE_ENV, APP_VERSION) — no rule fires, default AUDIT.",
+		Tags:             []string{"tn", "docker", "build-arg"},
+	},
+	{
+		ID:               "TN-DOCKER-BUILD-003",
+		Command:          "docker build --build-arg PYTHON_VERSION=3.11 --target builder --tag myapp:dev .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build with version build arg only — no credential term matches, default AUDIT.",
+		Tags:             []string{"tn", "docker"},
+	},
+	{
+		ID:               "TN-DOCKER-BUILD-004",
+		Command:          "docker build --secret id=npmrc,src=.npmrc .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/container-config/docker-build-credential-injection",
+		Analyzer:         "regex",
+		Description:      "docker build --secret src= pointing to a local project file (.npmrc not a home credential dir) — block rule does not fire, default AUDIT.",
+		Tags:             []string{"tn", "docker", "build-secret"},
+	},
 }
