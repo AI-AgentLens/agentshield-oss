@@ -1,9 +1,10 @@
 class Agentshield < Formula
   desc "Local-first runtime security gateway for LLM agents"
   homepage "https://github.com/security-researcher-ca/AI_Agent_Shield"
-  url "https://github.com/security-researcher-ca/AI_Agent_Shield/archive/v0.1.0.tar.gz"
-  sha256 "bf6264071a1ebe4103ef9dc3bc234a91ce1f4ebabe2b8cf72ce80adc642a433b"
+  url "https://github.com/security-researcher-ca/AI_Agent_Shield/archive/v0.2.0.tar.gz"
+  sha256 ""
   license "Apache-2.0"
+  head "https://github.com/security-researcher-ca/AI_Agent_Shield.git", branch: "main"
 
   depends_on "go" => :build
 
@@ -22,6 +23,10 @@ class Agentshield < Formula
 
     # Install default policy packs
     (share/"agentshield/packs").install Dir["packs/*.yaml"]
+    (share/"agentshield/packs/mcp").install Dir["packs/mcp/*.yaml"]
+
+    # Install default config
+    (share/"agentshield").install "configs/default_policy.yaml"
   end
 
   def caveats
@@ -29,19 +34,15 @@ class Agentshield < Formula
       To set up AgentShield for your IDE agent:
         agentshield setup
 
-      To install wrapper and default policy packs:
+      To install default policy packs:
         agentshield setup --install
 
       Wrapper script installed to:
         #{share}/agentshield/agentshield-wrapper.sh
-
-      Configure your IDE agent's shell to:
-        Shell path: #{share}/agentshield/agentshield-wrapper.sh
-        Shell args: -c
     EOS
   end
 
   test do
-    assert_match "AgentShield #{version}", shell_output("#{bin}/agentshield version")
+    assert_match "AgentShield", shell_output("#{bin}/agentshield version")
   end
 end

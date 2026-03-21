@@ -2,16 +2,21 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
 
 permissions:
   contents: write
   packages: write
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
+    # Skip if commit message contains [skip release]
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -25,6 +30,15 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
+
+      - name: Bump version and push tag
+        id: tag
+        uses: anothrNick/github-tag-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          TAG_CONTEXT: repo
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
