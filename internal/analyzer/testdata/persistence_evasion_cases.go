@@ -443,6 +443,29 @@ var SSHKeyGenCases = []TestCase{
 		Description:      `Listing the .ssh directory. Read-only; the authorized-keys-write rule only fires on write operations (>>, tee, cp).`,
 		Tags:             []string{"tn", "read-only"},
 	},
+	// --- TEXT PAYLOAD FP REGRESSIONS (issue #620) ---
+	// gh issue/pr commands using --body with authorized_keys examples are
+	// sending documentation text to the GitHub API, not executing commands.
+	{
+		ID:               "TN-SSHKEYG-004",
+		Command:          `gh issue create --repo owner/repo --title "SSH backdoor detection" --body "Attacker appends key to ~/.ssh/authorized_keys for persistence"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `gh issue create with --body describing authorized_keys backdoor technique. The body is documentation text sent to the GitHub API — must NOT be BLOCK. Returns AUDIT (default) (FP regression from issue #620).`,
+		Tags:             []string{"tn", "fp-regression", "gh-body-text-payload"},
+	},
+	{
+		ID:               "TN-SSHKEYG-005",
+		Command:          `gh issue create --repo owner/repo --title "MITRE T1098.004" --body-file /tmp/issue-body.md`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `gh issue create with --body-file flag. The command string does not contain authorized_keys; the file path is passed as a text payload to gh. Returns AUDIT (default) — must NOT be BLOCK (FP regression from issue #620).`,
+		Tags:             []string{"tn", "fp-regression", "gh-body-file"},
+	},
 }
 
 // ---------------------------------------------------------------------------
