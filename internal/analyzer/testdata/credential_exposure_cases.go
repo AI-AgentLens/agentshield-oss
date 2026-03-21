@@ -4668,5 +4668,172 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, SSHAgentAbuseCases...)
 	all = append(all, EnterpriseSecretsManagerCases...)
 	all = append(all, VPNCredentialTheftCases...)
+	all = append(all, KeyctlKernelKeyringCases...)
 	return all
+}
+
+// ---------------------------------------------------------------------------
+// Linux Kernel Keyring (keyctl) — Credential Extraction & Manipulation
+// Taxonomy: credential-exposure/password-db-access/linux-credential-store-extraction
+// Rules: sec-block-keyctl-read, sec-block-keyctl-setperm, sec-block-keyctl-destroy,
+//        sec-block-keyctl-session-hijack, sec-audit-keyctl-show
+// ---------------------------------------------------------------------------
+
+var KeyctlKernelKeyringCases = []TestCase{
+	// --- TP: keyctl read (direct payload extraction) ---
+	{
+		ID:               "TP-KEYCTL-001",
+		Command:          "keyctl read 123456789",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl read extracts the raw payload of a kernel keyring key — can expose cached SSH passphrases, LUKS keys, or Kerberos TGTs without file I/O.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "kernel-keyring"},
+	},
+	{
+		ID:               "TP-KEYCTL-002",
+		Command:          "keyctl print 0x1a2b3c4d",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl print dumps a kernel keyring key payload to stdout — exposes cached authentication material without touching disk.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "kernel-keyring"},
+	},
+	{
+		ID:               "TP-KEYCTL-003",
+		Command:          "keyctl pipe $(keyctl request2 user ssh_passphrase x @s)",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl pipe streaming kernel keyring key payload to stdout — common pattern for piping credentials into a command.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "kernel-keyring"},
+	},
+	{
+		ID:               "TP-KEYCTL-004",
+		Command:          "sudo keyctl read $(keyctl show @s | awk 'NR>1 {print $1}')",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "sudo keyctl read extracting all key IDs from session keyring and reading each payload — full keyring dump via sudo.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "sudo"},
+	},
+	// --- TP: keyctl setperm (permission escalation) ---
+	{
+		ID:               "TP-KEYCTL-005",
+		Command:          "keyctl setperm 123456789 0x3f3f3f3f",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl setperm granting world-readable permissions (0x3f3f3f3f) — makes a private key extractable by any process on the system.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "privilege-escalation"},
+	},
+	// --- TP: keyctl clear/revoke/unlink (sabotage) ---
+	{
+		ID:               "TP-KEYCTL-006",
+		Command:          "keyctl clear @s",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl clear @s wipes the entire session keyring — destroys all cached credentials including LUKS keys and Kerberos TGTs, causing service disruption.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "destructive"},
+	},
+	{
+		ID:               "TP-KEYCTL-007",
+		Command:          "keyctl revoke 987654321",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl revoke invalidates a kernel keyring key — anti-forensics technique to destroy authentication material after use.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "destructive"},
+	},
+	{
+		ID:               "TP-KEYCTL-008",
+		Command:          "keyctl unlink 123456789 @s",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl unlink removes a specific key from a keyring — targeted sabotage of authentication tokens.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "destructive"},
+	},
+	// --- TP: keyctl session hijack ---
+	{
+		ID:               "TP-KEYCTL-009",
+		Command:          "keyctl session - keyctl show @s",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl session - <cmd> hijacks the session keyring context — can enumerate inherited credentials from a privileged session.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "session-hijack"},
+	},
+	// --- TP: keyctl show (AUDIT — reconnaissance) ---
+	{
+		ID:               "TP-KEYCTL-010",
+		Command:          "keyctl show @s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl show @s lists all keys in the session keyring — reconnaissance step revealing what credentials are cached in the kernel.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "reconnaissance"},
+	},
+	{
+		ID:               "TP-KEYCTL-011",
+		Command:          "keyctl show @u",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl show @u lists all keys in the user keyring — enumerates user-scoped cached credentials.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "reconnaissance"},
+	},
+	{
+		ID:               "TP-KEYCTL-012",
+		Command:          "keyctl list @s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl list @s enumerates all key IDs in the session keyring — provides key IDs needed for subsequent read/print extraction.",
+		Tags:             []string{"tp", "credential-exposure", "keyctl", "reconnaissance"},
+	},
+	// --- TN: keyctl add (adding a key, no extraction) ---
+	{
+		ID:               "TN-KEYCTL-001",
+		Command:          "keyctl add user myapp_token 'safe_token_value' @s",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl add stores a new key in the session keyring — not a read/extract operation. Default AUDIT from policy default.",
+		Tags:             []string{"tn", "keyctl", "audit"},
+	},
+	{
+		ID:               "TN-KEYCTL-002",
+		Command:          "keyctl new_session",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "keyctl new_session creates an empty new session keyring — no credential access. Default AUDIT.",
+		Tags:             []string{"tn", "keyctl", "audit"},
+	},
+	{
+		ID:               "TN-KEYCTL-003",
+		Command:          "man keyctl",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
+		Analyzer:         "regex",
+		Description:      "Reading the keyctl man page — documentation access, no credential extraction.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
