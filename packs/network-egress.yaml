@@ -169,6 +169,29 @@ rules:
     confidence: 0.97
     reason: "cloudflared tunnel commands create persistent Cloudflare Tunnel channels. 'tunnel run' starts a covert C2 channel that survives reboots; 'service install' creates a system daemon. AI agents have no legitimate need to create Cloudflare tunnels. MITRE T1572."
 
+  # --- BLOCK: cloudflared quick tunnel (--url flag, no subcommand) ---
+  #
+  # cloudflared supports a zero-config "quick tunnel" mode:
+  #   cloudflared tunnel --url http://localhost:PORT
+  #   cloudflared --url http://localhost:PORT
+  # This bypasses the named tunnel workflow and is NOT matched by ne-block-cloudflared-tunnel
+  # (which requires tunnel run/create/route/delete subcommands). Quick tunnels create
+  # ephemeral trycloudflare.com subdomains exposing any local port to the internet instantly.
+  # An AI agent could use this to expose Ollama (:11434), LM Studio (:1234), or any other
+  # local service without needing a Cloudflare account.
+  #
+  # TN: `cloudflared tunnel list` — read-only
+  # TN: `cloudflared tunnel info my-tunnel` — read-only
+  # TP: `cloudflared tunnel --url http://localhost:11434` — expose Ollama
+  # TP: `cloudflared --url http://localhost:1234` — expose LM Studio (no tunnel subcommand)
+  - id: "ne-block-cloudflared-quick-tunnel"
+    taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
+    match:
+      command_regex: "^cloudflared\\s+(?:tunnel\\s+)?--url\\s+https?://(?:localhost|127\\.0\\.0\\.1)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "cloudflared quick tunnel (--url flag) creates an ephemeral trycloudflare.com subdomain exposing a local HTTP service to the public internet with no authentication. Bypasses the named tunnel workflow and does not require a Cloudflare account. AI agents have no legitimate need to expose local services to the internet. MITRE T1572."
+
   # --- BLOCK: chisel tunnel (HTTP-based firewall bypass, red-team tool) ---
   - id: "ne-block-chisel"
     taxonomy: "data-exfiltration/network-egress/reverse-tunnel-tool"
