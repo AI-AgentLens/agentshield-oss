@@ -49,11 +49,11 @@ changelog:
 brews:
   - name: agentshield
     repository:
-      owner: security-researcher-ca
+      owner: AI-AgentLens
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/security-researcher-ca/AI_Agent_Shield"
+    homepage: "https://github.com/AI-AgentLens/AI_Agent_Shield"
     description: "Local-first runtime security gateway for LLM agents"
     license: "Apache-2.0"
     install: |
