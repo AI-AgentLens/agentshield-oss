@@ -12,6 +12,13 @@ make lint-fix     # Run linter with auto-fix
 make check        # Full pre-commit check: lint-fix + test + build
 make run ARGS="run -- echo hi"  # Build and run with arguments
 make install      # Install to /usr/local/bin
+make mcp-gen      # Generate MCP rules from shell rules
+make deploy       # Build + deploy packs + binary to ~/.agentshield
+
+# MCP rule validation (dogfooding)
+agentshield mcp-eval --tool read_file --arg path=/home/user/.vault-token
+agentshield mcp-eval --tool write_file --arg path=/etc/resolv.conf --arg content="evil"
+agentshield mcp-eval --tool read_file --arg path=/workspace/project/README.md  # should AUDIT (benign)
 
 # Run a single package's tests
 go test -v ./internal/analyzer/...
@@ -102,6 +109,32 @@ rules:
 - `content_scanner.go` — Scans tool call arguments for SSH keys, AWS credentials, base64 blobs
 - `config_guard.go` — Guards config file writes from MCP tools
 - `policy.go` — MCP-specific policy evaluation
+
+### MCP Rule Generation & Validation
+
+**Shell-to-MCP generator** (`cmd/mcp-gen/`): Converts shell rules with file path or URL patterns into MCP rules. Run `make mcp-gen` to regenerate `packs/mcp/mcp-generated.yaml` + TP scenarios + TN pool.
+
+**MCP eval command** (`agentshield mcp-eval`): Evaluates a simulated MCP tool call against deployed policy — the MCP equivalent of `agentshield run` for shell commands. Use this for MCP rule validation and dogfooding:
+
+```bash
+# TP: should BLOCK
+agentshield mcp-eval --tool read_file --arg path=/home/user/.vault-token
+agentshield mcp-eval --tool write_file --arg path=/home/user/.ssh/config
+
+# TN: should AUDIT (benign)
+agentshield mcp-eval --tool read_file --arg path=/workspace/project/README.md
+
+# JSON arguments
+agentshield mcp-eval --tool read_file --json '{"path":"/etc/shadow"}'
+```
+
+**MCP dogfooding loop** (Baby Shield):
+1. Baby Shield generates candidate MCP tool calls (malicious + benign)
+2. Runs `agentshield mcp-eval` for each → detects FPs/FNs
+3. Files GitHub issues for gaps
+4. Next iteration picks up issues, fixes rules, verifies
+
+**MCP scenario tests**: `go test -run TestMCPScenarios ./internal/mcp/` runs all TP + TN scenarios. Generated scenarios live in `internal/mcp/scenarios/generated_scenarios.go`.
 
 ### Test Infrastructure
 

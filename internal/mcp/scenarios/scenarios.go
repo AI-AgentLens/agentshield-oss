@@ -41,6 +41,8 @@ func AllScenarios() []Scenario {
 	var all []Scenario
 	all = append(all, TruePositiveScenarios...)
 	all = append(all, TrueNegativeScenarios...)
+	all = append(all, GeneratedTPScenarios...)
+	all = append(all, GeneratedTNScenarios...)
 	return all
 }
 

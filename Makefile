@@ -55,6 +55,9 @@ mcp-verify: ## Run MCP proxy self-test and output Markdown report
 test-mcp: ## Run MCP scenario tests
 	go test -v -run TestMCPScenarios ./internal/mcp/
 
+mcp-gen: ## Generate MCP rules from shell rules (packs/mcp/mcp-generated.yaml)
+	go run ./cmd/mcp-gen
+
 compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy entries and standards
 	go run ./internal/taxonomy/generate_index.go
 
@@ -62,8 +65,8 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Deploying packs..."
 	@mkdir -p ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
 	@cp packs/terminal-safety.yaml packs/network-egress.yaml packs/secrets-pii.yaml packs/supply-chain.yaml ~/.agentshield/packs/
-	@cp packs/mcp/mcp-safety.yaml packs/mcp/mcp-financial.yaml packs/mcp/mcp-secrets.yaml ~/.agentshield/packs/mcp/
-	@cp packs/mcp/mcp-safety.yaml packs/mcp/mcp-financial.yaml packs/mcp/mcp-secrets.yaml ~/.agentshield/mcp-packs/
+	@cp packs/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
+	@cp packs/mcp/*.yaml ~/.agentshield/mcp-packs/ 2>/dev/null || true
 	@echo "Deploying binary..."
 	@cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY) 2>/dev/null || sudo cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY)
 	@echo "Verifying..."
