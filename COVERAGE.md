@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-20 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-21 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 873 |
+| Terminal rules | 875 |
 | MCP rules | 127 |
-| Total rules | 1000 |
-| Test cases (TP+TN) | 2982 |
+| Total rules | 1002 |
+| Test cases (TP+TN) | 2998 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -797,7 +797,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (128 rules)
+### unauthorized-execution (130 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -812,6 +812,8 @@
 | `ts-audit-ai-watch-loop` | AUDIT | regex | watch executing an AI CLI — creates an infinite timed loop of API calls with no iteration budget. Even at 2s intervals this fires 1800 API calls/hour; a denial-of-wallet vector (OWASP LLM10, CWE-834). |
 | `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
+| `ts-block-pipe-to-interpreter` | BLOCK | regex | Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3' or 'python3 -' at end of pipe; excludes '-c' inline script variants which are safe data-processing patterns. OWASP LLM06, CWE-78, MITRE T1059. |
+| `ts-block-pipe-to-modern-interpreter` | BLOCK | regex | Pipe to modern interpreter (deno/bun/lua/tclsh/Rscript) reading from stdin as code — semantically identical to pipe-to-bash. Deno and Bun in particular are increasingly common alternatives to node for TypeScript/JS remote code execution. OWASP LLM06, CWE-78, MITRE T1059. |
 | `ts-block-eval-subshell-rce` | BLOCK | regex | eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection. |
 | `ts-block-shell-c-remote-subshell` | BLOCK | regex | shell -c with remote subshell executes unreviewed remote code — pipe-to-shell evasion via -c flag. |
 | `ts-block-source-process-sub-rce` | BLOCK | regex | source/dot with process substitution from remote downloader executes unreviewed remote code — pipe-to-shell evasion. |
@@ -914,7 +916,7 @@
 | `ts-audit-multimodal-sensitive-file-api` | AUDIT | regex | Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059. |
 | `ts-block-qrencode-shell-substitution` | BLOCK | regex | qrencode with shell command substitution — sensitive data may be encoded into a QR image for covert exfiltration or multimodal prompt injection. Multimodal AI agents can decode QR content and follow embedded instructions. OWASP LLM01, LLM02, MITRE T1027.003. |
 | `ts-audit-qrencode-pipe-input` | AUDIT | regex | Data piped into qrencode — QR image encodes input data which may contain credentials or injection payloads invisible to text scanners. OWASP LLM01, MITRE T1027.003. |
-| `ts-audit-network-pipe-to-llm` | AUDIT | regex | Network content piped directly to an LLM CLI tool — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl\|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77). |
+| `ts-audit-network-pipe-to-llm` | AUDIT | regex | Network content piped directly to an LLM CLI tool (llm/sgpt/claude/gemini/mods/ollama/etc.) — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl\|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77). |
 | `ts-audit-mcp-server-npx-install` | AUDIT | regex | npx -y installing an MCP server package without interactive review — typosquatted or compromised MCP server packages can impersonate trusted tools and gain full access to agent context, tool execution, and data flows. OWASP LLM08, MITRE T1195. |
 | `ts-block-agent-settings-write` | BLOCK | regex | Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization (OWASP LLM06, MITRE T1548, SOC 2 CC6.3). |
 | `ts-block-claude-mcp-add` | BLOCK | regex | claude mcp add (or npx @anthropic-ai/claude-code mcp add) registers a new MCP server into the agent's runtime configuration — an agent injecting a filesystem or exec MCP server acquires OS-level capabilities that were never explicitly authorized, bypassing the human-in-the-loop trust model (OWASP LLM06/LLM07, MITRE T1548, SOC 2 CC6.1). |
@@ -1133,6 +1135,6 @@
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 200 | 137 | 337 |
-| unauthorized-execution | 287 | 197 | 484 |
-| **Total** | **1834** | **1148** | **2982** |
+| unauthorized-execution | 298 | 202 | 500 |
+| **Total** | **1845** | **1153** | **2998** |
 
