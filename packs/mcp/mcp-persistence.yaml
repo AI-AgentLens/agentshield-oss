@@ -27,7 +27,11 @@ structural_rules:
   # Covered files (home-directory dotfiles only — /etc/ paths are blocked by
   # mcp-safety-block-etc-write):
   #   Bash:  .bashrc, .bash_profile, .bash_login, .bash_logout
-  #   Zsh:   .zshrc, .zprofile, .zlogin, .zlogout
+  #          .bash_aliases (sourced by default Ubuntu/Debian .bashrc)
+  #          .bash_functions (commonly sourced by .bashrc)
+  #   Zsh:   .zshrc, .zprofile, .zlogin, .zlogout, .zshenv
+  #          .zsh_aliases (commonly sourced in zsh configs)
+  #          .zshenv — sourced for ALL zsh processes including non-interactive
   #   POSIX: .profile
   #   Other: .kshrc, .cshrc, .tcshrc
   - id: mcp-persist-block-shell-profile-write
@@ -45,7 +49,7 @@ structural_rules:
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.(bashrc|zshrc|bash_profile|profile|bash_login|bash_logout|zprofile|zlogin|zlogout|kshrc|cshrc|tcshrc)$"
+            - "(?:^|/)\\.(bashrc|zshrc|bash_profile|profile|bash_login|bash_logout|zprofile|zlogin|zlogout|zshenv|kshrc|cshrc|tcshrc|bash_aliases|bash_functions|zsh_aliases)$"
     decision: "BLOCK"
     reason: "MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004."
     confidence: 0.95
