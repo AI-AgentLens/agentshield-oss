@@ -2624,4 +2624,28 @@ var SetFACLWeakeningCases = []TestCase{
 		Description:      "setfacl -b removes all ACLs (cleanup) — not a grant, not on a sensitive path. Gets AUDIT (not BLOCK).",
 		Tags:             []string{"tn", "safe"},
 	},
+	// --- TEXT PAYLOAD FP REGRESSIONS (issue #620) ---
+	// When gh issue create / gh pr create uses --body "...", the body content
+	// is a text payload sent to the GitHub API — never executed. setfacl
+	// examples in the body should NOT trigger the acl-weakening rules.
+	{
+		ID:               "TN-SETFACL-004",
+		Command:          `gh issue create --repo owner/repo --title "ACL attack example" --body "setfacl -m o::rwx /etc/shadow grants world read on shadow"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "gh issue create with --body containing a setfacl world-grant example. The body is a text payload to the GitHub API, never executed. Returns AUDIT (default) — must NOT be BLOCK (FP regression from issue #620).",
+		Tags:             []string{"tn", "fp-regression", "gh-body-text-payload"},
+	},
+	{
+		ID:               "TN-SETFACL-005",
+		Command:          `gh pr comment 42 --body "Example: setfacl -m o::rx ~/.ssh/authorized_keys widens SSH key permissions"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "gh pr comment with --body describing setfacl on a sensitive path. Documentation text sent to GitHub API — must NOT be BLOCK. Returns AUDIT (default) (FP regression from issue #620).",
+		Tags:             []string{"tn", "fp-regression", "gh-body-text-payload"},
+	},
 }

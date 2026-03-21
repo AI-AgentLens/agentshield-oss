@@ -1406,9 +1406,10 @@ rules:
     taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
     match:
       command_regex: "\\.ssh/authorized_keys2?"
+      command_regex_exclude: "^(echo|printf)\\s+[\"'][^\"']*[\"']\\s*$|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.97
-    reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list (MITRE T1098.004)."
+    reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004)"
 
   # === BLOCK: SSH client config tampering (MITM, ProxyCommand injection) ===
   # Modifying ~/.ssh/config is a critical lateral movement vector. Attackers add
@@ -9130,15 +9131,17 @@ rules:
     taxonomy: "destructive-ops/permission-weakening/acl-weakening"
     match:
       command_regex: "(?:^|[\\s|;&])(sudo\\s+)?setfacl\\s+.*\\bo::[rwx]"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.93
-    reason: "setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. (MITRE T1222.002; CWE-732; OWASP LLM06)"
+    reason: "setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM06)"
 
   # --- BLOCK: setfacl targeting sensitive system paths ---
   - id: "ts-block-setfacl-sensitive-path"
     taxonomy: "destructive-ops/permission-weakening/acl-weakening"
     match:
       command_regex: "(?:^|[\\s|;&])(sudo\\s+)?setfacl\\s+(-[a-zA-Z]*[mRb]+[a-zA-Z]*\\s+).*(/etc/|/root/|~/\\.ssh/|~/.aws/|~/.gnupg/|~/.kube/)"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.92
-    reason: "setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06)"
+    reason: "setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06)"
