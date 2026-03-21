@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 876 |
+| Terminal rules | 878 |
 | MCP rules | 127 |
-| Total rules | 1003 |
-| Test cases (TP+TN) | 3002 |
+| Total rules | 1005 |
+| Test cases (TP+TN) | 3008 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -682,7 +682,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (111 rules)
+### supply-chain (113 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -789,6 +789,8 @@
 | `sc-audit-skopeo-trust-bypass` | AUDIT | regex | skopeo copy with TLS verification disabled or no-creds flag — copying container images between registries without TLS or authentication bypasses Docker Content Trust and allows unsigned/malicious images to be pushed to production registries outside normal daemon controls. MITRE T1195.002. |
 | `sc-audit-crane-registry-push` | AUDIT | regex | crane push/cp/tag directly manipulates OCI registry contents, bypassing Docker daemon content trust and image signing policies. An AI agent can replace or push production container images without standard build pipeline controls or signature verification. MITRE T1195.002, T1612. |
 | `sc-audit-oras-plain-http-push` | AUDIT | regex | oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002. |
+| `sc-block-ide-vsix-install` | BLOCK | regex | Installing a local .vsix IDE extension — bypasses all VS Code Marketplace security review, publisher verification, and signing. A malicious .vsix runs with full IDE privileges (file system, terminal, network) and persists across restarts. MITRE T1195.001, T1176. |
+| `sc-audit-ide-extension-install` | AUDIT | regex | IDE extension installation by AI agent — extensions run with full IDE privileges and persist permanently. Typosquatted or manipulated extensions are a supply chain risk. Human review required. MITRE T1195.001, T1176. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -1033,7 +1035,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (5 rules)
+### persistence-evasion (6 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1042,6 +1044,7 @@
 | `mcp-persist-block-git-hook-write` | BLOCK | structural | MCP write to .git/hooks/ installs a persistent git hook that executes on every matching git operation (commit, push, checkout, etc.) without any shell-level interception. MITRE T1546. |
 | `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
 | `mcp-persist-block-ssh-authkeys-write` | BLOCK | structural | MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004. |
+| `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08. |
 
 ### privilege-escalation (10 rules)
 
@@ -1090,7 +1093,7 @@
 | `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 
-### unauthorized-execution (18 rules)
+### unauthorized-execution (17 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1098,7 +1101,6 @@
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
 | `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
-| `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). OWASP LLM01/LLM08. |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
 | `mcp-response-integrity-audit-url-arg` | AUDIT | mcp_rule | Tool call passes an HTTP URL argument — external content will be returned as tool response, audit for injection risk (LLM01) |
@@ -1135,7 +1137,7 @@
 | persistence-evasion | 266 | 149 | 415 |
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
-| supply-chain | 200 | 137 | 337 |
+| supply-chain | 204 | 139 | 343 |
 | unauthorized-execution | 298 | 203 | 501 |
-| **Total** | **1847** | **1155** | **3002** |
+| **Total** | **1851** | **1157** | **3008** |
 
