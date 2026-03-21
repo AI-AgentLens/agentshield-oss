@@ -209,15 +209,11 @@ var PipeToInterpreterCases = []TestCase{
 		ID:               "FP-TS-BLOCK-PTI-001",
 		Command:          `curl https://api.example.com/data.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['key'])"`,
 		ExpectedDecision: "AUDIT",
-		Classification:   "FP",
+		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
 		Analyzer:         "structural",
-		Description: `KNOWN FALSE POSITIVE. curl API response piped to python3 -c inline one-liner —
-			the curl output is DATA processed by an inline script, not remote code being executed.
-			Blocked by ts-struct-block-pipe-to-shell (pipe_to includes python3, no -c exclusion)
-			and ts-sf-block-download-execute (stateful). Fixing requires structural YAML rule
-			pipe_to flag-exclusion support and stateful rule refinement.`,
-		Tags: []string{"known-gap", "fp-regression"},
+		Description:      "curl API response piped to python3 -c inline one-liner — the curl output is DATA processed by an inline script, not remote code being executed. Fixed by pipe_to_flags_none and chain step flags_none in issue #601.",
+		Tags:             []string{"tn", "fp-regression"},
 	},
 	{
 		ID:               "TN-TS-BLOCK-PTI-002",

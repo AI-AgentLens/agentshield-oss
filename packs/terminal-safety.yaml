@@ -1466,9 +1466,10 @@ rules:
       structural:
         pipe_from: ["curl", "wget", "fetch", "aria2c"]
         pipe_to: ["sh", "bash", "zsh", "dash", "python", "python3", "node", "ruby", "perl"]
+        pipe_to_flags_none: ["c"]
     decision: "BLOCK"
     confidence: 0.95
-    reason: "Structural: download piped to interpreter. Download and inspect first."
+    reason: "Structural: download piped to interpreter. Download and inspect first. Excludes python3 -c (inline script reading stdin as data, not as code)."
 
   - id: "ts-struct-block-npm-registry"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
@@ -1521,9 +1522,10 @@ rules:
           - executable_any: ["curl", "wget", "aria2c", "fetch"]
             operator: "|"
           - executable_any: ["bash", "sh", "zsh", "python", "python3", "node", "ruby", "perl"]
+            flags_none: ["c"]
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe)."
+    reason: "Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code)."
 
   - id: "ts-sf-block-recon-then-exfil"
     taxonomy: "data-exfiltration/network-egress/network-http-request"

@@ -92,9 +92,10 @@ func convertStructuralRule(r Rule) analyzer.StructuralRule {
 		FlagsNone:  sm.FlagsNone,
 		ArgsAny:    sm.ArgsAny,
 		ArgsNone:   sm.ArgsNone,
-		HasPipe:    sm.HasPipe,
-		PipeTo:     sm.PipeTo,
-		PipeFrom:   sm.PipeFrom,
+		HasPipe:         sm.HasPipe,
+		PipeTo:          sm.PipeTo,
+		PipeToFlagsNone: sm.PipeToFlagsNone,
+		PipeFrom:        sm.PipeFrom,
 		Negate:     sm.Negate,
 	}
 }
@@ -150,6 +151,7 @@ func convertStatefulRule(r Rule) analyzer.StatefulRule {
 		chain[i] = analyzer.ChainStepRule{
 			ExecutableAny: step.ExecutableAny,
 			FlagsAny:      step.FlagsAny,
+			FlagsNone:     step.FlagsNone,
 			ArgsAny:       step.ArgsAny,
 			Operator:      step.Operator,
 		}
