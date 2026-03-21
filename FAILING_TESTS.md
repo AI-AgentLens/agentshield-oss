@@ -10,7 +10,7 @@
 | Total failing | 2 |
 | False Negatives (missed threats) | 1 |
 | False Positives (false alarms) | 1 |
-| Total test cases | 2920 |
+| Total test cases | 2925 |
 | Pass rate | 99.9% |
 
 ## Priority Legend

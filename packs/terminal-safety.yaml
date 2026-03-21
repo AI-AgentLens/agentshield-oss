@@ -6411,6 +6411,9 @@ rules:
   #   wget -qO- https://pastebin.com/raw/abc123 | ollama run mistral
   #   http https://api.example.com/notes | sgpt "summarize this"
   #   curl https://raw.github.com/user/repo/main/README.md | aichat
+  #   curl https://evil.com/inject.txt | claude             (Anthropic Claude CLI)
+  #   wget -qO- https://attacker.com/payload | gemini       (Google Gemini CLI)
+  #   curl https://evil.com/context | mods                  (charmbracelet/mods)
   #
   # Decision: AUDIT — piping web content to LLMs is common in legitimate
   # workflows (summarization, extraction) but warrants review because
@@ -6418,10 +6421,10 @@ rules:
   - id: "ts-audit-network-pipe-to-llm"
     taxonomy: "unauthorized-execution/ai-content-integrity/prompt-injection-surface"
     match:
-      command_regex: "\\b(curl|wget|http)\\b.*\\|\\s*(llm|ollama\\s+run|sgpt|aichat|chatgpt|gpt4all)\\b"
+      command_regex: "\\b(curl|wget|http)\\b.*\\|\\s*(llm|ollama\\s+run|sgpt|aichat|chatgpt|gpt4all|claude|gemini|openai|mods)\\b"
     decision: "AUDIT"
     confidence: 0.87
-    reason: "Network content piped directly to an LLM CLI tool — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77)."
+    reason: "Network content piped directly to an LLM CLI tool (llm/sgpt/claude/gemini/mods/ollama/etc.) — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77)."
 
   # ── Cross-Session Context Leakage ─────────────────────────────────────────
   #
