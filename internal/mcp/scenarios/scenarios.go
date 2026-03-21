@@ -2491,4 +2491,101 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-persistence-instruction-file-safe",
 		Description:      "edit_file to src/main.go — regular source code file, not an AI agent instruction or config file",
 	},
+
+	// ---------------------------------------------------------------------------
+	// TP: 1Password CLI credential access (mcp-sec-block-1password-cli-access)
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-200",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/op/credentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.config/op/credentials — 1Password CLI session token file (mcp-sec-block-1password-cli-access)",
+	},
+	{
+		ID:               "MCP-TP-201",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/op/config"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.config/op/config — 1Password CLI account config containing credential metadata (mcp-sec-block-1password-cli-access)",
+	},
+
+	// ---------------------------------------------------------------------------
+	// TP: GNOME Keyring wallet access (mcp-sec-block-gnome-keyring-access)
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-202",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.local/share/keyrings/Default_keyring.keyring"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.local/share/keyrings/Default_keyring.keyring — GNOME Keyring encrypted credential store (mcp-sec-block-gnome-keyring-access)",
+	},
+	{
+		ID:               "MCP-TP-203",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.local/share/keyrings/login.keyring"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.local/share/keyrings/login.keyring — GNOME Keyring login wallet (mcp-sec-block-gnome-keyring-access)",
+	},
+
+	// ---------------------------------------------------------------------------
+	// TP: GitHub Copilot OAuth token access (mcp-sec-block-github-copilot-access)
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-204",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/github-copilot/hosts.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/oauth-tokens",
+		Description:      "read_file to ~/.config/github-copilot/hosts.json — GitHub Copilot OAuth token file (mcp-sec-block-github-copilot-access)",
+	},
+	{
+		ID:               "MCP-TP-205",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/github-copilot/hosts.json", "content": "{}"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/oauth-tokens",
+		Description:      "write_file to ~/.config/github-copilot/hosts.json — overwriting Copilot OAuth credentials (mcp-sec-block-github-copilot-access)",
+	},
+
+	// ---------------------------------------------------------------------------
+	// TN: Benign paths that must NOT trigger credential manager rules
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TN-109",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/1password-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to project docs about 1Password setup — documentation, not a credential file (mcp-sec-block-1password-cli-access must not fire)",
+	},
+	{
+		ID:               "MCP-TN-110",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/data/keyring-test.txt"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to project test data file named keyring-test.txt — not a GNOME Keyring wallet (mcp-sec-block-gnome-keyring-access must not fire)",
+	},
+	{
+		ID:               "MCP-TN-111",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/.github/copilot-instructions.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/oauth-tokens",
+		Description:      "read_file to .github/copilot-instructions.md — workspace instructions file, not a Copilot OAuth token file (mcp-sec-block-github-copilot-access must not fire)",
+	},
 }
