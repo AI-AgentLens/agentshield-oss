@@ -1636,3 +1636,57 @@ rules:
     decision: "AUDIT"
     confidence: 0.87
     reason: "oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002."
+
+  # ===========================================================================
+  # IDE Extension Installation (issue #605)
+  # ===========================================================================
+  #
+  # Taxonomy: supply-chain/package-install/global-package-install
+  # OWASP LLM05 — Supply Chain Vulnerabilities
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1176    — Browser Extensions (IDE extensions are analogous)
+  #
+  # AI coding agents can install VS Code, Cursor, and Windsurf extensions via
+  # the shell. Extensions run with IDE-level privileges (full file system access,
+  # terminal, network), persist across restarts, and are a high-impact persistence
+  # and data exfiltration vector.
+  #
+  # Two distinct risks:
+  #
+  # 1. LOCAL VSIX INSTALLATION (BLOCK) — Installing a .vsix file bypasses all
+  #    marketplace security review. An attacker can place a malicious .vsix in
+  #    /tmp or ~/Downloads and have an AI agent install it silently. No signature
+  #    verification, no publisher reputation check.
+  #    Examples:
+  #      code --install-extension /tmp/backdoor.vsix
+  #      cursor --install-extension ~/Downloads/evil.vsix
+  #
+  # 2. MARKETPLACE INSTALLATION (AUDIT) — Installing an extension by ID from the
+  #    marketplace goes through VS Code's marketplace, but AI agents can be tricked
+  #    via typosquatting or by installing an extension without human review.
+  #    Examples:
+  #      code --install-extension ms-python.python
+  #      cursor --install-extension some.extension-id
+  #
+  # True negatives:
+  #   code --list-extensions          (read-only inventory)
+  #   code --uninstall-extension X    (removing is safer than adding)
+  #   code --version                  (version check)
+
+  # === BLOCK: Local VSIX file installation (bypasses marketplace review) ===
+  - id: "sc-block-ide-vsix-install"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "\\b(code|cursor|windsurf|codium|code-insiders)\\b[^;|&]*--install-extension\\b[^;|&]*\\.vsix\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Installing a local .vsix IDE extension — bypasses all VS Code Marketplace security review, publisher verification, and signing. A malicious .vsix runs with full IDE privileges (file system, terminal, network) and persists across restarts. MITRE T1195.001, T1176."
+
+  # === AUDIT: Marketplace extension installation by AI agent ===
+  - id: "sc-audit-ide-extension-install"
+    taxonomy: "supply-chain/package-install/global-package-install"
+    match:
+      command_regex: "\\b(code|cursor|windsurf|codium|code-insiders)\\b[^;|&]*--install-extension\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "IDE extension installation by AI agent — extensions run with full IDE privileges and persist permanently. Typosquatted or manipulated extensions are a supply chain risk. Human review required. MITRE T1195.001, T1176."

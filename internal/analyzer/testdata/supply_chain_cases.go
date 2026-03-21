@@ -4206,4 +4206,75 @@ var ContainerTrustBypassCases = []TestCase{
 		Description:      "oras push without --plain-http uses TLS for the registry connection — standard OCI artifact push to a secured registry. No bypass detected; default AUDIT.",
 		Tags:             []string{"tn", "safe", "oras", "tls-push"},
 	},
+
+	// ── IDE Extension Installation (issue #605) ───────────────────────────────
+	// Rule: sc-block-ide-vsix-install (BLOCK), sc-audit-ide-extension-install (AUDIT)
+
+	// TP-1: code installing local .vsix (bypasses marketplace review)
+	{
+		ID:               "TP-SC-IDE-001",
+		Command:          `code --install-extension /tmp/backdoor.vsix`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "code --install-extension with local .vsix path — bypasses VS Code Marketplace security review. Malicious extension runs with full IDE privileges (sc-block-ide-vsix-install).",
+		Tags:             []string{"tp", "ide-extension", "vsix", "supply-chain"},
+	},
+	// TP-2: cursor installing local .vsix
+	{
+		ID:               "TP-SC-IDE-002",
+		Command:          `cursor --install-extension ~/Downloads/evil.vsix`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "cursor --install-extension with local .vsix — bypasses marketplace review; no publisher verification (sc-block-ide-vsix-install).",
+		Tags:             []string{"tp", "ide-extension", "vsix", "cursor"},
+	},
+	// TP-3: marketplace extension install (AUDIT)
+	{
+		ID:               "TP-SC-IDE-003",
+		Command:          `code --install-extension ms-python.python`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "code --install-extension by marketplace ID — AI agent may install typosquatted extension; human review required (sc-audit-ide-extension-install).",
+		Tags:             []string{"tp", "ide-extension", "marketplace", "audit"},
+	},
+	// TP-4: windsurf installing local .vsix
+	{
+		ID:               "TP-SC-IDE-004",
+		Command:          `windsurf --install-extension ./malicious-keylogger.vsix`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "windsurf --install-extension with relative .vsix path — bypasses Windsurf marketplace review (sc-block-ide-vsix-install).",
+		Tags:             []string{"tp", "ide-extension", "vsix", "windsurf"},
+	},
+
+	// TN-11: list-extensions is read-only
+	{
+		ID:               "TN-SC-IDE-001",
+		Command:          `code --list-extensions`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "code --list-extensions is read-only — enumerates installed extensions without modifying them. Neither sc-block-ide-vsix-install nor sc-audit-ide-extension-install fires; default AUDIT.",
+		Tags:             []string{"tn", "safe", "ide-extension", "read-only"},
+	},
+	// TN-12: uninstall-extension removes an extension (safer than installing)
+	{
+		ID:               "TN-SC-IDE-002",
+		Command:          `code --uninstall-extension ms-python.python`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-install/global-package-install",
+		Analyzer:         "regex",
+		Description:      "code --uninstall-extension removes an extension — uninstalling is safer than installing and does not match --install-extension patterns; default AUDIT.",
+		Tags:             []string{"tn", "safe", "ide-extension", "uninstall"},
+	},
 }
