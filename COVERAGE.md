@@ -1,15 +1,10 @@
-# AgentShield Coverage Report
-
-*Auto-generated on 2026-03-21 by `go run ./cmd/coverage`*
-
-## Summary
-
-| Metric | Count |
+Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (878 terminal rules, 127 MCP rules)
+Metric | Count |
 |--------|-------|
 | Terminal rules | 878 |
 | MCP rules | 127 |
 | Total rules | 1005 |
-| Test cases (TP+TN) | 3030 |
+| Test cases (TP+TN) | 3032 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1138,6 +1133,6 @@
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 204 | 139 | 343 |
-| unauthorized-execution | 312 | 211 | 523 |
-| **Total** | **1865** | **1165** | **3030** |
+| unauthorized-execution | 312 | 213 | 525 |
+| **Total** | **1865** | **1167** | **3032** |
 
