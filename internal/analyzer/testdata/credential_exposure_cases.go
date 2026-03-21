@@ -1633,6 +1633,18 @@ var ShadowReadCases = []TestCase{
 			redirect forms: 'cat > file' and 'cat << EOF > file'.`,
 		Tags: []string{"fp-fix", "heredoc", "issue-473"},
 	},
+	{
+		ID:               "TN-SHADOW-009",
+		Command:          "agentshield mcp-eval --tool read_file --arg path=/etc/shadow",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `agentshield mcp-eval with /etc/shadow as a test input argument.
+			The path is being used as a test vector for MCP eval, not as an actual file access.
+			Excluded by agentshield\\s+mcp-eval\\s in command_regex_exclude (issue #633).`,
+		Tags: []string{"fp-fix", "mcp-eval", "issue-633"},
+	},
 }
 
 // ---------------------------------------------------------------------------
