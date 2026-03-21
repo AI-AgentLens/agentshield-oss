@@ -993,6 +993,16 @@ var IMDSTheftCases = []TestCase{
 			http:// prefix (issue #584). nc rarely speaks HTTP correctly so risk is low.`,
 		Tags: []string{"known-gap", "nc", "imds"},
 	},
+	{
+		ID:               "TN-IMDS-005",
+		Command:          `gh issue create --title "FP: sec-block-aws-imds" --body "Rule fires on http://169.254.169.254 in issue body"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "IMDS URL in --body text is not network access",
+		Tags:             []string{"fp-regression", "gh", "imds"},
+	},
 
 	// --- TRUE POSITIVES: GCP IMDS via metadata.google.internal hostname ---
 
