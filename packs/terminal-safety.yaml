@@ -7280,6 +7280,76 @@ rules:
     reason: "kubectl creating a Kubernetes workload directly from a known LLM inference container image (Ollama, vLLM, Triton, HuggingFace TGI, LiteLLM, LocalAI) — deploys an unregistered AI inference service in the cluster without governance approval, model card, or risk assessment. May consume unbounded GPU resources and expose inference endpoints to cluster-internal traffic (EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1, OWASP LLM06/LLM08)."
 
   # ===========================================================================
+  # Shadow AI: Local AI Inference Server Public Exposure via Tunneling
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+  # OWASP LLM06 — Excessive Agency, LLM08 — Excessive Permissions
+  # EU AI Act Art.26 (obligations of deployers), NIST AI RMF GOVERN-1
+  # CWE-284 — Improper Access Control
+  #
+  # When an AI agent tunnels a local AI inference server's port to the public
+  # internet (via ngrok, cloudflared, bore, etc.), it creates a shadow AI
+  # deployment: a live, unauthenticated AI system accessible to external parties
+  # that is not tracked in any model inventory, has no governance review, and
+  # has no rate limiting or prompt injection controls.
+  #
+  # This is distinct from the network-egress tunnel rules (which focus on C2/
+  # exfiltration risk). These governance-risk rules flag the AI-specific impact:
+  # the unregistered public deployment of an AI inference capability.
+  #
+  # Known AI inference ports targeted:
+  #   11434 — Ollama default HTTP API
+  #   1234  — LM Studio default HTTP API
+  #   7860  — text-generation-webui / ComfyUI / Gradio default
+  #   5001  — koboldcpp / OpenAI-compatible API (alt port)
+  #   8080  — common fallback for LM Studio, llamafile, localai, openwebui
+  #   4000  — LiteLLM proxy default
+  #   3000  — Open-WebUI default
+  #
+  # Note: The network-egress pack already BLOCKS most tunnel tools outright.
+  # These AUDIT rules add governance context (EU AI Act compliance citation,
+  # model inventory gap reason) for audit logs and compliance dashboards.
+
+  # --- AUDIT: ngrok tunneling a known AI inference port ---
+  #
+  # ngrok http is already AUDIT in network-egress (ne-audit-ngrok-http).
+  # This rule adds governance-risk taxonomy context for AI-specific ports,
+  # enabling compliance dashboards to distinguish "webhook dev use" from
+  # "shadow AI deployment" in audit logs.
+  #
+  # TN: `ngrok http 3000` — no AI inference port context (generic web)
+  # TN: `ngrok http 8000` — generic port (no known AI inference service)
+  # TP: `ngrok http 11434` — expose Ollama to internet
+  # TP: `ngrok http 1234 --subdomain ollama-api` — LM Studio public
+  - id: "ts-audit-ngrok-ai-inference-port"
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      command_regex: "\\bngrok\\s+(?:http|tcp)\\s+(?:.*\\s)?(?:11434|1234|7860|5001|4000)\\b"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "ngrok tunneling a known AI inference server port (Ollama :11434, LM Studio :1234, text-generation-webui :7860, koboldcpp :5001, LiteLLM :4000) creates a shadow AI deployment: an unauthenticated public AI inference endpoint not tracked in any organizational model inventory. Violates EU AI Act Art.26 (deployer obligations) and NIST AI RMF GOVERN-1 (governance of AI systems). No legitimate AI agent coding workflow requires tunneling a local model server to the internet."
+
+  # --- AUDIT: cloudflared, bore, or localtunnel exposing a known AI inference port ---
+  #
+  # Complements the BLOCK rules in network-egress for bore/cloudflared by adding
+  # governance-risk taxonomy context when AI-specific ports are targeted.
+  # (These tools are already BLOCKed by ne-block-bore-local, ne-block-cloudflared-tunnel,
+  # ne-block-localtunnel, ne-block-devtunnel-host, ne-block-zrok-share-public.)
+  #
+  # TN: `bore local 3000 --to bore.pub` — generic port, not AI inference
+  # TN: `cloudflared tunnel list` — read-only operation
+  # TP: `bore local 11434 --to bore.pub` — expose Ollama via bore
+  # TP: `cloudflared tunnel --url http://localhost:1234` — expose LM Studio quick tunnel
+  - id: "ts-audit-tunnel-ai-inference-port"
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      command_regex: "(?:bore\\s+local|cloudflared\\s+(?:tunnel\\s+)?--url\\s+https?://(?:localhost|127\\.0\\.0\\.1):|lt\\b.*--port|npx\\s+localtunnel\\b.*--port)\\s*(?:.*\\s)?(?:11434|1234|7860|5001|4000|8080)\\b"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Tunneling a known AI inference server port (Ollama :11434, LM Studio :1234, text-generation-webui :7860, koboldcpp :5001, LiteLLM :4000, Open-WebUI :8080) via bore, cloudflared quick tunnel, or localtunnel creates a shadow AI deployment: a public, unauthenticated AI inference endpoint outside organizational governance. EU AI Act Art.26, NIST AI RMF GOVERN-1, OWASP LLM06/LLM08."
+
+  # ===========================================================================
   # Cloud AI Service Monitoring Disable (AI Incident Response Gap)
   # ===========================================================================
   #

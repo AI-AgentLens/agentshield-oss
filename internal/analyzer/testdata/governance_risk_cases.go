@@ -1131,6 +1131,111 @@ var K8sLLMWorkloadCreateCases = []TestCase{
 	},
 }
 
+// ===========================================================================
+// Shadow AI: Local AI Inference Server Public Exposure via Tunneling
+// ===========================================================================
+//
+// Rules: ts-audit-ngrok-ai-inference-port, ts-audit-tunnel-ai-inference-port
+// Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+
+// NgrокAIInferencePortCases tests ts-audit-ngrok-ai-inference-port.
+var NgrokAIInferencePortCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-NGROK-AI-PORT-001",
+		Command:          `ngrok http 11434`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "ngrok http tunneling Ollama default port (11434) — creates a public, unauthenticated AI inference endpoint outside governance review.",
+		Tags:             []string{"tp", "governance", "shadow-ai", "tunnel"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-NGROK-AI-PORT-002",
+		Command:          `ngrok http 1234`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "ngrok http tunneling LM Studio default port (1234) — exposes local LLM inference server to internet without organizational governance.",
+		Tags:             []string{"tp", "governance", "shadow-ai", "tunnel"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-NGROK-AI-PORT-003",
+		Command:          `ngrok http 7860`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "ngrok http tunneling text-generation-webui / Gradio port (7860) — public exposure of AI inference UI without governance review.",
+		Tags:             []string{"tp", "governance", "shadow-ai", "tunnel"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-NGROK-AI-PORT-001",
+		Command:          `ngrok http 3000`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "ngrok http on port 3000 (generic web app, not a known AI inference port) — governance-risk AI tunnel rule must NOT trigger. Gets AUDIT from ne-audit-ngrok-http only.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-NGROK-AI-PORT-002",
+		Command:          `ngrok version`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "ngrok version check — read-only command, no tunnel created. Gets default AUDIT decision (not ALLOW) since default policy is AUDIT. AI inference port rule must not trigger.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// TunnelAIInferencePortCases tests ts-audit-tunnel-ai-inference-port.
+var TunnelAIInferencePortCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-TUNNEL-AI-PORT-001",
+		Command:          `bore local 11434 --to bore.pub`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "bore tunneling Ollama port (11434) — already BLOCKed by ne-block-bore-local; governance-risk rule adds compliance context.",
+		Tags:             []string{"tp", "governance", "shadow-ai", "tunnel"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-TUNNEL-AI-PORT-002",
+		Command:          `bore local 1234 --to bore.pub`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "bore tunneling LM Studio port (1234) — BLOCKed by ne-block-bore-local; confirms AI inference port is also flagged by governance rule.",
+		Tags:             []string{"tp", "governance", "shadow-ai", "tunnel"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-TUNNEL-AI-PORT-001",
+		Command:          `bore local 3000 --to bore.pub`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "bore tunneling non-AI port (3000) — BLOCKed by ne-block-bore-local (C2 rule), but ts-audit-tunnel-ai-inference-port must NOT add a second hit. Most restrictive wins (BLOCK either way).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-TUNNEL-AI-PORT-002",
+		Command:          `cloudflared tunnel list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "cloudflared tunnel list is read-only — no AI inference port exposed, must not trigger tunnel-ai-inference-port rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllGovernanceRiskCases aggregates all governance-risk kingdom test cases.
 func AllGovernanceRiskCases() []TestCase {
 	var all []TestCase
@@ -1154,5 +1259,7 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, AIAuditLogTruncateCases...)
 	all = append(all, K8sLLMHelmInstallCases...)
 	all = append(all, K8sLLMWorkloadCreateCases...)
+	all = append(all, NgrokAIInferencePortCases...)
+	all = append(all, TunnelAIInferencePortCases...)
 	return all
 }
