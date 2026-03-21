@@ -1,10 +1,15 @@
-Generated /Users/garyzeng/dev/baby-kai/shield-workspace/COVERAGE.md (890 terminal rules, 127 MCP rules)
-Metric | Count |
+# AgentShield Coverage Report
+
+*Auto-generated on 2026-03-21 by `go run ./cmd/coverage`*
+
+## Summary
+
+| Metric | Count |
 |--------|-------|
-| Terminal rules | 890 |
+| Terminal rules | 893 |
 | MCP rules | 127 |
-| Total rules | 1017 |
-| Test cases (TP+TN) | 3077 |
+| Total rules | 1020 |
+| Test cases (TP+TN) | 3094 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -14,7 +19,7 @@ Metric | Count |
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m), as a heredoc body in a cat file-write operation, or as an echo/printf argument. |
-| `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (--body/--message to gh/git, -m for git commit/tag, -d/--data to curl) or as heredoc content written via cat. |
+| `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (--body/--body-file/--message to gh/git, -m for git commit/tag, -d/--data to curl) or as heredoc content written via cat. |
 | `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. Excludes commands where the keychain invocation appears as documentation text in a --body or --message flag passed to gh or git. |
 | `sec-block-linux-secret-tool` | BLOCK | regex | secret-tool accessing the freedesktop.org Secret Service (GNOME Keyring / KDE Wallet) — returns stored credentials in plaintext. A single lookup can expose cloud keys, database passwords, or API tokens without any user prompt. MITRE T1555.004. |
 | `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
@@ -116,7 +121,7 @@ Metric | Count |
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (139 rules)
+### data-exfiltration (140 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -135,6 +140,7 @@ Metric | Count |
 | `ne-block-sshuttle` | BLOCK | structural | sshuttle is a VPN-over-SSH tool that transparently routes subnet traffic through an SSH connection, giving remote access to the entire internal network. Agents have no legitimate need to create network-level VPN pivots (LLM06). MITRE T1572, T1090. |
 | `ne-block-ngrok-tcp` | BLOCK | regex | ngrok TCP tunnel exposes a local service (e.g., SSH on port 22) to the public internet via a random ngrok subdomain. AI agents have no legitimate need to create public TCP tunnels — this is a covert C2/exfiltration channel. MITRE T1572. |
 | `ne-block-cloudflared-tunnel` | BLOCK | regex | cloudflared tunnel commands create persistent Cloudflare Tunnel channels. 'tunnel run' starts a covert C2 channel that survives reboots; 'service install' creates a system daemon. AI agents have no legitimate need to create Cloudflare tunnels. MITRE T1572. |
+| `ne-block-cloudflared-quick-tunnel` | BLOCK | regex | cloudflared quick tunnel (--url flag) creates an ephemeral trycloudflare.com subdomain exposing a local HTTP service to the public internet with no authentication. Bypasses the named tunnel workflow and does not require a Cloudflare account. AI agents have no legitimate need to expose local services to the internet. MITRE T1572. |
 | `ne-block-chisel` | BLOCK | regex | chisel is an HTTP-based TCP tunnel designed for firewall bypass, used almost exclusively in red team operations. 'chisel client' with R: prefix creates reverse SOCKS proxies. No legitimate AI agent coding workflow requires chisel. MITRE T1572. |
 | `ne-block-frp` | BLOCK | regex | frpc/frps is a fast reverse proxy framework used in red team operations to establish persistent C2 channels. No legitimate AI agent coding workflow requires frp. MITRE T1572, T1090. |
 | `ne-block-bore-local` | BLOCK | regex | bore creates zero-config reverse tunnels: 'bore local 22 --to bore.pub' immediately exposes the local SSH daemon to the internet with no credentials. AI agents have no legitimate need to create public reverse tunnels. MITRE T1572. |
@@ -332,10 +338,10 @@ Metric | Count |
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
-| `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. (MITRE T1222.002; CWE-732; OWASP LLM06) |
-| `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
+| `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM06) |
+| `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
-### governance-risk (21 rules)
+### governance-risk (23 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -351,6 +357,8 @@ Metric | Count |
 | `ts-audit-ai-endpoint-public-access` | AUDIT | regex | Granting public or unauthenticated access to an AI inference endpoint (Vertex AI, Cloud Run AI service, SageMaker, Azure ML) creates a shadow AI deployment — the model becomes accessible to any external party without attribution, rate limiting, or prompt injection controls. Creates an unregistered public AI system under EU AI Act Art.26, violates data minimization principles, and exposes the model to extraction and adversarial prompting (OWASP LLM06/LLM08, CWE-284, NIST AI RMF GOVERN-1). |
 | `ts-audit-k8s-llm-helm-install` | AUDIT | regex | Helm deploying a known LLM inference chart (Ollama, vLLM, Triton, KubeAI, BentoML, Ray LLM, LiteLLM, TGI) into a Kubernetes cluster — creates an AI inference service outside the organizational model inventory and governance review process. No model card, risk assessment, or data handling review is documented for this deployment. Verify governance approval and model provenance before proceeding (EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1, OWASP LLM06). |
 | `ts-audit-k8s-llm-workload-create` | AUDIT | regex | kubectl creating a Kubernetes workload directly from a known LLM inference container image (Ollama, vLLM, Triton, HuggingFace TGI, LiteLLM, LocalAI) — deploys an unregistered AI inference service in the cluster without governance approval, model card, or risk assessment. May consume unbounded GPU resources and expose inference endpoints to cluster-internal traffic (EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1, OWASP LLM06/LLM08). |
+| `ts-audit-ngrok-ai-inference-port` | AUDIT | regex | ngrok tunneling a known AI inference server port (Ollama :11434, LM Studio :1234, text-generation-webui :7860, koboldcpp :5001, LiteLLM :4000) creates a shadow AI deployment: an unauthenticated public AI inference endpoint not tracked in any organizational model inventory. Violates EU AI Act Art.26 (deployer obligations) and NIST AI RMF GOVERN-1 (governance of AI systems). No legitimate AI agent coding workflow requires tunneling a local model server to the internet. |
+| `ts-audit-tunnel-ai-inference-port` | AUDIT | regex | Tunneling a known AI inference server port (Ollama :11434, LM Studio :1234, text-generation-webui :7860, koboldcpp :5001, LiteLLM :4000, Open-WebUI :8080) via bore, cloudflared quick tunnel, or localtunnel creates a shadow AI deployment: a public, unauthenticated AI inference endpoint outside organizational governance. EU AI Act Art.26, NIST AI RMF GOVERN-1, OWASP LLM06/LLM08. |
 | `ts-block-aws-bedrock-logging-delete` | BLOCK | regex | Deletes the AWS Bedrock model invocation logging configuration — all subsequent AI model calls will be unaudited. Eliminates the forensic trail required for AI incident detection, EU AI Act Art.9 post-market monitoring, and SOC 2 CC7.2 threat response. Prompt-injected agents may issue this command to hide subsequent malicious interactions (NIST AI RMF MANAGE-4, CWE-778). |
 | `ts-audit-aws-bedrock-logging-disable` | AUDIT | regex | Reconfiguring AWS Bedrock invocation logging to disable text/image/embedding data delivery degrades the AI audit trail. May be legitimate capacity management but reduces visibility into model inputs/outputs, hindering incident forensics and EU AI Act Art.15 post-market monitoring compliance (NIST AI RMF MANAGE-4). |
 | `ts-audit-aws-logs-delete-bedrock-group` | AUDIT | regex | Deleting the CloudWatch log group that receives AWS Bedrock invocation logs destroys the historical AI audit trail and prevents future log delivery. Impacts EU AI Act Art.9 post-market monitoring, SOC 2 CC7.1 detection controls, and incident forensics capability (CWE-778, NIST AI RMF MANAGE-4). |
@@ -391,7 +399,7 @@ Metric | Count |
 | `ts-struct-block-crontab-modify` | BLOCK | structural | crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks. |
 | `ts-struct-block-ssh-keygen-noninteractive` | BLOCK | structural | ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk. |
 | `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
-| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list (MITRE T1098.004). |
+| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004) |
 | `ts-block-ssh-config-write` | BLOCK | regex | Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
 | `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
 | `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
@@ -1138,13 +1146,13 @@ Metric | Count |
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 233 | 163 | 396 |
-| data-exfiltration | 251 | 152 | 403 |
-| destructive-ops | 132 | 85 | 217 |
-| governance-risk | 52 | 42 | 94 |
-| persistence-evasion | 269 | 151 | 420 |
+| data-exfiltration | 253 | 154 | 407 |
+| destructive-ops | 132 | 87 | 219 |
+| governance-risk | 57 | 46 | 103 |
+| persistence-evasion | 269 | 153 | 422 |
 | privilege-escalation | 273 | 167 | 440 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 204 | 139 | 343 |
 | unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1894** | **1183** | **3077** |
+| **Total** | **1901** | **1193** | **3094** |
 
