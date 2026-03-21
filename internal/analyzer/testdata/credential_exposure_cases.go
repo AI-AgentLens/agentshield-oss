@@ -237,6 +237,34 @@ var SSHPrivateKeyReadCases = []TestCase{
 		Tags: []string{"fp-fix", "cat-heredoc", "regression", "issue-187"},
 	},
 
+	{
+		ID:               "TN-SSHKEY-011",
+		Command:          `agentshield mcp-eval --tool read_file --arg path=/home/user/.ssh/id_rsa`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `agentshield mcp-eval with SSH key path as a test input argument.
+			The SSH path is a simulated MCP tool call argument, not a real file access.
+			Must NOT be BLOCK — gets AUDIT (default) because no rule matches this meta-command.
+			Fixed by agentshield\s+mcp-eval\s exclusion in sec-block-ssh-private (issue #630).`,
+		Tags: []string{"fp-fix", "mcp-eval", "issue-630"},
+	},
+
+	{
+		ID:               "TN-SSHKEY-012",
+		Command:          `agentshield mcp-eval --tool read_file --json '{"path":"/home/user/.ssh/id_rsa"}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `agentshield mcp-eval with SSH key path inside --json argument.
+			The SSH path is a simulated MCP tool call JSON payload, not a real file access.
+			Must NOT be BLOCK — gets AUDIT (default) because no rule matches this meta-command.
+			Fixed by agentshield\s+mcp-eval\s exclusion in sec-block-ssh-private (issue #630).`,
+		Tags: []string{"fp-fix", "mcp-eval", "issue-630"},
+	},
+
 	// --- FALSE NEGATIVES ---
 
 	{
