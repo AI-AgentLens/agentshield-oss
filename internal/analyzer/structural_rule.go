@@ -37,9 +37,10 @@ type StructuralRule struct {
 	ArgsNone []string // no positional arg matches any of these
 
 	// Pipe analysis
-	HasPipe  *bool    // command contains a pipe operator
-	PipeTo   []string // RHS of pipe is one of these executables
-	PipeFrom []string // LHS of pipe is one of these executables
+	HasPipe         *bool    // command contains a pipe operator
+	PipeTo          []string // RHS of pipe is one of these executables
+	PipeToFlagsNone []string // don't match if the pipe_to segment has any of these flags
+	PipeFrom        []string // LHS of pipe is one of these executables
 
 	// Modifiers
 	Negate bool // invert match result
@@ -202,6 +203,7 @@ func matchPipePredicates(parsed *ParsedCommand, rule StructuralRule) bool {
 	}
 
 	// --- PipeTo: RHS of any pipe is one of these executables ---
+	// PipeToFlagsNone: disqualify a pipe_to match if the RHS segment has any of these flags.
 	if len(rule.PipeTo) > 0 {
 		if !hasPipeOp {
 			return false
@@ -211,8 +213,18 @@ func matchPipePredicates(parsed *ParsedCommand, rule StructuralRule) bool {
 			if op == "|" && i+1 < len(parsed.Segments) {
 				rhs := parsed.Segments[i+1]
 				if stringInList(rhs.Executable, rule.PipeTo) {
-					found = true
-					break
+					// Check PipeToFlagsNone: if pipe_to segment has any of these flags, skip this match.
+					disqualified := false
+					for _, flag := range rule.PipeToFlagsNone {
+						if segmentHasFlag(rhs, flag) {
+							disqualified = true
+							break
+						}
+					}
+					if !disqualified {
+						found = true
+						break
+					}
 				}
 			}
 		}

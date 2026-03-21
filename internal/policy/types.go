@@ -64,9 +64,10 @@ type StructuralMatch struct {
 	ArgsNone []string `yaml:"args_none,omitempty"` // no positional arg matches any of these
 
 	// Pipe analysis
-	HasPipe  *bool    `yaml:"has_pipe,omitempty"`  // command contains a pipe operator
-	PipeTo   []string `yaml:"pipe_to,omitempty"`   // RHS of pipe is one of these executables
-	PipeFrom []string `yaml:"pipe_from,omitempty"` // LHS of pipe is one of these executables
+	HasPipe         *bool    `yaml:"has_pipe,omitempty"`           // command contains a pipe operator
+	PipeTo          []string `yaml:"pipe_to,omitempty"`            // RHS of pipe is one of these executables
+	PipeToFlagsNone []string `yaml:"pipe_to_flags_none,omitempty"` // don't match if pipe_to segment has any of these flags
+	PipeFrom        []string `yaml:"pipe_from,omitempty"`          // LHS of pipe is one of these executables
 
 	// Modifiers
 	Negate bool `yaml:"negate,omitempty"` // invert match (for ALLOW overrides)
@@ -111,6 +112,7 @@ type StatefulMatch struct {
 type ChainStep struct {
 	ExecutableAny []string `yaml:"executable_any,omitempty"` // segment executable is one of these
 	FlagsAny      []string `yaml:"flags_any,omitempty"`      // segment has at least one of these flags
+	FlagsNone     []string `yaml:"flags_none,omitempty"`     // segment must NOT have any of these flags
 	ArgsAny       []string `yaml:"args_any,omitempty"`       // any positional arg matches glob
 	Operator      string   `yaml:"operator,omitempty"`       // operator connecting to next step: "&&", "||", ";", "|"
 }

@@ -30,6 +30,7 @@ type StatefulRule struct {
 type ChainStepRule struct {
 	ExecutableAny []string // segment executable is one of these
 	FlagsAny      []string // segment has at least one of these flags
+	FlagsNone     []string // segment must NOT have any of these flags
 	ArgsAny       []string // any positional arg matches glob
 	Operator      string   // operator connecting to next step: "&&", "||", ";", "|"
 }
@@ -130,6 +131,13 @@ func matchChainStep(seg CommandSegment, step ChainStepRule) bool {
 		}
 	}
 
+	// --- FlagsNone: disqualify if segment has any of these flags ---
+	for _, flag := range step.FlagsNone {
+		if segmentHasFlag(seg, flag) {
+			return false
+		}
+	}
+
 	// --- ArgsAny ---
 	if len(step.ArgsAny) > 0 {
 		found := false
@@ -161,7 +169,7 @@ func matchChainStep(seg CommandSegment, step ChainStepRule) bool {
 func countSegmentSteps(chain []ChainStepRule) int {
 	count := 0
 	for _, step := range chain {
-		if len(step.ExecutableAny) > 0 || len(step.FlagsAny) > 0 || len(step.ArgsAny) > 0 {
+		if len(step.ExecutableAny) > 0 || len(step.FlagsAny) > 0 || len(step.FlagsNone) > 0 || len(step.ArgsAny) > 0 {
 			count++
 		}
 	}
