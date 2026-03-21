@@ -267,3 +267,44 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08."
     confidence: 0.85
+
+  # === BLOCK: Git config write via MCP (issue #5) ===
+  #
+  # ~/.gitconfig is git's global user configuration file. An AI agent that
+  # writes to it can inject:
+  #   - core.hooksPath = /tmp/evil  → redirects all git hooks to attacker scripts
+  #     (fires on every git commit/push/merge, persistent code execution)
+  #   - url.<evil>.insteadOf = https://github.com/ → redirects all git operations
+  #     through an attacker-controlled host (credential interception)
+  #   - credential.helper = /tmp/malicious → replaces git credential helper
+  #
+  # ~/.gitconfig write is a stealthy persistence technique:
+  #   - Survives reboots (it's a file on disk)
+  #   - Fires inside developer workflows without shell-level visibility
+  #   - Requires no elevated privileges
+  #   - Not blocked by shell rules (write_file bypasses shell evaluation)
+  #
+  # MITRE T1546 — Event Triggered Execution (hooks fire on git operations)
+  # MITRE T1071.001 — Application Layer Protocol (url redirect for exfil)
+  - id: mcp-persist-block-gitconfig-write
+    taxonomy: "persistence-evasion/cicd-tampering/git-config-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.gitconfig$"
+            - "(?:^|/)\\.gitconfig\\.local$"
+    decision: "BLOCK"
+    reason: "MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546."
+    confidence: 0.95
