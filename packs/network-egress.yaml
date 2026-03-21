@@ -117,6 +117,26 @@ rules:
     confidence: 0.97
     reason: "SSH dynamic SOCKS proxy (-D port) routes all traffic through the SSH connection, bypassing network egress controls entirely (LLM06). MITRE T1090.003."
 
+  # --- BLOCK: sshuttle VPN-over-SSH network pivoting ---
+  #
+  # sshuttle routes entire network subnets through an SSH connection, acting as a
+  # transparent VPN without root or VPN software on the remote side. An AI agent
+  # running sshuttle gives an attacker full routed access to the developer's
+  # internal network, bypassing all local firewall/egress controls silently.
+  # -D flag runs as a background daemon for persistent pivoting.
+  #
+  # Taxonomy: data-exfiltration/network-egress/ssh-tunnel
+  # MITRE: T1572 (Protocol Tunneling), T1090 (Proxy), T1021.004 (SSH)
+  # OWASP LLM: LLM06 (Excessive Agency)
+  - id: "ne-block-sshuttle"
+    taxonomy: "data-exfiltration/network-egress/ssh-tunnel"
+    match:
+      structural:
+        executable: ["sshuttle"]
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "sshuttle is a VPN-over-SSH tool that transparently routes subnet traffic through an SSH connection, giving remote access to the entire internal network. Agents have no legitimate need to create network-level VPN pivots (LLM06). MITRE T1572, T1090."
+
   # === BLOCK/AUDIT: Reverse tunnel tools (ngrok, cloudflared, chisel, frp, bore) ===
   #
   # These tools create covert outbound tunnels that bypass firewall rules, expose

