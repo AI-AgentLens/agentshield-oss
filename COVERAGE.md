@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 875 |
+| Terminal rules | 876 |
 | MCP rules | 127 |
-| Total rules | 1002 |
-| Test cases (TP+TN) | 2998 |
+| Total rules | 1003 |
+| Test cases (TP+TN) | 3002 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -116,7 +116,7 @@
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 
-### data-exfiltration (138 rules)
+### data-exfiltration (139 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -132,6 +132,7 @@
 | `ne-block-ssh-remote-forward` | BLOCK | regex | SSH remote port forwarding (-R port:host:port) establishes a reverse tunnel to the remote host — used for C2 and covert exfiltration. Agents have no legitimate need to set up reverse tunnels (LLM06, LLM08). MITRE T1572. |
 | `ne-block-ssh-local-forward` | BLOCK | regex | SSH local port forwarding (-L port:host:port) tunnels internal services to local ports — used to pivot to internal infrastructure. Agents have no legitimate need to forward internal service ports (LLM06). MITRE T1572. |
 | `ne-block-ssh-socks-proxy` | BLOCK | regex | SSH dynamic SOCKS proxy (-D port) routes all traffic through the SSH connection, bypassing network egress controls entirely (LLM06). MITRE T1090.003. |
+| `ne-block-sshuttle` | BLOCK | structural | sshuttle is a VPN-over-SSH tool that transparently routes subnet traffic through an SSH connection, giving remote access to the entire internal network. Agents have no legitimate need to create network-level VPN pivots (LLM06). MITRE T1572, T1090. |
 | `ne-block-ngrok-tcp` | BLOCK | regex | ngrok TCP tunnel exposes a local service (e.g., SSH on port 22) to the public internet via a random ngrok subdomain. AI agents have no legitimate need to create public TCP tunnels — this is a covert C2/exfiltration channel. MITRE T1572. |
 | `ne-block-cloudflared-tunnel` | BLOCK | regex | cloudflared tunnel commands create persistent Cloudflare Tunnel channels. 'tunnel run' starts a covert C2 channel that survives reboots; 'service install' creates a system daemon. AI agents have no legitimate need to create Cloudflare tunnels. MITRE T1572. |
 | `ne-block-chisel` | BLOCK | regex | chisel is an HTTP-based TCP tunnel designed for firewall bypass, used almost exclusively in red team operations. 'chisel client' with R: prefix creates reverse SOCKS proxies. No legitimate AI agent coding workflow requires chisel. MITRE T1572. |
@@ -844,8 +845,8 @@
 | `ts-block-self-propagating-injection` | BLOCK | regex | Self-propagating prompt injection detected: directive to copy/forward the injection payload to other agents, files, or channels. This is a prompt-injection worm pattern (OWASP LLM01, LLM06). |
 | `ts-audit-unrestricted-tool-invoke-eval` | AUDIT | regex | eval/exec called on a variable referencing AI agent output — unrestricted dynamic tool invocation allows LLM-generated content to run arbitrary OS commands (OWASP LLM06, CWE-78). |
 | `ts-audit-unrestricted-tool-invoke-config` | AUDIT | regex | Agent configuration with allow_all_tools:true or an empty tool_whitelist grants unrestricted OS tool access — any LLM output can invoke arbitrary commands without boundary checks (OWASP LLM06). |
-| `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. |
-| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). |
+| `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. Excludes python3 -c (inline script reading stdin as data, not as code). |
+| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
 | `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
 | `ts-block-proc-mem-write` | BLOCK | regex | Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls. |
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
@@ -1128,13 +1129,13 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 221 | 160 | 381 |
-| data-exfiltration | 249 | 151 | 400 |
+| data-exfiltration | 251 | 152 | 403 |
 | destructive-ops | 128 | 82 | 210 |
 | governance-risk | 46 | 37 | 83 |
 | persistence-evasion | 266 | 149 | 415 |
 | privilege-escalation | 269 | 164 | 433 |
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 200 | 137 | 337 |
-| unauthorized-execution | 298 | 202 | 500 |
-| **Total** | **1845** | **1153** | **2998** |
+| unauthorized-execution | 298 | 203 | 501 |
+| **Total** | **1847** | **1155** | **3002** |
 
