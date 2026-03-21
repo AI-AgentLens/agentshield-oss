@@ -201,13 +201,25 @@ structural_rules:
     reason: "MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004."
     confidence: 0.97
 
-  # === AUDIT: AI agent instruction and memory file writes via MCP (issue #206) ===
+  # === AUDIT: AI agent instruction and memory file writes via MCP (issues #206, #603) ===
   #
-  # AI agent instruction files (CLAUDE.md, .cursorrules, .windsurfrules) and
-  # memory files (.claude/memory/*.md) govern agent behavior across sessions.
-  # An MCP write_file call targeting these files can inject persistent instructions
+  # AI agent instruction files govern agent behavior across sessions. An MCP
+  # write_file call targeting these files can inject persistent instructions
   # that alter agent behavior in all future sessions — a form of inter-session
   # prompt injection that bypasses all shell-level defenses.
+  #
+  # Covered files (matches ts-block-agent-instruction-inject in terminal-safety.yaml):
+  #   Claude Code:     CLAUDE.md, .claude/CLAUDE.md, .claude/memory/*.md
+  #   Cursor:          .cursorrules, .cursor/rules/
+  #   Windsurf:        .windsurfrules
+  #   Gemini CLI:      GEMINI.md
+  #   OpenAI Codex:    AGENTS.md
+  #   Amp:             AMP.md
+  #   Cline:           .clinerules
+  #   Roo Code:        .roomodes, .roo/
+  #   GitHub Copilot:  .github/copilot-instructions.md
+  #   Continue.dev:    .continue/config.json
+  #   Aider:           .aider.conf.yml
   #
   # Decision: AUDIT (not BLOCK) — agents legitimately update CLAUDE.md and
   # memory files as part of normal operation (e.g., remembering user preferences).
@@ -217,7 +229,7 @@ structural_rules:
   # OWASP LLM08 — Integrity Failures
   # MITRE T1564 — Hide Artifacts (instructions hidden in memory files)
   - id: mcp-persist-audit-instruction-file-write
-    taxonomy: "unauthorized-execution/agentic-attacks/agent-memory-poisoning"
+    taxonomy: "persistence-evasion/agent-config-persistence/agent-instruction-file-tampering"
     match:
       tool_name_any:
         - "write_file"
@@ -234,10 +246,20 @@ structural_rules:
         path:
           pattern_any:
             - "(?:^|/)CLAUDE\\.md$"
+            - "(?:^|/)GEMINI\\.md$"
+            - "(?:^|/)AGENTS\\.md$"
+            - "(?:^|/)AMP\\.md$"
             - "(?:^|/)\\.cursorrules$"
+            - "(?:^|/)\\.cursor/rules/"
             - "(?:^|/)\\.windsurfrules$"
+            - "(?:^|/)\\.clinerules$"
+            - "(?:^|/)\\.roomodes$"
+            - "(?:^|/)\\.roo/"
+            - "(?:^|/)\\.github/copilot-instructions\\.md$"
+            - "(?:^|/)\\.continue/config\\.json$"
+            - "(?:^|/)\\.aider\\.conf\\.yml$"
             - "(?:^|/)\\.claude/memory/.*\\.md$"
             - "(?:^|/)\\.claude/CLAUDE\\.md$"
     decision: "AUDIT"
-    reason: "MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). OWASP LLM01/LLM08."
+    reason: "MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08."
     confidence: 0.85
