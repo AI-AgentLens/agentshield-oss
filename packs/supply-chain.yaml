@@ -755,6 +755,52 @@ rules:
     confidence: 0.90
     reason: "Shell write to docker-compose.yml detected. Tampering with compose files can mount host paths, disable security options, or add malicious service definitions. MITRE T1612."
 
+  # === BLOCK: devcontainer config tampering (issue #624) ===
+  #
+  # .devcontainer/devcontainer.json (and devcontainer.json at project root) is
+  # the configuration file used by VS Code Dev Containers, GitHub Codespaces,
+  # JetBrains Gateway, and other dev-container-spec-compatible tools. It defines:
+  #   - The base container image (image / dockerFile)
+  #   - Lifecycle hooks: postCreateCommand, postStartCommand, postAttachCommand
+  #   - VS Code extensions installed inside the container
+  #
+  # An AI agent that writes to devcontainer.json can:
+  #   1. Inject a malicious postCreateCommand — executes every time the container
+  #      is rebuilt (persistence through dev environment lifecycle)
+  #   2. Redirect the image field to a malicious registry (supply chain)
+  #   3. Add a backdoored VS Code extension to the extensions list
+  #
+  # Shell-level writes are blocked here. MCP write_file calls to these paths
+  # are covered by the MCP config guard.
+  #
+  # MITRE T1612   — Build Image on Host
+  # MITRE T1546   — Event Triggered Execution (postCreateCommand is event-triggered)
+  # MITRE T1195.002 — Supply Chain Compromise: Compromise Software Supply Chain
+
+  - id: "sc-block-devcontainer-write"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "(?:echo|cat|printf|python[23]?|node|sed)\\s+.*>+\\s*(?:[./]*/)?(?:\\.devcontainer/)?devcontainer\\.json\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Shell write to devcontainer.json detected. Injecting postCreateCommand, postStartCommand, or a malicious image field backdoors the developer's container on every rebuild — a persistent supply chain attack (MITRE T1612, T1546)."
+
+  - id: "sc-block-devcontainer-tee"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\btee\\b\\s+(?:-a\\s+)?(?:[./]*/)?(?:\\.devcontainer/)?devcontainer\\.json\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "tee write to devcontainer.json detected — tee copies stdin to file as positional arg. Tampered lifecycle hooks execute on every container rebuild (MITRE T1612, T1546)."
+
+  - id: "sc-block-devcontainer-sed"
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      command_regex: "\\bsed\\b\\s+(?:-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\b.*(?:\\.devcontainer/)?devcontainer\\.json\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "sed --in-place modification of devcontainer.json — in-place edit can redirect the image field to a malicious registry or inject postCreateCommand backdoors (MITRE T1612, T1546)."
+
   # === AUDIT: Global installs ===
   # Global package installs affect the entire system rather than a single project,
   # giving installed packages elevated access to the shell PATH and user profile.
