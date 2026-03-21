@@ -1008,6 +1008,129 @@ var AIAuditLogTruncateCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Kubernetes/Helm AI Workload Deployment (Shadow AI Deployment)
+// Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+// Rules: ts-audit-k8s-llm-helm-install, ts-audit-k8s-llm-workload-create
+// Issue: #612
+// ---------------------------------------------------------------------------
+
+var K8sLLMHelmInstallCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-K8SHELM-001",
+		Command:          "helm install ollama ollama-helm/ollama --namespace ai-apps",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm installing Ollama LLM inference chart — creates unregistered AI workload in cluster without governance review.",
+		Tags:             []string{"tp", "helm", "k8s", "shadow-ai", "governance"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-K8SHELM-002",
+		Command:          "helm upgrade --install vllm-svc vllm/vllm-inference-server --set gpu.enabled=true",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm upgrading vLLM inference server chart with GPU — deploys AI inference outside governance process.",
+		Tags:             []string{"tp", "helm", "k8s", "vllm", "shadow-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-K8SHELM-003",
+		Command:          "helm install kubeai kubeai/kubeai --namespace kubeai-system",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm installing KubeAI — dedicated Kubernetes AI inference platform deployed without governance approval.",
+		Tags:             []string{"tp", "helm", "k8s", "kubeai", "shadow-ai"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-K8SHELM-001",
+		Command:          "helm list --all-namespaces",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm listing installed charts — read-only operation, no deployment. Default AUDIT is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-K8SHELM-002",
+		Command:          "helm search repo ollama",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm searching chart repositories — read-only, no workload deployed. Default AUDIT is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-K8SHELM-003",
+		Command:          "helm install nginx bitnami/nginx --namespace web",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "helm installing a non-AI chart (nginx) — no LLM inference workload. Default AUDIT is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+var K8sLLMWorkloadCreateCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-K8SWKLD-001",
+		Command:          "kubectl create deployment llm-svc --image=ollama/ollama:latest",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "kubectl creating deployment with Ollama image — direct LLM workload deployment without helm governance layer.",
+		Tags:             []string{"tp", "kubectl", "k8s", "shadow-ai", "governance"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-K8SWKLD-002",
+		Command:          "kubectl run vllm-pod --image=vllm/vllm-openai:latest --restart=Never -- --model meta-llama/Llama-3-8B",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "kubectl run with vLLM OpenAI-compatible image — creates ad-hoc LLM inference pod without governance.",
+		Tags:             []string{"tp", "kubectl", "k8s", "vllm", "shadow-ai"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-K8SWKLD-003",
+		Command:          "kubectl create deployment tgi --image=ghcr.io/huggingface/text-generation-inference:latest",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "kubectl creating HuggingFace TGI deployment — deploys LLM inference service without model card or governance review.",
+		Tags:             []string{"tp", "kubectl", "k8s", "tgi", "shadow-ai"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-K8SWKLD-001",
+		Command:          "kubectl get deployments -n ai-apps",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "kubectl listing deployments — read-only, no workload created. Default AUDIT is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-K8SWKLD-002",
+		Command:          "kubectl create deployment api-server --image=python:3.11-slim",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/shadow-ai-deployment",
+		Analyzer:         "regex",
+		Description:      "kubectl creating non-AI deployment (python slim) — not an LLM inference workload. Default AUDIT is correct.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
 // AllGovernanceRiskCases aggregates all governance-risk kingdom test cases.
 func AllGovernanceRiskCases() []TestCase {
 	var all []TestCase
@@ -1029,5 +1152,7 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, AIMonitoringDisablePersistCases...)
 	all = append(all, AIAuditLogDeleteCases...)
 	all = append(all, AIAuditLogTruncateCases...)
+	all = append(all, K8sLLMHelmInstallCases...)
+	all = append(all, K8sLLMWorkloadCreateCases...)
 	return all
 }
