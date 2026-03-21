@@ -74,9 +74,10 @@ workflows:
   test-and-release:
     jobs:
       - test
-      - release:
-          requires:
-            - test
-          filters:
-            branches:
-              only: main
+      # Uncomment to enable auto-release on push to main:
+      # - release:
+      #     requires:
+      #       - test
+      #     filters:
+      #       branches:
+      #         only: main
