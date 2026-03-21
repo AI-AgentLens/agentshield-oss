@@ -7231,6 +7231,55 @@ rules:
     reason: "Granting public or unauthenticated access to an AI inference endpoint (Vertex AI, Cloud Run AI service, SageMaker, Azure ML) creates a shadow AI deployment — the model becomes accessible to any external party without attribution, rate limiting, or prompt injection controls. Creates an unregistered public AI system under EU AI Act Art.26, violates data minimization principles, and exposes the model to extraction and adversarial prompting (OWASP LLM06/LLM08, CWE-284, NIST AI RMF GOVERN-1)."
 
   # ===========================================================================
+  # Kubernetes/Helm AI Workload Deployment (Shadow AI Deployment)
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+  # OWASP LLM06 — Excessive Agency, LLM08 — Excessive Permissions
+  # EU AI Act Art.9 (risk management), Art.26 (obligations for deployers)
+  # NIST AI RMF GOVERN-1, MANAGE-4; ISO 27001 A.5.1
+  # CWE-285 — Improper Authorization
+  #
+  # Deploying LLM inference services in Kubernetes via Helm or kubectl
+  # without organizational governance approval creates shadow AI deployments:
+  #   - Unregistered AI systems operating outside the model inventory
+  #   - GPU compute costs incurred without budget authorization
+  #   - Inference endpoints potentially exposed to the cluster network
+  #   - No model card, risk assessment, or data handling review completed
+  #
+  # Helm examples (should AUDIT):
+  #   helm install ollama ollama-helm/ollama --namespace ai-apps
+  #   helm upgrade --install vllm-svc vllm/vllm-inference-server
+  #   helm install kubeai kubeai/kubeai --set gpu.enabled=true
+  #
+  # kubectl examples (should AUDIT):
+  #   kubectl create deployment llm-svc --image=ollama/ollama:latest
+  #   kubectl run vllm --image=vllm/vllm-openai:latest --restart=Never
+  #
+  # TN examples (should ALLOW):
+  #   helm list --all-namespaces
+  #   kubectl get deployments -n ai-apps
+  #   helm search repo ollama
+
+  # === AUDIT: Helm install/upgrade of known LLM inference charts ===
+  - id: "ts-audit-k8s-llm-helm-install"
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      command_regex: "\\bhelm\\s+(?:install|upgrade)\\b[^|&;]*\\b(?:ollama|vllm|vllm-inference|triton|triton-inference|kubeai|bentoml|ray-llm|llmstack|llama-cpp|localai|openwebui|open-webui|litellm|text-generation-inference|tgi-inference)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Helm deploying a known LLM inference chart (Ollama, vLLM, Triton, KubeAI, BentoML, Ray LLM, LiteLLM, TGI) into a Kubernetes cluster — creates an AI inference service outside the organizational model inventory and governance review process. No model card, risk assessment, or data handling review is documented for this deployment. Verify governance approval and model provenance before proceeding (EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1, OWASP LLM06)."
+
+  # === AUDIT: kubectl create/run with LLM container images ===
+  - id: "ts-audit-k8s-llm-workload-create"
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      command_regex: "\\bkubectl\\s+(?:create\\s+deployment|run)\\b[^|&;]*--image[=\\s]+(?:ollama/ollama|vllm/vllm-openai|nvcr\\.io/nvidia/tritonserver|ghcr\\.io/huggingface/text-generation-inference|ghcr\\.io/berriai/litellm|localai/localai|quay\\.io/go-skynet/local-ai)"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "kubectl creating a Kubernetes workload directly from a known LLM inference container image (Ollama, vLLM, Triton, HuggingFace TGI, LiteLLM, LocalAI) — deploys an unregistered AI inference service in the cluster without governance approval, model card, or risk assessment. May consume unbounded GPU resources and expose inference endpoints to cluster-internal traffic (EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1, OWASP LLM06/LLM08)."
+
+  # ===========================================================================
   # Cloud AI Service Monitoring Disable (AI Incident Response Gap)
   # ===========================================================================
   #
