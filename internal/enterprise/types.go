@@ -2,11 +2,27 @@ package enterprise
 
 // ManagedConfig represents the enterprise managed configuration loaded from managed.json.
 type ManagedConfig struct {
-	Managed        bool          `json:"managed"`
-	OrganizationID string        `json:"organization_id,omitempty"`
-	FailClosed     bool          `json:"fail_closed"`
-	RemoteLogging  *RemoteLog    `json:"remote_logging,omitempty"`
-	Watchdog       *WatchdogConf `json:"watchdog,omitempty"`
+	Managed        bool            `json:"managed"`
+	OrganizationID string          `json:"organization_id,omitempty"`
+	FailClosed     bool            `json:"fail_closed"`
+	RemoteLogging  *RemoteLog      `json:"remote_logging,omitempty"`
+	Watchdog       *WatchdogConf   `json:"watchdog,omitempty"`
+	Heartbeat      *HeartbeatConf  `json:"heartbeat,omitempty"`
+	PolicySync     *PolicySyncConf `json:"policy_sync,omitempty"`
+}
+
+// HeartbeatConf configures the background heartbeat sender to AI Agent Lens.
+type HeartbeatConf struct {
+	URL             string `json:"url"`                        // e.g. "https://aiagentlens.com/api/heartbeat"
+	Token           string `json:"token"`                      // Bearer token for auth
+	IntervalSeconds int    `json:"interval_seconds,omitempty"` // default 60
+}
+
+// PolicySyncConf configures remote policy synchronization from AI Agent Lens.
+type PolicySyncConf struct {
+	URL             string `json:"url"`                        // e.g. "https://aiagentlens.com/api/policy"
+	Token           string `json:"token"`                      // Bearer token for auth
+	IntervalSeconds int    `json:"interval_seconds,omitempty"` // default 300
 }
 
 // RemoteLog configures remote audit event forwarding.
