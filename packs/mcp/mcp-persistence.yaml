@@ -56,6 +56,47 @@ structural_rules:
     reason: "MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004."
     confidence: 0.95
 
+  # === BLOCK: Modern shell startup file writes via MCP (issue #149) ===
+  #
+  # Xonsh, Nushell, and Elvish are modern shells growing in developer tooling
+  # adoption. Their startup files execute on every new shell session, identical
+  # in risk to ~/.bashrc or ~/.zshrc. An agent that writes to these files
+  # achieves persistence without touching the classic dotfiles that most
+  # detection logic monitors.
+  #
+  # Covered paths:
+  #   ~/.xonshrc                     — xonsh (Python-based shell) startup file
+  #   ~/.config/nushell/config.nu    — Nushell config (executes on startup)
+  #   ~/.config/nushell/env.nu       — Nushell env (executes before config.nu)
+  #   ~/.elvish/rc.elv               — Elvish rc (legacy XDG-non-compliant path)
+  #   ~/.config/elvish/rc.elv        — Elvish rc (XDG-compliant path)
+  #
+  # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
+  - id: mcp-persist-block-modern-shell-profile-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.xonshrc$"
+            - "(?:^|/)\\.config/nushell/"
+            - "(?:^|/)\\.elvish/rc\\.elv$"
+            - "(?:^|/)\\.config/elvish/"
+    decision: "BLOCK"
+    reason: "MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
+    confidence: 0.95
+
   # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
   #
   # Writing a plist file to ~/Library/LaunchAgents/ registers a persistent
