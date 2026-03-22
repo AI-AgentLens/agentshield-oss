@@ -13,5 +13,7 @@ func AllTestCases() []TestCase {
 	all = append(all, AllSupplyChainCases()...)
 	all = append(all, AllReconnaissanceCases()...)
 	all = append(all, AllGovernanceRiskCases()...)
+	// Edge Case Deep Dive — hard link cases (history/alias cases in AllPersistenceEvasionCases)
+	all = append(all, HardlinkCredentialCases...)
 	return all
 }
