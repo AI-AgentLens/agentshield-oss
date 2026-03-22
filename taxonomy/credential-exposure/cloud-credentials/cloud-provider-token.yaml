@@ -1,0 +1,58 @@
+id: "credential-exposure/cloud-credentials/cloud-provider-token"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cloud Credentials"
+category_id: "2.6"
+name: "Cloud Provider Token Access"
+risk_level: "critical"
+
+abstract: |
+  Access to generic cloud provider tokens, service account key files, and workload
+  identity credentials stored outside standard CLI directories grants attackers
+  programmatic access to cloud APIs with the full permissions of the service account
+  or token holder.
+
+explanation: |
+  Beyond the standard AWS/GCP/Azure CLI credential directories, cloud environments
+  use additional token formats:
+  - Service account JSON key files (GCP) — long-lived credentials granting service roles
+  - Workload identity federation tokens stored in `/tmp/` or project directories
+  - `*.json` files matching patterns like `*-credentials.json`, `*-keyfile.json`
+  - `~/.config/gcloud/legacy_credentials/` — older gcloud token formats
+  - Cloud provider tokens cached by CI/CD agents and build systems
+
+  Service account keys are particularly dangerous because they are long-lived (unlike
+  short-lived OIDC tokens), portable (can be used from any machine), and often carry
+  broad permissions inherited from infrastructure provisioning workflows. A stolen
+  service account key may persist undetected for months.
+
+recommendation: |
+  - Prefer Workload Identity Federation over service account key files.
+  - Block read access to `*-credentials.json` and `*-keyfile.json` patterns.
+  - Set a maximum 90-day rotation policy for any service account keys that must exist.
+  - Audit Google Cloud audit logs for service account key usage patterns.
+  - Delete unused service account keys immediately.
+
+examples:
+  bad:
+    - "cat project-credentials.json"
+    - "cat /tmp/gcp-service-account-key.json"
+    - "find . -name '*-keyfile.json' -exec cat {} \\;"
+  good:
+    - "gcloud auth application-default login"
+    - "gcloud iam service-accounts list"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.23", "A.8.3", "A.5.34", "A.8.11"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552", "T1552.001"]
+  cwe: ["CWE-522", "CWE-312"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-aws-access", "mcp-sec-block-gcloud-access"]

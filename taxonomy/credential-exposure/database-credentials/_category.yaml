@@ -1,0 +1,8 @@
+id: "2.26"
+name: "Database Credentials"
+kingdom_id: 2
+description: >
+  Commands that access database connection profiles and credentials stored in
+  tool-specific configuration files (dbt profiles, pgpass, MySQL option files).
+  Exposure grants direct database access, potentially revealing all application
+  data and schemas.

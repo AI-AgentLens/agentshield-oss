@@ -1,0 +1,62 @@
+id: "credential-exposure/private-key-access/ssh-authorized-keys-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Private Key Access"
+category_id: "2.1"
+name: "SSH Authorized Keys Access"
+risk_level: "high"
+
+abstract: |
+  Reading or modifying ~/.ssh/authorized_keys controls which SSH public keys are
+  permitted to authenticate to this system. An agent reading this file leaks
+  authorized public key fingerprints; an agent writing to it can grant persistent
+  backdoor SSH access to attacker-controlled keys.
+
+explanation: |
+  `~/.ssh/authorized_keys` is the file that SSH consults to determine which
+  public keys are allowed to log in as the current user without a password.
+
+  **Read access risks:**
+  - Reveals the set of SSH public keys that have authorized access
+  - Exposes key comments which often contain machine names and usernames
+  - Allows an attacker to understand the authorized access topology
+  - May reveal organizational naming conventions and infrastructure hostnames
+
+  **Write access risks (more severe):**
+  - Adding a new public key grants permanent SSH backdoor access to the attacker
+  - The change persists until the key is manually removed
+  - No password or MFA required once the key is inserted
+  - Works even after the user changes their SSH password
+
+  This file is a primary target for AI agent persistence attacks, where the agent
+  is instructed to add a backdoor key while appearing to perform a legitimate task.
+
+recommendation: |
+  - Block both read and write access to `~/.ssh/authorized_keys`.
+  - Use `AuthorizedKeysCommand` with a central authority rather than per-user files in agent environments.
+  - Monitor `~/.ssh/authorized_keys` modification timestamps and content hash.
+  - Implement AIDE or similar file integrity monitoring on SSH configuration files.
+
+examples:
+  bad:
+    - "cat ~/.ssh/authorized_keys"
+    - "echo 'ssh-rsa AAAA...' >> ~/.ssh/authorized_keys"
+    - "cp /tmp/backdoor.pub ~/.ssh/authorized_keys"
+  good:
+    - "ssh-keygen -l -f ~/.ssh/id_ed25519.pub"
+    - "ssh-keyscan github.com >> ~/.ssh/known_hosts"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34", "A.8.4"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1098.004", "T1552.004"]
+  cwe: ["CWE-522", "CWE-732"]
+
+analyzers: ["regex", "structural"]
+related_rules: []
