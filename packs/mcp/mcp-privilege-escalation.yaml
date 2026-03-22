@@ -20,6 +20,35 @@ rules:
     decision: "BLOCK"
     reason: "Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611."
 
+  # === BLOCK: /etc/sudoers and sudoers.d read access (priv-esc recon) ===
+  - id: mcp-privesc-block-sudoers-read
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/etc/sudoers"
+    decision: "BLOCK"
+    reason: "Read access to /etc/sudoers is blocked — reveals all sudo-enabled accounts and NOPASSWD entries, enabling targeted privilege escalation. MITRE T1548.003."
+
+  - id: mcp-privesc-block-sudoersd-read
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/etc/sudoers.d/**"
+    decision: "BLOCK"
+    reason: "Read access to /etc/sudoers.d/ is blocked — drop-in sudoers files list privileged accounts and NOPASSWD grants. MITRE T1548.003."
+
   # === BLOCK: Kubernetes privilege-granting manifest writes ===
   - id: mcp-privesc-block-k8s-clusterrolebinding-write
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
