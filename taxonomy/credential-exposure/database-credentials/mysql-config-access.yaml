@@ -1,0 +1,53 @@
+id: "credential-exposure/database-credentials/mysql-config-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Database Credentials"
+category_id: "2.4"
+name: "MySQL Config Access"
+risk_level: "critical"
+
+abstract: |
+  Access to MySQL client configuration files (~/.my.cnf, ~/.mylogin.cnf) exposes
+  database credentials stored for passwordless login, granting immediate access
+  to MySQL databases.
+
+explanation: |
+  MySQL stores client credentials in:
+  - `~/.my.cnf` — plaintext username, password, host for automatic login
+  - `~/.mylogin.cnf` — obfuscated (not encrypted) login credentials created by
+    `mysql_config_editor`
+
+  The `.my.cnf` file commonly contains `[client]` sections with `user=` and
+  `password=` directives. While `~/.mylogin.cnf` is obfuscated, the obfuscation
+  is trivially reversible — MySQL's own tools extract the credentials.
+
+  An agent reading these files gains credentials to all configured MySQL servers,
+  potentially including production databases with sensitive customer data.
+
+recommendation: |
+  - Block read access to `~/.my.cnf` and `~/.mylogin.cnf`.
+  - Use IAM database authentication (AWS RDS) or secrets managers instead of
+    stored plaintext credentials for agent environments.
+  - Rotate MySQL credentials immediately if agent access is detected.
+
+examples:
+  bad:
+    - "cat ~/.my.cnf"
+    - "read_file path=~/.mylogin.cnf"
+  good:
+    - "mysql --host=db --user=app_user --password=$(vault kv get -field=password secret/db)"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.5.34"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1"]
+  soc2-type2: ["CC6.1", "CC6.2"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312", "CWE-522"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-mysql-config"]

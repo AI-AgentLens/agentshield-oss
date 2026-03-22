@@ -1,0 +1,53 @@
+id: "credential-exposure/config-file-access/envrc-file-read"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Config File Access"
+category_id: "2.3"
+name: ".envrc File Read"
+risk_level: "high"
+
+abstract: |
+  Access to `.envrc` files (used by direnv) exposes environment variables including
+  API keys, database URLs, cloud credentials, and service tokens that are
+  automatically loaded into the shell for development workflows.
+
+explanation: |
+  The `direnv` tool automatically loads `.envrc` files when entering a directory.
+  Developers commonly use `.envrc` to set:
+  - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+  - `DATABASE_URL` with embedded credentials
+  - `API_KEY`, `SECRET_KEY`, `AUTH_TOKEN` for third-party services
+  - `GITHUB_TOKEN`, `NPM_TOKEN`, `PYPI_TOKEN`
+
+  Unlike `.env` files (which require explicit loading), `.envrc` files are
+  automatically executed by direnv — making them a prime target for credential
+  exfiltration in developer environments.
+
+recommendation: |
+  - Block MCP read access to `.envrc` files.
+  - Use secret management tools (Vault, 1Password CLI) rather than plaintext
+    `.envrc` for sensitive values.
+  - Ensure `.envrc` is in `.gitignore` and not committed to source control.
+
+examples:
+  bad:
+    - "cat .envrc"
+    - "read_file path=/workspace/project/.envrc"
+  good:
+    - "direnv allow"
+    - "cat .envrc.example"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34"]
+  eu-ai-act-2024: ["Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1"]
+  soc2-type2: ["CC6.1"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-envrc-read"]

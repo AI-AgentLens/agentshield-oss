@@ -1,0 +1,8 @@
+id: "2.25"
+name: "API Key Access"
+kingdom_id: 2
+description: >
+  Commands and MCP tool calls that access API keys for payment processors, financial
+  services, and commerce platforms stored in config files, environment variables,
+  or well-known credential paths. Exposure enables financial fraud, unauthorized
+  charges, and account takeover.
