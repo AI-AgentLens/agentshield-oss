@@ -4765,6 +4765,7 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, EnterpriseSecretsManagerCases...)
 	all = append(all, VPNCredentialTheftCases...)
 	all = append(all, KeyctlKernelKeyringCases...)
+
 	return all
 }
 
@@ -5496,3 +5497,5 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Tags:             []string{"tn", "pass-store"},
 	},
 }
+
+// HardlinkCredentialCases are now in edge_case_deep_dive_cases.go
