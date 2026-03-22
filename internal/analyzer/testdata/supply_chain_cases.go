@@ -1764,17 +1764,17 @@ var NpmrcEditCases = []TestCase{
 		Tags: []string{"tp", "supply-chain", "npmrc", "sed"},
 	},
 
-	// TN-1: cat reading .npmrc (read-only, should not be blocked)
+	// TN-1: cat reading .npmrc — now correctly BLOCKED by sec-block-protected-path-cred-regex (issue #117)
 	{
 		ID:               "TN-SC-BLOCK-NPMRC-001",
 		Command:          `cat ~/.npmrc`,
-		ExpectedDecision: "ALLOW",
-		Classification:   "TN",
-		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/protected-path",
 		Analyzer:         "regex",
-		Description: `Reading ~/.npmrc with cat is safe inspection. Rule sc-block-npmrc-edit
-			no longer includes 'cat' (read-only). ts-allow-readonly grants ALLOW.`,
-		Tags: []string{"tn", "safe", "npmrc", "readonly"},
+		Description: `cat ~/.npmrc is now blocked by sec-block-protected-path-cred-regex (issue #117).
+			.npmrc contains npm registry credentials and auth tokens — direct read is credential exposure.`,
+		Tags: []string{"tp", "npmrc", "protected-path"},
 	},
 	// TN-2: grep searching for rule IDs referencing .npmrc (the FP from issue #420)
 	{
