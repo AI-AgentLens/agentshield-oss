@@ -46,6 +46,8 @@ structural_rules:
         - "update_file"
         - "append_file"
         - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
       args_match:
         path:
           pattern_any:
