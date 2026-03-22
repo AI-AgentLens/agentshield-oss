@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Reconnaissance & Discovery"
 kingdom_id: 8
 category: "Web Application Reconnaissance"
-category_id: "8.2"
+category_id: "8.5"
 name: "Directory & File Brute-Force Enumeration"
 risk_level: "high"
 
