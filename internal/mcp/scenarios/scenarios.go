@@ -3924,4 +3924,35 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "safe-privesc-semgrep-rule",
 		Description:      "write_file to semgrep/ YAML detecting hostPID: true — Semgrep rule authoring, not an actual K8s manifest; must be AUDIT not BLOCK (issue #138)",
 	},
+
+	// === TN: packs/ and internal/ files with privileged container patterns (issue #145) ===
+	// AgentShield policy pack YAML and test fixture files legitimately reference
+	// "privileged: true" as a detection example — writing them must not be blocked.
+	{
+		ID:               "MCP-TN-387",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "packs/mcp/mcp-privilege-escalation.yaml", "content": "rules:\n  - id: mcp-privesc-block-privileged-container\n    match:\n      args_match:\n        content:\n          pattern_any:\n            - \"(?i)privileged:\\\\s*true\"\n    decision: BLOCK\n    reason: 'Privileged container flag detected.'\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-packs-policy",
+		Description:      "write_file to packs/mcp/ YAML containing 'privileged: true' as a detection pattern — AgentShield policy rule authoring, not a container manifest; must be AUDIT not BLOCK (issue #145)",
+	},
+	{
+		ID:               "MCP-TN-388",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "internal/analyzer/testdata/privilege_escalation.go", "content": "// TP test case\n{\n    Command: \"docker run --privileged ubuntu bash\",\n    ExpectedDecision: \"BLOCK\",\n}\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-internal-testdata",
+		Description:      "write_file to internal/analyzer/testdata/ Go file containing '--privileged' as a test command — test fixture authoring, not actual container launch; must be AUDIT not BLOCK (issue #145)",
+	},
+	{
+		ID:               "MCP-TN-389",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "taxonomy/unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration.yaml", "content": "examples:\n  bad:\n    - \"helm upgrade --install myapp ./chart --set securityContext.privileged=true\"\n  good:\n    - \"helm upgrade --install myapp ./chart\"\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-taxonomy-doc",
+		Description:      "str_replace_editor to taxonomy/ YAML with 'privileged=true' in a bad-example snippet — taxonomy documentation entry, not a live manifest; must be AUDIT not BLOCK (issue #145)",
+	},
 }

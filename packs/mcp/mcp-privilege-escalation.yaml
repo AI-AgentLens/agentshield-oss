@@ -115,6 +115,9 @@ structural_rules:
   # FP fix (issue #138): Exclude security rule files under rules/ — Semgrep YAML rules
   # contain the pattern being detected (e.g., "privileged: true") as a detection target,
   # not as actual container configuration being applied.
+  # FP fix (issue #145): Exclude packs/ and internal/ — AgentShield policy pack YAML and
+  # test fixture files legitimately contain "privileged: true" as a detection example or
+  # test case, not as live container configuration. Same applies to the taxonomy/ tree.
   - id: mcp-privesc-block-privileged-container
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
@@ -139,6 +142,10 @@ structural_rules:
             - "(?i)^rules[/\\\\].*"
             - "(?i).*[/\\\\]semgrep[/\\\\].*"
             - "(?i)^semgrep[/\\\\].*"
+            - "(?i).*[/\\\\]packs[/\\\\].*"
+            - "(?i)^packs[/\\\\].*"
+            - "(?i).*[/\\\\]internal[/\\\\].*"
+            - "(?i)^internal[/\\\\].*"
     decision: "BLOCK"
     reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
 
