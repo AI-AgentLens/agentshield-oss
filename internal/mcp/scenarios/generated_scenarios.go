@@ -1527,4 +1527,32 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Reading project .snyk policy file — Snyk ignore rules for the project, not the user auth token (issue #88)",
 	},
+	// Issue #107: Cloudflare Tunnel credential files (mcp-sec-block-cloudflared-credentials-read)
+	{
+		ID:               "MCP-TP-365",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.cloudflared/credentials.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "Reading ~/.cloudflared/credentials.json — contains OAuth 2.0 tokens granting full Cloudflare API and tunnel management access (issue #107)",
+	},
+	{
+		ID:               "MCP-TP-366",
+		ToolName:         "get_file_contents",
+		Arguments:        map[string]interface{}{"path": "/root/.cloudflared/token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "Getting Cloudflare Tunnel token file — exposes OAuth refresh token enabling attacker-controlled tunnel creation (issue #107)",
+	},
+	{
+		ID:               "MCP-TN-200",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/cloudflare-config.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading project cloudflare config — project-level config file, not the user ~/.cloudflared/ credential directory (issue #107)",
+	},
 }
