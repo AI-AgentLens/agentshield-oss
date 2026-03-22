@@ -3561,6 +3561,53 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-anthropic-credentials-read",
 		Description:      "read_file on project README.md — benign path (issue #83)",
 	},
+	// --- mcp-sec-block-claude-dot-credentials-read (issue #90) ---
+	{
+		ID:               "MCP-TP-355",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.claude/credentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-claude-dot-credentials-read",
+		Description:      "read_file on ~/.claude/credentials — Claude Code OAuth token (issue #90)",
+	},
+	{
+		ID:               "MCP-TP-356",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.claude/credentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-claude-dot-credentials-read",
+		Description:      "cat_file on ~/.claude/credentials — alternate tool family (issue #90)",
+	},
+	{
+		ID:               "MCP-TN-194",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.claude/settings.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-claude-dot-credentials-read",
+		Description:      "read_file on ~/.claude/settings.json — non-credential Claude config, must not block (issue #90)",
+	},
+	// --- mcp-sec-block-claude-dot-apikey-read (issue #90) ---
+	{
+		ID:               "MCP-TP-357",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.claude/api_key"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-claude-dot-apikey-read",
+		Description:      "read_file on ~/.claude/api_key — Claude Code legacy API key (issue #90)",
+	},
+	{
+		ID:               "MCP-TN-195",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/claude-api.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-claude-dot-apikey-read",
+		Description:      "read_file on project docs about Claude API — benign doc, must not block (issue #90)",
+	},
 	// --- mcp-sec-block-databricks-credentials-read (issue #84) ---
 	{
 		ID:               "MCP-TP-346",
