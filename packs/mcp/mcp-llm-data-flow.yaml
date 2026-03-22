@@ -200,3 +200,79 @@ rules:
     decision: "AUDIT"
     reason: "Accessing /tmp/agent-cache* via MCP — shared agent cache directories in multi-tenant deployments may expose tool call results, session state, or intermediate data from other tenants. OWASP LLM02/LLM06."
     confidence: 0.80
+
+  # ============================================================
+  # MCP Cross-Server Data Leakage (issue #133)
+  # Taxonomy: data-exfiltration/llm-data-flow/mcp-cross-server-data-leakage
+  #
+  # A malicious MCP server harvests sensitive data from other connected servers
+  # by embedding instructions in tool descriptions/responses that cause the agent
+  # to forward context from one server to another.
+  # OWASP LLM01, LLM02, LLM06. MITRE T1041/T1567.
+  # ============================================================
+
+  # Detect "include previous context/results" harvest patterns in content args.
+  # These patterns appear in tool call bodies when a rogue server instructs the
+  # agent to forward data it collected from other servers.
+
+structural_rules:
+  # === AUDIT: Cross-server context harvesting instructions in content ===
+  # When a tool call argument contains instructions to forward outputs from
+  # other tools or servers, this signals a cross-server data harvest attempt.
+  - id: mcp-llmdf-audit-cross-server-context-harvest
+    taxonomy: "data-exfiltration/llm-data-flow/mcp-cross-server-data-leakage"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)include.*results.*from.*tool"
+            - "(?i)include.*output.*of.*previous"
+            - "(?i)forward.*context.*from"
+            - "(?i)include.*all.*previous.*context"
+            - "(?i)send.*results.*from.*other.*tool"
+            - "(?i)attach.*output.*from.*(read|list|get)_"
+    decision: "AUDIT"
+    reason: "Tool call content contains cross-server context harvesting instructions — pattern suggests a server is directing the agent to forward data from other MCP servers. OWASP LLM01/LLM02/LLM06."
+    confidence: 0.80
+
+  # === AUDIT: Cross-server request forgery — injected tool invocation instructions ===
+  # When a tool response instructs the agent to call a specific named tool on
+  # another server, this is a cross-server request forgery attempt.
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-cross-server-request-forgery
+  - id: mcp-llmdf-audit-cross-server-tool-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-cross-server-request-forgery"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)now\\s+(call|execute|invoke|run)\\s+\\w+_\\w+"
+            - "(?i)you\\s+must\\s+(call|execute|invoke)\\s+\\w+_\\w+"
+            - "(?i)next.*call.*\\w+\\(.*path\\s*="
+            - "(?i)call\\s+write_file\\s*\\("
+            - "(?i)call\\s+delete_file\\s*\\("
+            - "(?i)call\\s+execute_command\\s*\\("
+            - "(?i)call\\s+bash\\s*\\("
+            - "(?i)invoke\\s+the\\s+\\w+\\s+tool\\s+with"
+    decision: "AUDIT"
+    reason: "Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08."
+    confidence: 0.85
+
+  # === AUDIT: Cross-server request forgery — delete audit log instruction ===
+  # A rogue server instructing the agent to delete audit/log files is a hallmark
+  # of a cross-server CSRF attack covering its tracks.
+  - id: mcp-llmdf-audit-cross-server-log-erasure-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-cross-server-request-forgery"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)delete.*audit.*log"
+            - "(?i)remove.*\\.(log|audit)\\b"
+            - "(?i)call.*delete.*\\.log"
+            - "(?i)after.*calling.*delete.*history"
+    decision: "AUDIT"
+    reason: "Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06."
+    confidence: 0.82
