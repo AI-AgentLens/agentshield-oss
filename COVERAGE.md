@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 968 |
-| MCP rules | 269 |
-| Total rules | 1237 |
+| MCP rules | 272 |
+| Total rules | 1240 |
 | Test cases (TP+TN) | 3362 |
 | Kingdoms covered | 10 |
 
@@ -1034,7 +1034,7 @@
 
 ## MCP Rules
 
-### credential-exposure (129 rules)
+### credential-exposure (132 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1152,6 +1152,9 @@
 | `mcp-sec-block-claude-dot-apikey-read` | BLOCK | mcp_rule | Access to ~/.claude/api_key is blocked — contains Anthropic API key for Claude Code. MITRE T1552. |
 | `mcp-sec-block-anthropic-credentials-read` | BLOCK | mcp_rule | Access to Anthropic credential directory (~/.anthropic/) is blocked — may contain API keys and auth config. MITRE T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
+| `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
+| `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
+| `mcp-sec-audit-jupyter-notebook-read` | AUDIT | mcp_rule | Reading a Jupyter notebook (.ipynb) — notebooks may contain embedded credentials in cell outputs. Auditing for review. |
 | `mcp-sec-block-snowsql-credentials-read` | BLOCK | mcp_rule | Access to Snowflake SQL credential directory (~/.snowsql/) is blocked — contains account passwords and MFA configuration. MITRE T1552. |
 | `mcp-sec-block-confluent-credentials-read` | BLOCK | mcp_rule | Access to Confluent Cloud credential directory (~/.confluent/) is blocked — contains API keys and cluster credentials. MITRE T1552. |
 | `mcp-sec-block-lastpass-local-vault-read` | BLOCK | mcp_rule | Access to LastPass local credential cache (~/.local/share/lastpass/) is blocked — contains encrypted vault blob and local database. MITRE T1555.005. |
