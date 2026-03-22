@@ -68,6 +68,80 @@ rules:
     decision: "BLOCK"
     reason: "File write to filesystem root is blocked."
 
+  # === BLOCK: System directory deletions ===
+  # Deleting system files is as dangerous as overwriting them — must be blocked, not just audited.
+  - id: mcp-safety-block-system-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/etc/**"
+    decision: "BLOCK"
+    reason: "File deletion in /etc/ system directory is blocked — deleting system config files (passwd, hosts, resolv.conf) causes irreversible system damage. MITRE T1485."
+
+  - id: mcp-safety-block-usr-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/usr/**"
+    decision: "BLOCK"
+    reason: "File deletion in /usr/ system directory is blocked — deleting system binaries or libraries causes irreversible damage. MITRE T1485."
+
+  - id: mcp-safety-block-bin-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/bin/**"
+    decision: "BLOCK"
+    reason: "File deletion in /bin/ system directory is blocked — deleting core system binaries (bash, ls, cp) is irreversibly destructive. MITRE T1485."
+
+  - id: mcp-safety-block-sbin-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/sbin/**"
+    decision: "BLOCK"
+    reason: "File deletion in /sbin/ system directory is blocked — deleting system administration binaries is irreversibly destructive. MITRE T1485."
+
+  - id: mcp-safety-block-lib-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/lib/**"
+    decision: "BLOCK"
+    reason: "File deletion in /lib/ system directory is blocked — deleting shared libraries breaks dependent system services. MITRE T1485."
+
+  - id: mcp-safety-block-boot-path-delete
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      argument_patterns:
+        path: "/boot/**"
+    decision: "BLOCK"
+    reason: "File deletion in /boot/ system directory is blocked — deleting kernel or bootloader files bricks the system. MITRE T1485."
+
   # === AUDIT: File deletion tools ===
   - id: mcp-safety-audit-delete
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
