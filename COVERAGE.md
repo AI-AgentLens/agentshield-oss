@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 901 |
-| MCP rules | 193 |
-| Total rules | 1094 |
-| Test cases (TP+TN) | 3127 |
+| MCP rules | 216 |
+| Total rules | 1117 |
+| Test cases (TP+TN) | 3129 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -20,7 +20,7 @@
 |---------|----------|------------|-------------|
 | `sec-block-ssh-private` | BLOCK | regex | Direct access to private key files is blocked. Excludes commands where the SSH path appears as a text payload in a named flag value (e.g. gh --body, git commit -m), as a heredoc body in a cat file-write operation, as an echo/printf argument, or as a test input to agentshield mcp-eval. |
 | `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (--body/--body-file/--message to gh/git, -m for git commit/tag, -d/--data to curl), as heredoc content written via cat, or as a test input to agentshield mcp-eval. |
-| `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. Excludes commands where the keychain invocation appears as documentation text in a --body or --message flag passed to gh or git. |
+| `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. Excludes commands where the keychain invocation appears as documentation text in a --body/--message/--title flag or -m shortform passed to gh or git. |
 | `sec-block-linux-secret-tool` | BLOCK | regex | secret-tool accessing the freedesktop.org Secret Service (GNOME Keyring / KDE Wallet) — returns stored credentials in plaintext. A single lookup can expose cloud keys, database passwords, or API tokens without any user prompt. MITRE T1555.004. |
 | `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
@@ -967,7 +967,7 @@
 
 ## MCP Rules
 
-### credential-exposure (74 rules)
+### credential-exposure (89 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -985,9 +985,10 @@
 | `mcp-gen-protected-path-cargo-configtoml` | BLOCK | mcp_rule | [MCP] Access to protected path ~/.cargo/config.toml is blocked. |
 | `mcp-gen-protected-path-m2-settingsxml` | BLOCK | mcp_rule | [MCP] Access to protected path ~/.m2/settings.xml is blocked. |
 | `mcp-gen-ts-block-symlink-credential-files` | BLOCK | mcp_rule | [MCP] Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
+| `mcp-recon-block-proc-environ` | BLOCK | mcp_rule | Access to /proc/PID/environ or /proc/self/environ is blocked — contains all environment variables of the target process in plaintext, including API keys, cloud credentials, and database passwords. MITRE T1552.007. |
 | `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
-| `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument — attempt to escape intended directory |
-| `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument — attempt to escape intended directory |
+| `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory |
+| `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory |
 | `mcp-sec-block-ssh-access` | BLOCK | mcp_rule | Access to SSH key directories is blocked. |
 | `mcp-sec-block-aws-access` | BLOCK | mcp_rule | Access to AWS credential directories is blocked. |
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
@@ -1006,9 +1007,16 @@
 | `mcp-sec-block-pypoetry-credentials` | BLOCK | mcp_rule | Access to Poetry auth.toml is blocked — contains HTTP auth tokens for private PyPI repositories. MITRE T1552. |
 | `mcp-sec-block-gradle-properties` | BLOCK | mcp_rule | Access to Gradle user properties is blocked — may contain Maven/Gradle repository passwords. |
 | `mcp-sec-block-helm-credentials` | BLOCK | mcp_rule | Access to Helm config directory is blocked — contains OCI registry credentials and repository passwords. |
+| `mcp-sec-block-gem-credentials` | BLOCK | mcp_rule | Access to ~/.gem/credentials is blocked — contains RubyGems registry API keys enabling gem publish supply chain attacks. MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-nuget-config` | BLOCK | mcp_rule | Access to ~/.nuget/NuGet.Config is blocked — contains NuGet package source API keys and credentials for private feeds enabling supply chain attacks. MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-composer-auth` | BLOCK | mcp_rule | Access to ~/.composer/auth.json is blocked — contains Composer OAuth tokens and HTTP credentials for private PHP package repositories. MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-ivy-credentials` | BLOCK | mcp_rule | Access to ~/.ivy2/.credentials is blocked — contains Ivy/Scala repository credentials (user, password) for private artifact repositories. MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-sbt-credentials` | BLOCK | mcp_rule | Access to ~/.sbt/credentials is blocked — contains SBT repository credentials for private Scala/Java artifact repositories. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-docker-daemon-access` | BLOCK | mcp_rule | Access to ~/.docker/daemon.json is blocked — exposes Docker registry infrastructure, insecure-registries list, proxy credentials, and credHelpers configuration. MITRE T1552. |
 | `mcp-sec-block-1password-cli-access` | BLOCK | mcp_rule | Access to 1Password CLI v2 config directory is blocked — contains session tokens and account credentials. MITRE T1555. |
 | `mcp-sec-block-1password-cli-v1-access` | BLOCK | mcp_rule | Access to 1Password CLI v1 config directory (~/.op/) is blocked — contains session tokens and account credentials. MITRE T1555. |
+| `mcp-sec-block-1password-desktop-access` | BLOCK | mcp_rule | Access to ~/.1password/ is blocked — contains the 1Password SSH agent socket (agent.sock). Reading or accessing this directory reveals agent state and key availability. MITRE T1555.005. |
+| `mcp-sec-block-1password-desktop-config-access` | BLOCK | mcp_rule | Access to ~/.config/1Password/ is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
@@ -1025,6 +1033,13 @@
 | `mcp-sec-block-boto-credentials` | BLOCK | mcp_rule | Access to boto config is blocked — contains AWS/GCP credentials used by Python boto, boto3, and gsutil. MITRE T1552. |
 | `mcp-sec-block-bitwarden-desktop-access` | BLOCK | mcp_rule | Access to Bitwarden desktop app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
 | `mcp-sec-block-bitwarden-flatpak-access` | BLOCK | mcp_rule | Access to Bitwarden Flatpak app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
+| `mcp-sec-block-terraform-state` | BLOCK | mcp_rule | Access to Terraform state files is blocked — contains plaintext credentials embedded in resource attributes (database passwords, API keys, cloud tokens). MITRE T1552. |
+| `mcp-sec-block-terraform-state-backup` | BLOCK | mcp_rule | Access to Terraform state backup files is blocked — backup state files contain the same plaintext credentials as primary state. MITRE T1552. |
+| `mcp-sec-block-terraform-tfvars` | BLOCK | mcp_rule | Access to terraform.tfvars is blocked — commonly stores secret input variables (API keys, passwords, access tokens) passed to terraform apply. MITRE T1552. |
+| `mcp-sec-block-terraform-auto-tfvars` | BLOCK | mcp_rule | Access to *.auto.tfvars is blocked — automatically loaded Terraform variable files frequently contain cloud credentials and secret values. MITRE T1552. |
+| `mcp-sec-block-ansible-vault-pass` | BLOCK | mcp_rule | Access to Ansible vault password files is blocked — this is the master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
+| `mcp-sec-block-ansible-vault-password-files` | BLOCK | mcp_rule | Access to Ansible vault password files (.vault_pass, .vault-password) is blocked — master decryption key for Ansible Vault secrets. MITRE T1552. |
+| `mcp-sec-block-terraformrc` | BLOCK | mcp_rule | Access to ~/.terraformrc is blocked — the Terraform CLI config file stores Terraform Cloud/Enterprise API tokens under the credentials block. Reads expose tokens; writes can hijack Terraform registry auth. MITRE T1552. |
 | `mcp-sec-block-terraform-config-credentials` | BLOCK | mcp_rule | Access to Terraform XDG credentials file is blocked — contains Terraform Cloud/Enterprise API tokens for workspace and registry access. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
@@ -1072,7 +1087,7 @@
 | `mcp-sec-block-curlrc-write` | BLOCK | mcp_rule | MCP write to ~/.curlrc — any proxy directive injected here silently intercepts all future curl traffic (including auth tokens and API credentials) via MITM. MITRE T1557. |
 | `mcp-sec-block-wgetrc-write` | BLOCK | mcp_rule | MCP write to ~/.wgetrc — any proxy directive injected here silently intercepts all future wget traffic (including auth tokens and credentials) via MITM. MITRE T1557. |
 
-### destructive-ops (17 rules)
+### destructive-ops (23 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1091,6 +1106,12 @@
 | `mcp-safety-block-usr-write` | BLOCK | mcp_rule | File write to /usr/ system directory is blocked. |
 | `mcp-safety-block-var-write` | BLOCK | mcp_rule | File write to /var/ system directory is blocked. |
 | `mcp-safety-block-root-write` | BLOCK | mcp_rule | File write to filesystem root is blocked. |
+| `mcp-safety-block-system-path-delete` | BLOCK | mcp_rule | File deletion in /etc/ system directory is blocked — deleting system config files (passwd, hosts, resolv.conf) causes irreversible system damage. MITRE T1485. |
+| `mcp-safety-block-usr-path-delete` | BLOCK | mcp_rule | File deletion in /usr/ system directory is blocked — deleting system binaries or libraries causes irreversible damage. MITRE T1485. |
+| `mcp-safety-block-bin-path-delete` | BLOCK | mcp_rule | File deletion in /bin/ system directory is blocked — deleting core system binaries (bash, ls, cp) is irreversibly destructive. MITRE T1485. |
+| `mcp-safety-block-sbin-path-delete` | BLOCK | mcp_rule | File deletion in /sbin/ system directory is blocked — deleting system administration binaries is irreversibly destructive. MITRE T1485. |
+| `mcp-safety-block-lib-path-delete` | BLOCK | mcp_rule | File deletion in /lib/ system directory is blocked — deleting shared libraries breaks dependent system services. MITRE T1485. |
+| `mcp-safety-block-boot-path-delete` | BLOCK | mcp_rule | File deletion in /boot/ system directory is blocked — deleting kernel or bootloader files bricks the system. MITRE T1485. |
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
@@ -1118,7 +1139,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (10 rules)
+### persistence-evasion (11 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1132,6 +1153,7 @@
 | `mcp-persist-block-ssh-authkeys-write` | BLOCK | structural | MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004. |
 | `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08. |
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
+| `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
 
 ### privilege-escalation (11 rules)
 
@@ -1204,7 +1226,7 @@
 | `mcp-struct-block-shell-in-command-arg` | BLOCK | structural | Shell command detected in command argument — possible disguised execution tool |
 | `mcp-struct-block-shell-in-exec-arg` | BLOCK | structural | Shell command detected in exec argument — hidden command execution |
 
-### uncategorized (6 rules)
+### uncategorized (7 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1212,6 +1234,7 @@
 | `mcp-fin-block-all-balance-amount` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance |
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
+| `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord, Slack, Teams, Telegram, and Pipedream webhooks are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 
@@ -1219,7 +1242,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 247 | 175 | 422 |
+| credential-exposure | 247 | 177 | 424 |
 | data-exfiltration | 253 | 154 | 407 |
 | destructive-ops | 132 | 87 | 219 |
 | governance-risk | 57 | 46 | 103 |
@@ -1228,5 +1251,5 @@
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 209 | 141 | 350 |
 | unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1920** | **1207** | **3127** |
+| **Total** | **1920** | **1209** | **3129** |
 
