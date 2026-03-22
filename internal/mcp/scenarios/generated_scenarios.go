@@ -1704,4 +1704,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-package-install",
 		Description:      "pip_install with well-known package 'django' — no suspicious suffix, rule must not fire (issue #118)",
 	},
+	// TP: Conda user config credential access (issue #123)
+	{
+		ID:               "MCP-TP-375",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.condarc"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "Reading ~/.condarc — may contain Conda channel tokens and embedded credentials (issue #123)",
+	},
+	{
+		ID:               "MCP-TP-376",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.conda/condarc"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "Reading ~/.conda/condarc via cat_file — XDG-path Conda config with private channel tokens (issue #123)",
+	},
+	// TN: Conda environment files are not credential files
+	{
+		ID:               "MCP-TN-375",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/conda-environment.yml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading conda-environment.yml — project environment spec, not user credential config (issue #123)",
+	},
+	{
+		ID:               "MCP-TN-376",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/environment.yml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading environment.yml — standard conda env spec, not a credential file (issue #123)",
+	},
 }
