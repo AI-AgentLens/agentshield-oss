@@ -2648,4 +2648,28 @@ var SetFACLWeakeningCases = []TestCase{
 		Description:      "gh pr comment with --body describing setfacl on a sensitive path. Documentation text sent to GitHub API — must NOT be BLOCK. Returns AUDIT (default) (FP regression from issue #620).",
 		Tags:             []string{"tn", "fp-regression", "gh-body-text-payload"},
 	},
+	// FP regression: Python heredoc containing setfacl string as documentation/notes text.
+	// Baby Remedy was blocked writing a JSON state file via `python3 << 'EOF'` where
+	// the notes field contained 'setfacl -m o::' as a verification description, not
+	// an actual command execution. (issue #99)
+	{
+		ID:               "TN-SETFACL-006",
+		Command:          "python3 << 'EOF'\nstate = {'notes': 'Fix works: changing o:: to u:user pattern removes finding'}\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc whose body contains 'o::' as documentation text in a Python string literal. setfacl is not executed — must NOT be BLOCK. FP regression from issue #99.",
+		Tags:             []string{"tn", "fp-regression", "python-heredoc"},
+	},
+	{
+		ID:               "TN-SETFACL-007",
+		Command:          "python3 << 'EOF'\nimport json\ndata = {'cmd': 'setfacl -m o::rwx /etc', 'result': 'blocked'}\nprint(json.dumps(data))\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/permission-weakening/acl-weakening",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc writing JSON where setfacl command appears as a string value. The Python script never executes setfacl — must NOT be BLOCK. FP regression from issue #99.",
+		Tags:             []string{"tn", "fp-regression", "python-heredoc"},
+	},
 }
