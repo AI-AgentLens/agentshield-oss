@@ -277,6 +277,14 @@ structural_rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
+      exclude_args_match:
+        # Exclude writes to taxonomy/documentation YAML files — these legitimately
+        # contain documented attack examples in their examples.bad sections and are
+        # never sent to an LLM as prompts. Writing YAML docs to disk is not injection.
+        path:
+          pattern_any:
+            - ".*/taxonomy/.*\\.ya?ml$"
+            - ".*/.claude/commands/.*\\.(md|yaml|yml)$"
       args_match:
         content:
           pattern_any:
