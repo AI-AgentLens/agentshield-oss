@@ -1555,4 +1555,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Reading project cloudflare config — project-level config file, not the user ~/.cloudflared/ credential directory (issue #107)",
 	},
+
+	// Issue #111: LastPass local credential cache (mcp-sec-block-lastpass-local-vault-read)
+	{
+		ID:               "MCP-TP-367",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.local/share/lastpass/lpvault.db"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-store",
+		Description:      "Reading LastPass local vault DB — contains encrypted credential entries; offline cracking exposes all stored passwords (issue #111)",
+	},
+	{
+		ID:               "MCP-TP-368",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.local/share/lastpass/blob"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-store",
+		Description:      "Reading LastPass encrypted blob — contains all vault entries encrypted with master password hash (issue #111)",
+	},
+	{
+		ID:               "MCP-TN-367",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/lastpass-migration-notes.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading project notes mentioning lastpass — doc file, not the credential cache directory (issue #111)",
+	},
+	{
+		ID:               "MCP-TN-368",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.local/share/applications/lastpass.desktop"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading lastpass .desktop launcher under ~/.local/share/applications/ — not the credential cache directory (issue #111)",
+	},
 }
