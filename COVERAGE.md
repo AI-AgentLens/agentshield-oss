@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 901 |
-| MCP rules | 218 |
-| Total rules | 1119 |
-| Test cases (TP+TN) | 3131 |
+| Terminal rules | 968 |
+| MCP rules | 269 |
+| Total rules | 1237 |
+| Test cases (TP+TN) | 3362 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (107 rules)
+### credential-exposure (119 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -25,6 +25,9 @@
 | `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
 | `sec-block-linux-keepassxc-cli` | BLOCK | regex | keepassxc-cli extracting credentials from a KeePassXC database — 'show' reveals passwords, 'clip' copies to clipboard, 'totp' generates 2FA codes, 'export' dumps the entire database. MITRE T1555.004. |
+| `sec-block-keepassxc-db-read` | BLOCK | regex | Direct access to a KeePassXC database file (.kdbx) — even encrypted, exfiltration enables offline brute-force of all stored passwords. AI agents have no legitimate reason to read or copy password database files. MITRE T1555.004, CWE-312. |
+| `sec-block-keepassxc-config-read` | BLOCK | regex | Reading ~/.config/keepassxc/ reveals database file paths, keyfile locations, and security settings — reconnaissance for a targeted KeePassXC credential theft attack. MITRE T1555.004, T1083. |
+| `sec-block-pass-store-direct` | BLOCK | regex | Direct access to ~/.password-store/ bypasses the pass CLI — exfiltrating GPG-encrypted credential files enables offline decryption. Directory listing also leaks credential names and organizational structure. MITRE T1552.001, T1083, CWE-312. |
 | `sec-block-keyctl-read` | BLOCK | regex | keyctl read/print/pipe extracts the raw payload of a kernel keyring key to stdout — can expose cached SSH passphrases, LUKS disk encryption keys, Kerberos TGTs, and PAM authentication tokens without touching any file on disk. MITRE T1552.004, T1003, CWE-522. |
 | `sec-block-keyctl-setperm` | BLOCK | regex | keyctl setperm grants arbitrary permission flags on a kernel keyring key — can make a private key world-readable, enabling any process to extract its payload. Privilege escalation via keyring permission weakening. MITRE T1548, CWE-732. |
 | `sec-block-keyctl-destroy` | BLOCK | regex | keyctl clear/revoke/unlink deletes keys or clears keyring contents — can destroy session authentication tokens, disk encryption keys, or Kerberos tickets, causing service disruption and locking users out. MITRE T1531, CWE-522. |
@@ -77,6 +80,8 @@
 | `sec-block-kubeconfig-structural` | BLOCK | structural | Structural detection of kubeconfig file access — catches path variations not covered by regex. |
 | `sec-block-cloud-cred-regex` | BLOCK | regex | Direct read or copy of a cloud provider credential file (~/.aws/credentials, ~/.config/gcloud/application_default_credentials.json, ~/.azure/accessTokens.json) exposes full cloud account access. MITRE T1552.005. |
 | `sec-block-cloud-cred-structural` | BLOCK | structural | Structural detection of cloud credential file access — catches path variations not covered by the regex rule. |
+| `sec-block-protected-path-cred-regex` | BLOCK | regex | Direct access to well-known credential config file (~/.docker/config.json, ~/.config/gh/hosts.yml, ~/.npmrc, ~/.pypirc, ~/.netrc) detected. These files contain registry auth tokens, GitHub PATs, and service credentials. MITRE T1552.001. |
+| `sec-block-protected-path-cred-structural` | BLOCK | structural | Structural detection of protected-path credential config file access — catches path variations not covered by the regex rule. MITRE T1552.001. |
 | `sec-block-gpg-export-secret` | BLOCK | regex | Exporting GPG secret keys exposes private key material enabling forgery of signed commits and decryption of secrets. MITRE T1552.004. |
 | `sec-block-gpg-connect-agent-keyinfo` | BLOCK | regex | gpg-connect-agent keyinfo enumerates GPG key IDs, enabling targeted key extraction. MITRE T1552.004. |
 | `sec-block-gpg-secret-structural` | BLOCK | structural | Structural detection of GPG secret key export flags — catches flag variations not caught by regex. |
@@ -103,6 +108,11 @@
 | `sec-audit-docker-build-ssh-forward` | AUDIT | regex | docker build --ssh forwards the SSH agent socket into the Docker build environment, allowing all RUN --mount=type=ssh instructions (including those in untrusted base images) to authenticate using any key loaded in the SSH agent. Review the Dockerfile for malicious RUN --mount=type=ssh instructions before proceeding. MITRE T1552.004, OWASP LLM06. |
 | `sec-block-age-identity-key` | BLOCK | regex | Access to age identity key files is blocked — these private keys decrypt all age/SOPS-managed secrets (cluster credentials, CI/CD tokens, GitOps secrets). Stolen age keys enable silent mass decryption of all SOPS-encrypted files in a repository. MITRE T1552.004, OWASP LLM02, LLM06. |
 | `sec-block-package-manager-credentials` | BLOCK | regex | Access to package manager credential files is blocked — these contain publish tokens for crates.io (Cargo), RubyGems, Maven, and Gradle registries. A compromised token enables supply chain attacks by publishing malicious package versions. MITRE T1195.001, T1552.001, OWASP LLM02, LLM06. |
+| `sec-block-helm-registry-creds` | BLOCK | regex | Access to Helm registry credential files — ~/.config/helm/registry/config.json contains OCI registry auth tokens (ECR, GCR, ACR); ~/.helm/repository/repositories.yaml stores chart repo credentials. Compromising these enables supply chain attacks via malicious chart injection. MITRE T1552.001, T1195.001. |
+| `sec-block-cicd-credential-read` | BLOCK | regex | Access to CI/CD credential files — ~/.circleci/cli.yml contains CircleCI API tokens granting full pipeline access; ~/.travis/ stores Travis CI credentials. Compromising these tokens enables pipeline hijacking and secret extraction. MITRE T1552.001. |
+| `sec-block-cloud-storage-creds` | BLOCK | regex | Access to cloud storage client credential files — ~/.s3cfg contains AWS access keys for S3-compatible storage; ~/.config/rclone/rclone.conf stores credentials for 40+ cloud providers. Compromising these enables bulk cloud data exfiltration. MITRE T1552.001, T1530. |
+| `sec-block-terraform-credentials` | BLOCK | regex | Access to ~/.terraform.d/credentials.tfrc.json — contains Terraform Cloud/Enterprise API tokens granting access to all workspaces and state files. State files include plaintext database passwords, API keys, and TLS certificates. MITRE T1552.001. |
+| `sec-audit-docker-daemon-config` | AUDIT | regex | Reading Docker daemon configuration — may reveal credential helper configuration, TLS certificate paths, insecure registry endpoints, and security policy settings. Flagged for review. MITRE T1083, T1552.001. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
@@ -125,8 +135,10 @@
 | `ts-block-xtrace-fd-then-exec` | BLOCK | regex | BASH_XTRACEFD set followed by exec fd redirect to staging/network path — xtrace keylogger setup in reverse order. Captures all command traces with expanded secrets. MITRE T1056.001, CWE-532. |
 | `ts-block-procsub-credential-read` | BLOCK | regex | Process substitution reading credential/sensitive files — creates an ephemeral /dev/fd/N handle that bypasses path-based monitoring. The outer command only sees /dev/fd/N, not the sensitive path. MITRE T1003, CWE-200. |
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
+| `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
+| `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (140 rules)
+### data-exfiltration (153 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -196,6 +208,19 @@
 | `ne-block-deferred-exfil-subshell` | BLOCK | regex | Background subshell with sleep + network tool — defers exfiltration in a detached subprocess. The ampersand backgrounds execution, the parentheses create a subshell, and sleep delays the network activity. MITRE T1029, T1048. |
 | `ne-block-nohup-network-exfil` | BLOCK | regex | nohup directly wrapping a network tool — detaches the network operation from the terminal so it survives session close. Even without a delay, nohup + network tool is suspicious in an AI agent context. MITRE T1048. |
 | `ne-audit-sleep-chain` | AUDIT | regex | Long sleep (300+ seconds) chained with another command — may be benign (wait for service) but long delays before follow-up commands are unusual and warrant review. MITRE T1029. |
+| `ne-block-git-global-proxy` | BLOCK | regex | git config --global http(s).proxy redirects ALL git HTTPS operations through an attacker-controlled proxy — enables MITM credential theft (git tokens, Authorization headers) and package source injection. MITRE T1071.001, T1090. |
+| `ne-block-curlrc-wgetrc-proxy-write` | BLOCK | regex | Writing proxy configuration to ~/.curlrc or ~/.wgetrc silently redirects all subsequent curl/wget requests through an attacker-controlled proxy. Enables MITM credential interception and response injection across all tool calls. MITRE T1071.001, T1090. |
+| `ne-block-icmp-exfil-cmdsub` | BLOCK | regex | ping -p with command substitution — embeds dynamically generated hex data in ICMP echo request payloads. This is a covert exfiltration channel that bypasses all TCP/UDP network monitoring. 16 bytes per packet is enough for API keys and short tokens. MITRE T1048.003, T1572. |
+| `ne-block-icmp-exfil-backtick` | BLOCK | regex | ping -p with backtick command substitution — embeds dynamically generated hex data in ICMP echo request payloads via backtick syntax. Covert ICMP exfiltration channel. MITRE T1048.003, T1572. |
+| `ne-block-icmp-exfil-pipe` | BLOCK | regex | Hex/encoding tool piped to ping -p — encodes data and feeds it as ICMP payload pattern. Covert channel bypassing TCP/UDP monitoring. MITRE T1048.003. |
+| `ne-audit-icmp-pattern` | AUDIT | regex | ping -p with static hex pattern — while sometimes used for network diagnostics, ICMP payload patterns are unusual in AI agent workflows and can carry encoded data. MITRE T1048.003. |
+| `ne-block-python-socket-exfil` | BLOCK | regex | Python one-liner opening a direct socket connection with file read/send — exfiltrates data via raw TCP without invoking any network tools (curl, wget, nc). Bypasses tool-based network monitoring. MITRE T1059.006, T1048. |
+| `ne-block-python-urllib-exfil` | BLOCK | regex | Python one-liner using urllib/requests/httpx with local file open() — sends local file contents to a remote HTTP endpoint without invoking shell network tools. MITRE T1059.006, T1048. |
+| `ne-block-ruby-socket-exfil` | BLOCK | regex | Ruby one-liner using Net::HTTP or raw socket with file read — exfiltrates local file data via language-native HTTP/TCP without shell network tools. MITRE T1059.006, T1048. |
+| `ne-block-perl-socket-exfil` | BLOCK | regex | Perl one-liner using IO::Socket or LWP with file read — exfiltrates local file data via language-native networking. MITRE T1059.006, T1048. |
+| `ne-audit-python-socket-inline` | AUDIT | regex | Python inline script with socket.connect — direct TCP connection from an interpreter one-liner. While not every socket connection is exfiltration, this is unusual in AI agent workflows. MITRE T1059.006. |
+| `ne-audit-ai-vendor-api-call` | AUDIT | regex | Direct curl/wget call to AI vendor API with a request body — may be transmitting source code or sensitive data to external AI infrastructure. OWASP LLM02, LLM06. MITRE T1567. |
+| `ne-audit-source-file-to-ai-api` | AUDIT | regex | Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
@@ -343,13 +368,14 @@
 | `ts-block-truncate-large` | BLOCK | regex | truncate creating a sparse file >=1GB — even sparse files consume inode metadata and can cause df to report full disk, breaking applications that check available space. MITRE T1499.001. |
 | `ts-audit-fallocate` | AUDIT | regex | fallocate detected — can instantly allocate arbitrary disk space. Legitimate for swap files and database pre-allocation, but dangerous in untrusted contexts. MITRE T1499.001. |
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
-| `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM06) |
-| `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
+| `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM06) |
+| `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
-### governance-risk (23 rules)
+### governance-risk (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `sec-audit-credential-store-access` | AUDIT | regex | AI agent reading a ML platform credential file (~/.condarc, ~/.databrickscfg, ~/.snowsql/config) — these files may contain private channel tokens, personal access tokens, or passwords. Flagged for governance review. OWASP LLM06, MITRE T1552.001. |
 | `ts-audit-model-weight-download` | AUDIT | regex | Direct download of AI model weight files (.gguf, .safetensors, .bin, .pt, .ckpt) from a public model hub bypasses organizational model inventory registration and governance review. Downloaded weights are not tracked in any approved registry, creating an AI Model Inventory Gap (EU AI Act Art.9, NIST AI RMF GOVERN-1). Ensure the model is approved, registered in the organization's model inventory, and its provenance and license are verified before use. |
 | `ts-block-ai-api-sensitive-cmd-subst` | BLOCK | regex | curl to an AI API endpoint with shell command substitution reading sensitive files (passwd, shadow, SSH keys, AWS credentials, kubeconfig) — embedding credentials or system secrets in an LLM API payload exfiltrates sensitive data via the AI provider's infrastructure and may enable prompt injection (OWASP LLM02/LLM01, MITRE T1552, EU AI Act Art.26). |
 | `ts-audit-ai-safety-bypass` | AUDIT | regex | Disabling LLM safety controls (bypass_safety, safe_mode=false, guardrails_disabled, HARM_BLOCK_THRESHOLD=BLOCK_NONE) removes the content filtering and governance guardrails required by OWASP LLM01/LLM06 and EU AI Act Art.14. Prompt-injected agents may be directed to disable these controls before issuing harmful requests. |
@@ -374,7 +400,7 @@
 | `ts-audit-ai-audit-log-delete` | AUDIT | regex | Deleting AI audit or attribution log files erases the forensic trail that proves which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements, SOC 2 CC7.2 audit trail continuity, and NIST AI RMF GOVERN-1.3 accountability documentation (CWE-778). Verify deletion is authorized and a retention copy exists. |
 | `ts-audit-ai-log-truncate` | AUDIT | regex | Truncating an AI audit or attribution log file to zero bytes silently destroys the accountability record of AI-generated outputs without removing the file itself, making erasure harder to detect. Violates EU AI Act Art.13 transparency and SOC 2 CC7.2 audit trail requirements (CWE-778, NIST AI RMF GOVERN-1.3). |
 
-### persistence-evasion (127 rules)
+### persistence-evasion (136 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -404,7 +430,7 @@
 | `ts-struct-block-crontab-modify` | BLOCK | structural | crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks. |
 | `ts-struct-block-ssh-keygen-noninteractive` | BLOCK | structural | ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk. |
 | `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
-| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004) |
+| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), and heredoc writes to /tmp where authorized_keys appears only as documentation text. (MITRE T1098.004) |
 | `ts-block-ssh-config-write` | BLOCK | regex | Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
 | `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
 | `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
@@ -505,6 +531,15 @@
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
 | `ts-audit-chattr-immutable-tmp` | AUDIT | regex | chattr +i on a file in a world-writable directory (e.g. /tmp, /dev/shm) makes it undeletable even by root, a technique used to protect malware payloads and persistence artifacts from cleanup. Legitimate uses rarely involve making temporary files immutable. (MITRE T1564; OWASP LLM05) |
+| `ts-block-histcontrol-ignore` | BLOCK | regex | HISTCONTROL=ignorespace allows selectively hiding commands from shell history by prefixing them with a space — more insidious than clearing history entirely because the history file still looks 'normal' with suspicious gaps. MITRE T1070.003, CWE-778. |
+| `ts-block-histignore-suppress` | BLOCK | regex | HISTIGNORE='*' suppresses recording of ALL commands in shell history — a total history blackout that is harder to detect than unset HISTFILE because the history file and variable still exist. MITRE T1070.003. |
+| `ts-block-histignore-selective` | BLOCK | regex | HISTIGNORE selectively hiding network/execution/encoding tools from history — attacker hides only exfiltration commands while leaving benign commands visible, creating a forensically misleading audit trail. MITRE T1070.003. |
+| `ts-block-history-disable-shopt` | BLOCK | regex | Disabling shell history via 'set +o history' or 'shopt -u histappend' — unlike unsetting HISTFILE, the variable still exists and points to a valid file, so naive forensic checks see a 'normal' setup while recording is silently off. MITRE T1070.003, CWE-778. |
+| `ts-audit-histcontrol-modify` | AUDIT | regex | Modification of HISTCONTROL or HISTIGNORE shell variables — these control what gets recorded in shell history. While some values are benign (ignoredups), any modification warrants auditing. MITRE T1070.003. |
+| `ts-block-alias-shadow-security-cmd` | BLOCK | regex | Defining a shell alias that shadows a security-sensitive command — aliases are expanded before function lookup and PATH search, enabling transparent credential interception or command modification. Unlike function shadowing, aliases are a simple string replacement that is harder to detect via code review. MITRE T1546.004, CWE-706. |
+| `ts-block-alias-body-exfil` | BLOCK | regex | Alias definition containing network exfiltration or code execution commands — regardless of the alias name, embedding curl/wget/nc/eval in an alias value signals credential interception or data exfiltration intent. MITRE T1041, T1546.004. |
+| `ts-block-alias-env-inject` | BLOCK | regex | Alias injecting sensitive environment variables into command execution — aliases can silently prepend LD_PRELOAD, GIT_SSH_COMMAND, http_proxy, or interpreter path variables to hijack library loading, proxy traffic through attacker infrastructure, or inject malicious modules. MITRE T1574.006, T1546.004. |
+| `ts-audit-alias-define` | AUDIT | regex | Shell alias definition detected. While aliases are common in interactive use, they are unusual in AI agent workflows and can shadow security-sensitive commands. Auditing for review. MITRE T1546.004. |
 
 ### privilege-escalation (117 rules)
 
@@ -702,7 +737,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (116 rules)
+### supply-chain (120 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -734,15 +769,17 @@
 | `sc-block-goflags-insecure-export` | BLOCK | regex | Exporting GOFLAGS with -insecure or -mod=mod disables Go module security controls globally for the session. |
 | `sc-block-goproxy-env-export` | BLOCK | regex | Exporting GOPROXY pointing to a non-official URL redirects all Go module downloads to an attacker-controlled proxy. |
 | `sc-block-npm-ignore-scripts-off` | BLOCK | regex | Re-enabling npm post-install scripts is risky. Keep ignore-scripts=true in agent context. |
-| `sc-audit-npm-install` | AUDIT | prefix | npm package install flagged for supply-chain review. |
-| `sc-audit-pip-install` | AUDIT | prefix | pip package install flagged for supply-chain review. |
-| `sc-audit-yarn-add` | AUDIT | prefix | Yarn/pnpm package install flagged for supply-chain review. |
+| `sc-audit-npm-install` | AUDIT | prefix | npm package install requires human review — AI agents may install hallucinated package names pre-registered by attackers, or resolve malicious public packages via dependency confusion. Verify package name spelling and origin before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-pip-install` | AUDIT | prefix | pip/pipx package install requires human review — AI agents may install hallucinated package names pre-registered by attackers (e.g., 'huggingface-cli' instead of 'huggingface_hub'). Verify package name spelling on PyPI before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-yarn-add` | AUDIT | prefix | Yarn/pnpm package install requires human review — AI agents may install hallucinated package names pre-registered by attackers. Verify package name spelling and origin before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-block-mcp-publisher-typosquat` | BLOCK | regex | Typosquatted MCP publisher name detected — this package name is a known misspelling of an official Anthropic or MCP publisher. MCP servers receive bidirectional agent access; installing from a typosquatted publisher is a critical supply chain attack. Verify the correct package name. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-mcp-server-install` | AUDIT | regex | MCP server package installation detected — MCP servers receive bidirectional access to the agent's context, tools, and data (unlike regular npm/pip packages). Typosquatted or compromised MCP packages are a critical supply chain risk. Verify the package name on the official MCP registry (modelcontextprotocol.io) before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
 | `sc-block-brew-tap-custom-remote` | BLOCK | regex | brew tap --custom-remote adds a Homebrew formula source from an arbitrary URL, bypassing GitHub. Attacker-controlled taps execute code during brew install. MITRE T1195.001. |
 | `sc-audit-brew-tap` | AUDIT | regex | brew tap adds a new Homebrew formula repository — introduces a new software source. Third-party taps can serve trojaned packages. Official taps (homebrew/*, microsoft/*, hashicorp/*) are safe; others require review. MITRE T1195.001. |
-| `sc-audit-brew-install` | AUDIT | prefix | Homebrew install flagged for supply-chain review. |
-| `sc-audit-go-get` | AUDIT | prefix | Go module fetch flagged for supply-chain review. |
-| `sc-audit-cargo-install` | AUDIT | prefix | Cargo package install flagged for supply-chain review. |
-| `sc-audit-gem-install` | AUDIT | prefix | RubyGems install flagged for supply-chain review. |
+| `sc-audit-brew-install` | AUDIT | prefix | Homebrew package install requires human review — AI agents may install hallucinated formula names or typosquatted packages. Verify the formula name on brew.sh before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-go-get` | AUDIT | prefix | Go module fetch requires human review — AI agents may fetch hallucinated module paths. Go module paths embed the source URL, making typosquatted paths hard to spot. Verify on pkg.go.dev before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-cargo-install` | AUDIT | prefix | Cargo crate install requires human review — AI agents may install hallucinated crate names pre-registered by attackers. Verify on crates.io before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
+| `sc-audit-gem-install` | AUDIT | prefix | RubyGems install requires human review — AI agents may install hallucinated gem names pre-registered by attackers. Verify on rubygems.org before proceeding. OWASP LLM03, LLM09; MITRE T1195.001. |
 | `sc-audit-uv-install` | AUDIT | prefix | uv package install — uv is a fast Python package manager used heavily by AI agents. Package installs introduce unreviewed third-party code. MITRE T1195.001. |
 | `sc-audit-uv-tool-run` | AUDIT | prefix | uv ephemeral/tool execution — 'uv run --with pkg' executes PyPI packages transiently without a permanent install record. 'uvx' runs tools without installing. 'uv tool install' adds tools globally. All introduce unreviewed code execution. MITRE T1195.001. |
 | `sc-audit-bun-install` | AUDIT | prefix | bun package install — bun is an npm-compatible package manager. Package installs introduce unreviewed third-party code; 'bun x' provides ephemeral execution similar to npx. MITRE T1195.001. |
@@ -814,6 +851,8 @@
 | `sc-audit-oras-plain-http-push` | AUDIT | regex | oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002. |
 | `sc-block-ide-vsix-install` | BLOCK | regex | Installing a local .vsix IDE extension — bypasses all VS Code Marketplace security review, publisher verification, and signing. A malicious .vsix runs with full IDE privileges (file system, terminal, network) and persists across restarts. MITRE T1195.001, T1176. |
 | `sc-audit-ide-extension-install` | AUDIT | regex | IDE extension installation by AI agent — extensions run with full IDE privileges and persist permanently. Typosquatted or manipulated extensions are a supply chain risk. Human review required. MITRE T1195.001, T1176. |
+| `sc-audit-python-inline-weak-hash` | AUDIT | regex | Python inline code using hashlib.md5/sha1 — weak hashing algorithms are insecure for password storage. AI-generated code frequently uses MD5/SHA1 from training examples. Use bcrypt, argon2, or scrypt for passwords. (OWASP LLM05, CWE-327) |
+| `sc-audit-python-inline-sql-injection` | AUDIT | regex | Python inline SQL with string formatting (f-string or % operator) — classic SQL injection pattern from AI-generated code. Use parameterized queries: cursor.execute('SELECT ... WHERE id=%s', (id,)). (OWASP LLM05, CWE-89) |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -823,7 +862,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (130 rules)
+### unauthorized-execution (158 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -867,11 +906,16 @@
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
 | `ts-block-indirect-injection-llm-format` | BLOCK | regex | LLM format escape marker ([/INST], <\|start_header_id\|>system) in command — used to break out of the instruction frame and inject a new system directive in retrieved content (OWASP LLM01). |
 | `ts-block-indirect-injection-markdown-alt` | BLOCK | regex | Markdown image alt-text containing an injection directive — indirect prompt injection via retrieved Markdown; agents may act on instructions embedded in image alt-text (OWASP LLM01). |
+| `ts-block-jailbreak-compliance-prefix` | BLOCK | regex | Affirmative compliance prefix followed by a dangerous shell operation — hallmark signature of jailbroken LLM output passed to a shell executor (adversarial suffix / GCG jailbreak). OWASP LLM01, LLM06. |
 | `ts-block-self-propagating-injection` | BLOCK | regex | Self-propagating prompt injection detected: directive to copy/forward the injection payload to other agents, files, or channels. This is a prompt-injection worm pattern (OWASP LLM01, LLM06). |
 | `ts-audit-unrestricted-tool-invoke-eval` | AUDIT | regex | eval/exec called on a variable referencing AI agent output — unrestricted dynamic tool invocation allows LLM-generated content to run arbitrary OS commands (OWASP LLM06, CWE-78). |
 | `ts-audit-unrestricted-tool-invoke-config` | AUDIT | regex | Agent configuration with allow_all_tools:true or an empty tool_whitelist grants unrestricted OS tool access — any LLM output can invoke arbitrary commands without boundary checks (OWASP LLM06). |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. Excludes python3 -c (inline script reading stdin as data, not as code). |
 | `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
+| `ts-block-terraform-apply-auto-approve` | BLOCK | regex | terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578) |
+| `ts-block-cdk-deploy-no-approval` | BLOCK | regex | cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578) |
+| `ts-audit-terraform-apply-no-scan` | AUDIT | regex | terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578) |
+| `ts-audit-helm-install-upgrade` | AUDIT | regex | helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578) |
 | `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
 | `ts-block-proc-mem-write` | BLOCK | regex | Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls. |
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
@@ -957,6 +1001,29 @@
 | `ts-audit-error-recovery-chmod` | AUDIT | regex | Permission weakening in error recovery context: a failed command is followed by chmod to world-writable (777, o+w, a+w). AI agents autonomously weaken file permissions as a self-correction for 'Permission denied' errors — directly undermining least-privilege security controls (OWASP LLM06, EU AI Act Art.9). Human review required. |
 | `ts-audit-shell-history-manipulation` | AUDIT | regex | Shell history manipulation detected — reading, writing, or editing command history can be used to inject or replay a captured agent workflow sequence (OWASP LLM06, MITRE T1059). Verify this is intentional history management. |
 | `ts-audit-cross-agent-state-write` | AUDIT | regex | Write to agent shared state file detected — overwriting agent_state.json, handoff.yaml, mcp_config.json, or similar files can inject malicious instructions or tool configurations into the inter-agent communication channel (OWASP LLM06/LLM09, MITRE T1098). Verify the write is intended and the source data is trusted. |
+| `ts-block-substr-eval-evasion` | BLOCK | regex | eval/exec with variable substring extraction (${var:offset:length}) — the shell resolves substrings at expansion time, reconstructing commands from fragments that bypass regex-based detection. An attacker can extract arbitrary characters from known environment variables to assemble any command. MITRE T1027.004, CWE-78. |
+| `ts-block-substr-bare-exec` | BLOCK | regex | Multiple variable substring extractions (${var:N:N}) chained together — constructs a command by extracting individual characters from variables. Two or more substring extractions in sequence is a strong signal of command obfuscation. MITRE T1027.004. |
+| `ts-audit-substr-cmd-position` | AUDIT | regex | Variable substring extraction in command position (${var:N} or ${var:N:N} as first token) — may reconstruct a command from an environment variable. While some legitimate uses exist, a substring extraction as the executable itself warrants review. MITRE T1027.004. |
+| `ts-block-glob-path-exec` | BLOCK | regex | Executable path constructed from glob wildcards (?, *, []) — the shell resolves the glob to a real binary path before execution, completely bypassing command-name-based detection. /???/???/?at resolves to /usr/bin/cat, /???/??n/c?rl to /usr/bin/curl. No legitimate workflow constructs executable paths from wildcards. MITRE T1027.004, CWE-78. |
+| `ts-block-glob-charclass-exec` | BLOCK | regex | Executable path using glob character classes ([abc]) to select among system binaries — /usr/bin/[cw]url resolves to /usr/bin/curl. Character classes in executable paths are a command-name obfuscation technique. MITRE T1027.004. |
+| `ts-block-eval-glob-path` | BLOCK | regex | eval/exec with a glob-constructed path — double evasion combining indirect execution with glob-based command obfuscation. MITRE T1027.004, CWE-78. |
+| `ts-block-printf-v-exec` | BLOCK | regex | printf -v stores formatted output in a variable, then eval/exec or bare variable execution runs it — the constructed command never appears literally in the shell string. Combined with hex format specifiers (printf -v x '%b' '\xNN'), the payload is doubly obfuscated. MITRE T1027.004, CWE-78. |
+| `ts-block-herestring-shell-exec` | BLOCK | regex | Shell interpreter consuming a herestring (bash <<< '...') — executes arbitrary content fed via stdin without the command appearing in argv. Commonly used with variables or command substitution to execute obfuscated payloads (bash <<< "$(base64 -d ...)"). MITRE T1059.004, CWE-78. |
+| `ts-block-eval-herestring` | BLOCK | regex | eval combined with herestring — double indirection where the herestring feeds content to eval for execution. The actual command is hidden behind two layers of shell indirection. MITRE T1027.004. |
+| `ts-block-tmux-send-keys-cmd` | BLOCK | regex | tmux send-keys injecting a shell command into another session — executes under the target session owner's identity and privileges. A compromised AI agent can silently inject destructive or exfiltration commands into a developer's terminal. MITRE T1059.004, CWE-77. |
+| `ts-block-tmux-send-keys-enter` | AUDIT | regex | tmux send-keys with Enter/C-m — triggers execution of whatever was typed in the target session. While sometimes used in automation, an AI agent injecting keystrokes followed by Enter into another tmux session is suspicious. MITRE T1059.004. |
+| `ts-block-screen-stuff-cmd` | BLOCK | regex | screen -X stuff injects keystrokes into an existing screen session — any text followed by a newline executes as a shell command in the target session. A compromised AI agent can silently execute commands under another user's identity. MITRE T1059.004, CWE-77. |
+| `ts-audit-tmux-send-keys` | AUDIT | regex | tmux send-keys detected — injects keystrokes into a tmux session. While sometimes used for automation, AI agents should not typically inject keystrokes into terminal multiplexer sessions. MITRE T1059.004. |
+| `ts-block-ctypes-libc-exec` | BLOCK | regex | Python ctypes calling libc system/popen/exec* — executes arbitrary shell commands via C FFI, completely bypassing Python-level os.system/subprocess detection. CWE-78, MITRE T1059.006, T1106. |
+| `ts-block-ctypes-cdll-exec` | BLOCK | regex | Python ctypes.CDLL(None/libc) calling system/popen/exec* — loads libc via FFI and calls dangerous C functions directly. Bypasses all Python module-level security detection. CWE-78, MITRE T1059.006. |
+| `ts-block-ctypes-loadlibrary-exec` | BLOCK | regex | Python cdll.LoadLibrary calling libc exec functions — alternative ctypes API for loading shared libraries and invoking dangerous C functions. CWE-78, MITRE T1059.006. |
+| `ts-block-gdb-batch-exec` | BLOCK | regex | GDB batch-mode calling system/popen/exec via 'call' — executes arbitrary shell commands in the target process's security context without interactive attachment. Combines process injection with RCE. CWE-94, MITRE T1055, T1059. |
+| `ts-block-gdb-batch-script` | BLOCK | regex | GDB batch-mode loading script from world-writable directory — attacker plants a Python/GDB script in /tmp then executes it via gdb -batch -x, gaining code execution in the debugged process's context. MITRE T1055, T1059. |
+| `ts-block-lldb-batch-exec` | BLOCK | regex | LLDB batch-mode calling system/popen/exec via expression — executes arbitrary shell commands through the debugger's expression evaluator. Same risk as GDB batch exec. CWE-94, MITRE T1055, T1059. |
+| `ts-block-lldb-batch-script` | BLOCK | regex | LLDB batch-mode loading script from world-writable directory — attacker-controlled LLDB Python script gains code execution in the debugged process. MITRE T1055, T1059. |
+| `ts-block-awk-system-exec` | BLOCK | regex | AWK system() call — executes arbitrary shell commands from within awk. Looks like text processing but provides full shell access. CWE-78, MITRE T1059.004. |
+| `ts-block-awk-pipe-to-shell` | BLOCK | regex | AWK pipe to shell interpreter — awk's print-to-pipe sends data to a shell process's stdin for execution. Converts awk from text processing into a command execution engine. CWE-78, MITRE T1059.004. |
+| `ts-block-awk-getline-exec` | BLOCK | regex | AWK getline reading output from dangerous command — captures output from network tools, interpreters, or encoding utilities. Often used to stage data for exfiltration or further execution. CWE-78, MITRE T1059.004. |
 
 ### uncategorized (2 rules)
 
@@ -967,7 +1034,7 @@
 
 ## MCP Rules
 
-### credential-exposure (89 rules)
+### credential-exposure (129 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -989,23 +1056,36 @@
 | `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
 | `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory |
 | `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory |
-| `mcp-sec-block-ssh-access` | BLOCK | mcp_rule | Access to SSH key directories is blocked. |
+| `mcp-sec-block-ssh-access` | BLOCK | mcp_rule | Write access to SSH directory is blocked — modifications to ~/.ssh/ can install backdoors (authorized_keys) or redirect connections (config). MITRE T1098.004, T1552.004. |
+| `mcp-sec-block-ssh-private-key-read` | BLOCK | mcp_rule | Read access to SSH private key (id_rsa) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-ed25519-key-read` | BLOCK | mcp_rule | Read access to SSH private key (id_ed25519) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-ecdsa-key-read` | BLOCK | mcp_rule | Read access to SSH private key (id_ecdsa) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-config-read` | BLOCK | mcp_rule | Read access to SSH config (~/.ssh/config) is blocked — reveals server hostnames, usernames, identity files, and proxy configurations. MITRE T1552, T1087. |
+| `mcp-sec-block-ssh-dir-read` | BLOCK | mcp_rule | Read access to SSH directory (~/.ssh/) is blocked — may contain SSH private keys, config, and authorization data. MITRE T1552.004. |
+| `mcp-sec-block-ssh-authorized-keys-read` | BLOCK | mcp_rule | Read access to SSH authorized_keys is blocked — lists all public keys authorized to log in, useful for lateral movement. MITRE T1087, T1552. |
 | `mcp-sec-block-aws-access` | BLOCK | mcp_rule | Access to AWS credential directories is blocked. |
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
 | `mcp-sec-block-kube-access` | BLOCK | mcp_rule | Access to Kubernetes config is blocked. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
+| `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
+| `mcp-sec-block-digitalocean-config` | BLOCK | mcp_rule | Access to ~/.digitalocean/ config is blocked — may contain DigitalOcean API tokens and authentication state. MITRE T1552.005. |
 | `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
 | `mcp-sec-block-git-credentials` | BLOCK | mcp_rule | Git credential file access is blocked — contains plaintext credentials; writes can redirect git auth to attacker-controlled hosts. |
+| `mcp-sec-block-git-credentials-xdg` | BLOCK | mcp_rule | XDG git credential file access is blocked — ~/.config/git/credentials contains the same plaintext HTTP credentials as ~/.git-credentials (XDG Base Directory spec location). |
 | `mcp-sec-block-pgpass` | BLOCK | mcp_rule | Access to ~/.pgpass is blocked — contains PostgreSQL passwords in plaintext (host:port:db:user:password format). MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
 | `mcp-sec-block-pypirc` | BLOCK | mcp_rule | Access to .pypirc is blocked — contains plaintext PyPI credentials. |
+| `mcp-sec-block-condarc` | BLOCK | mcp_rule | Read access to .condarc is blocked — Conda user config can contain private channel tokens and embedded credentials for Anaconda.org or enterprise conda registries. MITRE T1552. |
+| `mcp-sec-block-conda-condarc` | BLOCK | mcp_rule | Read access to ~/.conda/condarc is blocked — XDG-path Conda config can contain private channel tokens and embedded credentials. MITRE T1552. |
 | `mcp-sec-block-cargo-credentials` | BLOCK | mcp_rule | Access to Cargo credential files is blocked — contains crates.io and private registry tokens (both legacy ~/.cargo/credentials and modern ~/.cargo/credentials.toml). |
 | `mcp-sec-block-pypoetry-credentials` | BLOCK | mcp_rule | Access to Poetry auth.toml is blocked — contains HTTP auth tokens for private PyPI repositories. MITRE T1552. |
 | `mcp-sec-block-gradle-properties` | BLOCK | mcp_rule | Access to Gradle user properties is blocked — may contain Maven/Gradle repository passwords. |
+| `mcp-sec-block-dbt-profiles` | BLOCK | mcp_rule | Access to ~/.dbt/profiles.yml is blocked — contains database credentials for data warehouse connections (BigQuery, Snowflake, Redshift, Databricks, etc.). MITRE T1552. |
+| `mcp-sec-block-snyk-config` | BLOCK | mcp_rule | Access to Snyk CLI config is blocked — contains the Snyk API authentication token. MITRE T1552. |
 | `mcp-sec-block-helm-credentials` | BLOCK | mcp_rule | Access to Helm config directory is blocked — contains OCI registry credentials and repository passwords. |
 | `mcp-sec-block-gem-credentials` | BLOCK | mcp_rule | Access to ~/.gem/credentials is blocked — contains RubyGems registry API keys enabling gem publish supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-nuget-config` | BLOCK | mcp_rule | Access to ~/.nuget/NuGet.Config is blocked — contains NuGet package source API keys and credentials for private feeds enabling supply chain attacks. MITRE T1195.001, T1552.001. |
@@ -1013,17 +1093,25 @@
 | `mcp-sec-block-ivy-credentials` | BLOCK | mcp_rule | Access to ~/.ivy2/.credentials is blocked — contains Ivy/Scala repository credentials (user, password) for private artifact repositories. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-sbt-credentials` | BLOCK | mcp_rule | Access to ~/.sbt/credentials is blocked — contains SBT repository credentials for private Scala/Java artifact repositories. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-docker-daemon-access` | BLOCK | mcp_rule | Access to ~/.docker/daemon.json is blocked — exposes Docker registry infrastructure, insecure-registries list, proxy credentials, and credHelpers configuration. MITRE T1552. |
+| `mcp-sec-block-containers-auth-access` | BLOCK | mcp_rule | Access to ~/.config/containers/auth.json is blocked — contains Podman/containers registry credentials (equivalent to ~/.docker/config.json). Exposes base64-encoded username:password for private container registries. MITRE T1552, T1078. |
+| `mcp-sec-block-containers-local-auth-access` | BLOCK | mcp_rule | Access to ~/.local/share/containers/auth.json is blocked — alternate location for Podman registry credentials. Same risk as ~/.config/containers/auth.json. MITRE T1552, T1078. |
+| `mcp-sec-audit-containers-registries-conf` | AUDIT | mcp_rule | Access to ~/.config/containers/registries.conf is flagged — reveals container registry infrastructure topology (mirrors, insecure-registries). MITRE T1518. |
 | `mcp-sec-block-1password-cli-access` | BLOCK | mcp_rule | Access to 1Password CLI v2 config directory is blocked — contains session tokens and account credentials. MITRE T1555. |
 | `mcp-sec-block-1password-cli-v1-access` | BLOCK | mcp_rule | Access to 1Password CLI v1 config directory (~/.op/) is blocked — contains session tokens and account credentials. MITRE T1555. |
 | `mcp-sec-block-1password-desktop-access` | BLOCK | mcp_rule | Access to ~/.1password/ is blocked — contains the 1Password SSH agent socket (agent.sock). Reading or accessing this directory reveals agent state and key availability. MITRE T1555.005. |
 | `mcp-sec-block-1password-desktop-config-access` | BLOCK | mcp_rule | Access to ~/.config/1Password/ is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
+| `mcp-sec-block-1password-xdg-data-access` | BLOCK | mcp_rule | Access to 1Password XDG data directory (~/.local/share/1password/) is blocked — contains SSH agent socket (ssh/agent.sock) and runtime data. Enumeration reveals agent state and key availability. MITRE T1555.005. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
 | `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
+| `mcp-sec-block-keybase-access` | BLOCK | mcp_rule | Access to ~/.config/keybase/ is blocked — contains Keybase session tokens and encrypted private key material (KBFS signing keys). Exfiltration enables identity impersonation and access to encrypted team data. MITRE T1552, T1555. |
 | `mcp-sec-block-age-identity-access` | BLOCK | mcp_rule | Access to age encryption identity directory is blocked — age identity files are used to decrypt sensitive data stores (sops, chezmoi). |
+| `mcp-sec-block-sops-age-key-access` | BLOCK | mcp_rule | Access to age default key directory is blocked — ~/.age/ contains the age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
+| `mcp-sec-block-sops-age-config-key-access` | BLOCK | mcp_rule | Access to SOPS age key directory is blocked — ~/.config/sops/age/keys.txt is the age private key used by SOPS to decrypt secrets.enc.yaml files in git repositories. MITRE T1552. |
+| `mcp-sec-block-age-key-txt-access` | BLOCK | mcp_rule | Access to age private key files is blocked — age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
@@ -1054,6 +1142,25 @@
 | `mcp-sec-block-paypal-creds` | BLOCK | mcp_rule | Access to PayPal CLI config is blocked — contains client ID and client secret for payment initiation and account access. MITRE T1552.001. |
 | `mcp-sec-block-paypalrc-creds` | BLOCK | mcp_rule | Access to ~/.paypalrc is blocked — contains PayPal API credentials for payment operations. MITRE T1552.001. |
 | `mcp-sec-block-recurlyrc-creds` | BLOCK | mcp_rule | Access to ~/.recurlyrc is blocked — contains Recurly API key for subscription billing operations. MITRE T1552.001. |
+| `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-chromium-credential-db` | BLOCK | mcp_rule | Access to Chromium browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-brave-credential-db` | BLOCK | mcp_rule | Access to Brave browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-edge-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory is blocked — contains encrypted password database and the key database required to decrypt them. MITRE T1555.003. |
+| `mcp-sec-block-claude-credentials-read` | BLOCK | mcp_rule | Access to Claude CLI credential directory (~/.config/claude/) is blocked — contains OAuth tokens and session keys for Anthropic API access. MITRE T1552. |
+| `mcp-sec-block-claude-dot-credentials-read` | BLOCK | mcp_rule | Access to ~/.claude/credentials is blocked — this is Claude Code's OAuth token file. Exfiltration enables impersonation of the user to Anthropic's API. MITRE T1552. |
+| `mcp-sec-block-claude-dot-apikey-read` | BLOCK | mcp_rule | Access to ~/.claude/api_key is blocked — contains Anthropic API key for Claude Code. MITRE T1552. |
+| `mcp-sec-block-anthropic-credentials-read` | BLOCK | mcp_rule | Access to Anthropic credential directory (~/.anthropic/) is blocked — may contain API keys and auth config. MITRE T1552. |
+| `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
+| `mcp-sec-block-snowsql-credentials-read` | BLOCK | mcp_rule | Access to Snowflake SQL credential directory (~/.snowsql/) is blocked — contains account passwords and MFA configuration. MITRE T1552. |
+| `mcp-sec-block-confluent-credentials-read` | BLOCK | mcp_rule | Access to Confluent Cloud credential directory (~/.confluent/) is blocked — contains API keys and cluster credentials. MITRE T1552. |
+| `mcp-sec-block-lastpass-local-vault-read` | BLOCK | mcp_rule | Access to LastPass local credential cache (~/.local/share/lastpass/) is blocked — contains encrypted vault blob and local database. MITRE T1555.005. |
+| `mcp-sec-block-bitwarden-session-token` | BLOCK | mcp_rule | Access to ~/.bitwarden_session is blocked — contains an authenticated Bitwarden CLI session token granting full vault access without the master password. MITRE T1555.005. |
+| `mcp-sec-block-bitwarden-snap-data` | BLOCK | mcp_rule | Access to ~/.local/share/bitwarden/ is blocked — Bitwarden desktop app (Snap/AppImage) stores encrypted vault cache and session tokens here. MITRE T1555. |
+| `mcp-sec-block-lastpass-config-dir` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/LastPass/) is blocked — contains session tokens and account configuration. MITRE T1555.005. |
+| `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
+| `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
+| `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
 | `mcp-sec-block-postgres-uri` | BLOCK | resource_rule | Direct PostgreSQL database access via MCP is blocked. |
 | `mcp-sec-block-redis-uri` | BLOCK | resource_rule | Direct Redis access via MCP is blocked. |
@@ -1061,7 +1168,7 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### data-exfiltration (21 rules)
+### data-exfiltration (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1077,6 +1184,10 @@
 | `mcp-llmdf-audit-agent-memory-bulk-read` | AUDIT | mcp_rule | Accessing Claude Code memory files via MCP — these files persist sensitive context (credentials, architectural decisions, API keys) across agent sessions and may expose prior session data to unauthorized readers. OWASP LLM02. |
 | `mcp-llmdf-audit-cross-tenant-tmp-workspace` | AUDIT | mcp_rule | Accessing /tmp/mcp-workspace* via MCP — shared MCP workspace directories without tenant-scoped paths expose other tenants' tool call artifacts. Cross-tenant data leakage in shared agent infrastructure. OWASP LLM02/LLM06. |
 | `mcp-llmdf-audit-cross-tenant-shared-cache` | AUDIT | mcp_rule | Accessing /tmp/agent-cache* via MCP — shared agent cache directories in multi-tenant deployments may expose tool call results, session state, or intermediate data from other tenants. OWASP LLM02/LLM06. |
+| `mcp-llmdf-audit-ai-telemetry-config-write` | AUDIT | mcp_rule | MCP write to Cursor config directory — may modify telemetry, AI model routing, or data-sharing settings. OWASP LLM02/LLM06. |
+| `mcp-llmdf-audit-copilot-config-write` | AUDIT | mcp_rule | MCP write to GitHub Copilot config directory — may modify telemetry or data-sharing settings. OWASP LLM02/LLM06. |
+| `mcp-llmdf-audit-codeium-config-write` | AUDIT | mcp_rule | MCP write to Codeium/Windsurf config directory — may modify telemetry or AI endpoint settings. OWASP LLM02/LLM06. |
+| `mcp-llmdf-audit-cross-server-context-harvest` | AUDIT | structural | Tool call content contains cross-server context harvesting instructions — pattern suggests a server is directing the agent to forward data from other MCP servers. OWASP LLM01/LLM02/LLM06. |
 | `mcp-struct-block-ssrf-metadata` | BLOCK | structural | SSRF detected — request to cloud metadata endpoint |
 | `mcp-struct-block-ssrf-metadata-endpoint` | BLOCK | structural | SSRF detected — request to internal service via endpoint argument |
 | `mcp-struct-block-ssrf-private-network` | BLOCK | structural | SSRF detected — request to private network IP range |
@@ -1139,7 +1250,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (11 rules)
+### persistence-evasion (13 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1147,6 +1258,8 @@
 | `mcp-gen-ts-block-authorized-keys-write` | BLOCK | mcp_rule | [MCP] Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004) |
 | `mcp-gen-ts-block-ssh-config-write` | BLOCK | mcp_rule | [MCP] Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
 | `mcp-persist-block-shell-profile-write` | BLOCK | structural | MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004. |
+| `mcp-persist-block-modern-shell-profile-write` | BLOCK | structural | MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
+| `mcp-persist-block-fish-profile-write` | BLOCK | structural | MCP write to fish shell config directory (~/.config/fish/) — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. Covers config.fish, conf.d/ drop-ins, and autoloaded functions/. MITRE T1546.004. |
 | `mcp-persist-block-launchagent-write` | BLOCK | structural | MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001. |
 | `mcp-persist-block-git-hook-write` | BLOCK | structural | MCP write to .git/hooks/ installs a persistent git hook that executes on every matching git operation (commit, push, checkout, etc.) without any shell-level interception. MITRE T1546. |
 | `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
@@ -1155,12 +1268,14 @@
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
 
-### privilege-escalation (11 rules)
+### privilege-escalation (13 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-ts-block-ldso-conf-write` | BLOCK | mcp_rule | [MCP] Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426. |
 | `mcp-privesc-block-docker-socket` | BLOCK | mcp_rule | Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611. |
+| `mcp-privesc-block-sudoers-read` | BLOCK | mcp_rule | Read access to /etc/sudoers is blocked — reveals all sudo-enabled accounts and NOPASSWD entries, enabling targeted privilege escalation. MITRE T1548.003. |
+| `mcp-privesc-block-sudoersd-read` | BLOCK | mcp_rule | Read access to /etc/sudoers.d/ is blocked — drop-in sudoers files list privileged accounts and NOPASSWD grants. MITRE T1548.003. |
 | `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
 | `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
 | `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Docker socket path detected in MCP tool argument — container escape vector. MITRE T1611. |
@@ -1188,7 +1303,7 @@
 | `mcp-recon-audit-admin-paths` | AUDIT | structural | Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082. |
 | `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213. |
 
-### supply-chain (11 rules)
+### supply-chain (12 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1203,8 +1318,9 @@
 | `mcp-sc-audit-rag-write` | AUDIT | structural | MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010. |
 | `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
+| `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 
-### unauthorized-execution (19 rules)
+### unauthorized-execution (21 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1212,6 +1328,8 @@
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
 | `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
+| `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
+| `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
 | `mcp-response-integrity-audit-rag-retrieval` | AUDIT | mcp_rule | RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning) |
@@ -1244,14 +1362,14 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 247 | 179 | 426 |
-| data-exfiltration | 253 | 154 | 407 |
-| destructive-ops | 132 | 87 | 219 |
+| credential-exposure | 271 | 196 | 467 |
+| data-exfiltration | 273 | 168 | 441 |
+| destructive-ops | 132 | 89 | 221 |
 | governance-risk | 57 | 46 | 103 |
-| persistence-evasion | 269 | 153 | 422 |
+| persistence-evasion | 287 | 169 | 456 |
 | privilege-escalation | 273 | 167 | 440 |
 | reconnaissance | 168 | 71 | 239 |
-| supply-chain | 209 | 141 | 350 |
-| unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1920** | **1211** | **3131** |
+| supply-chain | 222 | 146 | 368 |
+| unauthorized-execution | 374 | 253 | 627 |
+| **Total** | **2057** | **1305** | **3362** |
 
