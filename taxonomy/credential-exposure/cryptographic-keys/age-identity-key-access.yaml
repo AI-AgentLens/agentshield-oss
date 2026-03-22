@@ -1,0 +1,59 @@
+id: "credential-exposure/cryptographic-keys/age-identity-key-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cryptographic Keys"
+category_id: "2.7"
+name: "Age Identity Key Access"
+risk_level: "critical"
+
+abstract: |
+  Access to age identity key files (~/.config/age/keys.txt or similar) exposes
+  private keys used for modern file encryption, enabling an attacker to decrypt
+  any data encrypted to that identity.
+
+explanation: |
+  age (https://age-encryption.org) is a modern, widely-adopted file encryption tool
+  favored in developer workflows and secrets management systems (SOPS, age-encrypted
+  dotfiles, etc.). Private identity keys (typically in PEM format beginning with
+  "AGE-SECRET-KEY-") are stored in files like:
+  - `~/.config/age/keys.txt`
+  - `~/.age/key.txt`
+  - Custom paths referenced by `$AGE_IDENTITY`
+
+  An agent that reads age identity files can:
+  - Decrypt all age-encrypted secrets in repositories (e.g., SOPS-managed secrets)
+  - Decrypt encrypted backups and archives
+  - Decrypt other developers' encrypted files if the key was used for multi-recipient encryption
+
+  age keys are particularly high-value because many teams use SOPS with age for
+  GitOps secrets management, meaning one stolen key decrypts all cluster secrets.
+
+recommendation: |
+  - Block read access to age identity key files in agent tool execution.
+  - Store age private keys on hardware security keys where possible.
+  - Use recipient-based encryption with separate deployment keys.
+  - Monitor access to `~/.config/age/` and custom AGE_IDENTITY paths.
+
+examples:
+  bad:
+    - "cat ~/.config/age/keys.txt"
+    - "cat ~/.age/key.txt"
+    - "AGE_IDENTITY=~/.age/key.txt sops -d secrets.yaml"
+  good:
+    - "age -r age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p encrypt.txt"
+    - "age --encrypt --recipient-file recipients.txt data.txt"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.004"]
+  cwe: ["CWE-312", "CWE-326"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-age-key-access"]

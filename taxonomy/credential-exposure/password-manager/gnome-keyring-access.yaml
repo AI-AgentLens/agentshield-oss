@@ -1,0 +1,60 @@
+id: "credential-exposure/password-manager/gnome-keyring-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Password Manager"
+category_id: "2.18"
+name: "GNOME Keyring Access"
+risk_level: "critical"
+
+abstract: |
+  Access to GNOME Keyring databases or the secret-tool CLI enables bulk extraction
+  of stored passwords, OAuth tokens, and SSH passphrases managed by the GNOME
+  Keyring daemon on Linux desktop systems.
+
+explanation: |
+  The GNOME Keyring is the default secrets store on GNOME-based Linux desktops
+  (Ubuntu, Fedora, Debian), storing:
+  - Browser saved passwords (Chromium, Firefox via libsecret)
+  - SSH key passphrases
+  - WiFi network credentials
+  - Application OAuth tokens (VS Code, GNOME apps)
+  - GPG key passphrases
+  - Custom application secrets via libsecret
+
+  Attack vectors include:
+  - `secret-tool search` — enumerate all stored secrets by attribute
+  - `secret-tool lookup` — retrieve specific secrets by label
+  - Direct access to `~/.local/share/keyrings/*.keyring` files
+  - Accessing the DBUS socket to communicate with the daemon
+
+  On an unlocked desktop session, an AI agent with shell access can enumerate and
+  export all keyring contents without re-authentication.
+
+recommendation: |
+  - Block access to `~/.local/share/keyrings/` directory.
+  - Block `secret-tool` commands in agent execution contexts.
+  - Lock the keyring when not in active use.
+  - Use a separate service account with no keyring access for agent execution.
+
+examples:
+  bad:
+    - "secret-tool search --all"
+    - "secret-tool lookup service ssh"
+    - "cat ~/.local/share/keyrings/login.keyring"
+  good:
+    - "secret-tool --version"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.5.10"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1555.003", "T1555.005"]
+  cwe: ["CWE-312", "CWE-522"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-gnome-keyring-access"]

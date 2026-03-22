@@ -1,0 +1,6 @@
+id: "2.19"
+name: "Package Registry Credentials"
+kingdom_id: 2
+description: >
+  Commands that access package manager registry credentials (npm, pip, cargo, gem, etc.)
+  stored locally, enabling unauthorized package publishing or supply chain attacks.
