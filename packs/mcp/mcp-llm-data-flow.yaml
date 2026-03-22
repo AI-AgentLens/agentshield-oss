@@ -276,3 +276,65 @@ structural_rules:
     decision: "AUDIT"
     reason: "Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06."
     confidence: 0.82
+
+  # === AUDIT: AI tool telemetry config writes via MCP (issue #137) ===
+  # Taxonomy: data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure
+  #
+  # AI coding tools (Cursor, Copilot, Codeium/Windsurf) store telemetry and data-sharing
+  # settings in well-known config paths. An agent writing to these files may enable
+  # silent code telemetry, bypass data residency controls, or configure exfiltration
+  # endpoints. Auditing MCP writes to these paths surfaces unintentional IP disclosure.
+  # OWASP LLM02, LLM06 | EU AI Act Art.10, Art.13 | NIST AI RMF: GOVERN-1, MAP-5.
+  - id: mcp-llmdf-audit-ai-telemetry-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/.cursor/**"
+    decision: "AUDIT"
+    reason: "MCP write to Cursor config directory — may modify telemetry, AI model routing, or data-sharing settings. OWASP LLM02/LLM06."
+    confidence: 0.80
+
+  - id: mcp-llmdf-audit-copilot-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/.copilot/**"
+    decision: "AUDIT"
+    reason: "MCP write to GitHub Copilot config directory — may modify telemetry or data-sharing settings. OWASP LLM02/LLM06."
+    confidence: 0.80
+
+  - id: mcp-llmdf-audit-codeium-config-write
+    taxonomy: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/codeium/**"
+    decision: "AUDIT"
+    reason: "MCP write to Codeium/Windsurf config directory — may modify telemetry or AI endpoint settings. OWASP LLM02/LLM06."
+    confidence: 0.80

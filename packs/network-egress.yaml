@@ -1875,3 +1875,34 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "Python inline script with socket.connect — direct TCP connection from an interpreter one-liner. While not every socket connection is exfiltration, this is unusual in AI agent workflows. MITRE T1059.006."
+
+  # === AUDIT: Direct calls to AI vendor APIs with data payloads (issue #137) ===
+  # Taxonomy: data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure
+  #
+  # AI coding tools may silently transmit source code, prompts, and file contents
+  # to vendor infrastructure via curl/wget. Audit any call to AI vendor APIs that
+  # includes a request body (--data, -d, --data-binary, --post-data) — the body
+  # could contain source code or secrets being unintentionally transmitted.
+  # Covers: OpenAI, Anthropic, GitHub Copilot, Cohere, Google Gemini, Mistral.
+
+  - id: "ne-audit-ai-vendor-api-call"
+    taxonomy: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
+    match:
+      command_regex: "(curl|wget)\\b.*(-d\\s+|--data\\s+|--data-binary\\s+|--data-raw\\s+|--post-data\\s+|--post-file\\s+).*\\b(api\\.openai\\.com|api\\.anthropic\\.com|api\\.github\\.com/copilot|api\\.cohere\\.com|api\\.cohere\\.ai|generativelanguage\\.googleapis\\.com|api\\.mistral\\.ai|api\\.x\\.ai|api\\.groq\\.com|api\\.together\\.xyz|api\\.fireworks\\.ai|api\\.perplexity\\.ai)\\b|(curl|wget)\\b.*\\b(api\\.openai\\.com|api\\.anthropic\\.com|api\\.github\\.com/copilot|api\\.cohere\\.com|api\\.cohere\\.ai|generativelanguage\\.googleapis\\.com|api\\.mistral\\.ai|api\\.x\\.ai|api\\.groq\\.com|api\\.together\\.xyz|api\\.fireworks\\.ai|api\\.perplexity\\.ai)\\b.*(-d\\s+|--data\\s+|--data-binary\\s+|--data-raw\\s+|--post-data\\s+|--post-file\\s+)"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Direct curl/wget call to AI vendor API with a request body — may be transmitting source code or sensitive data to external AI infrastructure. OWASP LLM02, LLM06. MITRE T1567."
+
+  # === AUDIT: Source code files piped into AI vendor API (IP disclosure) ===
+  # Catches: cat src/main.py | curl ... api.openai.com
+  #          wget --post-file secret_algo.go api.anthropic.com
+  #          curl -d @main.go api.openai.com
+  - id: "ne-audit-source-file-to-ai-api"
+    taxonomy: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
+    match:
+      command_regex: "(cat|head|tail|less)\\s+.*\\.(py|go|ts|js|jsx|tsx|rb|java|cs|cpp|c|rs|sh|bash|yaml|json|tf|env)\\b.*\\|.*(curl|wget).*\\b(api\\.openai\\.com|api\\.anthropic\\.com|api\\.github\\.com/copilot|api\\.cohere\\.com|api\\.cohere\\.ai|generativelanguage\\.googleapis\\.com|api\\.mistral\\.ai|api\\.x\\.ai|api\\.groq\\.com|api\\.together\\.xyz)\\b|(curl|wget)\\b.*(--data-binary\\s+@|--post-file\\s+|--data\\s+@).*\\.(py|go|ts|js|jsx|tsx|rb|java|cs|cpp|c|rs|sh|bash|yaml|json|tf|env)\\b.*\\b(api\\.openai\\.com|api\\.anthropic\\.com|api\\.github\\.com/copilot|api\\.cohere\\.com|api\\.cohere\\.ai|generativelanguage\\.googleapis\\.com|api\\.mistral\\.ai|api\\.x\\.ai|api\\.groq\\.com)\\b"
+      command_regex_exclude: "^(echo|printf)\\s"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567."
