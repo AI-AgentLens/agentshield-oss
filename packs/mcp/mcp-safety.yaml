@@ -200,8 +200,13 @@ structural_rules:
           pattern_any:
             - "\\.\\./"
             - "\\.\\.\\\\"
+            - "%2e%2e[%2f/\\\\]"
+            - "%2E%2E[%2F/\\\\]"
+            - "\\.\\.[%2F%5C]"
+            - "\\.\\.%2[fF]"
+            - "\\.\\.%5[cC]"
     decision: "BLOCK"
-    reason: "Path traversal detected in path argument — attempt to escape intended directory"
+    reason: "Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory"
     confidence: 0.95
 
   - id: mcp-struct-block-path-traversal-directory
@@ -213,8 +218,13 @@ structural_rules:
           pattern_any:
             - "\\.\\./"
             - "\\.\\.\\\\"
+            - "%2e%2e[%2f/\\\\]"
+            - "%2E%2E[%2F/\\\\]"
+            - "\\.\\.[%2F%5C]"
+            - "\\.\\.%2[fF]"
+            - "\\.\\.%5[cC]"
     decision: "BLOCK"
-    reason: "Path traversal detected in directory argument — attempt to escape intended directory"
+    reason: "Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory"
     confidence: 0.95
 
   # Block SSRF — requests to cloud metadata endpoints and internal IP ranges
