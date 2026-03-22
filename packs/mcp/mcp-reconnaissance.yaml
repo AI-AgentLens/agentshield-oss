@@ -20,6 +20,41 @@ rules:
     decision: "AUDIT"
     reason: "Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083."
 
+  # === BLOCK: /proc/PID/environ and /proc/self/environ — process env var exposure (issue #42) ===
+  #
+  # /proc/<PID>/environ contains a NUL-separated snapshot of all environment
+  # variables that a process was started with. These routinely include:
+  #   - API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, STRIPE_SECRET_KEY)
+  #   - Cloud credentials (AWS_SECRET_ACCESS_KEY, GOOGLE_APPLICATION_CREDENTIALS)
+  #   - Database connection strings (DATABASE_URL, POSTGRES_PASSWORD)
+  #   - CI/CD tokens (GITHUB_TOKEN, NPM_TOKEN, DOCKER_HUB_TOKEN)
+  #
+  # Unlike /proc/PID/status or /proc/net/* (which expose only process metadata),
+  # /proc/PID/environ directly leaks plaintext secrets with a single file read.
+  # This is MITRE T1552.007 (Unsecured Credentials: Container API) — and applies
+  # equally in bare-metal environments, not just containers.
+  #
+  # /proc/self/environ is particularly dangerous for AI agents — it exposes the
+  # secrets of the agent process itself (the very API keys the developer passed
+  # to the agent via env vars).
+  #
+  # This rule must appear BEFORE mcp-recon-audit-proc-read so the more specific
+  # BLOCK decision wins via most_restrictive_wins combiner.
+  - id: mcp-recon-block-proc-environ
+    taxonomy: "credential-exposure/env-var-exposure/process-environ-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "/proc/**/environ"
+    decision: "BLOCK"
+    reason: "Access to /proc/PID/environ or /proc/self/environ is blocked — contains all environment variables of the target process in plaintext, including API keys, cloud credentials, and database passwords. MITRE T1552.007."
+    confidence: 0.97
+
   - id: mcp-recon-audit-proc-read
     taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
     match:
