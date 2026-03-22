@@ -1495,6 +1495,26 @@ var KeychainExtractionCases = []TestCase{
 		Description:      `Adding a PR comment via gh whose --body text quotes a keychain command as a Semgrep rule target example. The keychain invocation is documentation inside the --body flag passed to gh, not an actual shell execution. Fixed by command_regex_exclude for gh --body flags.`,
 		Tags:             []string{"fp-fix", "gh-cli", "issue-467"},
 	},
+	{
+		ID:               "TN-KEYCHAIN-005",
+		Command:          `git commit -m "docs: document that security find-generic-password extracts macOS Keychain credentials"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/keychain-extraction",
+		Analyzer:         "regex",
+		Description:      `git commit with -m shortform whose message text documents the keychain extraction pattern. The security command appears in the commit message (documentation), not as an executable invocation. Fixed by adding -m shortform to command_regex_exclude (issue #55).`,
+		Tags:             []string{"fp-fix", "git", "issue-55"},
+	},
+	{
+		ID:               "TN-KEYCHAIN-006",
+		Command:          `git tag -m "release: add detection for security dump-keychain and security find-internet-password" v1.2.0`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/keychain-extraction",
+		Analyzer:         "regex",
+		Description:      `git tag annotated with -m shortform whose message documents keychain attack patterns. Documentation text in a git tag message is never executed. Fixed by -m shortform exclusion (issue #55). ALLOW because ts-allow-readonly classifies git tag as read-only.`,
+		Tags:             []string{"fp-fix", "git", "issue-55"},
+	},
 }
 
 // ---------------------------------------------------------------------------
