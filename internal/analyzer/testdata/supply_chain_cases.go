@@ -4359,4 +4359,86 @@ var ContainerTrustBypassCases = []TestCase{
 		Description:      "code --uninstall-extension removes an extension — uninstalling is safer than installing and does not match --install-extension patterns; default AUDIT.",
 		Tags:             []string{"tn", "safe", "ide-extension", "uninstall"},
 	},
+
+	// =========================================================================
+	// LLM-Hallucinated Package Installation Attack (issue #101)
+	//
+	// AI agents may install non-existent packages that LLMs hallucinate with
+	// plausible names (e.g., "huggingface-cli" instead of "huggingface_hub").
+	// Attackers pre-register identically-named packages on PyPI/npm/RubyGems.
+	// Detection relies on the existing standard-install AUDIT rules, now
+	// referenced via the llm-hallucinated-package-attack taxonomy.
+	//
+	// Taxonomy: supply-chain/dependency-confusion/llm-hallucinated-package-attack
+	// OWASP LLM03 (Supply Chain), LLM09 (Misinformation)
+	// Rules: sc-audit-pip-install, sc-audit-npm-install, sc-audit-gem-install,
+	//        sc-audit-cargo-install, sc-audit-go-get
+	// =========================================================================
+
+	// TP: hallucinated pip package (plausible but non-existent name)
+	{
+		ID:               "TP-SC-HALLUCINATED-001",
+		Command:          `pip install huggingface-cli`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "pip install of 'huggingface-cli' — a hallucinated package name (real package is huggingface_hub). Caught by sc-audit-pip-install for mandatory human review before install proceeds.",
+		Tags:             []string{"tp", "hallucinated-package", "llm-misinformation", "pip"},
+	},
+	// TP: hallucinated npm package
+	{
+		ID:               "TP-SC-HALLUCINATED-002",
+		Command:          `npm install react-oauth2-login`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "npm install of 'react-oauth2-login' — hallucinated OAuth login package. Caught by sc-audit-npm-install for mandatory human review.",
+		Tags:             []string{"tp", "hallucinated-package", "llm-misinformation", "npm"},
+	},
+	// TP: hallucinated pip variant of a real package
+	{
+		ID:               "TP-SC-HALLUCINATED-003",
+		Command:          `pip install langchain-openai-utils`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "pip install 'langchain-openai-utils' — hallucinated variant of 'langchain-openai'. Caught by sc-audit-pip-install. Human should verify against PyPI before proceeding.",
+		Tags:             []string{"tp", "hallucinated-package", "llm-misinformation", "pip"},
+	},
+	// TP: hallucinated gem package
+	{
+		ID:               "TP-SC-HALLUCINATED-004",
+		Command:          `gem install rails-api-client`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "gem install 'rails-api-client' — hallucinated Rails helper gem. Caught by sc-audit-gem-install for mandatory human review.",
+		Tags:             []string{"tp", "hallucinated-package", "llm-misinformation", "gem"},
+	},
+	// TN: well-known, verified pip package — still AUDIT (not BLOCK), as all pip installs require review
+	{
+		ID:               "TN-SC-HALLUCINATED-001",
+		Command:          `pip install requests`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "pip install 'requests' — well-known, verified PyPI package. Still AUDIT (not BLOCK) — all pip installs get audit gate. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "pip", "known-good"},
+	},
+	// TN: well-known npm package — AUDIT, not BLOCK
+	{
+		ID:               "TN-SC-HALLUCINATED-002",
+		Command:          `npm install express`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/llm-hallucinated-package-attack",
+		Analyzer:         "regex",
+		Description:      "npm install 'express' — well-known, verified npm package. Still AUDIT (not BLOCK) — all npm installs get audit gate. Must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe", "npm", "known-good"},
+	},
 }

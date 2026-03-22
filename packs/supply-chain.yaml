@@ -301,27 +301,38 @@ rules:
     decision: "BLOCK"
     reason: "Re-enabling npm post-install scripts is risky. Keep ignore-scripts=true in agent context."
 
-  # === AUDIT: Standard package installs ===
+  # === AUDIT: Standard package installs (LLM hallucination & dependency confusion risk) ===
+  #
+  # AI agents frequently install packages without human review. Beyond traditional
+  # dependency confusion (namespace collision), agents face a unique risk: LLM
+  # hallucination. A model may invent plausible-sounding package names (e.g.,
+  # "huggingface-cli" instead of "huggingface_hub") that attackers pre-register with
+  # malicious code. Because agents install at code-execution speed, intervention is
+  # rarely possible without a mandatory audit gate.
+  #
+  # Taxonomy: supply-chain/dependency-confusion/llm-hallucinated-package-attack
+  # OWASP LLM03 (Supply Chain), LLM09 (Misinformation)
+  # MITRE T1195.001 — Supply Chain: Compromise Software Dependencies
   - id: "sc-audit-npm-install"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["npm install", "npm i ", "npm add", "npx "]
     decision: "AUDIT"
-    reason: "npm package install flagged for supply-chain review."
+    reason: "npm package install requires human review — AI agents may install hallucinated package names pre-registered by attackers, or resolve malicious public packages via dependency confusion. Verify package name spelling and origin before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   - id: "sc-audit-pip-install"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["pip install", "pip3 install", "pipx install"]
     decision: "AUDIT"
-    reason: "pip package install flagged for supply-chain review."
+    reason: "pip/pipx package install requires human review — AI agents may install hallucinated package names pre-registered by attackers (e.g., 'huggingface-cli' instead of 'huggingface_hub'). Verify package name spelling on PyPI before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   - id: "sc-audit-yarn-add"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["yarn add", "pnpm add", "pnpm install"]
     decision: "AUDIT"
-    reason: "Yarn/pnpm package install flagged for supply-chain review."
+    reason: "Yarn/pnpm package install requires human review — AI agents may install hallucinated package names pre-registered by attackers. Verify package name spelling and origin before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   # === BLOCK: brew tap with --custom-remote (arbitrary URL tap source) ===
   #
@@ -363,32 +374,32 @@ rules:
     reason: "brew tap adds a new Homebrew formula repository — introduces a new software source. Third-party taps can serve trojaned packages. Official taps (homebrew/*, microsoft/*, hashicorp/*) are safe; others require review. MITRE T1195.001."
 
   - id: "sc-audit-brew-install"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["brew install", "brew cask install"]
     decision: "AUDIT"
-    reason: "Homebrew install flagged for supply-chain review."
+    reason: "Homebrew package install requires human review — AI agents may install hallucinated formula names or typosquatted packages. Verify the formula name on brew.sh before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   - id: "sc-audit-go-get"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["go get ", "go install "]
     decision: "AUDIT"
-    reason: "Go module fetch flagged for supply-chain review."
+    reason: "Go module fetch requires human review — AI agents may fetch hallucinated module paths. Go module paths embed the source URL, making typosquatted paths hard to spot. Verify on pkg.go.dev before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   - id: "sc-audit-cargo-install"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["cargo install", "cargo add"]
     decision: "AUDIT"
-    reason: "Cargo package install flagged for supply-chain review."
+    reason: "Cargo crate install requires human review — AI agents may install hallucinated crate names pre-registered by attackers. Verify on crates.io before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   - id: "sc-audit-gem-install"
-    taxonomy: "supply-chain/package-install/standard-package-install"
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
     match:
       command_prefix: ["gem install"]
     decision: "AUDIT"
-    reason: "RubyGems install flagged for supply-chain review."
+    reason: "RubyGems install requires human review — AI agents may install hallucinated gem names pre-registered by attackers. Verify on rubygems.org before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
   # === AUDIT: uv (Astral Python package manager) installs ===
   #

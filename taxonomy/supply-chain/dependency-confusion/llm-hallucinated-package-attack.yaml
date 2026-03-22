@@ -1,0 +1,77 @@
+id: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Dependency Confusion"
+category_id: "7.1"
+name: "LLM-Hallucinated Package Installation Attack"
+risk_level: "high"
+
+abstract: |
+  AI coding agents recommend non-existent packages hallucinated with plausible names.
+  Attackers pre-register identically-named packages on public registries containing
+  malicious code, which is then silently installed when the agent runs the install command.
+
+explanation: |
+  Unlike traditional dependency confusion (which exploits namespace priority between
+  private and public registries), hallucinated package attacks exploit LLM misinformation:
+
+  1. An AI agent hallucinates a plausible-sounding package name that does not exist.
+  2. The agent generates an install command (pip install, npm install, gem install, etc.)
+     using the hallucinated name.
+  3. An attacker monitors PyPI/npm/RubyGems for newly-registered packages matching
+     common LLM hallucination patterns and pre-registers malicious packages.
+  4. When the agent or user runs the install command, the malicious package installs.
+
+  This attack is particularly dangerous in agentic workflows because:
+  - Agents frequently install packages without human review.
+  - Hallucinated names are often close variants of real packages (e.g., "langchain-openai-utils"
+    instead of "langchain-openai"), making them hard to spot.
+  - Install commands run at code-execution speed — often before a human can intervene.
+
+  Documented LLM hallucination patterns include combining known package prefixes in novel
+  ways (e.g., "huggingface-cli" for the huggingface_hub CLI), appending suffixes like
+  "-client", "-sdk", "-py", "-utils" to real package names, and using Python class names
+  as package identifiers.
+
+recommendation: |
+  - AUDIT all package installs initiated by AI agents — require human confirmation.
+  - Verify package name spelling against official registry search before installing.
+  - Use a lock file (requirements.txt, package-lock.json, Gemfile.lock) pinned to
+    known-good versions and hashes; never run bare installs in production.
+  - Configure a software composition analysis (SCA) tool (e.g., Snyk, Dependabot) to
+    scan new packages before install.
+  - Prefer `pip install --dry-run` or `npm install --dry-run` to preview without installing.
+
+examples:
+  bad:
+    - "pip install huggingface-cli   # hallucinated — real package is huggingface_hub"
+    - "npm install react-oauth2-login  # hallucinated OAuth login package"
+    - "pip install langchain-openai-utils  # hallucinated variant of langchain-openai"
+    - "gem install rails-api-client  # hallucinated Rails helper gem"
+  good:
+    - "pip install requests  # well-known, verified package"
+    - "pip install langchain-openai  # correct spelling of real package"
+    - "npm install express  # well-known, verified package"
+    - "pip install --dry-run langchain-openai-utils  # preview without installing"
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM09"]
+  iso-27001-2022: ["A.8.25", "A.8.26", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.8", "CC7.1", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.001"]
+  cwe: ["CWE-829", "CWE-494"]
+  external:
+    - title: "Lasso Security — AI Package Hallucinations"
+      url: "https://www.lasso.security/blog/ai-package-hallucinations"
+    - title: "Vulcan Cyber — AI Hallucinations and Package Risk"
+      url: "https://vulcan.io/blog/ai-hallucinations-package-risk"
+    - title: "MITRE ATT&CK: Supply Chain Compromise: Compromise Software Dependencies"
+      url: "https://attack.mitre.org/techniques/T1195/001/"
+
+analyzers: ["regex"]
+related_rules: ["sc-audit-pip-install", "sc-audit-npm-install", "sc-audit-gem-install", "sc-audit-cargo-install", "sc-audit-go-get", "sc-audit-bun-install", "sc-audit-deno-install"]
