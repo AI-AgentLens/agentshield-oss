@@ -466,6 +466,29 @@ var SSHKeyGenCases = []TestCase{
 		Description:      `gh issue create with --body-file flag. The command string does not contain authorized_keys; the file path is passed as a text payload to gh. Returns AUDIT (default) — must NOT be BLOCK (FP regression from issue #620).`,
 		Tags:             []string{"tn", "fp-regression", "gh-body-file"},
 	},
+	// --- TEXT PAYLOAD FP REGRESSIONS (issue #157) ---
+	// git commit -m short form and heredoc writes to /tmp should not be blocked
+	// when authorized_keys appears as documentation text, not as a write target.
+	{
+		ID:               "TN-SSHKEYG-006",
+		Command:          `git commit -m "docs: explain how ~/.ssh/authorized_keys backdoor works (MITRE T1098.004)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `git commit -m with authorized_keys in the commit message (documentation). Short -m flag not in exclusion — must NOT be BLOCK (FP regression from issue #157).`,
+		Tags:             []string{"tn", "fp-regression", "git-commit-m"},
+	},
+	{
+		ID:               "TN-SSHKEYG-007",
+		Command:          "cat > /tmp/issue.md << 'EOF'\nThe rule blocks writes to ~/.ssh/authorized_keys for security.\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/ssh-key-generation",
+		Analyzer:         "regex",
+		Description:      `Heredoc write to /tmp containing authorized_keys path as documentation text. The redirect target is /tmp/issue.md, not authorized_keys — must NOT be BLOCK (FP regression from issue #157).`,
+		Tags:             []string{"tn", "fp-regression", "heredoc-tmp"},
+	},
 }
 
 // ---------------------------------------------------------------------------
