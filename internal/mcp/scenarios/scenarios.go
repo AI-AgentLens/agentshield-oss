@@ -3440,6 +3440,43 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-sops-age-key-access",
 		Description:      "read_file on project docs about age — benign path containing 'age' in name (issue #74)",
 	},
+	// --- mcp-sec-block-keybase-access (issue #80) ---
+	{
+		ID:               "MCP-TP-337",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/keybase/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-keybase-access",
+		Description:      "read_file on ~/.config/keybase/config.json — Keybase session tokens (issue #80)",
+	},
+	{
+		ID:               "MCP-TP-338",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/keybase/secret_keys.mpack"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-keybase-access",
+		Description:      "read_file on ~/.config/keybase/secret_keys.mpack — Keybase encrypted private key material (issue #80)",
+	},
+	{
+		ID:               "MCP-TN-184",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/README.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-keybase-access",
+		Description:      "read_file on project README.md — benign path, not Keybase config (issue #80)",
+	},
+	{
+		ID:               "MCP-TN-185",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/keybase-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-keybase-access",
+		Description:      "read_file on project docs/keybase-setup.md — project doc mentioning keybase, not the credential dir (issue #80)",
+	},
 	// --- mcp-sec-block-age-key-txt-access (issue #79) ---
 	{
 		ID:               "MCP-TP-335",
