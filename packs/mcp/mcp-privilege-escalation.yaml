@@ -110,6 +110,8 @@ structural_rules:
     reason: "Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001."
 
   # === BLOCK: Privileged container creation ===
+  # FP fix (issue #135): Exclude documentation/taxonomy files — descriptive YAML about
+  # container security patterns is not an actual K8s manifest or Dockerfile.
   - id: mcp-privesc-block-privileged-container
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
@@ -122,6 +124,14 @@ structural_rules:
             - "(?i)hostNetwork:\\s*true"
             - "(?i)hostIPC:\\s*true"
             - "(?i)--privileged"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*[/\\\\]taxonomy[/\\\\].*"
+            - "(?i)^taxonomy[/\\\\].*"
+            - "(?i).*[/\\\\]docs[/\\\\].*"
+            - "(?i)^docs[/\\\\].*"
+            - "(?i).*\\.md$"
     decision: "BLOCK"
     reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
 

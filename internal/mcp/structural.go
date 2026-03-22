@@ -19,6 +19,12 @@ type MCPStructuralMatch struct {
 
 	// Argument field predicates — keyed by argument name (supports dot notation for nesting)
 	ArgsMatch map[string]ArgFieldMatch `yaml:"args_match,omitempty"`
+
+	// Exclusion predicates — if any specified field matches, the rule does NOT fire.
+	// If the field does not exist in the tool call, the exclusion is skipped (rule may still fire).
+	// Used to carve out known-safe contexts, e.g. exclude writes to taxonomy/ documentation files
+	// from content-pattern rules that detect K8s/Docker security misconfigs.
+	ExcludeArgsMatch map[string]ArgFieldMatch `yaml:"exclude_args_match,omitempty"`
 }
 
 // ArgFieldMatch defines match criteria for a single argument field.
@@ -78,6 +84,14 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 
 	if nameSpecified && !nameMatched {
 		return false
+	}
+
+	// Exclusion predicates — if the field exists and matches, the rule does NOT fire.
+	// Non-existent fields are skipped (exclusion only applies when the field is present).
+	for fieldName, fieldMatch := range m.ExcludeArgsMatch {
+		if matchArgField(arguments, fieldName, fieldMatch) {
+			return false
+		}
 	}
 
 	// Argument field matching — all specified fields must match
