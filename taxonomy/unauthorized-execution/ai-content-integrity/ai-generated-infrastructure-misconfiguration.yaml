@@ -1,0 +1,80 @@
+id: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Content Integrity"
+category_id: "4.3"
+name: "AI-Generated Infrastructure Misconfiguration"
+risk_level: "high"
+
+abstract: |
+  An AI coding agent generates or applies infrastructure-as-code (IaC) with
+  security misconfigurations — overly permissive IAM policies, elevated
+  container contexts, open network bindings — without human security review.
+
+explanation: |
+  AI agents tasked with infrastructure management generate Terraform, Kubernetes,
+  Helm, and CI/CD configurations that may contain security misconfigurations
+  derived from insecure training examples or overly permissive defaults.
+
+  Key risk vectors:
+
+  - **Auto-approve bypasses human gates**: terraform apply -auto-approve
+    skips the plan review step that catches accidental wide-scope changes
+    (e.g., deleting all resources, opening 0.0.0.0/0 security groups).
+
+  - **Wildcard IAM policies**: AI-generated Terraform may produce
+    Action="*" and Resource="*" IAM policies granting unrestricted
+    access — the most common LLM IaC mistake (OWASP LLM05).
+
+  - **Elevated container security contexts**: Generated Kubernetes manifests
+    may set runAsRoot, allowPrivilegeEscalation, or other elevated contexts
+    which break container isolation.
+
+  - **Unauthenticated service exposure**: Docker Compose files binding to
+    0.0.0.0 expose services on all network interfaces, including public ones.
+
+  - **Unreviewed CI/CD changes**: Modifications to .github/workflows/ or
+    .gitlab-ci.yml can inject malicious build steps, secret exfiltration,
+    or supply chain attacks into the pipeline.
+
+recommendation: |
+  - Never run terraform apply -auto-approve without a prior security scan
+    (checkov, tfsec, trivy config).
+  - Require human review for all IaC changes that modify IAM policies,
+    network security groups, or container security contexts.
+  - Integrate IaC scanning (checkov, tfsec, kube-linter) as a pre-apply gate.
+  - Use terraform plan output review before any terraform apply.
+  - Configure Kubernetes admission controllers (OPA Gatekeeper, Kyverno)
+    to enforce pod security standards.
+
+examples:
+  bad:
+    - "terraform apply -auto-approve  # skips plan review, applies blind"
+    - "kubectl apply -f deployment.yaml  # applies untested manifest"
+    - "helm upgrade --install myapp ./chart  # no dry-run, no scan"
+    - "cdk deploy '*' --require-approval never  # deploys all stacks without approval"
+  good:
+    - "checkov -d . && terraform apply  # scan before apply"
+    - "terraform plan -out=plan.tfplan && terraform show plan.tfplan  # review plan first"
+    - "kubectl dry-run=client -f deployment.yaml  # validate before applying"
+    - "helm upgrade --install myapp ./chart --dry-run  # dry-run before deploy"
+
+compliance:
+  owasp-llm-2025: ["LLM05", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.14"]
+  nist-ai-rmf-1.0: ["MAP-5", "MEASURE-2", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
+
+references:
+  mitre_attack: ["T1059", "T1578", "T1195.002"]
+  cwe: ["CWE-250", "CWE-732", "CWE-1188"]
+  external:
+    - title: "OWASP LLM05: Improper Output Handling"
+      url: "https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/"
+    - title: "Checkov — Terraform static analysis"
+      url: "https://www.checkov.io"
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules: ["ts-block-terraform-apply-auto-approve", "ts-audit-terraform-apply-no-scan", "ts-block-cdk-deploy-no-approval"]
