@@ -3402,4 +3402,42 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-safety-block-etc-write",
 		Description:      "str_replace_editor to project README — benign workspace path, not a system directory (issue #72)",
 	},
+
+	// --- mcp-sec-block-sops-age-key-access / mcp-sec-block-sops-age-config-key-access (issue #74) ---
+	{
+		ID:               "MCP-TP-328",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.age/key.txt"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-sops-age-key-access",
+		Description:      "read_file on ~/.age/key.txt — default age-keygen private key (issue #74)",
+	},
+	{
+		ID:               "MCP-TP-329",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/sops/age/keys.txt"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-sops-age-config-key-access",
+		Description:      "read_file on ~/.config/sops/age/keys.txt — SOPS age key for decrypting repo secrets (issue #74)",
+	},
+	{
+		ID:               "MCP-TP-330",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/sops/age/keys.txt", "content": "AGE-SECRET-KEY-1EVIL"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-sops-age-config-key-access",
+		Description:      "write_file to ~/.config/sops/age/keys.txt — key replacement to intercept sops decryption (issue #74)",
+	},
+	{
+		ID:               "MCP-TN-179",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/age-encryption.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-sops-age-key-access",
+		Description:      "read_file on project docs about age — benign path containing 'age' in name (issue #74)",
+	},
 }
