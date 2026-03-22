@@ -1,0 +1,56 @@
+id: "data-exfiltration/ai-data-flows/insecure-transport"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "AI Data Flows"
+category_id: "3.8"
+name: "Insecure AI Data Transport"
+risk_level: "high"
+
+abstract: |
+  AI inference traffic — including prompts, completions, embeddings, and
+  training data — transmitted over unencrypted HTTP, exposing sensitive
+  content to network interception.
+
+explanation: |
+  LLM API calls carry sensitive payloads: proprietary source code, business
+  logic, credentials embedded in prompts, and user data. When transmitted
+  over plaintext HTTP rather than HTTPS, this data is vulnerable to:
+
+  - Network interception by man-in-the-middle attackers
+  - Passive eavesdropping on shared networks (coffee shops, corporate WiFi)
+  - Logging by transparent proxies and network monitoring tools
+  - Exposure of model responses containing sensitive completions
+
+  Self-hosted or local LLM inference servers (Ollama, LocalAI, llama.cpp)
+  often default to HTTP on localhost or LAN, creating risk when bound to
+  non-loopback interfaces or accessed from untrusted networks.
+
+recommendation: |
+  - Always use HTTPS endpoints for commercial LLM APIs.
+  - Configure TLS certificates for self-hosted inference servers.
+  - Bind local inference servers to loopback only (127.0.0.1).
+  - Reject HTTP connections via SDK configuration or firewall rules.
+  - Audit AI SDK base_url parameters for http:// schemes.
+
+examples:
+  bad:
+    - "client = OpenAI(base_url='http://my-llm-server.internal/v1')"
+    - "curl http://ollama.local:11434/api/generate -d '{\"model\":\"llama2\"}'"
+    - "requests.post('http://llm-proxy.corp.com/completions', json=payload)"
+  good:
+    - "client = OpenAI(base_url='https://my-llm-server.internal/v1')"
+    - "curl https://api.openai.com/v1/completions -H 'Authorization: Bearer $KEY'"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.5.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC6.7", "CC6.1"]
+
+references:
+  mitre_attack: ["T1040", "T1557"]
+  cwe: ["CWE-319", "CWE-295"]
+
+analyzers: ["regex", "structural"]

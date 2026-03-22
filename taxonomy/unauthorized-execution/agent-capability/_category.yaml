@@ -1,0 +1,8 @@
+id: "4.9"
+name: "Agent Capability Abuse"
+kingdom_id: 4
+description: >
+  AI agents leveraging autonomous capabilities — code execution, tool invocation,
+  SDK imports — beyond their intended scope or without human oversight. Includes
+  unauthorized execution of AI-generated code, use of AI SDKs for autonomous
+  actions, and agents acquiring capabilities not sanctioned by operators.
