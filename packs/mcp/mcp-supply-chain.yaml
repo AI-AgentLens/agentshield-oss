@@ -479,3 +479,43 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001."
     confidence: 0.80
+
+  # === AUDIT: MCP package manager tool — AI-style hallucinated package name ===
+  #
+  # Some MCP servers expose dedicated package manager tools (npm_install,
+  # pip_install, install_package, etc.) that let agents install packages
+  # without shell access. LLM agents may invoke these with hallucinated package
+  # names that attackers have pre-registered with malicious code.
+  #
+  # Detection: Package manager MCP tool calls flagged when the package/name
+  # argument ends with suffixes common in hallucinated AI workflow packages:
+  # -ai, -llm, -agent, -gpt, -copilot, -unofficial, -wrapper, -adapter.
+  #
+  # Decision: AUDIT — legitimate packages can have these suffixes. Human
+  # review verifies the package name exists on the official registry.
+  #
+  # OWASP LLM09 (Supply Chain), MITRE T1195.001 — Compromise Software Dependencies
+  - id: mcp-sc-audit-package-tool-hallucinated-name
+    taxonomy: "supply-chain/dependency-confusion/llm-hallucinated-package-attack"
+    match:
+      tool_name_any:
+        - "npm_install"
+        - "pip_install"
+        - "pipx_install"
+        - "cargo_install"
+        - "cargo_add"
+        - "gem_install"
+        - "install_package"
+        - "install_dependency"
+        - "add_dependency"
+        - "add_package"
+        - "package_manager"
+        - "package_install"
+      args_match:
+        package:
+          pattern_any:
+            - "(?i)[-_](?:ai|llm|agent|gpt|copilot|unofficial|wrapper|adapter)(?:[-_][a-z0-9]+)*$"
+            - "(?i)^@[a-z0-9-]+/[a-z0-9-]*-(?:unofficial|agent|tools|sdk)$"
+    decision: "AUDIT"
+    reason: "MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001."
+    confidence: 0.80
