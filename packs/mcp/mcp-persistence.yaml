@@ -97,6 +97,45 @@ structural_rules:
     reason: "MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
 
+  # === BLOCK: Fish shell startup file writes via MCP (issue #148) ===
+  #
+  # Fish shell stores its startup configuration in XDG-compliant paths that
+  # are structurally different from classic dotfiles (.bashrc, .zshrc). An
+  # AI agent writing to these paths achieves the same persistence as injecting
+  # code into ~/.bashrc — every new fish shell session executes the payload.
+  #
+  # Covered paths:
+  #   ~/.config/fish/config.fish          — main fish startup file (equivalent to ~/.bashrc)
+  #   ~/.config/fish/conf.d/*.fish        — drop-in config snippets, all loaded at startup
+  #   ~/.config/fish/functions/*.fish     — autoloaded function files (load on first call)
+  #
+  # Fish's `conf.d/` drop-in directory is particularly dangerous: any .fish
+  # file placed there executes on every shell startup without needing to modify
+  # the main config.fish. This makes it a stealthy persistence location.
+  #
+  # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
+  - id: mcp-persist-block-fish-profile-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.config/fish/"
+    decision: "BLOCK"
+    reason: "MCP write to fish shell config directory (~/.config/fish/) — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. Covers config.fish, conf.d/ drop-ins, and autoloaded functions/. MITRE T1546.004."
+    confidence: 0.95
+
   # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
   #
   # Writing a plist file to ~/Library/LaunchAgents/ registers a persistent
