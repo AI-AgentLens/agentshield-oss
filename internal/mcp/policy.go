@@ -52,12 +52,13 @@ type ResourceMatch struct {
 
 // MCPMatch defines the conditions for an MCP rule to trigger.
 type MCPMatch struct {
-	ToolName         string              `yaml:"tool_name,omitempty"`         // exact tool name
-	ToolNameRegex    string              `yaml:"tool_name_regex,omitempty"`   // regex on tool name
-	ToolNameAny      []string            `yaml:"tool_name_any,omitempty"`     // any of these tool names
-	ArgumentPatterns map[string]string   `yaml:"argument_patterns,omitempty"` // key=arg name, value=glob pattern on arg value
-	Structural       *MCPStructuralMatch `yaml:"structural,omitempty"`        // structural match predicates
-	Semantic         *MCPSemanticMatch   `yaml:"semantic,omitempty"`          // semantic intent match predicates
+	ToolName                string              `yaml:"tool_name,omitempty"`                  // exact tool name
+	ToolNameRegex           string              `yaml:"tool_name_regex,omitempty"`            // regex on tool name
+	ToolNameAny             []string            `yaml:"tool_name_any,omitempty"`              // any of these tool names
+	ArgumentPatterns        map[string]string   `yaml:"argument_patterns,omitempty"`          // key=arg name, value=glob pattern on arg value
+	ExcludeArgumentPatterns map[string][]string `yaml:"exclude_argument_patterns,omitempty"`  // key=arg name, value=list of glob patterns to exclude (if any match, rule does NOT fire)
+	Structural              *MCPStructuralMatch `yaml:"structural,omitempty"`                 // structural match predicates
+	Semantic                *MCPSemanticMatch   `yaml:"semantic,omitempty"`                   // semantic intent match predicates
 }
 
 // ValueLimitRule enforces numeric thresholds on tool call arguments.
@@ -235,6 +236,23 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 			valStr := fmt.Sprintf("%v", argVal)
 			if !matchGlob(valStr, pattern) {
 				return false
+			}
+		}
+	}
+
+	// Exclude argument patterns — if any exclusion pattern matches, the rule does NOT fire.
+	// Used to carve out known-safe variants from broad glob patterns (e.g., .env.example from **/.env.*).
+	if len(m.ExcludeArgumentPatterns) > 0 {
+		for argName, patterns := range m.ExcludeArgumentPatterns {
+			argVal, ok := arguments[argName]
+			if !ok {
+				continue
+			}
+			valStr := fmt.Sprintf("%v", argVal)
+			for _, excludePattern := range patterns {
+				if matchGlob(valStr, excludePattern) {
+					return false
+				}
 			}
 		}
 	}
