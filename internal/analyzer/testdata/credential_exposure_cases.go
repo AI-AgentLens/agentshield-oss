@@ -3933,6 +3933,9 @@ var GCloudAuthTokenCases = []TestCase{
 }
 
 // Rule: sec-block-az-get-access-token
+// Changed from regex to structural (issue #66): regex fired on gh/echo commands
+// whose argument text contained "az account get-access-token" as a substring.
+// Structural match anchors on the actual executable so only real az invocations fire.
 var AzureGetAccessTokenCases = []TestCase{
 	// --- True Positives: az live token extraction ---
 	{
@@ -3941,7 +3944,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "Canonical az account get-access-token — dumps live Azure AD Bearer token to stdout. MITRE T1528.",
 		Tags:             []string{"tp", "canonical", "critical", "azure", "token"},
 	},
@@ -3951,7 +3954,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az account get-access-token scoped to management API — full subscription control.",
 		Tags:             []string{"tp", "azure", "token", "management-api"},
 	},
@@ -3961,7 +3964,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az account get-access-token scoped to Key Vault — unlocks secrets, certs, and keys.",
 		Tags:             []string{"tp", "azure", "token", "keyvault"},
 	},
@@ -3971,7 +3974,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az get-access-token piped to curl — complete exfiltration chain in a single command.",
 		Tags:             []string{"tp", "azure", "token", "exfiltration"},
 	},
@@ -3982,7 +3985,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az account show — displays subscription info, no token exposed.",
 		Tags:             []string{"tn", "safe", "azure"},
 	},
@@ -3992,7 +3995,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az account list — lists subscriptions, no credentials printed.",
 		Tags:             []string{"tn", "safe", "azure"},
 	},
@@ -4002,7 +4005,7 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az login — initiates interactive authentication flow, no token dumped.",
 		Tags:             []string{"tn", "safe", "azure"},
 	},
@@ -4012,9 +4015,32 @@ var AzureGetAccessTokenCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
-		Analyzer:         "regex",
+		Analyzer:         "structural",
 		Description:      "az group list — normal resource group enumeration, no token exposure.",
 		Tags:             []string{"tn", "safe", "azure"},
+	},
+	// --- False Positive regression tests (issue #66) ---
+	// These commands mention "az account get-access-token" only as text in arguments.
+	// The old regex rule fired on these; the structural rule must not.
+	{
+		ID:               "TN-AZAT-005",
+		Command:          `gh issue create --title "FP" --body "do not run: az account get-access-token"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
+		Analyzer:         "structural",
+		Description:      "gh issue create with az command text in body — executable is gh, not az. Must not be blocked.",
+		Tags:             []string{"tn", "fp-regression", "azure", "gh"},
+	},
+	{
+		ID:               "TN-AZAT-006",
+		Command:          `echo "example: az account get-access-token --resource https://vault.azure.net"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/azure-cli-token-extract",
+		Analyzer:         "structural",
+		Description:      "echo printing az command as documentation — executable is echo, not az. Must not be blocked.",
+		Tags:             []string{"tn", "fp-regression", "azure", "echo"},
 	},
 }
 
