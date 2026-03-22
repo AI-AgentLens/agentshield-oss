@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 901 |
-| MCP rules | 216 |
-| Total rules | 1117 |
-| Test cases (TP+TN) | 3129 |
+| MCP rules | 218 |
+| Total rules | 1119 |
+| Test cases (TP+TN) | 3131 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -67,7 +67,7 @@
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
 | `sec-block-gcloud-auth-token` | BLOCK | regex | gcloud auth print-access-token/print-identity-token dumps a live GCP OAuth2/OIDC token to stdout — immediate credential extraction bypassing file monitoring. config-helper dumps full credential state. MITRE T1528, OWASP LLM06. |
-| `sec-block-az-get-access-token` | BLOCK | regex | az account get-access-token dumps a live Azure AD Bearer token to stdout — grants immediate access to Azure management APIs, Key Vault, and storage. MITRE T1528, OWASP LLM06. |
+| `sec-block-az-get-access-token` | BLOCK | structural | az account get-access-token dumps a live Azure AD Bearer token to stdout — grants immediate access to Azure management APIs, Key Vault, and storage. MITRE T1528, OWASP LLM06. |
 | `sec-block-vault-read` | BLOCK | regex | vault read extracts secrets from HashiCorp Vault to stdout — can retrieve production API keys, database passwords, TLS certificates, and dynamic cloud credentials. Bypasses file-based monitoring. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-vault-kv-get` | BLOCK | regex | vault kv get extracts KV v2 secrets from HashiCorp Vault to stdout — returns the full secret map or a single field value. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-aws-imds` | BLOCK | regex | HTTP/HTTPS access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Requires URL prefix to avoid false positives on grep/cat/echo commands that reference the IP as text. Excludes commands where the URL appears as a text payload in a named flag value (e.g. gh --body, git commit -m, curl -d). |
@@ -1204,7 +1204,7 @@
 | `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 
-### unauthorized-execution (17 rules)
+### unauthorized-execution (19 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1214,9 +1214,11 @@
 | `mcp-content-audit-runbook-write` | AUDIT | mcp_rule | AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09) |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
+| `mcp-response-integrity-audit-rag-retrieval` | AUDIT | mcp_rule | RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-url-arg` | AUDIT | mcp_rule | Tool call passes an HTTP URL argument — external content will be returned as tool response, audit for injection risk (LLM01) |
 | `mcp-response-integrity-block-exfil-url` | BLOCK | mcp_rule | Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06) |
 | `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
+| `mcp-safety-block-tool-name-injection` | BLOCK | mcp_rule | Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning) |
 | `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
 | `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
 | `mcp-struct-block-prompt-injection-content` | BLOCK | structural | Prompt injection detected in content argument — attempt to manipulate LLM behavior |
@@ -1242,7 +1244,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 247 | 177 | 424 |
+| credential-exposure | 247 | 179 | 426 |
 | data-exfiltration | 253 | 154 | 407 |
 | destructive-ops | 132 | 87 | 219 |
 | governance-risk | 57 | 46 | 103 |
@@ -1251,5 +1253,5 @@
 | reconnaissance | 168 | 71 | 239 |
 | supply-chain | 209 | 141 | 350 |
 | unauthorized-execution | 312 | 213 | 525 |
-| **Total** | **1920** | **1209** | **3129** |
+| **Total** | **1920** | **1211** | **3131** |
 

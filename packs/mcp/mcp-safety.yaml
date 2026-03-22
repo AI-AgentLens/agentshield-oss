@@ -171,6 +171,21 @@ rules:
     decision: "BLOCK"
     reason: "MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata"
 
+  # === BLOCK: Tool name injection patterns (YAML-evaluatable complement to code-level detection) ===
+  # A poisoned MCP server may install tools with names that themselves contain
+  # injected instructions or dual-use keywords. Blocking calls to tools whose
+  # names match injection-pattern keywords catches attacks that slip past
+  # description scanning (e.g., tool installed before description_scanner runs).
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning
+  # References: OWASP LLM01 (Prompt Injection), MITRE T1566
+  - id: "mcp-safety-block-tool-name-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning"
+    match:
+      tool_name_regex: "(?i)(ignore[_\\-.]previous|system[_\\-.]prompt|jailbreak|override[_\\-.]instructions|bypass[_\\-.]safety|disable[_\\-.]filter|forget[_\\-.]instructions)"
+    decision: "BLOCK"
+    reason: "Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning)"
+    confidence: 0.95
+
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:
