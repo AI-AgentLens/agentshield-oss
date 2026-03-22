@@ -1852,6 +1852,26 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "safe-privesc-normal-chmod",
 		Description:      "chmod 755 on a deploy script — no SUID bit set, must be AUDIT not BLOCK",
 	},
+	// FP regression: taxonomy documentation files with descriptive container security
+	// patterns must NOT be blocked (issue #135).
+	{
+		ID:               "MCP-TN-379",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "taxonomy/privilege-escalation/container-escape/docker-privileged.yaml", "content": "description: |\n  Attacker runs a container with privileged: true to break isolation.\n  Example manifest snippet:\n    securityContext:\n      privileged: true\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-taxonomy-doc",
+		Description:      "write_file to taxonomy/ YAML describing privileged container threat — documentation, not an actual manifest; must be AUDIT not BLOCK (issue #135)",
+	},
+	{
+		ID:               "MCP-TN-380",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "docs/security/container-threats.md", "content": "## Privileged Container Escape\n\nRunning containers with `privileged: true` or `hostPID: true` bypasses isolation.\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-docs",
+		Description:      "write_file to docs/*.md describing privileged container patterns — markdown documentation, must be AUDIT not BLOCK (issue #135)",
+	},
 
 	// === MCP Reconnaissance: TP verify scenarios (issue #430) ===
 	// Filesystem enumeration — all should trigger AUDIT.
