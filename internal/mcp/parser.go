@@ -37,6 +37,8 @@ func ClassifyMessage(msg *Message) MessageKind {
 			return KindToolList
 		case MethodResourcesRead:
 			return KindResourceRead
+		case MethodSamplingCreateMessage:
+			return KindSamplingCreateMessage
 		default:
 			return KindOtherRequest
 		}
@@ -80,6 +82,22 @@ func ExtractResourceRead(msg *Message) (*ReadResourceParams, error) {
 	}
 	if params.URI == "" {
 		return nil, fmt.Errorf("resources/read params missing required field 'uri'")
+	}
+	return &params, nil
+}
+
+// ExtractSamplingMessage extracts the messages from a sampling/createMessage request.
+func ExtractSamplingMessage(msg *Message) (*SamplingCreateMessageParams, error) {
+	if msg.Method != MethodSamplingCreateMessage {
+		return nil, fmt.Errorf("not a sampling/createMessage request: method=%q", msg.Method)
+	}
+	if msg.Params == nil {
+		return nil, fmt.Errorf("sampling/createMessage request has no params")
+	}
+
+	var params SamplingCreateMessageParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return nil, fmt.Errorf("failed to parse sampling/createMessage params: %w", err)
 	}
 	return &params, nil
 }

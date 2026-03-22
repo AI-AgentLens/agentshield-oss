@@ -177,6 +177,76 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 	return false, nil
 }
 
+// HandleSamplingCreateMessage evaluates a sampling/createMessage request from an MCP server.
+// The MCP spec allows servers to request the host LLM to process arbitrary prompts — this is
+// a server-initiated prompt injection surface. All sampling requests are AUDIT-logged; those
+// containing injection, credential-harvesting, or exfiltration patterns are BLOCKED.
+// Returns (true, blockResponseJSON) if blocked.
+func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte) {
+	params, err := ExtractSamplingMessage(msg)
+	if err != nil {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract sampling/createMessage: %v\n", err)
+		return false, nil // fail open
+	}
+
+	scanResult := ScanSamplingMessages(params)
+
+	triggered := []string{"sampling-audit"}
+	var reasons []string
+	decision := "AUDIT" // all sampling requests are audited
+
+	if scanResult.Blocked {
+		decision = "BLOCK"
+		triggered = append(triggered, "sampling-content-scan")
+		for _, f := range scanResult.Findings {
+			triggered = append(triggered, "sampling:"+string(f.Signal))
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (role: "+f.Role+")")
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED sampling/createMessage (%d signals)\n",
+			len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (role: %s)\n", f.Signal, f.Detail, f.Role)
+		}
+	} else {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT sampling/createMessage (%d messages)\n",
+			len(params.Messages))
+	}
+
+	// Log the audit entry for all sampling requests
+	if h.OnAudit != nil {
+		args := map[string]interface{}{
+			"message_count": len(params.Messages),
+			"max_tokens":    params.MaxTokens,
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "sampling/createMessage",
+			Arguments:      args,
+			Decision:       decision,
+			Flagged:        decision == "BLOCK" || decision == "AUDIT",
+			TriggeredRules: triggered,
+			Reasons:        reasons,
+			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
+		})
+	}
+
+	if scanResult.Blocked {
+		reason := "Blocked by AgentShield: sampling/createMessage contains injection patterns"
+		if len(reasons) > 0 {
+			reason = reasons[0]
+		}
+		blockResp, err := NewBlockResponse(msg.ID, reason)
+		if err != nil {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] error creating block response: %v\n", err)
+			return false, nil
+		}
+		return true, blockResp
+	}
+
+	return false, nil
+}
+
 // FilterToolsListResponse checks if a response is a tools/list result.
 // If it is, scans each tool description for poisoning and removes poisoned tools.
 // Returns the modified JSON bytes, or nil if the message is not a tools/list response

@@ -190,6 +190,17 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Evaluate sampling/createMessage requests (server-initiated prompt injection surface)
+	if kind == KindSamplingCreateMessage {
+		blocked, blockResp := hp.handler.HandleSamplingCreateMessage(msg)
+		if blocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(blockResp)
+			return
+		}
+	}
+
 	// Forward the request to the upstream server
 	hp.forwardPost(w, r, body)
 }

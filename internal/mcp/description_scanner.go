@@ -141,7 +141,7 @@ var hiddenInstructionPatterns = []signalPattern{
 	{regexp.MustCompile(`<system>`), "Hidden <SYSTEM> tag in description"},
 	{regexp.MustCompile(`<instruction>`), "Hidden <INSTRUCTION> tag in description"},
 	{regexp.MustCompile(`<cmd>`), "Hidden <CMD> tag in description"},
-	{regexp.MustCompile(`ignore\s+(all\s+)?previous\s+instructions`), "Prompt injection: ignore previous instructions"},
+	{regexp.MustCompile(`(ignore|disregard|discard|forget)\s+(all\s+)?previous\s+instructions`), "Prompt injection: ignore/disregard previous instructions"},
 	{regexp.MustCompile(`ignore\s+(all\s+)?safety`), "Prompt injection: ignore safety"},
 	{regexp.MustCompile(`override\s+(all\s+)?(previous|system)`), "Prompt injection: override instructions"},
 	{regexp.MustCompile(`you\s+must\s+(first|always)\s+read`), "Coercive instruction to read files"},
@@ -164,6 +164,7 @@ var exfiltrationPatterns = []signalPattern{
 	{regexp.MustCompile(`pass\s+(it|its|the|this|that|them|their)?\s*(content|contents|data|value|result)?\s*as\b`), "Instruction to pass data as parameter"},
 	{regexp.MustCompile(`send\s+(it|the|this|all)?\s*(to|via)\b`), "Instruction to send data somewhere"},
 	{regexp.MustCompile(`(curl|wget|fetch|http|post)\s.*(attacker|evil|exfil|collect|receive)`), "Exfiltration via HTTP"},
+	{regexp.MustCompile(`\bexfiltrate\b`), "Instruction to exfiltrate data"},
 	{regexp.MustCompile(`encode\s+(it|the|this|data)?\s*(as|in|to|with)\s*(base64|hex)`), "Instruction to encode data for exfiltration"},
 	{regexp.MustCompile(`(include|embed|attach|append)\s+(it|the|this|all)?\s*(in|to|into)\s*(the\s+)?(response|output|result|argument|param)`), "Instruction to embed data in output"},
 }
