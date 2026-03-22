@@ -182,7 +182,9 @@ structural_rules:
   # Covered config files (files rarely written by agents in normal workflows):
   #   pip:         pip.conf, ~/.pip/pip.conf, ~/.config/pip/pip.conf
   #   PyPI upload: .pypirc, ~/.pypirc
-  #   yarn v1:     .yarnrc, ~/.yarnrc  (NOT .yarnrc.yml — yarn berry uses that for workspace)
+  #   yarn v1:     .yarnrc, ~/.yarnrc
+  #   yarn v2/berry: .yarnrc.yml (npmRegistryServer redirects all installs)
+  #   pnpm hook:   .pnpmfile.cjs (executes arbitrary JS on every pnpm install)
   #   conda:       .condarc, ~/.condarc
   #   Maven:       ~/.m2/settings.xml
   #   Gradle:      ~/.gradle/gradle.properties
@@ -225,6 +227,10 @@ structural_rules:
             - "(?:^|/)\\.pypirc$"
             # yarn v1 (project and user-level)
             - "(?:^|/)\\.yarnrc$"
+            # yarn v2/berry — npmRegistryServer redirects all installs
+            - "(?:^|/)\\.yarnrc\\.yml$"
+            # pnpm lifecycle hook — executes arbitrary JS on every pnpm install
+            - "(?:^|/)\\.pnpmfile\\.cjs$"
             # conda channel/registry config
             - "(?:^|/)\\.condarc$"
             # Maven repository settings (user-level)

