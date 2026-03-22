@@ -1,0 +1,7 @@
+id: "2.25"
+name: "Credential Store"
+kingdom_id: 2
+description: >
+  Commands that access local credential vault stores and password manager local
+  databases. These stores contain aggregated secrets for many services, making
+  them extremely high-value targets for credential harvesting attacks.

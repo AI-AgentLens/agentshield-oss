@@ -1,0 +1,61 @@
+id: "credential-exposure/database-credentials/dbt-profile-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Database Credentials"
+category_id: "2.26"
+name: "dbt Profile Access"
+risk_level: "high"
+
+abstract: |
+  Access to ~/.dbt/profiles.yml exposes database connection credentials used by
+  dbt (data build tool), including warehouse hostnames, usernames, passwords,
+  and service account keys for data warehouse platforms such as Snowflake,
+  BigQuery, Redshift, and Postgres.
+
+explanation: |
+  dbt stores all data warehouse connection profiles in a single YAML file:
+  `~/.dbt/profiles.yml`
+
+  This file contains:
+  - Data warehouse hostnames and ports
+  - Authentication credentials (username/password, API keys, service account JSON inline)
+  - Schema and database names
+  - Connection parameters for multiple environments (dev, staging, production)
+
+  Since dbt is typically run against production data warehouses, the credentials in
+  profiles.yml often grant read/write access to production schemas. A compromised
+  profiles.yml allows an attacker to directly query or modify all tables accessible
+  to the dbt service account, which frequently includes the entire data warehouse.
+
+  dbt profiles are especially sensitive because data engineering workflows often
+  require broad SELECT permissions on production data to enable analytics, making
+  the credentials inherently high-privilege.
+
+recommendation: |
+  - Block read access to `~/.dbt/profiles.yml`.
+  - Use environment variable substitution in profiles.yml rather than hardcoded credentials.
+  - Prefer OAuth or SSO-based warehouse authentication over username/password credentials.
+  - Scope dbt service accounts to the minimum required schemas and operations.
+
+examples:
+  bad:
+    - "cat ~/.dbt/profiles.yml"
+    - "python -c \"import yaml; print(yaml.safe_load(open('/root/.dbt/profiles.yml')))\""
+  good:
+    - "dbt debug"
+    - "dbt ls --profiles-dir /workspace"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552", "T1552.001"]
+  cwe: ["CWE-522", "CWE-312"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

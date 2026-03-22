@@ -1,0 +1,8 @@
+id: "2.24"
+name: "API Keys"
+kingdom_id: 2
+description: >
+  Commands that access API keys and tokens for third-party services (AI platforms,
+  data platforms, security tools) stored in well-known configuration files and
+  directories. Exposure enables unauthorized API usage, service impersonation,
+  and data exfiltration at scale.
