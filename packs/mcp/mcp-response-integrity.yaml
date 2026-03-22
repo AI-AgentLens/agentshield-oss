@@ -53,6 +53,32 @@ rules:
     decision: "AUDIT"
     reason: "Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05)"
 
+  # === AUDIT: RAG / knowledge-retrieval tool calls ===
+  # Retrieval-augmented generation tools return document content from potentially
+  # untrusted corpora. A poisoned document in the knowledge base becomes an indirect
+  # prompt injection vector (OWASP LLM01 indirect injection, MITRE T1659).
+  # Agents treat retrieved context as trusted; poisoned chunks can redirect behaviour,
+  # exfiltrate data, or escalate privileges by injecting instructions into the context window.
+  - id: mcp-response-integrity-audit-rag-retrieval
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+    match:
+      tool_name_any:
+        - "search_documents"
+        - "retrieve_documents"
+        - "query_knowledge_base"
+        - "search_knowledge_base"
+        - "get_context"
+        - "retrieve_context"
+        - "vector_search"
+        - "semantic_search"
+        - "similarity_search"
+        - "knowledge_search"
+        - "rag_query"
+        - "retrieve_chunks"
+    decision: "AUDIT"
+    reason: "RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning)"
+    confidence: 0.85
+
   # === AUDIT: MCP tool calls with explicit URL arguments (any tool fetching URLs) ===
   - id: mcp-response-integrity-audit-url-arg
     taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
