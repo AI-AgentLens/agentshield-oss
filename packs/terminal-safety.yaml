@@ -4196,6 +4196,7 @@ rules:
     taxonomy: "persistence-evasion/shell-init/function-shadowing"
     match:
       command_regex: "\\(\\s*\\)\\s*\\{[^}]*(curl|wget|nc|ncat|/dev/tcp|base64|xxd)[^}]*\\}"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|//\\s*ruleid:|#\\s*ruleid:|>\\s*\\S+\\.(ts|js|tsx|jsx|mjs|cjs|py)\\b"
     decision: "BLOCK"
     confidence: 0.90
     reason: "Function definition containing network exfiltration or encoding commands in its body — regardless of function name, embedding curl/wget/nc in a function body is a strong signal of credential interception or data exfiltration. MITRE T1041."
