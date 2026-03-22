@@ -1719,6 +1719,63 @@ rules:
     confidence: 0.95
     reason: "cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
 
+  # === BLOCK/AUDIT: AI-generated IaC misconfiguration — apply without review (issue #134) ===
+  #
+  # AI agents applying infrastructure changes without human security review introduce
+  # misconfigurations from training data patterns (wildcard IAM, open bindings).
+  #
+  # -auto-approve / --require-approval never: skip ALL human review gates. BLOCK.
+  # Plain terraform apply (no scan prefix): flag for review. AUDIT.
+  # helm install/upgrade, cdk deploy: flag for review. AUDIT.
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration
+  # OWASP: LLM05, LLM06 | MITRE: T1578, T1195.002 | CWE: CWE-250, CWE-732
+
+  # --- BLOCK: terraform/tofu/terragrunt apply -auto-approve (skips plan review) ---
+  # terraform apply -auto-approve skips the human review of the plan output and
+  # applies all changes immediately. AI agents must never bypass this review gate.
+  - id: "ts-block-terraform-apply-auto-approve"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
+    match:
+      command_regex: "\\b(terraform|tofu|terragrunt)\\s+(run-all\\s+)?apply\\b.*--?auto[-_]?approve\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578)"
+
+  # --- BLOCK: CDK deploy --require-approval never (skips all approval gates) ---
+  # cdk deploy --require-approval never bypasses the CDK approval prompt for
+  # security-sensitive changes (broadening IAM policies, adding security group rules).
+  - id: "ts-block-cdk-deploy-no-approval"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
+    match:
+      command_regex: "\\bcdk\\s+deploy\\b.*--require-approval\\s+never\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578)"
+
+  # --- AUDIT: terraform apply without prior scan (no checkov/tfsec/trivy in compound cmd) ---
+  # terraform apply without a preceding security scan may apply AI-generated
+  # misconfigurations (wildcard IAM, open 0.0.0.0/0 rules). Flag for review.
+  # TN: checkov -d . && terraform apply — scan present, no flag.
+  - id: "ts-audit-terraform-apply-no-scan"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
+    match:
+      command_regex: "(?<!checkov[^;\\n]{0,200})(?<!tfsec[^;\\n]{0,200})(?<!trivy[^;\\n]{0,200})\\bterraform\\s+apply\\b(?!.*-auto-approve)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578)"
+
+  # --- AUDIT: helm install / upgrade (applies unreviewed Kubernetes resources) ---
+  # helm install/upgrade deploys Kubernetes resources from a chart. AI-generated
+  # values may enable elevated security contexts or expose services broadly.
+  - id: "ts-audit-helm-install-upgrade"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
+    match:
+      command_regex: "\\bhelm\\s+(install|upgrade)\\b(?!.*--dry-run)"
+    decision: "AUDIT"
+    confidence: 0.72
+    reason: "helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578)"
+
   # === AUDIT: Cloud over-provisioning / uncontrolled resource commitment (issue #507) ===
   #
   # AI agents asked to "scale up the infrastructure", "create a load test environment",
