@@ -1,0 +1,8 @@
+id: "2.29"
+name: "Specialized Credential Access"
+kingdom_id: 2
+description: >
+  Access to credentials stored in specialized tooling and development environments
+  such as Jupyter notebooks, data science platforms, and interactive computing
+  environments. These credentials are often overlooked in standard security
+  audits but provide access to cloud services, databases, and APIs.

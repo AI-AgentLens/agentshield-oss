@@ -1,0 +1,60 @@
+id: "unauthorized-execution/agentic-attacks/tool-argument-injection"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "Tool Argument Injection"
+risk_level: "high"
+
+abstract: |
+  Malicious content in tool call arguments — injected through untrusted data
+  sources, prompt injection, or adversarial inputs — causing an AI agent to
+  execute unintended operations via its tool invocations.
+
+explanation: |
+  AI agents invoke tools (file read/write, shell execution, API calls) by
+  constructing argument dictionaries from LLM output. When the LLM processes
+  untrusted input (user content, web pages, documents) and includes that
+  content in tool arguments, attackers can:
+
+  - Inject shell metacharacters into file path arguments to achieve path traversal
+  - Embed command sequences in string arguments passed to shell-executing tools
+  - Manipulate URL arguments in HTTP tools to redirect to attacker infrastructure
+  - Inject SQL or code fragments into query arguments of database or eval tools
+  - Use argument injection to bypass allowlist checks in tool validation logic
+
+  Unlike direct prompt injection (which changes the agent's instructions),
+  argument injection targets the specific parameters of tool calls, often
+  bypassing security checks that focus on the prompt layer.
+
+recommendation: |
+  - Validate and sanitize all tool arguments before execution.
+  - Use structured argument schemas with strict type validation.
+  - Apply path canonicalization before file system tool arguments.
+  - Treat all user-derived content in tool arguments as untrusted input.
+  - Implement tool-level argument allowlists where feasible.
+  - Log all tool calls with full argument context for audit.
+
+examples:
+  bad:
+    - "tool.read_file({'path': user_input})  # path traversal: '../../etc/shadow'"
+    - "tool.execute({'command': f'process {document_content}'})  # command injection"
+    - "tool.http_request({'url': llm_suggested_url})  # SSRF via argument injection"
+  good:
+    - "safe_path = os.path.realpath(os.path.join(BASE_DIR, user_input))"
+    - "assert safe_path.startswith(BASE_DIR)  # prevent traversal"
+    - "tool.read_file({'path': safe_path})"
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM02"]
+  iso-27001-2022: ["A.8.25", "A.8.28"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC8.1", "CC6.1"]
+
+references:
+  mitre_attack: ["T1059", "T1190"]
+  cwe: ["CWE-74", "CWE-88", "CWE-22"]
+
+analyzers: ["semantic", "structural"]

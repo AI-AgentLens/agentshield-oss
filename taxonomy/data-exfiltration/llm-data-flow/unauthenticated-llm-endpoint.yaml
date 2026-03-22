@@ -1,0 +1,56 @@
+id: "data-exfiltration/llm-data-flow/unauthenticated-llm-endpoint"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "Unauthenticated LLM Inference Endpoint"
+risk_level: "high"
+
+abstract: |
+  LLM inference servers (Ollama, llama.cpp, LocalAI, vLLM) bound to
+  non-loopback network interfaces without authentication, exposing the
+  inference API — and any data sent to it — to unauthorized access.
+
+explanation: |
+  Self-hosted LLM inference servers often default to permissive binding
+  configurations. When bound to 0.0.0.0 or a LAN interface without
+  authentication middleware, any host on the network can:
+
+  - Submit arbitrary prompts to the model at no cost to the attacker
+  - Access the model's API to extract information about internal systems
+  - Exfiltrate data by querying the model about its system prompt or prior context
+  - Abuse the inference server for compute-intensive operations (crypto, brute force)
+  - Potentially access model weights or inference cache depending on implementation
+
+  This is especially dangerous in cloud environments where misconfigured
+  security groups expose the inference port to the internet.
+
+recommendation: |
+  - Bind inference servers to 127.0.0.1 only unless remote access is required.
+  - If remote access is needed, place behind an authenticating reverse proxy.
+  - Implement API key authentication on all inference endpoints.
+  - Use network-level controls (firewall, security groups) to restrict access.
+  - Audit publicly accessible ports with `ss -tlnp` or cloud security scanners.
+
+examples:
+  bad:
+    - "ollama serve --host 0.0.0.0:11434  # publicly accessible"
+    - "python -m llama_cpp.server --host 0.0.0.0 --port 8080"
+    - "docker run -p 0.0.0.0:11434:11434 ollama/ollama"
+  good:
+    - "ollama serve  # defaults to 127.0.0.1:11434"
+    - "python -m llama_cpp.server --host 127.0.0.1 --port 8080"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.20", "A.5.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-1", "MANAGE-2"]
+  soc2-type2: ["CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1133", "T1190"]
+  cwe: ["CWE-306", "CWE-668"]
+
+analyzers: ["regex", "structural"]

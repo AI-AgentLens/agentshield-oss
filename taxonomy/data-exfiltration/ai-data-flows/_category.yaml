@@ -1,0 +1,9 @@
+id: "3.8"
+name: "AI Data Flows"
+kingdom_id: 3
+description: >
+  Data flows where AI systems — including LLM API calls, agent pipelines, and
+  AI SDK integrations — transmit or expose sensitive information (credentials,
+  PII, private data) through insecure channels or without adequate controls.
+  Covers credential leakage via AI APIs, PII disclosure to external models,
+  and unencrypted AI inference traffic.
