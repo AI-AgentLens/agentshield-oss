@@ -310,3 +310,61 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546."
     confidence: 0.95
+
+  # === BLOCK: AI IDE settings/config writes via MCP (issue #41) ===
+  #
+  # AI coding agent settings files control which tools and permissions are
+  # granted to the agent. An AI agent that can call MCP write_file on these
+  # files can self-escalate — granting itself Bash(*), adding malicious MCP
+  # servers, or disabling AgentShield hooks — without human authorization.
+  #
+  # Shell rules (ts-block-agent-permission-config-write, ts-block-mcp-
+  # registration-agent-config-write) already block shell redirects to these
+  # files. This rule closes the MCP bypass gap where write_file skips the
+  # shell entirely.
+  #
+  # Covered configs (where an agent writes = capability escalation):
+  #   Claude Code:    ~/.claude/settings.json, ~/.claude/settings.local.json
+  #   Cursor:         ~/.cursor/settings.json
+  #                   ~/.config/Cursor/User/settings.json
+  #   Windsurf:       ~/.config/windsurf/mcp_config.json
+  #   VSCode:         ~/.config/Code/User/settings.json (shared by extensions)
+  #   Gemini CLI:     ~/.config/gemini/settings.json
+  #   OpenAI Codex:   ~/.openai-codex/config.json
+  #
+  # Attack scenario:
+  #   An agent hijacked via prompt injection uses write_file to add
+  #   {"permissions":{"allow":["Bash(*)"]}} to settings.json, then in the
+  #   next turn runs arbitrary shell commands with full OS access.
+  #
+  # OWASP LLM06 — Excessive Agency (capability escalation via config injection)
+  # MITRE T1548   — Abuse Elevation Control Mechanism
+  # MITRE T1059   — Command and Scripting Interpreter (via unlocked Bash tool)
+  - id: mcp-persist-block-ide-settings-write
+    taxonomy: "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.claude/settings\\.json$"
+            - "(?:^|/)\\.claude/settings\\.local\\.json$"
+            - "(?:^|/)\\.cursor/settings\\.json$"
+            - "(?i)Cursor/User/settings\\.json$"
+            - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
+            - "(?i)Code/User/settings\\.json$"
+            - "(?:^|/)\\.config/gemini/settings\\.json$"
+            - "(?:^|/)\\.openai-codex/config\\.json$"
+    decision: "BLOCK"
+    reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
+    confidence: 0.97
