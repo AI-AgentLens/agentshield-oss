@@ -3698,4 +3698,43 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-confluent-credentials-read",
 		Description:      "read_file on project Kafka producer config — not credential dir (issue #84)",
 	},
+	// --- mcp-privesc-block-sudoers-read / mcp-privesc-block-sudoersd-read (issue #94) ---
+	// TPs: /etc/sudoers and sudoers.d/* reads must be blocked
+	{
+		ID:               "MCP-TP-361",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/etc/sudoers"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-privesc-block-sudoers-read",
+		Description:      "read_file on /etc/sudoers — reveals all sudo-enabled accounts and NOPASSWD entries, must be BLOCK (issue #94)",
+	},
+	{
+		ID:               "MCP-TP-362",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/etc/sudoers.d/admin"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-privesc-block-sudoersd-read",
+		Description:      "cat_file on /etc/sudoers.d/admin — sudoers drop-in file reveals privileged accounts and NOPASSWD grants, must be BLOCK (issue #94)",
+	},
+	// TNs: non-sudoers /etc files must NOT be blocked by sudoers rule
+	{
+		ID:               "MCP-TN-196",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/etc/hosts"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-privesc-block-sudoers-read",
+		Description:      "read_file on /etc/hosts — hostname resolution file, benign, must not trigger sudoers block (issue #94)",
+	},
+	{
+		ID:               "MCP-TN-197",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/sudoers-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-privesc-block-sudoers-read",
+		Description:      "read_file on project docs mentioning sudoers — benign documentation file, must not block (issue #94)",
+	},
 }
