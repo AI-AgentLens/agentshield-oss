@@ -605,3 +605,49 @@ semantic_rules:
       confidence_min: 0.7
     decision: "BLOCK"
     reason: "MCP tool classified as process management"
+
+  # === AUDIT: Adversarial compliance handshake in MCP tool arguments ===
+  #
+  # Jailbroken LLMs often preface responses with affirmative compliance phrases
+  # ("Sure, here is...", "Absolutely, I'll...") before executing attacker-
+  # instructed operations. When these signatures appear inside MCP tool content
+  # or text arguments, a jailbroken model may be passing attacker-generated
+  # content through MCP tooling.
+  #
+  # This is the MCP companion to the terminal rule ts-block-jailbreak-compliance-prefix.
+  # Decision: AUDIT — detection is probabilistic; phrases appear in benign
+  # assistant content too. Human review confirms whether the payload is malicious.
+  #
+  # Reference: Zou et al. 2023 (GCG attack), AutoDAN (2023)
+  # OWASP LLM01 (Prompt Injection), LLM05 (Improper Output Handling)
+  - id: mcp-safety-audit-jailbreak-compliance-content
+    taxonomy: "unauthorized-execution/agentic-attacks/adversarial-suffix-jailbreak"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)\\bsure[,!]?\\s+here(?:'s|\\s+is|\\s+are)\\b"
+            - "(?i)\\babsolutely[,!]?\\s+(?:i(?:'ll|\\s+will)|here)\\b"
+            - "(?i)\\bof\\s+course[,!]?\\s+(?:i(?:'ll|\\s+will)|here)\\b"
+            - "(?i)\\bcertainly[,!]?\\s+(?:i(?:'ll|\\s+will)|here|below)\\b"
+            - "(?i)\\bhappy\\s+to\\s+help[,!]?\\s+here\\b"
+    decision: "AUDIT"
+    reason: "Compliance handshake phrase in MCP tool content argument — characteristic output signature of a jailbroken LLM (GCG/AutoDAN adversarial suffix attack). The affirmative preamble indicates the model was manipulated into complying with a harmful instruction. OWASP LLM01, LLM05."
+    confidence: 0.75
+
+  - id: mcp-safety-audit-jailbreak-compliance-text
+    taxonomy: "unauthorized-execution/agentic-attacks/adversarial-suffix-jailbreak"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        text:
+          pattern_any:
+            - "(?i)\\bsure[,!]?\\s+here(?:'s|\\s+is|\\s+are)\\b"
+            - "(?i)\\babsolutely[,!]?\\s+(?:i(?:'ll|\\s+will)|here)\\b"
+            - "(?i)\\bof\\s+course[,!]?\\s+(?:i(?:'ll|\\s+will)|here)\\b"
+            - "(?i)\\bcertainly[,!]?\\s+(?:i(?:'ll|\\s+will)|here|below)\\b"
+            - "(?i)\\bhappy\\s+to\\s+help[,!]?\\s+here\\b"
+    decision: "AUDIT"
+    reason: "Compliance handshake phrase in MCP tool text argument — characteristic output signature of a jailbroken LLM passing attacker-generated content through MCP tooling. OWASP LLM01, LLM05."
+    confidence: 0.75
