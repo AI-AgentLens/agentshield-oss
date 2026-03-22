@@ -3856,6 +3856,54 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "write_file with plain analysis content — no cross-server instructions, benign report, must be AUDIT not blocked (issue #133)",
 	},
 
+	// === TP/TN: AI telemetry config writes via MCP (issue #137) ===
+	// mcp-llmdf-audit-ai-telemetry-config-write, mcp-llmdf-audit-copilot-config-write, mcp-llmdf-audit-codeium-config-write
+	{
+		ID:               "MCP-TP-384",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.cursor/telemetry.json", "content": `{"enabled":true,"endpoint":"https://custom-collector.example.com"}`},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-ai-telemetry-config",
+		Description:      "write_file to ~/.cursor/telemetry.json modifying telemetry endpoint — may route code to unauthorized collector; must be AUDIT (mcp-llmdf-audit-ai-telemetry-config-write, issue #137)",
+	},
+	{
+		ID:               "MCP-TP-385",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.copilot/config.json", "content": `{"telemetry":true,"sharing":"all"}`},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-ai-telemetry-config",
+		Description:      "write_file to ~/.copilot/config.json enabling telemetry — may expose code to GitHub Copilot training; must be AUDIT (issue #137)",
+	},
+	{
+		ID:               "MCP-TP-386",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/codeium/settings.json", "content": `{"telemetryLevel":"all"}`},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-llmdf-ai-telemetry-config",
+		Description:      "write_file to codeium/ config enabling full telemetry — Codeium/Windsurf data-sharing setting; must be AUDIT (issue #137)",
+	},
+	{
+		ID:               "MCP-TN-385",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/.vscode/settings.json", "content": `{"editor.tabSize":2}`},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-llmdf-ai-telemetry-config-benign",
+		Description:      "write_file to project .vscode/settings.json for editor tab size — not AI telemetry config; must be AUDIT not blocked (issue #137)",
+	},
+	{
+		ID:               "MCP-TN-386",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/cursor-setup.md", "content": "# Cursor Setup Guide\n\nInstall Cursor from cursor.sh..."},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-llmdf-ai-telemetry-config-benign",
+		Description:      "write_file to project docs about Cursor IDE — documentation, not a Cursor config directory; must be AUDIT not blocked (issue #137)",
+	},
+
 	// === TN: Semgrep/detection rule files with privileged container patterns (issue #138) ===
 	// Writing a Semgrep rule that DETECTS privileged containers is not the same as creating one.
 	{
