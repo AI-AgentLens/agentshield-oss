@@ -177,7 +177,7 @@ rules:
             - open_file
             - view_file
         argument_patterns:
-            path: '**/.mozilla/firefox'
+            path: '**/.mozilla/firefox/**'
       decision: BLOCK
       reason: '[MCP] Access to Firefox credential database files is blocked (MITRE T1555.003).'
     - id: mcp-gen-sec-audit-ai-cred-files
