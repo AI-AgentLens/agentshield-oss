@@ -1747,3 +1747,40 @@ rules:
     decision: "AUDIT"
     confidence: 0.88
     reason: "IDE extension installation by AI agent — extensions run with full IDE privileges and persist permanently. Typosquatted or manipulated extensions are a supply chain risk. Human review required. MITRE T1195.001, T1176."
+
+  # === AUDIT: AI-generated code backdoor patterns (issue #102) ===
+  #
+  # Compromised or adversarially fine-tuned code generation models produce inline
+  # Python/shell code with subtle vulnerability patterns. When AI agents execute
+  # these patterns as one-liners, the vulnerability manifests immediately.
+  #
+  # Taxonomy: supply-chain/model-poisoning/ai-generated-code-backdoor
+  # OWASP: LLM03, LLM04, LLM05 | CWE: CWE-327, CWE-89, CWE-78
+
+  # --- AUDIT: Python inline weak password hash (MD5/SHA1 used for auth) ---
+  # python -c "import hashlib; hashlib.md5(password.encode()).hexdigest()"
+  # MD5/SHA1 are acceptable for checksums but never for password storage.
+  # Inline execution means the vulnerable code runs immediately without review.
+  - id: "sc-audit-python-inline-weak-hash"
+    taxonomy: "supply-chain/model-poisoning/ai-generated-code-backdoor"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*\\bhashlib\\.(md5|sha1|sha)\\s*\\("
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Python inline code using hashlib.md5/sha1 — weak hashing algorithms are insecure for password storage. AI-generated code frequently uses MD5/SHA1 from training examples. Use bcrypt, argon2, or scrypt for passwords. (OWASP LLM05, CWE-327)"
+
+  # --- AUDIT: Python inline SQL string concatenation (injection pattern) ---
+  # python -c "cursor.execute(f'SELECT * FROM users WHERE id={user_id}')"
+  # String-formatted SQL queries are a canonical injection vulnerability.
+  # LLMs trained on legacy code reproduce this pattern frequently.
+  - id: "sc-audit-python-inline-sql-injection"
+    taxonomy: "supply-chain/model-poisoning/ai-generated-code-backdoor"
+    match:
+      command_regex: "python[23]?\\s+.*-c\\s+.*\\.execute\\s*\\(\\s*[\"']\\s*SELECT.*%s|python[23]?\\s+.*-c\\s+.*\\.execute\\s*\\(\\s*f[\"']SELECT|python[23]?\\s+.*-c\\s+.*\\.execute\\s*\\(\\s*\"SELECT.*%.*%"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Python inline SQL with string formatting (f-string or % operator) — classic SQL injection pattern from AI-generated code. Use parameterized queries: cursor.execute('SELECT ... WHERE id=%s', (id,)). (OWASP LLM05, CWE-89)"
+
+  # Note: Python inline subprocess.call/run/Popen is already covered by
+  # ts-block-python-inline-os-exec (terminal-safety.yaml, decision: BLOCK).
+  # No additional rule needed here for subprocess shell injection.

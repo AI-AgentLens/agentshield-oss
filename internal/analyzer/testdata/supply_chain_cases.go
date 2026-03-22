@@ -4441,4 +4441,59 @@ var ContainerTrustBypassCases = []TestCase{
 		Description:      "npm install 'express' — well-known, verified npm package. Still AUDIT (not BLOCK) — all npm installs get audit gate. Must NOT be BLOCK.",
 		Tags:             []string{"tn", "safe", "npm", "known-good"},
 	},
+
+	// ── AI-Generated Code Backdoor (issue #102) ─────────────────────────────────
+
+	{
+		ID:               "TP-SC-WEAK-HASH-001",
+		Command:          `python3 -c "import hashlib; print(hashlib.md5(password.encode()).hexdigest())"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/ai-generated-code-backdoor",
+		Analyzer:         "regex",
+		Description:      "Python inline hashlib.md5 — weak hash for authentication; sc-audit-python-inline-weak-hash must AUDIT.",
+		Tags:             []string{"tp", "crypto", "python"},
+	},
+	{
+		ID:               "TP-SC-WEAK-HASH-002",
+		Command:          `python -c "import hashlib; h = hashlib.sha1(secret.encode()); return h.hexdigest()"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/ai-generated-code-backdoor",
+		Analyzer:         "regex",
+		Description:      "Python inline hashlib.sha1 — SHA1 is broken for password hashing; sc-audit-python-inline-weak-hash must AUDIT.",
+		Tags:             []string{"tp", "crypto", "python"},
+	},
+	// subprocess.call in Python inline is already BLOCKed by ts-block-python-inline-os-exec.
+	// The AI-code-backdoor taxonomy covers this via that existing rule.
+	{
+		ID:               "TP-SC-SUBPROCESS-SHELL-001",
+		Command:          `python3 -c "import subprocess; subprocess.call(user_cmd, shell=True)"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/model-poisoning/ai-generated-code-backdoor",
+		Analyzer:         "regex",
+		Description:      "Python inline subprocess.call — ts-block-python-inline-os-exec fires BLOCK (covers subprocess injection pattern).",
+		Tags:             []string{"tp", "injection", "python"},
+	},
+	{
+		ID:               "TN-SC-WEAK-HASH-001",
+		Command:          `python3 -c "import bcrypt; bcrypt.hashpw(password, bcrypt.gensalt())"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/ai-generated-code-backdoor",
+		Analyzer:         "regex",
+		Description:      "Python inline bcrypt — strong password hash, sc-audit-python-inline-weak-hash must not fire.",
+		Tags:             []string{"tn", "safe", "crypto", "python"},
+	},
+	{
+		ID:               "TN-SC-SUBPROCESS-SHELL-001",
+		Command:          `python3 -c "import hashlib; print(hashlib.sha256(data).hexdigest())"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/ai-generated-code-backdoor",
+		Analyzer:         "regex",
+		Description:      "Python inline hashlib.sha256 — strong hash for checksums (not password), sc-audit-python-inline-weak-hash must not fire.",
+		Tags:             []string{"tn", "safe", "python", "crypto"},
+	},
 }
