@@ -959,4 +959,33 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Reading a Jupyter notebook file in project — not a credential or kernel connection file",
 	},
+	// TP: RubyGems credential file access (issue #37)
+	{
+		ID:               "MCP-TP-273",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.gem/credentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP read of ~/.gem/credentials — contains RubyGems registry API keys, must be blocked",
+	},
+	{
+		ID:               "MCP-TP-274",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/root/.gem/credentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP cat_file of root's ~/.gem/credentials — RubyGems token exfiltration, must be blocked",
+	},
+	// TN: benign gem-related project files
+	{
+		ID:               "MCP-TN-145",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/Gemfile"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading project Gemfile — not ~/.gem/credentials",
+	},
 }
