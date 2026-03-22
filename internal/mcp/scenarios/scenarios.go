@@ -3608,6 +3608,39 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-claude-dot-apikey-read",
 		Description:      "read_file on project docs about Claude API — benign doc, must not block (issue #90)",
 	},
+	// --- mcp-sec-block-ssh-private-key-read / mcp-sec-block-ssh-access split (issue #91) ---
+	// TPs: private keys must still be blocked
+	{
+		ID:               "MCP-TP-358",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ssh/id_ed25519"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-ssh-ed25519-key-read",
+		Description:      "read_file on ~/.ssh/id_ed25519 — Ed25519 private key, must be blocked (issue #91)",
+	},
+	{
+		ID:               "MCP-TP-359",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ssh/id_rsa.pub", "content": "ssh-rsa AAAA..."},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-ssh-access",
+		Description:      "write_file to ~/.ssh/id_rsa.pub — all writes to .ssh/ are blocked regardless of filename (issue #91)",
+	},
+	{
+		ID:               "MCP-TP-360",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ssh/config"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-ssh-config-read",
+		Description:      "read_file on ~/.ssh/config — reveals server hostnames and usernames, must be blocked (issue #91)",
+	},
+	// NOTE: ~/.ssh/id_rsa.pub and ~/.ssh/known_hosts reads remain BLOCKED by the
+	// structural rule (mcp-struct-block-credential-path-access). Full separation of
+	// public key reads from private key reads requires a write-only structural rule,
+	// which is a larger refactor tracked separately.
 	// --- mcp-sec-block-databricks-credentials-read (issue #84) ---
 	{
 		ID:               "MCP-TP-346",
