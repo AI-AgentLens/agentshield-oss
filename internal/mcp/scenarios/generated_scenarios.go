@@ -1100,4 +1100,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Reading docs about terraform state — documentation file, not a .tfstate file",
 	},
+	// TP: ~/.terraformrc access (issue #51)
+	{
+		ID:               "MCP-TP-298",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.terraformrc"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP read of ~/.terraformrc — contains Terraform Cloud API tokens under credentials block, must be blocked",
+	},
+	{
+		ID:               "MCP-TP-299",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.terraformrc"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP write to ~/.terraformrc — can hijack Terraform Cloud auth by redirecting registry credentials, must be blocked",
+	},
+	// TN: ~/.terraformrc related benign paths (issue #51)
+	{
+		ID:               "MCP-TN-160",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/terraformrc-example"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading a project file named 'terraformrc-example' — not the ~/.terraformrc credentials file",
+	},
+	{
+		ID:               "MCP-TN-161",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/terraform-config.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading Terraform config documentation — not the ~/.terraformrc credentials file",
+	},
 }
