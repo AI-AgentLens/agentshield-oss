@@ -87,6 +87,10 @@ structural_rules:
         - "get_webpage"
         - "http_get"
         - "http_request"
+        - "http_post"
+        - "post_request"
+        - "make_request"
+        - "network_request"
         - "web_fetch"
         - "scrape_url"
         - "browser_navigate"
@@ -104,6 +108,42 @@ structural_rules:
     decision: "BLOCK"
     reason: "Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659)"
     confidence: 0.95
+
+  # === BLOCK: Webhook exfiltration via Discord/Slack/Teams/Pipedream ===
+  # Discord and Slack webhook endpoints are a primary exfiltration channel:
+  # an attacker-controlled agent receives instructions to POST data to a
+  # webhook URL it monitors. AI agents have no legitimate reason to call
+  # these webhook APIs — they are chat integrations, not development APIs.
+  # MITRE T1567.002 — Exfiltration Over Web Service: Social Media.
+  - id: mcp-response-integrity-struct-block-webhook-exfil
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "http_get"
+        - "http_request"
+        - "http_post"
+        - "post_request"
+        - "make_request"
+        - "network_request"
+        - "web_fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "scrape_url"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)discord\\.com/api/webhooks/"
+            - "(?i)discord\\.gg/"
+            - "(?i)hooks\\.slack\\.com/services/"
+            - "(?i)hooks\\.slack\\.com/workflows/"
+            - "(?i)outlook\\.office\\.com/webhook"
+            - "(?i)graph\\.microsoft\\.com.*(?:sendMail|chat/messages)"
+            - "(?i)pipedream\\.net/"
+            - "(?i)api\\.telegram\\.org/bot"
+    decision: "BLOCK"
+    reason: "MCP network tool targeting a chat/webhook service — Discord, Slack, Teams, Telegram, and Pipedream webhooks are primary exfiltration channels for AI agents. MITRE T1567.002."
+    confidence: 0.93
 
   # === AUDIT: Fetch with data/credential query parameters ===
   - id: mcp-response-integrity-struct-audit-credential-url
