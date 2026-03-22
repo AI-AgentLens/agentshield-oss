@@ -3224,4 +3224,64 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-system-file-delete",
 		Description:      "remove_file of a user-space build artifact — valid operation, should audit not block",
 	},
+
+	// ---------------------------------------------------------------------------
+	// TP/TN: 1Password desktop app access (issue #61)
+	// mcp-sec-block-1password-desktop-access
+	// mcp-sec-block-1password-desktop-config-access
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-316",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.1password/agent.sock"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.1password/agent.sock — 1Password SSH agent socket, reveals agent state and available SSH keys (mcp-sec-block-1password-desktop-access)",
+	},
+	{
+		ID:               "MCP-TP-317",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/1Password/ssh/agent.toml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.config/1Password/ssh/agent.toml — lists SSH key vault item UUIDs exposed via the 1Password SSH agent (mcp-sec-block-1password-desktop-config-access)",
+	},
+	{
+		ID:               "MCP-TP-318",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/1Password/config"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to ~/.config/1Password/config — 1Password desktop app config with account URLs and session references (mcp-sec-block-1password-desktop-config-access)",
+	},
+	{
+		ID:               "MCP-TP-319",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/1Password/ssh/agent.toml", "content": "[[ssh-keys]]\nvault = \"evil\""},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/password-manager",
+		Description:      "write_file to ~/.config/1Password/ssh/agent.toml — modifying SSH agent config to add attacker-controlled vault items (mcp-sec-block-1password-desktop-config-access)",
+	},
+	{
+		ID:               "MCP-TN-173",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/1password-desktop-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to project documentation about 1Password desktop setup — docs file, not a 1Password config dir (mcp-sec-block-1password-desktop-access must not fire)",
+	},
+	{
+		ID:               "MCP-TN-174",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/.config/app-settings.toml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/password-manager",
+		Description:      "read_file to project-local .config/app-settings.toml — project config file not under ~/.config/1Password/ (mcp-sec-block-1password-desktop-config-access must not fire)",
+	},
 }
