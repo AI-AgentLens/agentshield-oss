@@ -3855,4 +3855,25 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-llmdf-cross-server-benign",
 		Description:      "write_file with plain analysis content — no cross-server instructions, benign report, must be AUDIT not blocked (issue #133)",
 	},
+
+	// === TN: Semgrep/detection rule files with privileged container patterns (issue #138) ===
+	// Writing a Semgrep rule that DETECTS privileged containers is not the same as creating one.
+	{
+		ID:               "MCP-TN-383",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "rules/ai-iac-misconfiguration.yaml", "content": "rules:\n  - id: ai-iac-k8s-privileged-container\n    patterns:\n      - pattern: |\n          securityContext:\n            privileged: true\n    message: Kubernetes container with privileged: true breaks isolation.\n    severity: ERROR\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-semgrep-rule",
+		Description:      "write_file to rules/ YAML containing 'privileged: true' as a Semgrep detection pattern — security rule authoring, not container config; must be AUDIT not BLOCK (issue #138)",
+	},
+	{
+		ID:               "MCP-TN-384",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "semgrep/k8s-security.yaml", "content": "rules:\n  - id: detect-host-pid\n    pattern: |\n      hostPID: true\n    message: Pod spec sets hostPID: true — grants access to all host processes.\n    severity: WARNING\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-privesc-semgrep-rule",
+		Description:      "write_file to semgrep/ YAML detecting hostPID: true — Semgrep rule authoring, not an actual K8s manifest; must be AUDIT not BLOCK (issue #138)",
+	},
 }
