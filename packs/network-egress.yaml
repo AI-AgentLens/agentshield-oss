@@ -1709,3 +1709,37 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040."
+
+  # === Network Proxy Config Hijacking ===
+  # AI agents can silently redirect all outbound network traffic through an
+  # attacker-controlled proxy using terminal commands. Unlike MCP file-write
+  # attacks (covered in mcp-secrets.yaml), these use native tool CLIs.
+  # This creates a MITM position for ALL subsequent curl/git/wget operations,
+  # enabling credential theft, response injection, and supply chain compromise.
+  # Taxonomy: data-exfiltration/network-exfiltration/network-config-tampering
+  # MITRE T1071.001, T1090
+
+  # --- BLOCK: git global http/https proxy configuration ---
+  # `git config --global http.proxy` and `git config --global https.proxy`
+  # redirect ALL git HTTPS clone, push, pull, and fetch operations through the
+  # specified proxy. A single command poisons all subsequent git operations in
+  # any project on the machine.
+  - id: "ne-block-git-global-proxy"
+    taxonomy: "data-exfiltration/network-exfiltration/network-config-tampering"
+    match:
+      command_regex: "\\bgit\\b.*\\bconfig\\b.*(--global|--system).*https?\\.proxy\\s+\\S"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "git config --global http(s).proxy redirects ALL git HTTPS operations through an attacker-controlled proxy — enables MITM credential theft (git tokens, Authorization headers) and package source injection. MITRE T1071.001, T1090."
+
+  # --- BLOCK: writing proxy config to ~/.curlrc or ~/.wgetrc ---
+  # Appending or writing to ~/.curlrc or ~/.wgetrc silently routes ALL subsequent
+  # curl or wget requests through the attacker proxy — including package downloads,
+  # API calls, and any MCP tool that shells out to curl/wget.
+  - id: "ne-block-curlrc-wgetrc-proxy-write"
+    taxonomy: "data-exfiltration/network-exfiltration/network-config-tampering"
+    match:
+      command_regex: "(echo|printf|tee)\\b.*~?/?\\.?(curlrc|wgetrc)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Writing proxy configuration to ~/.curlrc or ~/.wgetrc silently redirects all subsequent curl/wget requests through an attacker-controlled proxy. Enables MITM credential interception and response injection across all tool calls. MITRE T1071.001, T1090."
