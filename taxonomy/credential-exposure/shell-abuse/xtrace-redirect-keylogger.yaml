@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Credential & Secret Exposure"
 kingdom_id: 2
 category: "Shell Abuse for Credential Capture"
-category_id: "2.10"
+category_id: "2.23"
 name: "Xtrace Shell Keylogger via BASH_XTRACEFD"
 risk_level: "critical"
 
