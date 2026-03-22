@@ -67,13 +67,14 @@ type ListToolsResult struct {
 type MessageKind int
 
 const (
-	KindUnknown      MessageKind = iota
-	KindToolCall                 // tools/call request
-	KindToolList                 // tools/list request
-	KindResourceRead             // resources/read request
-	KindNotification             // any notification (no id)
-	KindResponse                 // any response (has id, has result or error)
-	KindOtherRequest             // any other request (has id + method)
+	KindUnknown             MessageKind = iota
+	KindToolCall                        // tools/call request
+	KindToolList                        // tools/list request
+	KindResourceRead                    // resources/read request
+	KindSamplingCreateMessage           // sampling/createMessage request (server→client)
+	KindNotification                    // any notification (no id)
+	KindResponse                        // any response (has id, has result or error)
+	KindOtherRequest                    // any other request (has id + method)
 )
 
 // String returns a human-readable label for the message kind.
@@ -85,6 +86,8 @@ func (k MessageKind) String() string {
 		return "tools/list"
 	case KindResourceRead:
 		return "resources/read"
+	case KindSamplingCreateMessage:
+		return "sampling/createMessage"
 	case KindNotification:
 		return "notification"
 	case KindResponse:
@@ -99,9 +102,10 @@ func (k MessageKind) String() string {
 // --- Well-known MCP methods ---
 
 const (
-	MethodToolsCall     = "tools/call"
-	MethodToolsList     = "tools/list"
-	MethodResourcesRead = "resources/read"
+	MethodToolsCall              = "tools/call"
+	MethodToolsList              = "tools/list"
+	MethodResourcesRead          = "resources/read"
+	MethodSamplingCreateMessage  = "sampling/createMessage"
 )
 
 // --- MCP resource types ---
@@ -109,6 +113,29 @@ const (
 // ReadResourceParams represents the params of a resources/read request.
 type ReadResourceParams struct {
 	URI string `json:"uri"`
+}
+
+// --- MCP sampling types ---
+
+// SamplingMessage is one message in a sampling/createMessage request.
+type SamplingMessage struct {
+	Role    string                 `json:"role"`    // "user" or "assistant"
+	Content SamplingMessageContent `json:"content"` // text or image content
+}
+
+// SamplingMessageContent holds either text or image content in a sampling message.
+type SamplingMessageContent struct {
+	Type string `json:"type"` // "text" or "image"
+	Text string `json:"text,omitempty"`
+}
+
+// SamplingCreateMessageParams represents the params of a sampling/createMessage request.
+// MCP servers send this to request the host LLM to generate a response.
+type SamplingCreateMessageParams struct {
+	Messages         []SamplingMessage      `json:"messages"`
+	MaxTokens        int                    `json:"maxTokens,omitempty"`
+	SystemPrompt     string                 `json:"systemPrompt,omitempty"`
+	ModelPreferences map[string]interface{} `json:"modelPreferences,omitempty"`
 }
 
 // --- JSON-RPC error codes ---

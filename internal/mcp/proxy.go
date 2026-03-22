@@ -197,6 +197,16 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
+		// Intercept sampling/createMessage (server→client): scan for injection patterns
+		msg, kind, err := ParseMessage(line)
+		if err == nil && kind == KindSamplingCreateMessage {
+			blocked, blockResp := p.handler.HandleSamplingCreateMessage(msg)
+			if blocked {
+				writeLineToWriter(clientWriter, blockResp)
+				continue
+			}
+		}
+
 		writeLineToWriter(clientWriter, line)
 	}
 }
