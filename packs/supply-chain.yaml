@@ -334,6 +334,67 @@ rules:
     decision: "AUDIT"
     reason: "Yarn/pnpm package install requires human review — AI agents may install hallucinated package names pre-registered by attackers. Verify package name spelling and origin before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
 
+  # === BLOCK: known typosquatted MCP publisher names (issue #161) ===
+  #
+  # MCP servers are installed via `npx -y` or `pip install` and immediately
+  # receive bidirectional access to the agent's context, tools, and data.
+  # Typosquatted publisher names (misspellings of @anthropic-ai, @anthropic,
+  # @modelcontextprotocol) are pre-registered by attackers to intercept
+  # installs from AI agents that hallucinate the package name slightly wrong.
+  #
+  # These patterns match clearly wrong spellings with no legitimate use.
+  # Trusted official publishers:
+  #   @anthropic-ai/*     — official Anthropic packages
+  #   @modelcontextprotocol/*  — official MCP packages
+  # Blocked typosquat patterns (exact misspellings observed in the wild):
+  #   @anthrpoic (transposed letters), @anthropci, @antrhopic, @anhthropic
+  #   @modelcontextprocotol (transposed), @modelcontextproocol (doubled letter)
+  #
+  # Taxonomy: supply-chain/config-tampering/mcp-server-package-compromise
+  # OWASP LLM03, LLM09 — Supply Chain / Misinformation
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: "sc-block-mcp-publisher-typosquat"
+    taxonomy: "supply-chain/config-tampering/mcp-server-package-compromise"
+    match:
+      command_regex: "(npx\\s+(-y\\s+)?|pip3?\\s+install\\s+|pipx\\s+install\\s+)(@anthrpoic|@anthropci|@antrhopic|@anhthropic|@modelcontextprocotol|@modelcontextproocol)/"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Typosquatted MCP publisher name detected — this package name is a known misspelling of an official Anthropic or MCP publisher. MCP servers receive bidirectional agent access; installing from a typosquatted publisher is a critical supply chain attack. Verify the correct package name. OWASP LLM03, LLM09; MITRE T1195.001."
+
+  # === AUDIT: MCP server package pattern installations (issue #161) ===
+  #
+  # MCP servers are installed via `npx -y` or `pip install` and unlike regular
+  # npm/pip packages they receive bidirectional access to the agent's full
+  # context, tools, and data. This makes supply chain compromise of MCP server
+  # packages far more impactful than a standard dependency.
+  #
+  # This rule raises a specific, elevated-risk audit for commands that match
+  # known MCP server package naming conventions, separate from the general
+  # sc-audit-npm-install audit. The reason field emphasizes the elevated trust
+  # level of MCP servers and directs reviewers to the official MCP registry.
+  #
+  # Covered patterns:
+  #   npx -y mcp-server-*               (generic MCP server packages)
+  #   npx -y @modelcontextprotocol/*    (official MCP packages)
+  #   npx -y @anthropic-ai/mcp-*        (official Anthropic MCP packages)
+  #   pip install mcp-server-*          (Python MCP server packages)
+  #   pipx install mcp-server-*         (pipx ephemeral MCP server execution)
+  #
+  # NOTE: sc-audit-npm-install and sc-audit-pip-install already catch these
+  # via prefix matching. This rule fires first (more specific regex) and
+  # provides a clearer MCP-specific reason.
+  #
+  # Taxonomy: supply-chain/config-tampering/mcp-server-package-compromise
+  # OWASP LLM03 (Supply Chain), LLM09 (Misinformation)
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: "sc-audit-mcp-server-install"
+    taxonomy: "supply-chain/config-tampering/mcp-server-package-compromise"
+    match:
+      command_regex: "(npx\\s+(-y\\s+)?|pip3?\\s+install\\s+|pipx\\s+install\\s+)(mcp-server-|@modelcontextprotocol/|@anthropic-ai/mcp-)"
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "MCP server package installation detected — MCP servers receive bidirectional access to the agent's context, tools, and data (unlike regular npm/pip packages). Typosquatted or compromised MCP packages are a critical supply chain risk. Verify the package name on the official MCP registry (modelcontextprotocol.io) before proceeding. OWASP LLM03, LLM09; MITRE T1195.001."
+
   # === BLOCK: brew tap with --custom-remote (arbitrary URL tap source) ===
   #
   # `brew tap --custom-remote` points a tap at any HTTPS/git URL, bypassing

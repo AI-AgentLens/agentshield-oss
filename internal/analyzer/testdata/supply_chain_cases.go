@@ -4496,4 +4496,82 @@ var ContainerTrustBypassCases = []TestCase{
 		Description:      "Python inline hashlib.sha256 — strong hash for checksums (not password), sc-audit-python-inline-weak-hash must not fire.",
 		Tags:             []string{"tn", "safe", "python", "crypto"},
 	},
+
+	// === MCP server package install detection (issue #161) ===
+
+	// TP: typosquatted MCP publisher names (BLOCK)
+	{
+		ID:               "TP-SC-MCP-TYPOSQUAT-001",
+		Command:          `npx -y @anthrpoic/mcp-server-filesystem`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "npx with typosquatted Anthropic publisher @anthrpoic — sc-block-mcp-publisher-typosquat must BLOCK (issue #161)",
+		Tags:             []string{"tp", "mcp", "typosquat", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-MCP-TYPOSQUAT-002",
+		Command:          `npx -y @anthropci/mcp-tools`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "npx with typosquatted Anthropic publisher @anthropci — sc-block-mcp-publisher-typosquat must BLOCK (issue #161)",
+		Tags:             []string{"tp", "mcp", "typosquat", "supply-chain"},
+	},
+
+	// TP: MCP server package pattern installs (AUDIT)
+	{
+		ID:               "TP-SC-MCP-SERVER-INSTALL-001",
+		Command:          `npx -y @modelcontextprotocol/server-filesystem`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "npx -y with official @modelcontextprotocol publisher — sc-audit-mcp-server-install must AUDIT (elevated MCP supply chain risk) (issue #161)",
+		Tags:             []string{"tp", "mcp", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-MCP-SERVER-INSTALL-002",
+		Command:          `pip install mcp-server-sqlite`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "pip install mcp-server-* pattern — sc-audit-mcp-server-install must AUDIT (issue #161)",
+		Tags:             []string{"tp", "mcp", "supply-chain"},
+	},
+	{
+		ID:               "TP-SC-MCP-SERVER-INSTALL-003",
+		Command:          `npx -y mcp-server-puppeteer`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "npx -y mcp-server-* pattern — sc-audit-mcp-server-install must AUDIT (issue #161)",
+		Tags:             []string{"tp", "mcp", "supply-chain"},
+	},
+
+	// TN: correct publisher names (not typosquatted, pass general audit)
+	{
+		ID:               "TN-SC-MCP-TYPOSQUAT-001",
+		Command:          `npx -y @modelcontextprotocol/server-filesystem`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "Correct @modelcontextprotocol publisher — sc-block-mcp-publisher-typosquat must NOT fire (only typosquats are blocked); general audit still applies (issue #161)",
+		Tags:             []string{"tn", "safe", "mcp"},
+	},
+	{
+		ID:               "TN-SC-MCP-SERVER-INSTALL-001",
+		Command:          `npx -y @anthropic-ai/claude-code`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-server-package-compromise",
+		Analyzer:         "regex",
+		Description:      "npx -y @anthropic-ai/claude-code — not mcp-server-* pattern, caught by general sc-audit-npm-install but not the MCP-specific rule (issue #161)",
+		Tags:             []string{"tn", "safe", "mcp"},
+	},
 }
