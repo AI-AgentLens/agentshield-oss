@@ -1,0 +1,68 @@
+id: "credential-exposure/password-manager/kde-wallet-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Password Manager"
+category_id: "2.18"
+name: "KDE Wallet Access"
+risk_level: "critical"
+
+abstract: |
+  Access to KDE Wallet database files enables extraction of stored credentials,
+  WiFi passwords, browser secrets, and application tokens managed by the KWallet
+  framework on KDE Plasma Linux desktop environments.
+
+explanation: |
+  KDE Wallet (KWallet) is the default secrets store on KDE Plasma desktops
+  (openSUSE, KDE Neon, Kubuntu, Manjaro KDE), storing:
+  - Browser saved passwords (Chromium, Firefox via KWallet integration)
+  - WiFi network credentials (via NetworkManager-KDE)
+  - SSH key passphrases
+  - Application OAuth tokens (Plasma applications, VS Code)
+  - GPG key passphrases
+  - Custom application secrets via the KWallet D-Bus API
+
+  KWallet stores data in two legacy locations:
+  - KDE4: `~/.kde/share/apps/kwallet/*.kwl` — older format, often still present
+  - KDE5/Plasma 5+: `~/.local/share/kwalletd/*.kwl` — current format
+
+  Attack vectors include:
+  - Direct file access to `*.kwl` wallet database files
+  - `kwallet-query` CLI tool for enumeration and extraction
+  - D-Bus calls to `org.kde.kwalletd5` for wallet operations on an unlocked session
+  - `kwalletcli` for scripted access to wallet contents
+
+  On an unlocked KDE session, an AI agent with shell or MCP file access can read
+  wallet files or query the daemon without re-authentication.
+
+recommendation: |
+  - Block read/write access to `~/.kde/share/apps/kwallet/` and `~/.local/share/kwalletd/` directories.
+  - Block `kwallet-query` and `kwalletcli` commands in agent execution contexts.
+  - Lock the wallet when not in active use (`kwalletcli -f <wallet> -q close`).
+  - Use a separate service account with no KWallet access for agent execution.
+
+examples:
+  bad:
+    - "cat ~/.kde/share/apps/kwallet/kdewallet.kwl"
+    - "kwallet-query -l kdewallet"
+    - "ls ~/.local/share/kwalletd/"
+    - "kwalletcli -f kdewallet -q list"
+  good:
+    - "kwallet-query --help"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.5.10"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1555.003", "T1555.005"]
+  cwe: ["CWE-312", "CWE-522"]
+
+analyzers: ["regex", "structural", "mcp"]
+related_rules:
+  - "mcp-sec-block-kde-wallet-access"
+  - "mcp-sec-block-kde5-wallet-access"
+  - "mcp-sec-block-kwallet-query"
