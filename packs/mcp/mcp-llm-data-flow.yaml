@@ -338,3 +338,75 @@ structural_rules:
     decision: "AUDIT"
     reason: "Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06."
     confidence: 0.82
+
+  # ============================================================
+  # LLM07 Orphaned Taxonomy Entries (issue #183)
+  # Three data-exfiltration/llm-data-flow entries with no runtime rules:
+  #   - credential-in-prompt
+  #   - multi-turn-prompt-erosion
+  #   - rag-system-prompt-leakage
+  # OWASP LLM07 (System Prompt Leakage / Sensitive Data Exposure).
+  # ============================================================
+
+  # === BLOCK: Credential in LLM prompt content ===
+  # Detects API keys, bearer tokens, or password assignments embedded in MCP
+  # message/content arguments — hardcoded secrets in prompt context create
+  # persistent LLM memory leakage and exfiltration risk.
+  # Taxonomy: data-exfiltration/llm-data-flow/credential-in-prompt
+  - id: mcp-llmdf-block-credential-in-prompt
+    taxonomy: "data-exfiltration/llm-data-flow/credential-in-prompt"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)sk-[a-zA-Z0-9]{20,}"
+            - "AKIA[0-9A-Z]{16}"
+            - "(?i)ghp_[A-Za-z0-9]{36}"
+            - "(?i)glpat-[A-Za-z0-9_-]{20}"
+            - "(?i)(password|passwd|secret|api[_-]key)\\s*[:=]\\s*[\"']?[^\\s\"']{8,}"
+            - "(?i)bearer\\s+[A-Za-z0-9\\-._~+/]{20,}={0,2}"
+    decision: "BLOCK"
+    reason: "Credential or API key detected in MCP message content — hardcoded secrets in LLM prompt context risk model memorization and exfiltration. OWASP LLM07 (Sensitive Data Exposure)."
+    confidence: 0.88
+
+  # === AUDIT: Multi-turn prompt erosion — jailbreak instruction in content ===
+  # Detects prompt override/jailbreak patterns in MCP tool call content arguments.
+  # These patterns appear when an attacker gradually erodes agent system context
+  # through injected user-turn messages, attempting to override agent guidelines.
+  # Taxonomy: data-exfiltration/llm-data-flow/multi-turn-prompt-erosion
+  - id: mcp-llmdf-audit-prompt-erosion-jailbreak
+    taxonomy: "data-exfiltration/llm-data-flow/multi-turn-prompt-erosion"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?(previous|prior|above|earlier)\\s+(instructions?|rules?|guidelines?|prompts?)"
+            - "(?i)disregard\\s+(all\\s+)?(previous|prior)\\s+instructions?"
+            - "(?i)you\\s+are\\s+now\\s+(in\\s+)?((developer|jailbreak|evil|uncensored|dan)\\s+mode)"
+            - "(?i)new\\s+persona.*no\\s+(restrictions?|guidelines?|rules?|safety)"
+            - "(?i)(forget|override|bypass)\\s+(your\\s+)?(system\\s+prompt|training|guidelines?)"
+    decision: "AUDIT"
+    reason: "Prompt override/jailbreak instruction detected in MCP message content — multi-turn prompt erosion attempt to override agent system context. OWASP LLM01/LLM07."
+    confidence: 0.85
+
+  # === AUDIT: RAG system prompt leakage — query fishing for initialization instructions ===
+  # Detects retrieval/search queries that attempt to extract system prompt or
+  # initialization context by querying for agent instructions or hidden context.
+  # These queries exploit RAG pipelines to indirectly surface system prompts.
+  # Taxonomy: data-exfiltration/llm-data-flow/rag-system-prompt-leakage
+  - id: mcp-llmdf-audit-rag-sysprompt-leakage
+    taxonomy: "data-exfiltration/llm-data-flow/rag-system-prompt-leakage"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        query:
+          pattern_any:
+            - "(?i)(repeat|output|print|show|reveal|display)\\s+(your|the)\\s+(system\\s+prompt|initialization|instructions?|rules?)"
+            - "(?i)what\\s+(are|is)\\s+(your|the)\\s+(initial|first|system)\\s+(instructions?|prompt|context|message)"
+            - "(?i)(summarize|list|dump)\\s+(all\\s+)?(your\\s+)?(system|initialization|internal)\\s+(instructions?|rules?|prompt)"
+            - "(?i)(show|print|tell\\s+me)\\s+(all\\s+)?(your\\s+)?(hidden|secret|confidential)\\s+(instructions?|rules?|context)"
+    decision: "AUDIT"
+    reason: "RAG search query attempting to extract system prompt or initialization instructions — system prompt leakage via retrieval augmentation. OWASP LLM07 (System Prompt Leakage)."
+    confidence: 0.83
