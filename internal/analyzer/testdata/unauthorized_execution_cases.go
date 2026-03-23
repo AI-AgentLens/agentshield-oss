@@ -611,6 +611,87 @@ var AIModelUsageCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// AI SDK + exec/eval Chain Cases (issue #211)
+// Rule: ts-audit-ai-sdk-exec-eval-chain
+// Taxonomy: unauthorized-execution/agent-capability/code-execution
+// ---------------------------------------------------------------------------
+
+// AISDKExecEvalCases tests detection of Python one-liners that both import an
+// AI SDK and pass the model's output directly to exec/eval — executing
+// LLM-generated code without human review (OWASP LLM06, LLM02).
+var AISDKExecEvalCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-TS-AUDIT-AISDK-EXEC-001",
+		Command:          `python3 -c "import openai; exec(openai.chat.completions.create(model='gpt-4o', messages=[]).choices[0].message.content)"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agent-capability/code-execution",
+		Analyzer:         "pipeline",
+		Description: `Python one-liner importing openai and passing model completion
+			output directly to exec. ts-audit-ai-sdk-exec-eval-chain returns AUDIT;
+			the full pipeline escalates to BLOCK because guardian-eval_risk detects
+			exec() on dynamic content (most_restrictive_wins, OWASP LLM06, LLM02).`,
+		Tags: []string{"canonical", "llm06", "llm02", "exec-eval"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AISDK-EXEC-002",
+		Command:          `python3 -c "import anthropic; eval(anthropic.Anthropic().messages.create(model='claude-3-5-sonnet-latest', max_tokens=256, messages=[]).content[0].text)"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agent-capability/code-execution",
+		Analyzer:         "pipeline",
+		Description: `Python one-liner importing anthropic SDK and passing message
+			content directly to eval. ts-audit-ai-sdk-exec-eval-chain fires (AUDIT);
+			guardian-eval_risk escalates to BLOCK via most_restrictive_wins.`,
+		Tags: []string{"canonical", "llm06", "llm02", "exec-eval"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AISDK-EXEC-003",
+		Command:          `python -c "from langchain.agents import AgentExecutor; exec(agent.run('deploy to production'))"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agent-capability/code-execution",
+		Analyzer:         "pipeline",
+		Description: `Python one-liner combining LangChain agent execution with exec.
+			ts-audit-ai-sdk-exec-eval-chain fires (AUDIT); guardian-eval_risk escalates
+			to BLOCK — agent output passed to exec is a high-severity RCE pattern.`,
+		Tags: []string{"canonical", "llm06", "llm02", "exec-eval", "langchain"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TS-AUDIT-AISDK-EXEC-001",
+		Command:          `python3 agent.py --task "summarize logs" --output summary.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agent-capability/code-execution",
+		Analyzer:         "regex",
+		Description: `Running an agent script as a file with named arguments — no
+			inline Python one-liner, no SDK import, no exec/eval. Does not trigger
+			ts-audit-ai-sdk-exec-eval-chain (which requires -c with SDK+exec). Gets
+			AUDIT from system default (not from the exec-eval rule).`,
+		Tags: []string{"safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AISDK-EXEC-002",
+		Command:          `python3 -c "import openai; print(openai.chat.completions.create(model='gpt-4o', messages=[]).choices[0].message.content)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agent-capability/code-execution",
+		Analyzer:         "regex",
+		Description: `Python one-liner importing openai and printing (not exec-ing)
+			the output. No exec/eval call present — should NOT trigger
+			ts-audit-ai-sdk-exec-eval-chain. Will trigger ts-audit-llm-sdk-direct-import
+			(AUDIT) for the import alone, which is the correct lower-confidence signal.`,
+		Tags: []string{"safe", "exec-eval"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Vercel AI SDK Detection Cases
 // Rules: ts-audit-vercel-ai-sdk-install, ts-audit-vercel-ai-sdk-provider-install,
 //        ts-audit-vercel-ai-sdk-node-inline
@@ -3626,6 +3707,7 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, EvalSubshellRCECases...)
 	all = append(all, StatefulDownloadExecuteCases...)
 	all = append(all, AIModelUsageCases...)
+	all = append(all, AISDKExecEvalCases...)
 	all = append(all, VercelAISDKCases...)
 	all = append(all, AIContentIntegrityCases...)
 	all = append(all, ProcessInjectionCases...)

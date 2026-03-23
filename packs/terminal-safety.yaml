@@ -1105,6 +1105,33 @@ rules:
     confidence: 0.82
     reason: "Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk."
 
+  # === AUDIT: AI SDK + exec/eval — runtime code execution of LLM output (issue #211) ===
+  #
+  # Catches Python one-liners that both import an AI SDK (OpenAI, Anthropic,
+  # LangChain, AutoGen) AND call exec/eval on the result — meaning AI-generated
+  # content is executed directly as code with no human review step.
+  #
+  #   python3 -c "import openai; exec(openai.chat.completions.create(...).choices[0].message.content)"
+  #   python3 -c "from langchain.agents import AgentExecutor; exec(agent.run(task))"
+  #   python3 -c "import anthropic; eval(client.messages.create(...).content[0].text)"
+  #
+  # This is distinct from ts-audit-llm-sdk-direct-import (which only checks the
+  # import) and ts-audit-unrestricted-tool-invoke-eval (which checks eval on
+  # variable names). This rule catches the full SDK-import+exec chain in a
+  # single one-liner — a higher-confidence signal of LLM output being executed.
+  #
+  # Taxonomy: unauthorized-execution/agent-capability/code-execution
+  # OWASP LLM06 — Excessive Agency | LLM02 — Insecure Output Handling
+  # NIST AI RMF GV-1.1 | EU AI Act Art.14
+
+  - id: "ts-audit-ai-sdk-exec-eval-chain"
+    taxonomy: "unauthorized-execution/agent-capability/code-execution"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+['\"].*\\b(openai|anthropic|langchain|autogen|crewai|llamaindex|llama_index|google\\.generativeai|cohere)\\b.*\\b(exec|eval)\\s*\\("
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Python one-liner that imports an AI SDK and passes its output directly to exec/eval — LLM-generated content executed as code without human review (OWASP LLM06, LLM02). Sub-agents invoking exec on model responses can run arbitrary OS commands."
+
   # === AUDIT: Direct multi-agent CLI execution (issue #516) ===
   #
   # Catches direct CLI invocations of multi-agent orchestration frameworks —
