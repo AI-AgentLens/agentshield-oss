@@ -1,0 +1,76 @@
+id: "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "OAuth Tokens"
+category_id: "2.20"
+name: "AI IDE OAuth Token Theft"
+risk_level: "critical"
+
+abstract: |
+  Theft of OAuth tokens and authentication credentials stored by AI-powered IDEs
+  (Windsurf, Cursor, VS Code with Copilot, Gemini CLI) enables account takeover,
+  unauthorized LLM API usage billed to the victim, and access to private code
+  repositories and AI conversation history.
+
+explanation: |
+  AI coding assistants store OAuth tokens and session credentials in predictable
+  filesystem locations, making them high-value targets for exfiltration via
+  compromised MCP tool calls or prompt injection:
+
+  - **Windsurf**: `~/Library/Application Support/Windsurf/User/globalStorage/storage.json`
+    and Linux equivalent `~/.config/Windsurf/User/globalStorage/storage.json`
+    — Contains OAuth tokens for Codeium services.
+  - **Cursor**: `~/Library/Application Support/Cursor/User/globalStorage/storage.json`
+    and Linux equivalent `~/.config/Cursor/User/globalStorage/storage.json`
+    — Contains Cursor Pro session tokens and OAuth state.
+  - **VS Code + GitHub Copilot**: `~/.config/Code/User/globalStorage/github.copilot/`
+    and macOS `~/Library/Application Support/Code/User/globalStorage/github.copilot/`
+    — Stores GitHub OAuth tokens scoped to Copilot API and GitHub API access.
+  - **Gemini CLI**: `~/.config/gemini/credentials.json`
+    — Stores Google OAuth refresh tokens granting access to Google AI services.
+
+  A stolen token can be used to:
+  - Make LLM API requests billed to the victim's subscription (Denial of Wallet)
+  - Access private code context submitted to the AI service
+  - Authenticate as the victim to the underlying service (GitHub, Google)
+  - Pivot to other services accessible via the OAuth grant
+
+  These tokens are typically long-lived refresh tokens, persisting until explicitly
+  revoked, making them particularly dangerous for sustained unauthorized access.
+
+recommendation: |
+  - Block MCP tool read access to known AI IDE credential storage paths.
+  - Monitor file access to IDE globalStorage directories in agent execution.
+  - Revoke and rotate tokens immediately if exposure is suspected.
+  - Use OS-level keychain/secret store instead of plaintext file storage where supported.
+  - Regularly audit active OAuth grants in GitHub, Google, and Codeium account settings.
+
+examples:
+  bad:
+    - "cat ~/Library/Application\\ Support/Windsurf/User/globalStorage/storage.json"
+    - "cat ~/.config/Cursor/User/globalStorage/storage.json"
+    - "cat ~/.config/Code/User/globalStorage/github.copilot/hosts.json"
+    - "cat ~/.config/gemini/credentials.json"
+  good:
+    - "gh auth status"
+    - "cursor --version"
+    - "cat ~/.config/Cursor/User/settings.json"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06", "LLM09"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.5.10", "A.8.24"]
+  eu-ai-act-2024: ["Art.15", "Art.9", "Art.72"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2", "GOVERN-1"]
+  soc2-type2: ["CC6.1", "CC6.2", "CC6.6"]
+
+references:
+  mitre_attack: ["T1539", "T1552.001", "T1078.003"]
+  cwe: ["CWE-312", "CWE-200", "CWE-522", "CWE-532"]
+
+analyzers: ["regex", "structural", "mcp"]
+related_rules:
+  - "mcp-sec-block-windsurf-oauth-token-read"
+  - "mcp-sec-block-cursor-oauth-token-read"
+  - "mcp-sec-block-vscode-copilot-token-read"
+  - "mcp-sec-block-gemini-cli-oauth-token-read"

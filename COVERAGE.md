@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1002 |
-| MCP rules | 348 |
-| Total rules | 1350 |
-| Test cases (TP+TN) | 3503 |
+| Terminal rules | 1003 |
+| MCP rules | 353 |
+| Total rules | 1356 |
+| Test cases (TP+TN) | 3512 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (121 rules)
+### credential-exposure (122 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -68,6 +68,7 @@
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
 | `sec-block-ml-platform-token-read` | BLOCK | regex | Read access to ML platform credential file — HuggingFace, W&B, Replicate, Comet ML, and DagsHub tokens grant access to private model repositories, training data, and inference APIs. MITRE T1552.001, OWASP LLM06. |
+| `sec-block-ai-ide-oauth-token-read` | BLOCK | regex | Read access to AI IDE OAuth token file — Windsurf, Cursor, VS Code Copilot, and Gemini CLI store OAuth session tokens in globalStorage paths. Stolen tokens allow API calls under the victim's identity. MITRE T1539, T1552. |
 | `sec-audit-ml-platform-apikey-env` | AUDIT | regex | Direct access to ML platform API key environment variable flagged for review (covers HuggingFace HF_TOKEN, W&B WANDB_API_KEY, Replicate, Comet ML, DagsHub). |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
@@ -1068,7 +1069,7 @@
 
 ## MCP Rules
 
-### credential-exposure (185 rules)
+### credential-exposure (189 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1230,6 +1231,10 @@
 | `mcp-sec-block-anthropic-credentials-read` | BLOCK | mcp_rule | Access to Anthropic credential directory (~/.anthropic/) is blocked — may contain API keys and auth config. MITRE T1552. |
 | `mcp-sec-block-gemini-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI credential directory (~/.gemini/) is blocked — contains Google AI Studio API keys and Gemini CLI auth tokens. Stolen keys enable mass AI inference at the victim's cost. MITRE T1552. |
 | `mcp-sec-block-openai-credentials-read` | BLOCK | mcp_rule | Access to OpenAI CLI credential directory (~/.openai/) is blocked — contains OpenAI API keys and CLI auth tokens. Stolen keys enable unauthorized LLM usage and access to organization data. MITRE T1552. |
+| `mcp-sec-block-windsurf-oauth-token-read` | BLOCK | mcp_rule | Access to Windsurf globalStorage OAuth token file is blocked — contains Codeium OAuth token granting AI completions access under the user's identity. MITRE T1539, T1552. |
+| `mcp-sec-block-cursor-oauth-token-read` | BLOCK | mcp_rule | Access to Cursor globalStorage OAuth token file is blocked — contains Cursor account OAuth token enabling API calls under the victim's identity. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-copilot-globalstorage-read` | BLOCK | mcp_rule | Access to VS Code Copilot globalStorage directory is blocked — contains GitHub Copilot OAuth session data. MITRE T1539, T1552. |
+| `mcp-sec-block-gemini-cli-v2-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI v2 OAuth credentials file is blocked — contains Google OAuth token for Gemini API. Stolen token enables AI inference under the victim's billing account. MITRE T1539, T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
@@ -1459,7 +1464,7 @@
 | `mcp-struct-block-shell-in-command-arg` | BLOCK | structural | Shell command detected in command argument — possible disguised execution tool |
 | `mcp-struct-block-shell-in-exec-arg` | BLOCK | structural | Shell command detected in exec argument — hidden command execution |
 
-### uncategorized (7 rules)
+### uncategorized (8 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1467,6 +1472,7 @@
 | `mcp-fin-block-all-balance-amount` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance |
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
+| `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord, Slack, Teams, Telegram, and Pipedream webhooks are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
@@ -1475,7 +1481,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 281 | 202 | 483 |
+| credential-exposure | 286 | 206 | 492 |
 | data-exfiltration | 283 | 175 | 458 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
@@ -1484,5 +1490,5 @@
 | reconnaissance | 168 | 74 | 242 |
 | supply-chain | 237 | 159 | 396 |
 | unauthorized-execution | 396 | 269 | 665 |
-| **Total** | **2138** | **1365** | **3503** |
+| **Total** | **2143** | **1369** | **3512** |
 
