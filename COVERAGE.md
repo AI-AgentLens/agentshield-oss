@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1000 |
-| MCP rules | 322 |
-| Total rules | 1322 |
+| MCP rules | 341 |
+| Total rules | 1341 |
 | Test cases (TP+TN) | 3494 |
 | Kingdoms covered | 10 |
 
@@ -1066,7 +1066,7 @@
 
 ## MCP Rules
 
-### credential-exposure (159 rules)
+### credential-exposure (178 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1103,6 +1103,9 @@
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
 | `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
 | `mcp-sec-block-digitalocean-config` | BLOCK | mcp_rule | Access to ~/.digitalocean/ config is blocked — may contain DigitalOcean API tokens and authentication state. MITRE T1552.005. |
+| `mcp-sec-block-oci-credentials` | BLOCK | mcp_rule | Access to Oracle Cloud Infrastructure config (~/.oci/) is blocked — contains API signing keys and tenancy credentials granting full OCI control. MITRE T1552.005. |
+| `mcp-sec-block-ibmcloud-credentials` | BLOCK | mcp_rule | Access to IBM Cloud CLI config is blocked — contains IAM tokens and account credentials granting access to IBM Cloud resources. MITRE T1552.005. |
+| `mcp-sec-block-hcloud-credentials` | BLOCK | mcp_rule | Access to Hetzner Cloud CLI config is blocked — contains API tokens granting full control over Hetzner Cloud servers, networks, and floating IPs. MITRE T1552.005. |
 | `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
@@ -1147,9 +1150,15 @@
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
+| `mcp-sec-block-gnome2-keyring-access` | BLOCK | mcp_rule | Access to GNOME 2 legacy keyring files is blocked — contains encrypted credentials that may include WiFi passwords, web credentials, and application secrets. MITRE T1555. |
+| `mcp-sec-block-kde-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE4) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
+| `mcp-sec-block-kde5-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE5/Plasma) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
+| `mcp-sec-block-kwalletd-config-access` | BLOCK | mcp_rule | Access to KDE Wallet daemon config (kwalletd5rc) is blocked — reveals wallet file paths and encryption parameters enabling targeted credential theft. MITRE T1555. |
 | `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
+| `mcp-sec-block-bw-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden bw CLI config directory is blocked — ~/.config/bw/data.json contains encrypted vault cache and cached session tokens. Official Bitwarden CLI installs as 'bw'. MITRE T1555, T1552.001. |
+| `mcp-sec-block-bw-session-file` | BLOCK | mcp_rule | Access to Bitwarden session file is blocked — ~/.bw-session contains a plaintext BW_SESSION key granting full vault read access without requiring the master password. MITRE T1552.001. |
 | `mcp-sec-block-keybase-access` | BLOCK | mcp_rule | Access to ~/.config/keybase/ is blocked — contains Keybase session tokens and encrypted private key material (KBFS signing keys). Exfiltration enables identity impersonation and access to encrypted team data. MITRE T1552, T1555. |
 | `mcp-sec-block-age-identity-access` | BLOCK | mcp_rule | Access to age encryption identity directory is blocked — age identity files are used to decrypt sensitive data stores (sops, chezmoi). |
 | `mcp-sec-block-sops-age-key-access` | BLOCK | mcp_rule | Access to age default key directory is blocked — ~/.age/ contains the age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
@@ -1170,15 +1179,20 @@
 | `mcp-sec-block-terraform-auto-tfvars` | BLOCK | mcp_rule | Access to *.auto.tfvars is blocked — automatically loaded Terraform variable files frequently contain cloud credentials and secret values. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-pass` | BLOCK | mcp_rule | Access to Ansible vault password files is blocked — this is the master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-password-files` | BLOCK | mcp_rule | Access to Ansible vault password files (.vault_pass, .vault-password) is blocked — master decryption key for Ansible Vault secrets. MITRE T1552. |
+| `mcp-sec-block-ansible-vault-pass-dotfile` | BLOCK | mcp_rule | Access to ~/.ansible_vault_pass dotfile is blocked — master decryption key for all Ansible Vault secrets. Commonly configured via vault_password_file in ansible.cfg. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-terraformrc` | BLOCK | mcp_rule | Access to ~/.terraformrc is blocked — the Terraform CLI config file stores Terraform Cloud/Enterprise API tokens under the credentials block. Reads expose tokens; writes can hijack Terraform registry auth. MITRE T1552. |
 | `mcp-sec-block-terraform-config-credentials` | BLOCK | mcp_rule | Access to Terraform XDG credentials file is blocked — contains Terraform Cloud/Enterprise API tokens for workspace and registry access. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
 | `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
-| `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to ~/.vercel/ directory is blocked — contains Vercel access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
+| `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
+| `mcp-sec-block-vercel-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Vercel config directory (~/.config/vercel/) is blocked — contains the same auth token as ~/.vercel/auth.json. MITRE T1552. |
 | `mcp-sec-block-flyio-credentials` | BLOCK | mcp_rule | Access to ~/.fly/config.yml or ~/.fly/config.yaml is blocked — contains Fly.io auth token with application and secret management access. MITRE T1552. |
-| `mcp-sec-block-railway-credentials` | BLOCK | mcp_rule | Access to ~/.railway/config.json is blocked — contains Railway API token with project and service management access. MITRE T1552. |
-| `mcp-sec-block-render-credentials` | BLOCK | mcp_rule | Access to ~/.render/ directory is blocked — contains Render API key with service deployment and environment variable management access. MITRE T1552. |
+| `mcp-sec-block-railway-credentials` | BLOCK | mcp_rule | Access to Railway credential files is blocked — contains API token with project and service management access. MITRE T1552. |
+| `mcp-sec-block-railway-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Railway config directory (~/.config/railway/) is blocked — newer Railway CLI versions store API token here. MITRE T1552. |
+| `mcp-sec-block-render-credentials` | BLOCK | mcp_rule | Access to Render credential directories is blocked — contains API key with service deployment and environment variable management access. MITRE T1552. |
+| `mcp-sec-block-render-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Render config directory (~/.config/render/) is blocked — newer Render CLI versions store API key here. MITRE T1552. |
+| `mcp-sec-block-supabase-credentials` | BLOCK | mcp_rule | Access to Supabase CLI config directory is blocked — contains access token and project refs with database admin and edge function access. MITRE T1552. |
 | `mcp-sec-block-pulumi-credentials` | BLOCK | mcp_rule | Access to ~/.pulumi/credentials.json is blocked — contains Pulumi access token with infrastructure state and secret management access. MITRE T1552. |
 | `mcp-sec-block-wrangler-credentials` | BLOCK | mcp_rule | Access to ~/.wrangler/config/ directory is blocked — contains Cloudflare API token with Workers deployment and KV/R2 storage access. MITRE T1552. |
 | `mcp-sec-block-payment-processor-creds` | BLOCK | mcp_rule | Access to Stripe CLI config is blocked — contains live and test API keys, restricted keys, and webhook secrets with direct financial impact. MITRE T1552.001, OWASP LLM06. |
@@ -1199,6 +1213,9 @@
 | `mcp-sec-block-newrelic-creds` | BLOCK | mcp_rule | Access to New Relic CLI config is blocked — contains account credentials for the observability platform. MITRE T1552.001. |
 | `mcp-sec-block-newrelic-creds-dotdir` | BLOCK | mcp_rule | Access to ~/.newrelic/ is blocked — the New Relic CLI stores account API keys and credentials here. MITRE T1552.001. |
 | `mcp-sec-block-slack-creds` | BLOCK | mcp_rule | Access to ~/.slack/ is blocked — the Slack CLI stores workspace tokens and OAuth credentials here, enabling channel access and message exfiltration. MITRE T1552.001. |
+| `mcp-sec-block-slack-cli-creds` | BLOCK | mcp_rule | Access to ~/.slack-cli/ is blocked — Slack CLI v2 stores OAuth tokens and workspace credentials here. Stolen tokens enable reading all workspace messages and DMs. MITRE T1552.001. |
+| `mcp-sec-block-slack-config-creds` | BLOCK | mcp_rule | Access to ~/.config/slack/ is blocked — contains Slack desktop app OAuth tokens and session credentials. Stolen tokens enable workspace message exfiltration. MITRE T1552.001. |
+| `mcp-sec-block-discord-creds` | BLOCK | mcp_rule | Access to ~/.config/discord/ is blocked — contains Discord client tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-chromium-credential-db` | BLOCK | mcp_rule | Access to Chromium browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
@@ -1209,6 +1226,8 @@
 | `mcp-sec-block-claude-dot-credentials-read` | BLOCK | mcp_rule | Access to ~/.claude/credentials is blocked — this is Claude Code's OAuth token file. Exfiltration enables impersonation of the user to Anthropic's API. MITRE T1552. |
 | `mcp-sec-block-claude-dot-apikey-read` | BLOCK | mcp_rule | Access to ~/.claude/api_key is blocked — contains Anthropic API key for Claude Code. MITRE T1552. |
 | `mcp-sec-block-anthropic-credentials-read` | BLOCK | mcp_rule | Access to Anthropic credential directory (~/.anthropic/) is blocked — may contain API keys and auth config. MITRE T1552. |
+| `mcp-sec-block-gemini-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI credential directory (~/.gemini/) is blocked — contains Google AI Studio API keys and Gemini CLI auth tokens. Stolen keys enable mass AI inference at the victim's cost. MITRE T1552. |
+| `mcp-sec-block-openai-credentials-read` | BLOCK | mcp_rule | Access to OpenAI CLI credential directory (~/.openai/) is blocked — contains OpenAI API keys and CLI auth tokens. Stolen keys enable unauthorized LLM usage and access to organization data. MITRE T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
