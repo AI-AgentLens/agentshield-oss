@@ -2704,4 +2704,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "user-cron-persistence-safe",
 		Description:      "Reading project cron documentation does not trigger cron-write rule — must AUDIT not BLOCK",
 	},
+	// TP: Kubernetes in-Pod service account token/cert (issue #228)
+	{
+		ID:               "MCP-TP-465",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "k8s-service-account-token",
+		Description:      "MCP read of in-Pod service account Bearer token — must BLOCK (mcp-sec-block-k8s-service-account-token)",
+	},
+	{
+		ID:               "MCP-TP-466",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "k8s-service-account-token",
+		Description:      "MCP cat of in-Pod service account CA cert — must BLOCK (mcp-sec-block-k8s-service-account-token)",
+	},
+	// TN: benign Kubernetes manifest/docs are allowed
+	{
+		ID:               "MCP-TN-430",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/kubernetes/deployment.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "k8s-service-account-token-safe",
+		Description:      "Reading project k8s deployment manifest does not trigger service account rule — must AUDIT not BLOCK",
+	},
+	{
+		ID:               "MCP-TN-431",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/serviceaccount-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "k8s-service-account-token-safe",
+		Description:      "Reading project docs about service accounts does not trigger k8s token rule — must AUDIT not BLOCK",
+	},
 }
