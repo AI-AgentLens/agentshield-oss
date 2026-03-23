@@ -44,15 +44,15 @@ func EmitScenarios(candidates []Candidate, outPath string, startTPID, startTNID 
 			expectedDecision = "BLOCK"
 		}
 
-		buf.WriteString(fmt.Sprintf("\t{\n"))
+		buf.WriteString("\t{\n")
 		buf.WriteString(fmt.Sprintf("\t\tID:               \"MCP-TP-%03d\",\n", tpID))
 		buf.WriteString(fmt.Sprintf("\t\tToolName:         %q,\n", toolName))
 		buf.WriteString(fmt.Sprintf("\t\tArguments:        map[string]interface{}{%q: %q},\n", argKey, argVal))
 		buf.WriteString(fmt.Sprintf("\t\tExpectedDecision: %q,\n", expectedDecision))
-		buf.WriteString(fmt.Sprintf("\t\tClassification:   \"TP\",\n"))
+		buf.WriteString("\t\tClassification:   \"TP\",\n")
 		buf.WriteString(fmt.Sprintf("\t\tCategory:         %q,\n", c.Category))
 		buf.WriteString(fmt.Sprintf("\t\tDescription:      \"[Generated] %s\",\n", escapeGoString(shortDescription(c))))
-		buf.WriteString(fmt.Sprintf("\t},\n"))
+		buf.WriteString("\t},\n")
 		tpID++
 	}
 

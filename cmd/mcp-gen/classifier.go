@@ -12,8 +12,8 @@ import (
 
 // ShellPack represents a parsed shell rule YAML pack.
 type ShellPack struct {
-	Name     string     `yaml:"name"`
-	Defaults Defaults   `yaml:"defaults,omitempty"`
+	Name     string      `yaml:"name"`
+	Defaults Defaults    `yaml:"defaults,omitempty"`
 	Rules    []ShellRule `yaml:"rules,omitempty"`
 }
 
@@ -33,19 +33,19 @@ type ShellRule struct {
 
 // MatchSpec holds the match criteria from a shell rule.
 type MatchSpec struct {
-	CommandRegex string `yaml:"command_regex,omitempty"`
+	CommandRegex        string `yaml:"command_regex,omitempty"`
 	CommandRegexExclude string `yaml:"command_regex_exclude,omitempty"`
 }
 
 // Candidate represents a shell rule that can be converted to an MCP rule.
 type Candidate struct {
-	SourceRule  ShellRule
-	Category    string   // "path-read", "path-write", "path-readwrite", "config-write", "url"
-	Paths       []string // extracted file paths or globs
-	URLs        []string // extracted URL patterns
-	ToolNames   []string // target MCP tool names
-	Decision    string
-	Reason      string
+	SourceRule ShellRule
+	Category   string   // "path-read", "path-write", "path-readwrite", "config-write", "url"
+	Paths      []string // extracted file paths or globs
+	URLs       []string // extracted URL patterns
+	ToolNames  []string // target MCP tool names
+	Decision   string
+	Reason     string
 }
 
 // LoadShellPack parses a YAML pack file.
@@ -261,9 +261,7 @@ func extractPaths(regex string) []string {
 	// Pattern 3: Cloud metadata URLs (treated as paths for MCP network rules).
 	metadataRe := regexp.MustCompile(`(169\.254\.169\.254|metadata\.google\.internal)`)
 	if metadataRe.MatchString(regex) {
-		for _, m := range metadataRe.FindAllString(regex, -1) {
-			paths = append(paths, m)
-		}
+		paths = append(paths, metadataRe.FindAllString(regex, -1)...)
 	}
 
 	return dedup(paths)
@@ -273,9 +271,7 @@ func extractPaths(regex string) []string {
 func extractURLs(regex string) []string {
 	var urls []string
 	urlRe := regexp.MustCompile(`https?://[a-zA-Z0-9._/-]+`)
-	for _, m := range urlRe.FindAllString(regex, -1) {
-		urls = append(urls, m)
-	}
+	urls = append(urls, urlRe.FindAllString(regex, -1)...)
 	return dedup(urls)
 }
 
