@@ -192,11 +192,7 @@ structural_rules:
   #   gem:         .gemrc, ~/.gemrc
   #   NuGet:       ~/.nuget/NuGet/NuGet.Config
   #   Bun:         bunfig.toml, ~/.bunfig.toml
-  #
-  # NOTE: .npmrc is intentionally excluded from this rule. Project-level .npmrc files
-  # are legitimately written by agents (e.g., setting save-exact=true, engine-strict=true).
-  # npm config writes via the CLI are already caught by the terminal-level
-  # sc-block-npmrc-edit rule. This gap is accepted as a trade-off against usability.
+  #   npm:         .npmrc (stores auth tokens; redirecting registry = supply chain poisoning)
   #
   # Decision: BLOCK (not AUDIT) — the listed files are user/system-level config that
   # agents have no legitimate need to directly overwrite. Registry changes must go through
@@ -245,6 +241,8 @@ structural_rules:
             - "(?:^|/)NuGet\\.Config$"
             # Bun package manager config
             - "(?:^|/)bunfig\\.toml$"
+            # npm registry and auth token config (issue #209)
+            - "(?:^|/)\\.npmrc$"
     decision: "BLOCK"
     reason: "MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001."
     confidence: 0.95

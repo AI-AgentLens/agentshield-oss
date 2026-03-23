@@ -1006,13 +1006,31 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "Fetching from a safe URL — no credentials in URL",
 	},
 	{
+		ID:               "MCP-TP-209-001",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/Users/dev/myproject/.npmrc", "content": "registry=https://evil.example.com"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "supply-chain-pkgmgr-config",
+		Description:      "Writing .npmrc to redirect npm registry to attacker-controlled server — mcp-sc-block-pkgmgr-config-write must fire (issue #209)",
+	},
+	{
+		ID:               "MCP-TP-209-002",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.npmrc", "content": "//registry.npmjs.org/:_authToken=evil"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "supply-chain-pkgmgr-config",
+		Description:      "Writing user-level .npmrc with stolen auth token — mcp-sc-block-pkgmgr-config-write must fire (issue #209)",
+	},
+	{
 		ID:               "MCP-TN-010",
 		ToolName:         "write_file",
-		Arguments:        map[string]interface{}{"path": "/Users/dev/myproject/.npmrc", "content": "save-exact=true"},
+		Arguments:        map[string]interface{}{"path": "/Users/dev/myproject/.npmignore", "content": "dist/\n*.log\n"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		Category:         "safe-project-dotfile",
-		Description:      "Writing .npmrc inside a project directory (not ~/) — allowed by config guard",
+		Description:      "Writing .npmignore (not .npmrc) inside a project directory — publish exclusion file, must not be blocked",
 	},
 	// --- Semantic matching true negatives ---
 	{
