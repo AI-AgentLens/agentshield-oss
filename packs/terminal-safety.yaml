@@ -10149,3 +10149,45 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082."
+
+  # ===========================================================================
+  # AI Provenance / Attribution Stripping
+  # ===========================================================================
+  # Removing or suppressing AI attribution metadata (Co-Authored-By trailers,
+  # AI-generated comments, audit log entries) violates transparency obligations
+  # under EU AI Act Art.50 and OWASP LLM09 (Misinformation). An AI agent may
+  # be prompted to erase its own attribution footprint to obscure its involvement.
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-output-provenance-manipulation
+  # OWASP LLM09 (Misinformation), LLM05 (Improper Output Handling)
+  # EU AI Act Art.50 (Transparency Obligations)
+  #
+  # Note: git filter-branch and git filter-repo are already BLOCKed by
+  # ts-block-git-filter-branch / ts-block-git-filter-repo in the destructive-ops
+  # section. These rules cover the sed/grep stripping pattern which is harder
+  # to catch structurally.
+  #
+  # TP examples:
+  #   sed -i '/Co-Authored-By.*Claude/d' .git/COMMIT_EDITMSG
+  #   grep -v 'Co-Authored-By' .git/COMMIT_EDITMSG > tmp && mv tmp .git/COMMIT_EDITMSG
+  #   sed -i 's/Co-Authored-By.*Copilot.*//g' CHANGELOG.md
+  #
+  # TN examples:
+  #   git commit -m 'fix: typo' --trailer 'Co-Authored-By: Claude <noreply@anthropic.com>'
+  #   git log --format='%an'  (reading, not rewriting)
+  #   grep 'Co-Authored-By' .git/COMMIT_EDITMSG  (read-only grep, no -v/delete)
+  - id: "gov-audit-strip-ai-coauthor"
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-provenance-manipulation"
+    match:
+      command_regex: "(?i)(sed\\s+.*-[Ei].*(/d|s/.*//)|grep\\s+.*-v\\s+.*)['\"]?Co-Authored-By['\"]?.*\\b(Claude|Copilot|GPT|Gemini|AI|Anthropic|GitHub\\s+Copilot)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Command appears to strip AI co-author attribution (Co-Authored-By: Claude/Copilot/GPT/Gemini) from git commit messages or changelogs. Removing AI attribution may violate organizational transparency policies and EU AI Act Art.50 transparency obligations (OWASP LLM09)."
+
+  - id: "gov-audit-strip-ai-coauthor-reverse"
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-provenance-manipulation"
+    match:
+      command_regex: "(?i)(sed\\s+.*-[Ei].*(/d|s/.*//)|grep\\s+.*-v\\s+.*)(AI-generated|ai_generated|generated.by.ai|\\[AI\\]|\\[Claude\\]|\\[Copilot\\])"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Command appears to strip AI-generated markers or annotations from source files or changelogs. Removing AI attribution footprints may violate transparency policies and EU AI Act Art.50 obligations (OWASP LLM09, LLM05)."

@@ -1237,6 +1237,61 @@ var TunnelAIInferencePortCases = []TestCase{
 }
 
 // AllGovernanceRiskCases aggregates all governance-risk kingdom test cases.
+// AIProvenanceStrippingCases tests gov-audit-strip-ai-coauthor and
+// gov-audit-strip-ai-coauthor-reverse (issue #187).
+var AIProvenanceStrippingCases = []TestCase{
+	{
+		ID:               "TP-GOV-PROV-STRIP-001",
+		Command:          "sed -i '/Co-Authored-By.*Claude/d' .git/COMMIT_EDITMSG",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-provenance-manipulation",
+		Analyzer:         "regex",
+		Description:      "sed deleting Co-Authored-By Claude line — AI provenance stripping, must AUDIT (issue #187)",
+		Tags:             []string{"tp", "governance", "provenance", "ai-attribution"},
+	},
+	{
+		ID:               "TP-GOV-PROV-STRIP-002",
+		Command:          `sed -i 's/Co-Authored-By.*Copilot.*//g' CHANGELOG.md`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-provenance-manipulation",
+		Analyzer:         "regex",
+		Description:      "sed stripping Co-Authored-By Copilot from changelog — AI attribution removal, must AUDIT (issue #187)",
+		Tags:             []string{"tp", "governance", "provenance", "ai-attribution"},
+	},
+	{
+		ID:               "TP-GOV-PROV-STRIP-003",
+		Command:          "sed -i '/AI-generated/d' README.md",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-provenance-manipulation",
+		Analyzer:         "regex",
+		Description:      "sed deleting AI-generated marker lines — provenance marker removal, must AUDIT (issue #187)",
+		Tags:             []string{"tp", "governance", "provenance", "ai-attribution"},
+	},
+	{
+		ID:               "TN-GOV-PROV-STRIP-001",
+		Command:          "git commit -m 'fix: typo' --trailer 'Co-Authored-By: Claude <noreply@anthropic.com>'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-provenance-manipulation",
+		Analyzer:         "regex",
+		Description:      "git commit adding Co-Authored-By (not removing) — gov-audit-strip-ai-coauthor must NOT fire; default AUDIT applies (issue #187)",
+		Tags:             []string{"tn", "safe", "git", "provenance"},
+	},
+	{
+		ID:               "TN-GOV-PROV-STRIP-002",
+		Command:          "git log --format='%an'",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-provenance-manipulation",
+		Analyzer:         "regex",
+		Description:      "git log reading history — read-only, must ALLOW (issue #187)",
+		Tags:             []string{"tn", "safe", "git"},
+	},
+}
+
 func AllGovernanceRiskCases() []TestCase {
 	var all []TestCase
 	all = append(all, AISafetyBypassCases...)
@@ -1261,5 +1316,6 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, K8sLLMWorkloadCreateCases...)
 	all = append(all, NgrokAIInferencePortCases...)
 	all = append(all, TunnelAIInferencePortCases...)
+	all = append(all, AIProvenanceStrippingCases...)
 	return all
 }
