@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1000 |
-| MCP rules | 341 |
-| Total rules | 1341 |
-| Test cases (TP+TN) | 3494 |
+| Terminal rules | 1002 |
+| MCP rules | 348 |
+| Total rules | 1350 |
+| Test cases (TP+TN) | 3503 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (119 rules)
+### credential-exposure (121 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -67,6 +67,8 @@
 | `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. |
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
+| `sec-block-ml-platform-token-read` | BLOCK | regex | Read access to ML platform credential file — HuggingFace, W&B, Replicate, Comet ML, and DagsHub tokens grant access to private model repositories, training data, and inference APIs. MITRE T1552.001, OWASP LLM06. |
+| `sec-audit-ml-platform-apikey-env` | AUDIT | regex | Direct access to ML platform API key environment variable flagged for review (covers HuggingFace HF_TOKEN, W&B WANDB_API_KEY, Replicate, Comet ML, DagsHub). |
 | `sec-audit-git-credential` | AUDIT | prefix | Git credential access flagged for review. |
 | `sec-block-gh-auth-token` | BLOCK | regex | gh auth token prints the raw GitHub PAT/OAuth token to stdout — direct credential extraction that enables immediate API access. No legitimate agent workflow needs the raw token. MITRE T1528 (Steal Application Access Token), OWASP LLM06. |
 | `sec-block-gcloud-auth-token` | BLOCK | regex | gcloud auth print-access-token/print-identity-token dumps a live GCP OAuth2/OIDC token to stdout — immediate credential extraction bypassing file monitoring. config-helper dumps full credential state. MITRE T1528, OWASP LLM06. |
@@ -1066,7 +1068,7 @@
 
 ## MCP Rules
 
-### credential-exposure (178 rules)
+### credential-exposure (185 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1242,6 +1244,13 @@
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
 | `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
 | `mcp-sec-block-container-secrets-mount` | BLOCK | mcp_rule | Access to /run/secrets/* is blocked — Docker Swarm and Kubernetes mount container secrets here in plaintext. Reading these exposes API keys, database passwords, and tokens injected by the orchestrator. MITRE T1552. |
+| `mcp-sec-block-huggingface-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub token file is blocked — this token grants access to private model repositories, gated datasets, and inference API billing. MITRE T1552.001, OWASP LLM06. |
+| `mcp-sec-block-wandb-settings-read` | BLOCK | mcp_rule | Read access to W&B settings file is blocked — contains the WANDB_API_KEY granting access to experiment data, model checkpoints, and training datasets. MITRE T1552.001, OWASP LLM06. |
+| `mcp-sec-block-replicate-token-read` | BLOCK | mcp_rule | Read access to Replicate token file is blocked — grants access to serverless model inference APIs with per-call billing. MITRE T1552.001, OWASP LLM06. |
+| `mcp-sec-block-comet-config-read` | BLOCK | mcp_rule | Read access to Comet ML config file is blocked — contains API key for experiment tracking platform. MITRE T1552.001. |
+| `mcp-sec-block-ml-platform-write` | BLOCK | mcp_rule | Write access to HuggingFace cache directory is blocked — modifying cached credentials or model metadata could redirect authentication to a malicious endpoint. MITRE T1552.001. |
+| `mcp-sec-block-dagshub-credentials-read` | BLOCK | mcp_rule | Read access to DagsHub credentials directory is blocked — DagsHub tokens grant access to private ML dataset and model repositories on the Git-based ML platform. MITRE T1552.001. |
+| `mcp-sec-block-dvc-config-read` | BLOCK | mcp_rule | Read access to DVC config file is blocked — may contain remote storage credentials (S3, GCS, Azure, SSH) used to access large training datasets and model artifact storage. MITRE T1552.001. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
 | `mcp-sec-block-postgres-uri` | BLOCK | resource_rule | Direct PostgreSQL database access via MCP is blocked. |
 | `mcp-sec-block-redis-uri` | BLOCK | resource_rule | Direct Redis access via MCP is blocked. |
@@ -1466,7 +1475,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 275 | 199 | 474 |
+| credential-exposure | 281 | 202 | 483 |
 | data-exfiltration | 283 | 175 | 458 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
@@ -1475,5 +1484,5 @@
 | reconnaissance | 168 | 74 | 242 |
 | supply-chain | 237 | 159 | 396 |
 | unauthorized-execution | 396 | 269 | 665 |
-| **Total** | **2132** | **1362** | **3494** |
+| **Total** | **2138** | **1365** | **3503** |
 
