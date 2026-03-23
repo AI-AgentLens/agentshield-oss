@@ -525,3 +525,54 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001."
     confidence: 0.80
+
+  # === AUDIT: MCP write_file to LLM semantic cache paths (issue #199) ===
+  #
+  # LLM semantic caches store query→response mappings to reduce API latency.
+  # An AI agent using an MCP write_file tool to overwrite these cache files
+  # bypasses shell-level detection entirely — no terminal command is issued.
+  #
+  # Attack patterns enabled by undetected MCP cache writes:
+  #   - Overwriting a GPTCache response blob with an attacker-controlled answer
+  #   - Replacing the LangChain SQLite cache with a poisoned database
+  #   - Injecting adversarial responses into /tmp/llm_cache/ for transient deployments
+  #
+  # Protected paths:
+  #   ~/.cache/gptcache/**    — GPTCache default data directory
+  #   *.langchain.db          — LangChain SQLiteCache database files
+  #   /tmp/gptcache/**        — GPTCache temporary deployments
+  #   /tmp/llm_cache/**       — Generic LLM cache directories
+  #   **/llm_cache/**         — Project-level LLM cache dirs
+  #   **/langchain_cache/**   — LangChain cache directories
+  #
+  # Decision: AUDIT (not BLOCK) — some agent workflows legitimately seed or
+  # migrate LLM caches. Human review is warranted to detect poisoning.
+  #
+  # OWASP LLM04 — Data and Model Poisoning, LLM03
+  # MITRE AML.T0010 — Poison Training Data
+  - id: mcp-sc-audit-llm-cache-write
+    taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:\\.cache/)?gptcache/"
+            - "\\.langchain\\.db$"
+            - "(?:^|/)/tmp/gptcache/"
+            - "(?:^|/)/tmp/llm[_-]cache/"
+            - "(?:^|/)llm[_-]cache/"
+            - "(?:^|/)langchain[_-]cache/"
+    decision: "AUDIT"
+    reason: "MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010."
+    confidence: 0.85
