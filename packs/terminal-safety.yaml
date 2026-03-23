@@ -7263,6 +7263,46 @@ rules:
     confidence: 0.85
     reason: "git push --no-verify bypasses pre-push hooks including remote security scanning gates — skipping final automated quality and security checks before LLM-generated code reaches shared branches. OWASP LLM05, MITRE T1059."
 
+  # ── RAG Poisoning — Unguarded Similarity Search ─────────────────────────────
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/rag-poisoning
+  # OWASP LLM01 — Prompt Injection, LLM08 — Vector and Embedding Weaknesses
+  # MITRE T1565 — Data Manipulation, T1190 — Exploit Public-Facing Application
+  # CWE-20 — Improper Input Validation, CWE-693 — Protection Mechanism Failure
+  # ISO 27001 A.8.9, A.8.26, A.8.31; EU AI Act Art.9, Art.13
+  #
+  # RAG (Retrieval-Augmented Generation) poisoning exploits missing vector
+  # similarity score thresholds to force injected adversarial documents into the
+  # LLM context window. When an AI agent calls similarity_search() or
+  # as_retriever() without a minimum score threshold, ALL k nearest neighbors
+  # are returned regardless of semantic distance — including attacker-injected
+  # documents that contain prompt injection payloads.
+  #
+  # Runtime detection targets Python inline invocations where an AI agent
+  # directly constructs and runs RAG queries against vector stores. These
+  # patterns are especially risky when the agent has also been performing
+  # vector store writes in the same session (compound RAG poisoning attack).
+  #
+  # Examples:
+  #   python3 -c "docs = vectorstore.similarity_search(query, k=5)"
+  #   python3 -c "retriever = db.as_retriever(); docs = retriever.get_relevant_documents(q)"
+  #   python3 -c "results = collection.query(query_texts=[q], n_results=5)"
+  - id: "ts-audit-rag-similarity-search-unguarded"
+    taxonomy: "unauthorized-execution/ai-content-integrity/rag-poisoning"
+    match:
+      command_regex: "python[23]?\\s+(-c\\s+['\"]?|\\S+\\.py\\s).*\\b(similarity_search|as_retriever|get_relevant_documents)\\s*\\("
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Python RAG retrieval call (similarity_search / as_retriever / get_relevant_documents) detected at runtime. Without a minimum similarity score threshold, all k nearest neighbors are returned regardless of semantic distance, allowing attacker-injected adversarial documents to enter the LLM context window. Use similarity_search_with_score() and filter by threshold ≥ 0.7 (OWASP LLM01/LLM08, MITRE T1565, Lasso Security RAG Poisoning Research 2024)."
+
+  - id: "ts-audit-rag-chroma-query-unguarded"
+    taxonomy: "unauthorized-execution/ai-content-integrity/rag-poisoning"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\b(chromadb|qdrant_client|weaviate|pinecone|pymilvus|lancedb)\\b.*\\.query\\s*\\([^)]*n_results\\s*=\\s*\\d+"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Python inline vector store query (Chroma/Qdrant/Weaviate/Pinecone/LanceDB .query()) without an explicit distance or score filter. Unthresholded nearest-neighbor retrieval is vulnerable to RAG poisoning — injected adversarial documents are returned among top-k results regardless of relevance, delivering prompt injection payloads into the LLM context window (OWASP LLM08, MITRE T1565)."
+
   # ── AI Safety Control Bypass ────────────────────────────────────────────────
   #
   # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
