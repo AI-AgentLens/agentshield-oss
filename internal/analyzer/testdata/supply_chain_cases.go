@@ -292,6 +292,16 @@ var PackageInstallCases = []TestCase{
 		Description:      `Writing to .pypirc to redirect pip installs. Matches sc-block-pypirc-edit regex.`,
 		Tags:             []string{"canonical", "critical"},
 	},
+	{
+		ID:               "TN-PKGINST-008a",
+		Command:          `echo "exit: 0" && agentshield mcp-eval --tool read_file --arg path=/home/user/project/.pypirc`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      `echo in prior sub-command must not trigger sc-block-pypirc-edit — the echo and .pypirc reference are in separate sub-commands. Regression for issue #239.`,
+		Tags:             []string{"fp-regression", "issue-239"},
+	},
 
 	// --- uv (Astral Python package manager) ---
 

@@ -145,7 +145,7 @@ rules:
   - id: "sc-block-pypirc-edit"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
-      command_regex: "(echo|cat|sed|tee).*\\.pypirc"
+      command_regex: "(?:^|[;&|])\\s*(?:sudo\\s+)?(echo|cat|sed|tee)[^;&|]*\\.pypirc"
     decision: "BLOCK"
     reason: "Modification of .pypirc blocked — may redirect package resolution."
 
