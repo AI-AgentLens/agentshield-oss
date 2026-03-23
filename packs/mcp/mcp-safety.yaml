@@ -659,3 +659,45 @@ semantic_rules:
     decision: "AUDIT"
     reason: "Compliance handshake phrase in MCP tool text argument — characteristic output signature of a jailbroken LLM passing attacker-generated content through MCP tooling. OWASP LLM01, LLM05."
     confidence: 0.75
+
+  # === AUDIT/BLOCK: MCP sampling/createMessage server-initiated prompt injection (issue #202) ===
+  #
+  # The MCP sampling capability (sampling/createMessage) allows MCP servers to request
+  # the LLM host to generate text completions on their behalf. Unlike tool calls
+  # (user/agent-initiated), sampling requests are SERVER-INITIATED — creating a novel
+  # server-controlled prompt injection surface with no shell equivalent.
+  #
+  # Attack vectors enabled by unguarded sampling:
+  #   - Server injects adversarial instructions into sampling messages → LLM processes
+  #     them in a fresh context where session guardrails may not apply
+  #   - Consent bypass: MCP spec uses SHOULD (not MUST) for user consent flows —
+  #     many host implementations auto-forward sampling requests without user visibility
+  #   - Tool gate bypass: sampling can launder unauthorized tool calls by having the
+  #     LLM generate completions that include tool invocations
+  #   - Context contamination: sampling responses returned to server may be used to
+  #     construct more convincing subsequent attack payloads
+  #
+  # Detection is performed at the MCP proxy layer by HandleSamplingCreateMessage()
+  # in internal/mcp/handler.go, which:
+  #   - AUDITS all sampling/createMessage requests (rule: "sampling-audit")
+  #   - BLOCKS those containing injection, credential-harvesting, or exfiltration
+  #     patterns detected by ScanSamplingMessages() (rule: "sampling-content-scan")
+  #
+  # This YAML entry is a sentinel rule that:
+  #   1. Documents the taxonomy linkage for agentshield scan output
+  #   2. Surfaces this detection category in rule coverage reports
+  #   3. Links to the proxy-layer implementation (not evaluated via YAML rule engine)
+  #
+  # The sentinel tool_name_regex "^__mcp_sampling_request_abuse__$" never matches a
+  # real MCP tool — actual detection fires from the proxy layer before rule evaluation.
+  #
+  # OWASP LLM 2025: LLM01 (Prompt Injection), LLM06 (Excessive Agency), LLM03
+  # MITRE: T1059 (Command Scripting), T1071 (App Layer Protocol), T1106
+  # CWE: CWE-94 (Code Injection), CWE-829 (Inclusion of Functionality from Untrusted Source)
+  - id: mcp-sampling-request-abuse
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-sampling-request-abuse"
+    match:
+      tool_name_regex: "^__mcp_sampling_request_abuse__$"
+    decision: "BLOCK"
+    reason: "MCP sampling/createMessage server-initiated request contains prompt injection, credential-harvesting, or exfiltration patterns. Sampling requests are server-controlled — this is a consent bypass and tool gate bypass vector. Detection via proxy-layer ScanSamplingMessages(). OWASP LLM01/LLM06/LLM03, MITRE T1059."
+    confidence: 0.90
