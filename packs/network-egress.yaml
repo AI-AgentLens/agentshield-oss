@@ -1906,3 +1906,22 @@ rules:
     decision: "AUDIT"
     confidence: 0.82
     reason: "Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567."
+
+  # === BLOCK: LLM API call over plaintext HTTP (issue #215) ===
+  #
+  # AI agents may configure or invoke LLM API clients using plaintext http://
+  # endpoints, exposing prompts, completions, and embedded credentials to
+  # network interception (MITM). Loopback addresses (127.0.0.1, localhost) are
+  # exempt — local Ollama and dev servers are acceptable.
+  #
+  # Covers: OpenAI-compatible paths (/v1/), Ollama (:11434), common inference
+  # ports (:8080, :8000, :8001).
+  # OWASP LLM02, LLM06. ISO 27001 A.8.20, A.5.23. MITRE T1040.
+  - id: "ne-block-insecure-llm-transport"
+    taxonomy: "data-exfiltration/ai-data-flows/insecure-transport"
+    match:
+      command_regex: "(curl|wget)\\s+http://\\S*(/v1/(?:chat|completions|generate|embeddings|embed)|/api/(?:generate|chat|tags)|:11434/)"
+      command_regex_exclude: "http://(127\\.0\\.0\\.1|localhost)[:/]"
+    decision: "BLOCK"
+    confidence: 0.80
+    reason: "LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040."
