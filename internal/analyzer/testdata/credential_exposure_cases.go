@@ -5632,6 +5632,72 @@ var MLCredentialStoreAuditCases = []TestCase{
 		Description:      "cat of project databricks.yml (Databricks Asset Bundle config) — project config, not user credential file. Must be allowed.",
 		Tags:             []string{"tn", "governance-risk", "databricks"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// AI API credential-leakage via URL query parameters (issue #210)
+	// Taxonomy: data-exfiltration/ai-data-flows/credential-leakage
+	// Rule: sec-block-ai-api-url-credential-leak
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "TP-AI-URL-CRED-LEAK-001",
+		Command:          `curl "https://api.openai.com/v1/chat/completions?api_key=sk-proj-abc123xyz"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "OpenAI API call with api_key in URL query param — logged in server access logs and proxies.",
+		Tags:             []string{"tp", "credential-exposure", "ai-api", "url-leak", "openai"},
+	},
+	{
+		ID:               "TP-AI-URL-CRED-LEAK-002",
+		Command:          `curl https://api.anthropic.com/v1/messages?access_token=ant-key-def456 -X POST`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "Anthropic API call with access_token in URL query param — credential in URL is captured by every hop.",
+		Tags:             []string{"tp", "credential-exposure", "ai-api", "url-leak", "anthropic"},
+	},
+	{
+		ID:               "TP-AI-URL-CRED-LEAK-003",
+		Command:          `curl "https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyAbc123DefGhi"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "Google Gemini API call with key= in URL query param — Google's API key exposed in URL.",
+		Tags:             []string{"tp", "credential-exposure", "ai-api", "url-leak", "google", "gemini"},
+	},
+	{
+		ID:               "TP-AI-URL-CRED-LEAK-004",
+		Command:          `wget "https://api.mistral.ai/v1/models?token=msk-abc123defghij"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "Mistral AI API call with token= in URL query param via wget.",
+		Tags:             []string{"tp", "credential-exposure", "ai-api", "url-leak", "mistral"},
+	},
+	{
+		ID:               "TN-AI-URL-CRED-LEAK-001",
+		Command:          `curl -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "OpenAI API call with credential in Authorization header (env var) — correct pattern, must NOT trigger URL credential leak rule.",
+		Tags:             []string{"tn", "safe", "ai-api", "auth-header"},
+	},
+	{
+		ID:               "TN-AI-URL-CRED-LEAK-002",
+		Command:          `curl https://api.openai.com/v1/models`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/credential-leakage",
+		Analyzer:         "regex",
+		Description:      "OpenAI API GET with no query params — no credential in URL, must NOT trigger URL credential leak rule.",
+		Tags:             []string{"tn", "safe", "ai-api", "no-credential"},
+	},
 }
 
 // HardlinkCredentialCases are now in edge_case_deep_dive_cases.go
