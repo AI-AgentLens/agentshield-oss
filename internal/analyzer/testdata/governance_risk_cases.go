@@ -1317,5 +1317,117 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, NgrokAIInferencePortCases...)
 	all = append(all, TunnelAIInferencePortCases...)
 	all = append(all, AIProvenanceStrippingCases...)
+	all = append(all, LLMDirectedIaCApplyCases...)
+	all = append(all, ComplianceReportAutoSubmitCases...)
 	return all
+}
+
+// LLMDirectedIaCApplyCases tests ts-audit-pulumi-up and ts-audit-aws-cfn-deploy
+// (issue #204 — orphaned taxonomy: llm-directed-iac-apply)
+var LLMDirectedIaCApplyCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-IAC-PULUMI-001",
+		Command:          "pulumi up",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "pulumi up applies all pending stack changes — ts-audit-pulumi-up should fire.",
+		Tags:             []string{"tp", "iac", "pulumi"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-IAC-PULUMI-002",
+		Command:          "pulumi up --stack prod",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "pulumi up targeting prod stack — ts-audit-pulumi-up must fire regardless of stack name.",
+		Tags:             []string{"tp", "iac", "pulumi"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-IAC-PULUMI-001",
+		Command:          "pulumi preview",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "pulumi preview is read-only — must not trigger ts-audit-pulumi-up (gets default AUDIT, not from that rule).",
+		Tags:             []string{"tn", "safe", "iac", "pulumi"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-IAC-CFN-001",
+		Command:          "aws cloudformation deploy --template-file template.yaml --stack-name my-stack",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "aws cloudformation deploy without --no-execute-changeset — ts-audit-aws-cfn-deploy must fire.",
+		Tags:             []string{"tp", "iac", "cloudformation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-IAC-CFN-002",
+		Command:          "sam deploy",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "sam deploy applies SAM/CloudFormation stack changes — ts-audit-aws-cfn-deploy must fire.",
+		Tags:             []string{"tp", "iac", "sam", "cloudformation"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-IAC-CFN-001",
+		Command:          "aws cloudformation deploy --template-file t.yaml --stack-name s --no-execute-changeset",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply",
+		Analyzer:         "regex",
+		Description:      "aws cloudformation deploy with --no-execute-changeset only creates the changeset for review — ts-audit-aws-cfn-deploy excluded, gets general aws-cli AUDIT.",
+		Tags:             []string{"tn", "safe", "iac", "cloudformation"},
+	},
+}
+
+// ComplianceReportAutoSubmitCases tests ts-audit-compliance-report-auto-submit
+// (issue #204 — orphaned taxonomy: ai-generated-compliance-report-injection)
+var ComplianceReportAutoSubmitCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-COMPLIANCE-SUBMIT-001",
+		Command:          "aws audit-manager create-assessment --name \"SOC2 Assessment\" --framework-id xyz --assessment-reports-destination destinationType=S3,destination=s3://bucket",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection",
+		Analyzer:         "regex",
+		Description:      "aws audit-manager create-assessment — AI-generated compliance assessment submitted without review. ts-audit-compliance-report-auto-submit must fire.",
+		Tags:             []string{"tp", "compliance", "aws-audit-manager"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-COMPLIANCE-SUBMIT-002",
+		Command:          "aws securityhub batch-import-findings --findings '[{\"Title\":\"Critical Vuln\",\"Severity\":{\"Label\":\"CRITICAL\"}}]'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection",
+		Analyzer:         "regex",
+		Description:      "aws securityhub batch-import-findings — AI-fabricated security findings injected into Security Hub. ts-audit-compliance-report-auto-submit must fire.",
+		Tags:             []string{"tp", "compliance", "securityhub"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-COMPLIANCE-SUBMIT-001",
+		Command:          "aws audit-manager get-assessment --assessment-id abc123",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection",
+		Analyzer:         "regex",
+		Description:      "aws audit-manager get-assessment is read-only — ts-audit-compliance-report-auto-submit must not fire (gets general aws-cli AUDIT).",
+		Tags:             []string{"tn", "safe", "compliance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-COMPLIANCE-SUBMIT-002",
+		Command:          "aws securityhub describe-hub",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection",
+		Analyzer:         "regex",
+		Description:      "aws securityhub describe-hub is read-only — ts-audit-compliance-report-auto-submit must not fire (gets general aws-cli AUDIT).",
+		Tags:             []string{"tn", "safe", "compliance"},
+	},
 }
