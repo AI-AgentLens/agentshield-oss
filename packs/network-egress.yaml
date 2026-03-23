@@ -1925,3 +1925,39 @@ rules:
     decision: "BLOCK"
     confidence: 0.80
     reason: "LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040."
+
+  # === BLOCK: Unauthenticated LLM inference server bound to non-loopback interface (issue #222) ===
+  #
+  # Local LLM inference servers (Ollama, llama.cpp, vLLM, LocalAI,
+  # text-generation-webui) default to loopback (127.0.0.1) and have no
+  # built-in authentication. When explicitly bound to 0.0.0.0 or a
+  # non-loopback address, the inference API is accessible to any host on the
+  # network — enabling:
+  #   - Arbitrary prompt injection from any network peer
+  #   - Data exfiltration via inference queries
+  #   - Compute abuse (unbounded GPU/CPU usage by remote callers)
+  #   - Exposure of system context embedded in the model's prompt history
+  #
+  # Covered patterns:
+  #   ollama serve --host 0.0.0.0         (Ollama, port 11434)
+  #   python -m llama_cpp.server --host 0.0.0.0
+  #   python -m vllm.entrypoints.openai.api_server --host 0.0.0.0
+  #   python -m localai --address 0.0.0.0 (LocalAI)
+  #   text-generation-webui --listen       (always binds 0.0.0.0 when --listen used)
+  #   docker run -p 0.0.0.0:11434:11434   (Ollama container on all interfaces)
+  #   docker run -p 0.0.0.0:8080:8080     (generic LLM inference container)
+  #
+  # Loopback bindings (127.0.0.1, localhost) are exempt — local dev usage is
+  # legitimate. The threat is explicit non-loopback interface binding.
+  #
+  # OWASP LLM02 — Sensitive Information Disclosure
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1046 — Network Service Discovery (exposed port enables scanning)
+  # MITRE T1571 — Non-Standard Port
+  - id: "ne-block-unauthenticated-llm-endpoint"
+    taxonomy: "data-exfiltration/llm-data-flow/unauthenticated-llm-endpoint"
+    match:
+      command_regex: "(?:ollama\\s+serve\\s+.*--host\\s+0\\.0\\.0\\.0|python\\s+.*-m\\s+(?:llama_cpp\\.server|vllm\\.entrypoints\\.[^\\s]*api_server|localai)\\s+.*--host\\s+0\\.0\\.0\\.0|text-generation-webui\\s+.*--listen|docker\\s+run\\s+.*-p\\s+0\\.0\\.0\\.0:(?:11434|8080|8000|8001|7860|5000))"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "LLM inference server bound to 0.0.0.0 exposes the API to the network without authentication — any peer can submit arbitrary prompts, extract inference history, or abuse compute. Use --host 127.0.0.1 for local-only access. OWASP LLM02/LLM06, MITRE T1046."
