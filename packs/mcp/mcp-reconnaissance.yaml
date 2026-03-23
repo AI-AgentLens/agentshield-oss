@@ -210,3 +210,123 @@ structural_rules:
             - "(?i)sqlite_master"
     decision: "AUDIT"
     reason: "Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213."
+
+  # ============================================================
+  # LLM Introspection: Model Fingerprinting via Boundary Probe (issue #175)
+  # Taxonomy: reconnaissance/llm-introspection/model-fingerprinting-via-boundary-probe
+  #
+  # An adversary probes the model's capability boundaries (what it can/cannot do,
+  # knowledge cutoff, base model identity) to infer system prompt contents or
+  # operator restrictions without directly extracting the prompt. This recon
+  # enables targeted jailbreaks tailored to the specific restrictions found.
+  # OWASP LLM07, LLM01 | MITRE T1592, T1590 | CWE-200, CWE-203.
+  # ============================================================
+
+  # === AUDIT: LLM capability boundary probing via content argument ===
+  - id: mcp-struct-audit-llm-boundary-probe-content
+    taxonomy: "reconnaissance/llm-introspection/model-fingerprinting-via-boundary-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)what\\s+model\\s+are\\s+you"
+            - "(?i)what\\s+are\\s+you\\s+based\\s+on"
+            - "(?i)which\\s+(model|llm|ai)\\s+(are|were)\\s+you"
+            - "(?i)your\\s+base\\s+model"
+            - "(?i)knowledge\\s+cutoff"
+            - "(?i)training\\s+cutoff"
+            - "(?i)what\\s+(topics|subjects)\\s+are\\s+you\\s+(restrict|unable|not allowed)"
+            - "(?i)what\\s+(can't|cannot|can\\s+not)\\s+you\\s+(do|discuss|help)"
+            - "(?i)what\\s+were\\s+you\\s+trained\\s+to\\s+avoid"
+            - "(?i)what\\s+instructions\\s+were\\s+you\\s+given"
+            - "(?i)enumerate.*your.*capabilities"
+            - "(?i)list.*your.*restrictions"
+    decision: "AUDIT"
+    reason: "Tool call content probes LLM capability boundaries or model identity — may be reconnaissance to infer system prompt structure or restrictions before crafting targeted jailbreaks. OWASP LLM07, MITRE T1592."
+    confidence: 0.75
+
+  # === AUDIT: LLM capability boundary probing via message/prompt argument ===
+  - id: mcp-struct-audit-llm-boundary-probe-message
+    taxonomy: "reconnaissance/llm-introspection/model-fingerprinting-via-boundary-probe"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        message:
+          pattern_any:
+            - "(?i)what\\s+model\\s+are\\s+you"
+            - "(?i)what\\s+are\\s+you\\s+based\\s+on"
+            - "(?i)which\\s+(model|llm|ai)\\s+(are|were)\\s+you"
+            - "(?i)your\\s+base\\s+model"
+            - "(?i)knowledge\\s+cutoff"
+            - "(?i)training\\s+cutoff"
+            - "(?i)what\\s+(topics|subjects)\\s+are\\s+you\\s+(restrict|unable|not allowed)"
+            - "(?i)what\\s+(can't|cannot|can\\s+not)\\s+you\\s+(do|discuss|help)"
+            - "(?i)what\\s+were\\s+you\\s+trained\\s+to\\s+avoid"
+            - "(?i)what\\s+instructions\\s+were\\s+you\\s+given"
+    decision: "AUDIT"
+    reason: "Tool call message field probes LLM capability boundaries or model identity — reconnaissance to infer system prompt structure. OWASP LLM07, MITRE T1592."
+    confidence: 0.75
+
+  # ============================================================
+  # LLM Introspection: System Prompt Recovery via Jailbreak (issue #175)
+  # Taxonomy: reconnaissance/llm-introspection/system-prompt-recovery-via-jailbreak
+  #
+  # Adversarial prompts force the model to repeat its system prompt verbatim
+  # using roleplay escapes, DAN-style jailbreaks, or direct extraction requests.
+  # These patterns expose confidential operator instructions, security policies,
+  # business logic, and any secrets embedded in the prompt.
+  # OWASP LLM07, LLM01 | MITRE T1592, T1552 | CWE-200, CWE-693.
+  # ============================================================
+
+  # === BLOCK: System prompt extraction jailbreak via content argument ===
+  - id: mcp-struct-block-system-prompt-jailbreak-content
+    taxonomy: "reconnaissance/llm-introspection/system-prompt-recovery-via-jailbreak"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions"
+            - "(?i)disregard\\s+(your\\s+)?(previous\\s+)?instructions"
+            - "(?i)repeat\\s+everything\\s+above\\s+this\\s+line"
+            - "(?i)output\\s+(your|the)\\s+(original\\s+|full\\s+|entire\\s+)?system\\s+prompt"
+            - "(?i)reveal\\s+(your|the)\\s+system\\s+prompt"
+            - "(?i)show\\s+me\\s+your\\s+(full\\s+)?system\\s+prompt"
+            - "(?i)what\\s+is\\s+your\\s+system\\s+prompt"
+            - "(?i)tell\\s+me\\s+exactly\\s+what\\s+your\\s+instructions\\s+say"
+            - "(?i)you\\s+are\\s+now\\s+DAN"
+            - "(?i)do\\s+anything\\s+now.*DAN"
+            - "(?i)pretend\\s+(you\\s+have|you've)\\s+no\\s+restrictions"
+            - "(?i)act\\s+as\\s+if\\s+you\\s+have\\s+no\\s+restrictions"
+            - "(?i)pretend\\s+you\\s+are\\s+not\\s+an\\s+AI"
+            - "(?i)roleplay\\s+as.*no.*restrictions"
+            - "(?i)translate\\s+(your|the)\\s+(original\\s+)?instructions\\s+to"
+            - "(?i)print\\s+(your|the)\\s+(full\\s+)?system\\s+(prompt|message)"
+    decision: "BLOCK"
+    reason: "Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552."
+    confidence: 0.88
+
+  # === BLOCK: System prompt extraction jailbreak via message argument ===
+  - id: mcp-struct-block-system-prompt-jailbreak-message
+    taxonomy: "reconnaissance/llm-introspection/system-prompt-recovery-via-jailbreak"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        message:
+          pattern_any:
+            - "(?i)ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions"
+            - "(?i)disregard\\s+(your\\s+)?(previous\\s+)?instructions"
+            - "(?i)repeat\\s+everything\\s+above\\s+this\\s+line"
+            - "(?i)output\\s+(your|the)\\s+(original\\s+|full\\s+|entire\\s+)?system\\s+prompt"
+            - "(?i)reveal\\s+(your|the)\\s+system\\s+prompt"
+            - "(?i)show\\s+me\\s+your\\s+(full\\s+)?system\\s+prompt"
+            - "(?i)what\\s+is\\s+your\\s+system\\s+prompt"
+            - "(?i)you\\s+are\\s+now\\s+DAN"
+            - "(?i)pretend\\s+(you\\s+have|you've)\\s+no\\s+restrictions"
+            - "(?i)act\\s+as\\s+if\\s+you\\s+have\\s+no\\s+restrictions"
+            - "(?i)pretend\\s+you\\s+are\\s+not\\s+an\\s+AI"
+            - "(?i)translate\\s+(your|the)\\s+(original\\s+)?instructions\\s+to"
+    decision: "BLOCK"
+    reason: "Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552."
+    confidence: 0.88
