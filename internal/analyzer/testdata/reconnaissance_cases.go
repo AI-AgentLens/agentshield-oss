@@ -2664,6 +2664,36 @@ var FindCredentialHuntingCases = []TestCase{
 		Description:      "whois domain lookup — standard registrar query. Gets default AUDIT, not BLOCK from OSINT email-harvesting rule.",
 		Tags:             []string{"tn", "safe", "dns"},
 	},
+	{
+		ID:               "TN-TS-BLOCK-OSINT-EMAIL-003",
+		Command:          `gh issue create --repo AI-AgentLens/AI_risk_compliance --title "OSINT passive enumeration tool detection" --body "Detect theHarvester, h8mail, holehe tools"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "regex",
+		Description:      "gh issue create with OSINT tool names in title/body — documentation context, not tool execution. FP fix: issue #206.",
+		Tags:             []string{"tn", "safe", "fp-fix", "gh-issue"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-OSINT-SUBDOMAIN-003",
+		Command:          `gh issue create --repo AI-AgentLens/AI_Agent_Shield --title "Detect subfinder and amass" --body "Add rules to block subfinder, assetfinder, waybackurls, gau, amass enum"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "regex",
+		Description:      "gh issue create mentioning OSINT subdomain tools — documentation context only. FP fix: issue #206.",
+		Tags:             []string{"tn", "safe", "fp-fix", "gh-issue"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-OSINT-INFRA-003",
+		Command:          `gh issue create --title "Block spiderfoot and shodan search" --body "Rule to detect: spiderfoot -s target.com and shodan search queries"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/osint/passive-enumeration",
+		Analyzer:         "regex",
+		Description:      "gh issue create with shodan/spiderfoot in body — documentation, not execution. FP fix: issue #206.",
+		Tags:             []string{"tn", "safe", "fp-fix", "gh-issue"},
+	},
 
 	// --- ts-block-osint-subdomain-enum ---
 	{
