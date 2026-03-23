@@ -4873,6 +4873,7 @@ func AllCredentialExposureCases() []TestCase {
 	all = append(all, VPNCredentialTheftCases...)
 	all = append(all, KeyctlKernelKeyringCases...)
 	all = append(all, MLCredentialStoreAuditCases...)
+	all = append(all, AIIDEOAuthTokenCases...)
 
 	return all
 }
@@ -5792,6 +5793,103 @@ var MLCredentialStoreAuditCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "OpenAI API GET with no query params — no credential in URL, must NOT trigger URL credential leak rule.",
 		Tags:             []string{"tn", "safe", "ai-api", "no-credential"},
+	},
+}
+
+// AIIDEOAuthTokenCases covers sec-block-ai-ide-oauth-token-read (shell) and
+// mcp-sec-block-{windsurf,cursor,vscode-copilot,gemini-cli-v2}-oauth-token-read (MCP).
+var AIIDEOAuthTokenCases = []TestCase{
+	// === True Positives ===
+	{
+		ID:               "TP-AI-IDE-OAUTH-001",
+		Command:          `cat ~/Library/Application\ Support/Windsurf/User/globalStorage/storage.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of Windsurf globalStorage/storage.json — contains Codeium OAuth token; sec-block-ai-ide-oauth-token-read.",
+		Tags:             []string{"tp", "ai-ide-oauth", "windsurf", "secrets-pii"},
+	},
+	{
+		ID:               "TP-AI-IDE-OAUTH-002",
+		Command:          `cat ~/Library/Application\ Support/Cursor/User/globalStorage/storage.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of Cursor globalStorage/storage.json — contains Cursor account OAuth token; sec-block-ai-ide-oauth-token-read.",
+		Tags:             []string{"tp", "ai-ide-oauth", "cursor", "secrets-pii"},
+	},
+	{
+		ID:               "TP-AI-IDE-OAUTH-003",
+		Command:          `jq '.["codeium.apiKey"]' ~/Library/Application\ Support/Windsurf/User/globalStorage/storage.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "jq extracting Codeium API key from Windsurf globalStorage — targeted OAuth token theft; sec-block-ai-ide-oauth-token-read.",
+		Tags:             []string{"tp", "ai-ide-oauth", "windsurf", "jq", "secrets-pii"},
+	},
+	{
+		ID:               "TP-AI-IDE-OAUTH-004",
+		Command:          `cat ~/.config/gemini/credentials.json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of Gemini CLI v2 credentials.json — contains Google OAuth token; sec-block-ai-ide-oauth-token-read.",
+		Tags:             []string{"tp", "ai-ide-oauth", "gemini-cli", "secrets-pii"},
+	},
+	{
+		ID:               "TP-AI-IDE-OAUTH-005",
+		Command:          `python3 -c "import json; print(json.load(open('globalStorage/storage.json')))"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "python3 one-liner reading globalStorage/storage.json — sec-block-ai-ide-oauth-token-read.",
+		Tags:             []string{"tp", "ai-ide-oauth", "python", "secrets-pii"},
+	},
+	// === True Negatives ===
+	{
+		ID:               "TN-AI-IDE-OAUTH-001",
+		Command:          `ls ~/Library/Application\ Support/Windsurf/User/globalStorage/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "ls of Windsurf globalStorage directory — read-only listing, no file content access, must NOT trigger block rule. ls is safe-readonly (ALLOW).",
+		Tags:             []string{"tn", "safe", "windsurf"},
+	},
+	{
+		ID:               "TN-AI-IDE-OAUTH-002",
+		Command:          `cat ~/Library/Application\ Support/Windsurf/User/settings.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of Windsurf settings.json (not globalStorage/storage.json) — different file, must NOT trigger block rule.",
+		Tags:             []string{"tn", "safe", "windsurf"},
+	},
+	{
+		ID:               "TN-AI-IDE-OAUTH-003",
+		Command:          `cat ~/Documents/notes/storage.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of a project's storage.json not under globalStorage — must NOT trigger block rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-AI-IDE-OAUTH-004",
+		Command:          `cat ~/.config/gemini/config.toml`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/oauth-tokens/ai-ide-oauth-token-theft",
+		Analyzer:         "regex",
+		Description:      "cat of gemini config.toml (not credentials.json) — must NOT trigger block rule.",
+		Tags:             []string{"tn", "safe", "gemini-cli"},
 	},
 }
 
