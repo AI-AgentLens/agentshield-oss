@@ -166,3 +166,134 @@ structural_rules:
     decision: "BLOCK"
     reason: "Dangerous protocol handler in MCP URL argument — file:// enables local file access; gopher:// and dict:// are classic SSRF pivots (OWASP LLM02)"
     confidence: 0.90
+
+  # ============================================================
+  # Structured Output Injection (issue #198)
+  # Taxonomy: unauthorized-execution/ai-content-integrity/structured-output-injection
+  # OWASP LLM01 — Prompt Injection, LLM02 — Insecure Output Handling, LLM05
+  # MITRE T1059 — Command and Scripting Interpreter
+  #
+  # When an AI agent writes LLM-generated content to files, untrusted input
+  # embedded in the output can contain malicious payloads targeting the
+  # deserializer or query engine that will process the file:
+  #
+  #   - YAML deserialization gadget chains (!!python/object, !!java.lang.)
+  #     execute arbitrary code when PyYAML/SnakeYAML loads the file
+  #   - JSON prototype pollution (__proto__, constructor.prototype)
+  #     corrupts the JavaScript runtime's object model
+  #   - SQL injection patterns (OR 1=1, UNION SELECT, DROP TABLE) in
+  #     files that will be used as SQL query templates
+  #
+  # Detection: structural rules matching on the `content`/`new_content`
+  # argument of MCP write tools. Since content comes from LLM output
+  # processing untrusted data, finding injection payloads in write args
+  # indicates the output pipeline is not sanitizing structured data.
+  # ============================================================
+
+  # BLOCK: YAML deserialization gadget chains in file content
+  # PyYAML's unsafe Loader and SnakeYAML execute code when they encounter
+  # !!python/object:, !!java.lang., !!ruby/object:, !!exec tags.
+  # An attacker who can influence LLM output can trigger RCE via YAML load.
+  - id: mcp-struct-block-yaml-deser-inject
+    taxonomy: "unauthorized-execution/ai-content-integrity/structured-output-injection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        content:
+          pattern_any:
+            - "!!(?:python|java|ruby|php)/(?:object|module|exec|apply|reduce|newobj|global|inst|seq|map)"
+            - "!!java\\.lang\\."
+            - "!!exec\\s*\\["
+    decision: "BLOCK"
+    reason: "YAML deserialization gadget chain detected in MCP write content — !!python/object, !!java.lang., !!ruby/object and similar YAML type tags execute arbitrary code when loaded by an unsafe YAML deserializer. LLM-generated content containing these patterns indicates injection via untrusted input. OWASP LLM02, LLM01."
+    confidence: 0.93
+
+  # BLOCK: YAML deserialization gadget chains in new_content argument
+  # Some MCP tools use new_content instead of content for the file body.
+  - id: mcp-struct-block-yaml-deser-inject-newcontent
+    taxonomy: "unauthorized-execution/ai-content-integrity/structured-output-injection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        new_content:
+          pattern_any:
+            - "!!(?:python|java|ruby|php)/(?:object|module|exec|apply|reduce|newobj|global|inst|seq|map)"
+            - "!!java\\.lang\\."
+            - "!!exec\\s*\\["
+    decision: "BLOCK"
+    reason: "YAML deserialization gadget chain detected in MCP write new_content — !!python/object, !!java.lang., and !!ruby/object tags execute code when loaded by an unsafe deserializer. Indicates injection via untrusted input into LLM output. OWASP LLM02, LLM01."
+    confidence: 0.93
+
+  # BLOCK: JSON prototype pollution in file content
+  # __proto__, constructor.prototype, and __defineGetter__ are JavaScript
+  # prototype pollution vectors. When injected into JSON config or state files
+  # consumed by Node.js applications, they can override built-in prototypes
+  # and enable privilege escalation or RCE.
+  - id: mcp-struct-block-json-proto-pollute
+    taxonomy: "unauthorized-execution/ai-content-integrity/structured-output-injection"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        content:
+          pattern_any:
+            - "\"__proto__\""
+            - "\"constructor\"\\s*:\\s*\\{\\s*\"prototype\""
+            - "\"__defineGetter__\""
+            - "\"__defineSetter__\""
+    decision: "BLOCK"
+    reason: "JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models when deserialized, enabling privilege escalation or RCE. OWASP LLM02 (Insecure Output Handling), LLM01."
+    confidence: 0.91
+
+  # AUDIT: SQL injection patterns in database tool query arguments
+  # LLM-generated SQL queries that process untrusted input may contain
+  # classic injection payloads (OR 1=1, UNION SELECT, DROP TABLE).
+  # These fire on database MCP tools that expose a query/sql argument.
+  - id: mcp-struct-audit-llm-sql-inject
+    taxonomy: "unauthorized-execution/ai-content-integrity/structured-output-injection"
+    match:
+      tool_name_any:
+        - "execute_query"
+        - "run_sql"
+        - "run_query"
+        - "execute_sql"
+        - "db_query"
+        - "database_query"
+        - "query_database"
+        - "sql_execute"
+      args_match:
+        query:
+          pattern_any:
+            - "(?i)'\\s*OR\\s+['\"]?1['\"]?\\s*=\\s*['\"]?1"
+            - "(?i);\\s*DROP\\s+TABLE"
+            - "(?i)\\bUNION\\s+(?:ALL\\s+)?SELECT\\b"
+            - "(?i);\\s*DELETE\\s+FROM\\s+\\w+"
+            - "(?i)INSERT\\s+INTO\\s+\\w+.*SELECT"
+    decision: "AUDIT"
+    reason: "SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection)."
+    confidence: 0.88
