@@ -265,6 +265,18 @@ var SSHPrivateKeyReadCases = []TestCase{
 		Tags: []string{"fp-fix", "mcp-eval", "issue-630"},
 	},
 
+	// FP regression: gh --body with pipe chars should not block (issue #180)
+	{
+		ID:               "TN-SSHKEY-013",
+		Command:          `gh issue create --title "FP test" --body "Referencing ~/.ssh/id_rsa | pipe char in body for documentation"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #180): gh issue --body containing ~/.ssh/id_rsa with pipe char — sec-block-ssh-private must NOT fire; broad gh/git --body exclusion handles large bodies",
+		Tags:             []string{"tn", "fp-regression", "gh-body"},
+	},
+
 	// --- FALSE NEGATIVES ---
 
 	{
