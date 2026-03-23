@@ -1902,3 +1902,104 @@ rules:
     decision: "AUDIT"
     confidence: 0.82
     reason: "git clone followed immediately by script execution (bash/sh/pip/npm/make) — the classic LLM-directed repo supply chain attack pattern. An AI agent clones a hallucinated or attacker-controlled repository and runs its install script without human review. Verify the repository before executing any of its scripts. MITRE T1195.001, OWASP LLM03:2025."
+
+  # =========================================================================
+  # SEMANTIC CACHE POISONING (issue #199)
+  # Taxonomy: supply-chain/model-poisoning/semantic-cache-poisoning
+  # OWASP LLM04 — Data and Model Poisoning, LLM03, LLM02
+  # MITRE AML.T0010 — Poison Training Data
+  #
+  # LLM systems cache query→response pairs in semantic caches (GPTCache, LangChain
+  # SQLiteCache, RedisCache) to reduce API latency and cost. Poisoning these caches
+  # injects attacker-controlled responses for future semantically-similar queries —
+  # without modifying the underlying model or RAG knowledge base.
+  #
+  # Attack surfaces:
+  #   GPTCache:      ~/.cache/gptcache/ SQLite files, Redis HSET gptcache:*
+  #   LangChain:     ~/.langchain.db (SQLite), Redis SET langchain:* keys
+  #   Generic:       /tmp/llm_cache/, /tmp/gptcache/ (transient deployments)
+  #
+  # Decision: AUDIT — cache writes can be legitimate (seeding, warming, migration),
+  # but direct manipulation of LLM cache stores by an agent warrants human review.
+  # =========================================================================
+
+  # === AUDIT: Direct SQLite writes to LLM semantic cache databases ===
+  #
+  # LLM caches that use SQLite as a backend store semantically-equivalent query
+  # hashes → cached responses. Writing to these databases directly (via sqlite3
+  # CLI or Python sqlite3 module) bypasses the caching library's write path and
+  # can inject arbitrary responses for future queries.
+  #
+  # TP: sqlite3 ~/.langchain.db "INSERT INTO full_llm_cache ..."
+  # TP: sqlite3 /tmp/gptcache/gptcache.db "INSERT INTO cache ..."
+  # TN: sqlite3 myapp.db "SELECT * FROM users"  → ALLOW (unrelated DB)
+  - id: "sc-audit-gptcache-write"
+    taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
+    match:
+      command_regex: "(?:sqlite3|python3?\\s+.*sqlite3?)\\s+.*(?:gptcache|langchain|\\.langchain\\.db|llm[_-]cache|llm_cache)"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Direct sqlite3 write to an LLM semantic cache database (GPTCache or LangChain SQLite backend) — injecting attacker-controlled responses into the cache poisons future LLM queries with semantically-similar prompts. OWASP LLM04, MITRE AML.T0010."
+
+  # === AUDIT: Shell redirect writes to LLM cache directories ===
+  #
+  # Redirecting file content into an LLM semantic cache directory can overwrite
+  # cached response files, inject serialized payloads, or replace cache indexes.
+  # GPTCache stores response blobs in ~/.cache/gptcache/ by default.
+  #
+  # TP: echo '{"response":"..."}' > ~/.cache/gptcache/abc123
+  # TP: python3 -c "..." > /tmp/gptcache/cache.db
+  # TN: cat ~/.cache/pip/selfcheck.json  → ALLOW (pip cache, not LLM cache)
+  - id: "sc-audit-langchain-cache-write"
+    taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
+    match:
+      command_regex: "(?:echo|cat|printf|tee|python3?|cp)\\s+.*(?:>|>>)\\s*(?:~|\$HOME)?(?:/[^/\\s]*)*/(?:\\.cache/gptcache|gptcache|langchain[_-]cache|llm[_-]cache)[/\\s]"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.83
+    reason: "Shell redirect writing to an LLM semantic cache directory (~/.cache/gptcache/, gptcache/, langchain_cache/) — overwriting cached response blobs or indexes poisons future semantically-similar queries. OWASP LLM04."
+
+  # === AUDIT: Redis cache poisoning targeting LLM cache key namespaces ===
+  #
+  # LangChain's RedisCache and GPTCache's Redis backend store cached responses
+  # under namespaced keys (langchain:*, gptcache:*). An agent using redis-cli
+  # to SET or HSET these keys can inject attacker-controlled responses.
+  #
+  # TP: redis-cli SET "langchain:llmcache:abc123" '{"return":"..."}' → AUDIT
+  # TP: redis-cli HSET gptcache:queries abc123 '{"response":"evil"}' → AUDIT
+  # TN: redis-cli SET myapp:session:xyz "token" → ALLOW (non-LLM key)
+  - id: "sc-audit-redis-llm-cache-poison"
+    taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
+    match:
+      command_regex: "redis-cli\\s+(?:SET|HSET|HMSET|RPUSH|ZADD)\\s+['\"]?(?:langchain:|gptcache:|llm[_-]cache:|llmcache:)"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "redis-cli writing to an LLM semantic cache key namespace (langchain:*, gptcache:*, llm-cache:*) — injecting attacker-controlled responses into the Redis cache poisons future LLM queries at the infrastructure layer. OWASP LLM04, LLM03."
+
+  # === AUDIT: Vector DB batch injection endpoints via curl ===
+  #
+  # Vector databases expose batch REST endpoints that accept multiple documents
+  # in a single request. Batch endpoints dramatically amplify the poisoning
+  # surface vs single-document inserts — hundreds of adversarial embeddings
+  # can be injected in one curl call.
+  #
+  # Batch endpoints (distinct from single-point inserts covered by sc-audit-vector-db-rest-write):
+  #   Weaviate: POST /v1/objects/batch, POST /v1/batch/objects
+  #   Qdrant:   PUT/POST /collections/*/points/batch
+  #   ChromaDB: POST /api/v1/collections/*/add (accepts array; same endpoint)
+  #   Milvus:   POST /v2/vectordb/entities/insert (batch by default)
+  #   Pinecone: POST /vectors/upsert (batch JSON body)
+  #
+  # TP: curl -X POST localhost:8080/v1/batch/objects -d '{"objects":[...]}'
+  # TP: curl -X PUT localhost:6333/collections/docs/points/batch -d '{"points":[...]}'
+  # TN: curl -X GET localhost:6333/collections/docs/points/1 → ALLOW (read-only)
+  - id: "sc-audit-vector-db-batch-inject"
+    taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
+    match:
+      command_regex: "curl\\s+.*-X\\s+(POST|PUT).*(?:/v1/(?:objects/batch|batch/objects)|/collections/[^/]+/points/batch|/v2/vectordb/entities/insert|/vectors/upsert)"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "curl batch-insert POST to a vector database REST endpoint (/batch/objects, /points/batch, /entities/insert) — bulk injection of adversarial embeddings poisons the RAG knowledge base at scale. OWASP LLM04/LLM08, MITRE AML.T0010."

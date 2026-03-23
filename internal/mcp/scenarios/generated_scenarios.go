@@ -2426,6 +2426,64 @@ var GeneratedTNScenarios = []Scenario{
 		Description:      "DataGrip data sources — dataSources.local.xml stores database connection credentials (mcp-sec-block-datagrip-datasources)",
 	},
 
+	// TP: LLM semantic cache path writes via MCP — must be AUDIT (issue #199)
+	{
+		ID:               "MCP-TP-449",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.cache/gptcache/abc123response"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "semantic-cache-poisoning",
+		Description:      "MCP write_file to GPTCache data dir — semantic cache poisoning must be AUDIT (mcp-sc-audit-llm-cache-write)",
+	},
+	{
+		ID:               "MCP-TP-450",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.langchain.db"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "semantic-cache-poisoning",
+		Description:      "MCP write_file to LangChain SQLite cache DB — overwriting poisons LLM query responses (mcp-sc-audit-llm-cache-write)",
+	},
+	{
+		ID:               "MCP-TP-451",
+		ToolName:         "edit_file",
+		Arguments:        map[string]interface{}{"path": "/tmp/llm_cache/response_store.db"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "semantic-cache-poisoning",
+		Description:      "MCP edit_file to /tmp/llm_cache/ — generic LLM cache dir write (mcp-sc-audit-llm-cache-write)",
+	},
+	{
+		ID:               "MCP-TP-452",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/workspace/app/langchain_cache/full_llm_cache.db"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "semantic-cache-poisoning",
+		Description:      "MCP str_replace_editor targeting langchain_cache/ project dir — must audit (mcp-sc-audit-llm-cache-write)",
+	},
+
+	// TN: Benign paths similar to LLM cache paths — must NOT be flagged by cache rules
+	{
+		ID:               "MCP-TN-420",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/gptcache-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "semantic-cache-poisoning-safe",
+		Description:      "Read of GPTCache documentation — must not trigger cache poisoning write rule",
+	},
+	{
+		ID:               "MCP-TN-421",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/src/cache_manager.py"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "semantic-cache-poisoning-safe",
+		Description:      "Write to project source file mentioning cache — must not trigger LLM cache rule",
+	},
+
 	// TN: Benign paths similar to DB history/GUI files — must NOT be blocked
 	{
 		ID:               "MCP-TN-417",
