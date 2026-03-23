@@ -131,8 +131,48 @@ structural_rules:
             - "(?i)webhook\\.site"
             - "(?i)burpcollaborator\\.net"
             - "(?i)interact\\.sh"
+            - "(?i)oast\\.fun"
+            - "(?i)oastify\\.com"
+            - "(?i)interactsh\\.com"
+            - "(?i)beeceptor\\.com"
     decision: "BLOCK"
     reason: "Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659)"
+    confidence: 0.95
+
+  # === BLOCK: Paste and file-sharing service exfiltration ===
+  # AI agents have no legitimate reason to POST data to paste sites or anonymous
+  # file-sharing services. These are primary exfiltration channels: a compromised
+  # agent POSTs stolen credentials to pastebin.com and embeds the paste URL in its
+  # response, invisibly exfiltrating secrets to the attacker.
+  # MITRE T1567.002 — Exfiltration Over Web Service: Code/Paste Site
+  - id: mcp-response-integrity-struct-block-paste-exfil
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "http_get"
+        - "http_request"
+        - "http_post"
+        - "post_request"
+        - "make_request"
+        - "network_request"
+        - "web_fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "scrape_url"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)pastebin\\.com/(api/|raw/|)"
+            - "(?i)paste\\.ee/"
+            - "(?i)dpaste\\.com/"
+            - "(?i)ghostbin\\.co/"
+            - "(?i)hastebin\\.com/"
+            - "(?i)hasteb\\.in/"
+            - "(?i)transfer\\.sh/"
+            - "(?i)file\\.io/"
+    decision: "BLOCK"
+    reason: "MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002."
     confidence: 0.95
 
   # === BLOCK: Webhook exfiltration via Discord/Slack/Teams/Pipedream ===
