@@ -1776,6 +1776,74 @@ rules:
     confidence: 0.72
     reason: "helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578)"
 
+  # === AUDIT: pulumi up — LLM-directed IaC apply (issue #204) ===
+  #
+  # pulumi up applies all pending stack changes (create, update, replace, delete).
+  # An AI agent generating Pulumi code and immediately running `pulumi up` without
+  # human review of the preview may deploy misconfigured or adversarially-crafted
+  # infrastructure. Use `pulumi preview` first, then apply after human review.
+  #
+  # TP: pulumi up
+  # TP: pulumi up --stack prod
+  # TN: pulumi preview
+  # TN: pulumi stack ls
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/llm-directed-iac-apply
+  # OWASP LLM08, LLM02 | MITRE T1578 | CWE-94
+  - id: "ts-audit-pulumi-up"
+    taxonomy: "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply"
+    match:
+      command_regex: "\\bpulumi\\s+up\\b"
+      command_regex_exclude: "\\b(preview|--dry-run)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578)"
+
+  # === AUDIT: AWS CloudFormation / SAM deploy — LLM-directed IaC apply (issue #204) ===
+  #
+  # aws cloudformation deploy/create-stack/update-stack and sam deploy immediately
+  # apply infrastructure changes to AWS. An AI agent applying AI-generated templates
+  # without using --no-execute-changeset for human review bypasses all change gates.
+  #
+  # TP: aws cloudformation deploy --template-file template.yaml --stack-name my-stack
+  # TP: sam deploy
+  # TP: aws cloudformation create-stack --stack-name new-stack --template-body file://t.json
+  # TN: aws cloudformation create-change-set --change-set-name review-changes
+  # TN: aws cloudformation deploy --no-execute-changeset
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/llm-directed-iac-apply
+  - id: "ts-audit-aws-cfn-deploy"
+    taxonomy: "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply"
+    match:
+      command_regex: "\\baws\\s+cloudformation\\s+(deploy|create-stack|update-stack)\\b|\\bsam\\s+deploy\\b"
+      command_regex_exclude: "--no-execute-changeset"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "aws cloudformation deploy/create-stack/update-stack or sam deploy applies infrastructure changes to AWS immediately. AI-generated CloudFormation templates may grant excessive IAM permissions or expose resources publicly. Use --no-execute-changeset to review the changeset before execution. (OWASP LLM08, MITRE T1578)"
+
+  # === AUDIT: AI-generated compliance report auto-submission (issue #204) ===
+  #
+  # AWS Audit Manager and Security Hub accept automated findings and assessments.
+  # An AI agent importing fabricated findings, creating unreviewed assessments,
+  # or auto-attesting compliance injects false data into the organization's
+  # regulatory record — a critical governance and legal risk.
+  #
+  # TP: aws audit-manager create-assessment --name "SOC2 Assessment" --framework-id xyz
+  # TP: aws securityhub batch-import-findings --findings '[{"Title":"...","Severity":{...}}]'
+  # TP: aws auditmanager import-evidence-to-assessment-control
+  # TN: aws audit-manager get-assessment --assessment-id abc
+  # TN: aws securityhub describe-hub
+  #
+  # Taxonomy: unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection
+  # Also covers: governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication
+  - id: "ts-audit-compliance-report-auto-submit"
+    taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-compliance-report-injection"
+    match:
+      command_regex: "\\baws\\s+(audit-manager|auditmanager)\\s+(create-assessment|import-evidence|create-control|batch-import)\\b|\\baws\\s+securityhub\\s+batch-import-findings\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "AI agent submitting findings or creating compliance assessments in AWS Audit Manager or Security Hub without human review. AI-generated compliance artifacts may contain fabricated findings, incorrect risk ratings, or hallucinated evidence — injecting false data into the regulatory record. Require human review before any compliance data submission. (OWASP LLM09, EU AI Act Art.14, SOC2 CC8.1)"
+
   # === AUDIT: Cloud over-provisioning / uncontrolled resource commitment (issue #507) ===
   #
   # AI agents asked to "scale up the infrastructure", "create a load test environment",
