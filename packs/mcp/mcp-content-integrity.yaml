@@ -76,34 +76,6 @@ rules:
     decision: "AUDIT"
     reason: "AI-generated write to runbook — incorrect incident response procedures are a safety risk (LLM09)"
 
-# === Structural rules: broader pattern matching for content integrity ===
-structural_rules:
-  # Catch any file write to doc paths containing compliance-sensitive filenames
-  - id: mcp-struct-audit-changelog-write
-    match:
-      tool_name_any:
-        - "write_file"
-        - "create_file"
-        - "edit_file"
-        - "write_to_file"
-        - "save_file"
-        - "update_file"
-        - "filesystem_write"
-      args_match:
-        path:
-          pattern_any:
-            - "(?i)CHANGELOG"
-            - "(?i)CONTRIBUTING"
-            - "(?i)SECURITY"
-            - "(?i)/audit/"
-            - "(?i)/compliance/"
-            - "(?i)runbook"
-            - "(?i)pentest"
-            - "(?i)PRIVACY"
-    decision: "AUDIT"
-    reason: "AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation)"
-    confidence: 0.85
-
   # ============================================================
   # RAG Poisoning — Vector Store File Writes (issue #237)
   # Taxonomy: unauthorized-execution/ai-content-integrity/rag-poisoning
@@ -134,7 +106,7 @@ structural_rules:
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
       argument_patterns:
-        path: "**chroma.sqlite3"
+        path: "**/chroma.sqlite3"
     decision: "AUDIT"
     reason: "MCP write to ChromaDB SQLite store (chroma.sqlite3). Direct manipulation of a local vector database file bypasses client library provenance checks and can inject adversarial documents into the RAG corpus (OWASP LLM08, LLM01: RAG poisoning via missing similarity threshold, MITRE T1565)."
 
@@ -194,6 +166,34 @@ structural_rules:
         path: "**/*.lance"
     decision: "AUDIT"
     reason: "MCP write to LanceDB Lance-format file (*.lance). Lance columnar storage files back LanceDB vector stores — direct writes can corrupt the embedding index or inject poisoned document vectors into the RAG retrieval pipeline (OWASP LLM08, LLM01, MITRE T1565)."
+
+# === Structural rules: broader pattern matching for content integrity ===
+structural_rules:
+  # Catch any file write to doc paths containing compliance-sensitive filenames
+  - id: mcp-struct-audit-changelog-write
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)CHANGELOG"
+            - "(?i)CONTRIBUTING"
+            - "(?i)SECURITY"
+            - "(?i)/audit/"
+            - "(?i)/compliance/"
+            - "(?i)runbook"
+            - "(?i)pentest"
+            - "(?i)PRIVACY"
+    decision: "AUDIT"
+    reason: "AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation)"
+    confidence: 0.85
 
   # ============================================================
   # Tool Argument Injection (issue #184)
