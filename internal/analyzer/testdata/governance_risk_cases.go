@@ -1319,6 +1319,7 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, AIProvenanceStrippingCases...)
 	all = append(all, LLMDirectedIaCApplyCases...)
 	all = append(all, ComplianceReportAutoSubmitCases...)
+	all = append(all, AIComplianceArtifactFabricationCases...)
 	return all
 }
 
@@ -1429,5 +1430,75 @@ var ComplianceReportAutoSubmitCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "aws securityhub describe-hub is read-only — ts-audit-compliance-report-auto-submit must not fire (gets general aws-cli AUDIT).",
 		Tags:             []string{"tn", "safe", "compliance"},
+	},
+}
+
+// AIComplianceArtifactFabricationCases tests ts-audit-ai-compliance-artifact-fabrication
+// (issue #216 — broader coverage beyond AWS for governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication)
+var AIComplianceArtifactFabricationCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-COMPFAB-001",
+		Command:          `python3 generate_soc2_report.py | curl -X POST https://audit-portal.corp/upload`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Python script generating a SOC2 report piped to curl upload — AI-fabricated
+			compliance artifact submitted to an audit portal without human review.
+			ts-audit-ai-compliance-artifact-fabrication must fire (OWASP LLM09, EU AI Act Art.14).`,
+		Tags: []string{"tp", "compliance", "fabrication", "llm09"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-COMPFAB-002",
+		Command:          `openai-cli complete "Generate SOC2 Type II report for our infrastructure" > soc2-compliance.pdf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `openai-cli generating a SOC2 Type II report and writing to PDF —
+			LLM-generated compliance document created without governance review gate.
+			ts-audit-ai-compliance-artifact-fabrication must fire.`,
+		Tags: []string{"tp", "compliance", "fabrication", "llm09"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-COMPFAB-003",
+		Command:          `llm-tool generate-pentest-summary --output report.pdf && send-to-auditor report.pdf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `LLM tool generating a pentest summary and piping it directly to
+			an auditor submission tool — AI-fabricated pentest findings submitted without
+			human review. ts-audit-ai-compliance-artifact-fabrication must fire.`,
+		Tags: []string{"tp", "compliance", "fabrication", "pentest"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-TS-AUDIT-COMPFAB-001",
+		Command:          `python3 draft_compliance_report.py --output draft.pdf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Python script drafting (not generating+submitting) a compliance
+			report — the word 'draft' and lack of submission signal means
+			ts-audit-ai-compliance-artifact-fabrication must not fire.
+			Gets AUDIT from default policy (not from fabrication rule).`,
+		Tags: []string{"tn", "safe", "compliance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-COMPFAB-002",
+		Command:          `cat soc2-report.pdf | wc -c`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Reading (not generating) a SOC2 report to check its size —
+			read-only cat command, no generation or submission.
+			ts-audit-ai-compliance-artifact-fabrication must not fire.
+			ts-allow-readonly gives ALLOW.`,
+		Tags: []string{"tn", "safe", "compliance"},
 	},
 }
