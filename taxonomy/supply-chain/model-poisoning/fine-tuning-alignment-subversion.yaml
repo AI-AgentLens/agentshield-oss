@@ -1,0 +1,105 @@
+id: "supply-chain/model-poisoning/fine-tuning-alignment-subversion"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Model Poisoning"
+category_id: "7.4"
+name: "Fine-Tuning Alignment Subversion"
+risk_level: "critical"
+
+abstract: |
+  An attacker distributes a fine-tuned model or LoRA adapter that appears
+  functionally improved but has had safety alignment deliberately weakened
+  or removed — causing downstream agents to bypass safety guardrails, follow
+  harmful instructions, or generate dangerous outputs without resistance.
+
+explanation: |
+  Modern LLMs are aligned through RLHF, constitutional AI, or instruction
+  tuning to refuse harmful requests. Fine-tuning — including parameter-efficient
+  methods like LoRA, QLoRA, and prefix tuning — can undo this alignment with
+  remarkably few examples:
+
+  - **Safety alignment removal**: Research (Qi et al., 2023; Yang et al., 2023)
+    demonstrates that as few as 10–100 adversarial fine-tuning examples can strip
+    safety guardrails from models like LLaMA and GPT-3.5, producing models that
+    comply with any instruction including harmful ones.
+  - **LoRA adapter backdoors**: A malicious actor publishes a LoRA adapter on
+    Hugging Face or similar model hubs claiming performance improvements (e.g.,
+    "better coding", "faster inference") but the adapter also degrades safety
+    alignment. The adapter's small size (~50MB) makes manual review impractical.
+  - **"Uncensored" model proliferation**: Model hubs host thousands of
+    deliberately uncensored fine-tunes (e.g., "WizardLM-uncensored",
+    "dolphin-uncensored") that employees may download for "unrestricted"
+    coding assistance, bypassing corporate safety requirements.
+  - **Shadow fine-tuning**: Internal teams fine-tune foundation models on
+    proprietary data without safety evaluation, inadvertently degrading
+    alignment as the model optimizes for task performance at the expense
+    of safety behaviors.
+  - **Adapter supply chain attacks**: An attacker compromises a legitimate
+    LoRA adapter repository or publishes typosquatted adapters that include
+    alignment-subverting weights alongside genuine improvements.
+
+  This is distinct from training-data-tampering (which targets pre-training
+  data) and checkpoint-substitution (which replaces entire model weights).
+  Fine-tuning alignment subversion exploits the post-training customization
+  pipeline — a phase where security review is typically weakest because
+  organizations focus validation on task performance, not safety retention.
+
+  Enterprise impact is severe: an agent running on a subverted model will
+  execute dangerous commands, generate insecure code, and comply with prompt
+  injection attacks that a properly aligned model would refuse. Existing
+  runtime guardrails (like AgentShield) become the last line of defense.
+
+  MITRE equivalent: T1195.002 (Supply Chain: Compromise Software Supply Chain)
+  adapted for model fine-tuning supply chains.
+
+recommendation: |
+  - Maintain an approved model registry with safety-evaluated checkpoints and
+    adapters — prohibit loading models or adapters from unapproved sources.
+  - Require safety benchmark evaluation (e.g., HarmBench, SafetyBench, ToxiGen)
+    before any fine-tuned model or adapter is deployed to production.
+  - Implement adapter provenance verification — cryptographically sign approved
+    adapters and verify signatures before loading.
+  - Monitor model hubs for typosquatted or suspiciously named adapters targeting
+    models used internally.
+  - Apply runtime safety guardrails (AgentShield, guardrail APIs) as defense in
+    depth — never rely solely on model alignment for safety.
+  - Audit internal fine-tuning pipelines to ensure safety evaluation datasets
+    are included alongside task performance benchmarks.
+  - Block downloads of known "uncensored" model variants on corporate networks.
+
+examples:
+  bad:
+    - "huggingface-cli download TheBloke/WizardLM-7B-uncensored-GGUF  # downloading deliberately uncensored model"
+    - "python -c \"from peft import PeftModel; model = PeftModel.from_pretrained(base, 'untrusted-user/coding-lora-v3')\"  # loading unvetted LoRA adapter"
+    - "ollama pull dolphin-uncensored:latest  # deploying uncensored model for coding agent"
+    - "curl -L https://huggingface.co/unknown-org/llama-improved/resolve/main/adapter_model.safetensors -o adapters/  # unverified adapter download"
+  good:
+    - "# Loading adapter from approved internal registry with signature verification"
+    - "model = load_approved_adapter('coding-lora-v3', verify_signature=True, registry='internal')"
+    - "# Safety benchmark evaluation before deployment"
+    - "results = evaluate_safety(model, benchmarks=['harmbench', 'safetybench']); assert results.pass_rate > 0.95"
+
+compliance:
+  owasp-llm-2025: ["LLM04", "LLM03"]
+  iso-27001-2022: ["A.8.25", "A.8.28", "A.8.9"]
+  eu-ai-act-2024: ["Art.10", "Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.8", "CC7.1", "CC8.1"]
+
+references:
+  mitre_attack: ["T1195.002", "T1059"]
+  cwe: ["CWE-829", "CWE-494"]
+  external:
+    - title: "Qi et al. — Fine-tuning Aligned Language Models Compromises Safety"
+      url: "https://arxiv.org/abs/2310.03693"
+    - title: "Yang et al. — Shadow Alignment: The Ease of Subverting Safely-Aligned Language Models"
+      url: "https://arxiv.org/abs/2310.02949"
+    - title: "OWASP LLM04 — Data and Model Poisoning"
+      url: "https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/"
+
+analyzers: ["regex", "semantic"]
+related_rules: []
+# Detection: Regex analyzer can match downloads from known uncensored model
+# repositories. Semantic analyzer can classify model download + loading patterns.
+# Primary defense is governance (approved model registry) + runtime guardrails.
