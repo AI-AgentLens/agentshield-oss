@@ -302,6 +302,16 @@ var PackageInstallCases = []TestCase{
 		Description:      `echo in prior sub-command must not trigger sc-block-pypirc-edit — the echo and .pypirc reference are in separate sub-commands. Regression for issue #239.`,
 		Tags:             []string{"fp-regression", "issue-239"},
 	},
+	{
+		ID:               "TN-PKGINST-008b",
+		Command:          "echo \"exit: $?\"\nagentshield mcp-eval --tool write_file --arg path=/home/user/.pypirc",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      `Newline-separated commands: echo on line 1, mcp-eval with .pypirc path on line 2 — must not trigger sc-block-pypirc-edit via newline bleed. Regression for issue #247.`,
+		Tags:             []string{"fp-regression", "issue-247"},
+	},
 
 	// --- uv (Astral Python package manager) ---
 
