@@ -1,0 +1,61 @@
+id: "privilege-escalation/kernel-memory/kallsyms-kaslr-bypass"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Kernel Memory Access"
+category_id: "5.10"
+name: "KASLR Bypass via /proc/kallsyms"
+risk_level: "critical"
+
+abstract: |
+  Reading `/proc/kallsyms` leaks the exact runtime addresses of all kernel
+  symbols, defeating Kernel Address Space Layout Randomization (KASLR) and
+  enabling targeted kernel exploitation.
+
+explanation: |
+  KASLR randomizes the base address of the kernel image at boot to prevent
+  exploitation of known memory offsets. `/proc/kallsyms` lists all kernel symbol
+  names alongside their current runtime virtual addresses. On an unprotected
+  system (or when accessed as root), this file reveals the exact location of:
+  - Kernel function addresses (exploit gadget locations)
+  - Security-critical data structures (credential structs, LSM hooks)
+  - `commit_creds` and `prepare_kernel_cred` — canonical privilege escalation targets
+
+  An attacker who reads these addresses can immediately calculate offsets for
+  kernel exploits, making any kernel vulnerability far more reliable to exploit.
+
+  Mitigations:
+  - Linux 4.15+: `kptr_restrict=2` makes `/proc/kallsyms` return all-zeros to
+    unprivileged users (but root still sees live addresses).
+  - An AI agent running as root or with `CAP_SYSLOG` can read live addresses.
+  - Some distributions set `kptr_restrict=1` (hashed) rather than 2 (zeroed).
+
+recommendation: |
+  - Block agent access to `/proc/kallsyms` entirely.
+  - Set `kptr_restrict=2` in `/etc/sysctl.conf` to restrict address exposure.
+  - Combine with SMEP, SMAP, and CFI to reduce exploit reliability even if
+    symbol addresses are known.
+  - Monitor reads of `/proc/kallsyms` in agent audit logs.
+
+examples:
+  bad:
+    - "cat /proc/kallsyms | grep commit_creds"
+    - "grep prepare_kernel_cred /proc/kallsyms"
+    - "awk '/commit_creds/ {print $1}' /proc/kallsyms"
+  good:
+    - "uname -r"
+    - "cat /proc/version"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+
+references:
+  mitre_attack: ["T1068", "T1082"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

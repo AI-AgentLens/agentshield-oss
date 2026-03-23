@@ -1,0 +1,8 @@
+id: "5.10"
+name: "Kernel Memory Access"
+kingdom_id: 5
+description: >
+  Direct access to kernel memory regions, KASLR bypass via symbol leaks, and
+  manipulation of kernel data structures through special device files. Enables
+  full system compromise by reading or writing arbitrary kernel memory outside
+  normal privilege boundaries.
