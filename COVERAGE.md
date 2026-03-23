@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 991 |
-| MCP rules | 297 |
-| Total rules | 1288 |
-| Test cases (TP+TN) | 3450 |
+| Terminal rules | 997 |
+| MCP rules | 300 |
+| Total rules | 1297 |
+| Test cases (TP+TN) | 3483 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -138,7 +138,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (153 rules)
+### data-exfiltration (156 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -221,12 +221,15 @@
 | `ne-audit-python-socket-inline` | AUDIT | regex | Python inline script with socket.connect — direct TCP connection from an interpreter one-liner. While not every socket connection is exfiltration, this is unusual in AI agent workflows. MITRE T1059.006. |
 | `ne-audit-ai-vendor-api-call` | AUDIT | regex | Direct curl/wget call to AI vendor API with a request body — may be transmitting source code or sensitive data to external AI infrastructure. OWASP LLM02, LLM06. MITRE T1567. |
 | `ne-audit-source-file-to-ai-api` | AUDIT | regex | Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567. |
+| `ne-block-insecure-llm-transport` | BLOCK | regex | LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040. |
+| `ne-block-unauthenticated-llm-endpoint` | BLOCK | regex | LLM inference server bound to 0.0.0.0 exposes the API to the network without authentication — any peer can submit arbitrary prompts, extract inference history, or abuse compute. Use --host 127.0.0.1 for local-only access. OWASP LLM02/LLM06, MITRE T1046. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
 | `sec-block-openssl-credential-encode` | BLOCK | regex | openssl enc -base64 / openssl base64 on credential files encodes private keys or cloud credentials for exfiltration. MITRE T1027. |
 | `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
 | `sec-df-block-cred-encoded-exfil` | BLOCK | dataflow | Dataflow: credential data encoded then sent to network (staged exfiltration). |
+| `sec-block-ai-api-url-credential-leak` | BLOCK | regex | AI API credential embedded in URL query parameter — api_key/access_token in the URL is logged by every proxy, CDN, and server access log, permanently exposing the credential. Pass credentials via Authorization header instead. OWASP LLM02, MITRE T1552.001. |
 | `sc-audit-vector-db-bulk-extract` | AUDIT | regex | Python bulk extraction of raw embedding vectors from a vector database (Qdrant scroll, ChromaDB get with embeddings, Pinecone fetch) — harvested vectors enable embedding inversion attacks that reconstruct sensitive source documents with high fidelity. OWASP LLM08, MITRE T1530. |
 | `sc-audit-sensitive-file-embedding` | AUDIT | regex | Sensitive file content piped into an embedding API call — embedding /etc/passwd, credentials, or SSH keys through an external embedding model transmits sensitive data externally in vector form, which can be inverted. OWASP LLM08, MITRE T1530, T1552. |
 | `ts-block-netcat` | BLOCK | regex | Netcat/socat can open reverse shells. |
@@ -371,11 +374,12 @@
 | `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM06) |
 | `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
-### governance-risk (26 rules)
+### governance-risk (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-audit-credential-store-access` | AUDIT | regex | AI agent reading a ML platform credential file (~/.condarc, ~/.databrickscfg, ~/.snowsql/config) — these files may contain private channel tokens, personal access tokens, or passwords. Flagged for governance review. OWASP LLM06, MITRE T1552.001. |
+| `ts-audit-ai-compliance-artifact-fabrication` | AUDIT | regex | AI agent generating a compliance artifact (SOC2 report, pentest summary, attestation, audit trail) — human review is mandatory before submission to auditors or regulators. AI-fabricated compliance documents can contain hallucinated evidence and incorrect risk ratings. (OWASP LLM09, EU AI Act Art.14, ISO 27001 A.5.34) |
 | `ts-audit-model-weight-download` | AUDIT | regex | Direct download of AI model weight files (.gguf, .safetensors, .bin, .pt, .ckpt) from a public model hub bypasses organizational model inventory registration and governance review. Downloaded weights are not tracked in any approved registry, creating an AI Model Inventory Gap (EU AI Act Art.9, NIST AI RMF GOVERN-1). Ensure the model is approved, registered in the organization's model inventory, and its provenance and license are verified before use. |
 | `ts-block-ai-api-sensitive-cmd-subst` | BLOCK | regex | curl to an AI API endpoint with shell command substitution reading sensitive files (passwd, shadow, SSH keys, AWS credentials, kubeconfig) — embedding credentials or system secrets in an LLM API payload exfiltrates sensitive data via the AI provider's infrastructure and may enable prompt injection (OWASP LLM02/LLM01, MITRE T1552, EU AI Act Art.26). |
 | `ts-audit-ai-safety-bypass` | AUDIT | regex | Disabling LLM safety controls (bypass_safety, safe_mode=false, guardrails_disabled, HARM_BLOCK_THRESHOLD=BLOCK_NONE) removes the content filtering and governance guardrails required by OWASP LLM01/LLM06 and EU AI Act Art.14. Prompt-injected agents may be directed to disable these controls before issuing harmful requests. |
@@ -876,7 +880,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (167 rules)
+### unauthorized-execution (169 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -910,6 +914,7 @@
 | `ts-block-dynlib-compiler-plugin` | BLOCK | regex | Compiler -fplugin or -fpass-plugin pointing to a writable path loads arbitrary code inside the compiler process during every build, with access to all build environment secrets. MITRE T1574.006. |
 | `ts-audit-llm-agent-import` | AUDIT | regex | Python one-liner importing an AI agent orchestration framework. Multi-step autonomous execution without human approval is an LLM06 risk. |
 | `ts-audit-llm-sdk-direct-import` | AUDIT | regex | Python one-liner directly importing an LLM SDK client. Direct invocations outside a governance wrapper are an LLM06 risk. |
+| `ts-audit-ai-sdk-exec-eval-chain` | AUDIT | regex | Python one-liner that imports an AI SDK and passes its output directly to exec/eval — LLM-generated content executed as code without human review (OWASP LLM06, LLM02). Sub-agents invoking exec on model responses can run arbitrary OS commands. |
 | `ts-audit-crewai-cli-run` | AUDIT | regex | Direct CrewAI CLI execution launches a multi-agent crew with full tool access and no human-in-the-loop approval between steps (OWASP LLM06). Verify this autonomous crew run is intentional and supervised. |
 | `ts-audit-langgraph-cli-run` | AUDIT | regex | LangGraph CLI running an agent graph — executes a compiled multi-agent workflow with potential code execution and network tool access outside a governance wrapper (OWASP LLM06). |
 | `ts-block-autogpt-continuous` | BLOCK | regex | AutoGPT --continuous mode disables the human pause-after-each-action approval loop, enabling fully autonomous recursive self-direction until resource exhaustion or goal completion. No legitimate use case requires bypassing human review (OWASP LLM06, MITRE T1204). |
@@ -917,6 +922,7 @@
 | `ts-block-agent-cli-detached-session` | BLOCK | regex | Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (OWASP LLM06, EU AI Act Art.14, human-oversight-circumvention). |
 | `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
+| `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
 | `ts-block-indirect-injection-llm-format` | BLOCK | regex | LLM format escape marker ([/INST], <\|start_header_id\|>system) in command — used to break out of the instruction frame and inject a new system directive in retrieved content (OWASP LLM01). |
 | `ts-block-indirect-injection-markdown-alt` | BLOCK | regex | Markdown image alt-text containing an injection directive — indirect prompt injection via retrieved Markdown; agents may act on instructions embedded in image alt-text (OWASP LLM01). |
@@ -1289,7 +1295,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (13 rules)
+### persistence-evasion (14 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1306,6 +1312,7 @@
 | `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08. |
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
 
 ### privilege-escalation (13 rules)
 
@@ -1364,7 +1371,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (28 rules)
+### unauthorized-execution (30 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1381,6 +1388,8 @@
 | `mcp-struct-audit-llm-sql-inject` | AUDIT | structural | SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection). |
 | `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
+| `mcp-block-a2a-task-injection` | BLOCK | structural | Prompt injection pattern detected in A2A task description — agent-to-agent protocol injection embeds malicious directives in task delegation payloads, overriding the receiving agent's system context. OWASP LLM01 (Prompt Injection). |
+| `mcp-block-a2a-delegation-file-write` | BLOCK | structural | System prompt override key detected in agent task/delegation file write — writing system_prompt_override to an agent-consumed file silently replaces another agent's safety constraints, a persistent form of A2A protocol injection. OWASP LLM01/LLM08. |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
 | `mcp-response-integrity-audit-rag-retrieval` | AUDIT | mcp_rule | RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning) |
@@ -1413,14 +1422,14 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 271 | 197 | 468 |
-| data-exfiltration | 273 | 168 | 441 |
+| credential-exposure | 275 | 199 | 474 |
+| data-exfiltration | 281 | 173 | 454 |
 | destructive-ops | 132 | 89 | 221 |
-| governance-risk | 67 | 51 | 118 |
+| governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 168 | 74 | 242 |
 | supply-chain | 237 | 157 | 394 |
-| unauthorized-execution | 388 | 263 | 651 |
-| **Total** | **2107** | **1343** | **3450** |
+| unauthorized-execution | 393 | 267 | 660 |
+| **Total** | **2127** | **1356** | **3483** |
 
