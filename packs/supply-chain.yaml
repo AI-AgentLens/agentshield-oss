@@ -1954,7 +1954,7 @@ rules:
   - id: "sc-audit-langchain-cache-write"
     taxonomy: "supply-chain/model-poisoning/semantic-cache-poisoning"
     match:
-      command_regex: "(?:echo|cat|printf|tee|python3?|cp)\\s+.*(?:>|>>)\\s*(?:~|\$HOME)?(?:/[^/\\s]*)*/(?:\\.cache/gptcache|gptcache|langchain[_-]cache|llm[_-]cache)[/\\s]"
+      command_regex: "(?:echo|cat|printf|tee|python3?|cp)\\s+.*(?:>|>>)\\s*(?:~|\\$HOME)?(?:/[^/\\s]*)*/(?:\\.cache/gptcache|gptcache|langchain[_-]cache|llm[_-]cache)[/\\s]"
       command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "AUDIT"
     confidence: 0.83
