@@ -5462,4 +5462,47 @@ var InlineInterpreterExfilCases = []TestCase{
 		Description:      "llama-cpp-python server on loopback 127.0.0.1 — local-only access, must NOT trigger unauthenticated-llm-endpoint BLOCK.",
 		Tags:             []string{"tn", "safe", "llama-cpp", "loopback"},
 	},
+	// TP: PII sent to LLM API in request body (issue #229)
+	{
+		ID:               "TP-SEC-AUDIT-PII-LLM-CURL-001",
+		Command:          `curl -s https://api.openai.com/v1/chat/completions -d '{"model":"gpt-4","messages":[{"role":"user","content":"Summarize: John Doe, SSN 123-45-6789"}]}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/pii-disclosure",
+		Analyzer:         "regex",
+		Description:      "curl POST with -d body to OpenAI API — possible PII in payload, must AUDIT.",
+		Tags:             []string{"tp", "pii", "llm", "openai"},
+	},
+	{
+		ID:               "TP-SEC-AUDIT-PII-LLM-CURL-002",
+		Command:          `curl https://api.anthropic.com/v1/messages --data-raw '{"model":"claude-3","messages":[{"role":"user","content":"Analyze patient: Jane Smith, DOB 1990-01-01"}]}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/pii-disclosure",
+		Analyzer:         "regex",
+		Description:      "curl POST with --data-raw body to Anthropic API — possible PII in payload, must AUDIT.",
+		Tags:             []string{"tp", "pii", "llm", "anthropic"},
+	},
+	// TN: curl without a data body flag does not trigger the pii-disclosure rule.
+	// (Other network-egress rules may still AUDIT curl to openai.com — that is expected.)
+	{
+		ID:               "TN-SEC-AUDIT-PII-LLM-CURL-001",
+		Command:          "curl https://api.openai.com/v1/models",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/pii-disclosure",
+		Analyzer:         "regex",
+		Description:      "curl GET to OpenAI models endpoint — no request body, must NOT trigger pii-disclosure BLOCK (AUDIT is acceptable from other rules).",
+		Tags:             []string{"tn", "openai", "no-body"},
+	},
+	{
+		ID:               "TN-SEC-AUDIT-PII-LLM-CURL-002",
+		Command:          "curl -X POST https://api.openai.com/v1/chat/completions -H 'Content-Type: application/json'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/ai-data-flows/pii-disclosure",
+		Analyzer:         "regex",
+		Description:      "curl POST to OpenAI API with only headers, no -d flag — pii-disclosure rule must NOT BLOCK (AUDIT from other rules acceptable).",
+		Tags:             []string{"tn", "openai", "no-data-flag"},
+	},
 }
