@@ -284,6 +284,11 @@ structural_rules:
     taxonomy: "reconnaissance/llm-introspection/system-prompt-recovery-via-jailbreak"
     match:
       tool_name_regex: ".*"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i)taxonomy/"
+            - "(?i)compliance/"
       args_match:
         content:
           pattern_any:
