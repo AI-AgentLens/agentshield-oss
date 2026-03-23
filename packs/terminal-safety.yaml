@@ -2788,6 +2788,34 @@ rules:
   # Models from untrusted authors can contain malicious LoRA adapters or
   # embedded instructions (model poisoning). Flag for governance review.
 
+  # === BLOCK: Ollama pull of known uncensored / safety-stripped model variants ===
+  # "Uncensored" Ollama models are explicitly fine-tuned to remove safety alignment
+  # (RLHF/Constitutional AI). Pulling them bypasses the organizational AI governance
+  # process and introduces a backdoored model into the local inference environment.
+  # Common names: dolphin-*, wizard-uncensored, nous-hermes-*, manticore-*,
+  # openhermes-*, llama2-uncensored, mistral-openorca, deepseek-r1 (some variants).
+  #
+  # Taxonomy: supply-chain/model-poisoning/fine-tuning-alignment-subversion
+  # OWASP LLM04 (Data and Model Poisoning), LLM03 (Supply Chain)
+  # NIST AI RMF GOVERN-1, EU AI Act Art.9 (risk management)
+  #
+  # TP examples:
+  #   ollama pull dolphin-uncensored:latest
+  #   ollama pull wizard-uncensored:7b
+  #   ollama pull llama2-uncensored
+  #
+  # TN examples:
+  #   ollama pull llama3:latest          (official aligned model)
+  #   ollama pull mistral:latest         (official aligned model)
+  #   ollama pull codellama:13b          (official code model)
+  - id: "sc-block-ollama-uncensored-model"
+    taxonomy: "supply-chain/model-poisoning/fine-tuning-alignment-subversion"
+    match:
+      command_regex: "\\bollama\\s+(pull|run|cp|clone)\\b[^|&;]*\\b(uncensored|dolphin-[a-z0-9]|wizard-uncensored|llama2-uncensored|manticore|openhermes|nous-hermes|deepseek-r1:distill)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Pulling a known uncensored or safety-stripped model variant via Ollama deliberately bypasses AI safety alignment. Uncensored models remove RLHF/Constitutional AI guardrails and represent a supply-chain poisoning risk (OWASP LLM04, LLM03). These models are not approved under organizational AI governance policy (NIST AI RMF GOVERN-1, EU AI Act Art.9)."
+
   - id: "ts-audit-ollama-pull"
     taxonomy: "unauthorized-execution/ai-model-usage/shadow-ai-usage"
     match:
