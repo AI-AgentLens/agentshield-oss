@@ -410,3 +410,62 @@ structural_rules:
     decision: "AUDIT"
     reason: "RAG search query attempting to extract system prompt or initialization instructions — system prompt leakage via retrieval augmentation. OWASP LLM07 (System Prompt Leakage)."
     confidence: 0.83
+
+  # === BLOCK: A2A task description injection — prompt injection in agent delegation payload ===
+  # Detects prompt injection patterns in the `description` argument of MCP tool calls
+  # that delegate tasks to sub-agents (Google A2A protocol, LangGraph, AutoGen, CrewAI).
+  # An attacker who controls the task description can override the receiving agent's
+  # system prompt or behavior by embedding SYSTEM:, [INST], or "ignore previous instructions"
+  # directives. This is agent-to-agent protocol injection via task delegation.
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-to-agent-protocol-injection
+  # OWASP LLM01 (Prompt Injection), LLM05 (Improper Output Handling), LLM06 (Excessive Agency)
+  - id: mcp-block-a2a-task-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-to-agent-protocol-injection"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        description:
+          pattern_any:
+            - "(?i)SYSTEM\\s*:"
+            - "(?i)\\[INST\\]"
+            - "(?i)<\\|im_start\\|>"
+            - "(?i)ignore\\s+(all\\s+)?(previous|prior|above)\\s+(instructions?|rules?|guidelines?)"
+            - "(?i)you\\s+are\\s+now\\s+(a|an|the)\\s+\\w+\\s+(agent|assistant|model)"
+            - "(?i)system_prompt_override"
+            - "(?i)new\\s+system\\s+prompt\\s*:"
+            - "(?i)BEGIN\\s+HIDDEN\\s+INSTRUCTION"
+    decision: "BLOCK"
+    reason: "Prompt injection pattern detected in A2A task description — agent-to-agent protocol injection embeds malicious directives in task delegation payloads, overriding the receiving agent's system context. OWASP LLM01 (Prompt Injection)."
+    confidence: 0.90
+
+  # === BLOCK: A2A delegation file write — system_prompt_override in task JSON ===
+  # Detects MCP write_file calls creating agent task/delegation JSON files that
+  # contain explicit system prompt override keys. The `system_prompt_override` field
+  # is an A2A protocol mechanism that, when written to a task file consumed by another
+  # agent, silently overrides that agent's safety constraints. This is a persistent
+  # form of agent-to-agent protocol injection via shared task files.
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-to-agent-protocol-injection
+  # OWASP LLM01 (Prompt Injection), LLM08 (Vector and Embedding Weaknesses)
+  - id: mcp-block-a2a-delegation-file-write
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-to-agent-protocol-injection"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - str_replace_editor
+        - write_to_file
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)\"system_prompt_override\""
+            - "(?i)'system_prompt_override'"
+            - "(?i)system_prompt_override\\s*:"
+            - "(?i)\"override_system_prompt\""
+            - "(?i)\"agent_instructions_override\""
+            - "(?i)SYSTEM\\s*:\\s*(ignore|forget|bypass|override)"
+    decision: "BLOCK"
+    reason: "System prompt override key detected in agent task/delegation file write — writing system_prompt_override to an agent-consumed file silently replaces another agent's safety constraints, a persistent form of A2A protocol injection. OWASP LLM01/LLM08."
+    confidence: 0.92
