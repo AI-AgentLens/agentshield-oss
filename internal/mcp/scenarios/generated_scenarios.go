@@ -79,10 +79,10 @@ var GeneratedTPScenarios = []Scenario{
 		ID:               "MCP-TP-181",
 		ToolName:         "read_file",
 		Arguments:        map[string]interface{}{"path": "/home/user/.openai"},
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "path-read",
-		Description:      "[Generated] MCP access to **/.openai",
+		Description:      "[Generated] MCP access to **/.openai — now BLOCK due to mcp-sec-block-openai-credentials-read (issue #253)",
 	},
 	{
 		ID:               "MCP-TP-182",
