@@ -1900,6 +1900,34 @@ rules:
     confidence: 0.85
     reason: "AI agent submitting findings or creating compliance assessments in AWS Audit Manager or Security Hub without human review. AI-generated compliance artifacts may contain fabricated findings, incorrect risk ratings, or hallucinated evidence — injecting false data into the regulatory record. Require human review before any compliance data submission. (OWASP LLM09, EU AI Act Art.14, SOC2 CC8.1)"
 
+  # === AUDIT: AI compliance artifact fabrication — broader pattern (issue #216) ===
+  #
+  # AI agents may use LLM CLI tools, custom scripts, or openai/claude CLIs to
+  # generate compliance artifacts (SOC2 reports, pentest summaries, audit trails,
+  # security questionnaire responses) and immediately submit or upload them
+  # without human review — creating regulatory liability under EU AI Act Art.14.
+  #
+  # Broader coverage beyond AWS Audit Manager (ts-audit-compliance-report-auto-submit):
+  # TP: python3 generate_soc2_report.py | curl -X POST https://audit-portal.corp/upload
+  # TP: llm-tool generate-pentest-summary --output report.pdf && send-to-auditor report.pdf
+  # TP: openai-cli complete "Generate SOC2 Type II report" > soc2-compliance.pdf
+  # TP: claude "generate attestation letter for ISO 27001 audit" > attestation.pdf
+  # TN: python3 draft_compliance_report.py --output draft.pdf      (draft, no submission)
+  # TN: llm summarize-audit-findings --output draft-summary.txt    (draft phase)
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication
+  # OWASP LLM09 — Misinformation | LLM08 — Excessive Agency
+  # EU AI Act Art.13 (Transparency) | Art.14 (Human Oversight)
+  # ISO 27001: A.5.34
+
+  - id: "ts-audit-ai-compliance-artifact-fabrication"
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      command_regex: "(?i)\\b(generate|create|produce|fabricate|write)\\b.*\\b(soc2|soc-2|soc_2|pentest|pen-test|pen_test|attestation|audit-report|compliance-report|compliance_report)\\b|\\b(openai-cli|claude|llm|llm-tool|llm_tool)\\b.*\\b(soc2|pentest|compliance|attestation|audit)\\b.*[>|]"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "AI agent generating a compliance artifact (SOC2 report, pentest summary, attestation, audit trail) — human review is mandatory before submission to auditors or regulators. AI-fabricated compliance documents can contain hallucinated evidence and incorrect risk ratings. (OWASP LLM09, EU AI Act Art.14, ISO 27001 A.5.34)"
+
   # === AUDIT: Cloud over-provisioning / uncontrolled resource commitment (issue #507) ===
   #
   # AI agents asked to "scale up the infrastructure", "create a load test environment",
