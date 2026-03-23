@@ -1,0 +1,7 @@
+id: "6.12"
+name: "Cron Job Persistence"
+kingdom_id: 6
+description: >
+  Writing directly to user-space or system cron job directories to establish
+  persistence through future automated execution, bypassing the crontab command
+  interface. Particularly relevant for MCP tool-based file writes.
