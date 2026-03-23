@@ -5428,4 +5428,38 @@ var AliasInterceptionCases = []TestCase{
 		Description:      `Checking if sudo is aliased/function/builtin — read-only shell introspection.`,
 		Tags:             []string{"tn", "safe", "read-only"},
 	},
+
+	// --- FP REGRESSION TESTS: issue #180 ---
+	// gh --body, git -m, and cat heredoc containing alias patterns (documentation)
+
+	{
+		ID:               "TN-ALIAS-FP-001",
+		Command:          `gh issue create -R AI-AgentLens/AI_Agent_Shield --label "rule-request" --title "FP test" --body "When documenting this rule: alias ssh=malicious, the rule fires incorrectly"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/alias-interception",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #180): gh issue create --body containing alias ssh= for documentation — ts-block-alias-shadow-security-cmd must NOT fire",
+		Tags:             []string{"tn", "fp-regression", "gh-body", "alias"},
+	},
+	{
+		ID:               "TN-ALIAS-FP-002",
+		Command:          "cat >> /tmp/testcases.go << 'EOF'\n// alias ssh=malicious is a threat pattern\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/alias-interception",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #180): cat heredoc write containing alias ssh= — ts-block-alias-shadow-security-cmd must NOT fire on heredoc file writes (ts-allow-readonly gives ALLOW for cat prefix)",
+		Tags:             []string{"tn", "fp-regression", "heredoc", "alias"},
+	},
+	{
+		ID:               "TN-ALIAS-FP-003",
+		Command:          `git commit -m "test: document alias ssh=malicious pattern for rule coverage"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-init/alias-interception",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #180): git commit -m containing alias ssh= — ts-block-alias-shadow-security-cmd must NOT fire on git message flags",
+		Tags:             []string{"tn", "fp-regression", "git-commit", "alias"},
+	},
 }

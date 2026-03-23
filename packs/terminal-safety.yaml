@@ -9606,7 +9606,7 @@ rules:
     taxonomy: "persistence-evasion/shell-init/alias-interception"
     match:
       command_regex: "\\balias\\s+(sudo|ssh|su|login|passwd|gpg|openssl|curl|wget|scp|sftp|rsync|aws|gcloud|az|kubectl|helm|docker|git|npm|pip|gem|cargo)="
-      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|\\s-m\\s)|^\\s*cat\\s+>>?\\s+\\S+\\s+<<"
     decision: "BLOCK"
     confidence: 0.95
     reason: "Defining a shell alias that shadows a security-sensitive command — aliases are expanded before function lookup and PATH search, enabling transparent credential interception or command modification. Unlike function shadowing, aliases are a simple string replacement that is harder to detect via code review. MITRE T1546.004, CWE-706."
@@ -9616,7 +9616,7 @@ rules:
     taxonomy: "persistence-evasion/shell-init/alias-interception"
     match:
       command_regex: "\\balias\\s+\\w+=['\"][^'\"]*\\b(curl|wget|nc|ncat|/dev/tcp|base64|xxd|eval|exec)\\b[^'\"]*['\"]"
-      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|\\s-m\\s)|^\\s*cat\\s+>>?\\s+\\S+\\s+<<"
     decision: "BLOCK"
     confidence: 0.90
     reason: "Alias definition containing network exfiltration or code execution commands — regardless of the alias name, embedding curl/wget/nc/eval in an alias value signals credential interception or data exfiltration intent. MITRE T1041, T1546.004."
@@ -9626,7 +9626,7 @@ rules:
     taxonomy: "persistence-evasion/shell-init/alias-interception"
     match:
       command_regex: "\\balias\\s+\\w+=['\"][^'\"]*\\b(LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|GIT_SSH_COMMAND|http_proxy|https_proxy|ALL_PROXY|SSH_AUTH_SOCK|PYTHONPATH|NODE_PATH|PERL5LIB|RUBYLIB)="
-      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|\\s-m\\s)|^\\s*cat\\s+>>?\\s+\\S+\\s+<<"
     decision: "BLOCK"
     confidence: 0.93
     reason: "Alias injecting sensitive environment variables into command execution — aliases can silently prepend LD_PRELOAD, GIT_SSH_COMMAND, http_proxy, or interpreter path variables to hijack library loading, proxy traffic through attacker infrastructure, or inject malicious modules. MITRE T1574.006, T1546.004."
@@ -9636,7 +9636,7 @@ rules:
     taxonomy: "persistence-evasion/shell-init/alias-interception"
     match:
       command_regex: "\\balias\\s+\\w+=."
-      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|\\s-m\\s)|^\\s*cat\\s+>>?\\s+\\S+\\s+<<"
     decision: "AUDIT"
     confidence: 0.70
     reason: "Shell alias definition detected. While aliases are common in interactive use, they are unusual in AI agent workflows and can shadow security-sensitive commands. Auditing for review. MITRE T1546.004."
