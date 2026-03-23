@@ -240,6 +240,47 @@ structural_rules:
     reason: "MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002."
     confidence: 0.95
 
+  # === BLOCK: System-level systemd service directory writes via MCP (issue #246) ===
+  #
+  # /lib/systemd/system/ and /run/systemd/system/ are system-wide systemd unit
+  # file directories. Writing a .service or .timer file here installs a
+  # system-level persistent backdoor that executes on every boot (or immediately
+  # after `systemctl daemon-reload && systemctl enable <unit>`).
+  #
+  # Coverage gaps vs existing rules:
+  #   /etc/systemd/system/  → covered by mcp-safety-block-etc-write ✅
+  #   /usr/lib/systemd/     → covered by mcp-safety-block-usr-write  ✅
+  #   /lib/systemd/system/  → NOT covered (this rule) ❌→✅
+  #   /run/systemd/system/  → NOT covered (this rule) ❌→✅
+  #
+  # Note: /run/systemd/system/ is a transient runtime unit directory (tmpfs).
+  # Units placed there survive until reboot but start immediately — making it
+  # the fastest persistence mechanism available to an unprivileged systemd session.
+  #
+  # MITRE T1543.002 — Create or Modify System Process: Systemd Service
+  - id: mcp-persist-block-system-systemd-write
+    taxonomy: "persistence-evasion/service-management/systemctl-manipulation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)lib/systemd/system/"
+            - "(?:^|/)run/systemd/system/"
+    decision: "BLOCK"
+    reason: "MCP write to system-level systemd directory (/lib/systemd/system/ or /run/systemd/system/) installs a persistent system service. Units here execute on boot or immediately after systemctl daemon-reload — no user interaction required. MITRE T1543.002."
+    confidence: 0.97
+
   # === BLOCK: SSH authorized_keys write via MCP (issue #151) ===
   #
   # Writing a public key to ~/.ssh/authorized_keys grants permanent remote
