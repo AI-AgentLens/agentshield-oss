@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 984 |
-| MCP rules | 285 |
-| Total rules | 1269 |
-| Test cases (TP+TN) | 3428 |
+| Terminal rules | 991 |
+| MCP rules | 297 |
+| Total rules | 1288 |
+| Test cases (TP+TN) | 3450 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -744,7 +744,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (123 rules)
+### supply-chain (127 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -862,6 +862,10 @@
 | `sc-audit-python-inline-sql-injection` | AUDIT | regex | Python inline SQL with string formatting (f-string or % operator) — classic SQL injection pattern from AI-generated code. Use parameterized queries: cursor.execute('SELECT ... WHERE id=%s', (id,)). (OWASP LLM05, CWE-89) |
 | `sc-audit-docker-run-shell` | AUDIT | regex | docker run with a shell (bash/sh) as the container entry point — the execute-on-pull pattern where an AI agent runs an image interactively. Attacker-controlled or hallucinated images can embed malicious content that executes immediately inside the shell. Verify the image source and registry before running a shell inside a container. MITRE T1195.002, OWASP LLM03:2025. |
 | `sc-audit-git-clone-execute` | AUDIT | regex | git clone followed immediately by script execution (bash/sh/pip/npm/make) — the classic LLM-directed repo supply chain attack pattern. An AI agent clones a hallucinated or attacker-controlled repository and runs its install script without human review. Verify the repository before executing any of its scripts. MITRE T1195.001, OWASP LLM03:2025. |
+| `sc-audit-gptcache-write` | AUDIT | regex | Direct sqlite3 write to an LLM semantic cache database (GPTCache or LangChain SQLite backend) — injecting attacker-controlled responses into the cache poisons future LLM queries with semantically-similar prompts. OWASP LLM04, MITRE AML.T0010. |
+| `sc-audit-langchain-cache-write` | AUDIT | regex | Shell redirect writing to an LLM semantic cache directory (~/.cache/gptcache/, gptcache/, langchain_cache/) — overwriting cached response blobs or indexes poisons future semantically-similar queries. OWASP LLM04. |
+| `sc-audit-redis-llm-cache-poison` | AUDIT | regex | redis-cli writing to an LLM semantic cache key namespace (langchain:*, gptcache:*, llm-cache:*) — injecting attacker-controlled responses into the Redis cache poisons future LLM queries at the infrastructure layer. OWASP LLM04, LLM03. |
+| `sc-audit-vector-db-batch-inject` | AUDIT | regex | curl batch-insert POST to a vector database REST endpoint (/batch/objects, /points/batch, /entities/insert) — bulk injection of adversarial embeddings poisons the RAG knowledge base at scale. OWASP LLM04/LLM08, MITRE AML.T0010. |
 | `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
 | `sc-block-ollama-uncensored-model` | BLOCK | regex | Pulling a known uncensored or safety-stripped model variant via Ollama deliberately bypasses AI safety alignment. Uncensored models remove RLHF/Constitutional AI guardrails and represent a supply-chain poisoning risk (OWASP LLM04, LLM03). These models are not approved under organizational AI governance policy (NIST AI RMF GOVERN-1, EU AI Act Art.9). |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
@@ -872,7 +876,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (164 rules)
+### unauthorized-execution (167 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -926,6 +930,9 @@
 | `ts-block-cdk-deploy-no-approval` | BLOCK | regex | cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-terraform-apply-no-scan` | AUDIT | regex | terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-helm-install-upgrade` | AUDIT | regex | helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578) |
+| `ts-audit-pulumi-up` | AUDIT | regex | pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578) |
+| `ts-audit-aws-cfn-deploy` | AUDIT | regex | aws cloudformation deploy/create-stack/update-stack or sam deploy applies infrastructure changes to AWS immediately. AI-generated CloudFormation templates may grant excessive IAM permissions or expose resources publicly. Use --no-execute-changeset to review the changeset before execution. (OWASP LLM08, MITRE T1578) |
+| `ts-audit-compliance-report-auto-submit` | AUDIT | regex | AI agent submitting findings or creating compliance assessments in AWS Audit Manager or Security Hub without human review. AI-generated compliance artifacts may contain fabricated findings, incorrect risk ratings, or hallucinated evidence — injecting false data into the regulatory record. Require human review before any compliance data submission. (OWASP LLM09, EU AI Act Art.14, SOC2 CC8.1) |
 | `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
 | `ts-block-proc-mem-write` | BLOCK | regex | Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls. |
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
@@ -1050,7 +1057,7 @@
 
 ## MCP Rules
 
-### credential-exposure (135 rules)
+### credential-exposure (142 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1092,7 +1099,14 @@
 | `mcp-sec-block-git-credentials` | BLOCK | mcp_rule | Git credential file access is blocked — contains plaintext credentials; writes can redirect git auth to attacker-controlled hosts. |
 | `mcp-sec-block-git-credentials-xdg` | BLOCK | mcp_rule | XDG git credential file access is blocked — ~/.config/git/credentials contains the same plaintext HTTP credentials as ~/.git-credentials (XDG Base Directory spec location). |
 | `mcp-sec-block-pgpass` | BLOCK | mcp_rule | Access to ~/.pgpass is blocked — contains PostgreSQL passwords in plaintext (host:port:db:user:password format). MITRE T1552.001. |
+| `mcp-sec-block-tableplus-connections` | BLOCK | mcp_rule | Access to TablePlus config is blocked — connection profiles contain database hosts, usernames, and credentials (plaintext or locally-encrypted). MITRE T1552.001. |
+| `mcp-sec-block-dbeaver-datasources` | BLOCK | mcp_rule | Access to DBeaver config is blocked — data-sources.json and credentials files contain database connection profiles with usernames and encrypted passwords. MITRE T1552.001. |
+| `mcp-sec-block-sequel-pro-connections` | BLOCK | mcp_rule | Access to Sequel Pro/Ace connection favorites is blocked — plist files store MySQL/PostgreSQL connection details including credentials. MITRE T1552.001. |
+| `mcp-sec-block-datagrip-datasources` | BLOCK | mcp_rule | Access to DataGrip config is blocked — dataSources.local.xml stores database connection credentials. MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
+| `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
+| `mcp-sec-block-psql-history` | BLOCK | mcp_rule | Access to ~/.psql_history is blocked — PostgreSQL shell history can contain ALTER ROLE ... PASSWORD and \password command output with plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-block-rediscli-history` | BLOCK | mcp_rule | Access to ~/.rediscli_history is blocked — Redis CLI history can contain AUTH <password> and CONFIG SET requirepass <password> commands with plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
 | `mcp-sec-block-pypirc` | BLOCK | mcp_rule | Access to .pypirc is blocked — contains plaintext PyPI credentials. |
 | `mcp-sec-block-condarc` | BLOCK | mcp_rule | Read access to .condarc is blocked — Conda user config can contain private channel tokens and embedded credentials for Anaconda.org or enterprise conda registries. MITRE T1552. |
@@ -1332,7 +1346,7 @@
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
 
-### supply-chain (12 rules)
+### supply-chain (13 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1348,8 +1362,9 @@
 | `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
+| `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (24 rules)
+### unauthorized-execution (28 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1360,6 +1375,10 @@
 | `mcp-struct-block-shell-meta-in-path` | BLOCK | structural | Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling) |
 | `mcp-struct-block-shell-inject-in-command` | BLOCK | structural | Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02) |
 | `mcp-struct-block-dangerous-protocol-in-url` | BLOCK | structural | Dangerous protocol handler in MCP URL argument — file:// enables local file access; gopher:// and dict:// are classic SSRF pivots (OWASP LLM02) |
+| `mcp-struct-block-yaml-deser-inject` | BLOCK | structural | YAML deserialization gadget chain detected in MCP write content — !!python/object, !!java.lang., !!ruby/object and similar YAML type tags execute arbitrary code when loaded by an unsafe YAML deserializer. LLM-generated content containing these patterns indicates injection via untrusted input. OWASP LLM02, LLM01. |
+| `mcp-struct-block-yaml-deser-inject-newcontent` | BLOCK | structural | YAML deserialization gadget chain detected in MCP write new_content — !!python/object, !!java.lang., and !!ruby/object tags execute code when loaded by an unsafe deserializer. Indicates injection via untrusted input into LLM output. OWASP LLM02, LLM01. |
+| `mcp-struct-block-json-proto-pollute` | BLOCK | structural | JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models when deserialized, enabling privilege escalation or RCE. OWASP LLM02 (Insecure Output Handling), LLM01. |
+| `mcp-struct-audit-llm-sql-inject` | AUDIT | structural | SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection). |
 | `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
@@ -1397,11 +1416,11 @@
 | credential-exposure | 271 | 197 | 468 |
 | data-exfiltration | 273 | 168 | 441 |
 | destructive-ops | 132 | 89 | 221 |
-| governance-risk | 60 | 48 | 108 |
+| governance-risk | 67 | 51 | 118 |
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
-| reconnaissance | 168 | 71 | 239 |
-| supply-chain | 231 | 154 | 385 |
+| reconnaissance | 168 | 74 | 242 |
+| supply-chain | 237 | 157 | 394 |
 | unauthorized-execution | 388 | 263 | 651 |
-| **Total** | **2094** | **1334** | **3428** |
+| **Total** | **2107** | **1343** | **3450** |
 
