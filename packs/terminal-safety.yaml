@@ -9087,6 +9087,7 @@ rules:
     taxonomy: "reconnaissance/osint/passive-enumeration"
     match:
       command_regex: "(?:^|[\\s|;&])(theHarvester|h8mail|holehe)\\s"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.95
     reason: "OSINT email/identity harvesting tool detected. theHarvester collects email addresses and hostnames from search engines and social networks; h8mail checks breach databases for compromised credentials; holehe enumerates account registrations across 120+ websites. These tools are purpose-built for pre-attack reconnaissance (MITRE T1589, T1596.005). AI agents have no legitimate use case for targeting external individuals or organizations. OWASP LLM02/LLM06."
@@ -9119,6 +9120,7 @@ rules:
     taxonomy: "reconnaissance/osint/passive-enumeration"
     match:
       command_regex: "(?:^|[\\s|;&])(subfinder|assetfinder|waybackurls|gau)\\s|\\bamass\\s+(enum|db|intel|track|viz)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.95
     reason: "OSINT subdomain and asset enumeration tool detected. subfinder/assetfinder discover subdomains via 40+ passive sources; amass maps the full attack surface via DNS, CT logs, and APIs; waybackurls/gau harvest all known URLs from Wayback Machine and Common Crawl. These tools build comprehensive target attack surface maps (MITRE T1589, T1593, T1596). AI agents have no legitimate use case for external attack surface enumeration. OWASP LLM02/LLM06."
@@ -9152,6 +9154,7 @@ rules:
     taxonomy: "reconnaissance/osint/passive-enumeration"
     match:
       command_regex: "\\bshodan\\s+(search|scan|host|download|parse|convert)\\b|(?:^|[\\s|;&])(spiderfoot|recon-ng)\\s"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.93
     reason: "OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06."
