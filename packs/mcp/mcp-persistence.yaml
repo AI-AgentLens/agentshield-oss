@@ -448,3 +448,47 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
     confidence: 0.97
+
+  # === BLOCK: User-space cron directory writes via MCP (issue #221) ===
+  #
+  # mcp-safety-block-etc-write already blocks /etc/crontab and /etc/cron.d/**
+  # (system-level cron requiring root). This rule closes the user-space gap:
+  #
+  #   ~/.config/cron.d/          — systemd-cron user drop-in directory
+  #   /var/spool/cron/crontabs/  — traditional per-user crontab spool
+  #                                (written by `crontab -e`, NOT by direct edit,
+  #                                 but an MCP write_file call bypasses that guard)
+  #
+  # An AI agent with no elevated privileges can install a persistent cron job
+  # by writing a cron fragment to either location. The job survives reboots and
+  # fires silently without any shell-level visibility — there is no shell
+  # command to intercept because write_file bypasses the shell entirely.
+  #
+  # Note: ~/.config/systemd/user/*.timer is already blocked by
+  # mcp-persist-block-user-systemd-write above (covers the systemd timer path
+  # mentioned in issue #221). This rule adds the cron-specific paths.
+  #
+  # MITRE T1053.003 — Scheduled Task/Job: Cron
+  # MITRE T1053.006 — Scheduled Task/Job: Systemd Timers (cron.d drop-ins)
+  - id: mcp-persist-block-user-cron-write
+    taxonomy: "persistence-evasion/cron-job/user-cron-persistence"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.config/cron\\.d/"
+            - "(?:^|/)var/spool/cron/crontabs/"
+    decision: "BLOCK"
+    reason: "MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003."
+    confidence: 0.95
