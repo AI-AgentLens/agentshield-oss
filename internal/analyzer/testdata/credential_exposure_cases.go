@@ -2551,6 +2551,101 @@ var SecretsPIIPackRuleCases = []TestCase{
 	},
 
 	// =========================================================================
+	// sec-block-ml-platform-token-read / sec-audit-ml-platform-apikey-env
+	// ML platform credential file access (HuggingFace, W&B, Replicate, Comet)
+	// =========================================================================
+	{
+		ID:               "TP-SEC-ML-TOKEN-001",
+		Command:          "cat ~/.cache/huggingface/token",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "cat of HuggingFace Hub token file — sec-block-ml-platform-token-read.",
+		Tags:             []string{"tp", "ml-platform", "huggingface", "secrets-pii"},
+	},
+	{
+		ID:               "TP-SEC-ML-TOKEN-002",
+		Command:          "cat ~/.config/wandb/settings",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "cat of W&B settings file — contains WANDB_API_KEY, sec-block-ml-platform-token-read.",
+		Tags:             []string{"tp", "ml-platform", "wandb", "secrets-pii"},
+	},
+	{
+		ID:               "TP-SEC-ML-TOKEN-003",
+		Command:          "cat ~/.config/replicate/token",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "cat of Replicate API token file — sec-block-ml-platform-token-read.",
+		Tags:             []string{"tp", "ml-platform", "replicate", "secrets-pii"},
+	},
+	{
+		ID:               "TP-SEC-ML-TOKEN-004",
+		Command:          "less ~/.comet.config",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "less of Comet ML config — contains experiment tracking API key, sec-block-ml-platform-token-read.",
+		Tags:             []string{"tp", "ml-platform", "comet", "secrets-pii"},
+	},
+	{
+		ID:               "TP-SEC-ML-APIENV-001",
+		Command:          "echo $HF_TOKEN",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "echo of HF_TOKEN env var — sec-audit-ml-platform-apikey-env.",
+		Tags:             []string{"tp", "ml-platform", "huggingface", "secrets-pii"},
+	},
+	{
+		ID:               "TP-SEC-ML-APIENV-002",
+		Command:          "printenv WANDB_API_KEY",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "printenv of WANDB_API_KEY — sec-audit-ml-platform-apikey-env.",
+		Tags:             []string{"tp", "ml-platform", "wandb", "secrets-pii"},
+	},
+	{
+		ID:               "TN-SEC-ML-TOKEN-001",
+		Command:          "huggingface-cli whoami",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "huggingface-cli whoami shows identity without reading token file — sec-block-ml-platform-token-read not triggered, default AUDIT.",
+		Tags:             []string{"tn", "ml-platform", "safe"},
+	},
+	{
+		ID:               "TN-SEC-ML-TOKEN-002",
+		Command:          "ls ~/.config/wandb/",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "ls of wandb config dir — executable 'ls' not in sec-block-ml-platform-token-read blocked list.",
+		Tags:             []string{"tn", "ml-platform", "safe"},
+	},
+	{
+		ID:               "TN-SEC-ML-APIENV-001",
+		Command:          "echo 'WANDB_API_KEY not set'",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/specialized-credentials/ml-platform-credential-access",
+		Analyzer:         "regex",
+		Description:      "echo literal string mentioning WANDB_API_KEY — no $ sigil, sec-audit-ml-platform-apikey-env not triggered.",
+		Tags:             []string{"tn", "ml-platform", "safe"},
+	},
+
+	// =========================================================================
 	// sec-audit-git-credential / ts-block-git-credential-fill
 	// Note: sec-audit-git-credential (AUDIT) is overridden by ts-block-git-credential-fill (BLOCK)
 	// via most_restrictive_wins. Net result: BLOCK.
