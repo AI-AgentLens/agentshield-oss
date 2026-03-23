@@ -48,7 +48,7 @@ func connectCommand(cmd *cobra.Command, args []string) error {
 	// Pass version to enterprise package to avoid import cycle
 	enterprise.AgentVersion = Version
 
-	fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: starting managed agent daemon\n")
+	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: starting managed agent daemon\n")
 
 	// Launch heartbeat in background goroutine
 	if hasHeartbeat {

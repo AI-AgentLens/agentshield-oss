@@ -93,7 +93,7 @@ func syncPolicy(client *http.Client, cfg *PolicySyncConf, configDir, lastChecksu
 
 	if err := os.Rename(tmpPath, policyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[AgentShield] policy-sync: rename failed: %v\n", err)
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return lastChecksum
 	}
 
@@ -113,7 +113,7 @@ func doGet(client *http.Client, url, token string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
