@@ -973,6 +973,60 @@ var AIContentIntegrityCases = []TestCase{
 		Description:      "ollama query with no pipe to shell — read-only LLM interaction. Default AUDIT.",
 		Tags:             []string{"tn", "safe", "llm-injection", "ollama"},
 	},
+
+	// --- RAG Poisoning — Unguarded Similarity Search ---
+	// Rule: ts-audit-rag-similarity-search-unguarded
+	// Rule: ts-audit-rag-chroma-query-unguarded
+	{
+		ID:               "TP-TS-AUDIT-RAG-SIMILARITY-001",
+		Command:          `python3 -c "docs = vectorstore.similarity_search(query, k=5)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/rag-poisoning",
+		Analyzer:         "regex",
+		Description:      "Python inline call to similarity_search without score threshold — unguarded RAG retrieval vulnerable to poisoning.",
+		Tags:             []string{"tp", "rag-poisoning", "langchain"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-RAG-SIMILARITY-002",
+		Command:          `python3 -c "retriever = db.as_retriever(); docs = retriever.get_relevant_documents(q)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/rag-poisoning",
+		Analyzer:         "regex",
+		Description:      "Python inline as_retriever() with get_relevant_documents — no score threshold, vulnerable to RAG poisoning.",
+		Tags:             []string{"tp", "rag-poisoning", "langchain"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-RAG-CHROMA-QUERY-001",
+		Command:          `python3 -c "import chromadb; c = chromadb.Client(); results = c.get_collection('docs').query(query_texts=['what is auth'], n_results=5)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/rag-poisoning",
+		Analyzer:         "regex",
+		Description:      "Python inline ChromaDB .query() with n_results but no distance_threshold — unguarded nearest-neighbor retrieval.",
+		Tags:             []string{"tp", "rag-poisoning", "chromadb"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-RAG-SIMILARITY-001",
+		Command:          `python3 analyze_embeddings.py --input corpus.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/rag-poisoning",
+		Analyzer:         "regex",
+		Description:      "Running a Python script that processes embeddings — no similarity_search in shell command, does not trigger RAG poisoning rule. Default AUDIT.",
+		Tags:             []string{"tn", "safe", "rag-poisoning"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-RAG-SIMILARITY-002",
+		Command:          `grep -r "similarity_search" ./src/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/rag-poisoning",
+		Analyzer:         "regex",
+		Description:      "Grep for similarity_search in source code — search, not execution. Should not trigger RAG rule.",
+		Tags:             []string{"tn", "safe", "rag-poisoning"},
+	},
 }
 
 // ---------------------------------------------------------------------------

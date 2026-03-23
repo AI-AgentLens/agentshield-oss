@@ -4226,4 +4226,73 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "sampling-benign",
 		Description:      "sampling/createMessage with benign multi-turn conversation — must be AUDIT not BLOCK (issue #160)",
 	},
+
+	// ── RAG Poisoning — Vector Store File Writes (issue #237) ──────────────────
+	// Rules: mcp-content-audit-rag-chroma-write, mcp-content-audit-rag-chroma-dir-write,
+	//        mcp-content-audit-rag-faiss-write, mcp-content-audit-rag-lance-write
+	// TP: writing to local vector store files must trigger AUDIT
+	{
+		ID:               "MCP-TP-470",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/db/chroma.sqlite3", "content": "poisoned content"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "rag-poisoning",
+		Description:      "write_file to ChromaDB SQLite store must AUDIT — direct vector DB manipulation (mcp-content-audit-rag-chroma-write, issue #237)",
+	},
+	{
+		ID:               "MCP-TP-471",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/.chroma/index/data_level0.bin", "content": "binary"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "rag-poisoning",
+		Description:      "write_file to .chroma/ data directory must AUDIT — direct ChromaDB directory manipulation (mcp-content-audit-rag-chroma-dir-write, issue #237)",
+	},
+	{
+		ID:               "MCP-TP-472",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/indexes/docs.faiss", "content": "binary index"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "rag-poisoning",
+		Description:      "write_file to FAISS index file must AUDIT — direct vector index manipulation (mcp-content-audit-rag-faiss-write, issue #237)",
+	},
+	{
+		ID:               "MCP-TP-473",
+		ToolName:         "create_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/lancedb/embeddings.lance", "content": "lance data"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "rag-poisoning",
+		Description:      "create_file to LanceDB .lance file must AUDIT — direct Lance format vector store write (mcp-content-audit-rag-lance-write, issue #237)",
+	},
+	// TN: reading from these paths or writing to non-vector paths must not trigger RAG rule
+	{
+		ID:               "MCP-TN-434",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/db/chroma.sqlite3"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "rag-poisoning-safe",
+		Description:      "read_file on ChromaDB SQLite is a read operation — RAG poisoning write rules must not block reads (issue #237)",
+	},
+	{
+		ID:               "MCP-TN-435",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/docs/architecture.md", "content": "# Architecture"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "rag-poisoning-safe",
+		Description:      "write_file to a docs/ markdown file is normal dev work — must not trigger RAG vector store rule (issue #237)",
+	},
+	{
+		ID:               "MCP-TN-436",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/myapp/src/faiss_utils.py", "content": "import faiss"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "rag-poisoning-safe",
+		Description:      "write_file to a Python source file referencing faiss is normal code — *.faiss rule must not match .py files (issue #237)",
+	},
 }
