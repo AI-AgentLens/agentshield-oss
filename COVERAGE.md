@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1007 |
-| MCP rules | 364 |
-| Total rules | 1371 |
+| MCP rules | 366 |
+| Total rules | 1373 |
 | Test cases (TP+TN) | 3521 |
 | Kingdoms covered | 10 |
 
@@ -1300,7 +1300,7 @@
 | `mcp-llmdf-audit-rag-sysprompt-leakage` | AUDIT | structural | RAG search query attempting to extract system prompt or initialization instructions — system prompt leakage via retrieval augmentation. OWASP LLM07 (System Prompt Leakage). |
 | `mcp-struct-block-ssrf-metadata` | BLOCK | structural | SSRF detected — request to cloud metadata endpoint |
 | `mcp-struct-block-ssrf-metadata-endpoint` | BLOCK | structural | SSRF detected — request to internal service via endpoint argument |
-| `mcp-struct-block-ssrf-private-network` | BLOCK | structural | SSRF detected — request to private network IP range |
+| `mcp-struct-block-ssrf-private-network` | AUDIT | structural | SSRF suspected — request to private network IP range. Downgraded to AUDIT: private IPs are common in local dev/microservices environments. MITRE T1090. |
 | `mcp-struct-block-ssrf-target` | BLOCK | structural | SSRF detected via 'target' argument — request to metadata endpoint or private network |
 | `mcp-struct-block-ssrf-server` | BLOCK | structural | SSRF detected via 'server' argument — request to metadata endpoint or private network |
 | `mcp-struct-block-ssrf-base-url` | BLOCK | structural | SSRF detected via 'base_url' argument — request to metadata endpoint or private network |
@@ -1308,7 +1308,7 @@
 | `mcp-sec-block-curlrc-write` | BLOCK | mcp_rule | MCP write to ~/.curlrc — any proxy directive injected here silently intercepts all future curl traffic (including auth tokens and API credentials) via MITM. MITRE T1557. |
 | `mcp-sec-block-wgetrc-write` | BLOCK | mcp_rule | MCP write to ~/.wgetrc — any proxy directive injected here silently intercepts all future wget traffic (including auth tokens and credentials) via MITM. MITRE T1557. |
 
-### destructive-ops (23 rules)
+### destructive-ops (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1325,7 +1325,8 @@
 | `mcp-fin-cap-provision-quantity` | BLOCK | value_limit | Provisioning quantity exceeds safety limit of 50. |
 | `mcp-safety-block-etc-write` | BLOCK | mcp_rule | File write to /etc/ system directory is blocked. |
 | `mcp-safety-block-usr-write` | BLOCK | mcp_rule | File write to /usr/ system directory is blocked. |
-| `mcp-safety-block-var-write` | BLOCK | mcp_rule | File write to /var/ system directory is blocked. |
+| `mcp-safety-block-var-write` | BLOCK | mcp_rule | File write to /var/cron/ system directory is blocked — cron persistence path. |
+| `mcp-safety-block-var-spool-cron-write` | BLOCK | mcp_rule | File write to /var/spool/cron/ system directory is blocked — cron spool persistence path. MITRE T1053.003. |
 | `mcp-safety-block-root-write` | BLOCK | mcp_rule | File write to filesystem root is blocked. |
 | `mcp-safety-block-system-path-delete` | BLOCK | mcp_rule | File deletion in /etc/ system directory is blocked — deleting system config files (passwd, hosts, resolv.conf) causes irreversible system damage. MITRE T1485. |
 | `mcp-safety-block-usr-path-delete` | BLOCK | mcp_rule | File deletion in /usr/ system directory is blocked — deleting system binaries or libraries causes irreversible damage. MITRE T1485. |
@@ -1360,7 +1361,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (15 rules)
+### persistence-evasion (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1369,9 +1370,10 @@
 | `mcp-gen-ts-block-ssh-config-write` | BLOCK | mcp_rule | [MCP] Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
 | `mcp-persist-block-shell-profile-write` | BLOCK | structural | MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004. |
 | `mcp-persist-block-modern-shell-profile-write` | BLOCK | structural | MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
-| `mcp-persist-block-fish-profile-write` | BLOCK | structural | MCP write to fish shell config directory (~/.config/fish/) — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. Covers config.fish, conf.d/ drop-ins, and autoloaded functions/. MITRE T1546.004. |
+| `mcp-persist-block-fish-config-write` | BLOCK | structural | MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
+| `mcp-persist-audit-fish-functions-write` | AUDIT | structural | MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004. |
 | `mcp-persist-block-launchagent-write` | BLOCK | structural | MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001. |
-| `mcp-persist-block-git-hook-write` | BLOCK | structural | MCP write to .git/hooks/ installs a persistent git hook that executes on every matching git operation (commit, push, checkout, etc.) without any shell-level interception. MITRE T1546. |
+| `mcp-persist-block-git-hook-write` | AUDIT | structural | MCP write to .git/hooks/ — installs a git hook that executes on every matching git operation. Downgraded to AUDIT: pre-commit/husky installs are common legitimate developer tooling. Human review required to confirm intent. MITRE T1546. |
 | `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
 | `mcp-persist-block-system-systemd-write` | BLOCK | structural | MCP write to system-level systemd directory (/lib/systemd/system/ or /run/systemd/system/) installs a persistent system service. Units here execute on boot or immediately after systemctl daemon-reload — no user interaction required. MITRE T1543.002. |
 | `mcp-persist-block-ssh-authkeys-write` | BLOCK | structural | MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004. |
@@ -1428,7 +1430,7 @@
 | `mcp-sc-block-cicd-config-write` | AUDIT | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Downgraded to AUDIT because agents routinely create/edit CI configs (GitHub Actions, CircleCI) as a core workflow. MITRE T1195.002. |
 | `mcp-sc-block-dockerfile-write` | AUDIT | structural | MCP write to Dockerfile or docker-compose config — injecting malicious instructions could backdoor containers. Downgraded to AUDIT because editing Dockerfiles is one of the most common agent tasks. Human reviews the diff at commit time. MITRE T1612, T1195.002. |
 | `mcp-sc-block-pkgmgr-config-write` | BLOCK | structural | MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001. |
-| `mcp-sc-block-training-data-write` | BLOCK | structural | MCP write to ML training dataset — injecting poisoned examples corrupts fine-tuned model behavior. MITRE AML.T0010, OWASP LLM04. |
+| `mcp-sc-block-training-data-write` | AUDIT | structural | MCP write to ML training dataset — injecting poisoned examples can corrupt fine-tuned model behavior. Downgraded to AUDIT: ML developers legitimately create and edit training data files as part of normal workflows. Human review ensures no poisoned examples are introduced. MITRE AML.T0010, OWASP LLM04. |
 | `mcp-sc-block-model-checkpoint-write` | BLOCK | structural | MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001. |
 | `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
 | `mcp-sc-audit-rag-write` | AUDIT | structural | MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010. |
