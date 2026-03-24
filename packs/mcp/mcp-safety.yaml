@@ -68,9 +68,28 @@ rules:
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
       argument_patterns:
-        path: "/var/**"
+        path: "/var/cron/**"
     decision: "BLOCK"
-    reason: "File write to /var/ system directory is blocked."
+    reason: "File write to /var/cron/ system directory is blocked — cron persistence path."
+
+  - id: mcp-safety-block-var-spool-cron-write
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "append_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      argument_patterns:
+        path: "/var/spool/cron/**"
+    decision: "BLOCK"
+    reason: "File write to /var/spool/cron/ system directory is blocked — cron spool persistence path. MITRE T1053.003."
 
   # === BLOCK: Root directory operations ===
   - id: mcp-safety-block-root-write
@@ -259,7 +278,7 @@ structural_rules:
       args_match:
         path:
           pattern_any:
-            - "\\.ssh/"
+            - "(?:^|/)(?:home/[^/]+|root|Users/[^/]+|~)/?\\.ssh/"
             - "\\.aws/"
             - "\\.gnupg/"
             - "\\.kube/"
@@ -293,6 +312,15 @@ structural_rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]docs?[/\\\\].*"
+            - "(?i)^docs?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
       args_match:
         text:
           pattern_any:
@@ -312,10 +340,18 @@ structural_rules:
         # Exclude writes to taxonomy/documentation YAML files — these legitimately
         # contain documented attack examples in their examples.bad sections and are
         # never sent to an LLM as prompts. Writing YAML docs to disk is not injection.
+        # Also exclude test/, docs/, and testdata/ directories which contain examples
+        # of injection patterns as test fixtures or documentation, not live payloads.
         path:
           pattern_any:
             - ".*/taxonomy/.*\\.ya?ml$"
             - ".*/.claude/commands/.*\\.(md|yaml|yml)$"
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]docs?[/\\\\].*"
+            - "(?i)^docs?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
       args_match:
         content:
           pattern_any:
@@ -331,6 +367,15 @@ structural_rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
     match:
       tool_name_regex: ".*"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]docs?[/\\\\].*"
+            - "(?i)^docs?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
       args_match:
         messages:
           pattern_any:
@@ -420,9 +465,9 @@ structural_rules:
             - "(?i)https?://10\\."
             - "(?i)https?://172\\.(1[6-9]|2[0-9]|3[01])\\."
             - "(?i)https?://192\\.168\\."
-    decision: "BLOCK"
-    reason: "SSRF detected — request to private network IP range"
-    confidence: 0.90
+    decision: "AUDIT"
+    reason: "SSRF suspected — request to private network IP range. Downgraded to AUDIT: private IPs are common in local dev/microservices environments. MITRE T1090."
+    confidence: 0.75
 
   # Block SSRF via alternative argument names (target, server, base_url)
   # Many tools expose network access through non-standard argument names that
@@ -495,7 +540,6 @@ structural_rules:
             - "(?i)(';|\"\\s*;)\\s*(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\\s+"
             - "(?i)UNION\\s+(ALL\\s+)?SELECT\\s+"
             - "(?i)OR\\s+1\\s*=\\s*1"
-            - "(?i)--\\s*$"
     decision: "BLOCK"
     reason: "SQL injection detected in query argument"
     confidence: 0.90
@@ -662,7 +706,7 @@ semantic_rules:
   - id: mcp-safety-audit-jailbreak-compliance-content
     taxonomy: "unauthorized-execution/agentic-attacks/adversarial-suffix-jailbreak"
     match:
-      tool_name_regex: ".*"
+      tool_name_regex: "(?i)(create_message|generate_text|complete|llm_generate|chat_completion|send_message|ask_llm|query_model|generate|completion|inference|predict)"
       args_match:
         content:
           pattern_any:
@@ -678,7 +722,7 @@ semantic_rules:
   - id: mcp-safety-audit-jailbreak-compliance-text
     taxonomy: "unauthorized-execution/agentic-attacks/adversarial-suffix-jailbreak"
     match:
-      tool_name_regex: ".*"
+      tool_name_regex: "(?i)(create_message|generate_text|complete|llm_generate|chat_completion|send_message|ask_llm|query_model|generate|completion|inference|predict)"
       args_match:
         text:
           pattern_any:

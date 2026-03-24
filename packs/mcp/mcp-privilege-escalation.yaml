@@ -106,6 +106,22 @@ structural_rules:
             - "(?i)ClusterRoleBinding"
             - "(?i)cluster-admin"
             - "(?i)clusterRole:\\s*cluster-admin"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*[/\\\\]taxonomy[/\\\\].*"
+            - "(?i)^taxonomy[/\\\\].*"
+            - "(?i).*[/\\\\]docs[/\\\\].*"
+            - "(?i)^docs[/\\\\].*"
+            - "(?i).*\\.md$"
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]packs[/\\\\].*"
+            - "(?i)^packs[/\\\\].*"
+            - "(?i).*[/\\\\]internal[/\\\\].*"
+            - "(?i)^internal[/\\\\].*"
+            - "(?i).*[/\\\\]charts[/\\\\].*"
+            - "(?i)^charts[/\\\\].*"
     decision: "BLOCK"
     reason: "Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001."
 
@@ -150,6 +166,8 @@ structural_rules:
     reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
 
   # === AUDIT: Sudo configuration modification ===
+  # FP fix: exclude documentation, test files, and markdown — these legitimately
+  # contain sudoers examples as documentation or test fixtures, not live config.
   - id: mcp-privesc-audit-sudoers-content
     taxonomy: "privilege-escalation/command-execution/sudo-invocation"
     match:
@@ -159,6 +177,16 @@ structural_rules:
           pattern_any:
             - "(?i)NOPASSWD"
             - "(?i)ALL=\\(ALL\\)"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*\\.md$"
+            - "(?i).*[/\\\\]docs?[/\\\\].*"
+            - "(?i)^docs?[/\\\\].*"
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
     decision: "AUDIT"
     reason: "Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003."
 
