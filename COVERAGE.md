@@ -9,7 +9,7 @@
 | Terminal rules | 1007 |
 | MCP rules | 371 |
 | Total rules | 1378 |
-| Test cases (TP+TN) | 3530 |
+| Test cases (TP+TN) | 3540 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -22,10 +22,10 @@
 | `sec-block-etc-shadow` | BLOCK | regex | Access to system password database is blocked. Excludes commands where the path appears as a text payload in a named flag value (--body/--body-file/--message to gh/git, -m for git commit/tag, -d/--data to curl), as heredoc content written via cat, or as a test input to agentshield mcp-eval. |
 | `sec-block-keychain` | BLOCK | regex | macOS Keychain extraction is blocked. Excludes commands where the keychain invocation appears as documentation text in a --body/--message/--title flag or -m shortform passed to gh or git. |
 | `sec-block-linux-secret-tool` | BLOCK | regex | secret-tool accessing the freedesktop.org Secret Service (GNOME Keyring / KDE Wallet) — returns stored credentials in plaintext. A single lookup can expose cloud keys, database passwords, or API tokens without any user prompt. MITRE T1555.004. |
-| `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' creates new entries that may overwrite existing ones. MITRE T1555.004. |
+| `sec-block-linux-pass-show` | BLOCK | regex | pass (Unix password store) decrypting and revealing/copying a stored password — GPG-encrypted at rest but decrypted to stdout/clipboard on 'show' or '-c'. 'generate' is excluded (creates new random entries, does not reveal existing secrets). MITRE T1555.004. |
 | `sec-block-linux-gopass-show` | BLOCK | regex | gopass decrypting and revealing a stored password — pass-compatible enhanced credential store. 'show', 'cat', and '-c' expose plaintext secrets. MITRE T1555.004. |
 | `sec-block-linux-keepassxc-cli` | BLOCK | regex | keepassxc-cli extracting credentials from a KeePassXC database — 'show' reveals passwords, 'clip' copies to clipboard, 'totp' generates 2FA codes, 'export' dumps the entire database. MITRE T1555.004. |
-| `sec-block-keepassxc-db-read` | BLOCK | regex | Direct access to a KeePassXC database file (.kdbx) — even encrypted, exfiltration enables offline brute-force of all stored passwords. AI agents have no legitimate reason to read or copy password database files. MITRE T1555.004, CWE-312. |
+| `sec-block-keepassxc-db-read` | BLOCK | regex | Direct access to a KeePassXC database file (.kdbx) — even encrypted, exfiltration enables offline brute-force of all stored passwords. AI agents have no legitimate reason to read or copy password database files. Excludes rsync --exclude='*.kdbx' which protects against copying kdbx files. MITRE T1555.004, CWE-312. |
 | `sec-block-keepassxc-config-read` | BLOCK | regex | Reading ~/.config/keepassxc/ reveals database file paths, keyfile locations, and security settings — reconnaissance for a targeted KeePassXC credential theft attack. MITRE T1555.004, T1083. |
 | `sec-block-pass-store-direct` | BLOCK | regex | Direct access to ~/.password-store/ bypasses the pass CLI — exfiltrating GPG-encrypted credential files enables offline decryption. Directory listing also leaks credential names and organizational structure. MITRE T1552.001, T1083, CWE-312. |
 | `sec-block-keyctl-read` | BLOCK | regex | keyctl read/print/pipe extracts the raw payload of a kernel keyring key to stdout — can expose cached SSH passphrases, LUKS disk encryption keys, Kerberos TGTs, and PAM authentication tokens without touching any file on disk. MITRE T1552.004, T1003, CWE-522. |
@@ -51,7 +51,7 @@
 | `sec-audit-git-log-all-env` | AUDIT | regex | git log --all with full diffs on sensitive file extensions traverses history for credential files — audit to detect accidental secret recovery attempts. MITRE T1552.001. |
 | `sec-audit-env-dump` | AUDIT | prefix | Environment dump may expose secrets (API keys, tokens, passwords). |
 | `sec-audit-env-grep-secret` | AUDIT | regex | Targeted access to secret environment variables flagged for review. |
-| `sec-audit-docker-inspect-env` | AUDIT | regex | docker inspect exposes the full container configuration including environment variables — API keys, database passwords, and cloud credentials stored in container env vars are disclosed. Cross-container credential access crosses the isolation boundary (MITRE T1552.007, OWASP LLM02). |
+| `sec-audit-docker-inspect-env` | AUDIT | regex | docker inspect exposes the full container configuration including environment variables — API keys, database passwords, and cloud credentials stored in container env vars are disclosed. Cross-container credential access crosses the isolation boundary. Excludes non-container inspect subcommands (network, volume, image, etc.) which have no env var exposure risk (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-docker-exec-env-dump` | AUDIT | regex | docker exec with env/printenv dumps all environment variables from a running container — exposes secrets injected at container startup including API keys, tokens, and database credentials (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-kubectl-exec-env-dump` | AUDIT | regex | kubectl exec with env/printenv dumps environment variables from a Kubernetes pod — exposes Kubernetes Secrets mounted as env vars, service account tokens, and application credentials (MITRE T1552.007, OWASP LLM02). |
 | `sec-audit-dotenv` | AUDIT | regex | .env file read detected — .env and its variants (.env.local, .env.production, .env.staging) contain API keys, database passwords, and other runtime secrets. MITRE T1552.001. |
@@ -59,12 +59,12 @@
 | `sec-audit-dotenv-xargs-export` | AUDIT | regex | Bulk export of .env variables via xargs — `export $(cat .env \| xargs)` loads all key=value pairs from the .env file into the shell environment, exposing all secrets to subsequent commands. MITRE T1552.001. |
 | `sec-audit-python-dotenv-load` | AUDIT | regex | Python dotenv library invocation detected — load_dotenv(), dotenv_values(), or environs Config() reads .env file secrets into os.environ. An AI agent loading .env programmatically has access to all application secrets. MITRE T1552.001. |
 | `sec-audit-node-dotenv-load` | AUDIT | regex | Node.js dotenv library invocation detected — require('dotenv').config() or npx dotenv-cli loads .env file secrets into process.env. An AI agent loading .env programmatically has access to all application secrets. MITRE T1552.001. |
-| `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. |
+| `sec-audit-config-files` | AUDIT | regex | Configuration file access flagged — may contain secrets. Excludes common build/IDE config files (tsconfig, webpack, jest, babel, vite, eslint, prettier, .vscode/settings.json) that never contain secrets and generate extreme alert fatigue. |
 | `sec-block-tfstate-read` | BLOCK | regex | Terraform state and variable files contain plaintext credentials (DB passwords, API keys, TLS keys). Direct access is blocked. MITRE T1552.001. |
 | `sec-audit-terraform-output` | AUDIT | structural | terraform/tofu output dumps declared output values including sensitive ones (passwords, API keys, connection strings). Flagged for review. MITRE T1552.001. |
 | `sec-audit-terraform-state-cmd` | AUDIT | structural | terraform/tofu state commands expose managed resource attributes including sensitive values (passwords, keys, tokens). Flagged for review. MITRE T1552.001. |
 | `sec-audit-clipboard` | AUDIT | prefix | Clipboard operations flagged — may leak secrets. |
-| `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. |
+| `sec-block-ai-apikey-inline` | BLOCK | regex | Inline AI API key detected in command (OpenAI sk-, Anthropic sk-ant-, Google AIza). Rotate the key immediately. Excludes common test/mock key prefixes (sk-test-, sk-fake-, sk-mock-, etc.) used in documentation, test fixtures, and CI environments. |
 | `sec-audit-ai-cred-files` | AUDIT | regex | Access to AI provider credential config files flagged for review. |
 | `sec-audit-ai-apikey-env` | AUDIT | regex | Direct access to AI provider API key environment variable flagged for review (covers OpenAI, Anthropic, Google, Cohere, Mistral, HuggingFace, Replicate, DeepSeek, xAI/Grok, Perplexity, Fireworks, Cerebras, Together, Groq). |
 | `sec-block-ml-platform-token-read` | BLOCK | regex | Read access to ML platform credential file — HuggingFace, W&B, Replicate, Comet ML, and DagsHub tokens grant access to private model repositories, training data, and inference APIs. MITRE T1552.001, OWASP LLM06. |
@@ -77,7 +77,7 @@
 | `sec-block-vault-read` | BLOCK | regex | vault read extracts secrets from HashiCorp Vault to stdout — can retrieve production API keys, database passwords, TLS certificates, and dynamic cloud credentials. Bypasses file-based monitoring. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-vault-kv-get` | BLOCK | regex | vault kv get extracts KV v2 secrets from HashiCorp Vault to stdout — returns the full secret map or a single field value. MITRE T1552.001, OWASP LLM06. |
 | `sec-block-aws-imds` | BLOCK | regex | HTTP/HTTPS access to AWS IMDS endpoint (169.254.169.254) can steal IAM credentials. Requires URL prefix to avoid false positives on grep/cat/echo commands that reference the IP as text. Excludes commands where the URL appears as a text payload in a named flag value (e.g. gh --body, git commit -m, curl -d). |
-| `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. |
+| `sec-block-gcp-imds` | BLOCK | regex | Access to GCP IMDS hostname (metadata.google.internal) can steal GCP service account OAuth tokens. Agents have no legitimate need to query instance metadata. Excludes commands where the hostname appears as text in a named flag value (e.g. gh --body, git commit -m, curl -d) — mirrors the symmetric sec-block-aws-imds exclusion. |
 | `sec-block-kubectl-config-view-raw` | BLOCK | regex | kubectl config view --raw exports all cluster credentials including embedded certificates and bearer tokens. MITRE T1552.001. |
 | `sec-block-kubeconfig-file-access` | BLOCK | regex | Direct read or copy of ~/.kube/config exposes cluster credentials (embedded certs, bearer tokens, client keys). Excludes matches where the path appears as prose text in a named flag value (e.g. git commit -m, gh issue --body). MITRE T1552.001. |
 | `sec-block-kubeconfig-structural` | BLOCK | structural | Structural detection of kubeconfig file access — catches path variations not covered by regex. |
@@ -226,7 +226,7 @@
 | `ne-audit-source-file-to-ai-api` | AUDIT | regex | Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567. |
 | `ne-block-insecure-llm-transport` | BLOCK | regex | LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040. |
 | `ne-block-unauthenticated-llm-endpoint` | BLOCK | regex | LLM inference server bound to 0.0.0.0 exposes the API to the network without authentication — any peer can submit arbitrary prompts, extract inference history, or abuse compute. Use --host 127.0.0.1 for local-only access. OWASP LLM02/LLM06, MITRE T1046. |
-| `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. |
+| `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. Excludes base64 -d/--decode (decode operations are not exfiltration — e.g. deploying a public key via 'echo $PUBKEY \| base64 -d > ~/.ssh/authorized_keys'). |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
 | `sec-block-openssl-credential-encode` | BLOCK | regex | openssl enc -base64 / openssl base64 on credential files encodes private keys or cloud credentials for exfiltration. MITRE T1027. |
@@ -1503,8 +1503,8 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 286 | 206 | 492 |
-| data-exfiltration | 283 | 175 | 458 |
+| credential-exposure | 285 | 215 | 500 |
+| data-exfiltration | 283 | 177 | 460 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 172 | 459 |
@@ -1512,5 +1512,5 @@
 | reconnaissance | 168 | 74 | 242 |
 | supply-chain | 243 | 163 | 406 |
 | unauthorized-execution | 401 | 272 | 673 |
-| **Total** | **2154** | **1376** | **3530** |
+| **Total** | **2153** | **1387** | **3540** |
 
