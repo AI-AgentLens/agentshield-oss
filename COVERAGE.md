@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1012 |
-| MCP rules | 385 |
-| Total rules | 1397 |
-| Test cases (TP+TN) | 3571 |
+| Terminal rules | 1014 |
+| MCP rules | 389 |
+| Total rules | 1403 |
+| Test cases (TP+TN) | 3578 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -141,7 +141,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (160 rules)
+### data-exfiltration (162 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -305,6 +305,8 @@
 | `ts-block-doh-1111` | BLOCK | regex | Direct call to Cloudflare's DoH endpoint via IP (1.1.1.1/dns-query or 1.0.0.1/dns-query). Identical attack surface to cloudflare-dns.com but uses IP address to avoid hostname-based filtering. MITRE T1071.004, T1048.003. |
 | `ts-block-doh-quad9` | BLOCK | regex | Direct call to Quad9's DNS-over-HTTPS API (dns.quad9.net or dns9.quad9.net /dns-query). Quad9 provides RFC 8484 DoH; querying it directly is a DoH exfiltration channel. MITRE T1071.004, T1048.003. |
 | `ts-block-doh-content-type` | BLOCK | regex | RFC 8484 DNS-over-HTTPS content type (application/dns-json or application/dns-message) in a curl/wget header. These MIME types are exclusively used for DoH wire-format queries — any agent command referencing them is performing DoH-based DNS tunneling. MITRE T1071.004. |
+| `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
+| `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
 
 ### destructive-ops (70 rules)
 
@@ -1275,7 +1277,7 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### data-exfiltration (33 rules)
+### data-exfiltration (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1299,6 +1301,10 @@
 | `mcp-llmdf-audit-ai-telemetry-config-write` | AUDIT | mcp_rule | MCP write to Cursor config directory — may modify telemetry, AI model routing, or data-sharing settings. OWASP LLM02/LLM06. |
 | `mcp-llmdf-audit-copilot-config-write` | AUDIT | mcp_rule | MCP write to GitHub Copilot config directory — may modify telemetry or data-sharing settings. OWASP LLM02/LLM06. |
 | `mcp-llmdf-audit-codeium-config-write` | AUDIT | mcp_rule | MCP write to Codeium/Windsurf config directory — may modify telemetry or AI endpoint settings. OWASP LLM02/LLM06. |
+| `mcp-llmdf-audit-reasoning-trace-read` | AUDIT | mcp_rule | Reading a file matching *thinking_trace* via MCP — AI reasoning/thinking trace files may contain sensitive data from the model's internal processing that bypasses output filtering. OWASP LLM02, MITRE T1005. |
+| `mcp-llmdf-audit-reasoning-output-read` | AUDIT | mcp_rule | Reading a file matching *reasoning_output* via MCP — AI reasoning output files may expose sensitive data that the model processed internally but redacted from its final response. OWASP LLM02, MITRE T1005. |
+| `mcp-llmdf-audit-chain-of-thought-read` | AUDIT | mcp_rule | Reading a file matching *chain_of_thought* via MCP — chain-of-thought logs capture model reasoning that may include sensitive context not present in the final response. OWASP LLM02, MITRE T1005. |
+| `mcp-llmdf-audit-extended-thinking-read` | AUDIT | mcp_rule | Reading a file matching *extended_thinking* via MCP — Claude extended thinking traces capture intermediate reasoning that may contain sensitive information redacted from the final API response. OWASP LLM02, MITRE T1005. |
 | `mcp-llmdf-audit-cross-server-context-harvest` | AUDIT | structural | Tool call content contains cross-server context harvesting instructions — pattern suggests a server is directing the agent to forward data from other MCP servers. OWASP LLM01/LLM02/LLM06. |
 | `mcp-llmdf-block-credential-in-prompt` | BLOCK | structural | Credential or API key detected in MCP message content — hardcoded secrets in LLM prompt context risk model memorization and exfiltration. OWASP LLM07 (Sensitive Data Exposure). |
 | `mcp-llmdf-audit-prompt-erosion-jailbreak` | AUDIT | structural | Prompt override/jailbreak instruction detected in MCP message content — multi-turn prompt erosion attempt to override agent system context. OWASP LLM01/LLM07. |
@@ -1523,7 +1529,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 285 | 215 | 500 |
-| data-exfiltration | 290 | 185 | 475 |
+| data-exfiltration | 294 | 188 | 482 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 173 | 460 |
@@ -1531,5 +1537,5 @@
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 402 | 273 | 675 |
-| **Total** | **2163** | **1408** | **3571** |
+| **Total** | **2167** | **1411** | **3578** |
 
