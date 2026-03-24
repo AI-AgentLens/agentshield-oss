@@ -22,6 +22,9 @@ type SchemaDriftResult struct {
 	RemovedTools []string
 	// ChangedTools lists tool names whose input schemas have changed.
 	ChangedTools []string
+	// DescriptionChangedTools lists tool names whose descriptions changed since baseline.
+	// This is the primary indicator of a rug-pull attack (post-approval description mutation).
+	DescriptionChangedTools []string
 	// FirstSeen is true when no baseline existed (first-time connection).
 	FirstSeen bool
 }
@@ -29,6 +32,9 @@ type SchemaDriftResult struct {
 // toolSchemaEntry is the persisted schema fingerprint for a single tool.
 type toolSchemaEntry struct {
 	InputSchemaHash string `json:"inputSchemaHash"`
+	// DescriptionHash is the SHA-256 of the tool's description text.
+	// A change here (with schema stable) is a rug-pull indicator.
+	DescriptionHash string `json:"descriptionHash,omitempty"`
 }
 
 // schemaCache is the persisted per-server schema baseline.
@@ -83,12 +89,23 @@ func (s *SchemaDriftScanner) CheckDrift(serverName string, tools []ToolDefinitio
 
 	// Compare cached vs current.
 	for name := range current.Tools {
-		if _, existed := cached.Tools[name]; !existed {
+		cachedEntry, existed := cached.Tools[name]
+		if !existed {
 			result.AddedTools = append(result.AddedTools, name)
 			result.Drifted = true
-		} else if current.Tools[name].InputSchemaHash != cached.Tools[name].InputSchemaHash {
-			result.ChangedTools = append(result.ChangedTools, name)
-			result.Drifted = true
+		} else {
+			if current.Tools[name].InputSchemaHash != cachedEntry.InputSchemaHash {
+				result.ChangedTools = append(result.ChangedTools, name)
+				result.Drifted = true
+			}
+			// Detect description drift (rug-pull indicator): schema stable but description changed.
+			// Only flag when a prior description hash exists (non-empty) to avoid false positives
+			// on servers that didn't previously record a description hash.
+			if cachedEntry.DescriptionHash != "" &&
+				current.Tools[name].DescriptionHash != cachedEntry.DescriptionHash {
+				result.DescriptionChangedTools = append(result.DescriptionChangedTools, name)
+				result.Drifted = true
+			}
 		}
 	}
 	for name := range cached.Tools {
@@ -101,6 +118,7 @@ func (s *SchemaDriftScanner) CheckDrift(serverName string, tools []ToolDefinitio
 	sort.Strings(result.AddedTools)
 	sort.Strings(result.RemovedTools)
 	sort.Strings(result.ChangedTools)
+	sort.Strings(result.DescriptionChangedTools)
 
 	return result
 }
@@ -111,9 +129,20 @@ func buildSchemaCache(tools []ToolDefinition) schemaCache {
 	for _, t := range tools {
 		cache.Tools[t.Name] = toolSchemaEntry{
 			InputSchemaHash: hashInputSchema(t.InputSchema),
+			DescriptionHash: hashDescription(t.Description),
 		}
 	}
 	return cache
+}
+
+// hashDescription returns a stable SHA-256 hex digest of a tool description string.
+// Returns empty string for empty descriptions (no hash stored, no rug-pull detection).
+func hashDescription(desc string) string {
+	if desc == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte(desc))
+	return fmt.Sprintf("%x", h)
 }
 
 // hashInputSchema returns a stable SHA-256 hex digest of a tool's input schema JSON.
@@ -230,6 +259,9 @@ func (r *SchemaDriftResult) DriftSummary() string {
 	}
 	if len(r.ChangedTools) > 0 {
 		parts = append(parts, fmt.Sprintf("schema changes: [%s]", strings.Join(r.ChangedTools, ", ")))
+	}
+	if len(r.DescriptionChangedTools) > 0 {
+		parts = append(parts, fmt.Sprintf("description rug-pull: [%s]", strings.Join(r.DescriptionChangedTools, ", ")))
 	}
 	return strings.Join(parts, "; ")
 }

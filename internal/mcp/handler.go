@@ -283,6 +283,8 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 		if drift != nil && drift.Drifted {
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] SCHEMA DRIFT detected for server %q: %s\n",
 				serverKey, drift.DriftSummary())
+
+			// Emit a general schema-drift audit for input schema / tool additions / removals.
 			if h.OnAudit != nil {
 				h.OnAudit(AuditEntry{
 					Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -293,6 +295,29 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 					Source:         "mcp-proxy-schema-drift",
 					ServerName:     serverKey,
 				})
+			}
+
+			// Emit a dedicated rug-pull audit for description-only changes.
+			// A tool whose description mutates post-approval (while schema stays stable)
+			// is the hallmark of a rug-pull attack: the agent trusts the old approval
+			// but executes the new (possibly malicious) behavior.
+			if len(drift.DescriptionChangedTools) > 0 && h.OnAudit != nil {
+				for _, toolName := range drift.DescriptionChangedTools {
+					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] RUG-PULL ALERT: description changed for tool %q on server %q — re-verify before use\n",
+						toolName, serverKey)
+					h.OnAudit(AuditEntry{
+						Timestamp:      time.Now().UTC().Format(time.RFC3339),
+						ToolName:       toolName,
+						Decision:       "AUDIT",
+						Flagged:        true,
+						TriggeredRules: []string{"mcp-sec-audit-tool-description-changed"},
+						Reasons: []string{
+							fmt.Sprintf("Tool %q description changed since last approval — possible rug-pull attack. Re-verify tool behavior before use. (unauthorized-execution/agentic-attacks/mcp-tool-rug-pull)", toolName),
+						},
+						Source:     "mcp-proxy-rug-pull-detection",
+						ServerName: serverKey,
+					})
+				}
 			}
 		}
 	}
