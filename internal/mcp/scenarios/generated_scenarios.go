@@ -3829,4 +3829,25 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "governance",
 		Description:      "write_file to mail-policy.txt — must NOT trigger ai-policy rule (hyphen-bounded pattern prevents false match on 'mail') (issue #327)",
 	},
+
+	// Issue #331: TN — reading a benign response JSON file must NOT trigger reasoning trace rules
+	{
+		ID:               "MCP-TN-633",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/response.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "llm-data-flow",
+		Description:      "read_file for response.json — does NOT match *thinking_trace*, *reasoning_output*, *chain_of_thought*, or *extended_thinking* patterns. Must NOT be blocked by reasoning trace rules (issue #331).",
+	},
+	// Issue #331: TN — reading a model output file without reasoning trace name must NOT trigger
+	{
+		ID:               "MCP-TN-634",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/logs/model_output_2024.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "llm-data-flow",
+		Description:      "read_file for model_output_2024.json — generic model output file name, does not match reasoning trace patterns. Must NOT trigger reasoning trace rules (issue #331).",
+	},
 }
