@@ -545,15 +545,14 @@ var ModelPoisoningCases = []TestCase{
 	{
 		ID:               "TP-SC-BLOCK-MLPOISON-003",
 		Command:          `cp /tmp/poisoned_weights.pt checkpoints/model.pt`,
-		ExpectedDecision: "BLOCK",
-		Classification:   "TP",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/model-poisoning/checkpoint-substitution",
 		Analyzer:         "regex",
-		Description: `Overwriting a production model checkpoint with an attacker-
-			controlled file. PyTorch .pt files use pickle serialization and can
-			execute arbitrary code on load. The sc-block-ml-checkpoint-replace
-			rule fires on cp <src> checkpoints/*.pt.`,
-		Tags: []string{"canonical", "critical", "llm04"},
+		Description: `Local cp into checkpoints/ — now AUDIT (not BLOCK) per issue #281.
+			sc-block-ml-checkpoint-replace no longer fires on cp/mv (only wget/curl remote downloads).
+			sc-audit-ml-checkpoint-write still flags this at AUDIT for human review (LLM04).`,
+		Tags: []string{"tn", "llm04", "fp-regression"},
 	},
 	{
 		ID:               "TP-SC-BLOCK-MLPOISON-004",
@@ -595,6 +594,19 @@ var ModelPoisoningCases = []TestCase{
 			does not match model checkpoint BLOCK patterns (.pt/.pkl/.bin etc.)
 			— should be allowed.`,
 		Tags: []string{"safe"},
+	},
+	// TN-3: local cp between checkpoint files — standard training loop (issue #281 FP fix)
+	{
+		ID:               "TN-SC-BLOCK-MLPOISON-003",
+		Command:          `cp checkpoints/epoch_10.pt checkpoints/best.pt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/model-poisoning/checkpoint-substitution",
+		Analyzer:         "regex",
+		Description: `Local cp between checkpoint files — standard training loop checkpoint
+			management. sc-block-ml-checkpoint-replace no longer fires on cp (only wget/curl).
+			sc-audit-ml-checkpoint-write flags this at AUDIT for human review (issue #281).`,
+		Tags: []string{"tn", "safe", "checkpoint", "fp-regression"},
 	},
 
 	// --- Hugging Face model download rules (sc-block-hf-cli-download, sc-audit-hf-from-pretrained, sc-audit-hf-hub-download) ---
@@ -1835,6 +1847,19 @@ var NpmrcEditCases = []TestCase{
 			(default — gh commands are not explicitly ALLOWed).`,
 		Tags: []string{"tn", "safe", "npmrc", "gh", "fp-regression"},
 	},
+	// TN-4: sed without -i on .npmrc — read-only (issue #281 FP fix)
+	{
+		ID:               "TN-SC-BLOCK-NPMRC-004",
+		Command:          `sed 's/registry=//' ~/.npmrc`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `sed without -i reads ~/.npmrc and transforms output to stdout — no file modification.
+			sc-block-npmrc-edit now requires -i/--in-place for sed so BLOCK no longer fires.
+			Gets AUDIT from audit-file-edits (not BLOCK). Correct outcome — not a FP (issue #281).`,
+		Tags: []string{"tn", "safe", "npmrc", "sed", "fp-regression"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -1905,6 +1930,17 @@ var PkgMgrRegistryConfigTamperCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "grep reading pip.conf to inspect index-url — read-only, no config tampering.",
 		Tags:             []string{"tn", "safe", "pip", "read-only"},
+	},
+	// TN-3: sed without -i on pip.conf — read-only transform (issue #281 FP fix)
+	{
+		ID:               "TN-SC-PIP-CONF-003",
+		Command:          `sed -n '/index-url/p' ~/.pip/pip.conf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description:      "sed -n (no in-place) reads pip.conf and prints matching lines to stdout — no file modification. sc-block-pip-conf-write now requires -i/--in-place for sed so BLOCK no longer fires. Gets AUDIT (not BLOCK). Correct outcome (issue #281).",
+		Tags:             []string{"tn", "safe", "pip", "sed", "fp-regression"},
 	},
 
 	// --- npm config set registry ---
@@ -2825,12 +2861,12 @@ var ModelEndpointHijackingCases = []TestCase{
 	{
 		ID:               "TP-ENDPTHIJACK-002",
 		Command:          `export ANTHROPIC_BASE_URL=http://localhost:8080`,
-		ExpectedDecision: "BLOCK",
-		Classification:   "TP",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
 		Analyzer:         "regex",
-		Description:      "export ANTHROPIC_BASE_URL to localhost proxy — intercepts Anthropic API calls.",
-		Tags:             []string{"tp", "endpoint-hijacking", "env-override"},
+		Description:      "export ANTHROPIC_BASE_URL to localhost — standard local proxy/testing setup, excluded by localhost allowlist. Gets default AUDIT (issue #281).",
+		Tags:             []string{"tn", "safe", "localhost", "fp-regression"},
 	},
 	{
 		ID:               "TP-ENDPTHIJACK-003",
@@ -2884,6 +2920,28 @@ var ModelEndpointHijackingCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Writing non-AI env var to .env — sc-block-ai-endpoint-dotenv-write should not fire on DATABASE_URL.",
 		Tags:             []string{"tn", "safe", "dotenv-non-ai"},
+	},
+	// TN-5: OLLAMA_HOST=localhost — documented Ollama setup (issue #281 FP fix)
+	{
+		ID:               "TN-ENDPTHIJACK-005",
+		Command:          `export OLLAMA_HOST=http://localhost:11434`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "export OLLAMA_HOST to localhost — the documented, required setup for every Ollama user. Must NOT be blocked (issue #281). Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "localhost", "ollama", "fp-regression"},
+	},
+	// TN-6: OPENAI_BASE_URL=localhost/v1 — Ollama OpenAI-compatible mode (issue #281 FP fix)
+	{
+		ID:               "TN-ENDPTHIJACK-006",
+		Command:          `export OPENAI_BASE_URL=http://localhost:11434/v1`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "export OPENAI_BASE_URL to localhost:11434/v1 — standard Ollama OpenAI-compatible config. Must NOT be blocked (issue #281). Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "localhost", "ollama", "openai-compat", "fp-regression"},
 	},
 	{
 		ID:               "TN-ENDPTHIJACK-004",
