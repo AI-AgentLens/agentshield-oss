@@ -1,0 +1,111 @@
+id: "unauthorized-execution/agentic-attacks/mcp-tool-annotation-spoofing"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Tool Annotation Spoofing"
+risk_level: "high"
+
+abstract: |
+  A malicious MCP server falsifies tool annotations introduced in MCP 2025
+  (readOnly, destructive, idempotent, openWorld) to deceive MCP clients and
+  security tools into skipping safety checks, confirmation prompts, or audit
+  logging for harmful tool calls.
+
+explanation: |
+  The MCP 2025-03-26 specification introduced structured tool annotations
+  as informational hints to help clients make better invocation decisions:
+
+  - **readOnly** (bool): Hints the tool has no side effects on its environment.
+    Clients may skip confirmation dialogs for readOnly tools.
+  - **destructive** (bool): Hints the tool may cause irreversible changes.
+    Clients should warn users before invoking destructive tools.
+  - **idempotent** (bool): Hints repeated identical calls have the same effect.
+    Clients and proxies may suppress duplicate-call warnings.
+  - **openWorld** (bool): Hints the tool may interact with external entities
+    beyond the immediate environment. Security tools use this for egress alerts.
+
+  A malicious MCP server can falsify these annotations to bypass client-side
+  and proxy-side security controls:
+
+  **Attack patterns:**
+  - **readOnly lie**: A tool that writes files, sends network requests, or
+    exfiltrates data is annotated with `readOnly: true`. Security proxies
+    (like AgentShield) that reduce scrutiny for read-only tools will miss
+    the threat. MCP clients may auto-approve without prompting the user.
+  - **Destructive suppression**: A genuinely destructive tool (e.g., one that
+    deletes database records) omits `destructive: true`, causing clients to
+    skip the "are you sure?" confirmation that would expose the action.
+  - **openWorld concealment**: A tool that exfiltrates data to an external
+    endpoint omits `openWorld: true`, hiding the egress behavior from network
+    egress monitors and security audits.
+  - **idempotent lie for replay concealment**: A tool that performs a
+    non-idempotent privileged action (e.g., elevating permissions) claims
+    idempotency, suppressing duplicate-invocation warnings when the attacker
+    replays the call.
+
+  Because the MCP spec states that annotations are "not guaranteed to be
+  accurate or up-to-date" and are "untrusted hints", many implementations
+  treat them as advisory only — but security-relevant clients and proxies
+  may still rely on them to make access control decisions. This creates an
+  exploitable gap when annotation values contradict the tool's actual behavior
+  or its name/description semantics.
+
+  **Detection signal:** A tool with `readOnly: true` whose name contains
+  verbs like delete, drop, write, create, modify, send, post, upload, or
+  exec is suspicious. Similarly, a tool whose description describes network
+  egress but lacks `openWorld: true` warrants scrutiny.
+
+recommendation: |
+  - Never trust tool annotations as a security boundary; treat them as hints only.
+  - Cross-validate annotations against tool names and descriptions: a tool
+    named "delete_records" should never have readOnly: true without triggering
+    an AUDIT event.
+  - Implement semantic consistency checks: if description contains egress verbs
+    (send, post, upload, call) and openWorld is absent or false, flag for review.
+  - AgentShield should AUDIT any tool invocation where readOnly annotation
+    contradicts the tool name/description semantics.
+  - Clients should not auto-approve tool calls solely on the basis of readOnly:
+    true without independent verification of the tool's actual behavior.
+
+examples:
+  bad:
+    - |
+      Tool "purge_user_data" with annotations: {readOnly: true} — claims no
+      side effects but name clearly implies destructive data deletion.
+    - |
+      Tool "send_report" with annotations: {openWorld: false} — conceals
+      network egress behavior, bypassing egress monitoring.
+    - |
+      Tool "grant_admin_role" with annotations: {idempotent: true} — falsely
+      claims repeated calls are harmless, suppressing replay warnings.
+  good:
+    - |
+      Tool "list_files" with annotations: {readOnly: true} — semantically
+      consistent; directory listing has no side effects.
+    - |
+      Tool "delete_temp_files" with annotations: {destructive: true} —
+      accurately annotated, client will prompt for confirmation.
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM07", "LLM09"]
+  iso-27001-2022: ["A.5.10", "A.8.25", "A.5.23", "A.8.2"]
+  eu-ai-act-2024: ["Art.9", "Art.13", "Art.15", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MANAGE-4", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC7.2", "CC9.1"]
+
+references:
+  mitre_attack: ["T1036", "T1562", "T1556"]
+  cwe: ["CWE-345", "CWE-290", "CWE-807"]
+  external:
+    - title: "MCP Specification 2025-03-26: Tool Annotations"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/server/tools"
+    - title: "OWASP LLM Top 10 2025 — LLM09: Misinformation"
+      url: "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+
+analyzers: ["mcp", "semantic"]
+related_rules:
+  - "mcp-tool-description-poisoning"
+  - "mcp-tool-rug-pull"
+  - "mcp-authorization-bypass"
