@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1014 |
-| MCP rules | 389 |
-| Total rules | 1403 |
-| Test cases (TP+TN) | 3578 |
+| Terminal rules | 1016 |
+| MCP rules | 392 |
+| Total rules | 1408 |
+| Test cases (TP+TN) | 3585 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -141,7 +141,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (162 rules)
+### data-exfiltration (164 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -257,6 +257,8 @@
 | `ts-block-az-storage-upload` | BLOCK | regex | az storage blob upload/upload-batch sending local files to Azure Blob Storage — uploading local workspace data to Azure is a data exfiltration pattern with no legitimate AI agent use case (OWASP LLM02, MITRE T1048, CWE-200). |
 | `ts-audit-rclone-upload` | AUDIT | regex | rclone transfer command detected — rclone supports 40+ cloud providers and is commonly used in exfiltration toolkits (MITRE T1048). Audit for review; verify the destination is an authorized remote and the source data is not sensitive. |
 | `ts-audit-s3cmd-upload` | AUDIT | regex | s3cmd S3 operation detected — s3cmd is a third-party S3 client not covered by AWS CLI monitoring. put/sync upload local files to S3; audit for review to verify authorized bucket and non-sensitive data (OWASP LLM02, MITRE T1048). |
+| `llm-cache-read-tokens-probe` | AUDIT | regex | Reference to cache_read_input_tokens — this Anthropic API usage field reveals whether a prompt prefix hit the cache, enabling timing oracle reconstruction of cached system prompts without clock measurement (OWASP LLM02, CWE-208). |
+| `llm-cache-timing-exfil` | BLOCK | regex | LLM API timing measurement co-occurring with network egress — data-exfiltration variant of prompt cache timing oracle: inferred cache hit/miss results transmitted to an external endpoint (OWASP LLM02, LLM10, CWE-208). |
 | `ts-block-xattr-write-subshell` | BLOCK | regex | Writing command substitution output to extended attributes — hides exfiltrated data (credentials, keys, secrets) in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-block-xattr-write-backtick` | BLOCK | regex | Writing backtick command output to extended attributes — hides exfiltrated data in file metadata invisible to standard tools. MITRE T1564.004. |
 | `ts-audit-xattr-write` | AUDIT | regex | Writing extended attributes to a file — xattrs are invisible to standard tools and can hide arbitrary data. Legitimate for metadata tagging, but AI agents rarely need this. MITRE T1564.004. |
@@ -1456,7 +1458,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (50 rules)
+### unauthorized-execution (53 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1487,6 +1489,9 @@
 | `mcp-struct-block-yaml-deser-inject-newcontent` | BLOCK | structural | YAML deserialization gadget chain detected in MCP write new_content — !!python/object, !!java.lang., and !!ruby/object tags execute code when loaded by an unsafe deserializer. Indicates injection via untrusted input into LLM output. OWASP LLM02, LLM01. |
 | `mcp-struct-block-json-proto-pollute` | AUDIT | structural | JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models. Demoted from BLOCK to AUDIT to allow security test fixtures and sanitization tests that legitimately contain these patterns. OWASP LLM02, LLM01. |
 | `mcp-struct-audit-llm-sql-inject` | AUDIT | structural | SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection). |
+| `mcp-block-session-fixation-header-injection` | BLOCK | structural | Mcp-Session-Id header injection pattern detected in tool call content — session fixation attack embedding explicit session ID directives to override the server-assigned session context. OWASP LLM06 (Excessive Agency), CWE-384 (Session Fixation). |
+| `mcp-audit-session-store-write` | AUDIT | structural | Write to MCP session store file — may persist forged session IDs or overwrite active session state, enabling session fixation or replay attacks. OWASP LLM06, CWE-384. |
+| `mcp-audit-session-store-read` | AUDIT | structural | Read of MCP session store file — exposes active session IDs that may be used for session enumeration, fixation, or replay attacks. OWASP LLM06, CWE-384, CWE-613. |
 | `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
 | `mcp-block-a2a-task-injection` | BLOCK | structural | Prompt injection pattern detected in A2A task description — agent-to-agent protocol injection embeds malicious directives in task delegation payloads, overriding the receiving agent's system context. OWASP LLM01 (Prompt Injection). |
@@ -1529,7 +1534,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 285 | 215 | 500 |
-| data-exfiltration | 294 | 188 | 482 |
+| data-exfiltration | 298 | 191 | 489 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 173 | 460 |
@@ -1537,5 +1542,5 @@
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 402 | 273 | 675 |
-| **Total** | **2167** | **1411** | **3578** |
+| **Total** | **2171** | **1414** | **3585** |
 
