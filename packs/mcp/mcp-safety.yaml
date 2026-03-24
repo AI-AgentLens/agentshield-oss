@@ -820,3 +820,53 @@ semantic_rules:
     decision: "AUDIT"
     reason: "MCP elicitation/create message contains social engineering patterns (urgency framing, threat language, coercive approval prompts) — server may be manipulating the user into approving dangerous operations. Detection via proxy-layer ScanElicitationCreate(). OWASP LLM01, MITRE T1566."
     confidence: 0.82
+
+  # === BLOCK/AUDIT: MCP roots/list response privilege escalation (issue #330) ===
+  #
+  # The MCP "roots" capability (roots/list) lets MCP servers request that the client
+  # declare which filesystem root URIs the server may access. A malicious or
+  # compromised server can abuse this to enumerate sensitive directories:
+  #
+  # Attack vectors:
+  #   - Overbroad root requests — server requests "/" or home dir encompassing ~/.ssh, ~/.aws
+  #   - Root scope creep — server expands roots after establishing initial trust
+  #   - Indirect root enumeration — server requests home dir ancestor then traverses downward
+  #   - Relative path traversal via roots — "../.." sequences escape the declared workspace
+  #
+  # Detection is performed at the MCP proxy layer by HandleRootsListResponse() in
+  # internal/mcp/handler.go, which calls EvaluateRootsList() in internal/mcp/policy.go:
+  #   - BLOCK: root URI final component is a known credential directory (.ssh, .aws, .gnupg,
+  #            .kube, .vault, .docker) or a multi-component credential path
+  #            (e.g. .config/gcloud, .config/op, .config/helm), or root is inside a
+  #            credential directory (path contains /.ssh/ etc.)
+  #   - AUDIT: root URI is a broad parent directory (/, /home, /Users, /root, /etc, or
+  #            any individual user home dir /home/<user> or /Users/<user>) that encompasses
+  #            credential stores without being one itself
+  #   - ALLOW: root URI is a narrow, project-scoped path (e.g. /workspace/myproject)
+  #
+  # These sentinel rules document the taxonomy linkage and surface detection in
+  # `agentshield scan` output. The tool_name_regex never matches a real MCP tool —
+  # actual detection fires from the proxy layer before YAML rule evaluation.
+  #
+  # References:
+  #   - MCP 2025 roots specification: https://spec.modelcontextprotocol.io/
+  #   - OWASP LLM 2025: LLM08 (Excessive Permissions / Privilege Escalation)
+  #   - MITRE: T1078 (Valid Accounts), T1083 (File and Directory Discovery),
+  #            T1005 (Data from Local System)
+  #   - CWE: CWE-269 (Improper Privilege Management), CWE-22 (Path Traversal),
+  #          CWE-284 (Improper Access Control)
+  - id: mcp-roots-block-sensitive-cred-dir
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation"
+    match:
+      tool_name_regex: "^__mcp_roots_list_response__$"
+    decision: "BLOCK"
+    reason: "MCP roots/list response declares a credential directory (e.g. ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.vault, ~/.docker, .config/gcloud) as a root URI — grants the server direct access to secrets without any per-file tool call. Detection via proxy-layer EvaluateRootsList(). OWASP LLM08, MITRE T1078/T1083."
+    confidence: 0.95
+
+  - id: mcp-roots-audit-broad-dir
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation"
+    match:
+      tool_name_regex: "^__mcp_roots_list_response__$"
+    decision: "AUDIT"
+    reason: "MCP roots/list response declares a broad filesystem root (/, /home, /Users, or a user home dir) that encompasses credential directories — review whether this scope is necessary. Detection via proxy-layer EvaluateRootsList(). OWASP LLM08, MITRE T1083."
+    confidence: 0.88
