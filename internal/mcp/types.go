@@ -47,12 +47,30 @@ type ContentItem struct {
 
 // --- MCP tool listing types ---
 
+// ToolAnnotations represents the MCP 2025-03-26 tool annotations object.
+// These are informational hints from the server about tool behavior.
+// Per the spec, annotations are NOT guaranteed to be accurate — they must
+// not be used as a security boundary, and discrepancies are a rug-pull signal.
+type ToolAnnotations struct {
+	// ReadOnly hints the tool has no side effects on its environment.
+	// If true but the tool name contains destructive verbs, this is suspicious.
+	ReadOnly *bool `json:"readOnly,omitempty"`
+	// Destructive hints the tool may cause irreversible changes.
+	Destructive *bool `json:"destructive,omitempty"`
+	// Idempotent hints repeated identical calls have the same effect.
+	Idempotent *bool `json:"idempotent,omitempty"`
+	// OpenWorld hints the tool may interact with external entities.
+	// If false/absent but the description mentions egress, this is suspicious.
+	OpenWorld *bool `json:"openWorld,omitempty"`
+}
+
 // ToolDefinition describes a single tool exposed by an MCP server.
 type ToolDefinition struct {
-	Name        string          `json:"name"`
-	Title       string          `json:"title,omitempty"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name        string           `json:"name"`
+	Title       string           `json:"title,omitempty"`
+	Description string           `json:"description,omitempty"`
+	InputSchema json.RawMessage  `json:"inputSchema,omitempty"`
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 }
 
 // ListToolsResult is the result of a tools/list response.

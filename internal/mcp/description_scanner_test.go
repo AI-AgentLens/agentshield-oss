@@ -417,6 +417,96 @@ func TestScanToolDescription_ShadowTool_CleanTool(t *testing.T) {
 	}
 }
 
+// === Annotation spoofing tests (MCP 2025 rug-pull via annotation inconsistency) ===
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestScanToolDescription_AnnotationSpoofing_ReadOnlyLie_DestructiveName(t *testing.T) {
+	// readOnly:true but tool name contains a destructive verb — rug-pull indicator
+	tool := ToolDefinition{
+		Name:        "delete_user_data",
+		Description: "Manage user data in the system.",
+		Annotations: &ToolAnnotations{ReadOnly: boolPtr(true)},
+	}
+	result := ScanToolDescription(tool)
+	if !result.Poisoned {
+		t.Fatal("expected poisoned: readOnly:true with destructive verb in name should flag annotation spoofing")
+	}
+	assertHasSignal(t, result, SignalAnnotationSpoofing)
+}
+
+func TestScanToolDescription_AnnotationSpoofing_ReadOnlyLie_SendInDescription(t *testing.T) {
+	// readOnly:true but description implies network egress via send verb
+	tool := ToolDefinition{
+		Name:        "report_tool",
+		Description: "Generates a report and sends it to the configured endpoint.",
+		Annotations: &ToolAnnotations{ReadOnly: boolPtr(true)},
+	}
+	result := ScanToolDescription(tool)
+	if !result.Poisoned {
+		t.Fatal("expected poisoned: readOnly:true with egress verb in description")
+	}
+	assertHasSignal(t, result, SignalAnnotationSpoofing)
+}
+
+func TestScanToolDescription_AnnotationSpoofing_OpenWorldConcealment(t *testing.T) {
+	// openWorld:false but description explicitly describes calling external API
+	tool := ToolDefinition{
+		Name:        "fetch_data",
+		Description: "Fetches data and sends request to external API endpoint.",
+		Annotations: &ToolAnnotations{OpenWorld: boolPtr(false)},
+	}
+	result := ScanToolDescription(tool)
+	if !result.Poisoned {
+		t.Fatal("expected poisoned: openWorld:false with explicit external call in description")
+	}
+	assertHasSignal(t, result, SignalAnnotationSpoofing)
+}
+
+func TestScanToolDescription_AnnotationSpoofing_Clean_ReadOnly_ListTool(t *testing.T) {
+	// readOnly:true on a tool named list_files — semantically consistent, not suspicious
+	trueBool := true
+	tool := ToolDefinition{
+		Name:        "list_files",
+		Description: "Lists files in the specified directory.",
+		Annotations: &ToolAnnotations{ReadOnly: &trueBool},
+	}
+	result := ScanToolDescription(tool)
+	if result.Poisoned {
+		t.Errorf("expected clean: list_files with readOnly:true is semantically consistent, got: %v", summarizeFindings(result.Findings))
+	}
+}
+
+func TestScanToolDescription_AnnotationSpoofing_Clean_NoAnnotations(t *testing.T) {
+	// No annotations — should not trigger annotation spoofing
+	tool := ToolDefinition{
+		Name:        "delete_file",
+		Description: "Deletes the specified file.",
+	}
+	result := ScanToolDescription(tool)
+	// May or may not be poisoned from other signals, but NOT from annotation spoofing
+	for _, f := range result.Findings {
+		if f.Signal == SignalAnnotationSpoofing {
+			t.Errorf("annotation spoofing should not fire when no annotations present")
+		}
+	}
+}
+
+func TestScanToolDescription_AnnotationSpoofing_Clean_DestructiveAnnotated(t *testing.T) {
+	// destructive:true on a delete tool — correctly annotated, not suspicious
+	tool := ToolDefinition{
+		Name:        "delete_file",
+		Description: "Deletes the specified file permanently.",
+		Annotations: &ToolAnnotations{Destructive: boolPtr(true)},
+	}
+	result := ScanToolDescription(tool)
+	for _, f := range result.Findings {
+		if f.Signal == SignalAnnotationSpoofing {
+			t.Errorf("annotation spoofing should not fire for correctly annotated destructive tool")
+		}
+	}
+}
+
 func assertHasSignal(t *testing.T, result DescriptionScanResult, signal PoisonSignal) {
 	t.Helper()
 	for _, f := range result.Findings {
