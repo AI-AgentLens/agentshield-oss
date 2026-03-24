@@ -97,6 +97,9 @@ type MCPEvalResult struct {
 	Decision       policy.Decision
 	TriggeredRules []string
 	Reasons        []string
+	// TaxonomyRef links the result to a taxonomy entry (e.g. for Go-implemented intercepts).
+	// Empty for YAML-policy-evaluated results (taxonomy is on the rule itself).
+	TaxonomyRef string
 }
 
 // PolicyEvaluator evaluates MCP tool calls against an MCPPolicy.
@@ -641,6 +644,7 @@ func (e *PolicyEvaluator) EvaluateRootsList(roots []RootInfo) MCPEvalResult {
 				Reasons: []string{
 					fmt.Sprintf("MCP root %q is a %s — credential theft via roots privilege escalation (MITRE T1078, T1083, OWASP LLM08).", uri, desc),
 				},
+				TaxonomyRef: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation",
 			}
 		}
 
@@ -653,6 +657,7 @@ func (e *PolicyEvaluator) EvaluateRootsList(roots []RootInfo) MCPEvalResult {
 					Reasons: []string{
 						fmt.Sprintf("MCP root %q ends with credential path %q — potential credential theft via roots privilege escalation (MITRE T1078, T1083, OWASP LLM08).", uri, suffix),
 					},
+					TaxonomyRef: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation",
 				}
 			}
 		}
@@ -666,6 +671,7 @@ func (e *PolicyEvaluator) EvaluateRootsList(roots []RootInfo) MCPEvalResult {
 					Reasons: []string{
 						fmt.Sprintf("MCP root %q is inside credential directory %q — direct credential access via roots (MITRE T1078, OWASP LLM08).", uri, name),
 					},
+					TaxonomyRef: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation",
 				}
 			}
 		}
@@ -688,6 +694,7 @@ func (e *PolicyEvaluator) EvaluateRootsList(roots []RootInfo) MCPEvalResult {
 			result.Reasons = []string{
 				fmt.Sprintf("MCP root %q is a broad directory that encompasses credential paths — review whether this scope is necessary (OWASP LLM08).", uri),
 			}
+			result.TaxonomyRef = "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation"
 		}
 	}
 

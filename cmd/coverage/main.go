@@ -232,6 +232,28 @@ func parseMCPPacks(dir string) []flatRule {
 			})
 		}
 	}
+
+	// Go-implemented MCP intercepts (not in YAML packs — hardcoded in internal/mcp/policy.go).
+	goIntercepts := []flatRule{
+		{
+			ID:        "mcp-roots-block-sensitive-cred-dir",
+			Decision:  "BLOCK",
+			MatchType: "go-intercept",
+			Reason:    "Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08).",
+			Kingdom:   "unauthorized-execution",
+			Pack:      "mcp-roots-guard (Go)",
+		},
+		{
+			ID:        "mcp-roots-audit-broad-dir",
+			Decision:  "AUDIT",
+			MatchType: "go-intercept",
+			Reason:    "Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08).",
+			Kingdom:   "unauthorized-execution",
+			Pack:      "mcp-roots-guard (Go)",
+		},
+	}
+	rules = append(rules, goIntercepts...)
+
 	return rules
 }
 
