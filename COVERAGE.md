@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1008 |
+| Terminal rules | 1009 |
 | MCP rules | 371 |
-| Total rules | 1379 |
-| Test cases (TP+TN) | 3549 |
+| Total rules | 1380 |
+| Test cases (TP+TN) | 3553 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -678,7 +678,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (70 rules)
+### reconnaissance (71 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -738,6 +738,7 @@
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `recon-llm-cache-timing-probe` | AUDIT | regex | LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208). |
+| `recon-thinking-token-probe` | AUDIT | regex | LLM API call with budget_tokens co-occurring with .thinking content access — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts (OWASP LLM02, LLM06, CWE-208). |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
 | `ts-block-inotify-persistent-monitor` | BLOCK | regex | inotifywait recursive persistent monitoring on broad paths — surveils all file operations under root or home directory. Enables attack timing and data harvesting. MITRE T1083. |
 | `ts-audit-inotifywait-general` | AUDIT | regex | inotifywait filesystem event monitoring — can be used for legitimate file watching (e.g., build tools) but also for surveillance. AUDIT to log usage. MITRE T1083. |
@@ -1510,8 +1511,8 @@
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
-| reconnaissance | 170 | 76 | 246 |
+| reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 401 | 272 | 673 |
-| **Total** | **2153** | **1396** | **3549** |
+| **Total** | **2155** | **1398** | **3553** |
 
