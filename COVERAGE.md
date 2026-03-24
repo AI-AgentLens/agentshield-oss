@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1007 |
-| MCP rules | 366 |
-| Total rules | 1373 |
-| Test cases (TP+TN) | 3521 |
+| MCP rules | 371 |
+| Total rules | 1378 |
+| Test cases (TP+TN) | 3530 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -769,7 +769,7 @@
 | `sc-block-nuget-custom-source` | BLOCK | regex | nuget install/restore with a custom -Source URL bypasses the official NuGet gallery and enables dependency confusion attacks. |
 | `sc-audit-dotnet-add` | AUDIT | regex | dotnet add package flagged for supply-chain review. Verify the package source is the official NuGet gallery. |
 | `sc-block-pip-url-install` | BLOCK | regex | pip install from URL bypasses PyPI. Download and inspect first. |
-| `sc-block-npm-url-install` | BLOCK | regex | npm install from URL bypasses registry verification. |
+| `sc-block-npm-url-install` | BLOCK | regex | Package install from URL bypasses registry verification (npm/yarn/pnpm). |
 | `sc-block-npmrc-edit` | BLOCK | regex | Modification of .npmrc blocked — may redirect package resolution. |
 | `sc-block-pypirc-edit` | BLOCK | regex | Modification of .pypirc blocked — may redirect package resolution. |
 | `sc-block-pip-conf-write` | BLOCK | regex | Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829. |
@@ -1439,10 +1439,15 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (37 rules)
+### unauthorized-execution (42 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `mcp-computer-use-block-fullscreen-screenshot` | BLOCK | mcp_rule | Full-screen screenshot captures all visible content including credentials, OTP codes, and password manager displays. Use a scoped region instead. |
+| `mcp-computer-use-block-all-region-screenshot` | BLOCK | mcp_rule | Full-desktop screenshot ('all' region) captures all visible content including credentials and sensitive information. Use a scoped app or window region. |
+| `mcp-computer-use-audit-screenshot-action` | AUDIT | mcp_rule | computer_use screenshot action can capture credentials visible on screen. Verify the session has explicit scope and human approval. |
+| `mcp-computer-use-audit-auth-allow-click` | AUDIT | mcp_rule | Clicking 'Allow' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action. |
+| `mcp-computer-use-audit-auth-approve-click` | AUDIT | mcp_rule | Clicking 'Approve' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action. |
 | `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
@@ -1505,7 +1510,7 @@
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 168 | 74 | 242 |
-| supply-chain | 236 | 161 | 397 |
+| supply-chain | 243 | 163 | 406 |
 | unauthorized-execution | 401 | 272 | 673 |
-| **Total** | **2147** | **1374** | **3521** |
+| **Total** | **2154** | **1376** | **3530** |
 
