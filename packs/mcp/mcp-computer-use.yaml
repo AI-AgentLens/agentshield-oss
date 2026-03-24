@@ -1,0 +1,87 @@
+name: "MCP Computer Use Safety"
+description: "Block and audit dangerous MCP computer-use tool calls: unscoped screenshots, auth-bypass clicks, and full-desktop captures"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # === BLOCK: Full-screen screenshot (unscoped, captures everything including credentials) ===
+  - id: mcp-computer-use-block-fullscreen-screenshot
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "take_screenshot"
+        - "screenshot"
+        - "capture_screen"
+        - "get_screenshot"
+        - "desktop_screenshot"
+        - "screen_capture"
+      argument_patterns:
+        region: "full_screen"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Full-screen screenshot captures all visible content including credentials, OTP codes, and password manager displays. Use a scoped region instead."
+
+  - id: mcp-computer-use-block-all-region-screenshot
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "take_screenshot"
+        - "screenshot"
+        - "capture_screen"
+        - "get_screenshot"
+        - "desktop_screenshot"
+        - "screen_capture"
+      argument_patterns:
+        region: "all"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Full-desktop screenshot ('all' region) captures all visible content including credentials and sensitive information. Use a scoped app or window region."
+
+  # === AUDIT: computer_use screenshot action (may be unscoped) ===
+  - id: mcp-computer-use-audit-screenshot-action
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+      argument_patterns:
+        action: "screenshot"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "computer_use screenshot action can capture credentials visible on screen. Verify the session has explicit scope and human approval."
+
+  # === AUDIT: Auth-dialog clicks that bypass human approval ===
+  - id: mcp-computer-use-audit-auth-allow-click
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+        - "click"
+        - "click_element"
+        - "desktop_click"
+      argument_patterns:
+        action: "click"
+        text: "*Allow*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Clicking 'Allow' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action."
+
+  - id: mcp-computer-use-audit-auth-approve-click
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+        - "click"
+        - "click_element"
+        - "desktop_click"
+      argument_patterns:
+        action: "click"
+        text: "*Approve*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Clicking 'Approve' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action."
