@@ -3299,6 +3299,48 @@ rules:
     confidence: 0.88
     reason: "Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057."
 
+  # === AUDIT: Prompt cache timing oracle probe (LLM02, LLM06) ===
+  #
+  # An adversary measures LLM API response latency in a loop while varying
+  # input prefixes to infer whether their input matches a cached prompt from
+  # another user or session. This timing side-channel can reconstruct system
+  # prompts, cached instructions, or sensitive context from LLM providers
+  # that implement prompt caching (Anthropic, OpenAI, Google).
+  #
+  # Detection: A shell command that co-invokes BOTH a timing measurement
+  # function (time.time, perf_counter, monotonic) AND an LLM API call
+  # (anthropic/openai client, messages.create, chat.completions, etc.).
+  # The combination is the key signal — either alone is benign.
+  #
+  # Examples:
+  #   python3 -c "
+  #     import time, anthropic
+  #     for prefix in ['You are', 'System:']:
+  #       t0 = time.time(); client.messages.create(...); print(time.time()-t0)"
+  #
+  #   python3 -c "
+  #     import time, openai
+  #     for p in prefixes:
+  #       t0 = time.perf_counter()
+  #       openai.chat.completions.create(messages=[{...}])
+  #       print(time.perf_counter() - t0)"
+  #
+  # Decision: AUDIT — legitimate benchmarking and performance testing exist;
+  # BLOCK would be too aggressive. The combination of timing + LLM API call
+  # in a single command is unusual enough to warrant human review.
+  #
+  # Taxonomy: reconnaissance/llm-introspection/prompt-cache-timing-oracle
+  # OWASP LLM02 — Sensitive Information Disclosure
+  # OWASP LLM06 — Excessive Agency
+  # CWE-208 — Observable Timing Discrepancy
+  - id: "recon-llm-cache-timing-probe"
+    taxonomy: "reconnaissance/llm-introspection/prompt-cache-timing-oracle"
+    match:
+      command_regex: "(time\\.time|time\\.perf_counter|time\\.monotonic|perf_counter|time\\.clock).*(anthropic|openai|messages\\.create|chat\\.completions|completions\\.create|client\\.messages)|(anthropic|openai|messages\\.create|chat\\.completions|completions\\.create|client\\.messages).*(time\\.time|time\\.perf_counter|time\\.monotonic|perf_counter|time\\.clock)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208)."
+
   # === AUDIT: Kubernetes and Docker secret mount enumeration (LLM07) ===
   #
   # Containers running in Kubernetes have service account tokens and other
