@@ -1974,6 +1974,71 @@ var LLMCacheTimingOracleCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 8.x: Thinking Token Side-Channel / Guardrail Boundary Mapping (LLM02, LLM06)
+// Taxonomy: reconnaissance/llm-introspection/thinking-token-side-channel
+//
+// An adversary probes extended thinking models by iterating inputs and
+// inspecting thinking trace content (.thinking) while controlling the thinking
+// budget (budget_tokens) to map guardrail decision boundaries or reconstruct
+// system prompts. The combination of budget_tokens + .thinking access is the
+// detection signal.
+// ---------------------------------------------------------------------------
+
+// ThinkingTokenProbeCases tests detection of thinking token side-channel probing.
+var ThinkingTokenProbeCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be AUDITed ---
+
+	// TP-1: Loop probing thinking trace for guardrail boundary ("refuse"/"harmful")
+	{
+		ID:               "TP-RECON-THINKING-TOKEN-001",
+		Command:          `python3 -c "import anthropic; c=anthropic.Anthropic(); [print(b.thinking) for p in probes for b in c.messages.create(model='claude-opus-4-6',max_tokens=1024,thinking={'type':'enabled','budget_tokens':2048},messages=[{'role':'user','content':p}]).content if b.type=='thinking' and 'refuse' in b.thinking]"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Python one-liner iterating probes and inspecting .thinking content for 'refuse' — guardrail boundary mapping via thinking trace. recon-thinking-token-probe fires AUDIT (LLM02, LLM06, CWE-208).",
+		Tags:             []string{"tp", "reconnaissance", "llm02", "thinking-token"},
+	},
+	// TP-2: Systematic budget_tokens variation with thinking trace inspection
+	{
+		ID:               "TP-RECON-THINKING-TOKEN-002",
+		Command:          `python3 -c "import anthropic; c=anthropic.Anthropic(); [print(f'budget={b}: {c.messages.create(model=\"claude-opus-4-6\",max_tokens=512,thinking={\"type\":\"enabled\",\"budget_tokens\":b},messages=[{\"role\":\"user\",\"content\":\"test\"}]).content[0].thinking[:50]}') for b in [100,500,1000,5000,10000]]"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Systematic budget_tokens variation (100→10000) while extracting .thinking content — minimum-budget safety bypass probing. recon-thinking-token-probe fires AUDIT (LLM02, CWE-208).",
+		Tags:             []string{"tp", "reconnaissance", "llm02", "thinking-token"},
+	},
+
+	// --- TRUE NEGATIVES: Must NOT be blocked ---
+
+	// TN-1: Normal API call with thinking enabled, accessing only text output (no .thinking)
+	{
+		ID:               "TN-RECON-THINKING-TOKEN-001",
+		Command:          `python3 -c "import anthropic; resp=anthropic.Anthropic().messages.create(model='claude-opus-4-6',max_tokens=1024,thinking={'type':'enabled','budget_tokens':4096},messages=[{'role':'user','content':'Solve this problem'}]); print(resp.content[-1].text)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Normal extended thinking API call — budget_tokens present but no .thinking content access (uses .text output). recon-thinking-token-probe does NOT fire. Gets default AUDIT (python3 not pre-allowed).",
+		Tags:             []string{"tn", "safe", "thinking-token"},
+	},
+	// TN-2: budget_tokens without any .thinking access (multi-turn with thinking)
+	{
+		ID:               "TN-RECON-THINKING-TOKEN-002",
+		Command:          `python3 -c "import anthropic; c=anthropic.Anthropic(); msg=c.messages.create(model='claude-opus-4-6',max_tokens=2048,thinking={'type':'enabled','budget_tokens':8000},messages=history); result=msg.content[-1].text; print(result)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Legitimate multi-turn conversation with extended thinking — budget_tokens used but result accessed via .text not .thinking. recon-thinking-token-probe does NOT fire. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "thinking-token"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
@@ -1981,6 +2046,7 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, HostDiscoveryCases...)
 	all = append(all, LLMIntrospectionCases...)
 	all = append(all, LLMCacheTimingOracleCases...)
+	all = append(all, ThinkingTokenProbeCases...)
 	all = append(all, DNSEnumerationCases...)
 	all = append(all, WebAppReconCases...)
 	all = append(all, PingSweepLoopCases...)
