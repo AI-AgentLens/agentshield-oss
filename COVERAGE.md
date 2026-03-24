@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1007 |
-| MCP rules | 356 |
-| Total rules | 1363 |
+| MCP rules | 364 |
+| Total rules | 1371 |
 | Test cases (TP+TN) | 3521 |
 | Kingdoms covered | 10 |
 
@@ -1270,7 +1270,7 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### data-exfiltration (28 rules)
+### data-exfiltration (33 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1282,7 +1282,12 @@
 | `mcp-llmdf-audit-openai-config-write` | AUDIT | mcp_rule | Writing to an OpenAI config file (.openai*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required. |
 | `mcp-llmdf-audit-anthropic-config-write` | AUDIT | mcp_rule | Writing to an Anthropic config file (.anthropic*) may reroute AI API calls to an unauthorized endpoint — LLM06 (Excessive Agency). Human review required. |
 | `mcp-llmdf-audit-ai-config-write` | AUDIT | mcp_rule | Writing to an AI config file (ai_config*) may alter model selection or endpoint routing without authorization — LLM06 (Excessive Agency). |
-| `mcp-llmdf-audit-agent-session-db-read` | AUDIT | mcp_rule | Reading an AI agent session or conversation database via MCP — these files may contain credentials, API keys, and PII from prior sessions, creating a cross-session context leakage vector. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-cursor` | AUDIT | mcp_rule | Reading Cursor AI agent session data via MCP — may contain credentials, API keys, and PII from prior sessions. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-windsurf` | AUDIT | mcp_rule | Reading Windsurf AI agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-claude` | AUDIT | mcp_rule | Reading Claude Code agent session data via MCP — may contain credentials and conversation history from prior sessions. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-continue` | AUDIT | mcp_rule | Reading Continue AI agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-copilot` | AUDIT | mcp_rule | Reading GitHub Copilot agent session data via MCP — may contain credentials and conversation history. OWASP LLM02/LLM07. |
+| `mcp-llmdf-audit-agent-session-db-read-codeium` | AUDIT | mcp_rule | Reading Codeium agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07. |
 | `mcp-llmdf-audit-agent-memory-bulk-read` | AUDIT | mcp_rule | Accessing Claude Code memory files via MCP — these files persist sensitive context (credentials, architectural decisions, API keys) across agent sessions and may expose prior session data to unauthorized readers. OWASP LLM02. |
 | `mcp-llmdf-audit-cross-tenant-tmp-workspace` | AUDIT | mcp_rule | Accessing /tmp/mcp-workspace* via MCP — shared MCP workspace directories without tenant-scoped paths expose other tenants' tool call artifacts. Cross-tenant data leakage in shared agent infrastructure. OWASP LLM02/LLM06. |
 | `mcp-llmdf-audit-cross-tenant-shared-cache` | AUDIT | mcp_rule | Accessing /tmp/agent-cache* via MCP — shared agent cache directories in multi-tenant deployments may expose tool call results, session state, or intermediate data from other tenants. OWASP LLM02/LLM06. |
@@ -1399,7 +1404,7 @@
 |---------|----------|------------|-------------|
 | `mcp-recon-audit-etc-listing` | AUDIT | mcp_rule | Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083. |
 | `mcp-recon-audit-proc-read` | AUDIT | mcp_rule | Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057. |
-| `mcp-recon-audit-home-listing` | AUDIT | mcp_rule | Listing /home directory contents flagged — enumerates local user accounts and their project layouts. MITRE T1083. |
+| `mcp-recon-audit-home-listing` | AUDIT | mcp_rule | Listing /home root-level user directory flagged — enumerates local user accounts. Deep project paths under /home are excluded to avoid noise on legitimate project work. MITRE T1083. |
 | `mcp-recon-audit-os-release-read` | AUDIT | mcp_rule | Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082. |
 | `mcp-recon-audit-passwd-read` | AUDIT | mcp_rule | Reading /etc/passwd enumerates local user accounts — used to identify privilege escalation targets. MITRE T1087. |
 | `mcp-recon-audit-hosts-read` | AUDIT | mcp_rule | Reading /etc/hosts maps internal hostnames to IPs — used for lateral movement target identification. MITRE T1016. |
@@ -1407,8 +1412,8 @@
 | `mcp-recon-block-actuator-credentials` | BLOCK | structural | Spring Boot Actuator credential-exposing endpoint blocked — /actuator/heapdump and /actuator/env directly leak secrets, passwords, and API keys. LLM02, CWE-200, MITRE T1082. |
 | `mcp-recon-block-k8s-secrets` | BLOCK | structural | Kubernetes secrets API access blocked — exposes cluster secrets, service account tokens, and RBAC configuration. LLM02, CWE-284, MITRE T1213. |
 | `mcp-recon-audit-spring-actuator` | AUDIT | structural | Spring Boot Actuator endpoint access flagged — exposes application metrics, env vars, heap dumps, and config. LLM02, MITRE T1082. |
-| `mcp-recon-audit-admin-paths` | AUDIT | structural | Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082. |
-| `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213. |
+| `mcp-recon-audit-admin-paths` | AUDIT | structural | Generic management or admin path access flagged — control plane endpoints may expose sensitive config, operational data, or debug interfaces. Note: /dashboard excluded due to high FP rate in web applications. LLM02, MITRE T1082. |
+| `mcp-recon-audit-db-schema-enum` | AUDIT | structural | Database schema enumeration query detected — maps table structure before targeted data extraction. Scoped to exploratory tool names to reduce ORM migration FP rate. LLM06, MITRE T1213. |
 | `mcp-struct-audit-llm-boundary-probe-content` | AUDIT | structural | Tool call content probes LLM capability boundaries or model identity — may be reconnaissance to infer system prompt structure or restrictions before crafting targeted jailbreaks. OWASP LLM07, MITRE T1592. |
 | `mcp-struct-audit-llm-boundary-probe-message` | AUDIT | structural | Tool call message field probes LLM capability boundaries or model identity — reconnaissance to infer system prompt structure. OWASP LLM07, MITRE T1592. |
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
@@ -1432,7 +1437,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (34 rules)
+### unauthorized-execution (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1445,11 +1450,12 @@
 | `mcp-content-audit-rag-faiss-write` | AUDIT | mcp_rule | MCP write to FAISS index file (*.faiss). FAISS binary index files store embedding vectors used for nearest-neighbor retrieval — direct overwrites can inject adversarial embeddings that map to attacker-controlled documents, poisoning RAG retrieval results (OWASP LLM08, LLM01, MITRE T1565). |
 | `mcp-content-audit-rag-lance-write` | AUDIT | mcp_rule | MCP write to LanceDB Lance-format file (*.lance). Lance columnar storage files back LanceDB vector stores — direct writes can corrupt the embedding index or inject poisoned document vectors into the RAG retrieval pipeline (OWASP LLM08, LLM01, MITRE T1565). |
 | `mcp-struct-block-shell-meta-in-path` | BLOCK | structural | Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling) |
+| `mcp-struct-audit-shell-var-in-path` | AUDIT | structural | Variable expansion syntax in MCP path argument — ${VAR} is common in Docker/CI configs but may also indicate path injection. AUDIT for review (OWASP LLM02). |
 | `mcp-struct-block-shell-inject-in-command` | BLOCK | structural | Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02) |
 | `mcp-struct-block-dangerous-protocol-in-url` | BLOCK | structural | Dangerous protocol handler in MCP URL argument — file:// enables local file access; gopher:// and dict:// are classic SSRF pivots (OWASP LLM02) |
 | `mcp-struct-block-yaml-deser-inject` | BLOCK | structural | YAML deserialization gadget chain detected in MCP write content — !!python/object, !!java.lang., !!ruby/object and similar YAML type tags execute arbitrary code when loaded by an unsafe YAML deserializer. LLM-generated content containing these patterns indicates injection via untrusted input. OWASP LLM02, LLM01. |
 | `mcp-struct-block-yaml-deser-inject-newcontent` | BLOCK | structural | YAML deserialization gadget chain detected in MCP write new_content — !!python/object, !!java.lang., and !!ruby/object tags execute code when loaded by an unsafe deserializer. Indicates injection via untrusted input into LLM output. OWASP LLM02, LLM01. |
-| `mcp-struct-block-json-proto-pollute` | BLOCK | structural | JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models when deserialized, enabling privilege escalation or RCE. OWASP LLM02 (Insecure Output Handling), LLM01. |
+| `mcp-struct-block-json-proto-pollute` | AUDIT | structural | JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models. Demoted from BLOCK to AUDIT to allow security test fixtures and sanitization tests that legitimately contain these patterns. OWASP LLM02, LLM01. |
 | `mcp-struct-audit-llm-sql-inject` | AUDIT | structural | SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection). |
 | `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
@@ -1458,9 +1464,11 @@
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
 | `mcp-response-integrity-audit-rag-retrieval` | AUDIT | mcp_rule | RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning) |
-| `mcp-response-integrity-audit-url-arg` | AUDIT | mcp_rule | Tool call passes an HTTP URL argument — external content will be returned as tool response, audit for injection risk (LLM01) |
+| `mcp-response-integrity-audit-url-arg` | AUDIT | mcp_rule | Content-fetch tool call with HTTP URL — external content returned directly into agent context creates response poisoning risk (LLM01) |
 | `mcp-response-integrity-block-exfil-url` | BLOCK | mcp_rule | Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06) |
 | `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
+| `mcp-sec-audit-tool-description-changed` | AUDIT | mcp_rule | MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195. |
+| `mcp-guardian-annotation-spoofing` | AUDIT | mcp_rule | MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09. |
 | `mcp-safety-block-tool-name-injection` | BLOCK | mcp_rule | Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning) |
 | `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
 | `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
@@ -1480,7 +1488,7 @@
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
 | `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
-| `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord, Slack, Teams, Telegram, and Pipedream webhooks are primary exfiltration channels for AI agents. MITRE T1567.002. |
+| `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, and Pipedream are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 
