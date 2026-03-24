@@ -143,9 +143,9 @@ rules:
   - id: "sc-block-npmrc-edit"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
-      command_regex: "^(sudo\\s+)?(echo|sed|tee)\\s+.*\\.npmrc"
+      command_regex: "^(sudo\\s+)?((echo|tee)\\s+.*\\.npmrc|sed\\s+(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\b.*\\.npmrc)"
     decision: "BLOCK"
-    reason: "Modification of .npmrc blocked — may redirect package resolution."
+    reason: "Write operation to .npmrc blocked — may redirect package resolution. sed requires -i/--in-place flag (read-only sed is allowed)."
 
   - id: "sc-block-pypirc-edit"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
@@ -168,10 +168,10 @@ rules:
   - id: "sc-block-pip-conf-write"
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
-      command_regex: "(echo|printf|tee|sed|awk)\\b.*(pip\\.conf|pip\\.ini)"
+      command_regex: "(echo|printf|tee)\\b.*(pip\\.conf|pip\\.ini)|sed\\s+(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\b.*(pip\\.conf|pip\\.ini)"
     decision: "BLOCK"
     confidence: 0.93
-    reason: "Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829."
+    reason: "Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829. sed requires -i/--in-place (read-only sed is allowed)."
 
   # === BLOCK: npm config set registry to non-standard URL (issue #574) ===
   #
@@ -580,10 +580,10 @@ rules:
   - id: "sc-block-ml-checkpoint-replace"
     taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
     match:
-      command_regex: "(cp|mv|wget|curl)\\s+.+\\s+(checkpoints?|models?)/.*\\.(pt|pth|pkl|bin|safetensors|gguf|ckpt)(\\s|$)"
+      command_regex: "(wget|curl)\\s+.+\\s+(checkpoints?|models?)/.*\\.(pt|pth|pkl|bin|safetensors|gguf|ckpt)(\\s|$)"
     decision: "BLOCK"
     confidence: 0.88
-    reason: "Writing to ML model checkpoint file blocked. PyTorch .pt/.pkl files can contain pickle exploits. Risk of checkpoint substitution attack (LLM04)."
+    reason: "Downloading a remote file into an ML model checkpoint directory blocked — remote-sourced .pt/.pkl files can contain pickle exploits enabling RCE on model load (LLM04, AML.T0010). Local cp/mv operations are covered by sc-audit-ml-checkpoint-write at AUDIT level."
 
   - id: "sc-audit-ml-checkpoint-write"
     taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
@@ -1231,9 +1231,10 @@ rules:
     taxonomy: "supply-chain/config-tampering/model-endpoint-hijacking"
     match:
       command_regex: "(export|set)\\s+(OPENAI_BASE_URL|OPENAI_API_BASE|ANTHROPIC_BASE_URL|OLLAMA_HOST|LITELLM_PROXY_BASE_URL|AZURE_OPENAI_ENDPOINT)\\s*="
+      command_regex_exclude: "(localhost|127\\.0\\.0\\.1|::1|0\\.0\\.0\\.0)(:[0-9]+)?"
     decision: "BLOCK"
     confidence: 0.92
-    reason: "Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090)."
+    reason: "Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090). Localhost targets are excluded (standard Ollama/local-proxy setup)."
 
   # === BLOCK: Writing AI API endpoint overrides to .env files (LLM08) ===
   #
