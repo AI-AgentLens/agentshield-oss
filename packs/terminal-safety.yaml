@@ -3341,6 +3341,46 @@ rules:
     confidence: 0.75
     reason: "LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208)."
 
+  # === AUDIT: Thinking token side-channel / guardrail boundary mapping (LLM02, LLM06) ===
+  #
+  # Adversaries probe extended thinking models (Claude 3.7+/4, o1/o3, Gemini
+  # Thinking) by iterating inputs and inspecting the thinking trace content to:
+  #   - Map guardrail decision boundaries ("refuse"/"harmful" in thinking traces)
+  #   - Reconstruct system prompts quoted in reasoning traces
+  #   - Find minimum budget_tokens settings that cause safety checks to be skipped
+  #
+  # Detection: A shell command that co-invokes BOTH the extended thinking API
+  # parameter (budget_tokens) AND accesses thinking trace content (.thinking).
+  # The combination is the key signal — either alone is benign.
+  #
+  # Examples:
+  #   python3 -c "
+  #     for probe in probes:
+  #       resp = client.messages.create(thinking={'type':'enabled','budget_tokens':1024},...)
+  #       thinking = resp.content[0].thinking
+  #       if 'refuse' in thinking: print('boundary found')"
+  #
+  #   python3 -c "
+  #     for budget in [100, 500, 1000, 5000]:
+  #       resp = client.messages.create(thinking={'type':'enabled','budget_tokens':budget},...)
+  #       print(resp.content[0].thinking[:100])"
+  #
+  # Decision: AUDIT — legitimate debugging and testing can look similar;
+  # BLOCK would be too aggressive. The combination of budget_tokens + thinking
+  # content access in a single command is a meaningful signal at 0.75 confidence.
+  #
+  # Taxonomy: reconnaissance/llm-introspection/thinking-token-side-channel
+  # OWASP LLM02 — Sensitive Information Disclosure
+  # OWASP LLM06 — Excessive Agency
+  # CWE-208 — Observable Timing Discrepancy
+  - id: "recon-thinking-token-probe"
+    taxonomy: "reconnaissance/llm-introspection/thinking-token-side-channel"
+    match:
+      command_regex: "budget_tokens.*\\.thinking|\\.thinking.*budget_tokens"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "LLM API call with budget_tokens co-occurring with .thinking content access — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts (OWASP LLM02, LLM06, CWE-208)."
+
   # === AUDIT: Kubernetes and Docker secret mount enumeration (LLM07) ===
   #
   # Containers running in Kubernetes have service account tokens and other
