@@ -3476,4 +3476,85 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-api-call",
 		Description:      "Fetching npm registry metadata — legitimate dev workflow, must AUDIT not BLOCK (issue #273)",
 	},
+
+	// TP/TN: MCP secrets glob pattern FP fixes (issue #279)
+	// age-key: plain (no dot prefix) filename
+	{
+		ID:               "MCP-TP-545",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/age-key.txt"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cryptographic-key-access",
+		Description:      "age private key file (no dot prefix) — must be blocked (mcp-sec-block-age-key-txt-plain)",
+	},
+	// age-key: FP — doc file containing 'age' and 'key' in name, not an age private key
+	{
+		ID:               "MCP-TN-545",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/usage-key-management.txt"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-path",
+		Description:      "Doc file with 'age' and 'key' in name — not an age private key, must not be blocked (issue #279 FP fix)",
+	},
+	{
+		ID:               "MCP-TN-546",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/packages/storage-key-formats.txt"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-path",
+		Description:      "Package doc file with 'key' in name containing 'age' — not an age private key, must not be blocked (issue #279 FP fix)",
+	},
+	// Chromium: macOS Application Support path
+	{
+		ID:               "MCP-TP-546",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/Users/user/Library/Application Support/Chromium/Default/Login Data"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "browser-credential-theft",
+		Description:      "Chromium credential DB macOS path — must be blocked (mcp-sec-block-chromium-credential-db-mac)",
+	},
+	// Chromium: FP — Chromium source code checkout, not a browser profile
+	{
+		ID:               "MCP-TN-547",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/dev/chromium/src/chrome/browser/ui.h"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-path",
+		Description:      "Chromium source checkout file — not a browser credential DB, must not be blocked (issue #279 FP fix)",
+	},
+	// Sequel Pro: FP — project directory named 'Sequel Pro', not Application Support
+	{
+		ID:               "MCP-TN-548",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/my-app/Sequel Pro/migrations/001.sql"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-path",
+		Description:      "Project directory named 'Sequel Pro' — not a credential store, must not be blocked (issue #279 FP fix)",
+	},
+	// DataGrip: JetBrains config layout (newer versions)
+	{
+		ID:               "MCP-TP-547",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/JetBrains/DataGrip2024.3/dataSources.local.xml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "database-gui-credentials",
+		Description:      "DataGrip JetBrains config path (newer layout) — must be blocked (mcp-sec-block-datagrip-jetbrains)",
+	},
+	// DataGrip: FP — project directory named 'DataGrip', not JetBrains config
+	{
+		ID:               "MCP-TN-549",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/DataGrip/plugin.xml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-path",
+		Description:      "Project directory named 'DataGrip' — not a JetBrains config store, must not be blocked (issue #279 FP fix)",
+	},
 }
