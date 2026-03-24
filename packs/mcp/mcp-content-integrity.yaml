@@ -403,3 +403,80 @@ structural_rules:
     decision: "AUDIT"
     reason: "SQL injection pattern detected in MCP database tool query argument — OR 1=1, UNION SELECT, DROP TABLE, or DELETE injection payloads from LLM-generated SQL indicate insecure output handling. OWASP LLM02, LLM01 (Prompt Injection)."
     confidence: 0.88
+
+  # ============================================================
+  # MCP Streamable HTTP Session Fixation (issue #335)
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation
+  #
+  # The MCP Streamable HTTP transport (spec 2025-03-26) uses Mcp-Session-Id headers
+  # for session lifecycle management. An attacker can:
+  # 1. Supply a known/predictable session ID at initialization (session fixation)
+  # 2. Guess sequential or timestamp-based session IDs to hijack active sessions
+  # 3. Inject Mcp-Session-Id headers into tool call content to override session context
+  #
+  # Runtime-detectable signals via MCP tool calls:
+  # - Content arguments embedding explicit Mcp-Session-Id header injection patterns
+  # - Reads/writes to MCP session store files (session persistence/enumeration)
+  #
+  # Note: HTTP header-level session ID entropy validation is enforced separately
+  # in the HTTP proxy (internal/mcp/http_proxy.go).
+  #
+  # OWASP LLM: LLM06 (Excessive Agency), LLM09 (Misinformation / Unauthorized Access)
+  # CWE-384 (Session Fixation), CWE-330 (Use of Insufficiently Random Values)
+  # CWE-613 (Insufficient Session Expiration)
+  # MITRE: T1550 (Use Alternate Authentication Material), T1539 (Steal Web Session Cookie)
+  # ============================================================
+
+  # BLOCK: Mcp-Session-Id header injection in tool call content
+  # Detects when a tool call content argument embeds explicit Mcp-Session-Id header
+  # override patterns — a session fixation attempt via injected HTTP header directives.
+  - id: mcp-block-session-fixation-header-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        content:
+          pattern_any:
+            - "(?i)Mcp-Session-Id\\s*:"
+            - "(?i)mcp[_-]session[_-]id\\s*[:=]\\s*[a-zA-Z0-9_\\-]{8,}"
+            - "(?i)X-MCP-Session\\s*:"
+            - "(?i)\"sessionId\"\\s*:\\s*\"[a-zA-Z0-9_\\-]{16,}\""
+    decision: "BLOCK"
+    reason: "Mcp-Session-Id header injection pattern detected in tool call content — session fixation attack embedding explicit session ID directives to override the server-assigned session context. OWASP LLM06 (Excessive Agency), CWE-384 (Session Fixation)."
+    confidence: 0.88
+
+  # AUDIT: MCP session store file writes (session persistence / fixation)
+  # Writing to MCP session store files can persist forged session IDs or
+  # enumerate existing sessions for replay attacks.
+  - id: mcp-audit-session-store-write
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)\\.mcp/sessions/"
+            - "(?i)mcp[_-]sessions?\\.(?:json|db|sqlite)"
+            - "(?i)mcp[_-]session[_-]store"
+            - "(?i)/\\.mcp/session\\.json"
+    decision: "AUDIT"
+    reason: "Write to MCP session store file — may persist forged session IDs or overwrite active session state, enabling session fixation or replay attacks. OWASP LLM06, CWE-384."
+    confidence: 0.82
+
+  # AUDIT: MCP session store file reads (session enumeration)
+  # Reading session store files exposes active session IDs that can be
+  # replayed to hijack legitimate agent sessions.
+  - id: mcp-audit-session-store-read
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)\\.mcp/sessions/"
+            - "(?i)mcp[_-]sessions?\\.(?:json|db|sqlite)"
+            - "(?i)mcp[_-]session[_-]store"
+            - "(?i)/\\.mcp/session\\.json"
+    decision: "AUDIT"
+    reason: "Read of MCP session store file — exposes active session IDs that may be used for session enumeration, fixation, or replay attacks. OWASP LLM06, CWE-384, CWE-613."
+    confidence: 0.80
