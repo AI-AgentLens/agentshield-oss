@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-23 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-24 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1003 |
-| MCP rules | 353 |
-| Total rules | 1356 |
-| Test cases (TP+TN) | 3512 |
+| MCP rules | 356 |
+| Total rules | 1359 |
+| Test cases (TP+TN) | 3513 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -756,9 +756,9 @@
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
-| `sc-block-npm-registry-override` | BLOCK | regex | npm install with non-standard registry override blocked. May be dependency confusion attack. |
-| `sc-block-pip-extra-index` | BLOCK | structural | pip install with --extra-index-url blocked. Risk of dependency confusion. |
-| `sc-block-pip-index-url` | BLOCK | structural | pip install with --index-url replaces the primary PyPI index entirely, routing all package downloads to an attacker-controlled server. More severe than --extra-index-url. |
+| `sc-block-npm-registry-override` | AUDIT | regex | npm install with non-standard registry override. May be dependency confusion attack, or a legitimate private registry (Artifactory, Nexus, Verdaccio). Review the registry URL. |
+| `sc-block-pip-extra-index` | AUDIT | structural | pip install with --extra-index-url adds an additional package index. Risk of dependency confusion, but also common for private enterprise mirrors. Review the index URL. |
+| `sc-block-pip-index-url` | AUDIT | structural | pip install with --index-url replaces the primary PyPI index. Required in enterprise environments with private mirrors (Artifactory, Nexus, CodeArtifact). Review the index URL for legitimacy. |
 | `sc-block-git-url-rewrite` | BLOCK | regex | git config url.*.insteadOf silently rewrites all subsequent git fetch/clone URLs in the session. Used in supply chain attacks to redirect trusted repositories to attacker-controlled sources. |
 | `sc-audit-conda-channel` | AUDIT | regex | conda/mamba install from a URL-based channel bypasses verified conda-forge/defaults channels. Review before allowing. |
 | `sc-block-pip-trusted-host` | BLOCK | structural | pip install with --trusted-host bypasses TLS verification. |
@@ -777,7 +777,7 @@
 | `sc-block-gem-sources-add` | BLOCK | regex | gem sources --add — adds a custom gem source globally, enabling dependency shadowing where a malicious higher-versioned gem can be installed instead of the legitimate package. MITRE T1195.001. |
 | `sc-block-gemrc-write` | BLOCK | regex | Write to ~/.gemrc — persistently overrides gem sources, enabling dependency confusion attacks on all subsequent gem installs. MITRE T1195.001. |
 | `sc-block-cargo-config-write` | BLOCK | regex | Write to Cargo config.toml — the [source.crates-io] replace-with field redirects all cargo downloads to a custom registry, enabling persistent dependency confusion. MITRE T1195.001. |
-| `sc-block-go-mod-replace` | BLOCK | regex | go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings. |
+| `sc-block-go-mod-replace` | BLOCK | regex | go mod edit -replace redirects a Go module to an attacker-controlled remote repository, silently substituting a trusted dependency. Local path replacements (./... ../... /) are excluded — these are legitimate in Go monorepo and local fork workflows. |
 | `sc-block-go-env-proxy-custom` | BLOCK | regex | go env -w GOPROXY= with a non-official proxy redirects all Go module downloads to an attacker-controlled server. Only proxy.golang.org and goproxy.io are sanctioned public proxies. |
 | `sc-block-go-env-nosum` | BLOCK | regex | go env -w GONOSUMCHECK/GONOSUMDB= disables the Go checksum database, allowing tampered modules to pass integrity checks undetected. |
 | `sc-block-go-nosum-env-export` | BLOCK | regex | Exporting GONOSUMCHECK or GONOSUMDB disables Go module checksum verification, enabling dependency substitution attacks. |
@@ -874,7 +874,7 @@
 | `sc-audit-langchain-cache-write` | AUDIT | regex | Shell redirect writing to an LLM semantic cache directory (~/.cache/gptcache/, gptcache/, langchain_cache/) — overwriting cached response blobs or indexes poisons future semantically-similar queries. OWASP LLM04. |
 | `sc-audit-redis-llm-cache-poison` | AUDIT | regex | redis-cli writing to an LLM semantic cache key namespace (langchain:*, gptcache:*, llm-cache:*) — injecting attacker-controlled responses into the Redis cache poisons future LLM queries at the infrastructure layer. OWASP LLM04, LLM03. |
 | `sc-audit-vector-db-batch-inject` | AUDIT | regex | curl batch-insert POST to a vector database REST endpoint (/batch/objects, /points/batch, /entities/insert) — bulk injection of adversarial embeddings poisons the RAG knowledge base at scale. OWASP LLM04/LLM08, MITRE AML.T0010. |
-| `ts-struct-block-npm-registry` | BLOCK | structural | Structural: package install with custom registry override is a supply chain risk. |
+| `ts-struct-block-npm-registry` | AUDIT | structural | Structural: package install with custom registry override. May be enterprise private registry (Artifactory, Nexus, Verdaccio) or supply chain attack. Review the registry URL. |
 | `sc-block-ollama-uncensored-model` | BLOCK | regex | Pulling a known uncensored or safety-stripped model variant via Ollama deliberately bypasses AI safety alignment. Uncensored models remove RLHF/Constitutional AI guardrails and represent a supply-chain poisoning risk (OWASP LLM04, LLM03). These models are not approved under organizational AI governance policy (NIST AI RMF GOVERN-1, EU AI Act Art.9). |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
 | `ts-block-compiler-plugin-inject` | BLOCK | regex | Compiler/linker flag injection via build variables — -fplugin loads arbitrary shared objects during compilation, --wrap redirects function calls. MITRE T1195.002. |
@@ -1069,7 +1069,7 @@
 
 ## MCP Rules
 
-### credential-exposure (189 rules)
+### credential-exposure (192 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1117,8 +1117,9 @@
 | `mcp-sec-block-pgpass` | BLOCK | mcp_rule | Access to ~/.pgpass is blocked — contains PostgreSQL passwords in plaintext (host:port:db:user:password format). MITRE T1552.001. |
 | `mcp-sec-block-tableplus-connections` | BLOCK | mcp_rule | Access to TablePlus config is blocked — connection profiles contain database hosts, usernames, and credentials (plaintext or locally-encrypted). MITRE T1552.001. |
 | `mcp-sec-block-dbeaver-datasources` | BLOCK | mcp_rule | Access to DBeaver config is blocked — data-sources.json and credentials files contain database connection profiles with usernames and encrypted passwords. MITRE T1552.001. |
-| `mcp-sec-block-sequel-pro-connections` | BLOCK | mcp_rule | Access to Sequel Pro/Ace connection favorites is blocked — plist files store MySQL/PostgreSQL connection details including credentials. MITRE T1552.001. |
+| `mcp-sec-block-sequel-pro-connections` | BLOCK | mcp_rule | Access to Sequel Pro connection favorites is blocked — plist files store MySQL/PostgreSQL connection details including credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-datasources` | BLOCK | mcp_rule | Access to DataGrip config is blocked — dataSources.local.xml stores database connection credentials. MITRE T1552.001. |
+| `mcp-sec-block-datagrip-jetbrains` | BLOCK | mcp_rule | Access to DataGrip config via JetBrains directory is blocked — dataSources.local.xml stores database connection credentials (newer JetBrains config layout). MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
 | `mcp-sec-block-psql-history` | BLOCK | mcp_rule | Access to ~/.psql_history is blocked — PostgreSQL shell history can contain ALTER ROLE ... PASSWORD and \password command output with plaintext credentials. MITRE T1552.001. |
@@ -1166,7 +1167,8 @@
 | `mcp-sec-block-age-identity-access` | BLOCK | mcp_rule | Access to age encryption identity directory is blocked — age identity files are used to decrypt sensitive data stores (sops, chezmoi). |
 | `mcp-sec-block-sops-age-key-access` | BLOCK | mcp_rule | Access to age default key directory is blocked — ~/.age/ contains the age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-sops-age-config-key-access` | BLOCK | mcp_rule | Access to SOPS age key directory is blocked — ~/.config/sops/age/keys.txt is the age private key used by SOPS to decrypt secrets.enc.yaml files in git repositories. MITRE T1552. |
-| `mcp-sec-block-age-key-txt-access` | BLOCK | mcp_rule | Access to age private key files is blocked — age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
+| `mcp-sec-block-age-key-txt-access` | BLOCK | mcp_rule | Access to age private key files is blocked — .age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
+| `mcp-sec-block-age-key-txt-plain` | BLOCK | mcp_rule | Access to age private key files is blocked — age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
@@ -1221,7 +1223,8 @@
 | `mcp-sec-block-discord-creds` | BLOCK | mcp_rule | Access to ~/.config/discord/ is blocked — contains Discord client tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
-| `mcp-sec-block-chromium-credential-db` | BLOCK | mcp_rule | Access to Chromium browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-chromium-credential-db` | BLOCK | mcp_rule | Access to Chromium browser profile directory (Linux) is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-chromium-credential-db-mac` | BLOCK | mcp_rule | Access to Chromium browser profile directory (macOS) is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-brave-credential-db` | BLOCK | mcp_rule | Access to Brave browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-edge-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory is blocked — contains encrypted password database and the key database required to decrypt them. MITRE T1555.003. |
@@ -1413,8 +1416,8 @@
 |---------|----------|------------|-------------|
 | `mcp-gen-sc-audit-gem-volatile-install-dir` | AUDIT | mcp_rule | [MCP] gem install --install-dir/--bindir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs gems outside system gem isolation — no disk trace after reboot (/dev/shm). MITRE T1195.001, CWE-829. |
 | `mcp-sc-block-lockfile-write` | BLOCK | structural | MCP write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001. |
-| `mcp-sc-block-cicd-config-write` | BLOCK | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Requires human review. MITRE T1195.002. |
-| `mcp-sc-block-dockerfile-write` | BLOCK | structural | MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002. |
+| `mcp-sc-block-cicd-config-write` | AUDIT | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Downgraded to AUDIT because agents routinely create/edit CI configs (GitHub Actions, CircleCI) as a core workflow. MITRE T1195.002. |
+| `mcp-sc-block-dockerfile-write` | AUDIT | structural | MCP write to Dockerfile or docker-compose config — injecting malicious instructions could backdoor containers. Downgraded to AUDIT because editing Dockerfiles is one of the most common agent tasks. Human reviews the diff at commit time. MITRE T1612, T1195.002. |
 | `mcp-sc-block-pkgmgr-config-write` | BLOCK | structural | MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001. |
 | `mcp-sc-block-training-data-write` | BLOCK | structural | MCP write to ML training dataset — injecting poisoned examples corrupts fine-tuned model behavior. MITRE AML.T0010, OWASP LLM04. |
 | `mcp-sc-block-model-checkpoint-write` | BLOCK | structural | MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001. |
@@ -1488,7 +1491,7 @@
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 168 | 74 | 242 |
-| supply-chain | 237 | 159 | 396 |
+| supply-chain | 236 | 161 | 397 |
 | unauthorized-execution | 396 | 269 | 665 |
-| **Total** | **2143** | **1369** | **3512** |
+| **Total** | **2142** | **1371** | **3513** |
 
