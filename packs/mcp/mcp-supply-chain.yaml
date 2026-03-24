@@ -287,9 +287,9 @@ structural_rules:
           pattern_any:
             - "(?:^|/)(?:train|dataset|finetune)/.*\\.(?:jsonl|csv|parquet|tsv)$"
             - "(?:^|/)training[_-]data\\.(?:jsonl|csv|parquet|tsv)$"
-    decision: "BLOCK"
-    reason: "MCP write to ML training dataset — injecting poisoned examples corrupts fine-tuned model behavior. MITRE AML.T0010, OWASP LLM04."
-    confidence: 0.92
+    decision: "AUDIT"
+    reason: "MCP write to ML training dataset — injecting poisoned examples can corrupt fine-tuned model behavior. Downgraded to AUDIT: ML developers legitimately create and edit training data files as part of normal workflows. Human review ensures no poisoned examples are introduced. MITRE AML.T0010, OWASP LLM04."
+    confidence: 0.80
 
   - id: mcp-sc-block-model-checkpoint-write
     taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"

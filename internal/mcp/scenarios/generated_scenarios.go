@@ -130,13 +130,13 @@ var GeneratedTPScenarios = []Scenario{
 		Description:      "[Generated] MCP access to **/.m2/settings.xml",
 	},
 	{
-		ID:               "MCP-TP-187",
+		ID:               "MCP-TP-555",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/var/tmp"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "config-write",
-		Description:      "[Generated] MCP access to /var/tmp",
+		Description:      "[Generated] MCP write to /var/tmp — volatile world-writable gem install path (audited by mcp-generated rule, not BLOCK; FP fix for broad /var/** BLOCK)",
 	},
 	{
 		ID:               "MCP-TP-188",

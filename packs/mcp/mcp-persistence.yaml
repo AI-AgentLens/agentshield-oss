@@ -114,7 +114,7 @@ structural_rules:
   # the main config.fish. This makes it a stealthy persistence location.
   #
   # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
-  - id: mcp-persist-block-fish-profile-write
+  - id: mcp-persist-block-fish-config-write
     taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
     match:
       tool_name_any:
@@ -131,10 +131,33 @@ structural_rules:
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.config/fish/"
+            - "(?:^|/)\\.config/fish/config\\.fish$"
+            - "(?:^|/)\\.config/fish/conf\\.d/"
     decision: "BLOCK"
-    reason: "MCP write to fish shell config directory (~/.config/fish/) — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. Covers config.fish, conf.d/ drop-ins, and autoloaded functions/. MITRE T1546.004."
+    reason: "MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
+
+  - id: mcp-persist-audit-fish-functions-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.config/fish/functions/"
+    decision: "AUDIT"
+    reason: "MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004."
+    confidence: 0.75
 
   # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
   #
@@ -154,7 +177,10 @@ structural_rules:
         - "write_to_file"
         - "save_file"
         - "update_file"
+        - "append_file"
         - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
       args_match:
         path:
           pattern_any:
@@ -206,9 +232,9 @@ structural_rules:
         path:
           pattern_any:
             - "(?:^|/)\\.git/hooks/"
-    decision: "BLOCK"
-    reason: "MCP write to .git/hooks/ installs a persistent git hook that executes on every matching git operation (commit, push, checkout, etc.) without any shell-level interception. MITRE T1546."
-    confidence: 0.97
+    decision: "AUDIT"
+    reason: "MCP write to .git/hooks/ — installs a git hook that executes on every matching git operation. Downgraded to AUDIT: pre-commit/husky installs are common legitimate developer tooling. Human review required to confirm intent. MITRE T1546."
+    confidence: 0.85
 
   # === BLOCK: Linux user-level systemd service and autostart persistence ===
   #
