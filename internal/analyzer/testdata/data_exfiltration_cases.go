@@ -1242,6 +1242,28 @@ var EncodedExfilCases = []TestCase{
 		Description:      "od octal dump of a core file — no credential path pattern, falls through to AUDIT default. Must not be blocked.",
 		Tags:             []string{"tn", "safe"},
 	},
+	// TN: base64 -d (decode) — legitimate decode of a kubeconfig backup (FP fix #280)
+	{
+		ID:               "TN-SEC-BASE64-DECODE-001",
+		Command:          `base64 -d ~/.kube/config.b64 > /tmp/kubeconfig.yaml`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
+		Analyzer:         "regex",
+		Description:      "base64 -d decoding a stored kubeconfig backup — the path contains .kube which would match sec-block-base64-sensitive without the fix. Must NOT be blocked (FP fix #280). Excluded by command_regex_exclude for 'base64 -d'. Gets AUDIT from default (not BLOCK).",
+		Tags:             []string{"tn", "base64", "kube", "fp-fix"},
+	},
+	// TN: rsync --exclude='*.kdbx' — security-conscious local backup exclusion (FP fix #280)
+	{
+		ID:               "TN-KDBX-RSYNC-EXCLUDE-001",
+		Command:          `rsync --exclude="*.kdbx" ~/Documents/ /mnt/backup/docs/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "regex",
+		Description:      "rsync with --exclude='*.kdbx' actively protects KeePassXC databases from being copied — a security-conscious backup exclusion. sec-block-keepassxc-db-read must NOT block this (FP fix #280). Gets default AUDIT (not BLOCK) since no specific blocking rule fires.",
+		Tags:             []string{"tn", "rsync", "keepassxc", "fp-fix"},
+	},
 }
 
 // ScriptingCredentialEncodeCases covers sec-block-scripting-lang-credential-encode and

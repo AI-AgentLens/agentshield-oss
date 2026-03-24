@@ -551,6 +551,28 @@ var ContainerEnvDumpCases = []TestCase{
 		Description:      "docker ps lists running containers — no env extraction. Container env-dump rules must not trigger. Gets AUDIT from general docker monitoring rules.",
 		Tags:             []string{"tn", "docker", "safe"},
 	},
+	// TN: docker network inspect — no container env exposure (FP fix #280)
+	{
+		ID:               "TN-CE-DOCKER-NETWORK-INSPECT-001",
+		Command:          "docker network inspect mynetwork",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker network inspect shows network config (subnets, gateway, connected containers) — no container environment variables exposed. sec-audit-docker-inspect-env must NOT trigger (FP fix #280). Gets default AUDIT (not BLOCK) — the FP-blocked rule no longer fires.",
+		Tags:             []string{"tn", "docker", "network"},
+	},
+	// TN: docker volume inspect — no container env exposure (FP fix #280)
+	{
+		ID:               "TN-CE-DOCKER-VOLUME-INSPECT-001",
+		Command:          "docker volume inspect myvolume",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
+		Analyzer:         "regex",
+		Description:      "docker volume inspect shows volume driver and mount options — no container environment variables exposed. sec-audit-docker-inspect-env must NOT trigger (FP fix #280). Gets default AUDIT (not BLOCK) — the FP-fired rule no longer fires.",
+		Tags:             []string{"tn", "docker", "volume"},
+	},
 }
 
 // ConfigFileAccessCases tests detection of credential and config file reads.
@@ -814,6 +836,39 @@ var ConfigFileAccessCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      `git status is a benign read-only operation. Must not match git-credential prefix.`,
 		Tags:             []string{"common-dev-operation"},
+	},
+	// TN: tsconfig.json — build config, no secrets (FP fix #280)
+	{
+		ID:               "TN-CFGACCS-004",
+		Command:          `cat tsconfig.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "cat tsconfig.json — TypeScript build config, contains no secrets. sec-audit-config-files must NOT AUDIT this (tsconfig is excluded as a common benign build config — FP fix #280).",
+		Tags:             []string{"tn", "fp-fix", "typescript"},
+	},
+	// TN: .vscode/settings.json — IDE settings, no secrets (FP fix #280)
+	{
+		ID:               "TN-CFGACCS-005",
+		Command:          `cat .vscode/settings.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "cat .vscode/settings.json — VS Code workspace settings, contains no secrets. sec-audit-config-files must NOT AUDIT this (FP fix #280).",
+		Tags:             []string{"tn", "fp-fix", "vscode"},
+	},
+	// TN: jest.config.json — test framework config, no secrets (FP fix #280)
+	{
+		ID:               "TN-CFGACCS-006",
+		Command:          `cat jest.config.json`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/generic-config-access",
+		Analyzer:         "regex",
+		Description:      "cat jest.config.json — test framework config, contains no secrets. sec-audit-config-files must NOT AUDIT this (FP fix #280).",
+		Tags:             []string{"tn", "fp-fix", "jest"},
 	},
 }
 
@@ -1094,6 +1149,17 @@ var IMDSTheftCases = []TestCase{
 			directly. Should not trigger GCP IMDS block rule.`,
 		Tags: []string{"safe", "gcp", "legitimate-cli"},
 	},
+	// TN: GCP IMDS hostname in a --body flag value (documentation/issue text) — FP fix #280
+	{
+		ID:               "TN-IMDS-GCP-003",
+		Command:          `gh issue comment 123 --repo example/repo --body "Note: metadata.google.internal is blocked by sec-block-gcp-imds"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "GCP IMDS hostname appears in a gh --body flag value (documentation comment, not a network request). sec-block-gcp-imds must NOT trigger — mirrors the symmetric sec-block-aws-imds exclusion (FP fix #280). Gets default AUDIT (not BLOCK) since no specific rule fires.",
+		Tags:             []string{"tn", "gcp", "fp-fix"},
+	},
 }
 
 // AIAPIKeyCases tests detection of AI provider API key exposure.
@@ -1175,6 +1241,28 @@ var AIAPIKeyCases = []TestCase{
 		Description: `Python OpenAI SDK usage without any hardcoded key (reads from env).
 			No sk- token present. Should not trigger the inline key block rule.`,
 		Tags: []string{"common-dev-operation"},
+	},
+	// TN: Stripe test API key via env export — FP fix for sec-block-ai-apikey-inline (#280)
+	{
+		ID:               "TN-AIKEY-003",
+		Command:          `export MOCK_STRIPE_KEY=sk-test-xxxxxxxxxxxxxxxxxxxxxxxx12345`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description:      "Stripe test API key (sk-test- prefix) exported as env var — not a real AI provider key. sec-block-ai-apikey-inline must NOT block sk-test- prefixed values (FP fix #280). Gets default AUDIT (not BLOCK) since the regex rule exclude fires and Guardian high-confidence pattern fails on the hyphen.",
+		Tags:             []string{"tn", "ai-credentials", "fp-fix"},
+	},
+	// TN: Mock/example API key — FP fix for sec-block-ai-apikey-inline (#280)
+	{
+		ID:               "TN-AIKEY-004",
+		Command:          `export PLACEHOLDER_KEY=sk-fake-xxxxxxxxxxxxxxxxxxxx12345678`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description:      "Mock API key using sk-fake- prefix — placeholder used in test fixtures and documentation. sec-block-ai-apikey-inline must NOT block sk-fake- prefixes (FP fix #280). Gets default AUDIT (not BLOCK) since the regex rule exclude fires.",
+		Tags:             []string{"tn", "ai-credentials", "fp-fix"},
 	},
 }
 
@@ -3632,16 +3720,17 @@ var LinuxCredentialStoreCases = []TestCase{
 		Description:      "keepassxc-cli totp generates TOTP code from KeePassXC entry — enables 2FA bypass. MITRE T1555.004.",
 		Tags:             []string{"tp", "critical", "linux", "keepassxc"},
 	},
-	// TP-11: pass generate (may overwrite existing passwords)
+	// TN: pass generate — creates a new random password, does NOT reveal existing secrets
+	// (removed from sec-block-linux-pass-show per FP review #280)
 	{
-		ID:               "TP-LINCRED-011",
+		ID:               "TN-LINCRED-PASS-GENERATE-001",
 		Command:          `pass generate cloud/aws-access-key 32`,
-		ExpectedDecision: "BLOCK",
-		Classification:   "TP",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/password-db-access/linux-credential-store-extraction",
 		Analyzer:         "regex",
-		Description:      "pass generate creates a new password — can overwrite existing credentials, causing access disruption or replacing a real key with an attacker-known one. MITRE T1555.004.",
-		Tags:             []string{"tp", "linux", "pass"},
+		Description:      "pass generate creates a new random password entry — it does not reveal or copy existing secrets. Excluded from sec-block-linux-pass-show (FP review #280). Gets default AUDIT (not BLOCK) since no specific rule fires.",
+		Tags:             []string{"tn", "linux", "pass"},
 	},
 	// TP-12: keepassxc-cli clip (copies password to clipboard)
 	{
