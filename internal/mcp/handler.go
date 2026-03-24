@@ -576,6 +576,7 @@ func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy-roots-guard",
 			ServerName:     h.ServerName,
+			TaxonomyRef:    result.TaxonomyRef,
 		})
 	}
 

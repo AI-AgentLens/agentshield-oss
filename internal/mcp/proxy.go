@@ -23,6 +23,9 @@ type AuditEntry struct {
 	// ServerName identifies which MCP server received (or would have received) this call.
 	// Populated from ProxyConfig.ServerName so audit consumers know the call target.
 	ServerName string `json:"server_name,omitempty"`
+	// TaxonomyRef links the audit event to a taxonomy entry.
+	// Populated for Go-implemented intercepts (e.g. roots/list guard).
+	TaxonomyRef string `json:"taxonomy_ref,omitempty"`
 }
 
 // AuditFunc is a callback for logging audit entries.
