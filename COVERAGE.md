@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1003 |
+| Terminal rules | 1007 |
 | MCP rules | 356 |
-| Total rules | 1359 |
-| Test cases (TP+TN) | 3513 |
+| Total rules | 1363 |
+| Test cases (TP+TN) | 3521 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -884,7 +884,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (171 rules)
+### unauthorized-execution (175 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1059,6 +1059,10 @@
 | `ts-audit-bidi-marks` | AUDIT | regex | Unicode directional mark detected (U+200E LRM or U+200F RLM). While less dangerous than bidi overrides, these invisible zero-width characters have no legitimate use in shell commands and may indicate text manipulation. CVE-2021-42574. |
 | `ts-block-array-subscript-injection` | BLOCK | regex | Bash array subscript contains command substitution $() — bash evaluates array indices via arithmetic expansion, which triggers command substitution. The embedded command executes during variable expansion, completely bypassing command-name detection. No legitimate workflow uses $() in array subscripts. CWE-78, MITRE T1059.004. |
 | `ts-block-array-subscript-backtick` | BLOCK | regex | Bash array subscript contains backtick command substitution — equivalent to $() form but using legacy syntax. The backtick expression executes during array index evaluation. CWE-78, MITRE T1059.004. |
+| `ts-block-clipboard-write` | BLOCK | structural | Clipboard write operation blocked — AI agents must not write to the system clipboard. Malicious content pasted by the user executes in their shell outside AgentShield's evaluation context (pastejacking/clipboard-hijack, OWASP LLM06, MITRE T1204.002). |
+| `ts-block-clipboard-write-clip` | BLOCK | structural | Windows/WSL clipboard write (clip.exe) blocked — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06). |
+| `ts-block-clipboard-xclip-write` | BLOCK | structural | xclip as pipe target writes content to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06). |
+| `ts-block-clipboard-xsel-write` | BLOCK | structural | xsel in write mode (-i/--input or -a/--append) writes to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06). |
 
 ### uncategorized (2 rules)
 
@@ -1492,6 +1496,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 168 | 74 | 242 |
 | supply-chain | 236 | 161 | 397 |
-| unauthorized-execution | 396 | 269 | 665 |
-| **Total** | **2142** | **1371** | **3513** |
+| unauthorized-execution | 401 | 272 | 673 |
+| **Total** | **2147** | **1374** | **3521** |
 

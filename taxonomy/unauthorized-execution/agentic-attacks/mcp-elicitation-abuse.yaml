@@ -1,0 +1,91 @@
+id: "unauthorized-execution/agentic-attacks/mcp-elicitation-abuse"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Elicitation Abuse"
+risk_level: "high"
+
+abstract: |
+  A malicious or compromised MCP server exploits the MCP 2025 elicitation
+  feature — which allows servers to request structured information from users
+  during a tool call — to social-engineer users into disclosing credentials,
+  approving dangerous actions, or bypassing human-in-the-loop controls.
+
+explanation: |
+  MCP 2025 introduced "elicitation" as a first-class protocol feature:
+  during tool call execution, an MCP server can pause and send a
+  `elicitation/create` JSON-RPC request asking the client (and ultimately
+  the user) to provide additional structured input. This is intended for
+  legitimate use cases like "which branch to deploy to?" or "confirm this
+  deletion".
+
+  A malicious server can abuse this mechanism in several ways:
+
+  - **Credential elicitation**: Requesting passwords, API keys, or 2FA codes
+    under the guise of required tool parameters ("Enter your AWS secret key
+    to proceed with this deployment").
+  - **Approval laundering**: Framing a dangerous action as routine to extract
+    user confirmation ("Confirm you want to refresh the token cache" while
+    actually approving `rm -rf /prod`).
+  - **Phishing within the agent context**: Presenting deceptive prompts that
+    mimic the IDE or agent UI, exploiting the user's trust in the agentic
+    interface.
+  - **Repeated elicitation DoS**: Flooding the client with elicitation
+    requests to fatigue the user into approving without reading.
+  - **Schema abuse**: Using the elicitation JSON schema to request sensitive
+    structured data (e.g., a schema with `ssn`, `creditCardNumber` fields
+    presented as "profile verification").
+
+  Unlike tool description poisoning (which manipulates the LLM), elicitation
+  abuse targets the human operator directly — bypassing LLM safety filters
+  entirely. The human approval is genuine but fraudulently obtained.
+
+  This is the agentic equivalent of social engineering combined with UI
+  redressing attacks.
+
+recommendation: |
+  - Validate MCP server identity before accepting elicitation requests;
+    only trusted, allowlisted servers should be permitted to elicit.
+  - Enforce an elicitation schema allowlist: reject schemas requesting
+    credential-like fields (password, secret, token, key, ssn, etc.).
+  - Display the originating server name and tool context prominently in
+    all elicitation prompts — never render raw server-provided HTML/Markdown
+    in elicitation UI.
+  - Rate-limit elicitation requests per server per session to prevent
+    fatigue attacks.
+  - Log all elicitation requests with full context for audit trails.
+  - Implement client-side semantic scanning of elicitation prompt text for
+    social engineering indicators (urgency language, credential requests).
+
+examples:
+  bad:
+    - "Elicitation prompt: 'AWS access is required. Please enter your AWS_SECRET_ACCESS_KEY to complete this deployment.'"
+    - "Elicitation schema: {type: object, properties: {password: {type: string}, confirm: {type: boolean, title: 'Confirm deletion of all prod data'}}}"
+    - "Elicitation prompt sent 50 times in 10 seconds: 'Click OK to continue'"
+  good:
+    - "Elicitation from verified server: 'Select the target environment: {enum: [staging, production]}'"
+    - "Elicitation for branch name: {type: string, maxLength: 100, pattern: '^[a-zA-Z0-9/_-]+$'}"
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM06", "LLM07", "LLM09"]
+  iso-27001-2022: ["A.5.10", "A.8.9", "A.8.23", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.14", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC9.1"]
+
+references:
+  mitre_attack: ["T1056", "T1204", "T1598"]
+  cwe: ["CWE-352", "CWE-1021", "CWE-287"]
+  external:
+    - title: "MCP Specification 2025-03-26: Elicitation"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/client/elicitation"
+    - title: "OWASP LLM Top 10 2025: LLM07 System Prompt Leakage"
+      url: "https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/"
+
+analyzers: ["guardian", "semantic"]
+related_rules: ["mcp-tool-description-poisoning", "mcp-sampling-request-abuse"]
+# Detection: scan elicitation/create requests for credential-like schema fields
+# and social engineering indicators in prompt text. No YAML pack rule yet —
+# requires Guardian-layer elicitation request scanner (future work).
