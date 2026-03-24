@@ -3557,4 +3557,64 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-path",
 		Description:      "Project directory named 'DataGrip' — not a JetBrains config store, must not be blocked (issue #279 FP fix)",
 	},
+	// Computer-use: TP — full_screen screenshot must be blocked (credential capture risk)
+	{
+		ID:               "MCP-TP-600",
+		ToolName:         "take_screenshot",
+		Arguments:        map[string]interface{}{"region": "full_screen"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "computer-use",
+		Description:      "Full-screen screenshot captures all visible content including credentials — must be blocked (issue #307)",
+	},
+	// Computer-use: TP — region=all screenshot must be blocked
+	{
+		ID:               "MCP-TP-601",
+		ToolName:         "screenshot",
+		Arguments:        map[string]interface{}{"region": "all"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "computer-use",
+		Description:      "Full-desktop screenshot (region=all) must be blocked (issue #307)",
+	},
+	// Computer-use: TP — computer_use screenshot action must be audited
+	{
+		ID:               "MCP-TP-602",
+		ToolName:         "computer_use",
+		Arguments:        map[string]interface{}{"action": "screenshot"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "computer-use",
+		Description:      "computer_use screenshot action — must be audited for scope verification (issue #307)",
+	},
+	// Computer-use: TN — scoped screenshot (specific app window) must not be blocked
+	{
+		ID:               "MCP-TN-600",
+		ToolName:         "take_screenshot",
+		Arguments:        map[string]interface{}{"region": "app:figma:42"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "computer-use",
+		Description:      "Scoped screenshot of a specific app window — must NOT be blocked (issue #307)",
+	},
+	// Computer-use: TN — viewport-scoped screenshot must not be blocked
+	{
+		ID:               "MCP-TN-601",
+		ToolName:         "take_screenshot",
+		Arguments:        map[string]interface{}{"region": "viewport"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "computer-use",
+		Description:      "Viewport-scoped screenshot — must NOT be blocked (issue #307)",
+	},
+	// Computer-use: TN — computer_use type action is safe
+	{
+		ID:               "MCP-TN-602",
+		ToolName:         "computer_use",
+		Arguments:        map[string]interface{}{"action": "type", "text": "hello world"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "computer-use",
+		Description:      "computer_use type action in declared input field — must NOT trigger screenshot or click rules (issue #307)",
+	},
 }
