@@ -3738,4 +3738,95 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "computer-use",
 		Description:      "computer_use clicking Submit on a regular form — must NOT trigger auth-dialog rules (issue #326)",
 	},
+
+	// Issue #327: AI model registry write must be audited
+	{
+		ID:               "MCP-TP-630",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/ai-model-registry.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "write_file to ai-model-registry.yaml — must be audited to catch unauthorized model deployments (issue #327)",
+	},
+	// Issue #327: AI model inventory write must be audited
+	{
+		ID:               "MCP-TP-631",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/model-inventory.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "write_file to model-inventory.yaml — must be audited to protect model approval records (issue #327)",
+	},
+	// Issue #327: AI risk assessment write must be audited
+	{
+		ID:               "MCP-TP-632",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/ai-risk-assessment.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "write_file to ai-risk-assessment.md — must be audited to prevent compliance posture inflation (issue #327)",
+	},
+	// Issue #327: LLM risk assessment write must be audited
+	{
+		ID:               "MCP-TP-633",
+		ToolName:         "edit_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/llm-risk-report.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "edit_file to llm-risk-report.yaml — must be audited (issue #327)",
+	},
+	// Issue #327: AI policy write must be audited
+	{
+		ID:               "MCP-TP-634",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/ai-policy.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "write_file to ai-policy.yaml — must be audited to prevent silent safety guardrail removal (issue #327)",
+	},
+	// Issue #327: LLM policy write must be audited
+	{
+		ID:               "MCP-TP-635",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/config/llm-policy.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "governance",
+		Description:      "write_file to config/llm-policy.json — must be audited (issue #327)",
+	},
+	// Issue #327: TN — writing to a regular project file not related to governance
+	{
+		ID:               "MCP-TN-630",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/registry-helper.go"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "governance",
+		Description:      "write_file to registry-helper.go — must NOT trigger model registry rule (no 'model' in name) (issue #327)",
+	},
+	// Issue #327: TN — writing to a risk dashboard (not an AI risk assessment)
+	{
+		ID:               "MCP-TN-631",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/risk-dashboard.tsx"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "governance",
+		Description:      "write_file to risk-dashboard.tsx — must NOT trigger ai-risk rule (no 'ai-risk' pattern) (issue #327)",
+	},
+	// Issue #327: TN — mail-policy.txt must NOT match ai-policy pattern
+	{
+		ID:               "MCP-TN-632",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/mail-policy.txt"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "governance",
+		Description:      "write_file to mail-policy.txt — must NOT trigger ai-policy rule (hyphen-bounded pattern prevents false match on 'mail') (issue #327)",
+	},
 }
