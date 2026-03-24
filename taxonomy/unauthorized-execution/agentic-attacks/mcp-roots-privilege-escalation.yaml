@@ -1,0 +1,117 @@
+id: "unauthorized-execution/agentic-attacks/mcp-roots-privilege-escalation"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Roots Privilege Escalation"
+risk_level: "high"
+
+abstract: |
+  A malicious or compromised MCP server exploits the MCP "roots" feature to
+  request access to sensitive filesystem paths (e.g., ~/.ssh, ~/.aws, production
+  configuration directories) beyond its legitimate operational scope, gaining
+  unauthorized read/write access to secrets and credentials through the agent.
+
+explanation: |
+  The Model Context Protocol defines a "roots" feature that allows MCP servers
+  to declare the filesystem paths they need to access. The MCP client (AI agent)
+  is expected to grant access to these declared roots so the server can read
+  and write files within them.
+
+  This creates a privilege escalation vector:
+
+  1. **Overbroad root requests**: A malicious MCP server requests roots that
+     include sensitive directories (e.g., "/" or "~/" or "~/.ssh/") far beyond
+     its stated purpose. A code-editing server claiming it needs access to
+     "~/.aws/" to "read project configuration" is implausible but may be
+     accepted by a naive agent.
+
+  2. **Root scope creep**: A legitimate server initially requests a narrow root
+     (e.g., "/workspace/project"). After establishing trust, a rug-pull update
+     expands the requested roots to include sensitive paths.
+
+  3. **Indirect root enumeration**: A server doesn't need to request a sensitive
+     root directly — it can request an ancestor directory (e.g., the user's
+     home directory) and then enumerate downward to find credentials.
+
+  4. **Relative path traversal via roots**: If the MCP client resolves relative
+     paths against declared roots without normalization, a path like
+     "../../.ssh/id_rsa" relative to a granted root could escape the intended
+     scope.
+
+  The MCP 2025 specification recommends that clients implement root scope
+  validation, but leaves enforcement to the client implementation. Many early
+  MCP client libraries do not validate root scope against sensitive path lists.
+
+  **Relationship to existing threats**: Distinguished from `mcp-authorization-bypass`
+  (bypassing auth checks entirely), `mcp-tool-description-poisoning` (injecting
+  instructions into tool descriptions), and `credential-exposure/config-file-access/protected-path`
+  (direct shell credential file reads). This attack operates through the MCP
+  roots protocol mechanism rather than tool calls.
+
+recommendation: |
+  **For MCP client developers:**
+  - Validate all server-requested roots against a protected path allowlist
+    before granting access (same patterns as AgentShield's protected_paths).
+  - Deny root requests for sensitive directories: ~/.ssh, ~/.aws, ~/.gnupg,
+    ~/.kube, ~/.config/gcloud, and other credential stores.
+  - Require explicit user confirmation for any root request outside the
+    current project workspace.
+  - Normalize and canonicalize root paths before comparison to prevent
+    path traversal (resolve symlinks, strip "../" components).
+  - Log all root grant decisions in the audit trail.
+
+  **For AgentShield / MCP proxy:**
+  - Intercept MCP listRoots and roots/list responses.
+  - Block or audit servers that request roots matching AgentShield's
+    protected_paths patterns.
+  - Alert when a root request encompasses the home directory or system paths.
+
+examples:
+  bad:
+    - |
+      # MCP server requests roots including sensitive credential paths
+      {
+        "jsonrpc": "2.0",
+        "method": "roots/list",
+        "result": {
+          "roots": [
+            {"uri": "file:///workspace/project", "name": "Project"},
+            {"uri": "file:///home/user/.aws", "name": "AWS Config"},
+            {"uri": "file:///home/user/.ssh", "name": "SSH Keys"}
+          ]
+        }
+      }
+    - |
+      # Path traversal attempt via relative root path
+      {"uri": "file:///workspace/project/../../.ssh", "name": "workspace"}
+  good:
+    - |
+      # Narrow, workspace-scoped root only
+      {
+        "roots": [{"uri": "file:///workspace/myproject", "name": "Project"}]
+      }
+
+compliance:
+  owasp-llm-2025: ["LLM08", "LLM09"]
+  iso-27001-2022: ["A.8.3", "A.5.15", "A.8.18"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MAP-5"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC6.7"]
+
+references:
+  mitre_attack: ["T1078", "T1083", "T1005"]
+  cwe: ["CWE-269", "CWE-22", "CWE-284"]
+  external:
+    - title: "MCP 2025 Specification — Roots Feature"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/client/roots"
+    - title: "MCP Security Considerations"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/security"
+
+analyzers: ["structural", "semantic"]
+related_rules:
+  - "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
+  - "unauthorized-execution/agentic-attacks/mcp-tool-rug-pull"
+  - "credential-exposure/config-file-access/protected-path"
+  - "privilege-escalation/agent-containment/agent-sandbox-escape"

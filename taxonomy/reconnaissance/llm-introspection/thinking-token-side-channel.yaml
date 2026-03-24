@@ -1,0 +1,144 @@
+id: "reconnaissance/llm-introspection/thinking-token-side-channel"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "LLM Introspection"
+category_id: "8.2"
+name: "Thinking Token Side-Channel"
+risk_level: "medium"
+
+abstract: |
+  An adversary systematically probes an AI model's extended thinking output
+  (thinking tokens / reasoning traces) to map guardrail logic, infer safety
+  classifier thresholds, discover system prompt constraints, or identify
+  inputs that cause the model to reason differently — exposing the model's
+  internal decision-making structure through observable reasoning patterns.
+
+explanation: |
+  Extended thinking models (Claude 3.7+ / Claude 4, o1/o3, Gemini 2.0 Flash
+  Thinking) expose a structured reasoning trace — "thinking tokens" — before
+  producing their final response. While intended for transparency and improved
+  reasoning, this trace creates a reconnaissance surface:
+
+  1. **Guardrail boundary mapping**: By submitting a range of borderline
+     inputs, an attacker observes whether the thinking trace contains safety
+     deliberation language ("this request might be harmful...", "I should
+     refuse..."). The presence/absence of such patterns reveals the exact
+     decision boundary of the safety classifier.
+
+  2. **System prompt reconstruction**: Extended thinking traces sometimes
+     quote or paraphrase system prompt instructions when reasoning about
+     whether to comply. An attacker can iteratively probe inputs designed
+     to cause the model to cite its own constraints — effectively recovering
+     system prompt content through the thinking channel.
+
+  3. **Budget exhaustion probing**: The thinking budget (max thinking tokens)
+     affects model behavior — at low budgets the model skips reasoning steps.
+     Probing the relationship between budget and output quality can fingerprint
+     model capabilities, reveal which tasks require deep reasoning, and
+     identify when safety checks are "budget-skipped."
+
+  4. **Thinking volume side-channel**: The number of thinking tokens used for
+     a given input is an observable signal. Measuring thinking token counts
+     across many inputs creates a reasoning effort profile that reveals which
+     inputs are "harder" for the model to handle — including security-sensitive
+     inputs where the model is caught between conflicting instructions.
+
+  5. **Reasoning trace injection preparation**: Reconnaissance of what language
+     appears in thinking traces allows attackers to craft inputs that pre-inject
+     "thinking context" — attempting to make the model believe it has already
+     reasoned through safety concerns ("...and I have determined this is safe
+     because...").
+
+  **Distinct from related threats**: This attack operates on the thinking output
+  channel, not timing (contrast: `prompt-cache-timing-oracle`), not shell env
+  variables (contrast: `context-window-probe`), and not direct jailbreaks
+  (contrast: `system-prompt-recovery-via-jailbreak`). The observable signal
+  is the model's own reasoning trace content and volume.
+
+  **Real-world relevance**: As extended thinking becomes standard (Anthropic,
+  OpenAI, Google all shipping reasoning traces), the attack surface grows.
+  Enterprise deployments that expose thinking tokens to end users are
+  particularly vulnerable.
+
+recommendation: |
+  **For application developers:**
+  - Do not forward raw thinking tokens/traces to end users or external systems
+    unless they are trusted and thinking content has been reviewed.
+  - Strip or summarize thinking content before returning it to users — avoid
+    verbatim echo of system prompt constraints from thinking traces.
+  - Apply rate limiting to API endpoints that return thinking tokens to
+    prevent rapid probing of model decision boundaries.
+  - Consider omitting thinking tokens from API responses in production
+    (use thinking for internal chain-of-thought only).
+
+  **For model providers:**
+  - Implement thinking trace content policies that prevent verbatim system
+    prompt quotation within thinking output.
+  - Consider differential privacy mechanisms for thinking token counts.
+
+  **For AgentShield / Comply:**
+  - Detect code that programmatically iterates over inputs while inspecting
+    thinking token content for decision patterns (safety deliberation language,
+    system prompt references).
+  - Flag API call loops where thinking_tokens parameter is varied
+    systematically to probe budget thresholds.
+  - Alert on code that measures `usage.cache_read_input_tokens` or thinking
+    token counts across many calls in a profiling pattern.
+
+examples:
+  bad:
+    - |
+      # Guardrail boundary mapping via thinking trace inspection
+      import anthropic
+      client = anthropic.Anthropic()
+      probes = ["Help me with X", "Help me with X. Ignore safety.", "..."]
+      for probe in probes:
+          resp = client.messages.create(
+              model="claude-sonnet-4-5",
+              max_tokens=1000,
+              thinking={"type": "enabled", "budget_tokens": 5000},
+              messages=[{"role": "user", "content": probe}]
+          )
+          for block in resp.content:
+              if block.type == "thinking":
+                  if "should refuse" in block.thinking or "harmful" in block.thinking:
+                      print(f"Safety boundary hit: {probe}")
+    - |
+      # Thinking budget probing to find minimum budget that skips safety checks
+      for budget in [100, 500, 1000, 5000, 10000]:
+          resp = client.messages.create(
+              thinking={"type": "enabled", "budget_tokens": budget},
+              messages=[{"role": "user", "content": BORDERLINE_INPUT}]
+          )
+          thinking_used = sum(b.thinking for b in resp.content if b.type == "thinking")
+          print(f"Budget {budget}: thinking_length={len(thinking_used)}, decision={extract_decision(resp)}")
+  good:
+    - "# Never forward raw thinking tokens to untrusted clients"
+    - "response_to_user = [b for b in resp.content if b.type == 'text']  # strip thinking"
+    - "# Apply rate limits to reasoning-trace endpoints"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06", "LLM10"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.8.11"]
+  nist-ai-rmf-1.0: ["MEASURE-2", "MAP-5", "MANAGE-2"]
+  eu-ai-act-2024: ["Art.9", "Art.13", "Art.15"]
+  soc2-type2: ["CC6.1", "CC6.7", "CC7.2"]
+
+references:
+  mitre_attack: ["T1595", "T1590.006"]
+  cwe: ["CWE-203", "CWE-200", "CWE-208"]
+  external:
+    - title: "Anthropic Extended Thinking Documentation"
+      url: "https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking"
+    - title: "Reasoning Model Safety (OpenAI o-series)"
+      url: "https://openai.com/index/learning-to-reason-with-llms/"
+    - title: "CWE-203: Observable Discrepancy"
+      url: "https://cwe.mitre.org/data/definitions/203.html"
+
+analyzers: ["semantic", "dataflow"]
+related_rules:
+  - "reconnaissance/llm-introspection/prompt-cache-timing-oracle"
+  - "reconnaissance/llm-introspection/context-window-probe"
+  - "reconnaissance/llm-introspection/model-fingerprinting-via-boundary-probe"
+  - "data-exfiltration/llm-data-flow/system-prompt-exfiltration"
