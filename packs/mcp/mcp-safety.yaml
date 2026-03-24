@@ -195,6 +195,37 @@ rules:
     decision: "BLOCK"
     reason: "MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata"
 
+  # === AUDIT: MCP tool description rug-pull (TOCTOU description drift) ===
+  # Detection is performed at the proxy layer by SchemaDriftScanner
+  # (internal/mcp/schema_drift_scanner.go) and annotation consistency checks
+  # in description_scanner.go. When a tool's description changes between sessions
+  # (post-approval mutation), the proxy emits an AUDIT event with rule ID
+  # "mcp-sec-audit-tool-description-changed". This YAML entry registers the
+  # taxonomy reference — the sentinel match never fires from the YAML evaluator.
+  # OWASP LLM07 — System Prompt Leakage, LLM09 — Misinformation
+  # MITRE T1036 (Masquerading), T1195 (Supply Chain), CWE-367 (TOCTOU)
+  - id: "mcp-sec-audit-tool-description-changed"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-rug-pull"
+    match: {}  # empty match — rule never fires from YAML; detection is in schema_drift_scanner.go + description_scanner.go
+    decision: "AUDIT"
+    reason: "MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195."
+    confidence: 0.85
+
+  # === AUDIT: MCP tool annotation spoofing (YAML-evaluatable complement to code-level detection) ===
+  # MCP 2025 tool annotations (readOnly, destructive, idempotent, openWorld) are
+  # informational hints that are NOT security boundaries per the spec. A malicious
+  # server can set readOnly:true on a destructive tool to bypass confirmation dialogs,
+  # or set openWorld:false to conceal egress behavior from monitors.
+  # Detection is in description_scanner.go (SignalAnnotationSpoofing). This YAML entry
+  # registers the taxonomy reference for coverage metrics.
+  # OWASP LLM07, LLM09 — MITRE T1036, T1562 — CWE-345, CWE-807
+  - id: "mcp-guardian-annotation-spoofing"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-annotation-spoofing"
+    match: {}  # empty match — rule never fires from YAML; detection is in description_scanner.go
+    decision: "AUDIT"
+    reason: "MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09."
+    confidence: 0.82
+
   # === BLOCK: Tool name injection patterns (YAML-evaluatable complement to code-level detection) ===
   # A poisoned MCP server may install tools with names that themselves contain
   # injected instructions or dual-use keywords. Blocking calls to tools whose

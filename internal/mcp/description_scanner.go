@@ -16,6 +16,7 @@ const (
 	SignalStealthInstruction     PoisonSignal = "stealth_instruction"
 	SignalBehavioralManipulation PoisonSignal = "behavioral_manipulation"
 	SignalShadowTool             PoisonSignal = "shadow_tool"
+	SignalAnnotationSpoofing     PoisonSignal = "annotation_spoofing"
 )
 
 // PoisonFinding records one detected poisoning signal in a tool description.
@@ -126,8 +127,57 @@ func ScanToolDescription(tool ToolDefinition) DescriptionScanResult {
 		}
 	}
 
+	// Signal 8: Annotation spoofing — MCP 2025 annotation inconsistency (rug-pull indicator)
+	// Per MCP spec, annotations are "not guaranteed to be accurate". A tool annotated
+	// readOnly:true but named with destructive verbs is a rug-pull signal: the server
+	// claims no side effects to bypass confirmation prompts, but the name reveals intent.
+	if tool.Annotations != nil {
+		result.Findings = append(result.Findings, checkAnnotationConsistency(tool.Name, tool.Description, tool.Annotations)...)
+	}
+
 	result.Poisoned = len(result.Findings) > 0
 	return result
+}
+
+// checkAnnotationConsistency checks MCP 2025 tool annotations for semantic inconsistency
+// with the tool name and description. Returns annotation spoofing findings.
+func checkAnnotationConsistency(name, description string, ann *ToolAnnotations) []PoisonFinding {
+	var findings []PoisonFinding
+	nameLower := strings.ToLower(name)
+	descLower := strings.ToLower(description)
+
+	// readOnly:true inconsistency: destructive verb in name implies side effects
+	if ann.ReadOnly != nil && *ann.ReadOnly {
+		if readOnlyLiePattern.MatchString(nameLower) {
+			findings = append(findings, PoisonFinding{
+				Signal:  SignalAnnotationSpoofing,
+				Detail:  "readOnly:true annotation inconsistent with destructive verb in tool name — rug-pull indicator (mcp-tool-annotation-spoofing)",
+				Snippet: name,
+			})
+		}
+		// Also flag if description mentions sending/posting/uploading (network egress side effect)
+		if readOnlyEgressPattern.MatchString(descLower) {
+			findings = append(findings, PoisonFinding{
+				Signal:  SignalAnnotationSpoofing,
+				Detail:  "readOnly:true annotation inconsistent with egress verbs in tool description — tool claims no side effects but description implies network activity",
+				Snippet: safeSnippet(description, 0, 80),
+			})
+		}
+	}
+
+	// openWorld:false or absent when description describes network egress is suspicious,
+	// but we only flag when openWorld is explicitly false (explicit concealment).
+	if ann.OpenWorld != nil && !*ann.OpenWorld {
+		if openWorldConcealPattern.MatchString(descLower) {
+			findings = append(findings, PoisonFinding{
+				Signal:  SignalAnnotationSpoofing,
+				Detail:  "openWorld:false annotation inconsistent with egress verbs in description — conceals network egress from monitors (mcp-tool-annotation-spoofing)",
+				Snippet: safeSnippet(description, 0, 80),
+			})
+		}
+	}
+
+	return findings
 }
 
 // signalPattern pairs a compiled regex with a human-readable description.
@@ -199,6 +249,23 @@ var behavioralManipulationPatterns = []signalPattern{
 	{regexp.MustCompile(`you\s+must\s+(comply|obey|follow\s+these)\s+(with\s+)?(all|every|these|the\s+following)`), "Behavioral coercion: must comply directive"},
 	{regexp.MustCompile(`(without\s+question|without\s+hesitation|no\s+matter\s+what|regardless\s+of)`), "Behavioral coercion: unconditional compliance"},
 }
+
+// annotationSpoofing compiled patterns
+var (
+	// readOnlyLiePattern matches tool names containing destructive verbs that
+	// contradict a readOnly:true annotation. Uses (?:^|_|\b) anchors to handle
+	// both snake_case tool names (delete_user_data) and plain words (deleteUser).
+	readOnlyLiePattern = regexp.MustCompile(`(?:^|_)(delete|drop|remove|write|create|modify|update|edit|send|post|upload|exec|execute|purge|wipe|truncate|insert|grant|revoke)(?:_|$|[A-Z])`)
+
+	// readOnlyEgressPattern matches description text indicating network egress,
+	// inconsistent with readOnly:true (which implies no side effects).
+	// Handles verb forms: send/sends/sending, post/posts/posting, upload/uploads, etc.
+	readOnlyEgressPattern = regexp.MustCompile(`(sends?|posts?|uploads?|forwards?|transmits?|relays?|push(?:es)?|emits?|publish(?:es)?)\s+(it|data|the|this|all|to|result)`)
+
+	// openWorldConcealPattern matches description text indicating network egress
+	// when the tool has openWorld explicitly set to false (active concealment).
+	openWorldConcealPattern = regexp.MustCompile(`\b(send|post|upload|fetch|call|request|connect|forward|transmit|relay|push|emit)\s+(to|data|the|this|result|request)?\s*(external|remote|server|api|endpoint|url|webhook|http)`)
+)
 
 var shadowToolPatterns = []signalPattern{
 	{regexp.MustCompile(`(replaces?|supersedes?|overrides?)\s+(the\s+)?\w+\s+tool`), "Shadow tool: claims to replace another tool"},
