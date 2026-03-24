@@ -79,14 +79,28 @@ rules:
     reason: "RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning)"
     confidence: 0.85
 
-  # === AUDIT: MCP tool calls with explicit URL arguments (any tool fetching URLs) ===
+  # === AUDIT: MCP content-fetch tool calls with explicit URL arguments ===
+  # Scoped to tools whose primary purpose is fetching remote content — these tools
+  # return external content directly into the agent's context, creating response
+  # injection risk. General API tools (http_request, post_request) are excluded
+  # to avoid AUDIT noise on every legitimate API call.
   - id: mcp-response-integrity-audit-url-arg
     taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
     match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "scrape_url"
+        - "web_fetch"
+        - "read_url"
+        - "open_url"
       argument_patterns:
         url: "http*"
     decision: "AUDIT"
-    reason: "Tool call passes an HTTP URL argument — external content will be returned as tool response, audit for injection risk (LLM01)"
+    reason: "Content-fetch tool call with HTTP URL — external content returned directly into agent context creates response poisoning risk (LLM01)"
+    confidence: 0.80
 
   # === BLOCK: Fetch tools targeting known exfiltration URL patterns ===
   # If the URL argument contains classic exfil/C2 indicators, block immediately.
@@ -200,7 +214,6 @@ structural_rules:
         url:
           pattern_any:
             - "(?i)discord\\.com/api/webhooks/"
-            - "(?i)discord\\.gg/"
             - "(?i)hooks\\.slack\\.com/services/"
             - "(?i)hooks\\.slack\\.com/workflows/"
             - "(?i)outlook\\.office\\.com/webhook"
@@ -208,7 +221,7 @@ structural_rules:
             - "(?i)pipedream\\.net/"
             - "(?i)api\\.telegram\\.org/bot"
     decision: "BLOCK"
-    reason: "MCP network tool targeting a chat/webhook service — Discord, Slack, Teams, Telegram, and Pipedream webhooks are primary exfiltration channels for AI agents. MITRE T1567.002."
+    reason: "MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, and Pipedream are primary exfiltration channels for AI agents. MITRE T1567.002."
     confidence: 0.93
 
   # === AUDIT: Fetch with data/credential query parameters ===

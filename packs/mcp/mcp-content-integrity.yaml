@@ -217,10 +217,25 @@ structural_rules:
           pattern_any:
             - "[;&|`]"
             - "\\$\\("
-            - "\\$\\{"
     decision: "BLOCK"
     reason: "Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling)"
     confidence: 0.88
+
+  # AUDIT: Variable expansion syntax in path argument
+  # ${VAR} is common in Docker, CI/CD, and shell scripts as variable expansion.
+  # In MCP tool call paths it may represent an injection attempt but is also
+  # legitimate in template-based tools. AUDIT rather than BLOCK to reduce FP rate.
+  - id: mcp-struct-audit-shell-var-in-path
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "\\$\\{"
+    decision: "AUDIT"
+    reason: "Variable expansion syntax in MCP path argument — ${VAR} is common in Docker/CI configs but may also indicate path injection. AUDIT for review (OWASP LLM02)."
+    confidence: 0.72
 
   # BLOCK: Shell injection chains in command argument
   # Detects chained dangerous commands injected into a command argument,
@@ -235,8 +250,8 @@ structural_rules:
             - ";\\s*(rm|curl|wget|bash|sh|python3?|nc|ncat|socat)\\b"
             - "\\|\\s*(bash|sh|python3?|nc|ncat|socat)\\b"
             - "&&\\s*(rm|curl|wget|bash|sh|python3?)\\b"
-            - "`[^`]{1,100}`"
-            - "\\$\\([^)]{1,100}\\)"
+            - "`[^`]{1,500}`"
+            - "\\$\\([^)]{1,500}\\)"
     decision: "BLOCK"
     reason: "Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02)"
     confidence: 0.87
@@ -357,9 +372,9 @@ structural_rules:
             - "\"constructor\"\\s*:\\s*\\{\\s*\"prototype\""
             - "\"__defineGetter__\""
             - "\"__defineSetter__\""
-    decision: "BLOCK"
-    reason: "JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models when deserialized, enabling privilege escalation or RCE. OWASP LLM02 (Insecure Output Handling), LLM01."
-    confidence: 0.91
+    decision: "AUDIT"
+    reason: "JSON prototype pollution payload detected in MCP write content — __proto__, constructor.prototype, and __defineGetter__ in JSON files can corrupt Node.js runtime object models. Demoted from BLOCK to AUDIT to allow security test fixtures and sanitization tests that legitimately contain these patterns. OWASP LLM02, LLM01."
+    confidence: 0.82
 
   # AUDIT: SQL injection patterns in database tool query arguments
   # LLM-generated SQL queries that process untrusted input may contain
