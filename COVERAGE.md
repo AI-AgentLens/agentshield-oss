@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1012 |
-| MCP rules | 373 |
-| Total rules | 1385 |
+| MCP rules | 385 |
+| Total rules | 1397 |
 | Test cases (TP+TN) | 3571 |
 | Kingdoms covered | 10 |
 
@@ -1342,7 +1342,7 @@
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
-### governance-risk (6 rules)
+### governance-risk (12 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1352,6 +1352,12 @@
 | `mcp-gov-audit-ai-compliance-write` | AUDIT | mcp_rule | MCP write to AI compliance assessment file — AI agents should not modify their own compliance records without human review. Silent modification can mask policy violations (CWE-693, EU AI Act Art.9). |
 | `mcp-gov-audit-ai-governance-report-write` | AUDIT | mcp_rule | MCP write to AI governance artifact — modifications to governance documentation by AI agents require human review to prevent silent compliance posture changes (CWE-693, NIST AI RMF GOVERN-1). |
 | `mcp-gov-audit-ai-ir-playbook-delete` | AUDIT | mcp_rule | MCP delete targeting AI incident response artifact — deleting incident playbooks or runbooks impairs post-incident investigation and EU AI Act Art.73 serious incident reporting obligations (CWE-778, NIST AI RMF GOVERN-6). |
+| `mcp-gov-audit-ai-model-registry-write` | AUDIT | mcp_rule | MCP write to AI model registry file — modifications by AI agents can mask unauthorized model deployments or suppress required approval records (CWE-693, EU AI Act Art.9, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-ai-model-inventory-write` | AUDIT | mcp_rule | MCP write to AI model inventory file — modifications can suppress the approved model version record required by EU AI Act Art.9 and NIST AI RMF GOVERN-1 (CWE-693). |
+| `mcp-gov-audit-ai-risk-assessment-write` | AUDIT | mcp_rule | MCP write to AI risk assessment file — silent edits can inflate compliance posture and conceal known vulnerabilities from auditors (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1). |
+| `mcp-gov-audit-llm-risk-assessment-write` | AUDIT | mcp_rule | MCP write to LLM risk assessment file — silent modification erodes the audit trail for AI risk posture (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1). |
+| `mcp-gov-audit-ai-policy-write` | AUDIT | mcp_rule | MCP write to AI policy configuration file — silent modification can disable safety guardrails or expand allowed model behaviors without human review (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-llm-policy-write` | AUDIT | mcp_rule | MCP write to LLM policy configuration file — silent modification can disable output filters or safety guardrails without triggering a human review workflow (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1). |
 
 ### mcp-safety (8 rules)
 
@@ -1444,7 +1450,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (44 rules)
+### unauthorized-execution (50 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1453,6 +1459,12 @@
 | `mcp-computer-use-audit-screenshot-action` | AUDIT | mcp_rule | computer_use screenshot action can capture credentials visible on screen. Verify the session has explicit scope and human approval. |
 | `mcp-computer-use-audit-auth-allow-click` | AUDIT | mcp_rule | Clicking 'Allow' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action. |
 | `mcp-computer-use-audit-auth-approve-click` | AUDIT | mcp_rule | Clicking 'Approve' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action. |
+| `mcp-computer-use-audit-auth-grant-click` | AUDIT | mcp_rule | Clicking 'Grant' permission dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action. |
+| `mcp-computer-use-audit-auth-continue-click` | AUDIT | mcp_rule | Clicking 'Continue' on multi-step permission dialogs autonomously may silently advance through authorization prompts. Verify this is an intended, human-approved action. |
+| `mcp-computer-use-block-screen-recording` | BLOCK | mcp_rule | Screen recording captures continuous video of all desktop activity, including credentials, OTP codes, and password manager content — more invasive than a screenshot. Block all screen recording initiated by AI agents. |
+| `mcp-computer-use-block-screen-recording-action` | BLOCK | mcp_rule | computer_use start_recording action initiates continuous desktop capture — captures all on-screen content including credentials and sensitive displays. Block autonomously initiated screen recording. |
+| `mcp-computer-use-audit-clipboard-read` | AUDIT | mcp_rule | Reading the clipboard may expose credentials, OTP codes, or API keys the user recently copied. Verify that clipboard access is necessary and the contents are not sensitive. |
+| `mcp-computer-use-audit-clipboard-write` | AUDIT | mcp_rule | Writing to the clipboard can inject malicious commands or content that the user may unknowingly paste into a terminal, browser, or privileged application. Verify clipboard writes contain only expected, safe content. |
 | `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
