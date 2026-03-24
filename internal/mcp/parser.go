@@ -39,6 +39,8 @@ func ClassifyMessage(msg *Message) MessageKind {
 			return KindResourceRead
 		case MethodSamplingCreateMessage:
 			return KindSamplingCreateMessage
+		case MethodElicitationCreate:
+			return KindElicitationCreate
 		default:
 			return KindOtherRequest
 		}
@@ -98,6 +100,22 @@ func ExtractSamplingMessage(msg *Message) (*SamplingCreateMessageParams, error) 
 	var params SamplingCreateMessageParams
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
 		return nil, fmt.Errorf("failed to parse sampling/createMessage params: %w", err)
+	}
+	return &params, nil
+}
+
+// ExtractElicitationCreate extracts the params from an elicitation/create request.
+func ExtractElicitationCreate(msg *Message) (*ElicitationCreateParams, error) {
+	if msg.Method != MethodElicitationCreate {
+		return nil, fmt.Errorf("not an elicitation/create request: method=%q", msg.Method)
+	}
+	if msg.Params == nil {
+		return nil, fmt.Errorf("elicitation/create request has no params")
+	}
+
+	var params ElicitationCreateParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return nil, fmt.Errorf("failed to parse elicitation/create params: %w", err)
 	}
 	return &params, nil
 }

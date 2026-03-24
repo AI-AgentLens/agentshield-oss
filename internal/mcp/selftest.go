@@ -129,6 +129,33 @@ func RunMCPSelfTest(packsDir string) MCPSelfTestResults {
 // evaluateScenarioFromDef runs a single scenario through the full MCP evaluation
 // pipeline. This is the non-test version used by RunMCPSelfTest.
 func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) string {
+	// Elicitation/create scenario: run elicitation scanner.
+	if sc.ElicitationParams != nil {
+		params := &ElicitationCreateParams{
+			Message: sc.ElicitationParams.Message,
+		}
+		if len(sc.ElicitationParams.SchemaProperties) > 0 {
+			params.RequestedSchema = &ElicitationSchema{
+				Properties: make(map[string]*SchemaProperty, len(sc.ElicitationParams.SchemaProperties)),
+			}
+			for name, prop := range sc.ElicitationParams.SchemaProperties {
+				params.RequestedSchema.Properties[name] = &SchemaProperty{
+					Title:       prop.Title,
+					Description: prop.Description,
+				}
+			}
+		}
+		scanResult := ScanElicitationCreate(params)
+		switch {
+		case scanResult.Blocked:
+			return string(policy.DecisionBlock)
+		case scanResult.Audited:
+			return "AUDIT"
+		default:
+			return "ALLOW"
+		}
+	}
+
 	// Sampling/createMessage scenario: run sampling scanner instead of tool call pipeline.
 	if sc.SamplingMessages != nil {
 		params := &SamplingCreateMessageParams{
