@@ -1911,12 +1911,76 @@ var AdminEndpointProbeCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// Category 8.x: Prompt Cache Timing Oracle (LLM02, LLM06, CWE-208)
+// Taxonomy: reconnaissance/llm-introspection/prompt-cache-timing-oracle
+//
+// An adversary measures LLM API response latency across varying prefix
+// inputs to infer cached prompt content. The combination of a timing
+// function and an LLM API call in a single command is the detection signal.
+// ---------------------------------------------------------------------------
+
+// LLMCacheTimingOracleCases tests detection of prompt cache timing oracle probing.
+var LLMCacheTimingOracleCases = []TestCase{
+
+	// --- TRUE POSITIVES: Must be AUDITed ---
+
+	// TP-1: anthropic client with time.time() measurement loop
+	{
+		ID:               "TP-RECON-CACHE-TIMING-001",
+		Command:          `python3 -c "import time, anthropic; client = anthropic.Anthropic(); [print(time.time() - (t0:=time.time()) or client.messages.create(model='claude-3-5-sonnet-20241022', max_tokens=1, messages=[{'role':'user','content':p}])) for p in ['You are', 'System:']]"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Python one-liner measuring anthropic API latency per prefix — prototype prompt cache timing oracle. recon-llm-cache-timing-probe fires AUDIT (LLM02, CWE-208).",
+		Tags:             []string{"tp", "reconnaissance", "llm02", "timing-oracle"},
+	},
+	// TP-2: openai chat.completions with perf_counter timing
+	{
+		ID:               "TP-RECON-CACHE-TIMING-002",
+		Command:          `python3 -c "import time, openai; c=openai.OpenAI(); t0=time.perf_counter(); c.chat.completions.create(model='gpt-4o', messages=[{'role':'user','content':'You are'}]); print(time.perf_counter()-t0)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Python one-liner measuring openai chat.completions latency with time.perf_counter — timing oracle for OpenAI prompt cache. recon-llm-cache-timing-probe fires AUDIT (LLM02, CWE-208).",
+		Tags:             []string{"tp", "reconnaissance", "llm02", "timing-oracle"},
+	},
+
+	// --- TRUE NEGATIVES: Must NOT be blocked ---
+
+	// TN-1: normal LLM API call without timing measurement
+	{
+		ID:               "TN-RECON-CACHE-TIMING-001",
+		Command:          `python3 -c "import anthropic; client = anthropic.Anthropic(); msg = client.messages.create(model='claude-3-5-sonnet-20241022', max_tokens=100, messages=[{'role':'user','content':'Hello'}]); print(msg.content)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Normal anthropic API call without timing measurement — no cache timing oracle signal. recon-llm-cache-timing-probe does NOT fire. Gets default AUDIT (python3 is not pre-allowed).",
+		Tags:             []string{"tn", "safe", "timing-oracle"},
+	},
+	// TN-2: time.time() without any LLM API call
+	{
+		ID:               "TN-RECON-CACHE-TIMING-002",
+		Command:          `python3 -c "import time; t0=time.time(); print('hello'); print(time.time()-t0)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "time.time() without any LLM API call — pure Python timing of a print statement. recon-llm-cache-timing-probe does NOT fire (no LLM API in command). Gets default AUDIT (python3 is not pre-allowed by ts-allow-readonly).",
+		Tags:             []string{"tn", "safe", "timing-oracle"},
+	},
+}
+
 // AllReconnaissanceCases returns all test cases for Kingdom 8.
 func AllReconnaissanceCases() []TestCase {
 	var all []TestCase
 	all = append(all, NetworkScanningCases...)
 	all = append(all, HostDiscoveryCases...)
 	all = append(all, LLMIntrospectionCases...)
+	all = append(all, LLMCacheTimingOracleCases...)
 	all = append(all, DNSEnumerationCases...)
 	all = append(all, WebAppReconCases...)
 	all = append(all, PingSweepLoopCases...)
