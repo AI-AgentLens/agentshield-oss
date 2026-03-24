@@ -352,6 +352,91 @@ rules:
     reason: "MCP write to Codeium/Windsurf config directory — may modify telemetry or AI endpoint settings. OWASP LLM02/LLM06."
     confidence: 0.80
 
+  # ============================================================
+  # AI Reasoning Trace Exfiltration (issue #331)
+  # Taxonomy: data-exfiltration/llm-data-flow/ai-reasoning-trace-exfiltration
+  #
+  # Chain-of-thought and reasoning models (Claude extended thinking, OpenAI o1/o3)
+  # produce internal reasoning/thinking tokens. These traces may contain sensitive
+  # data extracted from context windows — partial secrets, PII, security deliberations
+  # — that the model correctly redacted from its final response. An MCP tool reading
+  # a reasoning trace file creates a secondary exfiltration vector that bypasses
+  # output filtering at the response level.
+  #
+  # Key risk: a model may redact a secret from its answer while still having
+  # processed it in the reasoning trace — making trace files a high-value target.
+  #
+  # OWASP LLM02 (Sensitive Information Disclosure), LLM06 (Excessive Agency)
+  # EU AI Act Art.9/Art.10/Art.15 | ISO 27001 A.8.2 | NIST AI RMF GOVERN-1/MANAGE-4
+  # MITRE T1041 (Exfiltration Over C2 Channel), T1005 (Data from Local System)
+  # CWE-200 (Exposure of Sensitive Information), CWE-532 (Sensitive Info in Logs)
+  # ============================================================
+
+  # === AUDIT: MCP read of a reasoning trace or extended thinking file ===
+  - id: mcp-llmdf-audit-reasoning-trace-read
+    taxonomy: "data-exfiltration/llm-data-flow/ai-reasoning-trace-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - read_resource
+      argument_patterns:
+        path: "**/*thinking_trace*"
+    decision: "AUDIT"
+    reason: "Reading a file matching *thinking_trace* via MCP — AI reasoning/thinking trace files may contain sensitive data from the model's internal processing that bypasses output filtering. OWASP LLM02, MITRE T1005."
+    confidence: 0.87
+
+  - id: mcp-llmdf-audit-reasoning-output-read
+    taxonomy: "data-exfiltration/llm-data-flow/ai-reasoning-trace-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - read_resource
+      argument_patterns:
+        path: "**/*reasoning_output*"
+    decision: "AUDIT"
+    reason: "Reading a file matching *reasoning_output* via MCP — AI reasoning output files may expose sensitive data that the model processed internally but redacted from its final response. OWASP LLM02, MITRE T1005."
+    confidence: 0.87
+
+  - id: mcp-llmdf-audit-chain-of-thought-read
+    taxonomy: "data-exfiltration/llm-data-flow/ai-reasoning-trace-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - read_resource
+      argument_patterns:
+        path: "**/*chain_of_thought*"
+    decision: "AUDIT"
+    reason: "Reading a file matching *chain_of_thought* via MCP — chain-of-thought logs capture model reasoning that may include sensitive context not present in the final response. OWASP LLM02, MITRE T1005."
+    confidence: 0.87
+
+  - id: mcp-llmdf-audit-extended-thinking-read
+    taxonomy: "data-exfiltration/llm-data-flow/ai-reasoning-trace-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - read_resource
+      argument_patterns:
+        path: "**/*extended_thinking*"
+    decision: "AUDIT"
+    reason: "Reading a file matching *extended_thinking* via MCP — Claude extended thinking traces capture intermediate reasoning that may contain sensitive information redacted from the final API response. OWASP LLM02, MITRE T1005."
+    confidence: 0.87
+
 structural_rules:
   # === AUDIT: Cross-server context harvesting instructions in content ===
   # When a tool call argument contains instructions to forward outputs from
