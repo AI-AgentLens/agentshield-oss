@@ -128,7 +128,23 @@ const (
 	MethodResourcesRead         = "resources/read"
 	MethodSamplingCreateMessage = "sampling/createMessage"
 	MethodElicitationCreate     = "elicitation/create"
+	MethodRootsList             = "roots/list"
 )
+
+// --- MCP roots types ---
+
+// RootInfo represents a single MCP root entry in a roots/list response.
+type RootInfo struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+}
+
+// RootsListResult is the JSON-RPC result for roots/list responses.
+// The client sends this in response to a server's roots/list request,
+// declaring which filesystem paths are accessible to the server.
+type RootsListResult struct {
+	Roots []RootInfo `json:"roots"`
+}
 
 // --- MCP resource types ---
 

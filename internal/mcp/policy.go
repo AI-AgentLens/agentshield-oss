@@ -559,6 +559,141 @@ func extractNumericArg(arguments map[string]interface{}, argName string) (float6
 	}
 }
 
+// EvaluateRootsList checks the roots declared in a roots/list response for
+// sensitive filesystem paths. A malicious MCP server may elicit roots that
+// encompass credential directories (~/.ssh, ~/.aws, etc.) or the home directory,
+// enabling it to read secrets through subsequent tool calls.
+//
+// BLOCK: root is a known credential directory or its ancestor covers it.
+// AUDIT: root is a broad directory (home or system root) that encompasses creds.
+//
+// Detection is pattern-based (not tied to the current user's HOME) so that it
+// works across user accounts and in test environments.
+func (e *PolicyEvaluator) EvaluateRootsList(roots []RootInfo) MCPEvalResult {
+	result := MCPEvalResult{
+		Decision:       policy.DecisionAllow, // roots/list is not subject to the default AUDIT
+		TriggeredRules: []string{},
+		Reasons:        []string{},
+	}
+
+	// sensitiveCredDirNames: final path component names that are credential directories.
+	// A root whose last component matches one of these is a direct credential exposure.
+	sensitiveCredDirNames := map[string]string{
+		".ssh":    "SSH credential directory",
+		".aws":    "AWS credential directory",
+		".gnupg":  "GPG key directory (~/.gnupg)",
+		".kube":   "Kubernetes credential directory",
+		".vault":  "HashiCorp Vault credential directory",
+		".docker": "Docker credential directory (~/.docker)",
+	}
+
+	// sensitiveCredSuffixes: multi-component path suffixes for nested credential dirs.
+	// A root whose path ends with one of these is a credential directory.
+	sensitiveCredSuffixes := []string{
+		"/.config/gcloud",
+		"/.config/op",
+		"/.config/helm",
+	}
+
+	// broadDirs: directories that encompass credential dirs without being one themselves.
+	// These are AUDITED rather than blocked.
+	broadDirs := []string{
+		"/",
+		"/home",
+		"/Users",   // macOS user homes parent
+		"/root",    // root account home
+		"/etc",     // system configuration
+	}
+
+	// Also audit /home/<anything> and /Users/<anything> — user home directories.
+	// A home dir encompasses .ssh, .aws, etc. without being a cred dir itself.
+	isUserHomeDir := func(p string) bool {
+		for _, prefix := range []string{"/home/", "/Users/"} {
+			if strings.HasPrefix(p, prefix) {
+				// Exactly one more path component (the username), no further slashes
+				rest := strings.TrimPrefix(p, prefix)
+				if rest != "" && !strings.Contains(rest, "/") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	for _, root := range roots {
+		uri := root.URI
+		// Normalize: strip file:// prefix and trailing slashes (but preserve "/" root)
+		p := strings.TrimPrefix(uri, "file://")
+		if p != "/" {
+			p = strings.TrimRight(p, "/")
+		}
+		if p == "" {
+			p = "/"
+		}
+
+		base := filepath.Base(p)
+
+		// BLOCK: final component is a known credential directory name
+		if desc, ok := sensitiveCredDirNames[base]; ok {
+			return MCPEvalResult{
+				Decision:       policy.DecisionBlock,
+				TriggeredRules: []string{"mcp-roots-block-sensitive-cred-dir"},
+				Reasons: []string{
+					fmt.Sprintf("MCP root %q is a %s — credential theft via roots privilege escalation (MITRE T1078, T1083, OWASP LLM08).", uri, desc),
+				},
+			}
+		}
+
+		// BLOCK: path ends with a sensitive multi-component credential suffix
+		for _, suffix := range sensitiveCredSuffixes {
+			if strings.HasSuffix(p, suffix) {
+				return MCPEvalResult{
+					Decision:       policy.DecisionBlock,
+					TriggeredRules: []string{"mcp-roots-block-sensitive-cred-dir"},
+					Reasons: []string{
+						fmt.Sprintf("MCP root %q ends with credential path %q — potential credential theft via roots privilege escalation (MITRE T1078, T1083, OWASP LLM08).", uri, suffix),
+					},
+				}
+			}
+		}
+
+		// BLOCK: path is inside a credential directory (path contains /.ssh/ etc.)
+		for name := range sensitiveCredDirNames {
+			if strings.Contains(p, "/"+name+"/") {
+				return MCPEvalResult{
+					Decision:       policy.DecisionBlock,
+					TriggeredRules: []string{"mcp-roots-block-sensitive-cred-dir"},
+					Reasons: []string{
+						fmt.Sprintf("MCP root %q is inside credential directory %q — direct credential access via roots (MITRE T1078, OWASP LLM08).", uri, name),
+					},
+				}
+			}
+		}
+
+		// AUDIT: broad parent directories that encompass credential dirs
+		isBroad := false
+		for _, broad := range broadDirs {
+			if p == broad {
+				isBroad = true
+				break
+			}
+		}
+		if !isBroad && isUserHomeDir(p) {
+			isBroad = true
+		}
+
+		if isBroad && decisionSeverity(policy.DecisionAudit) > decisionSeverity(result.Decision) {
+			result.Decision = policy.DecisionAudit
+			result.TriggeredRules = []string{"mcp-roots-audit-broad-dir"}
+			result.Reasons = []string{
+				fmt.Sprintf("MCP root %q is a broad directory that encompasses credential paths — review whether this scope is necessary (OWASP LLM08).", uri),
+			}
+		}
+	}
+
+	return result
+}
+
 func decisionSeverity(d policy.Decision) int {
 	switch d {
 	case policy.DecisionBlock:
