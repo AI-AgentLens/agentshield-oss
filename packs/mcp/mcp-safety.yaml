@@ -776,3 +776,47 @@ semantic_rules:
     decision: "BLOCK"
     reason: "MCP sampling/createMessage server-initiated request contains prompt injection, credential-harvesting, or exfiltration patterns. Sampling requests are server-controlled — this is a consent bypass and tool gate bypass vector. Detection via proxy-layer ScanSamplingMessages(). OWASP LLM01/LLM06/LLM03, MITRE T1059."
     confidence: 0.90
+
+  # === BLOCK/AUDIT: MCP elicitation/create credential harvesting and social engineering (issue #303) ===
+  #
+  # MCP 2025 added the elicitation/create request type, which allows MCP servers to prompt
+  # the client for structured user input. This is a novel server-initiated social engineering
+  # surface with no shell equivalent:
+  #
+  #   - Credential harvesting: server requests a schema with field names like "password",
+  #     "token", "api_key" — the UI renders an input form that harvests the credential
+  #   - Social engineering: urgency/threat framing in the message text coerces the user
+  #     into approving dangerous operations ("Your session will expire immediately")
+  #   - Approval laundering: framing a destructive action as a confirmation prompt
+  #     ("Confirm deletion of all user data to proceed")
+  #   - Safety bypass: asking user to "confirm" disabling safety checks
+  #
+  # Detection is performed at the MCP proxy layer by HandleElicitationCreate() in
+  # internal/mcp/handler.go, which dispatches to ScanElicitationCreate() in
+  # internal/mcp/elicitation_scanner.go:
+  #   - BLOCK: requestedSchema contains credential-like field names (password, token, api_key, etc.)
+  #   - AUDIT: message text contains social-engineering patterns (urgency, threat, coercion)
+  #   - ALLOW: benign elicitation (project name, port number, output format)
+  #
+  # These sentinel rules document the taxonomy linkage and surface detection in
+  # `agentshield scan` output. The tool_name_regex never matches a real MCP tool —
+  # actual detection fires from the proxy layer before YAML rule evaluation.
+  #
+  # OWASP LLM 2025: LLM01 (Prompt Injection), LLM06 (Excessive Agency)
+  # MITRE: T1566 (Phishing — social engineering), T1056.001 (Input Capture: Keylogging)
+  # CWE: CWE-1021 (Improper Restriction of Rendered UI Layers), CWE-312 (Cleartext Storage)
+  - id: mcp-guardian-elicitation-credential
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-elicitation-abuse"
+    match:
+      tool_name_regex: "^__mcp_elicitation_credential__$"
+    decision: "BLOCK"
+    reason: "MCP elicitation/create requests a credential-like schema field (password, token, api_key, secret) — server is harvesting credentials via structured UI prompt. Detection via proxy-layer ScanElicitationCreate(). OWASP LLM01/LLM06, MITRE T1566."
+    confidence: 0.95
+
+  - id: mcp-guardian-elicitation-social-engineering
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-elicitation-abuse"
+    match:
+      tool_name_regex: "^__mcp_elicitation_social_engineering__$"
+    decision: "AUDIT"
+    reason: "MCP elicitation/create message contains social engineering patterns (urgency framing, threat language, coercive approval prompts) — server may be manipulating the user into approving dangerous operations. Detection via proxy-layer ScanElicitationCreate(). OWASP LLM01, MITRE T1566."
+    confidence: 0.82

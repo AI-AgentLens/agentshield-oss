@@ -75,6 +75,16 @@ var credentialFieldNames = []string{
 	"aws_secret",
 	"aws_access_key",
 	"github_token",
+	"mfa_code",
+	"mfa_token",
+	"otp",
+	"otp_code",
+	"totp",
+	"totp_code",
+	"verification_code",
+	"auth_code",
+	"2fa_code",
+	"two_factor",
 }
 
 // socialEngineeringPatterns match urgency/threat language in elicitation messages.
