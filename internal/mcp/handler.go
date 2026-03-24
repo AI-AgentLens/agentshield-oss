@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 )
 
 // MessageHandler encapsulates the shared MCP message evaluation logic
@@ -528,4 +530,72 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		return nil
 	}
 	return replacement
+}
+
+// HandleRootsListResponse intercepts roots/list responses (client→server) to detect
+// MCP servers that have elicited access to sensitive filesystem paths.
+//
+// In MCP 2025, a server can send a roots/list REQUEST asking the client to declare
+// which filesystem roots it has. The client responds with root URIs. If any root
+// encompasses a credential directory (~/.ssh, ~/.aws, etc.) or is overbroad (/home,
+// /), AgentShield blocks or audits the response.
+//
+// Detection is content-based: we attempt to parse the response as RootsListResult.
+// If the result has a non-empty roots array, we evaluate it.
+// Returns the replacement JSON bytes if blocked, nil if not a roots/list response
+// or the roots are safe.
+func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	// Try to parse as RootsListResult — must have a roots array
+	var rootsResult RootsListResult
+	if err := json.Unmarshal(msg.Result, &rootsResult); err != nil {
+		return nil
+	}
+	if len(rootsResult.Roots) == 0 {
+		return nil
+	}
+
+	result := h.Evaluator.EvaluateRootsList(rootsResult.Roots)
+
+	if h.OnAudit != nil && (result.Decision == policy.DecisionBlock || result.Decision == policy.DecisionAudit) {
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       MethodRootsList,
+			Decision:       string(result.Decision),
+			Flagged:        true,
+			TriggeredRules: result.TriggeredRules,
+			Reasons:        result.Reasons,
+			Source:         "mcp-proxy-roots-guard",
+			ServerName:     h.ServerName,
+		})
+	}
+
+	if result.Decision == policy.DecisionBlock {
+		reason := "blocked by roots privilege escalation guard"
+		if len(result.Reasons) > 0 {
+			reason = result.Reasons[0]
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED roots/list response — %s\n", reason)
+
+		replacement, err := NewBlockResponse(msg.ID, reason)
+		if err != nil {
+			return nil
+		}
+		return replacement
+	}
+
+	if result.Decision == policy.DecisionAudit {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT roots/list response — %s\n", result.Reasons[0])
+	}
+
+	return nil
 }

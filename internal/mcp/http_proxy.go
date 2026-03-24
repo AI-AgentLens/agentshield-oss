@@ -212,6 +212,18 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Intercept roots/list responses (client→server direction in HTTP transport).
+	// The server sent a roots/list request; the client is responding with root URIs.
+	// Block if any root encompasses sensitive credential directories.
+	if kind == KindResponse {
+		if replacement := hp.handler.HandleRootsListResponse(body); replacement != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(replacement)
+			return
+		}
+	}
+
 	// Forward the request to the upstream server
 	hp.forwardPost(w, r, body)
 }

@@ -129,6 +129,16 @@ func RunMCPSelfTest(packsDir string) MCPSelfTestResults {
 // evaluateScenarioFromDef runs a single scenario through the full MCP evaluation
 // pipeline. This is the non-test version used by RunMCPSelfTest.
 func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) string {
+	// roots/list response scenario: evaluate declared root URIs against protected paths.
+	if sc.RootsListRoots != nil {
+		roots := make([]RootInfo, 0, len(sc.RootsListRoots))
+		for _, uri := range sc.RootsListRoots {
+			roots = append(roots, RootInfo{URI: uri})
+		}
+		result := handler.Evaluator.EvaluateRootsList(roots)
+		return string(result.Decision)
+	}
+
 	// Elicitation/create scenario: run elicitation scanner.
 	if sc.ElicitationParams != nil {
 		params := &ElicitationCreateParams{
