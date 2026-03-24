@@ -123,19 +123,21 @@ rules:
     reason: "dotnet add package flagged for supply-chain review. Verify the package source is the official NuGet gallery."
 
   # === BLOCK: Direct URL installs (bypass registry) ===
+  # Issue #282: added pip3, python -m pip, uv pip install variants
   - id: "sc-block-pip-url-install"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "pip\\s+install\\s+(https?://|git\\+)"
+      command_regex: "(pip3?|python3?\\s+-m\\s+pip|uv\\s+pip)\\s+install\\s+(https?://|git\\+)"
     decision: "BLOCK"
     reason: "pip install from URL bypasses PyPI. Download and inspect first."
 
+  # Issue #282: added yarn add and pnpm add URL install variants
   - id: "sc-block-npm-url-install"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
-      command_regex: "npm\\s+(install|i)\\s+(https?://|git\\+|git://)"
+      command_regex: "(npm\\s+(install|i)|yarn\\s+add|pnpm\\s+add)\\s+(https?://|git\\+|git://)"
     decision: "BLOCK"
-    reason: "npm install from URL bypasses registry verification."
+    reason: "Package install from URL bypasses registry verification (npm/yarn/pnpm)."
 
   # === BLOCK: Config file tampering ===
   - id: "sc-block-npmrc-edit"

