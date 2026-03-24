@@ -244,9 +244,10 @@ rules:
     taxonomy: "supply-chain/config-tampering/package-config-edit"
     match:
       command_regex: "go\\s+mod\\s+edit\\s+.*-replace\\b"
+      command_regex_exclude: "-replace[=\\s]+[^=]+=(\\.|/)"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "go mod edit -replace redirects a Go module to an attacker-controlled path or repository, silently substituting a trusted dependency. AI agents have no legitimate need to replace module mappings."
+    reason: "go mod edit -replace redirects a Go module to an attacker-controlled remote repository, silently substituting a trusted dependency. Local path replacements (./... ../... /) are excluded — these are legitimate in Go monorepo and local fork workflows."
 
   # === BLOCK: Go module proxy/sum-database bypass ===
   # Catches AI agents redirecting Go module downloads to non-official proxies
