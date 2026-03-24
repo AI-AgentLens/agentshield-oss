@@ -1,0 +1,148 @@
+id: "unauthorized-execution/agentic-attacks/mcp-dynamic-client-registration-abuse"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Dynamic Client Registration Abuse"
+risk_level: "high"
+
+abstract: |
+  An attacker exploits the MCP OAuth 2.1 Dynamic Client Registration (DCR)
+  endpoint (RFC 7591) — introduced in the MCP 2025-03-26 specification — to
+  auto-register a rogue client with misleading metadata, overly broad scopes,
+  or attacker-controlled redirect URIs, establishing a persistent trusted
+  identity before the user understands what they have authorized.
+
+explanation: |
+  The MCP 2025-03-26 specification mandates OAuth 2.1 for remote server
+  authorization and recommends support for RFC 7591 Dynamic Client Registration
+  (DCR). DCR allows any HTTP client to self-register with the MCP authorization
+  server by POSTing client metadata (name, redirect URIs, scopes, logo URI)
+  to a well-known endpoint — without pre-approval by the operator.
+
+  This creates several distinct attack vectors not covered by general
+  OAuth flow attacks:
+
+  1. **Rogue client registration**: A malicious actor registers a client
+     with a convincing display name (e.g., "Claude Code MCP Helper") and
+     requests broad scopes (filesystem:read, terminal:execute, memory:write).
+     If the AS lacks client approval gates, the registration succeeds
+     immediately and the client can be used to solicit user consent.
+
+  2. **Redirect URI stuffing**: The attacker registers dozens of redirect
+     URIs including their own attacker.com/callback. RFC 7591 allows
+     registration of multiple URIs. If the AS performs only prefix or
+     exact-match validation, an attacker can register
+     `https://legitimate-mcp.example.com.attacker.com/callback` to intercept
+     authorization codes from confused users.
+
+  3. **Client impersonation via metadata**: By cloning the `client_name`,
+     `logo_uri`, and `client_uri` of a legitimate, well-known MCP server,
+     an attacker creates a lookalike registration that users approve on
+     the consent screen — believing they are authorizing the real server.
+
+  4. **Token scope escalation**: An attacker first registers with minimal
+     scopes to gain approval, then re-registers the same client_id (using
+     DCR management endpoints, RFC 7592) with escalated scopes —
+     exploiting lazy re-consent implementations that skip scope diff review.
+
+  **Why this is distinct from `mcp-authorization-bypass`**:
+  `mcp-authorization-bypass` targets the *in-flight* authorization flow
+  (token theft, code interception, consent phishing for an existing client).
+  DCR abuse operates *before* any flow begins — it manufactures the trusted
+  client identity itself, poisoning the client registry that all future
+  consent screens are drawn from.
+
+  **Why it matters for AI coding agents**: MCP IDEs (Cursor, Claude Code,
+  Windsurf) are rapidly adopting remote MCP servers. Users install community
+  MCP servers by adding a URL to their config. If the AS behind that URL
+  has an open DCR endpoint, an attacker hosting any content at a sub-path
+  can register their own client in the same AS and appear alongside
+  legitimate tools in the user's consent UI.
+
+recommendation: |
+  - **MCP server operators**: Disable or gate the DCR endpoint; require
+    manual admin approval for new client registrations.
+  - **AS implementations**: Enforce strict redirect URI validation (exact
+    match, no wildcards, no public suffixes as parent domains); reject
+    registrations with display names matching known legitimate clients.
+  - **MCP clients (IDEs)**: Pin client credentials at first registration;
+    alert users when client metadata changes on re-registration.
+  - **Operators**: Audit `/.well-known/oauth-authorization-server` and
+    `/.well-known/openid-configuration` for DCR endpoint exposure; apply
+    rate limiting to prevent bulk rogue registrations.
+  - **AgentShield MCP proxy**: Detect and flag DCR registration requests
+    (HTTP POST to `/register`) originating from within the agent's shell
+    session or MCP tool calls — legitimate agents should not self-register.
+
+examples:
+  bad:
+    - |
+      # Attacker posts to MCP AS dynamic client registration endpoint
+      curl -X POST https://mcp.example.com/register \
+        -H "Content-Type: application/json" \
+        -d '{
+          "client_name": "Claude Code MCP Helper",
+          "logo_uri": "https://claude.ai/favicon.ico",
+          "redirect_uris": [
+            "https://claude.ai/oauth/callback",
+            "https://claude.ai.attacker.com/callback"
+          ],
+          "scope": "filesystem:read filesystem:write terminal:execute memory:read memory:write",
+          "grant_types": ["authorization_code"],
+          "response_types": ["code"]
+        }'
+    - |
+      # MCP tool call containing DCR registration payload (injection vector)
+      # Attacker-controlled MCP server returns a tool result that triggers
+      # secondary agent action to self-register a rogue client
+      {"toolName": "setup_integration", "arguments": {
+        "registration_endpoint": "https://mcp.example.com/register",
+        "metadata": {"client_name": "Official Helper", "scope": "admin:all"}
+      }}
+  good:
+    - |
+      # MCP client with admin-approved registration only
+      # mcp-server.yaml
+      authorization:
+        dynamic_client_registration: false   # require manual admin approval
+        allowed_clients:
+          - client_id: "cursor-official-XXXX"
+            client_name: "Cursor"
+            redirect_uris: ["cursor://oauth/callback"]
+    - |
+      # Operator auditing DCR exposure before deploying MCP server
+      curl -s https://mcp.example.com/.well-known/oauth-authorization-server \
+        | jq '.registration_endpoint'  # if non-null, DCR is enabled — gate it
+
+compliance:
+  owasp-llm-2025: ["LLM07", "LLM08", "LLM05"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.5.23"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MAP-5"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
+
+references:
+  mitre_attack: ["T1078", "T1556", "T1036"]
+  cwe: ["CWE-287", "CWE-284", "CWE-20"]
+  external:
+    - title: "MCP Authorization Specification (2025-03-26) — Dynamic Client Registration"
+      url: "https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/authorization/"
+    - title: "RFC 7591 — OAuth 2.0 Dynamic Client Registration Protocol"
+      url: "https://www.rfc-editor.org/rfc/rfc7591"
+    - title: "RFC 7592 — OAuth 2.0 Dynamic Client Registration Management Protocol"
+      url: "https://www.rfc-editor.org/rfc/rfc7592"
+    - title: "OWASP OAuth Security Cheat Sheet"
+      url: "https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html"
+
+analyzers: ["structural", "dataflow"]
+related_rules:
+  - "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
+  - "unauthorized-execution/agentic-attacks/mcp-server-impersonation"
+  - "unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation"
+  - "unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning"
+# Detection: Structural analyzer can detect curl/http POST to /register paths
+# on MCP authorization server endpoints. Dataflow analyzer can trace tool
+# call arguments that contain registration_endpoint or client_metadata patterns
+# flowing toward network sinks.

