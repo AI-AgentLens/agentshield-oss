@@ -320,10 +320,10 @@ rules:
   - id: "ts-block-pipe-to-interpreter"
     taxonomy: "unauthorized-execution/remote-code-exec/pipe-to-shell"
     match:
-      command_regex: "^(curl|wget)\\b.*\\|\\s*(python[23]?|node(?:js)?|ruby|perl|php)(\\s+-\\s*)?$"
+      command_regex: "^(curl|wget)\\b.*\\|\\s*(python[23]?|node(?:js)?|ruby|perl|php)(\\s+-)?(\\s+2>[/\\w]+)?\\s*$"
     decision: "BLOCK"
     confidence: 0.92
-    reason: "Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3' or 'python3 -' at end of pipe; excludes '-c' inline script variants which are safe data-processing patterns. OWASP LLM06, CWE-78, MITRE T1059."
+    reason: "Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3', 'python3 -', and 'python3 2>/dev/null' forms; excludes '-c' inline script variants. OWASP LLM06, CWE-78, MITRE T1059."
 
   # === BLOCK: Pipe-to-modern-interpreter (issue #594) ===
   #
@@ -1816,11 +1816,10 @@ rules:
   - id: "ts-audit-terraform-apply-no-scan"
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
-      command_regex: "\\bterraform\\s+apply\\b(?!.*--?auto[-_]?approve\\b)"
-      command_regex_exclude: "(checkov|tfsec|trivy)\\s.*&&\\s*terraform\\s+apply"
+      command_regex: "\\bterraform\\s+apply\\b"
     decision: "AUDIT"
     confidence: 0.75
-    reason: "terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578)"
+    reason: "terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578)"
 
   # --- AUDIT: helm install / upgrade (applies unreviewed Kubernetes resources) ---
   # helm install/upgrade deploys Kubernetes resources from a chart. AI-generated
@@ -2613,10 +2612,10 @@ rules:
   - id: "ts-block-git-reset-hard-commits"
     taxonomy: "destructive-ops/version-control/git-history-destruction"
     match:
-      command_regex: "git\\s+reset\\s+--hard\\s+(HEAD[~^][0-9]*[0-9]|[0-9a-f]{4,40})"
+      command_regex: "git\\s+reset\\s+--hard\\s+(HEAD[~^][0-9]*|[0-9a-f]{4,40})"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "git reset --hard HEAD~N or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485)."
+    reason: "git reset --hard HEAD~N, HEAD~ (bare tilde), or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485)."
 
   - id: "ts-block-git-filter-branch"
     taxonomy: "destructive-ops/version-control/git-history-destruction"
@@ -3878,10 +3877,10 @@ rules:
   - id: "ts-block-ansic-hex-escape"
     taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
     match:
-      command_regex: "\\$'[^']*\\\\x[0-9a-fA-F]{2}[^']*'"
+      command_regex: "\\$'[^']*\\\\x[0-9a-fA-F]{2}[^']*\\\\x[0-9a-fA-F]{2}[^']*'"
     decision: "BLOCK"
     confidence: 0.92
-    reason: "ANSI-C quoting with hex escapes ($'\\xNN') — encodes arbitrary bytes to evade command detection. An attacker can write $'\\x72\\x6d' instead of 'rm', completely bypassing string-based rules. Legitimate shell scripts use $'\\t' or $'\\n', not hex encoding. MITRE T1027.004."
+    reason: "ANSI-C quoting with multiple hex escapes ($'\\xNN\\xNN...') — encodes command words as arbitrary bytes to evade detection (e.g. $'\\x72\\x6d' = 'rm'). Requires 2+ hex escapes to avoid false positives on single-escape sequences like $'\\x1b[0;31m' (ANSI terminal colors). MITRE T1027.004."
 
   # --- BLOCK: ANSI-C quoting with octal escape sequences ---
   - id: "ts-block-ansic-octal-escape"
@@ -4759,10 +4758,10 @@ rules:
   - id: "ts-block-printf-hex-pipe-shell"
     taxonomy: "unauthorized-execution/remote-code-exec/printf-command-construction"
     match:
-      command_regex: "printf\\s+['\"].*\\\\x[0-9a-fA-F]{2}.*['\"]\\s*\\|\\s*(sh|bash|zsh|dash|ksh|fish)"
+      command_regex: "printf\\s+.*\\\\x[0-9a-fA-F]{2}.*\\s*\\|\\s*(sh|bash|zsh|dash|ksh|fish)"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. MITRE T1027.004."
+    reason: "printf with hex escape sequences piped to a shell interpreter — constructs and executes encoded commands, evading ANSI-C quoting detection. Covers both quoted ($'\\xNN') and format-string (printf %b '\\xNN') variants. MITRE T1027.004."
 
   # --- BLOCK: echo -e with hex escapes piped to shell interpreter ---
   - id: "ts-block-echo-hex-pipe-shell"
@@ -4882,10 +4881,10 @@ rules:
   - id: "ts-block-git-config-pager"
     taxonomy: "persistence-evasion/config-modification/git-config-code-execution"
     match:
-      command_regex: "git\\b.*\\bconfig\\b.*(--global\\s+|--system\\s+|--local\\s+|--worktree\\s+)?core\\.pager\\s+\\S"
+      command_regex: "git\\b.*\\bconfig\\b.*(--global\\s+|--system\\s+|--local\\s+|--worktree\\s+)?core\\.pager\\s+['\"]?(sh|bash|zsh|dash|ksh|fish|python[23]?|perl|ruby|node|php|eval|exec|[^\\s'\"]*\\|)"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "git config core.pager replaces the pager command for git log/diff/show — runs arbitrary command every time output is paged. MITRE T1574."
+    reason: "git config core.pager set to a shell interpreter (bash, sh, python, etc.) or a pipeline expression — runs arbitrary code on every git log/diff/show. Legitimate pagers (delta, bat, less, diff-so-fancy) are not flagged. MITRE T1574."
 
   - id: "ts-block-git-config-fsmonitor"
     taxonomy: "persistence-evasion/config-modification/git-config-code-execution"
@@ -5735,10 +5734,10 @@ rules:
   - id: "ts-audit-confused-deputy-eval"
     taxonomy: "privilege-escalation/agent-containment/confused-deputy-tool-delegation"
     match:
-      command_regex: "(eval|exec)\\s+[\"']?\\$\\([^)]+\\)|\\beval\\s+[\"']?\\$\\{[A-Z_]+\\}"
+      command_regex: "(eval|exec)\\s+[\"']?\\$\\([^)]*(?:curl|wget|fetch|https?://|base64|xxd|\\|\\s*(?:sh|bash|zsh))[^)]*\\)|\\beval\\s+[\"']?\\$\\{[A-Z_]+\\}"
     decision: "AUDIT"
-    confidence: 0.75
-    reason: "eval/exec on a command substitution or captured variable — if the substituted output originates from an MCP tool response, this is a confused deputy pattern where the agent proxies untrusted instructions with its own privileges (OWASP LLM06, CWE-441)."
+    confidence: 0.80
+    reason: "eval/exec on a network fetch, base64 decode, or shell pipe — high-confidence confused deputy pattern where agent proxies untrusted remote content with its own privileges. Known-safe local tool evals (ssh-agent, brew shellenv, direnv, rbenv, pyenv) are not flagged. OWASP LLM06, CWE-441."
 
   # ===================================================================
   # AGENT ORCHESTRATION HIJACKING
@@ -9191,9 +9190,9 @@ rules:
     taxonomy: "unauthorized-execution/agentic-attacks/agentic-error-recovery-exploitation"
     match:
       command_regex: "\\|\\|\\s*sudo\\b"
-    decision: "BLOCK"
-    confidence: 0.90
-    reason: "Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use || (run-on-failure) to auto-escalate after 'Permission denied' — a high-confidence agentic attack pattern (OWASP LLM06, NIST GOVERN-1). The agent should surface the error to the user, not autonomously escalate privileges."
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Privilege escalation via error recovery: a failed command is immediately retried with sudo. AI agents use || (run-on-failure) to auto-escalate after 'Permission denied' — a common agentic attack pattern. Downgraded from BLOCK to AUDIT to allow legitimate developer idioms (e.g. 'apt-get update || sudo apt-get update'). OWASP LLM06, NIST GOVERN-1."
 
   # --- AUDIT: security control bypass via error recovery ---
   #

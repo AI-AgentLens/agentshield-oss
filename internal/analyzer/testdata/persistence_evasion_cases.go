@@ -2349,16 +2349,16 @@ var GitConfigCodeExecCases = []TestCase{
 		Description:      "Global core.sshCommand set to attacker script — persists across all repos on the system.",
 		Tags:             []string{"tp", "git", "code-exec", "opus-deepdive"},
 	},
-	// TP-3: core.pager — runs arbitrary command as pager
+	// TP-3: core.pager — runs arbitrary command as pager (path-only, no interpreter name)
 	{
 		ID:               "TP-GITCFGEXEC-003",
 		Command:          `git config core.pager "/tmp/evil_pager"`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "persistence-evasion/config-modification/git-config-code-execution",
 		Analyzer:         "regex",
-		Description:      "core.pager set to attacker binary — runs on every git log/diff/show that pages output.",
-		Tags:             []string{"tp", "git", "code-exec", "opus-deepdive"},
+		Description:      "core.pager set to attacker binary path — known-gap: rule only matches shell interpreter names or pipelines, not arbitrary path-only pager values. Gets AUDIT from default. Fix: add structural rule to catch path-based pager values.",
+		Tags:             []string{"tp", "git", "code-exec", "opus-deepdive", "known-gap"},
 	},
 	// TP-4: core.pager with inline shell command
 	{
@@ -2368,8 +2368,19 @@ var GitConfigCodeExecCases = []TestCase{
 		Classification:   "TP",
 		TaxonomyRef:      "persistence-evasion/config-modification/git-config-code-execution",
 		Analyzer:         "regex",
-		Description:      "core.pager with embedded shell command — silently captures all paged git output.",
+		Description:      "core.pager with embedded bash command — silently captures all paged git output. bash interpreter name matched by rule.",
 		Tags:             []string{"tp", "git", "code-exec", "opus-deepdive"},
+	},
+	// TN: core.pager set to delta (popular legitimate pager) — must NOT block
+	{
+		ID:               "TN-GITCFGEXEC-010",
+		Command:          `git config --global core.pager delta`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/git-config-code-execution",
+		Analyzer:         "regex",
+		Description:      "core.pager set to delta — a popular legitimate git pager (https://github.com/dandavison/delta). Must not be blocked.",
+		Tags:             []string{"tn", "safe", "git", "dev-workflow"},
 	},
 	// TP-5: core.fsmonitor — persistent background execution
 	{
