@@ -550,8 +550,10 @@ rules:
     taxonomy: "data-exfiltration/network-egress/reverse-shell"
     match:
       command_regex: "^(nc|ncat|netcat|socat)\\s"
+      # nc -z is a connectivity/port-scan check (zero-I/O mode) — no data transfer possible.
+      command_regex_exclude: "^nc\\s.*-[a-zA-Z]*z"
     decision: "BLOCK"
-    reason: "Netcat/socat can open reverse shells."
+    reason: "Netcat/socat can open reverse shells or exfiltrate data. nc -z port scans are excluded (zero-I/O mode, no shell execution)."
 
   - id: "ts-block-bash-dev-tcp"
     taxonomy: "data-exfiltration/network-egress/reverse-shell"
