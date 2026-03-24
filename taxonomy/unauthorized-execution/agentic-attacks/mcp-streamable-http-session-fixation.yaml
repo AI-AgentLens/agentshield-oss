@@ -1,0 +1,147 @@
+id: "unauthorized-execution/agentic-attacks/mcp-streamable-http-session-fixation"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Streamable HTTP Session Fixation"
+risk_level: "high"
+
+abstract: |
+  An attacker exploits weak session ID generation or validation in MCP servers
+  using the Streamable HTTP transport (introduced in MCP 2025-03-26) to perform
+  session fixation, hijack active agent sessions, or inject tool calls into
+  legitimate sessions — bypassing OAuth authorization by targeting the
+  post-authentication session layer.
+
+explanation: |
+  The MCP 2025-03-26 specification introduced Streamable HTTP as a new transport
+  mechanism. It uses explicit session management: the server returns a
+  `Mcp-Session-Id` header after session initialization, and the client includes
+  this ID in subsequent requests. This creates a new attack surface that is
+  distinct from OAuth authorization bypass (`mcp-authorization-bypass`) and
+  general session hijacking (`agent-session-hijacking`):
+
+  **Session Fixation Attack:**
+  If the MCP server accepts a client-supplied session ID in the initialization
+  request (or fails to regenerate the session ID after successful OAuth
+  authentication), an attacker can fix the session ID to a known value before
+  the victim authenticates. After authentication, the attacker uses the known ID
+  to make tool calls in the victim's session.
+
+  **Predictable Session ID Enumeration:**
+  Servers that generate session IDs using weak entropy sources (sequential
+  integers, timestamps, UUID v1 with predictable MAC addresses, short random
+  strings) allow attackers to enumerate or predict valid session IDs for active
+  agent sessions. The attacker then injects requests using a guessed ID to
+  execute tools under the victim agent's authorization context.
+
+  **Session Resumption Forgery:**
+  The Streamable HTTP spec allows sessions to be resumed across HTTP connections.
+  If the server does not cryptographically verify that the resuming client holds
+  the same credentials as the session initiator, an attacker who learns a valid
+  session ID (from logs, network sniffing, referrer headers, or URL sharing) can
+  resume the session and issue arbitrary tool calls.
+
+  **Race Condition During Session Creation:**
+  In high-concurrency MCP deployments, session creation races between the ID
+  assignment and the credential binding steps may allow an attacker to claim a
+  session ID before its legitimate owner, inheriting the subsequent OAuth token
+  binding.
+
+  **Differentiation from related entries:**
+  - `agent-session-hijacking`: Focuses on channel interception (stdio, WebSocket,
+    Unix socket). This entry focuses on the HTTP session management protocol.
+  - `mcp-authorization-bypass`: Targets OAuth flows before session creation. This
+    entry targets the session layer after OAuth succeeds.
+  - `mcp-credential-relay`: Targets credential forwarding in tool calls. This
+    entry targets session identity, not credential content.
+
+recommendation: |
+  - Always generate session IDs server-side using a cryptographically secure
+    random number generator (CSPRNG) with at least 128 bits of entropy. Reject
+    any client-supplied session ID values.
+  - Regenerate the session ID after successful OAuth authentication (equivalent
+    to session fixation prevention in web applications — OWASP A07).
+  - Cryptographically bind session IDs to the OAuth access token that established
+    them. A resumed session with a different OAuth token must be rejected.
+  - Set short session ID expiry (15–60 minutes for active sessions, immediate
+    for idle) and enforce absolute session timeouts.
+  - Never include session IDs in URLs, query parameters, or log files — transmit
+    only via `Mcp-Session-Id` headers with appropriate `Cache-Control: no-store`
+    response headers.
+  - Implement session invalidation on OAuth token expiry, revocation, or user
+    logout — do not allow session continuation after the backing credential is
+    revoked.
+  - Log all session creation, resumption, and termination events with the
+    initiating client IP, user agent, and OAuth subject for anomaly detection.
+  - Monitor for rapid sequential session ID attempts (enumeration pattern) and
+    rate-limit or block offending clients.
+
+examples:
+  bad:
+    - |
+      # Server accepts client-supplied session ID — fixation risk
+      @app.post("/mcp")
+      async def initialize(request: Request):
+          session_id = request.headers.get("Mcp-Session-Id") or str(uuid.uuid4())
+          sessions[session_id] = new_session()
+          return Response(headers={"Mcp-Session-Id": session_id})
+    - |
+      # Weak entropy session ID — enumerable
+      session_id = f"session-{int(time.time())}-{random.randint(1000, 9999)}"
+    - |
+      # Session resumption without credential validation
+      @app.get("/mcp")
+      async def get_stream(mcp_session_id: str = Header(None)):
+          session = sessions.get(mcp_session_id)  # no OAuth token check
+          if session:
+              return sse_stream(session)
+    - |
+      # Session ID in URL — leaks via referrer and logs
+      return RedirectResponse(f"/mcp/stream?session={session_id}")
+  good:
+    - |
+      # Server-only session ID generation with CSPRNG
+      import secrets
+      session_id = secrets.token_urlsafe(32)  # 256 bits entropy
+      sessions[session_id] = Session(oauth_token=verified_token)
+    - |
+      # Validate session binding on every request
+      session = sessions.get(mcp_session_id)
+      if not session or session.oauth_token != current_token:
+          raise HTTPException(status_code=401)
+    - |
+      # Regenerate session ID after OAuth completes
+      old_id = pre_auth_session_id
+      new_id = secrets.token_urlsafe(32)
+      sessions[new_id] = sessions.pop(old_id)
+      sessions[new_id].oauth_subject = token_claims["sub"]
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM09"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.23", "A.5.15"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.8"]
+
+references:
+  mitre_attack: ["T1550", "T1539", "T1185"]
+  cwe: ["CWE-384", "CWE-330", "CWE-613"]
+  external:
+    - title: "MCP Specification 2025-03-26: Streamable HTTP Transport"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http"
+    - title: "OWASP Session Management Cheat Sheet"
+      url: "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+    - title: "CWE-384: Session Fixation"
+      url: "https://cwe.mitre.org/data/definitions/384.html"
+
+analyzers: ["semantic", "regex"]
+related_rules: ["agent-session-hijacking", "mcp-authorization-bypass", "mcp-credential-relay"]
+# Detection: Comply static analysis rules should flag:
+# 1. MCP server code that reads session ID from client request headers/params
+#    and uses it directly without server-side regeneration
+# 2. Session ID generation using non-CSPRNG sources (time.time(), random.randint,
+#    uuid1(), sequential counters)
+# 3. Session resumption that doesn't validate the OAuth token binding
+# 4. Session IDs included in URL construction or redirect responses
