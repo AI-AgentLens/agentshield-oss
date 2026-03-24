@@ -64,17 +64,19 @@ examples:
 
 compliance:
   owasp-llm-2025: ["LLM02", "LLM07", "LLM09"]
-  iso-27001-2022: ["A.8.2", "A.5.10", "A.8.25", "A.5.23"]
-  eu-ai-act-2024: ["Art.9", "Art.15", "Art.25"]
-  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MANAGE-3", "MEASURE-2"]
-  soc2-type2: ["CC6.1", "CC6.6", "CC9.2"]
+  iso-27001-2022: ["A.5.10", "A.8.25", "A.5.23"]
+  eu-ai-act-2024: ["Art.9", "Art.15", "Art.26"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MANAGE-4", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC9.1"]
 
 references:
   mitre_attack: ["T1195", "T1036", "T1556"]
   cwe: ["CWE-367", "CWE-494", "CWE-1038"]
   external:
-    - "https://modelcontextprotocol.io/specification/security"
-    - "OWASP LLM Top 10 2025 — LLM07: System Prompt Leakage / Tool Trust"
+    - title: "MCP Specification: Security Considerations"
+      url: "https://modelcontextprotocol.io/specification/security"
+    - title: "OWASP LLM Top 10 2025 — LLM07: System Prompt Leakage / Tool Trust"
+      url: "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
 
 analyzers: ["mcp", "structural"]
 related_rules:
