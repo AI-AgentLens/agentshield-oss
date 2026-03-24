@@ -724,16 +724,16 @@ var GoModReplaceCases = []TestCase{
 		Tags: []string{"tp", "supply-chain", "go", "critical"},
 	},
 	{
-		ID:               "TP-SC-BLOCK-GOMODREPLACE-002",
-		Command:          `go mod edit -replace golang.org/x/crypto=../local-evil-crypto`,
-		ExpectedDecision: "BLOCK",
-		Classification:   "TP",
+		ID:               "TN-SC-BLOCK-GOMODREPLACE-004",
+		Command:          `go mod edit -replace golang.org/x/crypto=../local-crypto`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
 		Analyzer:         "regex",
-		Description: `go mod replace with local path substitution. Redirects the
-			standard library crypto package to a local malicious directory.
-			Even local-path replacements must be blocked in agent context.`,
-		Tags: []string{"tp", "supply-chain", "go", "local-path"},
+		Description: `go mod replace with relative local path (../). Legitimate in Go monorepo
+			and local fork workflows — developer testing a local fork of a module.
+			command_regex_exclude allows local paths (./ ../ /) to pass through as AUDIT.`,
+		Tags: []string{"tn", "safe", "go", "local-path"},
 	},
 	{
 		ID:               "TP-SC-BLOCK-GOMODREPLACE-003",
@@ -783,6 +783,18 @@ var GoModReplaceCases = []TestCase{
 			safe inspection. The cat prefix triggers ts-allow-readonly (ALLOW).
 			Must not trigger the go mod edit -replace BLOCK rule.`,
 		Tags: []string{"tn", "safe", "go", "readonly"},
+	},
+	{
+		ID:               "TN-SC-BLOCK-GOMODREPLACE-005",
+		Command:          `go mod edit -replace github.com/myorg/lib=./lib`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/package-config-edit",
+		Analyzer:         "regex",
+		Description: `go mod replace with relative local path (./ prefix). Standard Go monorepo
+			workflow — pointing a module to a sibling directory. Excluded by command_regex_exclude,
+			falls through to default AUDIT decision (issue #278).`,
+		Tags: []string{"tn", "safe", "go", "local-path"},
 	},
 }
 
