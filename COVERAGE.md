@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1007 |
+| Terminal rules | 1008 |
 | MCP rules | 371 |
-| Total rules | 1378 |
-| Test cases (TP+TN) | 3540 |
+| Total rules | 1379 |
+| Test cases (TP+TN) | 3549 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -678,7 +678,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (69 rules)
+### reconnaissance (70 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -737,6 +737,7 @@
 | `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
+| `recon-llm-cache-timing-probe` | AUDIT | regex | LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208). |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
 | `ts-block-inotify-persistent-monitor` | BLOCK | regex | inotifywait recursive persistent monitoring on broad paths — surveils all file operations under root or home directory. Enables attack timing and data harvesting. MITRE T1083. |
 | `ts-audit-inotifywait-general` | AUDIT | regex | inotifywait filesystem event monitoring — can be used for legitimate file watching (e.g., build tools) but also for surveillance. AUDIT to log usage. MITRE T1083. |
@@ -770,9 +771,9 @@
 | `sc-audit-dotnet-add` | AUDIT | regex | dotnet add package flagged for supply-chain review. Verify the package source is the official NuGet gallery. |
 | `sc-block-pip-url-install` | BLOCK | regex | pip install from URL bypasses PyPI. Download and inspect first. |
 | `sc-block-npm-url-install` | BLOCK | regex | Package install from URL bypasses registry verification (npm/yarn/pnpm). |
-| `sc-block-npmrc-edit` | BLOCK | regex | Modification of .npmrc blocked — may redirect package resolution. |
+| `sc-block-npmrc-edit` | BLOCK | regex | Write operation to .npmrc blocked — may redirect package resolution. sed requires -i/--in-place flag (read-only sed is allowed). |
 | `sc-block-pypirc-edit` | BLOCK | regex | Modification of .pypirc blocked — may redirect package resolution. |
-| `sc-block-pip-conf-write` | BLOCK | regex | Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829. |
+| `sc-block-pip-conf-write` | BLOCK | regex | Write to pip.conf/pip.ini — persistently redirects all future pip installs to a custom index URL, enabling dependency confusion attacks that survive AgentShield restarts. MITRE T1195.001, CWE-829. sed requires -i/--in-place (read-only sed is allowed). |
 | `sc-block-npm-config-set-registry` | BLOCK | regex | npm config set registry — persistently overrides the npm registry in ~/.npmrc, redirecting all future installs to a potentially malicious source. MITRE T1195.001. |
 | `sc-block-gem-sources-add` | BLOCK | regex | gem sources --add — adds a custom gem source globally, enabling dependency shadowing where a malicious higher-versioned gem can be installed instead of the legitimate package. MITRE T1195.001. |
 | `sc-block-gemrc-write` | BLOCK | regex | Write to ~/.gemrc — persistently overrides gem sources, enabling dependency confusion attacks on all subsequent gem installs. MITRE T1195.001. |
@@ -803,7 +804,7 @@
 | `sc-audit-lockfile-edit` | AUDIT | regex | Lock file modification flagged — may indicate supply-chain tampering. MITRE T1195.001. |
 | `sc-block-ml-dataset-write` | BLOCK | regex | Writing to ML training dataset files blocked. May introduce poisoned examples into fine-tuning pipeline (LLM04). |
 | `sc-block-ml-dataset-append` | BLOCK | regex | Appending data to training dataset file blocked. Risk of training data poisoning (LLM04). |
-| `sc-block-ml-checkpoint-replace` | BLOCK | regex | Writing to ML model checkpoint file blocked. PyTorch .pt/.pkl files can contain pickle exploits. Risk of checkpoint substitution attack (LLM04). |
+| `sc-block-ml-checkpoint-replace` | BLOCK | regex | Downloading a remote file into an ML model checkpoint directory blocked — remote-sourced .pt/.pkl files can contain pickle exploits enabling RCE on model load (LLM04, AML.T0010). Local cp/mv operations are covered by sc-audit-ml-checkpoint-write at AUDIT level. |
 | `sc-audit-ml-checkpoint-write` | AUDIT | regex | Model checkpoint file copy or move flagged. Verify source integrity before deploying (LLM04). |
 | `sc-block-hf-cli-download` | BLOCK | regex | huggingface-cli download pulls a model repo from the HF Hub. Untrusted repos can ship pickle-exploit payloads that execute on load. Human review of the source required (LLM04, AML.T0010). |
 | `sc-audit-hf-from-pretrained` | AUDIT | regex | Python command calling from_pretrained() to download a model from HF Hub or a remote path. Verify the source repo is trusted before execution (LLM04). |
@@ -835,7 +836,7 @@
 | `sc-block-mcp-config-sed-redirect` | BLOCK | regex | In-place sed modification of an MCP config file — surgically replacing server endpoints redirects agent tool calls to attacker-controlled infrastructure (OWASP LLM07, MITRE T1565.001). |
 | `sc-block-mcp-config-jq-write` | BLOCK | regex | jq rewriting .mcpServers entries in an MCP config file — replacing trusted server commands or args with malicious ones is a precision MCP configuration injection (OWASP LLM07, MITRE T1565.001). |
 | `sc-audit-mcp-tool-schema-write` | AUDIT | regex | Writing to an MCP server tool schema file can alter the schemas returned on tools/list — enabling tool poisoning where a trusted tool's input schema is widened to accept attacker-controlled parameters. OWASP LLM07, MITRE T1195.001. |
-| `sc-block-ai-endpoint-env-override` | BLOCK | regex | Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090). |
+| `sc-block-ai-endpoint-env-override` | BLOCK | regex | Shell export of AI API base URL env var — redirecting OPENAI_BASE_URL, ANTHROPIC_BASE_URL, or similar variables to an attacker-controlled endpoint intercepts all agent AI calls (OWASP LLM08, MITRE T1565, T1090). Localhost targets are excluded (standard Ollama/local-proxy setup). |
 | `sc-block-ai-endpoint-dotenv-write` | BLOCK | regex | Writing AI API endpoint env var to .env file — persisting endpoint override across sessions redirects all agent AI calls to attacker-controlled infrastructure (OWASP LLM08, MITRE T1565.001). |
 | `sc-block-ai-hosts-hijack` | BLOCK | regex | Appending AI API domain to /etc/hosts — overriding DNS resolution for api.openai.com or api.anthropic.com redirects agent AI calls at the network layer, bypassing TLS certificate validation context (OWASP LLM08, MITRE T1565, T1090). |
 | `sc-block-model-extraction-toolkit` | BLOCK | regex | Invocation of a known model extraction/stealing toolkit (knockoffnets, copycat-cnn, model-steal) — these tools systematically probe inference APIs to reconstruct proprietary model weights. No legitimate development use case. OWASP LLM03, EU AI Act Art.15. |
@@ -1509,8 +1510,8 @@
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 172 | 459 |
 | privilege-escalation | 284 | 172 | 456 |
-| reconnaissance | 168 | 74 | 242 |
-| supply-chain | 243 | 163 | 406 |
+| reconnaissance | 170 | 76 | 246 |
+| supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 401 | 272 | 673 |
-| **Total** | **2153** | **1387** | **3540** |
+| **Total** | **2153** | **1396** | **3549** |
 
