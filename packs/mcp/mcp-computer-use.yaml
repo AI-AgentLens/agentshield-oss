@@ -1,5 +1,5 @@
 name: "MCP Computer Use Safety"
-description: "Block and audit dangerous MCP computer-use tool calls: unscoped screenshots, auth-bypass clicks, and full-desktop captures"
+description: "Block and audit dangerous MCP computer-use tool calls: unscoped screenshots, screen recording, clipboard access, auth-bypass clicks, and full-desktop captures"
 version: "1.0.0"
 author: "AgentShield Security Research"
 
@@ -85,3 +85,91 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Clicking 'Approve' dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action."
+
+  - id: mcp-computer-use-audit-auth-grant-click
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+        - "click"
+        - "click_element"
+        - "desktop_click"
+      argument_patterns:
+        action: "click"
+        text: "*Grant*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Clicking 'Grant' permission dialogs autonomously may bypass UI-level authorization controls. Verify this is an intended, human-approved action."
+
+  - id: mcp-computer-use-audit-auth-continue-click
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+        - "click"
+        - "click_element"
+        - "desktop_click"
+      argument_patterns:
+        action: "click"
+        text: "*Continue*"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Clicking 'Continue' on multi-step permission dialogs autonomously may silently advance through authorization prompts. Verify this is an intended, human-approved action."
+
+  # === BLOCK: Screen recording (captures continuous video including credentials) ===
+  - id: mcp-computer-use-block-screen-recording
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "record_screen"
+        - "start_screen_recording"
+        - "screen_record"
+        - "capture_video"
+        - "record_desktop"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Screen recording captures continuous video of all desktop activity, including credentials, OTP codes, and password manager content — more invasive than a screenshot. Block all screen recording initiated by AI agents."
+
+  - id: mcp-computer-use-block-screen-recording-action
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "computer_use"
+        - "use_computer"
+        - "computer_action"
+      argument_patterns:
+        action: "start_recording"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "computer_use start_recording action initiates continuous desktop capture — captures all on-screen content including credentials and sensitive displays. Block autonomously initiated screen recording."
+
+  # === AUDIT: Clipboard access (may contain credentials or enable injection) ===
+  - id: mcp-computer-use-audit-clipboard-read
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "read_clipboard"
+        - "get_clipboard"
+        - "clipboard_read"
+        - "get_clipboard_content"
+        - "clipboard_get"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Reading the clipboard may expose credentials, OTP codes, or API keys the user recently copied. Verify that clipboard access is necessary and the contents are not sensitive."
+
+  - id: mcp-computer-use-audit-clipboard-write
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "write_clipboard"
+        - "set_clipboard"
+        - "clipboard_write"
+        - "set_clipboard_content"
+        - "clipboard_set"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Writing to the clipboard can inject malicious commands or content that the user may unknowingly paste into a terminal, browser, or privileged application. Verify clipboard writes contain only expected, safe content."
