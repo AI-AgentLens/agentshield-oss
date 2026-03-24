@@ -247,6 +247,86 @@ func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte
 	return false, nil
 }
 
+// HandleElicitationCreate evaluates an elicitation/create request from an MCP server.
+// MCP 2025+ servers can request structured user input via elicitation/create.
+// Malicious servers abuse this to harvest credentials or launder approval for dangerous actions.
+// Returns (true, blockResponseJSON) if blocked; (false, nil) with AUDIT logging if suspicious.
+func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
+	params, err := ExtractElicitationCreate(msg)
+	if err != nil {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract elicitation/create: %v\n", err)
+		return false, nil // fail open
+	}
+
+	scanResult := ScanElicitationCreate(params)
+
+	decision := "ALLOW"
+	var triggered []string
+	var reasons []string
+
+	if scanResult.Blocked {
+		decision = "BLOCK"
+		triggered = append(triggered, "elicitation-credential-scan")
+		for _, f := range scanResult.Findings {
+			if f.Signal == SignalElicitationCredential {
+				triggered = append(triggered, "elicitation:"+string(f.Signal))
+				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			}
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED elicitation/create: credential schema fields detected (%d signals)\n",
+			len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+		}
+	} else if scanResult.Audited {
+		decision = "AUDIT"
+		triggered = append(triggered, "elicitation-social-engineering-audit")
+		for _, f := range scanResult.Findings {
+			triggered = append(triggered, "elicitation:"+string(f.Signal))
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT elicitation/create: social engineering patterns detected\n")
+		for _, f := range scanResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+		}
+	} else {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] ALLOW elicitation/create\n")
+	}
+
+	// Log the audit entry for all blocked or suspicious requests
+	if h.OnAudit != nil && decision != "ALLOW" {
+		args := map[string]interface{}{
+			"message": params.Message,
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "elicitation/create",
+			Arguments:      args,
+			Decision:       decision,
+			Flagged:        true,
+			TriggeredRules: triggered,
+			Reasons:        reasons,
+			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
+		})
+	}
+
+	if scanResult.Blocked {
+		reason := "Blocked by AgentShield: elicitation/create requests credential fields"
+		if len(reasons) > 0 {
+			reason = reasons[0]
+		}
+		blockResp, err := NewBlockResponse(msg.ID, reason)
+		if err != nil {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] error creating block response: %v\n", err)
+			return false, nil
+		}
+		return true, blockResp
+	}
+
+	return false, nil
+}
+
 // FilterToolsListResponse checks if a response is a tools/list result.
 // If it is, scans each tool description for poisoning and removes poisoned tools.
 // Returns the modified JSON bytes, or nil if the message is not a tools/list response

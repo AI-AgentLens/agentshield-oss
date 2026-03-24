@@ -67,14 +67,15 @@ type ListToolsResult struct {
 type MessageKind int
 
 const (
-	KindUnknown             MessageKind = iota
-	KindToolCall                        // tools/call request
-	KindToolList                        // tools/list request
-	KindResourceRead                    // resources/read request
-	KindSamplingCreateMessage           // sampling/createMessage request (server→client)
-	KindNotification                    // any notification (no id)
-	KindResponse                        // any response (has id, has result or error)
-	KindOtherRequest                    // any other request (has id + method)
+	KindUnknown               MessageKind = iota
+	KindToolCall                          // tools/call request
+	KindToolList                          // tools/list request
+	KindResourceRead                      // resources/read request
+	KindSamplingCreateMessage             // sampling/createMessage request (server→client)
+	KindElicitationCreate                 // elicitation/create request (server→client)
+	KindNotification                      // any notification (no id)
+	KindResponse                          // any response (has id, has result or error)
+	KindOtherRequest                      // any other request (has id + method)
 )
 
 // String returns a human-readable label for the message kind.
@@ -88,6 +89,8 @@ func (k MessageKind) String() string {
 		return "resources/read"
 	case KindSamplingCreateMessage:
 		return "sampling/createMessage"
+	case KindElicitationCreate:
+		return "elicitation/create"
 	case KindNotification:
 		return "notification"
 	case KindResponse:
@@ -102,10 +105,11 @@ func (k MessageKind) String() string {
 // --- Well-known MCP methods ---
 
 const (
-	MethodToolsCall              = "tools/call"
-	MethodToolsList              = "tools/list"
-	MethodResourcesRead          = "resources/read"
-	MethodSamplingCreateMessage  = "sampling/createMessage"
+	MethodToolsCall             = "tools/call"
+	MethodToolsList             = "tools/list"
+	MethodResourcesRead         = "resources/read"
+	MethodSamplingCreateMessage = "sampling/createMessage"
+	MethodElicitationCreate     = "elicitation/create"
 )
 
 // --- MCP resource types ---
@@ -136,6 +140,30 @@ type SamplingCreateMessageParams struct {
 	MaxTokens        int                    `json:"maxTokens,omitempty"`
 	SystemPrompt     string                 `json:"systemPrompt,omitempty"`
 	ModelPreferences map[string]interface{} `json:"modelPreferences,omitempty"`
+}
+
+// --- MCP elicitation types ---
+
+// ElicitationCreateParams represents the params of an elicitation/create request.
+// MCP servers (2025+) send this to request structured user input during tool execution.
+type ElicitationCreateParams struct {
+	Message         string             `json:"message"`
+	RequestedSchema *ElicitationSchema `json:"requestedSchema,omitempty"`
+}
+
+// ElicitationSchema is the JSON-schema-like structure that describes the data an
+// elicitation request asks the user to provide.
+type ElicitationSchema struct {
+	Type       string                       `json:"type,omitempty"`
+	Title      string                       `json:"title,omitempty"`
+	Properties map[string]*SchemaProperty   `json:"properties,omitempty"`
+}
+
+// SchemaProperty is one property in an ElicitationSchema.
+type SchemaProperty struct {
+	Type        string `json:"type,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // --- JSON-RPC error codes ---

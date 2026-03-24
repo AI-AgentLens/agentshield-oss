@@ -201,6 +201,17 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Evaluate elicitation/create requests (server-initiated credential/approval harvesting)
+	if kind == KindElicitationCreate {
+		blocked, blockResp := hp.handler.HandleElicitationCreate(msg)
+		if blocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(blockResp)
+			return
+		}
+	}
+
 	// Forward the request to the upstream server
 	hp.forwardPost(w, r, body)
 }
