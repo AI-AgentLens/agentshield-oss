@@ -49,6 +49,7 @@ rules:
         - "get_file_contents"
         - "open_file"
         - "view_file"
+        - "read_resource"
       argument_patterns:
         path: "/proc/**/environ"
     decision: "BLOCK"
@@ -80,9 +81,9 @@ rules:
         - "dir"
         - "glob"
       argument_patterns:
-        path: "/home/**"
+        path: "/home/*"
     decision: "AUDIT"
-    reason: "Listing /home directory contents flagged — enumerates local user accounts and their project layouts. MITRE T1083."
+    reason: "Listing /home root-level user directory flagged — enumerates local user accounts. Deep project paths under /home are excluded to avoid noise on legitimate project work. MITRE T1083."
 
   - id: mcp-recon-audit-os-release-read
     taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
@@ -189,17 +190,30 @@ structural_rules:
             - "(?i)/console(/|$)"
             - "(?i)/_debug(/|$)"
             - "(?i)/_admin(/|$)"
-            - "(?i)/dashboard(/|$)"
             - "(?i)/admin(/|$)"
             - "(?i)/__admin(/|$)"
     decision: "AUDIT"
-    reason: "Generic management or admin path access flagged — common control plane endpoints may expose sensitive config, operational data, or debug interfaces. LLM02, MITRE T1082."
+    reason: "Generic management or admin path access flagged — control plane endpoints may expose sensitive config, operational data, or debug interfaces. Note: /dashboard excluded due to high FP rate in web applications. LLM02, MITRE T1082."
 
   # === AUDIT: Database schema enumeration ===
+  # Scoped to tools explicitly named for reconnaissance-style operations.
+  # Standard ORM migration tools (execute_query, run_sql) are excluded because
+  # information_schema access is routine in database migrations — scoping
+  # to tool names that suggest exploratory/enumeration intent reduces FP rate.
   - id: mcp-recon-audit-db-schema-enum
     taxonomy: "reconnaissance/network-discovery/database-schema-enumeration"
     match:
-      tool_name_regex: ".*"
+      tool_name_any:
+        - "db_query"
+        - "sql_query"
+        - "database_query"
+        - "query_database"
+        - "run_database_query"
+        - "list_tables"
+        - "list_databases"
+        - "describe_table"
+        - "show_tables"
+        - "schema_info"
       args_match:
         query:
           pattern_any:
@@ -209,7 +223,7 @@ structural_rules:
             - "(?i)pg_catalog\\.pg_tables"
             - "(?i)sqlite_master"
     decision: "AUDIT"
-    reason: "Database schema enumeration query detected — maps table structure before targeted data extraction. LLM06, MITRE T1213."
+    reason: "Database schema enumeration query detected — maps table structure before targeted data extraction. Scoped to exploratory tool names to reduce ORM migration FP rate. LLM06, MITRE T1213."
 
   # ============================================================
   # LLM Introspection: Model Fingerprinting via Boundary Probe (issue #175)

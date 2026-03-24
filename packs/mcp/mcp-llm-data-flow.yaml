@@ -138,7 +138,7 @@ rules:
   # credentials, API keys, and PII persisted from prior agent sessions.
   # Taxonomy: data-exfiltration/llm-data-flow/cross-session-context-leakage
   # OWASP LLM02 — Sensitive Information Disclosure, LLM07 — System Prompt Leakage
-  - id: mcp-llmdf-audit-agent-session-db-read
+  - id: mcp-llmdf-audit-agent-session-db-read-cursor
     taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
     match:
       tool_name_any:
@@ -148,9 +148,84 @@ rules:
         - "read_resource"
         - "open_file"
       argument_patterns:
-        path: "**/.{cursor,windsurf,claude,continue,copilot,codeium}/**"
+        path: "**/.cursor/**"
     decision: "AUDIT"
-    reason: "Reading an AI agent session or conversation database via MCP — these files may contain credentials, API keys, and PII from prior sessions, creating a cross-session context leakage vector. OWASP LLM02/LLM07."
+    reason: "Reading Cursor AI agent session data via MCP — may contain credentials, API keys, and PII from prior sessions. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-session-db-read-windsurf
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.windsurf/**"
+    decision: "AUDIT"
+    reason: "Reading Windsurf AI agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-session-db-read-claude
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.claude/**"
+    decision: "AUDIT"
+    reason: "Reading Claude Code agent session data via MCP — may contain credentials and conversation history from prior sessions. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-session-db-read-continue
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.continue/**"
+    decision: "AUDIT"
+    reason: "Reading Continue AI agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-session-db-read-copilot
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.copilot/**"
+    decision: "AUDIT"
+    reason: "Reading GitHub Copilot agent session data via MCP — may contain credentials and conversation history. OWASP LLM02/LLM07."
+    confidence: 0.85
+
+  - id: mcp-llmdf-audit-agent-session-db-read-codeium
+    taxonomy: "data-exfiltration/llm-data-flow/cross-session-context-leakage"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "read_resource"
+        - "open_file"
+      argument_patterns:
+        path: "**/.codeium/**"
+    decision: "AUDIT"
+    reason: "Reading Codeium agent session data via MCP — may contain credentials and PII from prior sessions. OWASP LLM02/LLM07."
     confidence: 0.85
 
   - id: mcp-llmdf-audit-agent-memory-bulk-read
@@ -364,7 +439,7 @@ structural_rules:
             - "AKIA[0-9A-Z]{16}"
             - "(?i)ghp_[A-Za-z0-9]{36}"
             - "(?i)glpat-[A-Za-z0-9_-]{20}"
-            - "(?i)(password|passwd|secret|api[_-]key)\\s*[:=]\\s*[\"'][^\"'();.]{12,}[\"']"
+            - "(?i)(password|passwd|secret|api[_-]key)\\s*[:=]\\s*[\"'](?!(?:placeholder|changeme|your[_-]?(?:api[_-]?)?(?:key|secret|password|token)|example|redacted|xxxx|1234|test|dummy|fake|insert|replace|<[^>]+>))[^\"'();.]{12,}[\"']"
             - "(?i)bearer\\s+[A-Za-z0-9\\-._~+/]{20,}={0,2}"
     decision: "BLOCK"
     reason: "Credential or API key detected in MCP message content — hardcoded secrets in LLM prompt context risk model memorization and exfiltration. OWASP LLM07 (Sensitive Data Exposure)."
