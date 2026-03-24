@@ -149,3 +149,159 @@ rules:
         path: "**/*ai*incident*"
     decision: "AUDIT"
     reason: "MCP delete targeting AI incident response artifact — deleting incident playbooks or runbooks impairs post-incident investigation and EU AI Act Art.73 serious incident reporting obligations (CWE-778, NIST AI RMF GOVERN-6)."
+
+  # ===========================================================================
+  # AI Model Registry and Inventory Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Management), NIST AI RMF GOVERN-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # Model registry and inventory files track which AI models are deployed, their
+  # approved versions, risk classifications, and lineage. An AI agent silently
+  # rewriting these files can mask unauthorized model deployments or suppress
+  # required model approval records. Write operations to these files require
+  # human oversight.
+
+  - id: mcp-gov-audit-ai-model-registry-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*model*registry*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI model registry file — modifications by AI agents can mask unauthorized model deployments or suppress required approval records (CWE-693, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+
+  - id: mcp-gov-audit-ai-model-inventory-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*model*inventory*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI model inventory file — modifications can suppress the approved model version record required by EU AI Act Art.9 and NIST AI RMF GOVERN-1 (CWE-693)."
+
+  # ===========================================================================
+  # AI Risk Assessment File Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Assessment), NIST AI RMF MAP-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # AI risk assessment documents record evaluated threats, mitigations, and
+  # residual risk levels. An AI agent silently editing these files can inflate
+  # the assessed compliance posture and hide known vulnerabilities from auditors.
+  # Hyphen-bounded patterns (ai-risk, llm-risk) are used to avoid matching
+  # unrelated terms like "mail-risk" or "trail-risk" that contain "ai" as a
+  # substring.
+
+  - id: mcp-gov-audit-ai-risk-assessment-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*ai-risk*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI risk assessment file — silent edits can inflate compliance posture and conceal known vulnerabilities from auditors (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1)."
+
+  - id: mcp-gov-audit-llm-risk-assessment-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm-risk*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to LLM risk assessment file — silent modification erodes the audit trail for AI risk posture (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1)."
+
+  # ===========================================================================
+  # AI Policy Configuration Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9, NIST AI RMF GOVERN-1
+  # CWE-284 — Improper Access Control
+  #
+  # AI policy files configure allowed model behaviors, output filters, and
+  # safety guardrails. An AI agent silently modifying its own policy file
+  # can disable safety controls without triggering a human review workflow.
+  # Hyphen/underscore-bounded patterns avoid matching "mail-policy" etc.
+
+  - id: mcp-gov-audit-ai-policy-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*ai-policy*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI policy configuration file — silent modification can disable safety guardrails or expand allowed model behaviors without human review (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+
+  - id: mcp-gov-audit-llm-policy-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm-policy*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to LLM policy configuration file — silent modification can disable output filters or safety guardrails without triggering a human review workflow (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
