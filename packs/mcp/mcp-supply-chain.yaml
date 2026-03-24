@@ -120,9 +120,9 @@ structural_rules:
             - "(?:^|/)azure-pipelines(?:-[a-zA-Z0-9_-]+)?\\.ya?ml$"
             - "(?:^|/)\\.drone\\.ya?ml$"
             - "(?:^|/)\\.buildkite/.*\\.ya?ml$"
-    decision: "BLOCK"
-    reason: "MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Requires human review. MITRE T1195.002."
-    confidence: 0.97
+    decision: "AUDIT"
+    reason: "MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Downgraded to AUDIT because agents routinely create/edit CI configs (GitHub Actions, CircleCI) as a core workflow. MITRE T1195.002."
+    confidence: 0.90
 
   # === BLOCK: Dockerfile and container image build config writes via MCP (issue #171) ===
   #
@@ -158,9 +158,9 @@ structural_rules:
             - "(?:^|/)Dockerfile(?:\\.[a-zA-Z0-9_.-]+)?$"
             - "(?:^|/)docker-compose(?:\\.[a-zA-Z0-9_.-]+)?\\.ya?ml$"
             - "(?:^|/)\\.dockerignore$"
-    decision: "BLOCK"
-    reason: "MCP write to Dockerfile or docker-compose config — injecting malicious RUN/COPY/ENV instructions backdoors every container built from this image. Requires human review. MITRE T1612, T1195.002."
-    confidence: 0.95
+    decision: "AUDIT"
+    reason: "MCP write to Dockerfile or docker-compose config — injecting malicious instructions could backdoor containers. Downgraded to AUDIT because editing Dockerfiles is one of the most common agent tasks. Human reviews the diff at commit time. MITRE T1612, T1195.002."
+    confidence: 0.90
 
   # === BLOCK: Package manager config file writes via MCP (issue #448) ===
   #

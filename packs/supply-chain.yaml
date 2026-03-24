@@ -19,8 +19,10 @@ rules:
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
     match:
       command_regex: "npm\\s+(install|i|add).*--registry\\s+"
-    decision: "BLOCK"
-    reason: "npm install with non-standard registry override blocked. May be dependency confusion attack."
+      command_regex_exclude: "--registry\\s+https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::1\\]|[a-zA-Z0-9.-]+\\.(internal|local|corp|intra))(:[0-9]+)?"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "npm install with non-standard registry override. May be dependency confusion attack, or a legitimate private registry (Artifactory, Nexus, Verdaccio). Review the registry URL."
 
   - id: "sc-block-pip-extra-index"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
@@ -29,8 +31,9 @@ rules:
         executable: ["pip", "pip2", "pip3"]
         subcommand: "install"
         flags_any: ["extra-index-url"]
-    decision: "BLOCK"
-    reason: "pip install with --extra-index-url blocked. Risk of dependency confusion."
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "pip install with --extra-index-url adds an additional package index. Risk of dependency confusion, but also common for private enterprise mirrors. Review the index URL."
 
   - id: "sc-block-pip-index-url"
     taxonomy: "supply-chain/dependency-confusion/non-standard-registry"
@@ -39,9 +42,9 @@ rules:
         executable: ["pip", "pip2", "pip3"]
         subcommand: "install"
         flags_any: ["index-url"]
-    decision: "BLOCK"
-    confidence: 0.95
-    reason: "pip install with --index-url replaces the primary PyPI index entirely, routing all package downloads to an attacker-controlled server. More severe than --extra-index-url."
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "pip install with --index-url replaces the primary PyPI index. Required in enterprise environments with private mirrors (Artifactory, Nexus, CodeArtifact). Review the index URL for legitimacy."
 
   - id: "sc-block-git-url-rewrite"
     taxonomy: "supply-chain/config-tampering/package-config-edit"

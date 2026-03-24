@@ -1563,9 +1563,9 @@ rules:
         executable: ["npm", "yarn", "pnpm"]
         subcommand: "install"
         flags_any: ["registry"]
-    decision: "BLOCK"
-    confidence: 0.90
-    reason: "Structural: package install with custom registry override is a supply chain risk."
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Structural: package install with custom registry override. May be enterprise private registry (Artifactory, Nexus, Verdaccio) or supply chain attack. Review the registry URL."
 
   # === SEMANTIC RULES ===
   # These match against intents classified by the built-in semantic analyzer.
@@ -1816,7 +1816,8 @@ rules:
   - id: "ts-audit-terraform-apply-no-scan"
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
-      command_regex: "(?<!checkov[^;\\n]{0,200})(?<!tfsec[^;\\n]{0,200})(?<!trivy[^;\\n]{0,200})\\bterraform\\s+apply\\b(?!.*-auto-approve)"
+      command_regex: "\\bterraform\\s+apply\\b(?!.*--?auto[-_]?approve\\b)"
+      command_regex_exclude: "(checkov|tfsec|trivy)\\s.*&&\\s*terraform\\s+apply"
     decision: "AUDIT"
     confidence: 0.75
     reason: "terraform apply without a preceding security scan (checkov, tfsec, trivy) — AI-generated IaC may contain wildcard IAM policies or open security groups. Run 'checkov -d . && terraform apply' to scan before apply. (OWASP LLM05, MITRE T1578)"

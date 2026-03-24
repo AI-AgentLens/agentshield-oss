@@ -281,6 +281,10 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 
 `taxonomy/` contains 158 YAML entries organized by 8 kingdoms, each mapping to OWASP LLM Top 10 2025. `internal/taxonomy/` handles loading and compliance index generation.
 
+## Formal Rule Review
+
+`RULE_REVIEW.md` tracks formal FP/FN reviews of all rule packs. Reviews are conducted by Gary + Kai to catch issues that automated tests miss — over-broad patterns, enterprise workflow conflicts, and attacker bypass techniques. Initial full sweep completed 2026-03-23. New rules reviewed periodically.
+
 ## Automated Rule Generation
 
 Rule requests can be submitted as GitHub issues using the "Rule Request" template. Labels track progress: `rule-request` → `in-progress` → `pr-ready` (or `needs-manual` on failure).
