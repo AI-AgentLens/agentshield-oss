@@ -2537,6 +2537,47 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "list_directory on /workspace/project/agent-data — tenant-scoped project directory, not a shared cache path, cross-tenant cache rule must not fire",
 	},
 
+	// === MCP Secrets: .smbcredentials and .rclone.conf (issue #370) ===
+	// .smbcredentials — Samba credential file with plaintext username/password/domain
+	// .rclone.conf (home dir, old location) — cloud storage tokens for AWS/GDrive/Dropbox etc.
+
+	{
+		ID:               "MCP-TP-674",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.smbcredentials"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-smb",
+		Description:      "read_file on ~/.smbcredentials — plaintext Samba credentials (username/password/domain); mcp-sec-block-smb-credentials must fire. MITRE T1552.001.",
+	},
+	{
+		ID:               "MCP-TP-675",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.smbcredentials", "content": "username=attacker\npassword=steal\ndomain=CORP"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-smb-write",
+		Description:      "write_file to ~/.smbcredentials — injecting attacker credentials for network share access; mcp-sec-block-smb-credentials must fire.",
+	},
+	{
+		ID:               "MCP-TP-676",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.rclone.conf"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-rclone-home",
+		Description:      "read_file on ~/.rclone.conf (home dir, legacy location) — contains OAuth tokens for all configured cloud providers; mcp-sec-block-rclone-conf must fire. MITRE T1552.001.",
+	},
+	{
+		ID:               "MCP-TP-677",
+		ToolName:         "edit_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.rclone.conf", "new_content": "[evil]\ntype=s3\naccess_key_id=ATTACKER"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-rclone-write",
+		Description:      "edit_file to ~/.rclone.conf — injecting attacker cloud storage remote; mcp-sec-block-rclone-conf must fire.",
+	},
+
 	// === MCP Governance: TN verify scenarios (issue #432) ===
 	// Safe file operations that must NOT trigger governance rules.
 	{
@@ -2565,6 +2606,54 @@ var TrueNegativeScenarios = []Scenario{
 		Classification:   "TN",
 		Category:         "safe-governance-write-source-file",
 		Description:      "write_file to a Go source file — not a compliance or governance artifact, governance write rules must not fire",
+	},
+
+	// === MCP Secrets TN: .smbcredentials and .rclone.conf benign paths (issue #370) ===
+
+	{
+		ID:               "MCP-TN-675",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/docs/smb-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-credential-smb-docs",
+		Description:      "read_file on smb-setup.md — documentation mentioning SMB, not a credential file; mcp-sec-block-smb-credentials must NOT fire",
+	},
+	{
+		ID:               "MCP-TN-676",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/network-shares.md", "content": "# Network Shares\n..."},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-credential-smb-different-path",
+		Description:      "write_file to network-shares.md — no .smbcredentials pattern in path; mcp-sec-block-smb-credentials must NOT fire",
+	},
+	{
+		ID:               "MCP-TN-677",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/storage/rclone-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-credential-rclone-docs",
+		Description:      "read_file on rclone-setup.md — documentation about rclone, not the .rclone.conf credential file; mcp-sec-block-rclone-conf must NOT fire",
+	},
+	{
+		ID:               "MCP-TN-678",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/cloud-backup.py", "content": "import subprocess\n..."},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-credential-rclone-source",
+		Description:      "write_file to cloud-backup.py — source code for cloud backup, not rclone config; mcp-sec-block-rclone-conf must NOT fire",
+	},
+	{
+		ID:               "MCP-TN-679",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/rclone/filter.conf"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-credential-rclone-filter",
+		Description:      "read_file on rclone filter.conf — rclone filter config, not the credential-bearing rclone.conf; mcp-sec-block-rclone-conf (pattern **/.rclone.conf) must NOT fire",
 	},
 
 	// === MCP Governance TN: shadow-ai-deployment + ai-compliance-artifact-fabrication (issue #368) ===
