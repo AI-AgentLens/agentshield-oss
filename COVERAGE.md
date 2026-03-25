@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1017 |
+| Terminal rules | 1019 |
 | MCP rules | 394 |
-| Total rules | 1411 |
-| Test cases (TP+TN) | 3590 |
+| Total rules | 1413 |
+| Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -141,7 +141,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (164 rules)
+### data-exfiltration (166 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -228,6 +228,8 @@
 | `ne-audit-ai-vendor-api-call` | AUDIT | regex | Direct curl/wget call to AI vendor API with a request body — may be transmitting source code or sensitive data to external AI infrastructure. OWASP LLM02, LLM06. MITRE T1567. |
 | `ne-audit-source-file-to-ai-api` | AUDIT | regex | Source code or config file being piped or POSTed to an AI vendor API — potential unintentional IP disclosure. OWASP LLM02, LLM06. MITRE T1567. |
 | `ne-block-insecure-llm-transport` | BLOCK | regex | LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040. |
+| `ne-block-llm-configfile-endpoint-hijack` | BLOCK | regex | Writing base_url or api_base override to an LLM SDK config file — persists endpoint redirect across all sessions and processes loading the config, silently intercepting all LLM calls including system prompts, RAG context, and agent state (OWASP LLM02/LLM08, MITRE T1565.001). |
+| `ne-block-llm-userconfig-endpoint-hijack` | BLOCK | regex | Writing LLM base_url override to user-level SDK config directory — machine-wide persistent redirect of all LLM API calls to attacker-controlled infrastructure, affecting all projects and sessions on this machine (OWASP LLM02/LLM08, MITRE T1565.001, T1552.004). |
 | `ne-block-unauthenticated-llm-endpoint` | BLOCK | regex | LLM inference server bound to 0.0.0.0 exposes the API to the network without authentication — any peer can submit arbitrary prompts, extract inference history, or abuse compute. Use --host 127.0.0.1 for local-only access. OWASP LLM02/LLM06, MITRE T1046. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. Excludes base64 -d/--decode (decode operations are not exfiltration — e.g. deploying a public key via 'echo $PUBKEY \| base64 -d > ~/.ssh/authorized_keys'). |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
@@ -1537,7 +1539,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 285 | 215 | 500 |
-| data-exfiltration | 298 | 191 | 489 |
+| data-exfiltration | 302 | 195 | 497 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 173 | 460 |
@@ -1545,5 +1547,5 @@
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 404 | 276 | 680 |
-| **Total** | **2173** | **1417** | **3590** |
+| **Total** | **2177** | **1421** | **3598** |
 
