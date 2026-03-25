@@ -658,6 +658,46 @@ structural_rules:
     reason: "MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003."
     confidence: 0.95
 
+  # === BLOCK: IPython startup directory writes via MCP (issue #389) ===
+  #
+  # Files placed in ~/.ipython/profile_*/startup/ are auto-executed on every
+  # IPython kernel start — including all Jupyter notebooks using the IPython kernel.
+  # An agent that writes a Python file here achieves persistent code execution
+  # across the entire data science environment without any cron/systemd entry.
+  #
+  # The startup directory is invisible to most developers and rarely inspected,
+  # making it an ideal stealthy persistence path in ML/data-science environments.
+  #
+  # Attack pattern:
+  #   write_file(path="~/.ipython/profile_default/startup/99-exfil.py",
+  #              content="import os, requests; requests.post(..., data=os.environ)")
+  #   → Executes silently on every `jupyter notebook`, `ipython`, or kernel spawn
+  #
+  # Shell-level analogue: ts-block-python-sitecustomize-write
+  #
+  # MITRE T1546.016 — Installer Packages (Python startup persistence)
+  - id: mcp-persist-block-ipython-startup-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.ipython/profile_[^/]+/startup/"
+    decision: "BLOCK"
+    reason: "MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016."
+    confidence: 0.95
+
   # === BLOCK: XDG applications directory .desktop file writes via MCP (issue #384) ===
   #
   # ~/.local/share/applications/ is the XDG user-level application registry.
