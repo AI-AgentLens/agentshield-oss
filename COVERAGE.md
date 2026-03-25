@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 427 |
-| Total rules | 1446 |
+| MCP rules | 429 |
+| Total rules | 1448 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (203 rules)
+### credential-exposure (204 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1265,6 +1265,7 @@
 | `mcp-sec-block-gemini-cli-v2-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI v2 OAuth credentials file is blocked — contains Google OAuth token for Gemini API. Stolen token enables AI inference under the victim's billing account. MITRE T1539, T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
+| `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config file is blocked — contains personal access tokens and scoped service tokens that grant read access to all managed secrets across all configured projects. MITRE T1552.001. |
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
 | `mcp-sec-audit-jupyter-notebook-read` | AUDIT | mcp_rule | Reading a Jupyter notebook (.ipynb) — notebooks may contain embedded credentials in cell outputs. Auditing for review. |
 | `mcp-sec-block-snowsql-credentials-read` | BLOCK | mcp_rule | Access to Snowflake SQL credential directory (~/.snowsql/) is blocked — contains account passwords and MFA configuration. MITRE T1552. |
@@ -1407,7 +1408,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (19 rules)
+### persistence-evasion (20 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1429,6 +1430,7 @@
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
 | `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
+| `mcp-persist-block-ipython-startup-write` | BLOCK | structural | MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
 ### privilege-escalation (16 rules)
