@@ -4632,6 +4632,43 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Writing .desktop file to project workspace — not under ~/.local/share/applications/, no MIME registration effect (issue #384)",
 	},
+	// Issue #390: Doppler secrets manager config not blocked
+	{
+		ID:               "MCP-TP-704",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/doppler/doppler.yaml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-access",
+		Description:      "MCP read of Doppler CLI config — contains personal access tokens for all managed secrets (issue #390)",
+	},
+	{
+		ID:               "MCP-TP-705",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/root/.config/doppler/doppler.yaml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-access",
+		Description:      "MCP cat_file of Doppler config as root — service tokens for all configured Doppler projects (issue #390)",
+	},
+	{
+		ID:               "MCP-TN-699",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/config/doppler.yaml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading a project-level doppler.yaml config — not under ~/.config/doppler/, no credentials (issue #390)",
+	},
+	{
+		ID:               "MCP-TN-700",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/doppler/doppler.yaml", "content": "token: dp.sa.xxx"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Writing to Doppler config — write_file not in read tool family, rule only targets read operations (issue #390)",
+	},
 	// Issue #389: IPython startup directory writes (persistent kernel code execution)
 	{
 		ID:               "MCP-TP-702",
