@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 403 |
-| Total rules | 1422 |
+| MCP rules | 407 |
+| Total rules | 1426 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (194 rules)
+### credential-exposure (198 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1118,6 +1118,8 @@
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
 | `mcp-sec-block-kube-access` | BLOCK | mcp_rule | Access to Kubernetes config is blocked. |
 | `mcp-sec-block-k8s-service-account-token` | BLOCK | mcp_rule | Kubernetes service account token/cert — Bearer token for API server auth. Reading this grants the reader ability to impersonate the Pod's service account, potentially with cluster-admin RBAC. |
+| `mcp-sec-block-k8s-pki-keys` | BLOCK | mcp_rule | Access to Kubernetes PKI directory is blocked — contains cluster CA and component private keys that enable impersonating the API server, etcd, or any control-plane component. MITRE T1552.004. |
+| `mcp-sec-block-k8s-system-kubeconfig` | BLOCK | mcp_rule | Access to Kubernetes system kubeconfig files is blocked — admin.conf, controller-manager.conf, and scheduler.conf contain embedded cluster-admin tokens. Exfiltrating these grants full cluster access. MITRE T1552.001. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
 | `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
@@ -1153,6 +1155,8 @@
 | `mcp-sec-block-dbt-profiles` | BLOCK | mcp_rule | Access to ~/.dbt/profiles.yml is blocked — contains database credentials for data warehouse connections (BigQuery, Snowflake, Redshift, Databricks, etc.). MITRE T1552. |
 | `mcp-sec-block-snyk-config` | BLOCK | mcp_rule | Access to Snyk CLI config is blocked — contains the Snyk API authentication token. MITRE T1552. |
 | `mcp-sec-block-helm-credentials` | BLOCK | mcp_rule | Access to Helm config directory is blocked — contains OCI registry credentials and repository passwords. |
+| `mcp-sec-block-helm-legacy-dir` | BLOCK | mcp_rule | Access to Helm legacy directory is blocked — contains registry authentication tokens and OCI credentials. MITRE T1552.001. |
+| `mcp-sec-block-helm-xdg-registry` | BLOCK | mcp_rule | Access to Helm XDG data directory is blocked — contains OCI registry credentials in docker-credential-store format. Exfiltrating this enables unauthorized access to private Helm registries. MITRE T1552.001. |
 | `mcp-sec-block-gem-credentials` | BLOCK | mcp_rule | Access to ~/.gem/credentials is blocked — contains RubyGems registry API keys enabling gem publish supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-nuget-config` | BLOCK | mcp_rule | Access to ~/.nuget/NuGet.Config is blocked — contains NuGet package source API keys and credentials for private feeds enabling supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-composer-auth` | BLOCK | mcp_rule | Access to ~/.composer/auth.json is blocked — contains Composer OAuth tokens and HTTP credentials for private PHP package repositories. MITRE T1195.001, T1552.001. |

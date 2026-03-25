@@ -1,0 +1,72 @@
+id: "credential-exposure/cloud-credentials/kubernetes-pki-private-key-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cloud Credentials"
+category_id: "2.6"
+name: "Kubernetes PKI Private Key Access"
+risk_level: "critical"
+
+abstract: |
+  Access to the Kubernetes PKI directory (/etc/kubernetes/pki/) exposes cluster CA
+  private keys and component TLS certificates that enable impersonating the API server,
+  etcd, or any control-plane component. Compromise of these keys leads to full cluster
+  takeover.
+
+explanation: |
+  The Kubernetes PKI directory contains the cryptographic root of trust for the entire
+  cluster. Key files include:
+  - ca.key / ca.crt — Cluster Certificate Authority; signing with this CA cert allows
+    issuing arbitrary credentials trusted by every cluster component.
+  - etcd/ca.key — etcd CA; enables impersonating any client connecting to etcd,
+    granting read/write access to all cluster secrets and state.
+  - apiserver.key — API server private key; enables TLS impersonation of the API server.
+  - apiserver-kubelet-client.key — Allows kubelet API access across all nodes.
+  - front-proxy-ca.key — Front proxy CA for aggregation layer.
+
+  Attack paths:
+  1. Read ca.key — sign arbitrary client certificates — authenticate as any user
+     including privileged system users
+  2. Read etcd/ca.key — impersonate etcd clients — dump all Secrets in the cluster
+  3. Use extracted keys to forge kubeconfig credentials that persist after rotation
+
+  In AI agent environments where the agent runs on a control-plane node or has
+  filesystem access to it, reading PKI keys enables complete and persistent cluster
+  compromise that survives certificate rotation unless the CA itself is rotated.
+
+recommendation: |
+  - Block all read/write access to /etc/kubernetes/pki/ for AI agent processes.
+  - Restrict PKI directory permissions to root (0600 for keys, 0644 for certs).
+  - Run AI agents in sandboxed containers without host filesystem mounts.
+  - Use admission controllers (OPA/Gatekeeper) to prevent privileged Pod specs.
+  - Rotate the cluster CA if PKI key exposure is suspected.
+  - Monitor file access to /etc/kubernetes/pki/ via auditd or Falco.
+
+examples:
+  bad:
+    - "cat /etc/kubernetes/pki/ca.key"
+    - "cp /etc/kubernetes/pki/ca.key /tmp/stolen.key"
+    - "openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -text"
+    - "ls /etc/kubernetes/pki/"
+  good:
+    - "kubectl get nodes"
+    - "kubectl describe secret -n kube-system"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.5.23", "A.8.3", "A.8.4", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "CC6.3"]
+
+references:
+  mitre_attack: ["T1552.004", "T1552.003"]
+  cwe: ["CWE-312", "CWE-522", "CWE-732"]
+  external:
+    - title: "Kubernetes — PKI certificates and requirements"
+      url: "https://kubernetes.io/docs/setup/best-practices/certificates/"
+    - title: "MITRE ATT&CK — Unsecured Credentials: Private Keys (T1552.004)"
+      url: "https://attack.mitre.org/techniques/T1552/004/"
+
+analyzers: ["regex", "structural", "mcp"]
+related_rules: ["mcp-sec-block-k8s-pki-keys", "mcp-sec-block-k8s-service-account-token"]
