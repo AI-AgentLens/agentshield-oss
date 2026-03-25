@@ -73,6 +73,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001."
     confidence: 0.97
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/package-lock.json"}
+        - tool: "edit_file"
+          args: {"path": "/project/yarn.lock"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/package.json"}
 
   # === BLOCK: CI/CD pipeline configuration writes via MCP ===
   #
@@ -123,6 +132,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Downgraded to AUDIT because agents routinely create/edit CI configs (GitHub Actions, CircleCI) as a core workflow. MITRE T1195.002."
     confidence: 0.90
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/.github/workflows/ci.yml"}
+        - tool: "edit_file"
+          args: {"path": "/project/.gitlab-ci.yml"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/ci_utils.go"}
 
   # === BLOCK: Dockerfile and container image build config writes via MCP (issue #171) ===
   #
@@ -161,6 +179,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to Dockerfile or docker-compose config — injecting malicious instructions could backdoor containers. Downgraded to AUDIT because editing Dockerfiles is one of the most common agent tasks. Human reviews the diff at commit time. MITRE T1612, T1195.002."
     confidence: 0.90
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/Dockerfile"}
+        - tool: "edit_file"
+          args: {"path": "/project/docker-compose.yml"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/docker_utils.go"}
 
   # === BLOCK: Package manager config file writes via MCP (issue #448) ===
   #
@@ -246,6 +273,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.npmrc"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.pypirc"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/npm_utils.js"}
 
   # === BLOCK: ML training dataset and model checkpoint writes via MCP (issue #173) ===
   #
@@ -290,6 +326,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to ML training dataset — injecting poisoned examples can corrupt fine-tuned model behavior. Downgraded to AUDIT: ML developers legitimately create and edit training data files as part of normal workflows. Human review ensures no poisoned examples are introduced. MITRE AML.T0010, OWASP LLM04."
     confidence: 0.80
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/train/data.jsonl"}
+        - tool: "edit_file"
+          args: {"path": "/project/dataset/examples.csv"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/train_utils.py"}
 
   - id: mcp-sc-block-model-checkpoint-write
     taxonomy: "supply-chain/model-poisoning/checkpoint-substitution"
@@ -313,6 +358,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to model checkpoint file — PyTorch .pt/.pkl files can contain pickle exploits that execute on load. Checkpoint substitution backdoors every inference run. MITRE T1195.001."
     confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/checkpoints/model_v2.pt"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.cache/huggingface/models/gpt2.bin"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/checkpoint_utils.py"}
 
   # === AUDIT: Package manifest writes via MCP ===
   #
@@ -370,6 +424,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001."
     confidence: 0.85
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/package.json"}
+        - tool: "edit_file"
+          args: {"path": "/project/requirements.txt"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/utils.js"}
 
   # === AUDIT: RAG knowledge base ingestion via MCP tool calls (issue #205) ===
   #
@@ -395,6 +458,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
     confidence: 0.82
+    tests:
+      tp:
+        - tool: "add_document"
+          args: {"content": "adversarial doc"}
+        - tool: "upsert"
+          args: {"text": "poisoned knowledge entry"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docs/guide.md"}
 
   # === BLOCK: MCP write to MCP config files (issue #538) ===
   #
@@ -456,6 +528,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002."
     confidence: 0.97
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": ".cursor/mcp.json"}
+        - tool: "edit_file"
+          args: {"path": "claude_desktop_config.json"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/mcp_client.go"}
 
   # === AUDIT: MCP tool schema drift between sessions (issue #398) ===
   #
@@ -483,6 +564,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001."
     confidence: 0.80
+    tests:
+      tp:
+        - tool: "__mcp_schema_drift_detected__"
+          args: {"server": "compromised-server"}
+        - tool: "__mcp_schema_drift_detected__"
+          args: {"delta": "tool_added"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/src/schema.go"}
 
   # === AUDIT: MCP package manager tool — AI-style hallucinated package name ===
   #
@@ -523,6 +613,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001."
     confidence: 0.80
+    tests:
+      tp:
+        - tool: "npm_install"
+          args: {"package": "express-ai"}
+        - tool: "pip_install"
+          args: {"package": "requests-unofficial"}
+      tn:
+        - tool: "npm_install"
+          args: {"package": "express"}
 
   # === AUDIT: MCP write_file to LLM semantic cache paths (issue #199) ===
   #
@@ -574,3 +673,12 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010."
     confidence: 0.85
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.cache/gptcache/responses.db"}
+        - tool: "edit_file"
+          args: {"path": "/project/cache.langchain.db"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/cache_utils.py"}

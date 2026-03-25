@@ -19,6 +19,15 @@ rules:
         path: "/var/run/docker.sock"
     decision: "BLOCK"
     reason: "Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/var/run/docker.sock"}
+        - tool: "write_file"
+          args: {"path": "/var/run/docker.sock"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/var/run/app.pid"}
 
   # === BLOCK: containerd runtime socket access ===
   - id: mcp-privesc-block-containerd-socket
@@ -36,6 +45,15 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Access to containerd socket blocked — the containerd runtime socket offers the same container escape and host compromise vector as the Docker socket. MITRE T1611."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/run/containerd/containerd.sock"}
+        - tool: "write_file"
+          args: {"path": "/var/run/containerd/containerd.sock"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/var/run/containerd/config.toml"}
 
   # === BLOCK: CRI-O runtime socket access ===
   - id: mcp-privesc-block-crio-socket
@@ -53,6 +71,15 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Access to CRI-O socket blocked — the CRI-O container runtime socket enables container escape and arbitrary workload injection on the host. MITRE T1611."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/run/crio/crio.sock"}
+        - tool: "write_file"
+          args: {"path": "/var/run/crio/crio.sock"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/etc/crio/crio.conf"}
 
   # === BLOCK: Podman socket access ===
   - id: mcp-privesc-block-podman-socket
@@ -70,6 +97,15 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Access to Podman socket blocked — enables rootless or rootful container creation that can be used as a container escape or privilege escalation path. MITRE T1611."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/run/podman/podman.sock"}
+        - tool: "write_file"
+          args: {"path": "/var/run/podman/podman.sock"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/etc/containers/containers.conf"}
 
   # === BLOCK: /etc/sudoers and sudoers.d read access (priv-esc recon) ===
   - id: mcp-privesc-block-sudoers-read
@@ -85,6 +121,15 @@ rules:
         path: "**/etc/sudoers"
     decision: "BLOCK"
     reason: "Read access to /etc/sudoers is blocked — reveals all sudo-enabled accounts and NOPASSWD entries, enabling targeted privilege escalation. MITRE T1548.003."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/sudoers"}
+        - tool: "cat_file"
+          args: {"path": "/etc/sudoers"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/etc/hostname"}
 
   - id: mcp-privesc-block-sudoersd-read
     taxonomy: "privilege-escalation/command-execution/sudo-invocation"
@@ -99,6 +144,15 @@ rules:
         path: "**/etc/sudoers.d/**"
     decision: "BLOCK"
     reason: "Read access to /etc/sudoers.d/ is blocked — drop-in sudoers files list privileged accounts and NOPASSWD grants. MITRE T1548.003."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/sudoers.d/custom-rules"}
+        - tool: "view_file"
+          args: {"path": "/etc/sudoers.d/nopasswd"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/etc/apt/sources.list.d/custom.list"}
 
   # === BLOCK: Kubernetes privilege-granting manifest writes ===
   - id: mcp-privesc-block-k8s-clusterrolebinding-write
@@ -116,6 +170,15 @@ rules:
         path: "**ClusterRoleBinding**"
     decision: "BLOCK"
     reason: "Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/k8s/manifests/ClusterRoleBinding-admin.yaml"}
+        - tool: "kubectl_apply"
+          args: {"path": "/deploy/ClusterRoleBinding.yaml"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/k8s/manifests/deployment.yaml"}
 
 structural_rules:
   # === BLOCK: SUID bit set on executables via chmod ===
@@ -132,6 +195,15 @@ structural_rules:
             - "a\\+s"
     decision: "BLOCK"
     reason: "SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001."
+    tests:
+      tp:
+        - tool: "chmod"
+          args: {"mode": "4755", "path": "/tmp/evil"}
+        - tool: "set_permissions"
+          args: {"mode": "u+s", "path": "/usr/local/bin/helper"}
+      tn:
+        - tool: "chmod"
+          args: {"mode": "0755", "path": "/tmp/script.sh"}
 
   # === BLOCK: Container runtime socket access via structural match ===
   - id: mcp-privesc-block-docker-sock-structural
@@ -149,6 +221,15 @@ structural_rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/tmp/docker.sock"}
+        - tool: "write_file"
+          args: {"path": "/mnt/host/var/run/docker"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docker-compose.yaml"}
 
   # === BLOCK: K8s cluster-admin RBAC grants ===
   - id: mcp-privesc-block-k8s-cluster-admin
@@ -179,6 +260,18 @@ structural_rules:
             - "(?i)^charts[/\\\\].*"
     decision: "BLOCK"
     reason: "Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/deploy/rbac.yaml", "content": "kind: ClusterRoleBinding\nroleRef: cluster-admin"}
+        - tool: "edit_file"
+          args: {"path": "/k8s/admin.yaml", "content": "clusterRole: cluster-admin"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "taxonomy/k8s-rbac.yaml", "content": "kind: ClusterRoleBinding example"}
+      # TN: exclude path matches taxonomy/
+        - tool: "write_file"
+          args: {"path": "docs/k8s-security.md", "content": "ClusterRoleBinding is dangerous"}
 
   # === BLOCK: Privileged container creation ===
   # FP fix (issue #135): Exclude documentation/taxonomy files — descriptive YAML about
@@ -219,6 +312,18 @@ structural_rules:
             - "(?i)^internal[/\\\\].*"
     decision: "BLOCK"
     reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/deploy/pod.yaml", "content": "securityContext:\n  privileged: true"}
+        - tool: "edit_file"
+          args: {"path": "/k8s/daemonset.yaml", "content": "hostNetwork: true\nhostPID: true"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "packs/mcp/example.yaml", "content": "privileged: true"}
+      # TN: exclude path matches packs/
+        - tool: "write_file"
+          args: {"path": "docs/security-guide.md", "content": "Never set privileged: true"}
 
   # === AUDIT: Sudo configuration modification ===
   # FP fix: exclude documentation, test files, and markdown — these legitimately
@@ -244,6 +349,18 @@ structural_rules:
             - "(?i)^testdata[/\\\\].*"
     decision: "AUDIT"
     reason: "Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/etc/sudoers.d/agent", "content": "agent ALL=(ALL) NOPASSWD: ALL"}
+        - tool: "edit_file"
+          args: {"path": "/tmp/sudoers", "content": "user ALL=(ALL) ALL"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "docs/sudo-guide.md", "content": "NOPASSWD example for documentation"}
+      # TN: exclude path matches docs/
+        - tool: "write_file"
+          args: {"path": "tests/fixtures/sudoers_test", "content": "NOPASSWD for test"}
 
   # === BLOCK: Linux capabilities manipulation ===
   - id: mcp-privesc-block-linux-capabilities
@@ -260,3 +377,12 @@ structural_rules:
             - "(?i)ALL_CAPABILITIES"
     decision: "BLOCK"
     reason: "Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/deploy/pod.yaml", "content": "capabilities:\n  add: [SYS_ADMIN]"}
+        - tool: "edit_file"
+          args: {"path": "/tmp/setcap.sh", "content": "setcap cap_setuid+ep /usr/bin/helper"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/docs/capabilities.md", "content": "Linux capabilities overview"}

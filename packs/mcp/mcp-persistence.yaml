@@ -55,6 +55,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.bashrc"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.zshrc"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/main.go"}
 
   # === BLOCK: Modern shell startup file writes via MCP (issue #149) ===
   #
@@ -96,6 +105,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.xonshrc"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.config/nushell/config.nu"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/build.sh"}
 
   # === BLOCK: Fish shell startup file writes via MCP (issue #148) ===
   #
@@ -136,6 +154,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/fish/config.fish"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/fish/conf.d/evil.fish"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/deploy.fish"}
 
   - id: mcp-persist-audit-fish-functions-write
     taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
@@ -158,6 +185,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004."
     confidence: 0.75
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/fish/functions/my_func.fish"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/fish/functions/util.fish"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/helper.sh"}
 
   # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
   #
@@ -189,6 +225,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/Library/LaunchAgents/com.evil.plist"}
+        - tool: "create_file"
+          args: {"path": "/Library/LaunchDaemons/com.backdoor.plist"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/config/app.plist"}
 
   # === BLOCK: Git hook injection via MCP write_file (issue #150) ===
   #
@@ -235,6 +280,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to .git/hooks/ — installs a git hook that executes on every matching git operation. Downgraded to AUDIT: pre-commit/husky installs are common legitimate developer tooling. Human review required to confirm intent. MITRE T1546."
     confidence: 0.85
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/.git/hooks/pre-commit"}
+        - tool: "create_file"
+          args: {"path": "/project/.git/hooks/post-checkout"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/pre-commit-check.sh"}
 
   # === BLOCK: Linux user-level systemd service and autostart persistence ===
   #
@@ -265,6 +319,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/systemd/user/evil.service"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/autostart/backdoor.desktop"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/config/service.yaml"}
 
   # === BLOCK: System-level systemd service directory writes via MCP (issue #246) ===
   #
@@ -306,6 +369,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to system-level systemd directory (/lib/systemd/system/ or /run/systemd/system/) installs a persistent system service. Units here execute on boot or immediately after systemctl daemon-reload — no user interaction required. MITRE T1543.002."
     confidence: 0.97
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/lib/systemd/system/evil.service"}
+        - tool: "create_file"
+          args: {"path": "/run/systemd/system/backdoor.service"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/docs/systemd-setup.md"}
 
   # === BLOCK: SSH authorized_keys write via MCP (issue #151) ===
   #
@@ -353,6 +425,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to SSH authorized_keys adds a persistent backdoor public key granting remote shell access with no password. Write to ~/.ssh/config can proxy all SSH connections to an attacker. MITRE T1098.004."
     confidence: 0.97
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.ssh/authorized_keys"}
+        - tool: "append_file"
+          args: {"path": "/home/user/.ssh/config"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/docs/ssh-setup.md"}
 
   # === AUDIT: AI agent instruction and memory file writes via MCP (issues #206, #603) ===
   #
@@ -416,6 +497,15 @@ structural_rules:
     decision: "AUDIT"
     reason: "MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08."
     confidence: 0.85
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/CLAUDE.md"}
+        - tool: "edit_file"
+          args: {"path": "/project/.cursorrules"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/README.md"}
 
   # === BLOCK: Git config write via MCP (issue #5) ===
   #
@@ -458,6 +548,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to ~/.gitconfig or its XDG equivalent (~/.config/git/config) can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.gitconfig"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.config/git/config"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/.git/HEAD"}
 
   # === BLOCK: AI IDE settings/config writes via MCP (issue #41) ===
   #
@@ -516,6 +615,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
     confidence: 0.97
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.claude/settings.json"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.cursor/settings.json"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/settings.go"}
 
   # === BLOCK: Desktop environment extension directory writes via MCP (issue #375) ===
   #
@@ -564,6 +672,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547."
     confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/share/gnome-shell/extensions/evil@attacker/extension.js"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.local/share/plasma/plasmoids/backdoor/main.qml"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/extension.js"}
 
   # === BLOCK: X11 session startup and PAM environment file writes via MCP (issue #373) ===
   #
@@ -614,6 +731,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.xinitrc"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.pam_environment"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/config/x11-settings.conf"}
 
   # === BLOCK: User-space cron directory writes via MCP (issue #221) ===
   #
@@ -658,6 +784,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/cron.d/evil-job"}
+        - tool: "create_file"
+          args: {"path": "/var/spool/cron/crontabs/root"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/cron-helper.sh"}
 
   # === BLOCK: IPython startup directory writes via MCP (issue #389) ===
   #
@@ -698,6 +833,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.ipython/profile_default/startup/99-exfil.py"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.ipython/profile_prod/startup/00-init.py"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/ipython_utils.py"}
 
   # === BLOCK: XDG applications directory .desktop file writes via MCP (issue #384) ===
   #
@@ -743,3 +887,12 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001."
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/share/applications/evil.desktop"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.local/share/applications/hijack-pdf.desktop"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/config/app.desktop"}
