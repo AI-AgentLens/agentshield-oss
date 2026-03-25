@@ -116,6 +116,38 @@ rules:
     decision: "BLOCK"
     reason: "Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06)"
 
+  # === AUDIT: Web search tool calls (web search result injection risk) ===
+  # AI agents calling web search tools receive page content from attacker-controlled
+  # sites. Poisoned search results contain hidden instructions, CSS-hidden text, or
+  # AI-targeting meta-commentary that redirect agent behaviour (indirect prompt injection).
+  # The built-in response scanner (Layer 2) scans the actual returned content for
+  # injection patterns; this rule (Layer 1) pre-emptively audits all web search tool
+  # calls so every invocation is logged for human review.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/web-search-result-injection
+  # OWASP LLM01 2025 — Prompt Injection (indirect, via search results)
+  # References: Prompt injection via web search is documented in MITRE ATLAS AML.T0051
+  - id: mcp-response-integrity-audit-web-search
+    taxonomy: "unauthorized-execution/agentic-attacks/web-search-result-injection"
+    match:
+      tool_name_any:
+        - "brave_web_search"
+        - "brave_local_search"
+        - "tavily_search"
+        - "tavily_search_results"
+        - "search"
+        - "web_search"
+        - "search_web"
+        - "bing_search"
+        - "serpapi_search"
+        - "google_search"
+        - "duckduckgo_search"
+        - "exa_search"
+        - "perplexity_search"
+    decision: "AUDIT"
+    reason: "Web search tool call — returned page content may contain hidden prompt injection instructions targeting AI assistants (LLM01: web-search-result-injection, MITRE ATLAS AML.T0051)"
+    confidence: 0.85
+
 structural_rules:
   # === BLOCK: Fetch with suspicious exfil/C2 URL path indicators ===
   - id: mcp-response-integrity-struct-block-c2-url
