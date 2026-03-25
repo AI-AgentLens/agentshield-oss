@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 394 |
-| Total rules | 1413 |
+| MCP rules | 399 |
+| Total rules | 1418 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (192 rules)
+### credential-exposure (194 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1275,6 +1275,8 @@
 | `mcp-sec-block-ml-platform-write` | BLOCK | mcp_rule | Write access to HuggingFace cache directory is blocked — modifying cached credentials or model metadata could redirect authentication to a malicious endpoint. MITRE T1552.001. |
 | `mcp-sec-block-dagshub-credentials-read` | BLOCK | mcp_rule | Read access to DagsHub credentials directory is blocked — DagsHub tokens grant access to private ML dataset and model repositories on the Git-based ML platform. MITRE T1552.001. |
 | `mcp-sec-block-dvc-config-read` | BLOCK | mcp_rule | Read access to DVC config file is blocked — may contain remote storage credentials (S3, GCS, Azure, SSH) used to access large training datasets and model artifact storage. MITRE T1552.001. |
+| `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254 or 169.254.170.2) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
+| `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
 | `mcp-sec-block-postgres-uri` | BLOCK | resource_rule | Direct PostgreSQL database access via MCP is blocked. |
 | `mcp-sec-block-redis-uri` | BLOCK | resource_rule | Direct Redis access via MCP is blocked. |
@@ -1282,7 +1284,7 @@
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
 
-### data-exfiltration (37 rules)
+### data-exfiltration (40 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1310,6 +1312,9 @@
 | `mcp-llmdf-audit-reasoning-output-read` | AUDIT | mcp_rule | Reading a file matching *reasoning_output* via MCP — AI reasoning output files may expose sensitive data that the model processed internally but redacted from its final response. OWASP LLM02, MITRE T1005. |
 | `mcp-llmdf-audit-chain-of-thought-read` | AUDIT | mcp_rule | Reading a file matching *chain_of_thought* via MCP — chain-of-thought logs capture model reasoning that may include sensitive context not present in the final response. OWASP LLM02, MITRE T1005. |
 | `mcp-llmdf-audit-extended-thinking-read` | AUDIT | mcp_rule | Reading a file matching *extended_thinking* via MCP — Claude extended thinking traces capture intermediate reasoning that may contain sensitive information redacted from the final API response. OWASP LLM02, MITRE T1005. |
+| `mcp-llmdf-block-litellm-config-yaml-write` | BLOCK | mcp_rule | MCP write to litellm_config.yaml/yml — modifying this LiteLLM project config can redirect all LLM API calls to an attacker-controlled endpoint, intercepting prompts and system context silently (OWASP LLM02/LLM08, MITRE T1565.001). |
+| `mcp-llmdf-block-litellm-yaml-write` | BLOCK | mcp_rule | MCP write to litellm.yaml/yml — modifying this LiteLLM config file can redirect all LLM API calls to an attacker-controlled endpoint, intercepting prompts and system context silently (OWASP LLM02/LLM08, MITRE T1565.001). |
+| `mcp-llmdf-block-litellm-userconfig-write` | BLOCK | mcp_rule | MCP write to user-level LiteLLM config directory (~/.config/litellm/) — machine-wide LLM API redirect affecting all projects and sessions. Any write to this directory can silently intercept all LiteLLM API calls across the machine (OWASP LLM02/LLM08, MITRE T1565.001). |
 | `mcp-llmdf-audit-cross-server-context-harvest` | AUDIT | structural | Tool call content contains cross-server context harvesting instructions — pattern suggests a server is directing the agent to forward data from other MCP servers. OWASP LLM01/LLM02/LLM06. |
 | `mcp-llmdf-block-credential-in-prompt` | BLOCK | structural | Credential or API key detected in MCP message content — hardcoded secrets in LLM prompt context risk model memorization and exfiltration. OWASP LLM07 (Sensitive Data Exposure). |
 | `mcp-llmdf-audit-prompt-erosion-jailbreak` | AUDIT | structural | Prompt override/jailbreak instruction detected in MCP message content — multi-turn prompt erosion attempt to override agent system context. OWASP LLM01/LLM07. |
