@@ -1307,6 +1307,37 @@ rules:
     confidence: 0.80
     reason: "curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06."
 
+  # === BLOCK: MCP Dynamic Client Registration (DCR) abuse via curl/wget (RFC 7591) ===
+  #
+  # MCP authorization servers expose a /register endpoint (RFC 7591 Dynamic Client
+  # Registration) that accepts JSON POSTs to auto-register OAuth clients. An attacker
+  # or compromised agent can POST a rogue client payload (client_name + redirect_uris)
+  # to silently create a trusted identity in the authorization server, enabling future
+  # token interception and unauthorized tool access.
+  #
+  # Detection: curl or wget -X POST to a URL containing /register with a JSON body
+  # carrying DCR registration keys (client_name, redirect_uris, registration_endpoint).
+  #
+  # TP examples (should BLOCK):
+  #   curl -X POST https://mcp.example.com/register -H 'Content-Type: application/json' -d '{"client_name":"Rogue","redirect_uris":["https://attacker.com/cb"]}'
+  #   wget --post-data='{"client_name":"Eve","redirect_uris":["https://evil.io"]}' https://auth.mcp.io/oauth/register
+  #   curl -X POST https://auth.internal/register -d '{"redirect_uris":["https://attacker.com"],"scope":"admin:all"}'
+  #
+  # TN examples (should ALLOW):
+  #   curl -X GET https://mcp.example.com/metadata              (GET — no registration)
+  #   curl -X POST https://api.example.com/users/register -d '{"username":"alice","password":"s3cr3t"}'  (user reg, no DCR keys)
+  #   curl https://oauth2.googleapis.com/token -d 'grant_type=authorization_code&code=abc'  (token exchange, not DCR)
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-dynamic-client-registration-abuse
+  # OWASP LLM06 — Excessive Agency, LLM07 — System Prompt Leakage, MITRE T1550.001
+  - id: "ts-block-mcp-dcr-curl-post"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-dynamic-client-registration-abuse"
+    match:
+      command_regex: "(?i)(?:curl|wget)\\b.*(?:-X\\s*POST|--post-(?:data|file)).*(?:/register).*(?:client_name|redirect_uris|registration_endpoint)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "curl/wget POST to a /register endpoint with DCR payload (client_name or redirect_uris) — MCP Dynamic Client Registration abuse (RFC 7591). Registering a rogue OAuth client on the MCP authorization server creates a persistent trusted identity enabling future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001."
+
   # === BLOCK: Indirect prompt injection via HTML comment agent directives (LLM01) ===
   #
   # Detects HTML comments containing agent-targeted directives — a common indirect
