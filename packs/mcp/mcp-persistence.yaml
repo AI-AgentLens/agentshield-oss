@@ -454,8 +454,9 @@ structural_rules:
           pattern_any:
             - "(?:^|/)\\.gitconfig$"
             - "(?:^|/)\\.gitconfig\\.local$"
+            - "(?:^|/)\\.config/git/config$"
     decision: "BLOCK"
-    reason: "MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546."
+    reason: "MCP write to ~/.gitconfig or its XDG equivalent (~/.config/git/config) can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546."
     confidence: 0.95
 
   # === BLOCK: AI IDE settings/config writes via MCP (issue #41) ===
