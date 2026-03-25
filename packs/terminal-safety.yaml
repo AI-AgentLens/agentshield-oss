@@ -6253,10 +6253,10 @@ rules:
   #   echo o > /proc/sysrq-trigger — power off
   # This bypasses the ts-block-shutdown rule entirely (no shutdown binary involved).
   #
-  # Taxonomy: destructive-ops/system-management/system-shutdown
+  # Taxonomy: destructive-ops/system-management/kernel-sysrq-trigger
   # MITRE T1485 (Data Destruction), T1529 (System Shutdown/Reboot)
   - id: "ts-block-sysrq-trigger"
-    taxonomy: "destructive-ops/system-management/system-shutdown"
+    taxonomy: "destructive-ops/system-management/kernel-sysrq-trigger"
     match:
       command_regex: "(echo|printf|tee|dd|python[23]?)\\s+.*>+\\s*/proc/sysrq-trigger"
     decision: "BLOCK"
