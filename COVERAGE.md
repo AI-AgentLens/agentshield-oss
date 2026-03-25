@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1019 |
+| Terminal rules | 1024 |
 | MCP rules | 432 |
-| Total rules | 1451 |
-| Test cases (TP+TN) | 3598 |
+| Total rules | 1456 |
+| Test cases (TP+TN) | 3612 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -141,7 +141,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (166 rules)
+### data-exfiltration (171 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -297,6 +297,11 @@
 | `ts-block-ai-conv-log-archive` | BLOCK | regex | Archiving AI conversation log directories (tar/zip) — bulk collection of AI session histories for exfiltration. These archives contain accumulated credentials, PII, and proprietary code from all prior agent sessions. MITRE T1119, OWASP LLM02. |
 | `ts-block-ai-conv-log-exfil` | BLOCK | regex | AI conversation log content piped directly to a network exfiltration command — extracting and sending AI session histories containing credentials, PII, and proprietary code to external destinations. MITRE T1005+T1048, OWASP LLM02. |
 | `ts-block-ai-conv-log-stage` | BLOCK | regex | Copying AI conversation log directories to world-writable staging paths (/tmp, /dev/shm) — staging accumulated AI session histories (credentials, PII, source code) for subsequent exfiltration. MITRE T1074, OWASP LLM02. |
+| `ts-audit-agent-state-serial-read` | AUDIT | regex | Reading ML framework agent state files (memory.pkl, langgraph.db, agent_state.json, crew_state.pkl) — these files contain serialized session history, tool call logs with inline credentials, and reasoning traces from all prior agent sessions. MITRE T1005, OWASP LLM02. |
+| `ts-audit-agent-state-framework-dir` | AUDIT | regex | Reading ML framework agent state directories (.autogen/cache/, .crewai/memory/, .cursor/chat-history/, .windsurf/sessions/) — accumulated agent session state containing credentials and proprietary context. OWASP LLM02, MITRE T1005. |
+| `ts-block-agent-state-serial-archive` | BLOCK | regex | Archiving ML framework agent state files (tar/zip) — bulk collection of serialized agent sessions for exfiltration. State files contain accumulated credentials, tool call logs, and prior conversation context. MITRE T1119+T1560, OWASP LLM02. |
+| `ts-block-agent-state-serial-exfil` | BLOCK | regex | ML framework agent state file content piped to a network exfiltration command — serialized agent state (session history, inline credentials, reasoning traces) being sent to external destination. MITRE T1005+T1048, OWASP LLM02. |
+| `ts-block-agent-state-serial-stage` | BLOCK | regex | Copying ML framework agent state files to world-writable staging paths (/tmp, /dev/shm) — staging serialized agent sessions (credentials, tool call logs) for exfiltration. MITRE T1074, OWASP LLM02. |
 | `ts-audit-model-artifact-scp-rsync` | AUDIT | regex | scp/rsync transferring AI model artifact files (.safetensors, .gguf, .pt, .onnx) to remote hosts — proprietary model weights, LoRA adapters, or quantized models represent high-value IP and should not be transferred without authorization. OWASP LLM02, MITRE T1048. |
 | `ts-audit-model-artifact-curl-upload` | AUDIT | regex | curl uploading model artifact files (.safetensors, .gguf, .pt) via multipart form or HTTP PUT — unauthorized exfiltration of proprietary AI model weights or adapters to external services. OWASP LLM02, MITRE T1048. |
 | `ts-audit-huggingface-cli-upload` | AUDIT | regex | huggingface-cli upload — pushing model artifacts to HuggingFace Hub may expose proprietary fine-tuned weights, LoRA adapters, or training datasets to public or unauthorized repositories. OWASP LLM02/LLM03. |
@@ -1577,7 +1582,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 285 | 215 | 500 |
-| data-exfiltration | 302 | 195 | 497 |
+| data-exfiltration | 312 | 199 | 511 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 70 | 53 | 123 |
 | persistence-evasion | 287 | 173 | 460 |
@@ -1585,5 +1590,5 @@
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 404 | 276 | 680 |
-| **Total** | **2177** | **1421** | **3598** |
+| **Total** | **2187** | **1425** | **3612** |
 
