@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 409 |
-| Total rules | 1428 |
+| MCP rules | 416 |
+| Total rules | 1435 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (200 rules)
+### credential-exposure (202 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1139,6 +1139,8 @@
 | `mcp-sec-block-datagrip-datasources` | BLOCK | mcp_rule | Access to DataGrip config is blocked — dataSources.local.xml stores database connection credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-jetbrains` | BLOCK | mcp_rule | Access to DataGrip config via JetBrains directory is blocked — dataSources.local.xml stores database connection credentials (newer JetBrains config layout). MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
+| `mcp-sec-block-smb-credentials` | BLOCK | mcp_rule | Access to ~/.smbcredentials is blocked — contains Samba network share credentials (username, password, domain) in plaintext, used for auto-mounting CIFS shares. Exfiltration exposes Active Directory credentials. MITRE T1552.001. |
+| `mcp-sec-block-rclone-conf` | BLOCK | mcp_rule | Access to ~/.rclone.conf is blocked — contains OAuth tokens and API keys for all configured cloud storage providers (AWS S3, Google Drive, Dropbox, OneDrive, Azure). A single exfiltration event grants access to all cloud storage. MITRE T1552.001. |
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
 | `mcp-sec-block-psql-history` | BLOCK | mcp_rule | Access to ~/.psql_history is blocked — PostgreSQL shell history can contain ALTER ROLE ... PASSWORD and \password command output with plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-rediscli-history` | BLOCK | mcp_rule | Access to ~/.rediscli_history is blocked — Redis CLI history can contain AUTH <password> and CONFIG SET requirepass <password> commands with plaintext credentials. MITRE T1552.001. |
@@ -1365,7 +1367,7 @@
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
-### governance-risk (16 rules)
+### governance-risk (21 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1385,6 +1387,11 @@
 | `mcp-gov-audit-agent-permission-config-write` | AUDIT | mcp_rule | MCP write to agent permissions config file — silent modification can expand sub-agent permission boundaries beyond what any delegation step was intended to grant (CWE-284, OWASP LLM06, EU AI Act Art.9). |
 | `mcp-gov-audit-agent-capabilities-config-write` | AUDIT | mcp_rule | MCP write to agent capabilities config file — modifications to agent capability manifests by AI agents require human review to prevent silent permission escalation across delegation chains (CWE-284, NIST AI RMF GOVERN-1). |
 | `mcp-gov-audit-agent-roles-config-write` | AUDIT | mcp_rule | MCP write to agent roles config file — role definitions control what a sub-agent is allowed to do; silent modification enables privilege escalation through delegation (CWE-284, CWE-862, EU AI Act Art.9). |
+| `mcp-gov-audit-shadow-ai-llm-config-write` | AUDIT | mcp_rule | MCP write to LLM configuration file — may deploy an unauthorized AI service connection without security review. Shadow AI deployments violate EU AI Act Art.26 deployer obligations and SOC 2 CC6.1 change management controls (CWE-284, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-shadow-ai-openai-config-write` | AUDIT | mcp_rule | MCP write to openai.yaml — creates or modifies an OpenAI service configuration that may send code or data to an external AI provider without organizational security review. Violates shadow-AI governance requirements (EU AI Act Art.26, NIST AI RMF GOVERN-6, SOC 2 CC9.1). |
+| `mcp-gov-audit-compliance-artifact-soc2-write` | AUDIT | mcp_rule | MCP write to SOC 2 artifact — AI agents must not modify compliance reports or attestations without a human review gate. Fabricated SOC 2 evidence submitted to auditors creates regulatory liability (CWE-345, OWASP LLM09, EU AI Act Art.13/Art.14, SOC 2 CC7.1). |
+| `mcp-gov-audit-compliance-artifact-pentest-write` | AUDIT | mcp_rule | MCP write to penetration test report — AI-generated pentest findings accepted without verification misrepresent the security posture. Fabricated pentest reports violate audit integrity requirements (CWE-345, OWASP LLM09, NIST AI RMF GOVERN-6, SOC 2 CC7.2). |
+| `mcp-gov-audit-compliance-artifact-audit-evidence-write` | AUDIT | mcp_rule | MCP write into audit evidence directory — AI agents must not create or modify audit evidence artifacts without human oversight. Silent modification of evidence files used in regulatory audits violates integrity requirements (CWE-345, CWE-290, EU AI Act Art.14, SOC 2 CC7.1/CC7.2). |
 
 ### mcp-safety (8 rules)
 
