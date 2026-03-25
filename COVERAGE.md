@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 416 |
-| Total rules | 1435 |
+| MCP rules | 418 |
+| Total rules | 1437 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1406,7 +1406,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (16 rules)
+### persistence-evasion (18 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1425,6 +1425,8 @@
 | `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08. |
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
+| `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
 
 ### privilege-escalation (13 rules)
