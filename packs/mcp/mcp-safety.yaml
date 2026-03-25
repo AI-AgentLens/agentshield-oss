@@ -111,6 +111,45 @@ rules:
     decision: "BLOCK"
     reason: "File write to filesystem root is blocked."
 
+  # === BLOCK: /proc/sysrq-trigger writes — kernel crash/reboot/poweroff bypass ===
+  #
+  # Writing a single character to /proc/sysrq-trigger invokes Linux Magic SysRQ
+  # keys directly from userspace, bypassing normal shutdown procedures:
+  #   content "o" → immediate power off
+  #   content "b" → immediate reboot without filesystem sync (data loss)
+  #   content "c" → kernel panic / crash dump trigger
+  #   content "e" → SIGTERM all processes except init (system freeze)
+  #
+  # This is equivalent to the shell rule ts-block-sysrq-trigger and provides
+  # the same protection for MCP tool calls.
+  #
+  # TP: write_file(path="/proc/sysrq-trigger", content="o")  → BLOCK
+  # TP: create_file(path="/proc/sysrq-trigger", content="b") → BLOCK
+  # TN: read_file(path="/proc/cpuinfo")                       → ALLOW (benign)
+  # TN: read_file(path="/proc/sys/kernel/sysrq")              → AUDIT (config check only)
+  #
+  # Taxonomy: destructive-ops/system-management/kernel-sysrq-trigger
+  # MITRE T1529 (System Shutdown/Reboot), T1485 (Data Destruction)
+  - id: mcp-safety-block-sysrq-trigger-write
+    taxonomy: "destructive-ops/system-management/kernel-sysrq-trigger"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "append_file"
+        - "save_file"
+        - "update_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      argument_patterns:
+        path: "/proc/sysrq-trigger"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Write to /proc/sysrq-trigger blocked — a single-character write triggers immediate kernel-level destructive actions: 'o' powers off, 'b' forces reboot without sync (data loss), 'c' causes kernel panic. MCP equivalent of ts-block-sysrq-trigger. MITRE T1529, T1485."
+
   # === BLOCK: System directory deletions ===
   # Deleting system files is as dangerous as overwriting them — must be blocked, not just audited.
   - id: mcp-safety-block-system-path-delete
