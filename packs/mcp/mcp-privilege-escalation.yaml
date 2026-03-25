@@ -20,6 +20,57 @@ rules:
     decision: "BLOCK"
     reason: "Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611."
 
+  # === BLOCK: containerd runtime socket access ===
+  - id: mcp-privesc-block-containerd-socket
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/containerd/containerd.sock"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Access to containerd socket blocked — the containerd runtime socket offers the same container escape and host compromise vector as the Docker socket. MITRE T1611."
+
+  # === BLOCK: CRI-O runtime socket access ===
+  - id: mcp-privesc-block-crio-socket
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/crio/crio.sock"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Access to CRI-O socket blocked — the CRI-O container runtime socket enables container escape and arbitrary workload injection on the host. MITRE T1611."
+
+  # === BLOCK: Podman socket access ===
+  - id: mcp-privesc-block-podman-socket
+    taxonomy: "privilege-escalation/container-escape/docker-privileged"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/podman/podman.sock"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Access to Podman socket blocked — enables rootless or rootful container creation that can be used as a container escape or privilege escalation path. MITRE T1611."
+
   # === BLOCK: /etc/sudoers and sudoers.d read access (priv-esc recon) ===
   - id: mcp-privesc-block-sudoers-read
     taxonomy: "privilege-escalation/command-execution/sudo-invocation"
@@ -82,7 +133,7 @@ structural_rules:
     decision: "BLOCK"
     reason: "SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001."
 
-  # === BLOCK: Docker socket access via structural match ===
+  # === BLOCK: Container runtime socket access via structural match ===
   - id: mcp-privesc-block-docker-sock-structural
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
@@ -92,8 +143,12 @@ structural_rules:
           pattern_any:
             - "docker\\.sock"
             - "/var/run/docker"
+            - "containerd\\.sock"
+            - "crio\\.sock"
+            - "podman\\.sock"
     decision: "BLOCK"
-    reason: "Docker socket path detected in MCP tool argument — container escape vector. MITRE T1611."
+    confidence: 0.95
+    reason: "Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611."
 
   # === BLOCK: K8s cluster-admin RBAC grants ===
   - id: mcp-privesc-block-k8s-cluster-admin
