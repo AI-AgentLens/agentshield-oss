@@ -158,7 +158,7 @@ func (e *Engine) matchRule(command string, rule Rule) bool {
 		if err == nil && re.MatchString(command) {
 			// If an exclusion pattern is set, suppress the match when it fires.
 			if rule.Match.CommandRegexExclude != "" {
-				reExcl, err := regexp.Compile(rule.Match.CommandRegexExclude)
+				reExcl, err := regexp.Compile(expandExcludePattern(rule.Match.CommandRegexExclude))
 				if err == nil && reExcl.MatchString(command) {
 					return false
 				}

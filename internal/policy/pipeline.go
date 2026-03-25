@@ -1,9 +1,21 @@
 package policy
 
 import (
+	"strings"
+
 	"github.com/security-researcher-ca/agentshield/internal/analyzer"
 	"github.com/security-researcher-ca/agentshield/internal/guardian"
 )
+
+// expandExcludePattern replaces {{DOC_CONTEXT}} with the shared doc-context
+// exclusion regex. Rules can use this placeholder to get consistent FP
+// suppression for documentation/message text across all packs.
+func expandExcludePattern(pattern string) string {
+	if strings.Contains(pattern, "{{DOC_CONTEXT}}") {
+		return strings.ReplaceAll(pattern, "{{DOC_CONTEXT}}", analyzer.DocContextExcludePattern)
+	}
+	return pattern
+}
 
 // BuildAnalyzerPipeline creates a full analyzer registry from the engine's policy rules.
 // The pipeline runs: regex → structural → semantic, combined with most_restrictive strategy.
@@ -33,7 +45,7 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
 				Exact:        r.Match.CommandExact,
 				Prefixes:     r.Match.CommandPrefix,
 				Regex:        r.Match.CommandRegex,
-				RegexExclude: r.Match.CommandRegexExclude,
+				RegexExclude: expandExcludePattern(r.Match.CommandRegexExclude),
 			})
 		}
 
