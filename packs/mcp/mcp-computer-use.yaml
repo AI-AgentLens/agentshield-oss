@@ -173,3 +173,77 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "Writing to the clipboard can inject malicious commands or content that the user may unknowingly paste into a terminal, browser, or privileged application. Verify clipboard writes contain only expected, safe content."
+
+  # === AUDIT: Keyboard injection via type_text / keyboard_type ===
+  # Typing into a terminal window via MCP bypasses AgentShield's shell evaluation hooks
+  # entirely — the command never passes through `agentshield run`. This is a hook-bypass
+  # vector: any command blocked at the shell level can be executed by typing it.
+  # MITRE T1059 (Command and Scripting Interpreter).
+  - id: mcp-computer-use-audit-keyboard-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "type_text"
+        - "keyboard_type"
+        - "input_text"
+        - "key_type"
+        - "type_keys"
+        - "send_keys"
+        - "send_text"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Keyboard injection via MCP can type shell commands directly into a terminal, bypassing AgentShield's command evaluation hooks. Verify that typed text does not contain shell commands or sensitive input. MITRE T1059."
+
+  # === BLOCK: Keyboard injection targeting terminal windows ===
+  # If the tool call explicitly targets a terminal, shell, or console application,
+  # it is almost certainly used to inject shell commands — block unconditionally.
+  - id: mcp-computer-use-block-keyboard-inject-terminal
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "type_text"
+        - "keyboard_type"
+        - "input_text"
+        - "key_type"
+        - "type_keys"
+        - "send_keys"
+        - "send_text"
+      argument_patterns:
+        target: "*terminal*"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Keyboard injection targeting a terminal window is a shell hook bypass — commands typed into a terminal execute without AgentShield evaluation. Block all MCP keyboard injection into terminal targets. MITRE T1059."
+
+  - id: mcp-computer-use-block-keyboard-inject-shell
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "type_text"
+        - "keyboard_type"
+        - "input_text"
+        - "key_type"
+        - "type_keys"
+        - "send_keys"
+        - "send_text"
+      argument_patterns:
+        target: "*shell*"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Keyboard injection targeting a shell process bypasses AgentShield's command evaluation — typed shell commands execute without policy checks. MITRE T1059."
+
+  - id: mcp-computer-use-block-keyboard-inject-console
+    taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"
+    match:
+      tool_name_any:
+        - "type_text"
+        - "keyboard_type"
+        - "input_text"
+        - "key_type"
+        - "type_keys"
+        - "send_keys"
+        - "send_text"
+      argument_patterns:
+        target: "*console*"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Keyboard injection targeting a console window bypasses AgentShield's command evaluation. MITRE T1059."
