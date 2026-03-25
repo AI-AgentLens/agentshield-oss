@@ -124,7 +124,7 @@ rules:
         - "read_url"
         - "open_url"
       argument_patterns:
-        url: "http*"
+        url: "**/http*:/**"
     decision: "AUDIT"
     reason: "Content-fetch tool call with HTTP URL — external content returned directly into agent context creates response poisoning risk (LLM01)"
     confidence: 0.80

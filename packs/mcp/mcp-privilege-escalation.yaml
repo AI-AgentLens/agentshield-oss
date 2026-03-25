@@ -173,9 +173,9 @@ rules:
     tests:
       tp:
         - tool: "write_file"
-          args: {"path": "/k8s/manifests/ClusterRoleBinding-admin.yaml"}
+          args: {"path": "/ClusterRoleBinding-admin.yaml"}
         - tool: "kubectl_apply"
-          args: {"path": "/deploy/ClusterRoleBinding.yaml"}
+          args: {"path": "/ClusterRoleBinding.yaml"}
       tn:
         - tool: "write_file"
           args: {"path": "/k8s/manifests/deployment.yaml"}

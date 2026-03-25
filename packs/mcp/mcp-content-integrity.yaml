@@ -31,9 +31,9 @@ rules:
     tests:
       tp:
         - tool: "write_file"
-          args: {"path": "/project/SECURITY.md"}
+          args: {"path": "/SECURITY.md"}
         - tool: "edit_file"
-          args: {"path": "/repo/SECURITY_POLICY.txt"}
+          args: {"path": "/SECURITY_POLICY.txt"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/main.go"}
@@ -105,9 +105,9 @@ rules:
     tests:
       tp:
         - tool: "write_file"
-          args: {"path": "/project/ops/runbook-incident.md"}
+          args: {"path": "/runbook-incident.md"}
         - tool: "edit_file"
-          args: {"path": "/repo/runbook_deploy.txt"}
+          args: {"path": "/runbook_deploy.txt"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/config.yaml"}

@@ -152,7 +152,7 @@ rules:
     tests:
       tp:
         - tool: "write_file"
-          args: {"path": "/home/user/.openai/config.json"}
+          args: {"path": "/home/user/.openai_config.json"}
         - tool: "edit_file"
           args: {"path": "/project/.openai_settings.yaml"}
       tn:
@@ -175,7 +175,7 @@ rules:
     tests:
       tp:
         - tool: "write_file"
-          args: {"path": "/home/user/.anthropic/config.json"}
+          args: {"path": "/home/user/.anthropic_config.json"}
         - tool: "create_file"
           args: {"path": "/project/.anthropic_keys"}
       tn:
@@ -399,9 +399,9 @@ rules:
     tests:
       tp:
         - tool: "read_file"
-          args: {"path": "/tmp/mcp-workspace-abc123/data.json"}
+          args: {"path": "/tmp/mcp-workspace-abc123"}
         - tool: "list_directory"
-          args: {"path": "/tmp/mcp-workspace/"}
+          args: {"path": "/tmp/mcp-workspace"}
       tn:
         - tool: "read_file"
           args: {"path": "/project/workspace/config.json"}
@@ -422,9 +422,9 @@ rules:
     tests:
       tp:
         - tool: "read_file"
-          args: {"path": "/tmp/agent-cache-tenant1/results.json"}
+          args: {"path": "/tmp/agent-cache-tenant1"}
         - tool: "list_directory"
-          args: {"path": "/tmp/agent-cache/"}
+          args: {"path": "/tmp/agent-cache"}
       tn:
         - tool: "read_file"
           args: {"path": "/project/cache/local.json"}
