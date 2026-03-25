@@ -4706,6 +4706,53 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Writing a Python file to project notebooks dir — not under ~/.ipython/startup/, no persistence effect (issue #389)",
 	},
+	// TP: HashiCorp Consul and Nomad token files (issue #396)
+	{
+		ID:               "MCP-TP-708",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.consul_token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP read of ~/.consul_token — Consul ACL token granting full service mesh and KV store access, must be blocked (issue #396)",
+	},
+	{
+		ID:               "MCP-TP-709",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.nomad_token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "MCP read of ~/.nomad_token — Nomad ACL token granting workload scheduling control and access to mounted secrets, must be blocked (issue #396)",
+	},
+	// TN: consul/nomad files that are NOT the token file — must not be blocked
+	{
+		ID:               "MCP-TN-704",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/consul-config.hcl"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading a Consul HCL config file in project — not the ~/.consul_token credential file (issue #396)",
+	},
+	{
+		ID:               "MCP-TN-705",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/consul-token-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading a markdown guide about Consul tokens — documentation, not the actual token file (issue #396)",
+	},
+	{
+		ID:               "MCP-TN-706",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/nomad/jobs/api.nomad"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading a Nomad job definition file — infrastructure config, not the ~/.nomad_token credential (issue #396)",
+	},
 	// TP: wildcard *.tfvars coverage — non-standard filenames (issue #395)
 	{
 		ID:               "MCP-TP-706",
