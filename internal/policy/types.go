@@ -27,12 +27,20 @@ type Network struct {
 }
 
 type Rule struct {
-	ID         string   `yaml:"id"`
-	Taxonomy   string   `yaml:"taxonomy,omitempty"`
-	Match      Match    `yaml:"match"`
-	Decision   Decision `yaml:"decision"`
-	Confidence float64  `yaml:"confidence,omitempty"`
-	Reason     string   `yaml:"reason"`
+	ID         string    `yaml:"id"`
+	Taxonomy   string    `yaml:"taxonomy,omitempty"`
+	Match      Match     `yaml:"match"`
+	Decision   Decision  `yaml:"decision"`
+	Confidence float64   `yaml:"confidence,omitempty"`
+	Reason     string    `yaml:"reason"`
+	Tests      *RuleTest `yaml:"tests,omitempty"` // inline TP/TN test cases
+}
+
+// RuleTest holds inline test cases for a rule. TP commands must trigger the rule;
+// TN commands must NOT trigger it. Used by TestRuleYAMLTests to validate every rule.
+type RuleTest struct {
+	TP []string `yaml:"tp"`           // true positives: commands that MUST fire the rule
+	TN []string `yaml:"tn,omitempty"` // true negatives: commands that must NOT fire the rule
 }
 
 type Match struct {
