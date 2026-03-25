@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 407 |
-| Total rules | 1426 |
+| MCP rules | 409 |
+| Total rules | 1428 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (198 rules)
+### credential-exposure (200 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1170,6 +1170,7 @@
 | `mcp-sec-block-1password-cli-v1-access` | BLOCK | mcp_rule | Access to 1Password CLI v1 config directory (~/.op/) is blocked — contains session tokens and account credentials. MITRE T1555. |
 | `mcp-sec-block-1password-desktop-access` | BLOCK | mcp_rule | Access to ~/.1password/ is blocked — contains the 1Password SSH agent socket (agent.sock). Reading or accessing this directory reveals agent state and key availability. MITRE T1555.005. |
 | `mcp-sec-block-1password-desktop-config-access` | BLOCK | mcp_rule | Access to ~/.config/1Password/ is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
+| `mcp-sec-block-1password-desktop-config-lowercase-access` | BLOCK | mcp_rule | Access to ~/.config/1password/ (Linux lowercase path) is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
 | `mcp-sec-block-1password-xdg-data-access` | BLOCK | mcp_rule | Access to 1Password XDG data directory (~/.local/share/1password/) is blocked — contains SSH agent socket (ssh/agent.sock) and runtime data. Enumeration reveals agent state and key availability. MITRE T1555.005. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
@@ -1179,6 +1180,7 @@
 | `mcp-sec-block-kde5-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE5/Plasma) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kwalletd-config-access` | BLOCK | mcp_rule | Access to KDE Wallet daemon config (kwalletd5rc) is blocked — reveals wallet file paths and encryption parameters enabling targeted credential theft. MITRE T1555. |
 | `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
+| `mcp-sec-block-glab-cli-access` | BLOCK | mcp_rule | Access to GitLab CLI (glab) config is blocked — contains personal access tokens and OAuth tokens that grant full GitLab API access. MITRE T1552.001. |
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
 | `mcp-sec-block-bw-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden bw CLI config directory is blocked — ~/.config/bw/data.json contains encrypted vault cache and cached session tokens. Official Bitwarden CLI installs as 'bw'. MITRE T1555, T1552.001. |
