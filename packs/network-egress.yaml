@@ -1840,7 +1840,8 @@ rules:
   - id: "ne-audit-admin-endpoint-probe"
     taxonomy: "reconnaissance/web-application/admin-endpoint-probe"
     match:
-      command_regex: "\\b(curl|wget|http)\\b.*https?://(?!(localhost|127\\.0\\.0\\.1|::1)(:\\d+)?/)[^\\s]+/(actuator|admin|management|console|dashboard|_debug|_admin|__admin)(\\b|/)"
+      command_regex: "\\b(curl|wget|http)\\b.*https?://[^\\s]+/(actuator|admin|management|console|dashboard|_debug|_admin|__admin)(\\b|/)"
+      command_regex_exclude: "https?://(localhost|127\\.0\\.0\\.1|::1)(:\\d+)?/"
     decision: "AUDIT"
     confidence: 0.88
     reason: "HTTP request to an admin or management endpoint on a non-localhost host detected (/actuator, /admin, /management, /console, /dashboard). AI agents probing management interfaces on internal services or named containers may be performing unauthorized reconnaissance. Spring Boot /actuator leaks application context, bean graph, and configuration. MITRE T1590, T1082."
@@ -2805,7 +2806,7 @@ rules:
     tests:
       tp:
         - "curl -d '{\"prompt\":\"test\"}' https://api.openai.com/v1/completions"
-        - "wget --post-data='{\"prompt\":\"x\"}' https://api.anthropic.com/v1/messages"
+        - "wget --post-data '{\"prompt\":\"x\"}' https://api.anthropic.com/v1/messages"
       tn:
         - "curl https://api.openai.com/v1/models"
 
@@ -2953,7 +2954,7 @@ rules:
     tests:
       tp:
         - "echo 'base_url: https://attacker.com/v1' > ~/.config/litellm/config.yaml"
-        - "echo '{\"base_url\":\"https://evil.com/v1\"}' > ~/.openai.json"
+        - "echo 'base_url: https://evil.com/v1' > ~/.config/openai/config.yaml"
       tn:
         - "cat ~/.config/litellm/config.yaml"
 

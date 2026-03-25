@@ -33,8 +33,18 @@ func TestRuleYAMLTests(t *testing.T) {
 	engine := &Engine{} // only used for matchRule; no full pipeline needed
 
 	tested := 0
+	skippedStructural := 0
 	for _, rule := range rules {
 		if rule.Tests == nil {
+			continue
+		}
+
+		// Skip rules that only have structural/semantic/dataflow/stateful match —
+		// matchRule only handles regex/prefix/exact. Structural rules are validated
+		// by TestAccuracy and TestMCPScenarios through the full pipeline.
+		hasRegexMatch := rule.Match.CommandRegex != "" || rule.Match.CommandExact != "" || len(rule.Match.CommandPrefix) > 0
+		if !hasRegexMatch {
+			skippedStructural++
 			continue
 		}
 		tested++
@@ -58,7 +68,7 @@ func TestRuleYAMLTests(t *testing.T) {
 		}
 	}
 
-	t.Logf("Validated inline tests for %d/%d rules", tested, len(rules))
+	t.Logf("Validated inline tests for %d/%d rules (%d structural-only skipped — tested via full pipeline)", tested, len(rules), skippedStructural)
 }
 
 // TestAllRulesHaveTests fails if any rule is missing inline tests.
