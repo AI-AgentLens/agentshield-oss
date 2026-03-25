@@ -1,0 +1,156 @@
+id: "unauthorized-execution/agentic-attacks/web-search-result-injection"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "AI Agent Web Search Result Injection"
+risk_level: "high"
+
+abstract: |
+  Attackers create SEO-optimized web pages containing embedded prompt injection
+  payloads specifically designed to appear in AI agent web search results.
+  When an AI coding agent queries a web search tool (Brave Search MCP, Tavily,
+  SerpAPI, Bing), the poisoned page content is retrieved and processed as trusted
+  context — causing the agent to execute attacker-defined instructions as if
+  they came from its operator.
+
+explanation: |
+  AI agents with web search capabilities (Claude Code with search MCP, LangChain
+  web search, AutoGen with Bing tool, Cursor with web browsing) retrieve and
+  process content from arbitrary web pages as part of their reasoning pipeline.
+  Unlike human researchers who evaluate source credibility, AI agents process
+  retrieved text as instructions — creating a novel injection surface.
+
+  The attack mechanism:
+
+  1. Payload placement: The attacker publishes a web page (or compromises an
+     existing high-ranking page) containing hidden or visually subtle instructions
+     targeting AI assistants. Common techniques include CSS-hidden text (white
+     text on white background, font-size 0), HTML comments containing attacker
+     instructions, and plain text mixed with legitimate content that instructs
+     the AI to override its prior task.
+
+  2. SEO targeting: The attacker optimizes the page to rank highly for queries
+     the AI agent is likely to make — library documentation searches, API
+     reference lookups, error troubleshooting queries. GitHub README files, npm
+     package pages, and Stack Overflow answers are high-value poisoning targets
+     since agents frequently query these sources.
+
+  3. Result ingestion: The search tool returns the page content to the agent.
+     Without sanitization, the agent processes the injection payload as part of
+     its context and may execute shell commands, exfiltrate credentials, modify
+     source files, or take other attacker-directed actions using available tools.
+
+  4. Amplification via caching: If the agent caches web search results in a RAG
+     vector store, injected payloads persist and affect future agent sessions
+     long after the original poisoned page is removed.
+
+  Why AI agents are uniquely vulnerable: Unlike web browsers or human readers,
+  AI agents are designed to extract actionable information from retrieved text.
+  There is no inherent distinction, from the model's perspective, between a
+  legitimate instruction in its system prompt and a convincingly formatted
+  instruction embedded in a retrieved web page.
+
+  Real-world attack surfaces include: documentation lookup during coding (npm,
+  PyPI, GitHub READMEs), error message troubleshooting (Stack Overflow, GitHub
+  issues), security advisory lookup (CVE pages), API reference browsing, and
+  any workflow where the agent browses external content to complete a task.
+
+  This is distinct from related threats:
+  - indirect-prompt-injection: the general class; web search injection is a
+    specific SEO-targeted variant with distinct detection and mitigation.
+  - mcp-tool-response-poisoning: requires compromising the MCP server itself;
+    web search injection requires only controlling a web page.
+  - rag-knowledge-base-poisoning: targets the vector store after ingestion;
+    web search injection targets the live retrieval path before storage.
+  - context-window-poisoning: requires direct access to agent context; web
+    search injection operates through an untrusted external content channel.
+
+recommendation: |
+  - Isolate retrieved content: treat all web search results as untrusted user
+    input. Do not inject raw HTML or plaintext from search results directly
+    into the system prompt or agent instructions.
+  - Content sanitization: strip HTML tags, invisible characters, and patterns
+    matching known injection formats before inserting retrieved content into
+    agent context.
+  - Domain allowlisting: for sensitive operations, restrict web search to
+    trusted domains (official documentation, known-good registries) rather
+    than open web search.
+  - Search result provenance: log the source URL of all retrieved content.
+    Implement anomaly detection for agents taking unusual actions after web
+    search tool calls.
+  - Privilege separation: agents performing web searches should not
+    simultaneously have write access to code, files, or network endpoints
+    without explicit user approval per operation.
+  - Result summarization boundary: use a separate, restricted summarization
+    step to process raw web content before the main agent sees it.
+  - AgentShield MCP proxy: scan search tool responses for injection pattern
+    signatures before forwarding result content to the agent.
+
+examples:
+  bad:
+    - |
+      # Agent injecting raw search result directly into system context
+      results = search_tool.run("how to fix ImportError numpy")
+      agent.run(f"Based on these results: {results}\n\nFix the error in main.py")
+      # Poisoned page content flows unfiltered into agent instructions
+    - |
+      # RAG pipeline ingesting web content without sanitization
+      for url in search_results:
+          content = fetch_url(url)
+          vectorstore.add_texts([content])  # No injection scrubbing before storage
+    - |
+      # Agent configured with unrestricted web search AND write/shell tools
+      # Enables search-to-exfiltrate chain without user approval gates
+      tools = [TavilySearchTool(), WriteFileTool(), ShellTool()]
+      agent = Agent(tools=tools)  # No tool-use isolation policy
+  good:
+    - |
+      # Sanitize search results before injecting into agent context
+      import re
+      def sanitize_retrieved_content(text: str) -> str:
+          text = re.sub(r'<[^>]+>', '', text)  # Strip HTML
+          text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)  # Remove invisibles
+          return text
+      safe_results = sanitize_retrieved_content(search_tool.run(query))
+    - |
+      # Privilege-separated architecture: read-only summarizer, then main agent
+      summary = summarizer_agent.run(query, tools=[SearchTool()])  # no write tools
+      main_agent.run(f"Research summary: {summary}")  # processed, not raw content
+    - |
+      # Domain allowlist restricts search to trusted documentation sources
+      TRUSTED_DOMAINS = {"docs.python.org", "docs.anthropic.com"}
+      results = search_tool.run(query, site_allowlist=TRUSTED_DOMAINS)
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM06", "LLM07"]
+  iso-27001-2022: ["A.8.4", "A.8.9", "A.5.23"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MAP-5", "MEASURE-2"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1190", "T1059", "T1036"]
+  cwe: ["CWE-77", "CWE-74", "CWE-116"]
+  external:
+    - title: "OWASP LLM01 2025 — Prompt Injection via Indirect Vectors"
+      url: "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+    - title: "Indirect Prompt Injection Attacks on LLM Integrated Applications (Greshake et al.)"
+      url: "https://arxiv.org/abs/2302.12173"
+    - title: "MITRE ATLAS — Prompt Injection in Retrieved Context"
+      url: "https://atlas.mitre.org/techniques/AML.T0051"
+
+analyzers: ["semantic", "dataflow"]
+related_rules:
+  - "unauthorized-execution/agentic-attacks/indirect-prompt-injection"
+  - "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+  - "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
+  - "unauthorized-execution/agentic-attacks/context-window-poisoning"
+  - comply:ai-web-search-no-content-sanitization
+  - comply:ai-agent-web-search-privilege-separation
+# Detection: Semantic analyzer detects agent configs combining unrestricted web
+# search tools with write/execute tools without isolation. Dataflow analysis
+# flags raw search result content flowing directly into agent system prompt
+# context or file-write operations. MCP proxy scans search tool responses for
+# injection patterns before forwarding to the agent.
