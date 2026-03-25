@@ -408,3 +408,127 @@ rules:
     decision: "AUDIT"
     confidence: 0.88
     reason: "MCP write to agent roles config file — role definitions control what a sub-agent is allowed to do; silent modification enables privilege escalation through delegation (CWE-284, CWE-862, EU AI Act Art.9)."
+
+  # ===========================================================================
+  # Shadow AI Deployment — LLM Provider Config Writes
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+  # OWASP LLM06/LLM02, EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1/GOVERN-6
+  # SOC 2 CC6.1/CC6.8/CC9.1 | CWE-284, CWE-693 | MITRE T1219, T1567
+  #
+  # An AI agent writing LLM provider configuration files (openai.yaml,
+  # anthropic.yaml, llm.config.*) can silently deploy unauthorized AI service
+  # connections — creating ungoverned data flows where proprietary code or
+  # customer data is sent to external model providers without security review.
+  # EU AI Act Art.26 imposes obligations on deployers of high-risk AI systems;
+  # organizations cannot comply if shadow AI deployments go undetected.
+
+  - id: mcp-gov-audit-shadow-ai-llm-config-write
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm*config*"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "MCP write to LLM configuration file — may deploy an unauthorized AI service connection without security review. Shadow AI deployments violate EU AI Act Art.26 deployer obligations and SOC 2 CC6.1 change management controls (CWE-284, NIST AI RMF GOVERN-1)."
+
+  - id: mcp-gov-audit-shadow-ai-openai-config-write
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/openai.yaml"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to openai.yaml — creates or modifies an OpenAI service configuration that may send code or data to an external AI provider without organizational security review. Violates shadow-AI governance requirements (EU AI Act Art.26, NIST AI RMF GOVERN-6, SOC 2 CC9.1)."
+
+  # ===========================================================================
+  # AI Compliance Artifact Fabrication — Write to Compliance Evidence
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication
+  # OWASP LLM09/LLM08, EU AI Act Art.13/Art.14, NIST AI RMF GOVERN-1/GOVERN-6
+  # SOC 2 CC7.1/CC7.2 | CWE-345, CWE-290 | MITRE T1036, T1565
+  #
+  # AI agents writing directly to compliance attestation files (SOC 2 reports,
+  # pentest reports, audit evidence) can produce plausible but fabricated
+  # compliance artifacts. Without human review gates, these can be submitted
+  # to auditors or regulators as genuine evidence — creating regulatory
+  # liability and misrepresenting the organization's true risk posture.
+
+  - id: mcp-gov-audit-compliance-artifact-soc2-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*soc2*"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to SOC 2 artifact — AI agents must not modify compliance reports or attestations without a human review gate. Fabricated SOC 2 evidence submitted to auditors creates regulatory liability (CWE-345, OWASP LLM09, EU AI Act Art.13/Art.14, SOC 2 CC7.1)."
+
+  - id: mcp-gov-audit-compliance-artifact-pentest-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*pentest*report*"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to penetration test report — AI-generated pentest findings accepted without verification misrepresent the security posture. Fabricated pentest reports violate audit integrity requirements (CWE-345, OWASP LLM09, NIST AI RMF GOVERN-6, SOC 2 CC7.2)."
+
+  - id: mcp-gov-audit-compliance-artifact-audit-evidence-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/audit-evidence/**"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "MCP write into audit evidence directory — AI agents must not create or modify audit evidence artifacts without human oversight. Silent modification of evidence files used in regulatory audits violates integrity requirements (CWE-345, CWE-290, EU AI Act Art.14, SOC 2 CC7.1/CC7.2)."
