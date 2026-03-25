@@ -96,7 +96,7 @@ compliance:
   owasp-llm-2025: ["LLM06", "LLM09"]
   iso-27001-2022: ["A.5.1", "A.5.10"]
   eu-ai-act-2024: ["Art.13", "Art.14", "Art.50"]
-  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MEASURE-2"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-2", "GOVERN-6", "MEASURE-2"]
   soc2-type2: ["CC7.1", "CC8.1", "PI1.3"]
 
 references:

@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 429 |
-| Total rules | 1448 |
+| MCP rules | 431 |
+| Total rules | 1450 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (204 rules)
+### credential-exposure (206 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1205,7 +1205,7 @@
 | `mcp-sec-block-bitwarden-flatpak-access` | BLOCK | mcp_rule | Access to Bitwarden Flatpak app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
 | `mcp-sec-block-terraform-state` | BLOCK | mcp_rule | Access to Terraform state files is blocked — contains plaintext credentials embedded in resource attributes (database passwords, API keys, cloud tokens). MITRE T1552. |
 | `mcp-sec-block-terraform-state-backup` | BLOCK | mcp_rule | Access to Terraform state backup files is blocked — backup state files contain the same plaintext credentials as primary state. MITRE T1552. |
-| `mcp-sec-block-terraform-tfvars` | BLOCK | mcp_rule | Access to terraform.tfvars is blocked — commonly stores secret input variables (API keys, passwords, access tokens) passed to terraform apply. MITRE T1552. |
+| `mcp-sec-block-terraform-tfvars` | BLOCK | mcp_rule | Access to *.tfvars files is blocked — Terraform variable files (secrets.tfvars, prod.tfvars, terraform.tfvars, etc.) routinely contain plaintext cloud credentials, API keys, and database passwords passed to terraform apply. MITRE T1552. |
 | `mcp-sec-block-terraform-auto-tfvars` | BLOCK | mcp_rule | Access to *.auto.tfvars is blocked — automatically loaded Terraform variable files frequently contain cloud credentials and secret values. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-pass` | BLOCK | mcp_rule | Access to Ansible vault password files is blocked — this is the master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-password-files` | BLOCK | mcp_rule | Access to Ansible vault password files (.vault_pass, .vault-password) is blocked — master decryption key for Ansible Vault secrets. MITRE T1552. |
@@ -1285,6 +1285,8 @@
 | `mcp-sec-block-ml-platform-write` | BLOCK | mcp_rule | Write access to HuggingFace cache directory is blocked — modifying cached credentials or model metadata could redirect authentication to a malicious endpoint. MITRE T1552.001. |
 | `mcp-sec-block-dagshub-credentials-read` | BLOCK | mcp_rule | Read access to DagsHub credentials directory is blocked — DagsHub tokens grant access to private ML dataset and model repositories on the Git-based ML platform. MITRE T1552.001. |
 | `mcp-sec-block-dvc-config-read` | BLOCK | mcp_rule | Read access to DVC config file is blocked — may contain remote storage credentials (S3, GCS, Azure, SSH) used to access large training datasets and model artifact storage. MITRE T1552.001. |
+| `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to ~/.consul_token is blocked — contains a Consul ACL token granting authenticated access to the service mesh, KV store (often used to hold application secrets), and ACL system. Exfiltration enables full Consul control and Vault pivot. MITRE T1552. |
+| `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to ~/.nomad_token is blocked — contains a Nomad ACL token granting control over workload scheduling, job management, and secrets mounted into running allocations. MITRE T1552. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254 or 169.254.170.2) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
