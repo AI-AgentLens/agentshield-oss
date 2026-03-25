@@ -437,6 +437,82 @@ rules:
     reason: "Reading a file matching *extended_thinking* via MCP — Claude extended thinking traces capture intermediate reasoning that may contain sensitive information redacted from the final API response. OWASP LLM02, MITRE T1005."
     confidence: 0.87
 
+  # ============================================================
+  # LLM API Endpoint Hijacking — Config File Writes (issue #349)
+  # Taxonomy: data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM08
+  # MITRE T1565.001 — Stored Data Manipulation
+  # ============================================================
+
+  # === BLOCK: MCP write to LiteLLM project config files ===
+  #
+  # LiteLLM loads base_url and api_base from litellm_config.yaml and
+  # litellm.yaml. An MCP agent writing to these files can redirect ALL
+  # LLM API calls in the project to an attacker-controlled endpoint —
+  # intercepting prompts, system context, and RAG data silently.
+  #
+  # OWASP LLM02/LLM08, MITRE T1565.001
+  - id: mcp-llmdf-block-litellm-config-yaml-write
+    taxonomy: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/litellm_config.y*ml"
+    decision: "BLOCK"
+    reason: "MCP write to litellm_config.yaml/yml — modifying this LiteLLM project config can redirect all LLM API calls to an attacker-controlled endpoint, intercepting prompts and system context silently (OWASP LLM02/LLM08, MITRE T1565.001)."
+    confidence: 0.88
+
+  - id: mcp-llmdf-block-litellm-yaml-write
+    taxonomy: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/litellm.y*ml"
+    decision: "BLOCK"
+    reason: "MCP write to litellm.yaml/yml — modifying this LiteLLM config file can redirect all LLM API calls to an attacker-controlled endpoint, intercepting prompts and system context silently (OWASP LLM02/LLM08, MITRE T1565.001)."
+    confidence: 0.88
+
+  # === BLOCK: MCP write to user-level LiteLLM config directory ===
+  #
+  # The ~/.config/litellm/ directory is the user-level LiteLLM config.
+  # Writing base_url here creates a machine-wide persistent redirect
+  # affecting ALL projects and sessions using LiteLLM on this machine.
+  #
+  # OWASP LLM02/LLM08, MITRE T1565.001, T1552.004
+  - id: mcp-llmdf-block-litellm-userconfig-write
+    taxonomy: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/.config/litellm/**"
+    decision: "BLOCK"
+    reason: "MCP write to user-level LiteLLM config directory (~/.config/litellm/) — machine-wide LLM API redirect affecting all projects and sessions. Any write to this directory can silently intercept all LiteLLM API calls across the machine (OWASP LLM02/LLM08, MITRE T1565.001)."
+    confidence: 0.90
+
 structural_rules:
   # === AUDIT: Cross-server context harvesting instructions in content ===
   # When a tool call argument contains instructions to forward outputs from
