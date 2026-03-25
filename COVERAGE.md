@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-24 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-25 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1016 |
-| MCP rules | 392 |
-| Total rules | 1408 |
-| Test cases (TP+TN) | 3585 |
+| Terminal rules | 1017 |
+| MCP rules | 394 |
+| Total rules | 1411 |
+| Test cases (TP+TN) | 3590 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -893,7 +893,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (175 rules)
+### unauthorized-execution (176 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -936,6 +936,7 @@
 | `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
+| `ts-block-mcp-dcr-curl-post` | BLOCK | regex | curl/wget POST to a /register endpoint with DCR payload (client_name or redirect_uris) — MCP Dynamic Client Registration abuse (RFC 7591). Registering a rogue OAuth client on the MCP authorization server creates a persistent trusted identity enabling future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
 | `ts-block-indirect-injection-llm-format` | BLOCK | regex | LLM format escape marker ([/INST], <\|start_header_id\|>system) in command — used to break out of the instruction frame and inject a new system directive in retrieved content (OWASP LLM01). |
 | `ts-block-indirect-injection-markdown-alt` | BLOCK | regex | Markdown image alt-text containing an injection directive — indirect prompt injection via retrieved Markdown; agents may act on instructions embedded in image alt-text (OWASP LLM01). |
@@ -1321,7 +1322,7 @@
 | `mcp-sec-block-curlrc-write` | BLOCK | mcp_rule | MCP write to ~/.curlrc — any proxy directive injected here silently intercepts all future curl traffic (including auth tokens and API credentials) via MITM. MITRE T1557. |
 | `mcp-sec-block-wgetrc-write` | BLOCK | mcp_rule | MCP write to ~/.wgetrc — any proxy directive injected here silently intercepts all future wget traffic (including auth tokens and credentials) via MITM. MITRE T1557. |
 
-### destructive-ops (24 rules)
+### destructive-ops (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1341,6 +1342,7 @@
 | `mcp-safety-block-var-write` | BLOCK | mcp_rule | File write to /var/cron/ system directory is blocked — cron persistence path. |
 | `mcp-safety-block-var-spool-cron-write` | BLOCK | mcp_rule | File write to /var/spool/cron/ system directory is blocked — cron spool persistence path. MITRE T1053.003. |
 | `mcp-safety-block-root-write` | BLOCK | mcp_rule | File write to filesystem root is blocked. |
+| `mcp-safety-block-sysrq-trigger-write` | BLOCK | mcp_rule | Write to /proc/sysrq-trigger blocked — a single-character write triggers immediate kernel-level destructive actions: 'o' powers off, 'b' forces reboot without sync (data loss), 'c' causes kernel panic. MCP equivalent of ts-block-sysrq-trigger. MITRE T1529, T1485. |
 | `mcp-safety-block-system-path-delete` | BLOCK | mcp_rule | File deletion in /etc/ system directory is blocked — deleting system config files (passwd, hosts, resolv.conf) causes irreversible system damage. MITRE T1485. |
 | `mcp-safety-block-usr-path-delete` | BLOCK | mcp_rule | File deletion in /usr/ system directory is blocked — deleting system binaries or libraries causes irreversible damage. MITRE T1485. |
 | `mcp-safety-block-bin-path-delete` | BLOCK | mcp_rule | File deletion in /bin/ system directory is blocked — deleting core system binaries (bash, ls, cp) is irreversibly destructive. MITRE T1485. |
@@ -1458,7 +1460,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (53 rules)
+### unauthorized-execution (54 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1513,6 +1515,7 @@
 | `mcp-struct-block-sql-injection-filter` | BLOCK | structural | SQL injection detected in filter argument |
 | `mcp-struct-block-shell-in-command-arg` | BLOCK | structural | Shell command detected in command argument — possible disguised execution tool |
 | `mcp-struct-block-shell-in-exec-arg` | BLOCK | structural | Shell command detected in exec argument — hidden command execution |
+| `mcp-struct-block-dcr-registration` | BLOCK | structural | MCP tool POSTing a Dynamic Client Registration payload to a /register endpoint — RFC 7591 DCR abuse allows a rogue OAuth client to be silently registered on the MCP authorization server, creating a persistent trusted identity that enables future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
@@ -1541,6 +1544,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
-| unauthorized-execution | 402 | 273 | 675 |
-| **Total** | **2171** | **1414** | **3585** |
+| unauthorized-execution | 404 | 276 | 680 |
+| **Total** | **2173** | **1417** | **3590** |
 

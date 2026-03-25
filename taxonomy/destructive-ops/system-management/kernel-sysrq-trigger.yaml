@@ -1,0 +1,65 @@
+id: "destructive-ops/system-management/kernel-sysrq-trigger"
+version: "1.0.0"
+kingdom: "Destructive Operations"
+kingdom_id: 1
+category: "System Management"
+category_id: "1.6"
+name: "Kernel SysRQ Trigger Abuse"
+risk_level: "critical"
+
+abstract: |
+  Writing to the Linux Magic SysRQ interface at /proc/sysrq-trigger triggers
+  immediate kernel-level destructive actions — power off, forced reboot without
+  filesystem sync, kernel panic, or mass process termination — bypassing normal
+  shutdown procedures and causing data loss or system unavailability.
+
+explanation: |
+  The Linux Magic System Request (SysRQ) key provides low-level kernel commands
+  accessible via /proc/sysrq-trigger. A single-character write directly invokes
+  kernel actions that bypass normal OS shutdown flows:
+
+  - `echo o > /proc/sysrq-trigger` — immediate power off (like pulling the power cord)
+  - `echo b > /proc/sysrq-trigger` — forced reboot without filesystem sync (data loss)
+  - `echo c > /proc/sysrq-trigger` — kernel panic / crash dump trigger
+  - `echo e > /proc/sysrq-trigger` — SIGTERM all processes except init (system freeze)
+  - `echo s > /proc/sysrq-trigger` — sync all mounted filesystems
+  - `echo u > /proc/sysrq-trigger` — remount filesystems read-only (data lockout)
+
+  Unlike `shutdown` or `reboot`, SysRQ commands are not intercepted by systemd,
+  upstart, or init — they execute immediately at the kernel level. This makes
+  /proc/sysrq-trigger a high-value target for AI agents attempting to cause
+  denial-of-service or cover tracks by forcing an unclean shutdown.
+
+  In containerized environments, SysRQ access through /proc may be blocked by
+  the container runtime's seccomp profile, but misconfigured privileged containers
+  remain vulnerable.
+
+recommendation: |
+  - Block all writes to /proc/sysrq-trigger in agent tool execution contexts.
+  - Set /proc/sys/kernel/sysrq to 0 at system boot to disable SysRQ globally.
+  - Use seccomp profiles to prevent /proc/sysrq-trigger writes from agent processes.
+  - Monitor /proc/sysrq-trigger write attempts via auditd or eBPF probes.
+  - Restrict container runtime permissions to prevent SysRQ access from containers.
+
+examples:
+  bad:
+    - "echo o > /proc/sysrq-trigger"
+    - "echo b > /proc/sysrq-trigger"
+    - "echo c > /proc/sysrq-trigger"
+    - "write_file(path='/proc/sysrq-trigger', content='o')"
+  good:
+    - "cat /proc/sys/kernel/sysrq"
+    - "systemctl status nginx"
+    - "uptime"
+
+references:
+  - "https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html"
+  - "MITRE ATT&CK T1529 (System Shutdown/Reboot)"
+  - "MITRE ATT&CK T1485 (Data Destruction)"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-2"]
+  soc-2-2017: ["CC6.8"]
