@@ -657,3 +657,48 @@ structural_rules:
     decision: "BLOCK"
     reason: "MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003."
     confidence: 0.95
+
+  # === BLOCK: XDG applications directory .desktop file writes via MCP (issue #384) ===
+  #
+  # ~/.local/share/applications/ is the XDG user-level application registry.
+  # Writing a .desktop file there registers a new application entry that can:
+  #   - Be set as the default MIME type handler (e.g., for application/pdf, x-scheme-handler/http)
+  #   - Override a trusted application's handler association
+  #   - Execute arbitrary code whenever the user opens a matching file type
+  #
+  # This is MITRE T1546.001 — Change Default File Association. The attacker:
+  #   1. Writes evil.desktop with Exec=/home/user/.local/bin/evil %f
+  #   2. Registers MIME associations: MimeType=application/pdf;x-scheme-handler/http;
+  #   3. Every PDF click and every browser URL now silently executes evil
+  #
+  # This attack requires no root privileges and persists across reboots. It is
+  # distinct from ~/.config/autostart/ (already blocked by mcp-persist-block-user-systemd-write)
+  # because application registration targets specific file types, not startup.
+  #
+  # TN carve-outs:
+  #   - READ operations are safe — agents legitimately inspect installed .desktop files
+  #   - Writes to project workspace paths (not ~/.local/) are safe
+  #
+  # MITRE T1546.001 — Event Triggered Execution: Change Default File Association
+  # MITRE T1547     — Boot or Logon Autostart Execution
+  - id: mcp-persist-block-xdg-applications-write
+    taxonomy: "persistence-evasion/event-triggered/mime-type-hijacking"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.local/share/applications/.*\\.desktop$"
+    decision: "BLOCK"
+    reason: "MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001."
+    confidence: 0.95
