@@ -20,6 +20,15 @@ rules:
     decision: "BLOCK"
     confidence: 0.95
     reason: "Full-screen screenshot captures all visible content including credentials, OTP codes, and password manager displays. Use a scoped region instead."
+    tests:
+      tp:
+        - tool: "take_screenshot"
+          args: {"region": "full_screen"}
+        - tool: "capture_screen"
+          args: {"region": "full_screen"}
+      tn:
+        - tool: "take_screenshot"
+          args: {"region": "button_area"}
 
   - id: mcp-computer-use-block-all-region-screenshot
     taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"

@@ -33,6 +33,19 @@ type MCPRule struct {
 	Match    MCPMatch        `yaml:"match"`
 	Decision policy.Decision `yaml:"decision"`
 	Reason   string          `yaml:"reason"`
+	Tests    *MCPRuleTest    `yaml:"tests,omitempty"` // inline TP/TN test cases
+}
+
+// MCPRuleTest holds inline test cases for an MCP rule.
+type MCPRuleTest struct {
+	TP []MCPTestCase `yaml:"tp"`           // true positives: tool calls that MUST fire the rule
+	TN []MCPTestCase `yaml:"tn,omitempty"` // true negatives: tool calls that must NOT fire
+}
+
+// MCPTestCase represents a single test tool call.
+type MCPTestCase struct {
+	Tool string                 `yaml:"tool"`
+	Args map[string]interface{} `yaml:"args,omitempty"`
 }
 
 // ResourceRule defines a rule for resources/read requests.
