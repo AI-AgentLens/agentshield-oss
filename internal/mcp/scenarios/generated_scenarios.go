@@ -4356,6 +4356,43 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "helm-xdg-registry-safe",
 		Description:      "Reading XDG application launcher file (not helm registry) is benign — must AUDIT not BLOCK",
 	},
+	// Issue #364: GitLab CLI (glab) config (~/.config/glab-cli/) — contains PATs and OAuth tokens
+	{
+		ID:               "MCP-TP-667",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/glab-cli/config.yml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-access",
+		Description:      "MCP read of GitLab CLI config — contains PATs and OAuth tokens for all configured GitLab instances, must be blocked (issue #364)",
+	},
+	{
+		ID:               "MCP-TP-668",
+		ToolName:         "get_file_contents",
+		Arguments:        map[string]interface{}{"path": "/root/.config/glab-cli/config.yml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-access",
+		Description:      "MCP get_file_contents of glab CLI config as root — root GitLab tokens grant admin API access (issue #364)",
+	},
+	{
+		ID:               "MCP-TN-667",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/glab-ci-example.yml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading project GitLab CI config example — not the glab-cli config directory (issue #364)",
+	},
+	{
+		ID:               "MCP-TN-668",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/docs/gitlab-setup-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "safe-project-file",
+		Description:      "Reading documentation about GitLab CLI setup — doc file, not the config dir (issue #364)",
+	},
 	// Issue #363: 1Password desktop config lowercase path (~/.config/1password/) — Linux case-sensitive gap
 	{
 		ID:               "MCP-TP-665",
