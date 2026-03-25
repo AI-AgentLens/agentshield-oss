@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 399 |
-| Total rules | 1418 |
+| MCP rules | 403 |
+| Total rules | 1422 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1359,7 +1359,7 @@
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
-### governance-risk (12 rules)
+### governance-risk (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1375,6 +1375,10 @@
 | `mcp-gov-audit-llm-risk-assessment-write` | AUDIT | mcp_rule | MCP write to LLM risk assessment file — silent modification erodes the audit trail for AI risk posture (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1). |
 | `mcp-gov-audit-ai-policy-write` | AUDIT | mcp_rule | MCP write to AI policy configuration file — silent modification can disable safety guardrails or expand allowed model behaviors without human review (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1). |
 | `mcp-gov-audit-llm-policy-write` | AUDIT | mcp_rule | MCP write to LLM policy configuration file — silent modification can disable output filters or safety guardrails without triggering a human review workflow (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-agent-spawn-delegation` | AUDIT | mcp_rule | MCP tool invocation that spawns a sub-agent — requires oversight to verify that delegated permissions are a strict subset of the delegating agent's own permissions. Unconstrained delegation violates least-privilege across agent-to-agent boundaries (CWE-285, OWASP LLM06/LLM08, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-agent-permission-config-write` | AUDIT | mcp_rule | MCP write to agent permissions config file — silent modification can expand sub-agent permission boundaries beyond what any delegation step was intended to grant (CWE-284, OWASP LLM06, EU AI Act Art.9). |
+| `mcp-gov-audit-agent-capabilities-config-write` | AUDIT | mcp_rule | MCP write to agent capabilities config file — modifications to agent capability manifests by AI agents require human review to prevent silent permission escalation across delegation chains (CWE-284, NIST AI RMF GOVERN-1). |
+| `mcp-gov-audit-agent-roles-config-write` | AUDIT | mcp_rule | MCP write to agent roles config file — role definitions control what a sub-agent is allowed to do; silent modification enables privilege escalation through delegation (CWE-284, CWE-862, EU AI Act Art.9). |
 
 ### mcp-safety (8 rules)
 
