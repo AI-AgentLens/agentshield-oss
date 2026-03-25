@@ -947,3 +947,73 @@ semantic_rules:
     decision: "AUDIT"
     reason: "MCP roots/list response declares a broad filesystem root (/, /home, /Users, or a user home dir) that encompasses credential directories — review whether this scope is necessary. Detection via proxy-layer EvaluateRootsList(). OWASP LLM08, MITRE T1083."
     confidence: 0.88
+
+  # ===========================================================================
+  # MCP Tool Resource Exhaustion — Detectable Single-Call Patterns
+  # ===========================================================================
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-tool-resource-exhaustion
+  # OWASP LLM06/LLM04, NIST AI RMF MANAGE-2, CWE-400, CWE-770
+  #
+  # These rules detect single-call patterns that can exhaust MCP server resources.
+  # Full rate-limiting (N calls per session per second) requires stateful session
+  # tracking infrastructure and is not expressible as a YAML rule — these rules
+  # cover the subset of resource exhaustion attacks detectable from a single call.
+  #
+  # /dev/zero and /dev/random are infinite-source virtual devices — reading them
+  # via a file-reading MCP tool will cause the tool server to hang or OOM because
+  # no bounded read will succeed. There is no legitimate AI agent use case for
+  # reading these device files.
+
+  - id: mcp-safety-audit-infinite-read-device
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-resource-exhaustion"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "read_resource"
+      argument_patterns:
+        path: "/dev/zero"
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "MCP read targeting /dev/zero — an infinite-source virtual device with no bounded EOF. Reading it via a file-reading MCP tool will cause the server to hang or exhaust memory (CWE-400, CWE-770, OWASP LLM04)."
+
+  - id: mcp-safety-audit-random-device-read
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-resource-exhaustion"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "read_resource"
+      argument_patterns:
+        path: "/dev/random"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "MCP read targeting /dev/random — a blocking entropy device that may hang indefinitely when entropy is exhausted. No legitimate agent use case exists for reading this device (CWE-400, OWASP LLM04)."
+
+  # Root filesystem directory listing can exhaust directory handles and I/O
+  # bandwidth by scanning the entire filesystem tree. There is no legitimate
+  # agent use case for listing the root directory — all project work is scoped
+  # to a specific workspace or project directory.
+
+  - id: mcp-safety-audit-root-dir-scan
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-resource-exhaustion"
+    match:
+      tool_name_any:
+        - "list_directory"
+        - "list_dir"
+        - "list_files"
+        - "read_directory"
+        - "ls"
+        - "dir"
+      argument_patterns:
+        path: "/"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP directory listing of the filesystem root (/) — scanning the entire filesystem tree can exhaust directory handles, I/O bandwidth, and memory. All legitimate agent work should be scoped to a project directory (CWE-400, OWASP LLM04)."

@@ -1,0 +1,87 @@
+id: "unauthorized-execution/agentic-attacks/mcp-tool-resource-exhaustion"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Tool Resource Exhaustion (Agent-Driven DoS)"
+risk_level: "high"
+
+abstract: |
+  A malicious or prompt-injected AI agent performs high-volume or unbounded MCP
+  tool invocations — targeting file I/O, network requests, or compute-intensive
+  operations — to exhaust MCP server resources (file descriptors, memory, API
+  quotas) and cause denial of service for legitimate agent-to-tool interactions.
+
+explanation: |
+  Unlike traditional DoS, agent-driven resource exhaustion exploits the trust
+  relationship between an AI orchestrator and its MCP server. Specific patterns:
+
+  - **High-frequency invocations**: A compromised or prompt-injected agent enters
+    a tight loop calling a resource-intensive tool (read_file, http_request) faster
+    than the MCP server can respond. Without rate limiting at the proxy layer,
+    the server exhausts file descriptor limits, connection pool slots, or memory.
+  - **Unbounded I/O reads**: A single call to read_file targeting infinite-source
+    virtual devices (/dev/zero, /dev/random) or recursive directory listing of the
+    entire filesystem (list_directory /) causes the tool server to hang or OOM.
+  - **Billing DoS (cost exhaustion)**: In cloud environments, unbounded tool calls
+    to external APIs (translation, OCR, ML inference) drive up usage costs without
+    producing useful work. The agent becomes an amplifier for financial damage.
+  - **Connection pool saturation**: Rapid fire http_request calls to slow external
+    URLs exhaust the MCP server's HTTP connection pool, blocking all network-enabled
+    tools for the session.
+
+  This is distinct from:
+  - **ai-denial-of-wallet**: That entry covers LLM API token exhaustion from model
+    calls, not MCP tool-layer resource exhaustion.
+  - **autonomous-tool-chaining**: That covers multi-step attack chains for privilege
+    escalation, not resource flooding.
+  - **unrestricted-tool-invocation**: That covers dynamic tool dispatch bypassing
+    authorization, not the resource impact of legitimate-but-excessive invocations.
+
+  **Detection notes**: Full rate limiting (N calls per session per second) requires
+  stateful session tracking at the MCP proxy layer and is not expressible as a
+  static YAML rule. Single-call resource exhaustion patterns (unbounded reads,
+  root filesystem scans) are detectable via path pattern matching.
+
+recommendation: |
+  - Implement rate limiting at the MCP proxy layer: track per-session tool call
+    counts with a sliding window and return an error after a configurable threshold
+    (e.g., 100 calls per minute per tool per session).
+  - Block read_file calls to virtual device paths (/dev/zero, /dev/random) that
+    return infinite data streams — there is no legitimate agent use case for reading
+    these files.
+  - Limit list_directory depth and result count to prevent full-tree filesystem scans.
+  - Apply per-tool timeout limits at the MCP server layer.
+  - For billing DoS: implement per-session API call budgets for tools that invoke
+    external paid APIs.
+
+examples:
+  bad:
+    - "# Prompt-injected agent reading /dev/zero indefinitely\nagentshield mcp-eval --tool read_file --arg path=/dev/zero"
+    - "# Root filesystem scan exhausting directory handles\nagentshield mcp-eval --tool list_directory --arg path=/"
+    - "# Tight loop http_request saturating connection pool\nfor url in very_large_list:\n    mcp_client.call_tool('http_request', {'url': url})"
+  good:
+    - "read_file('/workspace/project/README.md')  # bounded, project-scoped path"
+    - "list_directory('/workspace/project/')  # bounded depth, specific directory"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM04"]
+  iso-27001-2022: ["A.5.34", "A.8.9", "A.8.31"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MEASURE-2"]
+  soc2-type2: ["CC7.1", "CC7.2", "CC9.1"]
+
+references:
+  mitre_attack: ["T1499", "T1499.001", "T1496"]
+  cwe: ["CWE-400", "CWE-770", "CWE-779"]
+  external:
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+    - title: "OWASP LLM04 — Model Denial of Service"
+      url: "https://genai.owasp.org/llmrisk/llm042025-model-denial-of-service/"
+    - title: "CWE-400 Uncontrolled Resource Consumption"
+      url: "https://cwe.mitre.org/data/definitions/400.html"
+
+analyzers: ["structural", "stateful"]
+related_rules: ["mcp-safety-audit-root-dir-scan", "mcp-safety-audit-infinite-read-device"]

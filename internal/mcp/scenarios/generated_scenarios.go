@@ -4154,4 +4154,65 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "unvalidated-agent-delegation",
 		Description:      "write_file to README.md — normal project file write, not an agent capability config. Agent delegation rules must NOT fire on unrelated writes (issue #354).",
 	},
+
+	// Issue #355: TP — read /dev/zero (infinite source, will hang/OOM tool server)
+	{
+		ID:               "MCP-TP-653",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/dev/zero"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "read_file /dev/zero — infinite-source virtual device, no EOF. Reading via MCP will hang or OOM the tool server. Must be AUDIT'd by mcp-safety-audit-infinite-read-device (issue #355).",
+	},
+	// Issue #355: TP — read /dev/random (blocking entropy device)
+	{
+		ID:               "MCP-TP-654",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/dev/random"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "read_file /dev/random — blocking entropy device that may hang indefinitely. Must be AUDIT'd by mcp-safety-audit-random-device-read (issue #355).",
+	},
+	// Issue #355: TP — list_directory / (root filesystem scan exhausting I/O)
+	{
+		ID:               "MCP-TP-655",
+		ToolName:         "list_directory",
+		Arguments:        map[string]interface{}{"path": "/"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "list_directory / — root filesystem scan exhausting directory handles and I/O. Must be AUDIT'd by mcp-safety-audit-root-dir-scan (issue #355).",
+	},
+	// Issue #355: TN — read a normal project file (not a resource exhaustion source)
+	{
+		ID:               "MCP-TN-647",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/main.go"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "read_file /workspace/project/main.go — normal bounded project file. Resource exhaustion rules must NOT fire on legitimate reads (issue #355).",
+	},
+	// Issue #355: TN — list_directory on a project directory (not root)
+	{
+		ID:               "MCP-TN-648",
+		ToolName:         "list_directory",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/src"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "list_directory /workspace/project/src — bounded project directory listing, not a root filesystem scan. mcp-safety-audit-root-dir-scan must NOT fire on non-root paths (issue #355).",
+	},
+	// Issue #355: TN — read /dev/null (write-only sink, no content — not a resource exhaustion source)
+	{
+		ID:               "MCP-TN-649",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/dev/null"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-resource-exhaustion",
+		Description:      "read_file /dev/null — returns empty immediately, no resource exhaustion. Infinite-read rules must NOT fire on /dev/null (issue #355).",
+	},
 }
