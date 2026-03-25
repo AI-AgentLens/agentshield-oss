@@ -516,6 +516,56 @@ structural_rules:
     reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
     confidence: 0.97
 
+  # === BLOCK: X11 session startup and PAM environment file writes via MCP (issue #373) ===
+  #
+  # X11 session files execute during graphical login, before the user's shell
+  # is launched. An AI agent that writes malicious code here achieves persistent
+  # execution that fires on every graphical session — bypassing all shell dotfile
+  # rules because display managers source these files directly.
+  #
+  # Covered files:
+  #   ~/.xinitrc          — executed by startx/xinit on X11 session start
+  #   ~/.xsession         — executed by display managers (GDM, LightDM, SDDM) on login
+  #   ~/.xprofile         — sourced by display managers before .xsession (env setup)
+  #   ~/.config/plasma-workspace/env/*.sh — KDE Plasma session env scripts, loaded on
+  #                          every KDE startup; outside classic dotfile monitoring
+  #   ~/.pam_environment  — sets environment variables for ALL PAM sessions
+  #                          (X11, SSH, console logins) — highest cross-session impact
+  #
+  # Attack impact:
+  #   - Code in .xinitrc/.xsession/.xprofile fires on every graphical login
+  #   - Code in .pam_environment affects SSH sessions and console logins too
+  #   - No elevated privileges required
+  #   - Not blocked by shell rules (write_file bypasses shell evaluation)
+  #
+  # MITRE T1546.004 — Event Triggered Execution: Unix Shell Configuration Modification
+  # MITRE T1574.006 — Hijack Execution Flow: LD_PRELOAD (for pam_environment abuse)
+  - id: mcp-persist-block-x11-session-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.xinitrc$"
+            - "(?:^|/)\\.xsession$"
+            - "(?:^|/)\\.xprofile$"
+            - "(?:^|/)\\.pam_environment$"
+            - "(?:^|/)\\.config/plasma-workspace/env/"
+    decision: "BLOCK"
+    reason: "MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004."
+    confidence: 0.95
+
   # === BLOCK: User-space cron directory writes via MCP (issue #221) ===
   #
   # mcp-safety-block-etc-write already blocks /etc/crontab and /etc/cron.d/**
