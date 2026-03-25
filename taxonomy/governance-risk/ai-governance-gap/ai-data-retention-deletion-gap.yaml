@@ -1,0 +1,128 @@
+id: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "AI Data Retention and Deletion Compliance Gap"
+risk_level: "high"
+
+abstract: |
+  AI systems — agents, RAG pipelines, conversation memory stores, MCP servers —
+  that accumulate user data, prompts, PII, and sensitive context without
+  enforcing retention limits or supporting deletion requests, violating GDPR
+  right to erasure, EU AI Act data governance obligations, and organizational
+  data lifecycle policies.
+
+explanation: |
+  AI coding agents and LLM applications routinely accumulate sensitive data
+  across multiple persistence layers, often without any retention or deletion
+  policy:
+
+  - **Conversation logs**: AI agent interactions are logged to disk or cloud
+    storage. Logs may contain source code, secrets, PII, and API keys passed
+    as context. Without rotation policies or TTLs, these accumulate
+    indefinitely. Claude Code, Cursor, Windsurf, and similar tools log
+    conversation history that may persist for months or years.
+
+  - **Vector store / RAG indexes**: Documents (codebases, emails, tickets)
+    indexed into vector databases for RAG retrieval typically have no TTL or
+    deletion API. If a document containing PII is deleted from the source
+    system, its embedding often persists in the vector store, enabling
+    continued retrieval and leakage.
+
+  - **Agent memory stores**: Long-term agent memory systems (e.g., mem0,
+    Open Brain, Zep) accumulate user interactions as searchable memories.
+    Without explicit purge capabilities, these grow unboundedly. Under GDPR
+    Article 17, users can request deletion of their personal data — but most
+    agent memory systems have no erasure workflow.
+
+  - **MCP tool call history**: MCP servers that log tool invocations for
+    debugging store request arguments that may contain credentials, file
+    paths, and user-specific data. Without log rotation, this history grows
+    indefinitely.
+
+  - **Model fine-tuning datasets**: Training data pipelines that include user
+    conversation histories for fine-tuning create a compounding retention
+    problem — data deleted from operational systems may persist in training
+    datasets.
+
+  Regulatory obligations are tightening:
+  - **EU AI Act** (Article 10) requires providers of high-risk AI systems to
+    implement data governance practices including data quality measures,
+    retention schedules, and deletion procedures.
+  - **EU AI Act** (Article 12) mandates record-keeping that is proportionate
+    and does not exceed what is necessary for compliance purposes.
+  - **GDPR Article 17** gives data subjects the right to erasure — requiring
+    AI systems that store personal data to support deletion requests across
+    all persistence layers.
+  - **ISO/IEC 27001:2022 Annex A.8.10** specifically addresses information
+    deletion as a control requirement.
+
+recommendation: |
+  - Establish explicit data retention policies for all AI persistence layers:
+    conversation logs (max 90 days recommended), vector store entries (TTL
+    matching source document retention), agent memory (user-configurable purge).
+  - Implement log rotation for AI agent conversation logs with configurable
+    retention windows.
+  - Add TTL support to vector store entries — use metadata fields to store
+    expiry timestamps and enforce deletion in scheduled cleanup jobs.
+  - Build a right-to-erasure workflow that covers all AI persistence layers:
+    conversation history, vector store embeddings, agent memory, tool call logs.
+  - Audit MCP server tool call logging — apply structured logging with
+    explicit retention limits and redaction of sensitive argument values.
+  - Test deletion completeness: verify that deleting a document from source
+    removes its embedding from all downstream vector stores.
+  - Document data retention schedules in AI system data processing agreements
+    (DPAs) and system cards.
+
+examples:
+  bad:
+    - "# Vector store with no TTL — deleted documents persist as embeddings indefinitely"
+    - "vectorstore.add_documents(docs)  # no retention_period or ttl parameter"
+    - "# Conversation memory without bounds — grows indefinitely"
+    - "memory = ConversationBufferMemory()  # no max_token_limit or purge"
+    - "# Agent logging with no rotation policy"
+    - "logging.basicConfig(filename='agent.log', level=logging.DEBUG)  # no RotatingFileHandler"
+    - "# MCP server storing all tool call args to disk without TTL"
+    - "with open('tool_history.jsonl', 'a') as f: json.dump(tool_call, f)  # no rotation"
+  good:
+    - "# Vector store with TTL metadata enforced by cleanup job"
+    - "vectorstore.add_documents(docs, metadatas=[{'expires_at': (datetime.utcnow() + timedelta(days=90)).isoformat()}])"
+    - "# Conversation memory with explicit token limit"
+    - "memory = ConversationBufferWindowMemory(k=20)  # sliding window, bounded"
+    - "# Rotating log handler with 30-day retention"
+    - "handler = RotatingFileHandler('agent.log', maxBytes=10*1024*1024, backupCount=30)"
+    - "# Erasure procedure documented in data processing agreement"
+    - "agent_memory.delete_user_data(user_id=user.id, purge_embeddings=True)"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.5.34", "A.8.12"]
+  eu-ai-act-2024: ["Art.10", "Art.13"]
+  nist-ai-rmf-1.0: ["GOVERN-6", "MAP-1"]
+  soc2-type2: ["CC6.7", "C1.1"]
+
+references:
+  mitre_attack: ["T1530", "T1552"]
+  cwe: ["CWE-312", "CWE-359"]
+  external:
+    - title: "EU AI Act Article 10 — Data and Data Governance"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "GDPR Article 17 — Right to Erasure"
+      url: "https://gdpr-info.eu/art-17-gdpr/"
+    - title: "ISO/IEC 27001:2022 Annex A.8.10 — Information Deletion"
+      url: "https://www.iso.org/standard/82875.html"
+    - title: "OWASP LLM06 2025 — Sensitive Information Disclosure"
+      url: "https://genai.owasp.org/llmrisk/llm062025-sensitive-information-disclosure/"
+
+analyzers: ["semantic"]
+related_rules:
+  - comply:ai-vector-store-no-ttl
+  - comply:ai-conversation-memory-unbounded
+  - comply:ai-agent-log-no-rotation
+  - comply:ai-mcp-tool-history-no-retention
+# Detection: Governance/process concern best addressed through static analysis
+# of AI application code (comply rules) rather than per-command shell analysis.
+# Semantic analyzer can flag AgentShield policy files missing data retention
+# configuration.
