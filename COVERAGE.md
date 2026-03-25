@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1019 |
-| MCP rules | 418 |
-| Total rules | 1437 |
+| MCP rules | 427 |
+| Total rules | 1446 |
 | Test cases (TP+TN) | 3598 |
 | Kingdoms covered | 10 |
 
@@ -1085,7 +1085,7 @@
 
 ## MCP Rules
 
-### credential-exposure (202 rules)
+### credential-exposure (203 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1130,6 +1130,7 @@
 | `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
+| `mcp-sec-block-non-dotfile-env-read` | BLOCK | mcp_rule | Access to non-dotfile *.env file is blocked — files with a .env suffix (secrets.env, credentials.env, app.env) are used by Docker Compose, Kubernetes envFrom, and CI/CD pipelines to store plaintext API keys and credentials. MITRE T1552.001. |
 | `mcp-sec-block-git-credentials` | BLOCK | mcp_rule | Git credential file access is blocked — contains plaintext credentials; writes can redirect git auth to attacker-controlled hosts. |
 | `mcp-sec-block-git-credentials-xdg` | BLOCK | mcp_rule | XDG git credential file access is blocked — ~/.config/git/credentials contains the same plaintext HTTP credentials as ~/.git-credentials (XDG Base Directory spec location). |
 | `mcp-sec-block-pgpass` | BLOCK | mcp_rule | Access to ~/.pgpass is blocked — contains PostgreSQL passwords in plaintext (host:port:db:user:password format). MITRE T1552.001. |
@@ -1406,7 +1407,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (18 rules)
+### persistence-evasion (19 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1428,18 +1429,22 @@
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
 | `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
+| `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
-### privilege-escalation (13 rules)
+### privilege-escalation (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-ts-block-ldso-conf-write` | BLOCK | mcp_rule | [MCP] Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426. |
 | `mcp-privesc-block-docker-socket` | BLOCK | mcp_rule | Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611. |
+| `mcp-privesc-block-containerd-socket` | BLOCK | mcp_rule | Access to containerd socket blocked — the containerd runtime socket offers the same container escape and host compromise vector as the Docker socket. MITRE T1611. |
+| `mcp-privesc-block-crio-socket` | BLOCK | mcp_rule | Access to CRI-O socket blocked — the CRI-O container runtime socket enables container escape and arbitrary workload injection on the host. MITRE T1611. |
+| `mcp-privesc-block-podman-socket` | BLOCK | mcp_rule | Access to Podman socket blocked — enables rootless or rootful container creation that can be used as a container escape or privilege escalation path. MITRE T1611. |
 | `mcp-privesc-block-sudoers-read` | BLOCK | mcp_rule | Read access to /etc/sudoers is blocked — reveals all sudo-enabled accounts and NOPASSWD entries, enabling targeted privilege escalation. MITRE T1548.003. |
 | `mcp-privesc-block-sudoersd-read` | BLOCK | mcp_rule | Read access to /etc/sudoers.d/ is blocked — drop-in sudoers files list privileged accounts and NOPASSWD grants. MITRE T1548.003. |
 | `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
 | `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
-| `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Docker socket path detected in MCP tool argument — container escape vector. MITRE T1611. |
+| `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611. |
 | `mcp-privesc-block-k8s-cluster-admin` | BLOCK | structural | Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001. |
 | `mcp-privesc-block-privileged-container` | BLOCK | structural | Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611. |
 | `mcp-privesc-audit-sudoers-content` | AUDIT | structural | Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003. |
@@ -1486,7 +1491,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (54 rules)
+### unauthorized-execution (58 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1501,6 +1506,10 @@
 | `mcp-computer-use-block-screen-recording-action` | BLOCK | mcp_rule | computer_use start_recording action initiates continuous desktop capture — captures all on-screen content including credentials and sensitive displays. Block autonomously initiated screen recording. |
 | `mcp-computer-use-audit-clipboard-read` | AUDIT | mcp_rule | Reading the clipboard may expose credentials, OTP codes, or API keys the user recently copied. Verify that clipboard access is necessary and the contents are not sensitive. |
 | `mcp-computer-use-audit-clipboard-write` | AUDIT | mcp_rule | Writing to the clipboard can inject malicious commands or content that the user may unknowingly paste into a terminal, browser, or privileged application. Verify clipboard writes contain only expected, safe content. |
+| `mcp-computer-use-audit-keyboard-injection` | AUDIT | mcp_rule | Keyboard injection via MCP can type shell commands directly into a terminal, bypassing AgentShield's command evaluation hooks. Verify that typed text does not contain shell commands or sensitive input. MITRE T1059. |
+| `mcp-computer-use-block-keyboard-inject-terminal` | BLOCK | mcp_rule | Keyboard injection targeting a terminal window is a shell hook bypass — commands typed into a terminal execute without AgentShield evaluation. Block all MCP keyboard injection into terminal targets. MITRE T1059. |
+| `mcp-computer-use-block-keyboard-inject-shell` | BLOCK | mcp_rule | Keyboard injection targeting a shell process bypasses AgentShield's command evaluation — typed shell commands execute without policy checks. MITRE T1059. |
+| `mcp-computer-use-block-keyboard-inject-console` | BLOCK | mcp_rule | Keyboard injection targeting a console window bypasses AgentShield's command evaluation. MITRE T1059. |
 | `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |

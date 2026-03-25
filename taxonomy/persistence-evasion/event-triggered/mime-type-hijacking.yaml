@@ -1,0 +1,88 @@
+id: "persistence-evasion/event-triggered/mime-type-hijacking"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Event Triggered Execution"
+category_id: "6.16"
+name: "MIME Type Handler Hijacking via XDG .desktop File"
+risk_level: "high"
+
+abstract: |
+  An AI agent writes a malicious `.desktop` file to the XDG user applications
+  directory (`~/.local/share/applications/`) to hijack default MIME type
+  handlers for common file types (PDFs, HTTP URLs, email links), causing
+  every matching file open to silently execute attacker-controlled code.
+  No root access required; persists across reboots via the XDG MIME database.
+
+explanation: |
+  The XDG (Freedesktop.org) Desktop Entry specification defines how Linux
+  desktop environments associate MIME types with applications. A `.desktop`
+  file placed in `~/.local/share/applications/` can register itself as the
+  default handler for any MIME type:
+
+    [Desktop Entry]
+    Type=Application
+    Name=PDF Viewer
+    Exec=/tmp/evil.sh %f
+    MimeType=application/pdf;x-scheme-handler/http;x-scheme-handler/https;
+
+  After `update-desktop-database` (or on next login), clicking any PDF or
+  navigating to any URL triggers `/tmp/evil.sh` instead of the legitimate
+  application. The attack is:
+
+  - **Rootless**: User-space write to `~/.local/share/applications/`
+  - **Persistent**: Survives reboots, re-logins, and system updates
+  - **Broad trigger surface**: HTTP/HTTPS URL handler affects every browser
+    link-click in email clients, terminals, and document viewers
+  - **Low visibility**: The user sees the expected application launch (if
+    evil.sh chains to the real application)
+  - **MCP-exploitable**: Any MCP tool with filesystem write capability can
+    plant the `.desktop` file without invoking a shell
+
+  On GNOME, KDE Plasma, XFCE, and most Linux desktop environments, the XDG
+  MIME database is the authoritative handler lookup. An agent can silently
+  register a handler by writing a single file via MCP `write_file`.
+
+recommendation: |
+  - Block MCP filesystem write tools from writing `*.desktop` files to
+    `~/.local/share/applications/` or any XDG application directory.
+  - Monitor `~/.local/share/applications/` for unexpected new `.desktop`
+    files created by AI agent processes.
+  - Apply read-only bind mounts to XDG application directories in sandboxed
+    agent execution environments.
+  - Audit `.desktop` file `Exec=` values for suspicious paths (`/tmp`,
+    `/dev/shm`, home directory scripts, base64-encoded payloads).
+  - After agent sessions, diff `~/.local/share/applications/` against a
+    known-good baseline.
+
+examples:
+  bad:
+    - "write ~/.local/share/applications/helper.desktop with Exec=/tmp/c2.sh %f and MimeType=application/pdf"
+    - "create ~/.local/share/applications/url-handler.desktop with Exec=/dev/shm/beacon.py %u and MimeType=x-scheme-handler/http"
+    - "echo '[Desktop Entry]\\nExec=/tmp/evil\\nMimeType=application/pdf' > ~/.local/share/applications/evil.desktop"
+  good:
+    - "cat ~/.local/share/applications/evince.desktop"
+    - "xdg-open report.pdf"
+    - "xdg-mime query default application/pdf"
+
+compliance:
+  owasp-llm-2025: ["LLM08", "LLM06"]
+  iso-27001-2022: ["A.8.9", "A.8.15"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC7.1"]
+
+references:
+  mitre_attack: ["T1546.001"]
+  cwe: ["CWE-94", "CWE-732"]
+  external:
+    - title: "MITRE ATT&CK T1546.001 — Change Default File Association"
+      url: "https://attack.mitre.org/techniques/T1546/001/"
+    - title: "Freedesktop.org — Desktop Entry Specification"
+      url: "https://specifications.freedesktop.org/desktop-entry-spec/latest/"
+    - title: "Freedesktop.org — XDG MIME Applications"
+      url: "https://specifications.freedesktop.org/mime-apps-spec/latest/"
+
+analyzers: ["mcp"]
+related_rules:
+  - mcp-block-xdg-applications-desktop-write
