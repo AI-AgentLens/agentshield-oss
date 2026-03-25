@@ -4042,4 +4042,55 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "llm-endpoint-hijacking",
 		Description:      "read_file /workspace/project/litellm_config.yaml — reading LiteLLM config is benign (AUDIT). mcp-llmdf-block-litellm-config-write must NOT fire on read operations (issue #349).",
 	},
+
+	// Issue #350: TP — fetch AWS IMDS endpoint to steal EC2 IAM role credentials
+	{
+		ID:               "MCP-TP-646",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cloud-imds",
+		Description:      "fetch AWS IMDS endpoint 169.254.169.254 — steals EC2 IAM role credentials. Must be BLOCKED by mcp-sec-block-aws-imds (issue #350).",
+	},
+	// Issue #350: TP — http_request to GCP metadata service for service account token
+	{
+		ID:               "MCP-TP-647",
+		ToolName:         "http_request",
+		Arguments:        map[string]interface{}{"url": "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", "headers": map[string]string{"Metadata-Flavor": "Google"}},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cloud-imds",
+		Description:      "http_request to GCP IMDS metadata.google.internal — steals GCP service account OAuth token. Must be BLOCKED by mcp-sec-block-gcp-imds (issue #350).",
+	},
+	// Issue #350: TP — fetch AWS ECS task role endpoint (169.254.170.2)
+	{
+		ID:               "MCP-TP-648",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "http://169.254.170.2/v2/credentials/"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cloud-imds",
+		Description:      "fetch AWS ECS task metadata endpoint 169.254.170.2 — steals ECS task role credentials. Must be BLOCKED by mcp-sec-block-aws-imds (issue #350).",
+	},
+	// Issue #350: TN — fetch a legitimate API endpoint (not IMDS)
+	{
+		ID:               "MCP-TN-643",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "https://api.example.com/v1/data"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cloud-imds",
+		Description:      "fetch https://api.example.com/v1/data — legitimate API call, no IMDS IP. mcp-sec-block-aws-imds must NOT fire (issue #350).",
+	},
+	// Issue #350: TN — fetch documentation page that mentions IMDS in text (not URL)
+	{
+		ID:               "MCP-TN-644",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cloud-imds",
+		Description:      "fetch AWS docs page about IMDS — legitimate documentation URL, not the IMDS endpoint itself. mcp-sec-block-aws-imds must NOT fire on non-IMDS URLs (issue #350).",
+	},
 }
