@@ -516,6 +516,54 @@ structural_rules:
     reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
     confidence: 0.97
 
+  # === BLOCK: Desktop environment extension directory writes via MCP (issue #375) ===
+  #
+  # Desktop environment extensions execute code in the desktop session process
+  # context on every login — bypassing shell dotfile monitoring entirely because
+  # the extension loader runs independently of shell startup.
+  #
+  # Covered directories:
+  #   ~/.local/share/gnome-shell/extensions/    — GNOME Shell extensions (JavaScript
+  #     in gnome-shell process; access to full GNOME API, keystrokes, filesystem)
+  #   ~/.local/share/cinnamon/extensions/       — Cinnamon desktop extensions
+  #     (same threat surface as GNOME, runs in cinnamon process)
+  #   ~/.kde/share/apps/plasma/plasmoids/       — KDE Plasma widgets (legacy path)
+  #   ~/.local/share/plasma/plasmoids/          — KDE Plasma widgets (XDG path)
+  #   ~/.local/share/kservices5/                — KDE service definitions with Exec=
+  #
+  # Attack scenario:
+  #   An agent installs an extension.js that loads on every GNOME login,
+  #   establishing a reverse shell or logging keystrokes — no root required,
+  #   no shell command for AgentShield to intercept.
+  #
+  # MITRE T1547   — Boot or Logon Autostart Execution
+  # MITRE T1059.007 — Command and Scripting Interpreter: JavaScript
+  - id: mcp-persist-block-desktop-extension-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.local/share/gnome-shell/extensions/"
+            - "(?:^|/)\\.local/share/cinnamon/extensions/"
+            - "(?:^|/)\\.kde/share/apps/plasma/plasmoids/"
+            - "(?:^|/)\\.local/share/plasma/plasmoids/"
+            - "(?:^|/)\\.local/share/kservices5/"
+    decision: "BLOCK"
+    reason: "MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547."
+    confidence: 0.93
+
   # === BLOCK: X11 session startup and PAM environment file writes via MCP (issue #373) ===
   #
   # X11 session files execute during graphical login, before the user's shell
