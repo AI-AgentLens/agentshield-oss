@@ -305,3 +305,106 @@ rules:
     decision: "AUDIT"
     confidence: 0.85
     reason: "MCP write to LLM policy configuration file — silent modification can disable output filters or safety guardrails without triggering a human review workflow (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+
+  # ===========================================================================
+  # Unvalidated Agent Delegation — Sub-Agent Spawning
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
+  # OWASP LLM06 (Excessive Agency), LLM08, EU AI Act Art.9/Art.14
+  # NIST AI RMF GOVERN-1, MANAGE-2 | CWE-285, CWE-862, CWE-272
+  #
+  # When an orchestrator agent invokes sub-agent spawning tools without providing
+  # an explicit permission manifest, the sub-agent inherits the full ambient
+  # authority of the delegating agent — violating least-privilege at every
+  # delegation hop. Every sub-agent spawn warrants human oversight to verify that
+  # delegated permissions are a strict subset of the delegating agent's own.
+
+  - id: mcp-gov-audit-agent-spawn-delegation
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "spawn_agent"
+        - "create_agent"
+        - "create_subagent"
+        - "launch_agent"
+        - "run_agent"
+        - "invoke_agent"
+        - "delegate_task"
+        - "assign_task"
+        - "start_agent"
+        - "start_worker"
+        - "create_worker"
+        - "spawn_worker"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "MCP tool invocation that spawns a sub-agent — requires oversight to verify that delegated permissions are a strict subset of the delegating agent's own permissions. Unconstrained delegation violates least-privilege across agent-to-agent boundaries (CWE-285, OWASP LLM06/LLM08, NIST AI RMF GOVERN-1)."
+
+  # ===========================================================================
+  # Unvalidated Agent Delegation — Permission Config Writes
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
+  # OWASP LLM06, EU AI Act Art.9, NIST AI RMF GOVERN-1
+  # CWE-284 — Improper Access Control
+  #
+  # Agent capability, permission, and role config files define what sub-agents
+  # are allowed to do. An AI agent silently rewriting these files can expand
+  # sub-agent permissions beyond intended boundaries without human review.
+
+  - id: mcp-gov-audit-agent-permission-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-permissions*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent permissions config file — silent modification can expand sub-agent permission boundaries beyond what any delegation step was intended to grant (CWE-284, OWASP LLM06, EU AI Act Art.9)."
+
+  - id: mcp-gov-audit-agent-capabilities-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-capabilities*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent capabilities config file — modifications to agent capability manifests by AI agents require human review to prevent silent permission escalation across delegation chains (CWE-284, NIST AI RMF GOVERN-1)."
+
+  - id: mcp-gov-audit-agent-roles-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-roles*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent roles config file — role definitions control what a sub-agent is allowed to do; silent modification enables privilege escalation through delegation (CWE-284, CWE-862, EU AI Act Art.9)."
