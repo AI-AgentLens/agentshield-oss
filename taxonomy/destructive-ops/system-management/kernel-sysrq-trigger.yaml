@@ -53,13 +53,14 @@ examples:
     - "uptime"
 
 references:
-  - "https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html"
-  - "MITRE ATT&CK T1529 (System Shutdown/Reboot)"
-  - "MITRE ATT&CK T1485 (Data Destruction)"
+  mitre_attack: ["T1529", "T1485"]
+  external:
+    - title: "Linux Magic SysRQ Key"
+      url: "https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html"
 
 compliance:
   owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.8.25"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["MANAGE-2"]
-  soc-2-2017: ["CC6.8"]
+  soc2-type2: ["CC6.8"]
