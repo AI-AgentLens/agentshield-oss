@@ -3928,4 +3928,45 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "content-integrity",
 		Description:      "write_file to src/auth/session_handler.py — source code file, not an MCP session store. Must NOT trigger mcp-audit-session-store-write (issue #335).",
 	},
+
+	// Issue #340: TP — http_request POST to /register with DCR payload (client_name + redirect_uris)
+	{
+		ID:               "MCP-TP-640",
+		ToolName:         "http_request",
+		Arguments:        map[string]interface{}{"url": "https://mcp.example.com/register", "method": "POST", "body": `{"client_name":"Rogue","redirect_uris":["https://attacker.com/cb"],"scope":"admin:all"}`},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "http_request POST to /register with DCR payload (client_name + redirect_uris) — MCP Dynamic Client Registration abuse. Must be BLOCKED by mcp-struct-block-dcr-registration (issue #340).",
+	},
+	// Issue #340: TP — make_request to /oauth/register with registration_endpoint key
+	{
+		ID:               "MCP-TP-641",
+		ToolName:         "make_request",
+		Arguments:        map[string]interface{}{"url": "https://auth.internal/oauth/register", "method": "POST", "body": `{"registration_endpoint":"https://auth.internal/register","client_name":"EvilAgent","redirect_uris":["https://evil.io/cb"]}`},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "make_request POST to /oauth/register with registration_endpoint + redirect_uris — rogue client registration. Must be BLOCKED by mcp-struct-block-dcr-registration (issue #340).",
+	},
+	// Issue #340: TN — http_request GET to /metadata (no registration)
+	{
+		ID:               "MCP-TN-638",
+		ToolName:         "http_request",
+		Arguments:        map[string]interface{}{"url": "https://mcp.example.com/metadata", "method": "GET"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "unauthorized-execution",
+		Description:      "http_request GET to /metadata — read-only discovery endpoint, no DCR payload. Must NOT trigger DCR rule (issue #340).",
+	},
+	// Issue #340: TN — http_request POST to /users/register without DCR keys
+	{
+		ID:               "MCP-TN-639",
+		ToolName:         "http_request",
+		Arguments:        map[string]interface{}{"url": "https://api.example.com/users/register", "method": "POST", "body": `{"username":"alice","password":"s3cr3t","email":"alice@example.com"}`},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "unauthorized-execution",
+		Description:      "http_request POST to /users/register without client_name or redirect_uris — generic user registration, not DCR. Must NOT trigger DCR rule (issue #340).",
+	},
 }

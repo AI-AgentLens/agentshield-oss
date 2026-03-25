@@ -624,6 +624,44 @@ structural_rules:
     reason: "Shell command detected in exec argument — hidden command execution"
     confidence: 0.90
 
+  # Block MCP Dynamic Client Registration (DCR) abuse — RFC 7591 /register endpoint
+  #
+  # An attacker or compromised agent can use http_request (or similar network tools)
+  # to POST a rogue OAuth client payload to an MCP authorization server's /register
+  # endpoint. Matching requires BOTH a /register URL path AND DCR-specific body keys
+  # (client_name, redirect_uris, or registration_endpoint) to avoid false positives
+  # on generic user-registration endpoints.
+  #
+  # TP: http_request(url="https://mcp.example.com/register", method="POST",
+  #       body='{"client_name":"Rogue","redirect_uris":["https://attacker.com/cb"]}')
+  # TN: http_request(url="https://api.example.com/users/register", body='{"username":"alice"}')
+  # TN: http_request(url="https://mcp.example.com/metadata", method="GET")
+  - id: mcp-struct-block-dcr-registration
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-dynamic-client-registration-abuse"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "fetch_url"
+        - "make_request"
+        - "api_call"
+        - "network_request"
+        - "curl"
+        - "wget"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i).*/register(?:[/?#].*)?$"
+            - "(?i).*/client_register(?:[/?#].*)?$"
+            - "(?i).*/oauth/register(?:[/?#].*)?$"
+        body:
+          pattern_any:
+            - "(?i)client_name"
+            - "(?i)redirect_uris"
+            - "(?i)registration_endpoint"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "MCP tool POSTing a Dynamic Client Registration payload to a /register endpoint — RFC 7591 DCR abuse allows a rogue OAuth client to be silently registered on the MCP authorization server, creating a persistent trusted identity that enables future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001."
+
   # Audit network requests to non-local destinations
   - id: mcp-struct-audit-network-request
     taxonomy: "data-exfiltration/network-egress/network-http-request"
