@@ -20,6 +20,15 @@ value_limits:
     max: 100.0
     decision: "BLOCK"
     reason: "Token/crypto transfer exceeds safety limit of 100 units."
+    tests:
+      tp:
+        - tool: "send_sol"
+          args: {"amount": "52000000", "to": "attacker_wallet"}
+        - tool: "transfer_eth"
+          args: {"amount": "500", "to": "0xdeadbeef"}
+      tn:
+        - tool: "send_sol"
+          args: {"amount": "4", "to": "friend_wallet"}
 
   - id: mcp-fin-cap-transfer-quantity
     taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
@@ -28,6 +37,15 @@ value_limits:
     max: 100.0
     decision: "BLOCK"
     reason: "Token/crypto transfer quantity exceeds safety limit."
+    tests:
+      tp:
+        - tool: "send_tokens"
+          args: {"quantity": "10000", "to": "attacker"}
+        - tool: "transfer_usdc"
+          args: {"quantity": "500", "to": "0xevil"}
+      tn:
+        - tool: "send_tokens"
+          args: {"quantity": "10", "to": "friend"}
 
   # === Payment processing ===
   - id: mcp-fin-cap-payment-amount
@@ -37,6 +55,15 @@ value_limits:
     max: 1000.0
     decision: "BLOCK"
     reason: "Payment amount exceeds safety limit of $1,000."
+    tests:
+      tp:
+        - tool: "stripe_pay"
+          args: {"amount": "50000", "currency": "usd"}
+        - tool: "charge_card"
+          args: {"amount": "5000", "card": "tok_visa"}
+      tn:
+        - tool: "stripe_pay"
+          args: {"amount": "25", "currency": "usd"}
 
   - id: mcp-fin-cap-payment-total
     taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
@@ -45,6 +72,15 @@ value_limits:
     max: 1000.0
     decision: "BLOCK"
     reason: "Payment total exceeds safety limit of $1,000."
+    tests:
+      tp:
+        - tool: "process_payment"
+          args: {"total": "9999", "currency": "usd"}
+        - tool: "create_invoice"
+          args: {"total": "5000", "client": "acme"}
+      tn:
+        - tool: "process_payment"
+          args: {"total": "50", "currency": "usd"}
 
   # === Minting / creation ===
   - id: mcp-fin-cap-mint-amount
@@ -54,6 +90,15 @@ value_limits:
     max: 1000.0
     decision: "BLOCK"
     reason: "Minting amount exceeds safety limit."
+    tests:
+      tp:
+        - tool: "mint_token"
+          args: {"amount": "1000000", "token": "MY_TOKEN"}
+        - tool: "create_token_batch"
+          args: {"amount": "5000", "name": "EVIL_NFT"}
+      tn:
+        - tool: "mint_token"
+          args: {"amount": "10", "token": "MY_TOKEN"}
 
   # === Negative value guard (prevent sign-flip attacks) ===
   - id: mcp-fin-block-negative-transfer
@@ -63,6 +108,15 @@ value_limits:
     min: 0.0
     decision: "BLOCK"
     reason: "Negative transfer amounts are not allowed."
+    tests:
+      tp:
+        - tool: "send_sol"
+          args: {"amount": "-100", "to": "attacker"}
+        - tool: "transfer_eth"
+          args: {"amount": "-50", "to": "0xevil"}
+      tn:
+        - tool: "send_sol"
+          args: {"amount": "5", "to": "friend"}
 
   # === Withdrawal limits ===
   - id: mcp-fin-cap-withdrawal
@@ -72,6 +126,15 @@ value_limits:
     max: 500.0
     decision: "BLOCK"
     reason: "Withdrawal exceeds safety limit of 500 units."
+    tests:
+      tp:
+        - tool: "withdraw_funds"
+          args: {"amount": "10000", "account": "savings"}
+        - tool: "withdraw_crypto"
+          args: {"amount": "999", "wallet": "external"}
+      tn:
+        - tool: "withdraw_funds"
+          args: {"amount": "50", "account": "savings"}
 
   - id: mcp-fin-block-negative-withdrawal
     taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
@@ -80,6 +143,15 @@ value_limits:
     min: 0.0
     decision: "BLOCK"
     reason: "Negative withdrawal amounts are not allowed."
+    tests:
+      tp:
+        - tool: "withdraw_funds"
+          args: {"amount": "-200", "account": "checking"}
+        - tool: "withdraw_crypto"
+          args: {"amount": "-50", "wallet": "exploit"}
+      tn:
+        - tool: "withdraw_funds"
+          args: {"amount": "25", "account": "checking"}
 
   # === Cloud / compute resource provisioning ===
   # Prevents runaway infrastructure creation (e.g., provision 1000 GPU instances).
@@ -90,6 +162,15 @@ value_limits:
     max: 50.0
     decision: "BLOCK"
     reason: "Instance count exceeds safety limit of 50 — large provisioning requires human approval."
+    tests:
+      tp:
+        - tool: "provision_vm"
+          args: {"count": "1000", "type": "gpu-large"}
+        - tool: "launch_instances"
+          args: {"count": "200", "region": "us-east-1"}
+      tn:
+        - tool: "provision_vm"
+          args: {"count": "3", "type": "small"}
 
   - id: mcp-fin-cap-provision-quantity
     taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
@@ -98,6 +179,15 @@ value_limits:
     max: 50.0
     decision: "BLOCK"
     reason: "Provisioning quantity exceeds safety limit of 50."
+    tests:
+      tp:
+        - tool: "scale_service"
+          args: {"quantity": "500", "service": "web-workers"}
+        - tool: "deploy_instances"
+          args: {"quantity": "100", "type": "compute"}
+      tn:
+        - tool: "scale_service"
+          args: {"quantity": "5", "service": "web-workers"}
 
 rules:
   # === AUDIT: Any financial tool call ===
@@ -107,6 +197,15 @@ rules:
       tool_name_regex: "(send_|transfer_|withdraw|mint_|.*pay.*|.*charge.*|.*invoice.*)"
     decision: "AUDIT"
     reason: "Financial tool call flagged for review."
+    tests:
+      tp:
+        - tool: "send_payment"
+          args: {"amount": "50", "to": "vendor"}
+        - tool: "transfer_funds"
+          args: {"amount": "10", "to": "account_123"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/financial-report.csv"}
 
 # === Structural rules: catch string-based unbounded transfer patterns ===
 structural_rules:
@@ -123,6 +222,15 @@ structural_rules:
     decision: "BLOCK"
     reason: "Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance"
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "send_sol"
+          args: {"amount": "ALL_BALANCE", "to": "attacker_wallet"}
+        - tool: "transfer_eth"
+          args: {"amount": "everything", "to": "0xdeadbeef"}
+      tn:
+        - tool: "send_sol"
+          args: {"amount": "4", "to": "friend_wallet"}
 
   - id: mcp-fin-block-all-balance-value
     match:
@@ -134,3 +242,12 @@ structural_rules:
     decision: "BLOCK"
     reason: "Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument"
     confidence: 0.95
+    tests:
+      tp:
+        - tool: "send_tokens"
+          args: {"value": "full_balance", "to": "attacker"}
+        - tool: "transfer_usdc"
+          args: {"value": "maximum", "to": "0xevil"}
+      tn:
+        - tool: "send_tokens"
+          args: {"value": "10", "to": "friend"}
