@@ -3728,15 +3728,17 @@ var CrossAgentStatePoisoningCases = []TestCase{
 
 	// --- TRUE NEGATIVES: Must NOT be BLOCK ---
 
-	// TN-1: reading agent state (not writing)
+	// TN-1: reading agent state (not writing — ts-audit-cross-agent-state-write must NOT fire,
+	// but ts-audit-agent-state-serial-read correctly fires AUDIT since agent_state.json
+	// is a known ML framework state file with serialized credentials/session history).
 	{
 		ID:               "TN-XAGENTPOISON-001",
 		Command:          `cat agent_state.json`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/cross-agent-shared-state-poisoning",
 		Analyzer:         "regex",
-		Description:      "cat reads agent_state.json — read-only access, no write/redirect, must be allowed.",
+		Description:      "cat reads agent_state.json — read-only access (not a write), ts-audit-cross-agent-state-write must NOT fire. However ts-audit-agent-state-serial-read correctly flags this AUDIT since agent_state.json contains serialized session data. AUDIT not BLOCK.",
 		Tags:             []string{"tn", "safe", "state-file"},
 	},
 	// TN-2: grep in agent context file (search, not write)
