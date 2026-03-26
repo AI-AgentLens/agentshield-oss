@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1032 |
-| MCP rules | 462 |
-| Total rules | 1494 |
-| Test cases (TP+TN) | 3654 |
+| Terminal rules | 1033 |
+| MCP rules | 465 |
+| Total rules | 1498 |
+| Test cases (TP+TN) | 3659 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -694,7 +694,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (71 rules)
+### reconnaissance (72 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -750,6 +750,7 @@
 | `ne-block-tshark-live-capture` | BLOCK | regex | tshark live interface capture detected (-i without -r). Captures and dissects all traffic on the interface. AI agents must not perform live packet capture. MITRE T1040. |
 | `ne-block-dumpcap-live-capture` | BLOCK | regex | dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040. |
 | `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
+| `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 | `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
@@ -1493,7 +1494,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (16 rules)
+### reconnaissance (19 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1503,6 +1504,9 @@
 | `mcp-recon-audit-os-release-read` | AUDIT | mcp_rule | Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082. |
 | `mcp-recon-audit-passwd-read` | AUDIT | mcp_rule | Reading /etc/passwd enumerates local user accounts — used to identify privilege escalation targets. MITRE T1087. |
 | `mcp-recon-audit-hosts-read` | AUDIT | mcp_rule | Reading /etc/hosts maps internal hostnames to IPs — used for lateral movement target identification. MITRE T1016. |
+| `mcp-recon-block-ai-mcp-config-read` | BLOCK | mcp_rule | Read access to .mcp.json is blocked — contains MCP server URLs, API key variable names, and tool schemas. Exfiltration enables lateral movement to other MCP servers and credential targeting. MITRE T1552, T1083. |
+| `mcp-recon-block-cursor-mcp-config-read` | BLOCK | mcp_rule | Read access to .cursor/mcp.json is blocked — contains Cursor IDE MCP server configuration including URLs and API key names. |
+| `mcp-recon-block-agentshield-policy-read` | BLOCK | mcp_rule | Read access to ~/.agentshield/policy.yaml is blocked — reveals AgentShield security controls and block/allow decisions, enabling bypass construction. MITRE T1518.001 (Security Software Discovery). |
 | `mcp-recon-audit-localhost-probe` | AUDIT | structural | HTTP probe to localhost or 127.0.0.1 flagged — may enumerate internal services (admin panels, dev servers, management APIs). LLM02, MITRE T1046. |
 | `mcp-recon-block-actuator-credentials` | BLOCK | structural | Spring Boot Actuator credential-exposing endpoint blocked — /actuator/heapdump and /actuator/env directly leak secrets, passwords, and API keys. LLM02, CWE-200, MITRE T1082. |
 | `mcp-recon-block-k8s-secrets` | BLOCK | structural | Kubernetes secrets API access blocked — exposes cluster secrets, service account tokens, and RBAC configuration. LLM02, CWE-284, MITRE T1213. |
@@ -1625,8 +1629,8 @@
 | governance-risk | 74 | 57 | 131 |
 | persistence-evasion | 287 | 173 | 460 |
 | privilege-escalation | 284 | 172 | 456 |
-| reconnaissance | 172 | 78 | 250 |
+| reconnaissance | 175 | 80 | 255 |
 | supply-chain | 241 | 170 | 411 |
 | unauthorized-execution | 423 | 291 | 714 |
-| **Total** | **2210** | **1444** | **3654** |
+| **Total** | **2213** | **1446** | **3659** |
 
