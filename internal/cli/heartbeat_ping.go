@@ -15,12 +15,16 @@ import (
 const heartbeatCooldown = 10 * time.Minute
 
 // sendOpportunisticHeartbeat sends a heartbeat if credentials exist and enough
-// time has passed since the last one. This is fire-and-forget — called from
-// the hook command to keep the agent online while the IDE is active.
+// time has passed since the last one. Also restarts the daemon if it's dead.
 func sendOpportunisticHeartbeat() {
 	creds, _ := auth.Load()
 	if creds == nil || creds.Token == "" {
 		return
+	}
+
+	// Restart daemon if it died (brew update, reboot, etc.)
+	if !isHeartbeatRunning() {
+		startHeartbeatDaemon()
 	}
 
 	// Check cooldown — don't send more than once per 10 minutes
