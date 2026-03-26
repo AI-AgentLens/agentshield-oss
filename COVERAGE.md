@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1040 |
-| MCP rules | 466 |
-| Total rules | 1506 |
-| Test cases (TP+TN) | 3691 |
+| Terminal rules | 1044 |
+| MCP rules | 470 |
+| Total rules | 1514 |
+| Test cases (TP+TN) | 3704 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -775,7 +775,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (129 rules)
+### supply-chain (133 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -898,6 +898,10 @@
 | `sc-audit-langchain-cache-write` | AUDIT | regex | Shell redirect writing to an LLM semantic cache directory (~/.cache/gptcache/, gptcache/, langchain_cache/) — overwriting cached response blobs or indexes poisons future semantically-similar queries. OWASP LLM04. |
 | `sc-audit-redis-llm-cache-poison` | AUDIT | regex | redis-cli writing to an LLM semantic cache key namespace (langchain:*, gptcache:*, llm-cache:*) — injecting attacker-controlled responses into the Redis cache poisons future LLM queries at the infrastructure layer. OWASP LLM04, LLM03. |
 | `sc-audit-vector-db-batch-inject` | AUDIT | regex | curl batch-insert POST to a vector database REST endpoint (/batch/objects, /points/batch, /entities/insert) — bulk injection of adversarial embeddings poisons the RAG knowledge base at scale. OWASP LLM04/LLM08, MITRE AML.T0010. |
+| `sc-audit-test-skip-injection` | AUDIT | regex | sed -i injecting @Disabled, @Ignore, pytest.skip, xfail, or similar skip/disable markers — potential AI agent test sabotage suppressing security test execution while CI shows green. supply-chain/build-pipeline/ai-generated-test-sabotage. |
+| `sc-audit-test-trivial-overwrite` | AUDIT | regex | echo/printf redirecting trivially-passing stubs (assert True, assert 1==1) or CI-conditional skip logic (pytest.skip, os.getenv('CI')) to a file — potential agent test sabotage replacing real security assertions with hollow stubs. supply-chain/build-pipeline/ai-generated-test-sabotage. |
+| `sc-audit-security-test-deletion` | AUDIT | regex | rm -rf targeting a security, auth, or integration test directory — potential AI agent test sabotage eliminating entire security test suites, allowing compromised code to pass CI undetected. supply-chain/build-pipeline/ai-generated-test-sabotage. |
+| `sc-audit-ci-security-plugin-remove` | AUDIT | regex | sed -i deleting a security scanner entry (bandit, safety, semgrep, trivy, etc.) from a CI config or requirements file — potential agent sabotage removing SAST/SCA tooling from the pipeline. supply-chain/build-pipeline/ai-generated-test-sabotage. |
 | `ts-struct-block-npm-registry` | AUDIT | structural | Structural: package install with custom registry override. May be enterprise private registry (Artifactory, Nexus, Verdaccio) or supply chain attack. Review the registry URL. |
 | `sc-block-ollama-uncensored-model` | BLOCK | regex | Pulling a known uncensored or safety-stripped model variant via Ollama deliberately bypasses AI safety alignment. Uncensored models remove RLHF/Constitutional AI guardrails and represent a supply-chain poisoning risk (OWASP LLM04, LLM03). These models are not approved under organizational AI governance policy (NIST AI RMF GOVERN-1, EU AI Act Art.9). |
 | `ts-block-make-shell-override` | BLOCK | regex | make SHELL= overrides the shell used for all recipe commands — attacker can inject a trojan shell that logs/modifies every build step. MITRE T1195.002. |
@@ -1106,7 +1110,7 @@
 
 ## MCP Rules
 
-### credential-exposure (218 rules)
+### credential-exposure (222 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1320,6 +1324,10 @@
 | `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to ~/.consul_token is blocked — contains a Consul ACL token granting authenticated access to the service mesh, KV store (often used to hold application secrets), and ACL system. Exfiltration enables full Consul control and Vault pivot. MITRE T1552. |
 | `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to ~/.nomad_token is blocked — contains a Nomad ACL token granting control over workload scheduling, job management, and secrets mounted into running allocations. MITRE T1552. |
 | `mcp-sec-block-maven-security-xml` | BLOCK | mcp_rule | Access to ~/.m2/settings-security.xml is blocked — this file contains Maven's encrypted master password, which decrypts all repository credentials in settings.xml. Exposing it enables full Maven repository credential compromise. MITRE T1552.001. |
+| `mcp-sec-block-restic-xdg-password` | BLOCK | mcp_rule | Access to ~/.config/restic/password is blocked — contains the master encryption password for all restic backup repositories. Compromise allows decrypting all backup archives and recovering historical secrets. MITRE T1552. |
+| `mcp-sec-block-restic-dotfile-password` | BLOCK | mcp_rule | Access to ~/.restic-password is blocked — stores the restic backup encryption master password (RESTIC_PASSWORD_FILE convention). MITRE T1552. |
+| `mcp-sec-block-borgmatic-config` | BLOCK | mcp_rule | Access to ~/.config/borgmatic/ is blocked — borgmatic config files contain borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
+| `mcp-sec-block-borg-repo-keys` | BLOCK | mcp_rule | Access to ~/.config/borg/keys/ is blocked — borg repository key files are the encryption keys for backup archives; compromise allows mounting and decrypting all borg backups. MITRE T1552. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254 or 169.254.170.2) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
@@ -1638,7 +1646,7 @@
 | persistence-evasion | 287 | 173 | 460 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 175 | 80 | 255 |
-| supply-chain | 246 | 174 | 420 |
+| supply-chain | 254 | 179 | 433 |
 | unauthorized-execution | 426 | 294 | 720 |
-| **Total** | **2230** | **1461** | **3691** |
+| **Total** | **2238** | **1466** | **3704** |
 
