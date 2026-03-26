@@ -756,6 +756,129 @@ rules:
         - tool: "write_file"
           args: {"path": "/project/src/litellm_utils.py"}
 
+  # === BLOCK: ML framework agent state file reads via MCP ===
+  # Taxonomy: data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration
+  # OWASP LLM02 — Sensitive Information Disclosure, LLM06 — Excessive Agency
+  # MITRE T1005, T1552
+  #
+  # ML frameworks (LangChain, AutoGen, CrewAI, LangGraph) serialize session state
+  # to local files. These files contain full session history, tool call logs with
+  # inline credentials, and reasoning traces. An MCP agent can read these files
+  # to exfiltrate credentials and prior session context across project boundaries.
+  #
+  # The existing IDE session rules (mcp-llmdf-audit-agent-session-db-read-*)
+  # cover IDE conversation directories (.cursor, .windsurf, .claude, .copilot).
+  # These rules cover ML framework-specific serialized state files.
+
+  - id: mcp-llmdf-block-agent-state-pkl-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/memory.pkl"
+    decision: "BLOCK"
+    reason: "Read access to memory.pkl is blocked — LangChain/LangGraph memory serialization file containing full conversation history, retrieved documents, and tool call logs including inline credentials from all prior agent sessions. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
+  - id: mcp-llmdf-block-agent-state-crew-pkl-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/crew_state.pkl"
+    decision: "BLOCK"
+    reason: "Read access to crew_state.pkl is blocked — CrewAI serialized crew execution state containing agent assignments, tool call history, and accumulated context from prior CrewAI sessions. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
+  - id: mcp-llmdf-block-agent-state-chain-json-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/chain_state.json"
+    decision: "BLOCK"
+    reason: "Read access to chain_state.json is blocked — LangChain chain serialization file containing session state, retrieved documents, and tool call arguments from prior agent sessions. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
+  - id: mcp-llmdf-block-langgraph-db-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/langgraph.db"
+    decision: "BLOCK"
+    reason: "Read access to langgraph.db is blocked — LangGraph SQLite state database containing compiled agent graph state, checkpoint history, and execution logs with tool call arguments including inline credentials. MITRE T1005, OWASP LLM02."
+    confidence: 0.92
+
+  - id: mcp-llmdf-block-agent-memory-db-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/agent_memory.db"
+    decision: "BLOCK"
+    reason: "Read access to agent_memory.db is blocked — SQLite agent memory database used by various agentic frameworks, containing stored facts, prior interactions, and retrieved context that may include credentials. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
+  - id: mcp-llmdf-block-autogen-cache-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - list_directory
+        - list_dir
+      argument_patterns:
+        path: "**/.autogen/cache/**"
+    decision: "BLOCK"
+    reason: "Read access to .autogen/cache/ is blocked — AutoGen agent execution cache directory containing serialized agent state, LLM response cache, and tool call history from all prior AutoGen sessions. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
+  - id: mcp-llmdf-block-crewai-memory-read
+    taxonomy: "data-exfiltration/llm-data-flow/agent-state-serialization-exfiltration"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - list_directory
+        - list_dir
+      argument_patterns:
+        path: "**/.crewai/memory/**"
+    decision: "BLOCK"
+    reason: "Read access to .crewai/memory/ is blocked — CrewAI persistent memory directory containing agent long-term memory, task history, and accumulated knowledge from prior crew runs. MITRE T1005, OWASP LLM02."
+    confidence: 0.90
+
 structural_rules:
   # === AUDIT: Cross-server context harvesting instructions in content ===
   # When a tool call argument contains instructions to forward outputs from
