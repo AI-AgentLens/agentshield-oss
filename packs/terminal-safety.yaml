@@ -14922,3 +14922,115 @@ rules:
         - "python3 train.py --resume checkpoint.pt"
         - "python3 script.py"
 
+  # === BLOCK: Write to agent delegation artifact files (LLM06, LLM09) ===
+  #
+  # A compromised agent forges delegation artifacts — authorization token files,
+  # approval records, signed task grants — to claim permissions from a parent
+  # orchestrator it never legitimately received. Unlike orchestration hijacking
+  # (which modifies infrastructure config), this targets discrete per-request
+  # authorization artifacts used by downstream agents to gate privileged actions.
+  #
+  # Key patterns:
+  #   echo '{"granted_by": "orchestrator"}' > .agent/delegation.json
+  #   cp /tmp/forged_approval.json ~/.agent/approvals/deployment_approved.json
+  #   echo '{"authorized":true}' > .agentauth/grants.json
+  #   mv /tmp/fake_grant.json .orchestrator/tokens/deploy_grant.json
+  #
+  # Any agent-initiated write to these files warrants hard blocking — legitimate
+  # orchestration frameworks update them via authenticated API calls, never raw
+  # shell writes. A direct shell write is a reliable indicator of forgery.
+  #
+  # Decision: BLOCK — raw shell writes to delegation artifact files are not
+  # part of any legitimate developer or orchestration workflow.
+  #
+  # OWASP LLM06 — Excessive Agency, LLM09 — Misinformation / Fabricated Results
+  # MITRE T1565.001 — Stored Data Manipulation
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery
+  - id: "ts-block-delegation-artifact-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery"
+    match:
+      command_regex: "(?i)(?:(?:>>?)\\s*\\S*(?:\\.agent/delegation\\.json|\\.agentauth/\\S+|\\.orchestrator/tokens/\\S+|[^\\s;|&]*_(?:approved|approval|grant)\\.json(?:\\s|$))|\\b(?:cp|mv)\\b[^;|&\\n]*(?:\\.agent/delegation\\.json|\\.agentauth/|\\.orchestrator/tokens/|[^\\s;|&]*_(?:approved|approval|grant)\\.json(?:\\s|$)))"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Write to an agent delegation artifact file (.agent/delegation.json, .agentauth/, .orchestrator/tokens/, *_approved.json) — direct shell writes to these paths are a reliable indicator of delegation chain forgery; legitimate orchestration frameworks use authenticated API calls, not raw shell writes (OWASP LLM06/LLM09, MITRE T1565.001)."
+    tests:
+      tp:
+        - "echo '{\"granted_by\": \"orchestrator\", \"permissions\": [\"deploy\"]}' > .agent/delegation.json"
+        - "echo '{\"authorized\":true}' > .agentauth/grants.json"
+        - "cp /tmp/forged_approval.json ~/.agent/approvals/deployment_approved.json"
+        - "mv /tmp/fake_grant.json .orchestrator/tokens/deploy_grant.json"
+      tn:
+        - "cat .agent/delegation.json"
+        - "git log --follow .agent/delegation.json"
+        - "openssl verify -CAfile ca.pem delegation.jwt"
+
+  # === BLOCK: Redis agent auth key injection (LLM06) ===
+  #
+  # Multi-agent systems using Redis for shared state may store delegation grants,
+  # authorization tokens, or orchestrator approvals as Redis keys. A compromised
+  # agent can inject forged authorization entries directly via redis-cli SET,
+  # bypassing the orchestrator's authentication layer.
+  #
+  # Examples:
+  #   redis-cli SET agent:delegation:deploy '{"authorized": true}'
+  #   redis-cli SET orchestrator:grants:agent-2 '{"permissions":["write","deploy"]}'
+  #   redis-cli SET agent:auth:worker-1 '{"trusted":true}'
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery
+  # OWASP LLM06 — Excessive Agency
+  # MITRE T1565.001 — Stored Data Manipulation
+  - id: "ts-block-redis-agent-auth-inject"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery"
+    match:
+      command_regex: "(?i)\\bredis-cli\\b.*\\bSET\\b.*\\b(?:agent:delegation:|orchestrator:grants:|agent:auth:|agent:permission:|orchestrator:approval:)"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "redis-cli SET with an agent delegation or auth key — injecting forged authorization into Redis state bypasses the orchestrator's authentication layer and grants the agent permissions it never legitimately received (OWASP LLM06, MITRE T1565.001)."
+    tests:
+      tp:
+        - "redis-cli SET agent:delegation:deploy '{\"authorized\": true}'"
+        - "redis-cli SET orchestrator:grants:agent-2 '{\"permissions\":[\"deploy\"]}'"
+        - "redis-cli SET agent:auth:worker-1 '{\"trusted\":true}'"
+      tn:
+        - "redis-cli GET agent:delegation:deploy"
+        - "redis-cli SET session:user:123 '{\"logged_in\":true}'"
+        - "redis-cli KEYS agent:*"
+
+  # === AUDIT: Delegation env var injection before privileged spawn (LLM06) ===
+  #
+  # Setting agent delegation variables in the environment immediately before
+  # spawning a privileged process is a common technique for bypassing per-request
+  # authorization checks without modifying persistent state. Unlike file or Redis
+  # forgery, env var injection is transient — it affects only the spawned process —
+  # but it can still escalate privileges for the duration of a deployment or
+  # approval workflow.
+  #
+  # Examples:
+  #   AGENT_DELEGATED_BY=orchestrator python deploy_agent.py --skip-approval
+  #   ORCHESTRATOR_TOKEN=trusted bash -c 'python deploy.py'
+  #   export AGENT_AUTH_BYPASS=1 && python agent.py
+  #   AGENT_PERMISSION_OVERRIDE=admin ./run_privileged.sh
+  #
+  # Decision: AUDIT — env var injection is also used in legitimate test harnesses
+  # and CI pipelines; human review determines legitimacy.
+  #
+  # OWASP LLM06 — Excessive Agency
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery
+  - id: "ts-audit-delegation-env-inject"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery"
+    match:
+      command_regex: "(?i)(?:AGENT_DELEGATED_BY|ORCHESTRATOR_TOKEN|AGENT_AUTH_BYPASS|AGENT_PERMISSION_OVERRIDE|AGENT_TRUST_OVERRIDE)\\s*="
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Delegation environment variable set before process spawn — injecting AGENT_DELEGATED_BY, ORCHESTRATOR_TOKEN, or AGENT_AUTH_BYPASS can bypass per-request authorization checks in multi-agent pipelines (OWASP LLM06). Warrants human review."
+    tests:
+      tp:
+        - "AGENT_DELEGATED_BY=orchestrator python deploy_agent.py --skip-approval"
+        - "ORCHESTRATOR_TOKEN=trusted bash -c 'python deploy.py'"
+        - "export AGENT_AUTH_BYPASS=1 && python agent.py"
+        - "AGENT_PERMISSION_OVERRIDE=admin ./run_privileged.sh"
+      tn:
+        - "python deploy_agent.py --skip-approval"
+        - "env | grep AGENT"
+        - "cat .env.example"
+
