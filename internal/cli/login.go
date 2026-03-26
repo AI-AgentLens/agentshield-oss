@@ -95,13 +95,18 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("  ╔══════════════════════════════════════════════════╗")
 	fmt.Printf("  ║  Your code: %-37s║\n", dcResp.UserCode)
 	fmt.Println("  ╚══════════════════════════════════════════════════╝")
+
+	// Copy code to clipboard
+	if copyToClipboard(dcResp.UserCode) {
+		fmt.Println("  (copied to clipboard)")
+	}
 	fmt.Println()
 
 	browserOpened := openBrowser(verifyURL)
 	if browserOpened {
-		fmt.Printf("  Browser opened. Enter the code above at:\n  %s\n\n", verifyURL)
+		fmt.Printf("  Browser opened. Paste the code at:\n  %s\n\n", verifyURL)
 	} else {
-		fmt.Printf("  Could not open browser. Visit this URL and enter the code:\n  %s\n\n", verifyURL)
+		fmt.Printf("  Could not open browser. Visit this URL and paste the code:\n  %s\n\n", verifyURL)
 	}
 
 	fmt.Println("  Waiting for authentication...")
@@ -209,6 +214,20 @@ func sendInitialHeartbeat(client *http.Client, creds *auth.Credentials) {
 		return
 	}
 	resp.Body.Close()
+}
+
+func copyToClipboard(text string) bool {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	default:
+		return false
+	}
+	cmd.Stdin = bytes.NewReader([]byte(text))
+	return cmd.Run() == nil
 }
 
 func openBrowser(url string) bool {
