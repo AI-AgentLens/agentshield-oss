@@ -37,6 +37,7 @@ func pingCommand(cmd *cobra.Command, args []string) error {
 	hooks := enterprise.DetectHooks()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,
+		"machine_id":    enterprise.MachineID(),
 		"os":            runtime.GOOS,
 		"arch":          runtime.GOARCH,
 		"agent_version": Version,

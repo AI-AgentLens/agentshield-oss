@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/auth"
+	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
 )
 
@@ -30,8 +30,10 @@ func deleteAgentFromSaaS(creds *auth.Credentials) {
 	if creds == nil || creds.Token == "" {
 		return
 	}
-	hostname, _ := os.Hostname()
-	payload, _ := json.Marshal(map[string]string{"hostname": hostname})
+	payload, _ := json.Marshal(map[string]string{
+		"hostname":   enterprise.StableHostname(),
+		"machine_id": enterprise.MachineID(),
+	})
 	req, err := http.NewRequest("DELETE", creds.Server+"/api/agents/self", bytes.NewReader(payload))
 	if err != nil {
 		return

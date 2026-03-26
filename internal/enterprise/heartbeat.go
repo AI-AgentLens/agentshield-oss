@@ -16,6 +16,7 @@ import (
 // heartbeatPayload matches the server's heartbeat.Heartbeat struct.
 type heartbeatPayload struct {
 	Hostname        string   `json:"hostname"`
+	MachineID       string   `json:"machine_id,omitempty"`
 	OS              string   `json:"os"`
 	Arch            string   `json:"arch"`
 	AgentVersion    string   `json:"agent_version"`
@@ -41,7 +42,9 @@ var AgentVersion = "unknown"
 
 var processStart = time.Now()
 
-// RunHeartbeat starts the background heartbeat loop. It blocks forever.
+// RunHeartbeat starts the background heartbeat loop. It blocks until the agent
+// is revoked from the server (SaaS delete), at which point it removes local
+// credentials and exits so the daemon stops.
 func RunHeartbeat(cfg *HeartbeatConf, configDir string) {
 	if cfg == nil || cfg.URL == "" || cfg.Token == "" {
 		fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: missing url or token, skipping\n")
@@ -60,13 +63,21 @@ func RunHeartbeat(cfg *HeartbeatConf, configDir string) {
 	fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: started (interval: %ds, url: %s)\n", interval, cfg.URL)
 
 	// Send immediately on start, then on tick
-	sendHeartbeat(client, cfg, configDir)
+	if revoked := sendHeartbeat(client, cfg, configDir); revoked {
+		handleRevocation()
+		return
+	}
 	for range ticker.C {
-		sendHeartbeat(client, cfg, configDir)
+		if revoked := sendHeartbeat(client, cfg, configDir); revoked {
+			handleRevocation()
+			return
+		}
 	}
 }
 
-func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
+// sendHeartbeat sends a single heartbeat. Returns true if the server says this
+// agent has been revoked (deleted from the dashboard).
+func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) bool {
 	hostname := StableHostname()
 
 	var memStats runtime.MemStats
@@ -74,6 +85,7 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 
 	payload := heartbeatPayload{
 		Hostname:        hostname,
+		MachineID:       MachineID(),
 		OS:              runtime.GOOS,
 		Arch:            runtime.GOARCH,
 		AgentVersion:    AgentVersion,
@@ -89,13 +101,13 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return
+		return false
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
 		req, err := http.NewRequest("POST", cfg.URL, bytes.NewReader(data))
 		if err != nil {
-			return
+			return false
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
@@ -106,16 +118,39 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: send failed: %v\n", err)
-			return
+			return false
 		}
 		_ = resp.Body.Close()
+
+		// 403 with agent_revoked means admin deleted this agent from dashboard
+		if resp.StatusCode == http.StatusForbidden {
+			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: agent revoked by server — shutting down\n")
+			return true
+		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return
+			return false
 		}
 		if attempt == 1 {
 			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: server returned %d\n", resp.StatusCode)
 		}
 	}
+	return false
+}
+
+// handleRevocation cleans up local state when the server revokes this agent.
+// Removes credentials and exits the process so launchd won't restart it
+// (no credentials = connect command fails on next launch).
+func handleRevocation() {
+	fmt.Fprintf(os.Stderr, "[AgentShield] agent was revoked from dashboard — removing credentials and stopping\n")
+
+	// Remove credentials so the daemon won't restart successfully
+	home, _ := os.UserHomeDir()
+	os.Remove(filepath.Join(home, ".agentshield", "credentials.json"))
+	os.Remove(filepath.Join(home, ".agentshield", "last_heartbeat"))
+
+	// Exit the process. Launchd will try to restart, but connect will fail
+	// with "not logged in" and exit immediately, so it won't keep retrying.
+	os.Exit(0)
 }
 
 // DetectHooks checks which IDE hooks are configured.
