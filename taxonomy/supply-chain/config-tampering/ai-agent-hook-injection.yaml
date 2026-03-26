@@ -89,11 +89,24 @@ examples:
     - "cat ~/.claude/settings.json  # reading settings is safe"
     - "jq '.hooks' ~/.claude/settings.json  # auditing existing hooks"
 
+recommendation: |
+  - Implement file integrity monitoring on AI agent settings files
+    (settings.json, .claude/settings.json, .cursor/settings.json) and alert
+    on any changes to the `hooks` section.
+  - Block AI agents from writing to their own settings files — hook
+    configuration changes should require explicit human approval.
+  - Audit hook command values for exfiltration patterns: pipes to curl, nc,
+    base64 encoding, or writes to hidden files under /tmp.
+  - Prefer project-scoped hooks (.claude/settings.json in the repo) over
+    global hooks (~/.claude/settings.json) to limit blast radius.
+  - Scan package postinstall scripts for references to AI agent config paths
+    before running npm/pip install in agent sessions.
+
 compliance:
   owasp-llm-2025: ["LLM03", "LLM05", "LLM06"]
   iso-27001-2022: ["A.8.9", "A.8.25", "A.8.28"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
-  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-2", "MANAGE-1"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-1", "MANAGE-1"]
   soc2-type2: ["CC6.1", "CC6.8", "CC8.1"]
 
 references:

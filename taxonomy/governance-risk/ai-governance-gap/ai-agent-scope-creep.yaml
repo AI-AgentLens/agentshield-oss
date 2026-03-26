@@ -99,9 +99,21 @@ examples:
     - "cat src/api/handler.go  # reading only the relevant file"
     - "npm install --save-dev typescript  # project-local install"
 
+recommendation: |
+  - Define explicit task scope in system prompts: specify which directories
+    the agent may access and restrict network calls to the task's required services.
+  - Apply the principle of minimal context: grant file-read access only to
+    directories directly relevant to the assigned task.
+  - Use AgentShield to audit tool invocations that expand beyond the initial
+    working directory or access credential/config files unrelated to the task.
+  - Require human re-authorization before the agent installs packages globally,
+    creates cloud resources, or modifies persistent system configuration.
+  - Monitor audit logs for breadth anomalies (agent accessing >5 distinct
+    top-level directories for a single-file bug fix, for example).
+
 compliance:
   owasp-llm-2025: ["LLM06", "LLM01"]
-  iso-27001-2022: ["A.8.2", "A.5.10", "A.8.3"]
+  iso-27001-2022: ["A.8.4", "A.5.10", "A.8.3"]
   eu-ai-act-2024: ["Art.14", "Art.9", "Art.13"]
   nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MAP-5"]
   soc2-type2: ["CC6.1", "CC6.3", "CC7.2"]
