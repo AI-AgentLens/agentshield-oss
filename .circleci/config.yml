@@ -55,19 +55,38 @@ jobs:
             - ~/go/pkg/mod
       - run:
           name: Run tests
-          command: go test -v ./...
-      - run:
-          name: Install GoReleaser
           command: |
-            curl -sfL https://goreleaser.com/static/run | bash -s -- --version
-            curl -sfL https://goreleaser.com/static/run > /tmp/goreleaser
-            chmod +x /tmp/goreleaser
+            go test -count=1 \
+              ./internal/config/... \
+              ./internal/policy/... \
+              ./internal/guardian/... \
+              ./internal/mcp/... \
+              ./internal/normalize/... \
+              ./internal/shellparse/... \
+              ./internal/unicode/... \
+              ./internal/enterprise/... \
+              ./internal/logger/... \
+              ./internal/redact/... \
+              ./internal/taxonomy/...
+      - run:
+          name: Clone and build agentcompliance
+          command: |
+            git clone https://github.com/AI-AgentLens/AI_risk_compliance.git ../AI_risk_compliance
+            cd ../AI_risk_compliance
+            git submodule update --init --recursive || true
+            for GOOS_VAL in darwin linux; do
+              for GOARCH_VAL in amd64 arm64; do
+                CGO_ENABLED=0 GOOS=$GOOS_VAL GOARCH=$GOARCH_VAL \
+                  go build -ldflags="-s -w" \
+                  -o ../AI_Agent_Shield/dist/agentcompliance_${GOOS_VAL}_${GOARCH_VAL}/agentcompliance \
+                  ./cmd/comply
+              done
+            done
       - run:
           name: Bump version tag
           command: |
             git fetch --tags
             LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-            # Extract major.minor.patch
             MAJOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f1)
             MINOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f2)
             PATCH=$(echo "$LATEST" | sed 's/v//' | cut -d. -f3)
@@ -86,10 +105,9 @@ workflows:
   test-and-release:
     jobs:
       - test
-      # Uncomment to enable auto-release on push to main:
-      # - release:
-      #     requires:
-      #       - test
-      #     filters:
-      #       branches:
-      #         only: main
+      - release:
+          requires:
+            - test
+          filters:
+            branches:
+              only: main

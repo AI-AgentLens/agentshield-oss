@@ -5,8 +5,6 @@ project_name: agentshield
 before:
   hooks:
     - go mod tidy
-    # Build agentcompliance from sibling AI_risk_compliance module
-    - bash -c 'cd ../AI_risk_compliance && CGO_ENABLED=0 GOOS={{ .Env.GOOS | default "darwin" }} GOARCH={{ .Env.GOARCH | default "arm64" }} go build -ldflags="-s -w -X main.version={{.Version}}" -o ../AI_Agent_Shield/dist/agentcompliance ./cmd/comply'
 
 builds:
   - id: agentshield
@@ -36,7 +34,9 @@ archives:
       - packs/mcp/*.yaml
       - scripts/agentshield-wrapper.sh
       - configs/default_policy.yaml
-      - dist/agentcompliance
+      - src: dist/agentcompliance_{{ .Os }}_{{ .Arch }}/agentcompliance
+        dst: .
+        strip_parent: true
 
 checksum:
   name_template: "checksums.txt"
