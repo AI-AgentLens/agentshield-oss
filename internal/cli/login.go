@@ -103,11 +103,12 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	browserOpened := openBrowser(verifyURL)
+	verifyWithCode := verifyURL + "?code=" + dcResp.UserCode
+	browserOpened := openBrowser(verifyWithCode)
 	if browserOpened {
-		fmt.Printf("  Browser opened. Paste the code at:\n  %s\n\n", verifyURL)
+		fmt.Printf("  Browser opened — code pre-filled. Just click Verify.\n  %s\n\n", verifyWithCode)
 	} else {
-		fmt.Printf("  Could not open browser. Visit this URL and paste the code:\n  %s\n\n", verifyURL)
+		fmt.Printf("  Could not open browser. Visit this URL:\n  %s\n\n", verifyWithCode)
 	}
 
 	fmt.Println("  Waiting for authentication...")
