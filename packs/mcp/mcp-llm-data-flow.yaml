@@ -879,6 +879,75 @@ rules:
     reason: "Read access to .crewai/memory/ is blocked — CrewAI persistent memory directory containing agent long-term memory, task history, and accumulated knowledge from prior crew runs. MITRE T1005, OWASP LLM02."
     confidence: 0.90
 
+  # === BLOCK: MCP write to agent checkpoint files ===
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-checkpoint-state-tampering
+  # OWASP LLM06 (Excessive Agency), CWE-502 (Deserialization of Untrusted Data)
+  # MITRE T1565.001 (Stored Data Manipulation)
+  #
+  # Agentic frameworks persist execution checkpoints so agents can resume mid-task.
+  # An MCP write tool targeting a checkpoint file allows an attacker to inject
+  # malicious pickled data — when the framework resumes, pickle.load() executes
+  # arbitrary attacker code (RCE). It can also inject false tool results, alter
+  # agent memory, or escalate permissions encoded in checkpoint data.
+  - id: mcp-block-checkpoint-file-write
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-checkpoint-state-tampering"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/checkpoint*.pkl"
+    decision: "BLOCK"
+    reason: "MCP write to a checkpoint .pkl file — pickle-serialized checkpoint files are deserialized at framework resume, so writing attacker-controlled pickle data achieves RCE (CWE-502). OWASP LLM06, MITRE T1565.001."
+    confidence: 0.92
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/.langgraph/checkpoint.pkl", "content": "malicious pickle data"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.langgraph/checkpoints/checkpoint_abc123.pkl", "content": "injected state"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/reports/analysis.pdf", "content": "report content"}
+        - tool: "read_file"
+          args: {"path": "/workspace/.langgraph/checkpoint.pkl"}
+
+  # === AUDIT: MCP read of agent checkpoint database files ===
+  # Reading checkpoint databases is a reconnaissance step before tampering.
+  # langgraph.db is already covered by agent-state-serialization rules (BLOCK),
+  # so this AUDIT rule covers additional checkpoint-specific paths.
+  - id: mcp-audit-checkpoint-db-read
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-checkpoint-state-tampering"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+      argument_patterns:
+        path: "**/checkpoints.db"
+    decision: "AUDIT"
+    reason: "MCP read of a checkpoints.db SQLite file — agent checkpoint databases store execution state, tool results, and context. Read access may be reconnaissance before tampering. OWASP LLM06."
+    confidence: 0.82
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/workspace/.langgraph/checkpoints.db"}
+        - tool: "get_file_contents"
+          args: {"path": "/home/user/myagent/checkpoints.db"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/database/schema.sql"}
+        - tool: "read_file"
+          args: {"path": "/workspace/README.md"}
+
 structural_rules:
   # === AUDIT: Cross-server context harvesting instructions in content ===
   # When a tool call argument contains instructions to forward outputs from
