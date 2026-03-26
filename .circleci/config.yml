@@ -62,17 +62,18 @@ jobs:
             git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
             git submodule update --init --recursive || true
             go mod download
+            # Cross-compile all 4 platforms in parallel
             for GOOS_VAL in darwin linux; do
               for GOARCH_VAL in amd64 arm64; do
-                echo "Building agentcompliance for ${GOOS_VAL}/${GOARCH_VAL}..."
                 OUTDIR="${HOME}/project/compliance-bin/agentcompliance_${GOOS_VAL}_${GOARCH_VAL}"
                 mkdir -p "${OUTDIR}"
                 CGO_ENABLED=0 GOOS=$GOOS_VAL GOARCH=$GOARCH_VAL \
                   go build -ldflags="-s -w" \
                   -o "${OUTDIR}/agentcompliance" \
-                  ./cmd/comply
+                  ./cmd/comply &
               done
             done
+            wait
             ls -la ${HOME}/project/compliance-bin/
             echo "All agentcompliance binaries built"
       - run:
