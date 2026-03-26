@@ -58,6 +58,8 @@ jobs:
           command: |
             git clone https://x-access-token:${GITHUB_TOKEN}@github.com/AI-AgentLens/AI_risk_compliance.git /tmp/AI_risk_compliance
             cd /tmp/AI_risk_compliance
+            # Rewrite SSH submodule URLs to HTTPS to avoid host key prompts
+            git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
             git submodule update --init --recursive || true
             go mod download
             for GOOS_VAL in darwin linux; do
