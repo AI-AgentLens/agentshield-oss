@@ -2293,16 +2293,17 @@ rules:
     taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
     match:
       command_regex: "\\.ssh/authorized_keys2?"
-      command_regex_exclude: "^(echo|printf)\\s+[\"'][^\"']*[\"']\\s*$|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|>>?\\s*[\"']?/tmp/"
+      command_regex_exclude: "^(echo|printf)\\s+[\"'][^\"']*[\"']\\s*$|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|>>?\\s*[\"']?/tmp/|^agentshield\\s+mcp-eval\\s+"
     decision: "BLOCK"
     confidence: 0.97
-    reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), and heredoc writes to /tmp where authorized_keys appears only as documentation text. (MITRE T1098.004)"
+    reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), heredoc writes to /tmp, and agentshield mcp-eval diagnostic commands (which simulate but do not execute tool calls). (MITRE T1098.004)"
     tests:
       tp:
         - "cat /tmp/key.pub >> ~/.ssh/authorized_keys"
         - "tee -a ~/.ssh/authorized_keys < pubkey.txt"
       tn:
         - "ls ~/.ssh/known_hosts"
+        - "agentshield mcp-eval --tool create_file --arg path=/home/user/.ssh/authorized_keys"
 
   # === BLOCK: SSH client config tampering (MITM, ProxyCommand injection) ===
   # Modifying ~/.ssh/config is a critical lateral movement vector. Attackers add
