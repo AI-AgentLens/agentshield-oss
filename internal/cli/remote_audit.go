@@ -19,13 +19,15 @@ func sendRemoteAudit(event *logger.AuditEvent) {
 	}
 
 	go func() {
-		payload, err := json.Marshal([]map[string]any{{
-			"command":  event.Command,
-			"decision": event.Decision,
-			"rule_id":  firstRule(event.TriggeredRules),
-			"reason":   firstReason(event.Reasons),
-			"source":   event.Source,
-		}})
+		payload, err := json.Marshal(map[string]any{
+			"events": []map[string]any{{
+				"command":  event.Command,
+				"decision": event.Decision,
+				"rule_id":  firstRule(event.TriggeredRules),
+				"reason":   firstReason(event.Reasons),
+				"source":   event.Source,
+			}},
+		})
 		if err != nil {
 			return
 		}
