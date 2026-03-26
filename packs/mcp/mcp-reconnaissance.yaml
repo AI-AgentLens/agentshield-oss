@@ -605,3 +605,68 @@ structural_rules:
       tn:
         - tool: "send_message"
           args: {"message": "Can you explain how RBAC works in Kubernetes?"}
+
+  # === AUDIT: Hardware fingerprinting via /sys/class/dmi ===
+  # The Linux /sys/class/dmi/id/ pseudo-filesystem exposes machine-specific
+  # hardware identifiers: product_uuid (machine UUID), board_serial (motherboard
+  # serial), product_serial, and BIOS metadata. Attackers read these to
+  # fingerprint the host, correlate with other intel, or detect sandbox/VM
+  # environments before releasing a payload. /sys/class/net/*/address exposes
+  # interface MAC addresses — uniquely identifies the machine on the network.
+  # MITRE T1082 — System Information Discovery
+  - id: mcp-recon-audit-sys-hardware-fingerprint
+    taxonomy: "reconnaissance/system-discovery/hardware-fingerprinting"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "/sys/class/dmi/id/**"
+    decision: "AUDIT"
+    reason: "Access to /sys/class/dmi/id/ is flagged — exposes machine UUID, serial numbers, and BIOS metadata used to fingerprint the host or detect sandboxes. MITRE T1082."
+    confidence: 0.85
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/sys/class/dmi/id/product_uuid"}
+        - tool: "cat_file"
+          args: {"path": "/sys/class/dmi/id/board_serial"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/README.md"}
+        - tool: "read_file"
+          args: {"path": "/sys/bus/usb/devices/1-1/idVendor"}
+
+  # === AUDIT: Network interface MAC address access ===
+  # Reading MAC addresses from /sys/class/net/<iface>/address uniquely identifies
+  # the machine on the network. Used in fingerprinting and sandbox-detection
+  # payloads. AI agents have no legitimate need to read hardware MAC addresses.
+  # MITRE T1016 — System Network Configuration Discovery
+  - id: mcp-recon-audit-sys-mac-address
+    taxonomy: "reconnaissance/network-discovery/network-interface-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "/sys/class/net/*/address"
+    decision: "AUDIT"
+    reason: "Access to /sys/class/net/<iface>/address is flagged — exposes hardware MAC addresses used for host fingerprinting. MITRE T1016."
+    confidence: 0.85
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/sys/class/net/eth0/address"}
+        - tool: "cat_file"
+          args: {"path": "/sys/class/net/wlan0/address"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/README.md"}
+        - tool: "read_file"
+          args: {"path": "/sys/class/net/eth0/speed"}
