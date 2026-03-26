@@ -1,0 +1,8 @@
+id: "2.32"
+name: "Code Generation Exposure"
+kingdom_id: 2
+description: >
+  Credential exposure arising from AI agent code generation: AI coding agents
+  that hallucinate, hardcode, or inadvertently embed real credentials in
+  generated source code, configuration files, or commit diffs — creating new
+  credential exposure rather than reading existing secrets.
