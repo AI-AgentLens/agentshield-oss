@@ -18,9 +18,15 @@ func sendRemoteAudit(event *logger.AuditEvent) {
 		return
 	}
 
+	// Use tool name as command for MCP calls
+	command := event.Command
+	if command == "" && event.ToolName != "" {
+		command = "mcp:" + event.ToolName
+	}
+
 	payload, err := json.Marshal(map[string]any{
 		"events": []map[string]any{{
-			"command":  event.Command,
+			"command":  command,
 			"decision": event.Decision,
 			"rule_id":  firstRule(event.TriggeredRules),
 			"reason":   firstReason(event.Reasons),

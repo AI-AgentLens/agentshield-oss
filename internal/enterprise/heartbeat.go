@@ -84,7 +84,7 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 		CommandsAudited: int(HeartbeatStats.CommandsAudited.Load()),
 		CommandsBlocked: int(HeartbeatStats.CommandsBlocked.Load()),
 		UptimeSeconds:   int(time.Since(processStart).Seconds()),
-		Hooks:           detectHooks(),
+		Hooks:           DetectHooks(),
 	}
 
 	data, err := json.Marshal(payload)
@@ -118,8 +118,8 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 	}
 }
 
-// detectHooks checks which IDE hooks are configured.
-func detectHooks() []string {
+// DetectHooks checks which IDE hooks are configured.
+func DetectHooks() []string {
 	home, _ := os.Hostname() // reuse for home dir
 	_ = home
 	homeDir, _ := os.UserHomeDir()

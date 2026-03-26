@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/auth"
+	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
 )
 
@@ -194,12 +195,14 @@ func pollDeviceToken(client *http.Client, server, deviceCode string) (*deviceTok
 
 func sendInitialHeartbeat(client *http.Client, creds *auth.Credentials) {
 	hostname, _ := os.Hostname()
+	hooks := enterprise.DetectHooks()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,
 		"os":            runtime.GOOS,
 		"arch":          runtime.GOARCH,
 		"agent_version": Version,
 		"mode":          "standalone",
+		"hooks":         hooks,
 	})
 
 	req, err := http.NewRequest("POST", creds.Server+"/api/heartbeat", bytes.NewReader(payload))
