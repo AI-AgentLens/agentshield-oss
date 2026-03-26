@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1026 |
-| MCP rules | 443 |
-| Total rules | 1469 |
+| MCP rules | 446 |
+| Total rules | 1472 |
 | Test cases (TP+TN) | 3619 |
 | Kingdoms covered | 10 |
 
@@ -1385,7 +1385,7 @@
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
 
-### governance-risk (23 rules)
+### governance-risk (26 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1412,6 +1412,9 @@
 | `mcp-gov-audit-compliance-artifact-audit-evidence-write` | AUDIT | mcp_rule | MCP write into audit evidence directory — AI agents must not create or modify audit evidence artifacts without human oversight. Silent modification of evidence files used in regulatory audits violates integrity requirements (CWE-345, CWE-290, EU AI Act Art.14, SOC 2 CC7.1/CC7.2). |
 | `mcp-gov-audit-ai-content-publishable-write` | AUDIT | mcp_rule | MCP write to a publishable PDF document — AI-generated PDF content distributed to end users may require disclosure or watermarking under EU AI Act Art.50 and FTC synthetic content guidelines. Verify compliance metadata is present. |
 | `mcp-gov-audit-ai-content-docx-write` | AUDIT | mcp_rule | MCP write to a Word document (.docx) — AI-generated document content may require disclosure per EU AI Act Art.50 when distributed to humans. Verify AI authorship is disclosed. |
+| `mcp-gov-audit-ai-agent-log-write` | AUDIT | mcp_rule | MCP write to agent.log — AI agent log files accumulate session data, tool call histories, and potentially PII without enforced retention limits. Verify a rotation/TTL policy exists before allowing unbounded writes (GDPR Art.17, EU AI Act Art.10, ISO 27001 A.8.10). |
+| `mcp-gov-audit-ai-memory-jsonl-write` | AUDIT | mcp_rule | MCP write to memory.jsonl — AI agent memory stores persist conversation context, retrieved documents, and user data across sessions. Without TTL controls these files violate GDPR Art.17 erasure requirements and EU AI Act Art.10 data governance obligations. |
+| `mcp-gov-audit-ai-tool-history-write` | AUDIT | mcp_rule | MCP write to tool_history.jsonl — AI tool call history logs record every MCP operation including file paths, arguments, and content. Retaining this data indefinitely exposes sensitive operations to future access and violates data minimisation principles (GDPR Art.5, ISO 27001 A.8.10). |
 
 ### mcp-safety (8 rules)
 
