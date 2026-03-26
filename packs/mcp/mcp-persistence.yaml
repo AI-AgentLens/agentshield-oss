@@ -558,6 +558,63 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/.git/HEAD"}
 
+  # === BLOCK: Project-level .git/config write via MCP (issue #445) ===
+  #
+  # Every git repository has a local .git/config that controls repo-level
+  # git behavior. An AI agent that writes to it can inject:
+  #   - core.hooksPath = /tmp/evil  → redirects ALL git hooks (pre-commit,
+  #     post-merge, post-checkout, etc.) to attacker-controlled scripts.
+  #     Fires silently on every developer git operation. MITRE T1546.
+  #   - url.<evil>.insteadOf = https://github.com/ → MITM credential theft
+  #     by routing all git pushes/fetches through attacker infrastructure.
+  #   - credential.helper = /tmp/steal → replaces git credential helper.
+  #   - remote.origin.url = https://evil.com/repo → redirects remote.
+  #
+  # Unlike ~/.gitconfig (global, covered by mcp-persist-block-gitconfig-write),
+  # .git/config is project-scoped — it affects every developer on the project
+  # who clones the repo OR only the local workspace. Both are dangerous.
+  #
+  # AI agents do NOT need to write .git/config directly — they use `git config`
+  # shell commands (already protected) or work with tracked files. Direct writes
+  # bypass all shell-level analysis.
+  #
+  # MITRE T1546 — Event Triggered Execution (hooks path injection)
+  # MITRE T1071.001 — Application Layer Protocol (URL redirect for exfil)
+  - id: mcp-persist-block-git-repo-config-write
+    taxonomy: "persistence-evasion/cicd-tampering/git-config-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.git/config$"
+    decision: "BLOCK"
+    reason: "MCP write to .git/config (project-level git config) can redirect git hooks to attacker scripts or intercept git credentials via url.insteadOf. Persistent execution without elevated privileges. MITRE T1546."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/.git/config"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/repos/myapp/.git/config"}
+        - tool: "str_replace_editor"
+          args: {"path": ".git/config"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/.git/HEAD"}
+        - tool: "write_file"
+          args: {"path": "/project/docs/git-config-guide.md"}
+
   # === BLOCK: AI IDE settings/config writes via MCP (issue #41) ===
   #
   # AI coding agent settings files control which tools and permissions are
