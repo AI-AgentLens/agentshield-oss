@@ -4451,6 +4451,77 @@ var ContainerTrustBypassCases = []TestCase{
 	},
 
 	// =========================================================================
+	// Typosquatted AI coding extension installs (issue #455)
+	//
+	// Attackers publish extensions with names nearly identical to popular AI
+	// coding agent tools (Cline, Continue) to intercept prompts and harvest
+	// credentials. Character-substitution patterns are caught by
+	// sc-block-ide-ai-extension-typosquat (BLOCK).
+	//
+	// Taxonomy: supply-chain/ide-extension/malicious-ai-ide-extension
+	// MITRE T1176, T1195.001
+
+	// TP: typosquatted Cline (double-i)
+	{
+		ID:               "TP-SC-BLOCK-IDE-AI-TYPOSQUAT-001",
+		Command:          "code --install-extension attacker.cliine",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/ide-extension/malicious-ai-ide-extension",
+		Analyzer:         "regex",
+		Description:      "code --install-extension with typosquatted 'cliine' (double-i substitute for 'cline') — sc-block-ide-ai-extension-typosquat must BLOCK (issue #455).",
+		Tags:             []string{"tp", "ide-extension", "typosquat", "supply-chain"},
+	},
+
+	// TP: typosquatted Continue (missing 'i')
+	{
+		ID:               "TP-SC-BLOCK-IDE-AI-TYPOSQUAT-002",
+		Command:          "cursor --install-extension evil.contnue",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/ide-extension/malicious-ai-ide-extension",
+		Analyzer:         "regex",
+		Description:      "cursor --install-extension with typosquatted 'contnue' (missing i in 'continue') — sc-block-ide-ai-extension-typosquat must BLOCK (issue #455).",
+		Tags:             []string{"tp", "ide-extension", "typosquat", "supply-chain"},
+	},
+
+	// TP: leet-speak Claude (4→a)
+	{
+		ID:               "TP-SC-BLOCK-IDE-AI-TYPOSQUAT-003",
+		Command:          "code --install-extension bad.cl4ude",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/ide-extension/malicious-ai-ide-extension",
+		Analyzer:         "regex",
+		Description:      "code --install-extension with leet-speak 'cl4ude' substitution — sc-block-ide-ai-extension-typosquat must BLOCK (issue #455).",
+		Tags:             []string{"tp", "ide-extension", "typosquat", "supply-chain"},
+	},
+
+	// TN: legitimate Cline extension (saoudrizwan.claude-dev)
+	{
+		ID:               "TN-SC-BLOCK-IDE-AI-TYPOSQUAT-001",
+		Command:          "code --install-extension saoudrizwan.claude-dev",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/ide-extension/malicious-ai-ide-extension",
+		Analyzer:         "regex",
+		Description:      "code --install-extension with official Cline extension ID — sc-block-ide-ai-extension-typosquat must NOT fire; falls through to sc-audit-ide-extension-install (issue #455).",
+		Tags:             []string{"tn", "ide-extension", "legitimate", "supply-chain"},
+	},
+
+	// TN: legitimate Continue extension
+	{
+		ID:               "TN-SC-BLOCK-IDE-AI-TYPOSQUAT-002",
+		Command:          "code --install-extension continue.continue",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/ide-extension/malicious-ai-ide-extension",
+		Analyzer:         "regex",
+		Description:      "code --install-extension with official Continue extension ID — sc-block-ide-ai-extension-typosquat must NOT fire; falls through to sc-audit-ide-extension-install (issue #455).",
+		Tags:             []string{"tn", "ide-extension", "legitimate", "supply-chain"},
+	},
+
+	// =========================================================================
 	// LLM-Hallucinated Package Installation Attack (issue #101)
 	//
 	// AI agents may install non-existent packages that LLMs hallucinate with

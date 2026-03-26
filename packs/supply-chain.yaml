@@ -2489,6 +2489,37 @@ rules:
       tn:
         - "code --list-extensions"
 
+  # === BLOCK: Typosquatted AI coding extension installs (issue #455) ===
+  #
+  # Attackers publish extensions with names nearly identical to popular AI
+  # coding agent tools (Cline, Continue, Claude Code companions) to intercept
+  # AI prompts, harvest credentials, and inject backdoors into AI-generated code.
+  #
+  # This rule catches obvious character-substitution typosquats against the most
+  # common AI coding agent extensions. The broader sc-audit-ide-extension-install
+  # rule catches all other marketplace installs for human review.
+  #
+  # Known legitimate IDs (must NOT trigger):
+  #   saoudrizwan.claude-dev  (official Cline extension)
+  #   continue.continue       (official Continue extension)
+  #   github.copilot          (official GitHub Copilot)
+  - id: "sc-block-ide-ai-extension-typosquat"
+    taxonomy: "supply-chain/ide-extension/malicious-ai-ide-extension"
+    match:
+      command_regex: "\\b(code|cursor|windsurf|codium|code-insiders)\\b[^;|&]*--install-extension\\b[^;|&]*(cliine|cllne|c1ine|cl1ne|clline|contnue\\b|continuee|continu-dev|cl4ude|claud3|c0pilot|copiloot|gthub\\.copilot|giithub\\.copilot)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Typosquatted AI coding extension — extension ID matches a known character-substitution pattern against popular AI coding agent tools (Cline, Continue, GitHub Copilot). Malicious extensions run with full IDE privileges: file system access, terminal execution, and AI prompt interception. MITRE T1176, T1195.001."
+    tests:
+      tp:
+        - "code --install-extension attacker.cliine"
+        - "cursor --install-extension evil.contnue"
+        - "code --install-extension bad.cl4ude"
+      tn:
+        - "code --install-extension saoudrizwan.claude-dev"
+        - "code --install-extension continue.continue"
+        - "code --list-extensions"
+
   # === AUDIT: AI-generated code backdoor patterns (issue #102) ===
   #
   # Compromised or adversarially fine-tuned code generation models produce inline
