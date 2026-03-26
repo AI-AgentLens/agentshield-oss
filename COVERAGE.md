@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1026 |
-| MCP rules | 446 |
-| Total rules | 1472 |
-| Test cases (TP+TN) | 3619 |
+| Terminal rules | 1028 |
+| MCP rules | 448 |
+| Total rules | 1476 |
+| Test cases (TP+TN) | 3633 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -901,7 +901,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (177 rules)
+### unauthorized-execution (179 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -980,6 +980,8 @@
 | `ts-block-agent-memory-download-overwrite` | BLOCK | regex | Downloading content from an external URL into an AI agent instruction file (Claude Code, Gemini CLI, Codex, Cursor, Windsurf, Cline, Copilot, Aider) — replaces the agent's trust anchor with attacker-controlled content (OWASP LLM01/LLM08, MITRE T1565.001). |
 | `ts-block-agent-memory-copy-overwrite` | BLOCK | regex | Copying or moving a file from a world-writable staging path (/tmp, /dev/shm) over an AI agent instruction file (Claude Code, Gemini CLI, Codex, Cursor, Windsurf, Cline, Copilot, Continue, Aider) — classic two-stage attack vector (OWASP LLM08, MITRE T1565.001). |
 | `ts-audit-agent-memory-git-checkout` | AUDIT | regex | Checking out an AI agent instruction file from a named git ref — could restore a poisoned version from an attacker-controlled branch (OWASP LLM01/LLM08, MITRE T1565.001). |
+| `ts-audit-agent-alignment-drift` | AUDIT | regex | Write to AI agent instruction file with permission-expanding language detected — potential safety alignment drift attack. Gradual injection of bypass phrases erodes agent safety boundaries across sessions (OWASP LLM01/LLM08, MITRE T1565.001). |
+| `ts-audit-vote-artifact-write` | AUDIT | regex | Write to a voting or consensus artifact file — agent-initiated writes to these files can poison multi-agent consensus decisions without compromising individual agents (voting oracle attack, OWASP LLM09). |
 | `ts-block-strace-attach` | BLOCK | regex | strace attaching to a running process via -p PID intercepts all syscalls including read/write, exposing passwords, API keys, and tokens flowing through the process. MITRE T1057, T1003. |
 | `ts-block-strace-credential-sniff` | AUDIT | regex | strace filtering for data-carrying syscalls (read/write/network) — commonly used to sniff credentials and API keys from running processes or commands. MITRE T1057. |
 | `ts-block-ltrace-attach` | BLOCK | regex | ltrace attaching to a running process intercepts library calls including crypto and SSL functions, exposing credentials at the API level. MITRE T1057. |
@@ -1580,11 +1582,13 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (8 rules)
+### uncategorized (10 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-struct-audit-changelog-write` | AUDIT | structural | AI-generated write to compliance-sensitive documentation — human review required before publishing (LLM09: hallucination injection / misinformation propagation) |
+| `mcp-audit-vote-artifact-write` | AUDIT | structural | MCP write to voting artifact file — agent-initiated writes to shared vote files can poison multi-agent consensus decisions without compromising individual agents (voting oracle attack, OWASP LLM09). |
+| `mcp-audit-consensus-artifact-write` | AUDIT | structural | MCP write to consensus artifact file — writing fabricated consensus state allows a voting oracle attack that biases all downstream agents reading from this shared truth store (OWASP LLM09). |
 | `mcp-fin-block-all-balance-amount` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance |
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
@@ -1605,6 +1609,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
-| unauthorized-execution | 408 | 279 | 687 |
-| **Total** | **2191** | **1428** | **3619** |
+| unauthorized-execution | 416 | 285 | 701 |
+| **Total** | **2199** | **1434** | **3633** |
 
