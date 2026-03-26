@@ -15,17 +15,18 @@ import (
 
 // heartbeatPayload matches the server's heartbeat.Heartbeat struct.
 type heartbeatPayload struct {
-	Hostname        string  `json:"hostname"`
-	OS              string  `json:"os"`
-	Arch            string  `json:"arch"`
-	AgentVersion    string  `json:"agent_version"`
-	Mode            string  `json:"mode"`
-	CPUPercent      float64 `json:"cpu_percent"`
-	MemoryMB        int     `json:"memory_mb"`
-	RulesLoaded     int     `json:"rules_loaded"`
-	CommandsAudited int     `json:"commands_audited"`
-	CommandsBlocked int     `json:"commands_blocked"`
-	UptimeSeconds   int     `json:"uptime_seconds"`
+	Hostname        string   `json:"hostname"`
+	OS              string   `json:"os"`
+	Arch            string   `json:"arch"`
+	AgentVersion    string   `json:"agent_version"`
+	Mode            string   `json:"mode"`
+	CPUPercent      float64  `json:"cpu_percent"`
+	MemoryMB        int      `json:"memory_mb"`
+	RulesLoaded     int      `json:"rules_loaded"`
+	CommandsAudited int      `json:"commands_audited"`
+	CommandsBlocked int      `json:"commands_blocked"`
+	UptimeSeconds   int      `json:"uptime_seconds"`
+	Hooks           []string `json:"hooks,omitempty"`
 }
 
 // HeartbeatStats tracks command counters that the heartbeat sender reports.
@@ -83,6 +84,7 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 		CommandsAudited: int(HeartbeatStats.CommandsAudited.Load()),
 		CommandsBlocked: int(HeartbeatStats.CommandsBlocked.Load()),
 		UptimeSeconds:   int(time.Since(processStart).Seconds()),
+		Hooks:           detectHooks(),
 	}
 
 	data, err := json.Marshal(payload)
@@ -114,6 +116,40 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: server returned %d\n", resp.StatusCode)
 		}
 	}
+}
+
+// detectHooks checks which IDE hooks are configured.
+func detectHooks() []string {
+	home, _ := os.Hostname() // reuse for home dir
+	_ = home
+	homeDir, _ := os.UserHomeDir()
+	var hooks []string
+
+	// Claude Code
+	claudeSettings := filepath.Join(homeDir, ".claude", "settings.json")
+	if data, err := os.ReadFile(claudeSettings); err == nil && strings.Contains(string(data), "agentshield") {
+		hooks = append(hooks, "claude-code")
+	}
+
+	// Gemini CLI
+	geminiSettings := filepath.Join(homeDir, ".gemini", "settings.json")
+	if data, err := os.ReadFile(geminiSettings); err == nil && strings.Contains(string(data), "agentshield") {
+		hooks = append(hooks, "gemini-cli")
+	}
+
+	// Windsurf
+	windsurfHooks := filepath.Join(homeDir, ".codeium", "windsurf", "hooks.json")
+	if data, err := os.ReadFile(windsurfHooks); err == nil && strings.Contains(string(data), "agentshield") {
+		hooks = append(hooks, "windsurf")
+	}
+
+	// Cursor
+	cursorHooks := filepath.Join(homeDir, ".cursor", "hooks.json")
+	if data, err := os.ReadFile(cursorHooks); err == nil && strings.Contains(string(data), "agentshield") {
+		hooks = append(hooks, "cursor")
+	}
+
+	return hooks
 }
 
 // countRules counts YAML rule files in the packs directory.

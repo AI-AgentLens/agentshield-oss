@@ -264,6 +264,9 @@ func evaluateCommand(cmdStr, cwd, source string) (*policy.EvalResult, *logger.Au
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
 	}
 
+	// Send to SaaS (fire-and-forget)
+	sendRemoteAudit(&event)
+
 	return &evalResult, &event, nil
 }
 
@@ -446,6 +449,9 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		Source:         "claude-code-mcp-hook",
 	}
 	_ = auditLogger.Log(event)
+
+	// Send to SaaS
+	sendRemoteAudit(&event)
 }
 
 // handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
