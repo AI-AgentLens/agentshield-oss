@@ -141,7 +141,7 @@ examples:
 
 compliance:
   owasp-llm-2025: ["LLM05", "LLM06", "LLM08"]
-  iso-27001-2022: ["A.8.30", "A.5.23", "A.8.19"]
+  iso-27001-2022: ["A.8.25", "A.5.23", "A.8.9"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-2"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
