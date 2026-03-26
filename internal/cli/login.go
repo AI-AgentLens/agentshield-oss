@@ -71,7 +71,7 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to contact server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned %d — is the server URL correct?", resp.StatusCode)
@@ -184,7 +184,7 @@ func pollDeviceToken(client *http.Client, server, deviceCode string) (*deviceTok
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var tokenResp deviceTokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
@@ -216,7 +216,7 @@ func sendInitialHeartbeat(client *http.Client, creds *auth.Credentials) {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func copyToClipboard(text string) bool {

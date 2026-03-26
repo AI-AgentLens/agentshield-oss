@@ -41,7 +41,7 @@ func connectCommand(cmd *cobra.Command, args []string) error {
 					Token: creds.Token,
 				},
 			}
-			fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: using login credentials for %s\n", creds.User.Email)
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: using login credentials for %s\n", creds.User.Email)
 		} else {
 			return fmt.Errorf("connect requires either managed mode (managed.json) or login credentials — run 'agentshield login' first")
 		}
