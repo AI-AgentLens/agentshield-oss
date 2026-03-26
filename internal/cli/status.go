@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/security-researcher-ca/agentshield/internal/auth"
 	"github.com/security-researcher-ca/agentshield/internal/config"
 	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/security-researcher-ca/agentshield/internal/policy"
@@ -48,6 +49,14 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 		configDir = cfg.ConfigDir
 	}
 	fmt.Printf("  Config:    %s\n", configDir)
+
+	// 3. Login state
+	creds, _ := auth.Load()
+	if creds != nil && creds.Token != "" {
+		fmt.Printf("  Logged in: %s (%s)\n", creds.User.Email, creds.Server)
+	} else {
+		fmt.Printf("  Logged in: no — run 'agentshield login'\n")
+	}
 	fmt.Println()
 
 	// 3. IDE Shell Hooks

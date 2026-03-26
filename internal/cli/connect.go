@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/security-researcher-ca/agentshield/internal/auth"
 	"github.com/security-researcher-ca/agentshield/internal/config"
 	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
@@ -28,8 +29,22 @@ func init() {
 
 func connectCommand(cmd *cobra.Command, args []string) error {
 	managedCfg := enterprise.LoadManagedConfig()
+
+	// If no managed.json, fall back to login credentials for heartbeat
 	if managedCfg == nil || !managedCfg.Managed {
-		return fmt.Errorf("connect requires managed mode — create ~/.agentshield/managed.json with {\"managed\": true}")
+		creds, _ := auth.Load()
+		if creds != nil && creds.Token != "" {
+			managedCfg = &enterprise.ManagedConfig{
+				Managed: true,
+				Heartbeat: &enterprise.HeartbeatConf{
+					URL:   creds.Server + "/api/heartbeat",
+					Token: creds.Token,
+				},
+			}
+			fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: using login credentials for %s\n", creds.User.Email)
+		} else {
+			return fmt.Errorf("connect requires either managed mode (managed.json) or login credentials — run 'agentshield login' first")
+		}
 	}
 
 	cfg, err := config.Load(policyPath, logPath, mode)
