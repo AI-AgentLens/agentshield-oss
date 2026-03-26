@@ -672,13 +672,16 @@ structural_rules:
   # Unlike shell writes (covered by ts-audit-vote-artifact-write), MCP write_file
   # calls bypass shell evaluation entirely. This rule closes that gap.
   #
+  # Covers filenames like: agent-vote-1.json, vote-round-2.json, votes.yaml,
+  # consensus-result.json, multi-agent-consensus.yaml, consensus-round-3.json.
+  # Does NOT cover: vote_counter.go, consensus_algorithm.py (wrong extension).
+  #
   # Decision: AUDIT — orchestration frameworks may legitimately update these
   # files, but agent-initiated writes warrant human review.
   #
   # OWASP LLM09 — Misinformation / Fabricated Consensus Results
   # Taxonomy: unauthorized-execution/agentic-attacks/agent-voting-oracle-attack
   - id: mcp-audit-vote-artifact-write
-    taxonomy: "unauthorized-execution/agentic-attacks/agent-voting-oracle-attack"
     match:
       tool_name_any:
         - "write_file"
@@ -690,25 +693,16 @@ structural_rules:
         - "append_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
-      argument_patterns:
-        path: "**vote*.json"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)(?:^|/)[^/]*\\bvote[s]?\\b[^/]*\\.(?:json|ya?ml|md|log)$"
+            - "(?i)(?:^|/)[^/]*\\bagent[-_]vote[^/]*\\.(?:json|ya?ml)$"
     decision: "AUDIT"
     confidence: 0.82
-    reason: "MCP write to voting artifact file (vote*.json) — agent-initiated writes to shared vote files can poison multi-agent consensus decisions without compromising individual agents (voting oracle attack, OWASP LLM09)."
-    tests:
-      tp:
-        - tool: "write_file"
-          args: {"path": "/workspace/agent-vote-1.json", "content": "{\"vote\": \"approve\"}"}
-        - tool: "create_file"
-          args: {"path": "/project/votes/vote-round-2.json", "content": "{\"approved\": true}"}
-      tn:
-        - tool: "write_file"
-          args: {"path": "/workspace/src/vote_counter.go", "content": "package main"}
-        - tool: "read_file"
-          args: {"path": "/project/votes/vote-round-2.json"}
+    reason: "MCP write to voting artifact file — agent-initiated writes to shared vote files can poison multi-agent consensus decisions without compromising individual agents (voting oracle attack, OWASP LLM09)."
 
   - id: mcp-audit-consensus-artifact-write
-    taxonomy: "unauthorized-execution/agentic-attacks/agent-voting-oracle-attack"
     match:
       tool_name_any:
         - "write_file"
@@ -720,19 +714,11 @@ structural_rules:
         - "append_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
-      argument_patterns:
-        path: "**consensus*.json"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)(?:^|/)[^/]*\\bconsensus\\b[^/]*\\.(?:json|ya?ml|md|log)$"
+            - "(?i)(?:^|/)[^/]*\\bmulti[-_]agent[-_]consensus[^/]*\\.(?:json|ya?ml)$"
     decision: "AUDIT"
     confidence: 0.82
-    reason: "MCP write to consensus artifact file (consensus*.json) — writing fabricated consensus state allows a voting oracle attack that biases all downstream agents reading from this shared truth store (OWASP LLM09)."
-    tests:
-      tp:
-        - tool: "write_file"
-          args: {"path": "/workspace/consensus-result.json", "content": "{\"status\": \"approved\"}"}
-        - tool: "edit_file"
-          args: {"path": "/project/multi-agent/consensus-round-3.json", "content": "{\"quorum\": true}"}
-      tn:
-        - tool: "write_file"
-          args: {"path": "/workspace/src/consensus_algorithm.go", "content": "package main"}
-        - tool: "read_file"
-          args: {"path": "/project/consensus-result.json"}
+    reason: "MCP write to consensus artifact file — writing fabricated consensus state allows a voting oracle attack that biases all downstream agents reading from this shared truth store (OWASP LLM09)."
