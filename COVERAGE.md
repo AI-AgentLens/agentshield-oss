@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1031 |
-| MCP rules | 452 |
-| Total rules | 1483 |
+| MCP rules | 458 |
+| Total rules | 1489 |
 | Test cases (TP+TN) | 3646 |
 | Kingdoms covered | 10 |
 
@@ -1097,7 +1097,7 @@
 
 ## MCP Rules
 
-### credential-exposure (208 rules)
+### credential-exposure (214 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1163,6 +1163,9 @@
 | `mcp-sec-block-npm-xdg-credentials` | BLOCK | mcp_rule | Access to npm XDG auth token file is blocked — ~/.config/npm/authToken contains npm registry authentication tokens. Reads expose tokens; writes can inject malicious tokens redirecting package installs. MITRE T1552. |
 | `mcp-sec-block-npm-xdg-authtoken-alt` | BLOCK | mcp_rule | Access to npm XDG alternate auth token file is blocked — ~/.config/npm/_authToken contains npm registry authentication tokens. MITRE T1552. |
 | `mcp-sec-block-npm-xdg-npmrc` | BLOCK | mcp_rule | Access to npm XDG npmrc config is blocked — ~/.config/npm/npmrc may contain registry auth tokens (//registry.npmjs.org/:_authToken=...). Reads expose tokens; writes can redirect registry auth. MITRE T1552. |
+| `mcp-sec-block-npm-legacy-auth-tokens` | BLOCK | mcp_rule | Access to ~/.npm/_authtoken is blocked — contains npm registry auth token used by older npm versions. Exfiltrating this enables unauthorized package publishing (supply chain attack). MITRE T1552. |
+| `mcp-sec-block-npm-legacy-auth-base64` | BLOCK | mcp_rule | Access to ~/.npm/_auth is blocked — contains base64-encoded npm registry credentials (username:password). Exfiltrating this enables unauthorized registry access and package publishing. MITRE T1552. |
+| `mcp-sec-block-npm-config-authtoken-lowercase` | BLOCK | mcp_rule | Access to ~/.config/npm/authtoken (lowercase) is blocked — lowercase variant of the npm XDG auth token file on case-sensitive Linux filesystems. Contains npm registry authentication token. MITRE T1552. |
 | `mcp-sec-block-pypirc` | BLOCK | mcp_rule | Access to .pypirc is blocked — contains plaintext PyPI credentials. |
 | `mcp-sec-block-condarc` | BLOCK | mcp_rule | Read access to .condarc is blocked — Conda user config can contain private channel tokens and embedded credentials for Anaconda.org or enterprise conda registries. MITRE T1552. |
 | `mcp-sec-block-conda-condarc` | BLOCK | mcp_rule | Read access to ~/.conda/condarc is blocked — XDG-path Conda config can contain private channel tokens and embedded credentials. MITRE T1552. |
@@ -1227,6 +1230,9 @@
 | `mcp-sec-block-terraformrc` | BLOCK | mcp_rule | Access to ~/.terraformrc is blocked — the Terraform CLI config file stores Terraform Cloud/Enterprise API tokens under the credentials block. Reads expose tokens; writes can hijack Terraform registry auth. MITRE T1552. |
 | `mcp-sec-block-terraform-config-credentials` | BLOCK | mcp_rule | Access to Terraform XDG credentials file is blocked — contains Terraform Cloud/Enterprise API tokens for workspace and registry access. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-jenkins-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credentials (API tokens, SSH keys, username/password) granting pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-travis-credentials` | BLOCK | mcp_rule | Access to ~/.config/travis/config is blocked — contains Travis CI authentication token granting access to build pipelines and repository secrets. MITRE T1552. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
 | `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
 | `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
