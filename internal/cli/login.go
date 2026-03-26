@@ -85,6 +85,10 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 	if verifyURL == "" {
 		verifyURL = loginServer + "/app/verify"
 	}
+	// Ensure URL points to the SPA route
+	if verifyURL == loginServer+"/verify" {
+		verifyURL = loginServer + "/app/verify"
+	}
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════════════════╗")
