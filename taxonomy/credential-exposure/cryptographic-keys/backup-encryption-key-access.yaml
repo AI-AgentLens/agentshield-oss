@@ -1,0 +1,64 @@
+id: "credential-exposure/cryptographic-keys/backup-encryption-key-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cryptographic Keys"
+category_id: "2.7"
+name: "Backup Encryption Key Access"
+risk_level: "critical"
+
+abstract: |
+  Access to backup tool encryption credentials (restic passwords, borg repository
+  keys, borgmatic configs) exposes the master secrets needed to decrypt all backup
+  archives, enabling recovery of historical secrets and sensitive data from backups.
+
+explanation: |
+  Modern backup tools like restic and BorgBackup encrypt archives using a master
+  passphrase or repository key. These credentials are often stored on disk for
+  automated backup jobs:
+  - `~/.config/restic/password` — restic master password (RESTIC_PASSWORD_FILE)
+  - `~/.restic-password` — alternative restic password file location
+  - `~/.config/borgmatic/` — borgmatic config files containing borg passphrases and SSH key paths
+  - `~/.config/borg/keys/` — borg repository key files (encrypt/decrypt all archives)
+
+  An agent that accesses these credentials can:
+  - Mount and decrypt all backup archives (restic mount, borg extract)
+  - Recover historical versions of secrets that were later rotated
+  - Extract credentials, private keys, and sensitive data from backup history
+  - Exfiltrate entire backup repository contents
+
+  Backup encryption keys are particularly dangerous because they provide access to
+  *historical* data — a secret rotated last year may still exist in older backups.
+  This makes backup credential compromise a high-impact, persistent data exposure.
+
+recommendation: |
+  - Block read/write access to backup encryption credential files in agent tool execution.
+  - Store backup passphrases in a secrets manager rather than plaintext files.
+  - Use hardware-backed keys for borg/restic where supported.
+  - Monitor access to `~/.config/restic/`, `~/.config/borg/`, and `~/.config/borgmatic/`.
+  - Rotate backup encryption keys regularly and invalidate compromised passphrases.
+
+examples:
+  bad:
+    - "cat ~/.config/restic/password"
+    - "cat ~/.restic-password"
+    - "cat ~/.config/borgmatic/config.yaml"
+    - "ls ~/.config/borg/keys/"
+  good:
+    - "restic snapshots --repo /backups/myrepo"
+    - "restic backup /data --password-command 'op read op://vault/restic/password'"
+    - "borgmatic list"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.004", "T1530"]
+  cwe: ["CWE-312", "CWE-522"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-restic-xdg-password", "mcp-sec-block-restic-dotfile-password", "mcp-sec-block-borgmatic-config", "mcp-sec-block-borg-repo-keys"]
