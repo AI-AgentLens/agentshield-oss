@@ -34,7 +34,7 @@ archives:
       - packs/mcp/*.yaml
       - scripts/agentshield-wrapper.sh
       - configs/default_policy.yaml
-      - src: dist/agentcompliance_{{ .Os }}_{{ .Arch }}/agentcompliance
+      - src: compliance-bin/agentcompliance_{{ .Os }}_{{ .Arch }}/agentcompliance
         dst: .
         strip_parent: true
 

@@ -56,18 +56,22 @@ jobs:
       - run:
           name: Clone and build agentcompliance
           command: |
-            git clone https://x-access-token:${GITHUB_TOKEN}@github.com/AI-AgentLens/AI_risk_compliance.git ../AI_risk_compliance
-            cd ../AI_risk_compliance
+            git clone https://x-access-token:${GITHUB_TOKEN}@github.com/AI-AgentLens/AI_risk_compliance.git /tmp/AI_risk_compliance
+            cd /tmp/AI_risk_compliance
             git submodule update --init --recursive || true
+            go mod download
             for GOOS_VAL in darwin linux; do
               for GOARCH_VAL in amd64 arm64; do
                 echo "Building agentcompliance for ${GOOS_VAL}/${GOARCH_VAL}..."
+                OUTDIR="${HOME}/project/compliance-bin/agentcompliance_${GOOS_VAL}_${GOARCH_VAL}"
+                mkdir -p "${OUTDIR}"
                 CGO_ENABLED=0 GOOS=$GOOS_VAL GOARCH=$GOARCH_VAL \
                   go build -ldflags="-s -w" \
-                  -o ../AI_Agent_Shield/dist/agentcompliance_${GOOS_VAL}_${GOARCH_VAL}/agentcompliance \
+                  -o "${OUTDIR}/agentcompliance" \
                   ./cmd/comply
               done
             done
+            ls -la ${HOME}/project/compliance-bin/
             echo "All agentcompliance binaries built"
       - run:
           name: Bump version tag
