@@ -67,7 +67,7 @@ func RunHeartbeat(cfg *HeartbeatConf, configDir string) {
 }
 
 func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
-	hostname, _ := os.Hostname()
+	hostname := StableHostname()
 
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -120,8 +120,6 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) {
 
 // DetectHooks checks which IDE hooks are configured.
 func DetectHooks() []string {
-	home, _ := os.Hostname() // reuse for home dir
-	_ = home
 	homeDir, _ := os.UserHomeDir()
 	var hooks []string
 

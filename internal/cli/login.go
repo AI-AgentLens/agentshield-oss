@@ -195,7 +195,7 @@ func pollDeviceToken(client *http.Client, server, deviceCode string) (*deviceTok
 }
 
 func sendInitialHeartbeat(client *http.Client, creds *auth.Credentials) {
-	hostname, _ := os.Hostname()
+	hostname := stableHostname()
 	hooks := enterprise.DetectHooks()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,

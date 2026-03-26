@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"runtime"
 	"time"
 
@@ -34,7 +33,7 @@ func pingCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in — run 'agentshield login' first")
 	}
 
-	hostname, _ := os.Hostname()
+	hostname := stableHostname()
 	hooks := enterprise.DetectHooks()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,

@@ -37,7 +37,7 @@ func sendOpportunisticHeartbeat() {
 	}
 
 	// Send heartbeat
-	hostname, _ := os.Hostname()
+	hostname := stableHostname()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,
 		"os":            runtime.GOOS,
