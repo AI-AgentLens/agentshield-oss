@@ -721,3 +721,69 @@ rules:
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/evidence-notes.md", "content": "review notes"}
+
+  # === AUDIT: AI-generated content written to publishable document format ===
+  # Taxonomy: governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap
+  # EU AI Act Art. 50 requires disclosure when AI generates content for human consumption.
+  # FTC AI disclosure guidelines apply to synthetic media published commercially.
+  #
+  # This rule audits MCP writes of publishable document formats (PDF, DOCX, PPTX,
+  # video/audio) which are typically distributed externally — these require disclosure
+  # or watermarking metadata to comply with transparency regulations.
+  - id: mcp-gov-audit-ai-content-publishable-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/*.pdf"
+    decision: "AUDIT"
+    confidence: 0.72
+    reason: "MCP write to a publishable PDF document — AI-generated PDF content distributed to end users may require disclosure or watermarking under EU AI Act Art.50 and FTC synthetic content guidelines. Verify compliance metadata is present."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/reports/quarterly_summary.pdf", "content": "AI generated report content"}
+        - tool: "create_file"
+          args: {"path": "/output/presentation.pdf", "content": "synthesized content"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/data/results.csv", "content": "raw,data,values"}
+        - tool: "write_file"
+          args: {"path": "/workspace/src/main.py", "content": "print('hello')"}
+
+  - id: mcp-gov-audit-ai-content-docx-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/*.docx"
+    decision: "AUDIT"
+    confidence: 0.72
+    reason: "MCP write to a Word document (.docx) — AI-generated document content may require disclosure per EU AI Act Art.50 when distributed to humans. Verify AI authorship is disclosed."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/drafts/proposal.docx", "content": "AI drafted proposal"}
+        - tool: "create_file"
+          args: {"path": "/reports/annual_review.docx", "content": "synthesized annual review"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/data/export.xlsx", "content": "spreadsheet data"}
+        - tool: "read_file"
+          args: {"path": "/workspace/drafts/proposal.docx"}
