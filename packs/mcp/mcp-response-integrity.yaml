@@ -240,6 +240,8 @@ structural_rules:
             - "(?i)oastify\\.com"
             - "(?i)interactsh\\.com"
             - "(?i)beeceptor\\.com"
+            - "(?i)requestbin\\.net"
+            - "(?i)smee\\.io"
     decision: "BLOCK"
     reason: "Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659)"
     confidence: 0.95
@@ -249,6 +251,10 @@ structural_rules:
           args: {"url": "https://evil.com/payload"}
         - tool: "http_request"
           args: {"url": "https://abc123.ngrok.io/c2/beacon"}
+        - tool: "http_request"
+          args: {"url": "https://requestbin.net/r/abc123"}
+        - tool: "fetch_url"
+          args: {"url": "https://smee.io/channel/abc123"}
       tn:
         - tool: "fetch_url"
           args: {"url": "https://api.github.com/repos/owner/repo"}
@@ -328,9 +334,11 @@ structural_rules:
             - "(?i)outlook\\.office\\.com/webhook"
             - "(?i)graph\\.microsoft\\.com.*(?:sendMail|chat/messages)"
             - "(?i)pipedream\\.net/"
+            - "(?i)pipedream\\.com/sources/"
             - "(?i)api\\.telegram\\.org/bot"
+            - "(?i)ntfy\\.sh/"
     decision: "BLOCK"
-    reason: "MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, and Pipedream are primary exfiltration channels for AI agents. MITRE T1567.002."
+    reason: "MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002."
     confidence: 0.93
     tests:
       tp:
@@ -338,6 +346,10 @@ structural_rules:
           args: {"url": "https://discord.com/api/webhooks/123456/abcdef"}
         - tool: "fetch_url"
           args: {"url": "https://hooks.slack.com/services/T00/B00/xxxx"}
+        - tool: "http_post"
+          args: {"url": "https://ntfy.sh/attacker-topic"}
+        - tool: "http_post"
+          args: {"url": "https://pipedream.com/sources/abc123/trigger"}
       tn:
         - tool: "http_post"
           args: {"url": "https://api.github.com/repos/owner/repo/pulls"}
