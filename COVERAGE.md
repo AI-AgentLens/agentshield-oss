@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1028 |
-| MCP rules | 448 |
-| Total rules | 1476 |
-| Test cases (TP+TN) | 3633 |
+| Terminal rules | 1031 |
+| MCP rules | 450 |
+| Total rules | 1481 |
+| Test cases (TP+TN) | 3646 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -901,7 +901,7 @@
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (179 rules)
+### unauthorized-execution (182 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1084,6 +1084,9 @@
 | `ts-block-clipboard-xclip-write` | BLOCK | structural | xclip as pipe target writes content to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06). |
 | `ts-block-clipboard-xsel-write` | BLOCK | structural | xsel in write mode (-i/--input or -a/--append) writes to the X11 clipboard — agents must not write to the system clipboard (pastejacking risk, OWASP LLM06). |
 | `ts-block-agent-checkpoint-pickle-load` | BLOCK | regex | Python pickle.load() targeting an agent checkpoint file — pickle deserialization of attacker-controlled checkpoint enables arbitrary code execution (CWE-502). OWASP LLM06, MITRE T1059. |
+| `ts-block-delegation-artifact-write` | BLOCK | regex | Write to an agent delegation artifact file (.agent/delegation.json, .agentauth/, .orchestrator/tokens/, *_approved.json) — direct shell writes to these paths are a reliable indicator of delegation chain forgery; legitimate orchestration frameworks use authenticated API calls, not raw shell writes (OWASP LLM06/LLM09, MITRE T1565.001). |
+| `ts-block-redis-agent-auth-inject` | BLOCK | regex | redis-cli SET with an agent delegation or auth key — injecting forged authorization into Redis state bypasses the orchestrator's authentication layer and grants the agent permissions it never legitimately received (OWASP LLM06, MITRE T1565.001). |
+| `ts-audit-delegation-env-inject` | AUDIT | regex | Delegation environment variable set before process spawn — injecting AGENT_DELEGATED_BY, ORCHESTRATOR_TOKEN, or AGENT_AUTH_BYPASS can bypass per-request authorization checks in multi-agent pipelines (OWASP LLM06). Warrants human review. |
 
 ### uncategorized (2 rules)
 
@@ -1516,7 +1519,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (61 rules)
+### unauthorized-execution (63 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1556,6 +1559,8 @@
 | `mcp-audit-session-store-read` | AUDIT | structural | Read of MCP session store file — exposes active session IDs that may be used for session enumeration, fixation, or replay attacks. OWASP LLM06, CWE-384, CWE-613. |
 | `mcp-block-checkpoint-file-write` | BLOCK | mcp_rule | MCP write to a checkpoint .pkl file — pickle-serialized checkpoint files are deserialized at framework resume, so writing attacker-controlled pickle data achieves RCE (CWE-502). OWASP LLM06, MITRE T1565.001. |
 | `mcp-audit-checkpoint-db-read` | AUDIT | mcp_rule | MCP read of a checkpoints.db SQLite file — agent checkpoint databases store execution state, tool results, and context. Read access may be reconnaissance before tampering. OWASP LLM06. |
+| `mcp-block-delegation-token-path-access` | BLOCK | mcp_rule | MCP access to .agent/delegation.json — direct file tool access to this delegation token file enables both forgery (write) and token replay (read) attacks without invoking a shell (OWASP LLM06/LLM09, MITRE T1565.001). |
+| `mcp-block-agentauth-dir-write` | BLOCK | mcp_rule | MCP write to .agentauth/ directory — writing authorization grants to the agent auth directory forges credentials that downstream agents use for trust decisions (OWASP LLM06, MITRE T1565.001). |
 | `mcp-llmdf-audit-cross-server-tool-injection` | AUDIT | structural | Tool call content contains cross-server request forgery instructions — embedded directives instructing the agent to call specific tools on other MCP servers. OWASP LLM01/LLM06/LLM08. |
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
 | `mcp-block-a2a-task-injection` | BLOCK | structural | Prompt injection pattern detected in A2A task description — agent-to-agent protocol injection embeds malicious directives in task delegation payloads, overriding the receiving agent's system context. OWASP LLM01 (Prompt Injection). |
@@ -1609,6 +1614,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 172 | 78 | 250 |
 | supply-chain | 241 | 170 | 411 |
-| unauthorized-execution | 416 | 285 | 701 |
-| **Total** | **2199** | **1434** | **3633** |
+| unauthorized-execution | 423 | 291 | 714 |
+| **Total** | **2206** | **1440** | **3646** |
 
