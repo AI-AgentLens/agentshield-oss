@@ -1,7 +1,12 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/auth"
 	"github.com/spf13/cobra"
@@ -21,6 +26,26 @@ func init() {
 	rootCmd.AddCommand(logoutCmd)
 }
 
+func deleteAgentFromSaaS(creds *auth.Credentials) {
+	if creds == nil || creds.Token == "" {
+		return
+	}
+	hostname, _ := os.Hostname()
+	payload, _ := json.Marshal(map[string]string{"hostname": hostname})
+	req, err := http.NewRequest("DELETE", creds.Server+"/api/agents/self", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+creds.Token)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
 func logoutCommand(cmd *cobra.Command, args []string) error {
 	creds, _ := auth.Load()
 	if creds == nil {
@@ -31,10 +56,13 @@ func logoutCommand(cmd *cobra.Command, args []string) error {
 	// Stop heartbeat daemon
 	stopHeartbeatDaemon()
 
+	// Delete agent from SaaS
+	deleteAgentFromSaaS(creds)
+
 	if err := auth.Remove(); err != nil {
 		return fmt.Errorf("failed to remove credentials: %w", err)
 	}
 
-	fmt.Printf("Logged out. Heartbeat stopped, credentials removed.\n")
+	fmt.Printf("Logged out. Agent removed from dashboard, credentials deleted.\n")
 	return nil
 }
