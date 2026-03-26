@@ -93,6 +93,108 @@ jobs:
           name: Run GoReleaser
           command: |
             curl -sfL https://goreleaser.com/static/run | GITHUB_TOKEN=$GITHUB_TOKEN HOMEBREW_TAP_TOKEN=$HOMEBREW_TAP_TOKEN bash -s -- release --clean
+      - run:
+          name: Upload release artifacts to aiagentlens.com
+          command: |
+            VERSION="${GORELEASER_CURRENT_TAG}"
+            echo "Uploading release artifacts for ${VERSION}..."
+            for archive in dist/agentshield_*.tar.gz; do
+              FILENAME=$(basename "$archive")
+              echo "  Uploading ${FILENAME}..."
+              curl -sf -X POST \
+                -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${archive}" \
+                "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=${FILENAME}"
+              echo " OK"
+            done
+            # Also upload checksums
+            if [ -f dist/checksums.txt ]; then
+              curl -sf -X POST \
+                -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@dist/checksums.txt" \
+                "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=checksums.txt"
+            fi
+            echo "All artifacts uploaded to https://aiagentlens.com/releases/${VERSION}/"
+      - run:
+          name: Update Homebrew cask
+          command: |
+            VERSION="${GORELEASER_CURRENT_TAG}"
+            VER_NUM="${VERSION#v}"
+            BASE_URL="https://aiagentlens.com/releases/${VERSION}"
+
+            # Compute SHA256 for each platform
+            SHA_DARWIN_AMD64=$(sha256sum dist/agentshield_${VER_NUM}_darwin_amd64.tar.gz | cut -d' ' -f1)
+            SHA_DARWIN_ARM64=$(sha256sum dist/agentshield_${VER_NUM}_darwin_arm64.tar.gz | cut -d' ' -f1)
+            SHA_LINUX_AMD64=$(sha256sum dist/agentshield_${VER_NUM}_linux_amd64.tar.gz | cut -d' ' -f1)
+            SHA_LINUX_ARM64=$(sha256sum dist/agentshield_${VER_NUM}_linux_arm64.tar.gz | cut -d' ' -f1)
+
+            cat > /tmp/agentshield.rb << CASK
+            cask "agentshield" do
+              name "agentshield"
+              desc "Runtime security gateway and compliance scanner for LLM agents"
+              homepage "https://aiagentlens.com"
+              version "${VER_NUM}"
+
+              livecheck do
+                skip "Auto-updated by CI on release."
+              end
+
+              binary "agentshield"
+              binary "agentcompliance"
+
+              on_macos do
+                on_intel do
+                  url "${BASE_URL}/agentshield_${VER_NUM}_darwin_amd64.tar.gz"
+                  sha256 "${SHA_DARWIN_AMD64}"
+                end
+                on_arm do
+                  url "${BASE_URL}/agentshield_${VER_NUM}_darwin_arm64.tar.gz"
+                  sha256 "${SHA_DARWIN_ARM64}"
+                end
+              end
+
+              on_linux do
+                on_intel do
+                  url "${BASE_URL}/agentshield_${VER_NUM}_linux_amd64.tar.gz"
+                  sha256 "${SHA_LINUX_AMD64}"
+                end
+                on_arm do
+                  url "${BASE_URL}/agentshield_${VER_NUM}_linux_arm64.tar.gz"
+                  sha256 "${SHA_LINUX_ARM64}"
+                end
+              end
+
+              postflight do
+                if OS.mac?
+                  system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentshield"]
+                  system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentcompliance"]
+                end
+              end
+
+              caveats <<~EOS
+                Two tools installed:
+                  agentshield      — Runtime security gateway for AI agents
+                  agentcompliance  — Local compliance scanner (semgrep-based)
+
+                Quick start:
+                  agentshield setup
+                  agentshield login
+              EOS
+            end
+            CASK
+
+            # Push cask to homebrew-tap repo
+            git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/AI-AgentLens/homebrew-tap.git /tmp/homebrew-tap
+            cp /tmp/agentshield.rb /tmp/homebrew-tap/Casks/agentshield.rb
+            cd /tmp/homebrew-tap
+            git config user.email "ci@aiagentlens.com"
+            git config user.name "AI Agent Lens CI"
+            git add Casks/agentshield.rb
+            git commit -m "chore: update agentshield cask to ${VERSION}" || true
+            git push origin main
+            echo "Homebrew cask updated to ${VERSION}"
 
 workflows:
   test-and-release:
