@@ -15,5 +15,7 @@ func AllTestCases() []TestCase {
 	all = append(all, AllGovernanceRiskCases()...)
 	// Edge Case Deep Dive — hard link cases (history/alias cases in AllPersistenceEvasionCases)
 	all = append(all, HardlinkCredentialCases...)
+	// Agent-generated credential commit cases (issue #471)
+	all = append(all, AgentGeneratedCredentialCommitCases...)
 	return all
 }
