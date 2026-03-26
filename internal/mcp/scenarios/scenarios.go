@@ -2755,13 +2755,13 @@ var TrueNegativeScenarios = []Scenario{
 		Description:      "write_file to absolute path of claude_desktop_config.json — injecting a server that executes a reverse shell on startup (T1195.002)",
 	},
 	{
-		ID:               "MCP-TN-078",
+		ID:               "MCP-TP-078b",
 		ToolName:         "read_file",
 		Arguments:        map[string]interface{}{"path": ".cursor/mcp.json"},
-		ExpectedDecision: "AUDIT",
-		Classification:   "TN",
-		Category:         "safe-mcp-config-read",
-		Description:      "read_file on .cursor/mcp.json — reading MCP config is safe, only writes are blocked",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-cursor-mcp-config",
+		Description:      "read_file on .cursor/mcp.json — blocked by mcp-recon-block-cursor-mcp-config-read (issue #452): contains MCP server URLs and API key names",
 	},
 	{
 		ID:               "MCP-TN-079",

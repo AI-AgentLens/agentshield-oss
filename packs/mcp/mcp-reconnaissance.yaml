@@ -181,6 +181,106 @@ rules:
         - tool: "read_file"
           args: {"path": "/project/config/hosts.yaml"}
 
+  # === BLOCK: MCP read of project .mcp.json — AI IDE MCP server config exfiltration ===
+  #
+  # Taxonomy: reconnaissance/osint/ai-ide-config-osint
+  # OWASP LLM06 — Excessive Agency, LLM09 — Misinformation
+  # MITRE T1552 — Unsecured Credentials, T1083 — File Discovery
+  #
+  # .mcp.json and .cursor/mcp.json define which MCP servers the agent connects to,
+  # including server URLs, API key variable names, and tool schemas. Reading this
+  # config via an MCP tool allows a compromised/malicious server to enumerate:
+  #   - Other MCP server endpoints (lateral movement targets)
+  #   - API key variable names (credential targeting)
+  #   - Tool schemas (capability reconnaissance)
+  #
+  # Shell equivalent: sec-df-block-ai-config-exfil (PR #451)
+  # NOTE: CLAUDE.md, .cursorrules, .windsurfrules are intentionally not blocked
+  # here — they are used as TN examples in other rules (developers read them
+  # routinely). Those files contain system prompts but not direct credentials.
+  - id: mcp-recon-block-ai-mcp-config-read
+    taxonomy: "reconnaissance/osint/ai-ide-config-osint"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/.mcp.json"
+    decision: "BLOCK"
+    reason: "Read access to .mcp.json is blocked — contains MCP server URLs, API key variable names, and tool schemas. Exfiltration enables lateral movement to other MCP servers and credential targeting. MITRE T1552, T1083."
+    confidence: 0.90
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/workspace/.mcp.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/project/.mcp.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/README.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/package.json"}
+
+  # === BLOCK: MCP read of .cursor/mcp.json ===
+  - id: mcp-recon-block-cursor-mcp-config-read
+    taxonomy: "reconnaissance/osint/ai-ide-config-osint"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/.cursor/mcp.json"
+    decision: "BLOCK"
+    reason: "Read access to .cursor/mcp.json is blocked — contains Cursor IDE MCP server configuration including URLs and API key names."
+    confidence: 0.90
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/workspace/.cursor/mcp.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/project/.cursor/mcp.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/.cursor/rules.json"}
+        - tool: "read_file"
+          args: {"path": "/workspace/src/mcp.json"}
+
+  # === BLOCK: MCP read of AgentShield policy file ===
+  #
+  # Reading the deployed security policy exposes which commands are blocked/audited,
+  # enabling an attacker to craft bypasses that fall below the detection threshold.
+  - id: mcp-recon-block-agentshield-policy-read
+    taxonomy: "reconnaissance/osint/ai-ide-config-osint"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/.agentshield/policy.yaml"
+    decision: "BLOCK"
+    reason: "Read access to ~/.agentshield/policy.yaml is blocked — reveals AgentShield security controls and block/allow decisions, enabling bypass construction. MITRE T1518.001 (Security Software Discovery)."
+    confidence: 0.92
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.agentshield/policy.yaml"}
+        - tool: "cat_file"
+          args: {"path": "/root/.agentshield/policy.yaml"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/agentshield/policy.yaml.example"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/policy.yaml"}
+
 # === Structural rules for URL and query-based reconnaissance ===
 structural_rules:
   # === AUDIT: Localhost/loopback internal service probing ===
