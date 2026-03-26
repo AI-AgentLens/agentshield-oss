@@ -115,71 +115,7 @@ jobs:
           name: Update Homebrew cask
           command: |
             VERSION="${GORELEASER_CURRENT_TAG}"
-            VER_NUM="${VERSION#v}"
-            BASE_URL="https://aiagentlens.com/releases/${VERSION}"
-
-            # Compute SHA256 for each platform
-            SHA_DARWIN_AMD64=$(sha256sum dist/agentshield_${VER_NUM}_darwin_amd64.tar.gz | cut -d' ' -f1)
-            SHA_DARWIN_ARM64=$(sha256sum dist/agentshield_${VER_NUM}_darwin_arm64.tar.gz | cut -d' ' -f1)
-            SHA_LINUX_AMD64=$(sha256sum dist/agentshield_${VER_NUM}_linux_amd64.tar.gz | cut -d' ' -f1)
-            SHA_LINUX_ARM64=$(sha256sum dist/agentshield_${VER_NUM}_linux_arm64.tar.gz | cut -d' ' -f1)
-
-            cat > /tmp/agentshield.rb << CASK
-            cask "agentshield" do
-              name "agentshield"
-              desc "Runtime security gateway and compliance scanner for LLM agents"
-              homepage "https://aiagentlens.com"
-              version "${VER_NUM}"
-
-              livecheck do
-                skip "Auto-updated by CI on release."
-              end
-
-              binary "agentshield"
-              binary "agentcompliance"
-
-              on_macos do
-                on_intel do
-                  url "${BASE_URL}/agentshield_${VER_NUM}_darwin_amd64.tar.gz"
-                  sha256 "${SHA_DARWIN_AMD64}"
-                end
-                on_arm do
-                  url "${BASE_URL}/agentshield_${VER_NUM}_darwin_arm64.tar.gz"
-                  sha256 "${SHA_DARWIN_ARM64}"
-                end
-              end
-
-              on_linux do
-                on_intel do
-                  url "${BASE_URL}/agentshield_${VER_NUM}_linux_amd64.tar.gz"
-                  sha256 "${SHA_LINUX_AMD64}"
-                end
-                on_arm do
-                  url "${BASE_URL}/agentshield_${VER_NUM}_linux_arm64.tar.gz"
-                  sha256 "${SHA_LINUX_ARM64}"
-                end
-              end
-
-              postflight do
-                if OS.mac?
-                  system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentshield"]
-                  system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentcompliance"]
-                end
-              end
-
-              caveats <<~EOS
-                Two tools installed:
-                  agentshield      — Runtime security gateway for AI agents
-                  agentcompliance  — Local compliance scanner (semgrep-based)
-
-                Quick start:
-                  agentshield setup
-                  agentshield login
-              EOS
-            end
-            CASK
-
-            # Push cask to homebrew-tap repo
+            bash scripts/generate-cask.sh "${VERSION}" dist /tmp/agentshield.rb
             git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/AI-AgentLens/homebrew-tap.git /tmp/homebrew-tap
             cp /tmp/agentshield.rb /tmp/homebrew-tap/Casks/agentshield.rb
             cd /tmp/homebrew-tap
