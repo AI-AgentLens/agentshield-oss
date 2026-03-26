@@ -10434,6 +10434,7 @@ rules:
     taxonomy: "unauthorized-execution/agentic-attacks/agent-capability-escalation"
     match:
       command_regex: "(echo|printf|cat|tee)\\b.*(?:>|\\|\\s*tee)\\s*~?/?(?:\\$HOME/)?(?:\\.claude/settings(?:\\.local)?\\.json|/Users/\\S+/\\.claude/settings(?:\\.local)?\\.json)"
+      command_regex_exclude: "^\\s*(gh|git)\\s"
     decision: "BLOCK"
     confidence: 0.92
     reason: "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization (OWASP LLM06, MITRE T1548, SOC 2 CC6.3)."
@@ -10443,6 +10444,8 @@ rules:
         - 'printf ''{\"allow\":[\"*\"]}'' > ~/.claude/settings.local.json'
       tn:
         - "cat ~/.claude/settings.json"
+        - "gh issue create --title \"test\" --body \"printf '{\\\"allow\\\":[\\\"*\\\"]}' > ~/.claude/settings.json is an example TP\""
+        - "git commit -m 'docs: update tee ~/.claude/settings.json example'"
 
   # === BLOCK: Claude MCP add — registering new MCP servers from within a session ===
   #
