@@ -1,0 +1,8 @@
+id: "2.31"
+name: "Command History Access"
+kingdom_id: 2
+description: >
+  Direct access to shell command history files that may contain credentials,
+  API keys, tokens, and passwords previously entered in interactive terminal
+  sessions. Unlike history-mining (which searches through history), this
+  category covers wholesale reading of history files via file access tools.

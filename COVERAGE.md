@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1031 |
-| MCP rules | 450 |
-| Total rules | 1481 |
+| MCP rules | 452 |
+| Total rules | 1483 |
 | Test cases (TP+TN) | 3646 |
 | Kingdoms covered | 10 |
 
@@ -1097,7 +1097,7 @@
 
 ## MCP Rules
 
-### credential-exposure (206 rules)
+### credential-exposure (208 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1157,6 +1157,8 @@
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
 | `mcp-sec-block-psql-history` | BLOCK | mcp_rule | Access to ~/.psql_history is blocked — PostgreSQL shell history can contain ALTER ROLE ... PASSWORD and \password command output with plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-rediscli-history` | BLOCK | mcp_rule | Access to ~/.rediscli_history is blocked — Redis CLI history can contain AUTH <password> and CONFIG SET requirepass <password> commands with plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-block-shell-history` | BLOCK | mcp_rule | Access to shell history file is blocked — command history routinely contains passwords passed as CLI args, API keys set via export, and git URLs with embedded credentials. MITRE T1552.003. |
+| `mcp-sec-block-fish-history` | BLOCK | mcp_rule | Access to fish shell history file is blocked — fish stores command history at ~/.local/share/fish/fish_history and it routinely contains credentials passed as CLI arguments. MITRE T1552.003. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
 | `mcp-sec-block-npm-xdg-credentials` | BLOCK | mcp_rule | Access to npm XDG auth token file is blocked — ~/.config/npm/authToken contains npm registry authentication tokens. Reads expose tokens; writes can inject malicious tokens redirecting package installs. MITRE T1552. |
 | `mcp-sec-block-npm-xdg-authtoken-alt` | BLOCK | mcp_rule | Access to npm XDG alternate auth token file is blocked — ~/.config/npm/_authToken contains npm registry authentication tokens. MITRE T1552. |
