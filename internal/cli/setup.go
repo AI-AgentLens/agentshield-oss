@@ -578,17 +578,40 @@ func disableOpenClawHook(hookDir string) error {
 
 // ─── Claude Code Setup ───────────────────────────────────────────────────────
 
-// agentshieldHookEntry is the hook object we insert into Claude Code settings.
-// No matcher field = catches ALL tool calls (Bash, MCP, Read, Write, etc.).
-// The hook handler routes Bash calls to the shell analyzer pipeline and
-// MCP calls to the MCP policy evaluator.
-var agentshieldHookEntry = map[string]interface{}{
-	"hooks": []interface{}{
-		map[string]interface{}{
-			"type":    "command",
-			"command": "agentshield hook",
+// agentshieldHookEntry builds the hook object with the absolute binary path.
+// Using absolute path prevents conflicts when multiple versions exist in PATH.
+func agentshieldHookEntry() map[string]interface{} {
+	binPath := resolveAgentShieldPath()
+	return map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": binPath + " hook",
+			},
 		},
-	},
+	}
+}
+
+// resolveAgentShieldPath returns the absolute path to the agentshield binary.
+// Prefers /opt/homebrew/bin (brew cask), then LookPath, then current executable.
+func resolveAgentShieldPath() string {
+	// Prefer the brew location
+	candidates := []string{
+		"/opt/homebrew/bin/agentshield",
+		"/usr/local/bin/agentshield",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	if p, err := exec.LookPath("agentshield"); err == nil {
+		return p
+	}
+	if p, err := os.Executable(); err == nil {
+		return p
+	}
+	return "agentshield"
 }
 
 func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
@@ -639,7 +662,7 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	hooks["PreToolUse"] = append(preToolUse, agentshieldHookEntry)
+	hooks["PreToolUse"] = append(preToolUse, agentshieldHookEntry())
 	settings["hooks"] = hooks
 
 	if err := writeClaudeSettings(settingsPath, settings); err != nil {
@@ -808,17 +831,20 @@ func findOpenClawHookSource() string {
 
 // ─── Gemini CLI Setup ────────────────────────────────────────────────────────
 
-// agentshieldGeminiHookEntry is the hook object we insert into Gemini CLI settings.
-var agentshieldGeminiHookEntry = map[string]interface{}{
-	"matcher": "run_shell_command",
-	"hooks": []interface{}{
-		map[string]interface{}{
-			"type":    "command",
-			"command": "agentshield hook",
-			"name":    "agentshield",
-			"timeout": 10000,
+// agentshieldGeminiHookEntry builds the hook object for Gemini CLI with absolute path.
+func agentshieldGeminiHookEntry() map[string]interface{} {
+	binPath := resolveAgentShieldPath()
+	return map[string]interface{}{
+		"matcher": "run_shell_command",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": binPath + " hook",
+				"name":    "agentshield",
+				"timeout": 10000,
+			},
 		},
-	},
+	}
 }
 
 func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
@@ -869,7 +895,7 @@ func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	hooks["BeforeTool"] = append(beforeTool, agentshieldGeminiHookEntry)
+	hooks["BeforeTool"] = append(beforeTool, agentshieldGeminiHookEntry())
 	settings["hooks"] = hooks
 
 	if err := writeGeminiSettings(settingsPath, settings); err != nil {
