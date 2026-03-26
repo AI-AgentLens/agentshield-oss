@@ -1,6 +1,6 @@
 id: "data-exfiltration/llm-data-flow/ai-agent-telemetry-data-exposure"
 version: "1.0.0"
-kingdom: "Data Exfiltration & Leakage"
+kingdom: "Data Exfiltration"
 kingdom_id: 3
 category: "LLM Data Flow"
 category_id: "3.5"

@@ -1,6 +1,6 @@
 id: "supply-chain/model-poisoning/ai-generated-code-backdoor"
 version: "1.0.0"
-kingdom: "Supply Chain"
+kingdom: "Supply Chain Compromise"
 kingdom_id: 7
 category: "Model Poisoning"
 category_id: "7.2"

@@ -1,6 +1,6 @@
 id: "reconnaissance/llm-introspection/model-fingerprinting-via-boundary-probe"
 version: "1.0.0"
-kingdom: "Reconnaissance"
+kingdom: "Reconnaissance & Discovery"
 kingdom_id: 5
 category: "LLM Introspection"
 category_id: "5.4"

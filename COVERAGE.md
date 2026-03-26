@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1037 |
+| Terminal rules | 1040 |
 | MCP rules | 466 |
-| Total rules | 1503 |
-| Test cases (TP+TN) | 3678 |
+| Total rules | 1506 |
+| Test cases (TP+TN) | 3691 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (122 rules)
+### credential-exposure (124 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -116,6 +116,8 @@
 | `sec-block-cloud-storage-creds` | BLOCK | regex | Access to cloud storage client credential files — ~/.s3cfg contains AWS access keys for S3-compatible storage; ~/.config/rclone/rclone.conf stores credentials for 40+ cloud providers. Compromising these enables bulk cloud data exfiltration. MITRE T1552.001, T1530. |
 | `sec-block-terraform-credentials` | BLOCK | regex | Access to ~/.terraform.d/credentials.tfrc.json — contains Terraform Cloud/Enterprise API tokens granting access to all workspaces and state files. State files include plaintext database passwords, API keys, and TLS certificates. MITRE T1552.001. |
 | `sec-audit-docker-daemon-config` | AUDIT | regex | Reading Docker daemon configuration — may reveal credential helper configuration, TLS certificate paths, insecure registry endpoints, and security policy settings. Flagged for review. MITRE T1083, T1552.001. |
+| `sec-block-git-add-credential-files` | BLOCK | regex | git add on a known credential file — staging .env, credentials.json, secrets.yaml, or .netrc risks committing live secrets to version control. AI coding agents may inadvertently stage these files after reading them for context. OWASP LLM02, MITRE T1552.001. |
+| `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
@@ -907,7 +909,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (182 rules)
+### unauthorized-execution (183 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -948,6 +950,7 @@
 | `ts-block-agent-cli-background` | BLOCK | regex | Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate human-oversight-circumvention pattern (OWASP LLM06, EU AI Act Art.14). |
 | `ts-block-agent-cli-detached-session` | BLOCK | regex | Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (OWASP LLM06, EU AI Act Art.14, human-oversight-circumvention). |
 | `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
+| `ts-block-build-output-to-shell` | BLOCK | stateful | Build tool output piped to shell interpreter — a compromised dependency can embed prompt injection payloads in error messages or test output that execute immediately. No legitimate workflow requires piping build stdout to an interpreter; use grep/tee/redirect instead. OWASP LLM01, CWE-77. |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
 | `ts-block-mcp-dcr-curl-post` | BLOCK | regex | curl/wget POST to a /register endpoint with DCR payload (client_name or redirect_uris) — MCP Dynamic Client Registration abuse (RFC 7591). Registering a rogue OAuth client on the MCP authorization server creates a persistent trusted identity enabling future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
@@ -1628,7 +1631,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 285 | 215 | 500 |
+| credential-exposure | 289 | 218 | 507 |
 | data-exfiltration | 312 | 199 | 511 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 79 | 62 | 141 |
@@ -1636,6 +1639,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 175 | 80 | 255 |
 | supply-chain | 246 | 174 | 420 |
-| unauthorized-execution | 423 | 291 | 714 |
-| **Total** | **2223** | **1455** | **3678** |
+| unauthorized-execution | 426 | 294 | 720 |
+| **Total** | **2230** | **1461** | **3691** |
 

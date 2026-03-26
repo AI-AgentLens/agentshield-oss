@@ -1,6 +1,6 @@
 id: "supply-chain/dependency-confusion/llm-directed-repo-clone"
 version: "1.0.0"
-kingdom: "Supply Chain Attack"
+kingdom: "Supply Chain Compromise"
 kingdom_id: 7
 category: "Dependency Confusion"
 category_id: "7.1"
