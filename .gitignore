@@ -8,3 +8,4 @@ FAILING_TESTS.md
 internal/guardian/testdata/GUARDIAN_REDTEAM_REPORT.md
 internal/analyzer/testdata/PIPELINE_REDTEAM_REPORT.md
 internal/mcp/testdata/MCP_REDTEAM_REPORT.md
+compliance-bin/
