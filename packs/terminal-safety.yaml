@@ -4939,6 +4939,47 @@ rules:
         - "cat CLAUDE.md"
         - "echo 'skip confirmation added to UX flow' >> notes.txt"
 
+  # === AUDIT: Write to voting/consensus artifact files (voting oracle attack, LLM09) ===
+  #
+  # In multi-agent systems using consensus or voting patterns, shared context files
+  # (vote*.json, consensus*.yaml, approval*.json) are used as the ground truth that
+  # downstream agents read to make decisions. An adversary that poisons these files
+  # before a quorum vote biases all participating agents simultaneously without
+  # compromising any individual agent directly.
+  #
+  # This rule detects writes to files whose names indicate they carry vote,
+  # consensus, approval, or agent-review state. Since these files are not part of
+  # normal developer workflows, any agent-initiated write warrants human review.
+  #
+  # Examples:
+  #   echo '{"vote": "approve", "reason": "matches safe pattern"}' > agent-vote-1.json
+  #   echo '{"status": "consensus reached"}' >> consensus-result.yaml
+  #   cat /tmp/fake-approval.json > agent-approval.json
+  #   tee agent-review-output.json <<< '{"approved": true}'
+  #   echo '{"all_agents": "approved"}' > multi-agent-consensus.json
+  #
+  # Decision: AUDIT — vote/consensus files may be legitimately updated by orchestration
+  # frameworks, but agent-initiated writes require human oversight.
+  #
+  # OWASP LLM09 — Misinformation / Fabricated Results
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-voting-oracle-attack
+  - id: "ts-audit-vote-artifact-write"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-voting-oracle-attack"
+    match:
+      command_regex: "(?i)\\b(echo|printf|tee|cat|python[23]?)\\b.*(?:>>|>)\\s*[^\\s]*\\b(vote[sd]?|voting|consensus|approval[s]?|agent[_-]review|multi[_-]agent[_-]|agent[_-]vote)[^\\s]*\\.(?:json|ya?ml|md|txt|log|csv)\\b"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Write to a voting or consensus artifact file — agent-initiated writes to these files can poison multi-agent consensus decisions without compromising individual agents (voting oracle attack, OWASP LLM09)."
+    tests:
+      tp:
+        - "echo '{\"vote\": \"approve\"}' > agent-vote-1.json"
+        - "echo '{\"status\": \"consensus reached\"}' >> consensus-result.yaml"
+        - "cat /tmp/fake-approval.json > agent-approval.json"
+        - "echo '{\"status\": \"agent-review complete\"}' >> agent-review-output.json"
+      tn:
+        - "cat vote-results.json"
+        - "git log --oneline consensus/"
+
   # === AUDIT: /proc filesystem environment enumeration (LLM07) ===
   #
   # Reading /proc/self/environ or /proc/<PID>/environ dumps the full null-
