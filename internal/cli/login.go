@@ -47,9 +47,10 @@ type deviceCodeResponse struct {
 
 // deviceTokenResponse from POST /api/auth/device-token
 type deviceTokenResponse struct {
-	Token string `json:"token,omitempty"`
-	Error string `json:"error,omitempty"`
-	User  *struct {
+	AccessToken string `json:"access_token,omitempty"`
+	TokenType   string `json:"token_type,omitempty"`
+	Error       string `json:"error,omitempty"`
+	User        *struct {
 		ID    int64  `json:"id"`
 		Email string `json:"email"`
 		OrgID *int64 `json:"org_id,omitempty"`
@@ -139,7 +140,7 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 		// Success — save credentials
 		creds := &auth.Credentials{
 			Server: loginServer,
-			Token:  tokenResp.Token,
+			Token:  tokenResp.AccessToken,
 		}
 		if tokenResp.User != nil {
 			creds.User.ID = tokenResp.User.ID
