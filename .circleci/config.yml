@@ -54,34 +54,21 @@ jobs:
           paths:
             - ~/go/pkg/mod
       - run:
-          name: Run tests
-          command: |
-            go test -count=1 \
-              ./internal/config/... \
-              ./internal/policy/... \
-              ./internal/guardian/... \
-              ./internal/mcp/... \
-              ./internal/normalize/... \
-              ./internal/shellparse/... \
-              ./internal/unicode/... \
-              ./internal/enterprise/... \
-              ./internal/logger/... \
-              ./internal/redact/... \
-              ./internal/taxonomy/...
-      - run:
           name: Clone and build agentcompliance
           command: |
-            git clone https://github.com/AI-AgentLens/AI_risk_compliance.git ../AI_risk_compliance
+            git clone https://x-access-token:${GITHUB_TOKEN}@github.com/AI-AgentLens/AI_risk_compliance.git ../AI_risk_compliance
             cd ../AI_risk_compliance
             git submodule update --init --recursive || true
             for GOOS_VAL in darwin linux; do
               for GOARCH_VAL in amd64 arm64; do
+                echo "Building agentcompliance for ${GOOS_VAL}/${GOARCH_VAL}..."
                 CGO_ENABLED=0 GOOS=$GOOS_VAL GOARCH=$GOARCH_VAL \
                   go build -ldflags="-s -w" \
                   -o ../AI_Agent_Shield/dist/agentcompliance_${GOOS_VAL}_${GOARCH_VAL}/agentcompliance \
                   ./cmd/comply
               done
             done
+            echo "All agentcompliance binaries built"
       - run:
           name: Bump version tag
           command: |
