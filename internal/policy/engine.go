@@ -12,9 +12,10 @@ import (
 )
 
 type Engine struct {
-	policy   *Policy
-	homeDir  string
-	registry *analyzer.Registry // optional: when set, uses full analyzer pipeline
+	policy       *Policy
+	homeDir      string
+	registry     *analyzer.Registry // optional: when set, uses full analyzer pipeline
+	regexCache   map[string]*regexp.Regexp
 }
 
 func NewEngine(p *Policy) (*Engine, error) {
@@ -22,7 +23,22 @@ func NewEngine(p *Policy) (*Engine, error) {
 	if err != nil {
 		homeDir = ""
 	}
-	return &Engine{policy: p, homeDir: homeDir}, nil
+	e := &Engine{policy: p, homeDir: homeDir, regexCache: make(map[string]*regexp.Regexp)}
+	// Pre-compile all rule regexes at initialization
+	for _, rule := range p.Rules {
+		if rule.Match.CommandRegex != "" {
+			if re, err := regexp.Compile(rule.Match.CommandRegex); err == nil {
+				e.regexCache[rule.Match.CommandRegex] = re
+			}
+		}
+		excl := expandExcludePattern(rule.Match.CommandRegexExclude)
+		if excl != "" {
+			if re, err := regexp.Compile(excl); err == nil {
+				e.regexCache[excl] = re
+			}
+		}
+	}
+	return e, nil
 }
 
 // SetRegistry attaches an analyzer pipeline to the engine.
@@ -154,12 +170,12 @@ func (e *Engine) matchRule(command string, rule Rule) bool {
 	}
 
 	if rule.Match.CommandRegex != "" {
-		re, err := regexp.Compile(rule.Match.CommandRegex)
-		if err == nil && re.MatchString(command) {
-			// If an exclusion pattern is set, suppress the match when it fires.
-			if rule.Match.CommandRegexExclude != "" {
-				reExcl, err := regexp.Compile(expandExcludePattern(rule.Match.CommandRegexExclude))
-				if err == nil && reExcl.MatchString(command) {
+		re := e.compiledRegex(rule.Match.CommandRegex)
+		if re != nil && re.MatchString(command) {
+			excl := expandExcludePattern(rule.Match.CommandRegexExclude)
+			if excl != "" {
+				reExcl := e.compiledRegex(excl)
+				if reExcl != nil && reExcl.MatchString(command) {
 					return false
 				}
 			}
@@ -168,6 +184,19 @@ func (e *Engine) matchRule(command string, rule Rule) bool {
 	}
 
 	return false
+}
+
+// compiledRegex returns a pre-compiled regex from cache, or compiles on demand.
+func (e *Engine) compiledRegex(pattern string) *regexp.Regexp {
+	if re, ok := e.regexCache[pattern]; ok {
+		return re
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+	e.regexCache[pattern] = re
+	return re
 }
 
 func (e *Engine) checkProtectedPaths(paths []string) (bool, string) {

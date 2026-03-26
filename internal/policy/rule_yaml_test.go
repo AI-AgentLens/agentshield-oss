@@ -30,7 +30,12 @@ func loadAllRules(t *testing.T) []Rule {
 // TP commands must trigger the rule; TN commands must NOT trigger it.
 func TestRuleYAMLTests(t *testing.T) {
 	rules := loadAllRules(t)
-	engine := &Engine{} // only used for matchRule; no full pipeline needed
+	// Build a real engine with regex cache from loaded rules
+	pol := &Policy{Rules: rules}
+	engine, err := NewEngine(pol)
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
 
 	tested := 0
 	skippedStructural := 0
