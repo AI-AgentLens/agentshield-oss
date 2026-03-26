@@ -2762,3 +2762,118 @@ rules:
         - "curl -X PUT localhost:6333/collections/docs/points/batch -d '{\"points\":[]}'"
       tn:
         - "curl -X GET localhost:6333/collections/docs/points/1"
+
+  # === AUDIT: sed injecting disable/skip markers into test files (issue #476) ===
+  #
+  # A manipulated AI agent can use sed -i to inject @Disabled, @Ignore, xfail,
+  # or pytest.skip annotations into test files, causing security tests to be
+  # skipped silently while CI reports a green build.
+  #
+  # supply-chain/build-pipeline/ai-generated-test-sabotage
+  #
+  # TP: sed -i 's/@Test/@Test\n@Disabled/' src/test/java/SecurityTest.java → AUDIT
+  # TP: sed -i 's/def test_/def xtest_/' tests/test_security.py → AUDIT
+  # TN: sed -i 's/old_method/new_method/' tests/test_feature.py → ALLOW
+  - id: "sc-audit-test-skip-injection"
+    taxonomy: "supply-chain/build-pipeline/ai-generated-test-sabotage"
+    match:
+      command_regex: "\\bsed\\b.*-i.*\\b(@Disabled|@Ignore|@SkipTest|pytest\\.skip|xfail|skipTest|\\.skip\\(|xtest_)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "sed -i injecting @Disabled, @Ignore, pytest.skip, xfail, or similar skip/disable markers — potential AI agent test sabotage suppressing security test execution while CI shows green. supply-chain/build-pipeline/ai-generated-test-sabotage."
+    tests:
+      tp:
+        - "sed -i 's/@Test/@Test\\n@Disabled/' src/test/java/SecurityTest.java"
+        - "sed -i 's/def test_/def xtest_/' tests/test_security.py"
+        - "sed -i '/def test_auth/a\\    pytest.skip(\"disabled\")' tests/test_auth.py"
+      tn:
+        - "sed -i 's/old_method/new_method/' tests/test_feature.py"
+        - "grep -r '@Disabled' src/test/"
+
+  # === AUDIT: echo/printf writing trivially-passing stubs to test files (issue #476) ===
+  #
+  # An agent under prompt injection can replace a security test file's content
+  # with echo "def test_auth(): assert True" > tests/test_auth.py, creating a
+  # hollow stub that passes CI without exercising any real security logic.
+  # Also catches CI-conditional skip injection via conftest.py.
+  #
+  # supply-chain/build-pipeline/ai-generated-test-sabotage
+  #
+  # TP: echo "def test_auth(): assert True" > tests/test_auth.py → AUDIT
+  # TP: echo "import os; pytest.skip() if os.getenv('CI') else None" >> conftest.py → AUDIT
+  # TN: echo "assert True is used by pytest" >> README.md → ALLOW (doc context excluded)
+  - id: "sc-audit-test-trivial-overwrite"
+    taxonomy: "supply-chain/build-pipeline/ai-generated-test-sabotage"
+    match:
+      command_regex: "\\b(echo|printf)\\b.*(assert\\s+True|assert\\s+1\\s*==\\s*1|pytest\\.skip|os\\.getenv\\(['\"](?:CI|GITHUB_ACTIONS|TRAVIS)['\"]\\)).*>>?"
+      command_regex_exclude: "\\b(README|CONTRIBUTING|CHANGELOG|CHANGES|HISTORY|\\.md|\\.rst|\\.txt|\\.adoc)\\b|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "echo/printf redirecting trivially-passing stubs (assert True, assert 1==1) or CI-conditional skip logic (pytest.skip, os.getenv('CI')) to a file — potential agent test sabotage replacing real security assertions with hollow stubs. supply-chain/build-pipeline/ai-generated-test-sabotage."
+    tests:
+      tp:
+        - "echo \"def test_auth(): assert True\" > tests/test_auth.py"
+        - "echo \"import os; pytest.skip() if os.getenv('CI') else None\" >> conftest.py"
+        - "printf 'assert True\\n' > tests/test_security.py"
+      tn:
+        - "echo \"assert True is not sufficient for security\" >> CONTRIBUTING.md"
+        - "pytest tests/"
+
+  # === AUDIT: rm -rf targeting security or auth test directories (issue #476) ===
+  #
+  # An agent can delete entire test suites with rm -rf tests/security/ or
+  # rm -rf src/test/java/security/, eliminating coverage of authentication,
+  # authorisation, and vulnerability-scanning code paths entirely.
+  #
+  # supply-chain/build-pipeline/ai-generated-test-sabotage
+  #
+  # TP: rm -rf tests/security/ → AUDIT
+  # TP: rm -rf src/test/java/security/ → AUDIT
+  # TN: rm -rf tests/tmp/ → ALLOW
+  # TN: rm tests/test_old.py → ALLOW (no recursive flag targeting security)
+  - id: "sc-audit-security-test-deletion"
+    taxonomy: "supply-chain/build-pipeline/ai-generated-test-sabotage"
+    match:
+      command_regex: "\\brm\\b.+(?:-[rRfF]{1,2}|--recursive).+tests?[/\\\\](security|auth|integration|pentest|vuln|penetration)|\\brm\\b.+(?:-[rRfF]{1,2}|--recursive).+(?:security|auth)[/\\\\]tests?"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "rm -rf targeting a security, auth, or integration test directory — potential AI agent test sabotage eliminating entire security test suites, allowing compromised code to pass CI undetected. supply-chain/build-pipeline/ai-generated-test-sabotage."
+    tests:
+      tp:
+        - "rm -rf tests/security/"
+        - "rm -rf src/test/java/security/ tests/security/"
+        - "rm -rf tests/auth/"
+        - "rm -rf tests/integration/"
+      tn:
+        - "rm -rf tests/tmp/"
+        - "rm tests/test_old_feature.py"
+
+  # === AUDIT: sed deleting security scanner entries from CI config files (issue #476) ===
+  #
+  # An agent can silently disable SAST/SCA tooling by deleting tool entries from
+  # setup.cfg, requirements.txt, or pyproject.toml using sed -i '/bandit/d'.
+  # This removes security checks from the pipeline while leaving test files intact.
+  #
+  # supply-chain/build-pipeline/ai-generated-test-sabotage
+  #
+  # TP: sed -i '/pytest-security/d' setup.cfg → AUDIT
+  # TP: sed -i '/bandit/d' requirements-dev.txt → AUDIT
+  # TN: sed -i '/E501/d' .flake8 → ALLOW (non-security linting rule)
+  - id: "sc-audit-ci-security-plugin-remove"
+    taxonomy: "supply-chain/build-pipeline/ai-generated-test-sabotage"
+    match:
+      command_regex: "\\bsed\\b.*-i.*['\"/](bandit|pytest-security|safety|flake8-bandit|semgrep|trivy|snyk|ossaudit|pip-audit|cyclonedx|checkov)['\"/]d"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "sed -i deleting a security scanner entry (bandit, safety, semgrep, trivy, etc.) from a CI config or requirements file — potential agent sabotage removing SAST/SCA tooling from the pipeline. supply-chain/build-pipeline/ai-generated-test-sabotage."
+    tests:
+      tp:
+        - "sed -i '/pytest-security/d' setup.cfg"
+        - "sed -i '/bandit/d' requirements-dev.txt"
+        - "sed -i '/semgrep/d' pyproject.toml"
+      tn:
+        - "sed -i '/E501/d' .flake8"
+        - "grep bandit setup.cfg"
