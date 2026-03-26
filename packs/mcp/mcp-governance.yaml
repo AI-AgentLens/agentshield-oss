@@ -787,3 +787,105 @@ rules:
           args: {"path": "/workspace/data/export.xlsx", "content": "spreadsheet data"}
         - tool: "read_file"
           args: {"path": "/workspace/drafts/proposal.docx"}
+
+  # ===========================================================================
+  # AI Data Retention — Unbounded Log Writes Without Rotation
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-data-retention-deletion-gap
+  # OWASP LLM06 — Excessive Agency (accumulating PII without lifecycle controls)
+  # GDPR Art.17 — Right to Erasure; EU AI Act Art.10 — Data governance requirements
+  # ISO 27001 A.8.10 — Information deletion; CWE-200 — Information Exposure
+  #
+  # AI agents writing to purpose-named log files (agent.log, memory.jsonl,
+  # tool_history.jsonl) signal unbounded data accumulation. Without a verified
+  # rotation/TTL policy these files grow indefinitely, retain PII across sessions,
+  # and cannot satisfy GDPR erasure requests — a governance gap the Comply static
+  # rules flag at design time but cannot catch at runtime.
+
+  - id: mcp-gov-audit-ai-agent-log-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/agent.log"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to agent.log — AI agent log files accumulate session data, tool call histories, and potentially PII without enforced retention limits. Verify a rotation/TTL policy exists before allowing unbounded writes (GDPR Art.17, EU AI Act Art.10, ISO 27001 A.8.10)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/logs/agent.log", "content": "session started at 2024-01-01"}
+        - tool: "append_file"
+          args: {"path": "/home/user/.ai/agent.log", "content": "tool: read_file path: /workspace/src/main.py"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/logs/deployment.log", "content": "deploy complete"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/agent-guide.md", "content": "# Agent Usage Guide"}
+
+  - id: mcp-gov-audit-ai-memory-jsonl-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/memory.jsonl"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "MCP write to memory.jsonl — AI agent memory stores persist conversation context, retrieved documents, and user data across sessions. Without TTL controls these files violate GDPR Art.17 erasure requirements and EU AI Act Art.10 data governance obligations."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/.ai/memory.jsonl", "content": "{\"role\":\"user\",\"content\":\"my name is Alice\"}"}
+        - tool: "append_file"
+          args: {"path": "/home/user/agent/memory.jsonl", "content": "{\"session\":\"abc123\",\"data\":\"context\"}"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/src/memory_test.go", "content": "package memory"}
+        - tool: "write_file"
+          args: {"path": "/workspace/data/results.jsonl", "content": "{\"id\":1,\"value\":42}"}
+
+  - id: mcp-gov-audit-ai-tool-history-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/tool_history.jsonl"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to tool_history.jsonl — AI tool call history logs record every MCP operation including file paths, arguments, and content. Retaining this data indefinitely exposes sensitive operations to future access and violates data minimisation principles (GDPR Art.5, ISO 27001 A.8.10)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/.cache/tool_history.jsonl", "content": "{\"tool\":\"read_file\",\"path\":\"/etc/passwd\"}"}
+        - tool: "append_file"
+          args: {"path": "/home/user/.ai/tool_history.jsonl", "content": "{\"tool\":\"write_file\",\"path\":\"/workspace/config.yaml\"}"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/tool_history.md", "content": "# Tool History Documentation"}
+        - tool: "write_file"
+          args: {"path": "/workspace/data/query_results.jsonl", "content": "{\"id\":1,\"rows\":100}"}
