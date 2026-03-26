@@ -98,6 +98,9 @@ func init() {
 }
 
 func hookCommand(cmd *cobra.Command, args []string) error {
+	// Opportunistic heartbeat — keep agent online while IDE is active
+	go sendOpportunisticHeartbeat()
+
 	// Check bypass — allow everything when disabled (unless managed mode overrides)
 	if os.Getenv("AGENTSHIELD_BYPASS") == "1" {
 		managedCfg := enterprise.LoadManagedConfig()

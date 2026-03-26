@@ -54,6 +54,11 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 	creds, _ := auth.Load()
 	if creds != nil && creds.Token != "" {
 		fmt.Printf("  Logged in: %s (%s)\n", creds.User.Email, creds.Server)
+		if isHeartbeatRunning() {
+			fmt.Printf("  Heartbeat: running\n")
+		} else {
+			fmt.Printf("  Heartbeat: stopped — run 'agentshield login' to restart\n")
+		}
 	} else {
 		fmt.Printf("  Logged in: no — run 'agentshield login'\n")
 	}

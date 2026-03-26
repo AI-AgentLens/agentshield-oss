@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/auth"
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
 )
 
@@ -159,22 +157,15 @@ func loginCommand(cmd *cobra.Command, args []string) error {
 
 		fmt.Println()
 		fmt.Printf("  ✅ Logged in as %s\n", creds.User.Email)
-		fmt.Println("  Agent connected — sending heartbeats to AI Agent Lens dashboard.")
-		fmt.Println("  Press Ctrl+C to disconnect.")
-		fmt.Println()
 
-		// Start persistent heartbeat loop (keeps agent online)
-		enterprise.AgentVersion = Version
-		cfg, _ := config.Load(policyPath, logPath, mode)
-		configDir := "~/.agentshield"
-		if cfg != nil {
-			configDir = cfg.ConfigDir
+		// Start background heartbeat daemon
+		if err := startHeartbeatDaemon(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: could not start heartbeat daemon: %v\n", err)
+			fmt.Println("  Run 'agentshield connect' manually to keep the agent online.")
+		} else {
+			fmt.Println("  Heartbeat daemon started — agent will stay online.")
 		}
-		hbConf := &enterprise.HeartbeatConf{
-			URL:   creds.Server + "/api/heartbeat",
-			Token: creds.Token,
-		}
-		enterprise.RunHeartbeat(hbConf, configDir) // blocks forever
+		fmt.Println()
 		return nil
 	}
 

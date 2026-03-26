@@ -28,10 +28,13 @@ func logoutCommand(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Stop heartbeat daemon
+	stopHeartbeatDaemon()
+
 	if err := auth.Remove(); err != nil {
 		return fmt.Errorf("failed to remove credentials: %w", err)
 	}
 
-	fmt.Printf("Logged out. Credentials removed from %s\n", auth.CredentialsPath())
+	fmt.Printf("Logged out. Heartbeat stopped, credentials removed.\n")
 	return nil
 }

@@ -47,7 +47,7 @@ func RunHeartbeat(cfg *HeartbeatConf, configDir string) {
 		return
 	}
 
-	interval := 60
+	interval := 900 // 15 minutes
 	if cfg.IntervalSeconds > 0 {
 		interval = cfg.IntervalSeconds
 	}
