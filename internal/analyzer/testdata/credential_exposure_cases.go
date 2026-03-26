@@ -5982,4 +5982,79 @@ var AIIDEOAuthTokenCases = []TestCase{
 	},
 }
 
+// AgentGeneratedCredentialCommitCases tests detection of AI agents staging credential files
+// or pushing after reading credentials (issue #471).
+var AgentGeneratedCredentialCommitCases = []TestCase{
+	{
+		ID:               "TP-AGENT-CRED-COMMIT-001",
+		Command:          "git add .env",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add .env — must be blocked to prevent staging live secrets.",
+		Tags:             []string{"tp", "credential", "git"},
+	},
+	{
+		ID:               "TP-AGENT-CRED-COMMIT-002",
+		Command:          "git add src/.env.local",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add of .env.local in subdirectory — must be blocked.",
+		Tags:             []string{"tp", "credential", "git"},
+	},
+	{
+		ID:               "TP-AGENT-CRED-COMMIT-003",
+		Command:          "git add credentials.json",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add credentials.json — must be blocked.",
+		Tags:             []string{"tp", "credential", "git"},
+	},
+	{
+		ID:               "TP-AGENT-CRED-COMMIT-004",
+		Command:          "git add config/secrets.yaml",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add secrets.yaml in config subdirectory — must be blocked.",
+		Tags:             []string{"tp", "credential", "git"},
+	},
+	{
+		ID:               "TN-AGENT-CRED-COMMIT-001",
+		Command:          "git add .env.example",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add .env.example — template file intentionally committed, must NOT be blocked.",
+		Tags:             []string{"tn", "safe", "git"},
+	},
+	{
+		ID:               "TN-AGENT-CRED-COMMIT-002",
+		Command:          "git add main.go src/handler.go",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add of normal source files — must NOT be blocked.",
+		Tags:             []string{"tn", "safe", "git"},
+	},
+	{
+		ID:               "TN-AGENT-CRED-COMMIT-003",
+		Command:          "git add .env.sample",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/code-generation-exposure/agent-generated-credential-commit",
+		Analyzer:         "regex",
+		Description:      "git add .env.sample — sample template file, must NOT be blocked.",
+		Tags:             []string{"tn", "safe", "git"},
+	},
+}
+
 // HardlinkCredentialCases are now in edge_case_deep_dive_cases.go
