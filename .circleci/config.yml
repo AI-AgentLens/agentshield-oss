@@ -98,18 +98,23 @@ jobs:
           command: |
             VERSION="${GORELEASER_CURRENT_TAG}"
             echo "Uploading release artifacts for ${VERSION}..."
-            # Setup SSH
-            mkdir -p ~/.ssh
-            echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/deploy_key
-            chmod 600 ~/.ssh/deploy_key
-            ssh-keyscan -H 31.97.102.48 >> ~/.ssh/known_hosts 2>/dev/null
-            # Create version directory on server
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ubuntu@31.97.102.48 \
-              "mkdir -p /opt/aiagentlens/data/releases/${VERSION}"
-            # SCP all archives + checksums
-            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-              dist/agentshield_*.tar.gz dist/checksums.txt \
-              ubuntu@31.97.102.48:/opt/aiagentlens/data/releases/${VERSION}/
+            for archive in dist/agentshield_*.tar.gz; do
+              FILENAME=$(basename "$archive")
+              echo "  Uploading ${FILENAME}..."
+              curl -sf -X POST \
+                -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${archive}" \
+                "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=${FILENAME}"
+              echo ""
+            done
+            if [ -f dist/checksums.txt ]; then
+              curl -sf -X POST \
+                -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@dist/checksums.txt" \
+                "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=checksums.txt"
+            fi
             echo "All artifacts uploaded to https://aiagentlens.com/releases/${VERSION}/"
       - run:
           name: Update Homebrew cask
