@@ -1,0 +1,63 @@
+id: "reconnaissance/system-discovery/hardware-fingerprinting"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "System Discovery"
+category_id: "8.6"
+name: "Hardware Fingerprinting via DMI/SMBIOS"
+risk_level: "medium"
+
+abstract: |
+  Reading DMI/SMBIOS metadata from /sys/class/dmi/id/ exposes machine UUID, serial
+  numbers, product name, and BIOS version. An AI agent performing this access may be
+  profiling the execution environment to detect sandboxes, correlate identities, or
+  exfiltrate hardware inventory data.
+
+explanation: |
+  The Linux kernel exposes SMBIOS/DMI (System Management BIOS/Desktop Management
+  Interface) data through the sysfs virtual filesystem at /sys/class/dmi/id/. This
+  directory contains files such as:
+
+  - product_uuid — globally unique machine identifier (UUID)
+  - board_serial / chassis_serial — hardware serial numbers
+  - product_name / sys_vendor — hardware model and manufacturer
+  - bios_version / bios_date — firmware metadata
+
+  An AI agent reading these files can:
+  1. Fingerprint the physical host to correlate activity across sessions
+  2. Detect virtualized or sandboxed environments (common anti-sandbox technique)
+  3. Build a hardware inventory profile without needing elevated privileges
+  4. Exfiltrate unique identifiers that persist across OS reinstalls
+
+  This aligns with MITRE ATT&CK T1082 (System Information Discovery) and is
+  particularly concerning in multi-tenant cloud environments or shared development
+  hosts where agents should have no need for hardware identity information.
+
+recommendation: |
+  - AUDIT all reads from /sys/class/dmi/id/ by AI agents.
+  - BLOCK if combined with network egress (fingerprint + exfiltration chain).
+  - Restrict container/agent filesystems to exclude /sys/class/dmi/ where possible.
+  - Log UUID/serial reads as high-interest events for forensic correlation.
+
+examples:
+  bad:
+    - "cat /sys/class/dmi/id/product_uuid"
+    - "cat /sys/class/dmi/id/board_serial"
+    - "cat /sys/class/dmi/id/sys_vendor"
+  good:
+    - "cat /proc/cpuinfo  # CPU specs for performance tuning"
+    - "uname -r  # kernel version for compatibility checks"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23"]
+  eu-ai-act-2024: ["Art.15"]
+  nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
+  soc2-type2: ["CC6.6", "CC7.2"]
+
+references:
+  mitre_attack: ["T1082", "T1497.001"]
+  cwe: ["CWE-200", "CWE-284"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-recon-audit-sys-hardware-fingerprint"]

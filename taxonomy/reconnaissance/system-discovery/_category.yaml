@@ -1,0 +1,8 @@
+id: "8.6"
+name: "System Discovery"
+kingdom_id: 8
+description: >
+  Techniques that enumerate host system metadata including hardware identifiers,
+  BIOS/firmware information, network interface MAC addresses, and platform-specific
+  identifiers. Used to fingerprint the execution environment, detect sandboxes,
+  or correlate host identity across sessions.

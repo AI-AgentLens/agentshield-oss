@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1044 |
-| MCP rules | 470 |
-| Total rules | 1514 |
+| MCP rules | 472 |
+| Total rules | 1516 |
 | Test cases (TP+TN) | 3704 |
 | Kingdoms covered | 10 |
 
@@ -1510,7 +1510,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (19 rules)
+### reconnaissance (21 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1523,6 +1523,8 @@
 | `mcp-recon-block-ai-mcp-config-read` | BLOCK | mcp_rule | Read access to .mcp.json is blocked — contains MCP server URLs, API key variable names, and tool schemas. Exfiltration enables lateral movement to other MCP servers and credential targeting. MITRE T1552, T1083. |
 | `mcp-recon-block-cursor-mcp-config-read` | BLOCK | mcp_rule | Read access to .cursor/mcp.json is blocked — contains Cursor IDE MCP server configuration including URLs and API key names. |
 | `mcp-recon-block-agentshield-policy-read` | BLOCK | mcp_rule | Read access to ~/.agentshield/policy.yaml is blocked — reveals AgentShield security controls and block/allow decisions, enabling bypass construction. MITRE T1518.001 (Security Software Discovery). |
+| `mcp-recon-audit-sys-hardware-fingerprint` | AUDIT | mcp_rule | Access to /sys/class/dmi/id/ is flagged — exposes machine UUID, serial numbers, and BIOS metadata used to fingerprint the host or detect sandboxes. MITRE T1082. |
+| `mcp-recon-audit-sys-mac-address` | AUDIT | mcp_rule | Access to /sys/class/net/<iface>/address is flagged — exposes hardware MAC addresses used for host fingerprinting. MITRE T1016. |
 | `mcp-recon-audit-localhost-probe` | AUDIT | structural | HTTP probe to localhost or 127.0.0.1 flagged — may enumerate internal services (admin panels, dev servers, management APIs). LLM02, MITRE T1046. |
 | `mcp-recon-block-actuator-credentials` | BLOCK | structural | Spring Boot Actuator credential-exposing endpoint blocked — /actuator/heapdump and /actuator/env directly leak secrets, passwords, and API keys. LLM02, CWE-200, MITRE T1082. |
 | `mcp-recon-block-k8s-secrets` | BLOCK | structural | Kubernetes secrets API access blocked — exposes cluster secrets, service account tokens, and RBAC configuration. LLM02, CWE-284, MITRE T1213. |
@@ -1631,7 +1633,7 @@
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
 | `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
-| `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, and Pipedream are primary exfiltration channels for AI agents. MITRE T1567.002. |
+| `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 
