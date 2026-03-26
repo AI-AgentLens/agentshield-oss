@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1034 |
+| Terminal rules | 1035 |
 | MCP rules | 465 |
-| Total rules | 1499 |
-| Test cases (TP+TN) | 3664 |
+| Total rules | 1500 |
+| Test cases (TP+TN) | 3668 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -771,7 +771,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (128 rules)
+### supply-chain (129 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -902,6 +902,7 @@
 | `ts-block-cmake-compiler-override` | BLOCK | regex | cmake -DCMAKE_C_COMPILER= or -DCMAKE_CXX_COMPILER= pointing to suspicious paths replaces the compiler for the entire CMake build tree. MITRE T1195.002. |
 | `ts-block-make-ldpreload` | BLOCK | regex | LD_PRELOAD injection via make pointing to /tmp, /dev/shm, or relative paths — injects a suspicious shared library into every subprocess spawned by the build. Legitimate debugging libs use bare filenames or system paths. MITRE T1574.006. |
 | `ts-block-make-binary-replace` | BLOCK | regex | make MAKE= replaces the make binary itself for all recursive $(MAKE) invocations — attacker controls the entire sub-build orchestration. MITRE T1195.002. |
+| `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
 ### unauthorized-execution (182 rules)
@@ -1631,7 +1632,7 @@
 | persistence-evasion | 287 | 173 | 460 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 175 | 80 | 255 |
-| supply-chain | 244 | 172 | 416 |
+| supply-chain | 246 | 174 | 420 |
 | unauthorized-execution | 423 | 291 | 714 |
-| **Total** | **2216** | **1448** | **3664** |
+| **Total** | **2218** | **1450** | **3668** |
 
