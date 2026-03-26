@@ -948,6 +948,89 @@ rules:
         - tool: "read_file"
           args: {"path": "/workspace/README.md"}
 
+  # === BLOCK: MCP read/write to agent delegation artifact paths (LLM06, LLM09) ===
+  # Companion MCP rule for shell rule ts-block-delegation-artifact-write.
+  # A compromised agent can use MCP file tools to forge delegation artifacts —
+  # authorization token files, approval records, signed task grants — without
+  # invoking a shell. This rule covers the MCP vector for the same threat:
+  # unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery.
+  #
+  # Blocked paths:
+  #   **/.agent/delegation.json  — per-request delegation token
+  #
+  # Read is also blocked (not just write) because reading another agent's
+  # delegation token enables token replay attacks.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery
+  # OWASP LLM06 — Excessive Agency, LLM09 — Misinformation / Fabricated Results
+  # MITRE T1565.001 — Stored Data Manipulation
+  - id: mcp-block-delegation-token-path-access
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery"
+    match:
+      tool_name_any:
+        - read_file
+        - cat_file
+        - get_file_contents
+        - open_file
+        - view_file
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/.agent/delegation.json"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "MCP access to .agent/delegation.json — direct file tool access to this delegation token file enables both forgery (write) and token replay (read) attacks without invoking a shell (OWASP LLM06/LLM09, MITRE T1565.001)."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.agent/delegation.json"}
+        - tool: "write_file"
+          args: {"path": "/workspace/.agent/delegation.json", "content": "{\"granted_by\":\"orchestrator\",\"permissions\":[\"deploy\"]}"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/README.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/agent-delegation-design.md"}
+
+  # === BLOCK: MCP write to agent auth directory (.agentauth/) ===
+  # Blocks writes to the .agentauth/ directory via MCP file tools.
+  # Writes create or modify authorization grants that downstream agents trust.
+  # Taxonomy: unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery
+  - id: mcp-block-agentauth-dir-write
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-delegation-chain-forgery"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/.agentauth/**"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "MCP write to .agentauth/ directory — writing authorization grants to the agent auth directory forges credentials that downstream agents use for trust decisions (OWASP LLM06, MITRE T1565.001)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.agentauth/grants.json", "content": "{\"authorized\":true}"}
+        - tool: "create_file"
+          args: {"path": "/workspace/.agentauth/deploy_token.json", "content": "{\"granted_by\":\"orchestrator\"}"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/README.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/src/agentauth-client.go"}
+
 structural_rules:
   # === AUDIT: Cross-server context harvesting instructions in content ===
   # When a tool call argument contains instructions to forward outputs from
