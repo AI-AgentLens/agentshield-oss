@@ -1236,6 +1236,101 @@ var TunnelAIInferencePortCases = []TestCase{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// AI Model Attestation Gap — Unpinned Model Alias
+// Taxonomy: governance-risk/ai-governance-gap/ai-model-attestation-gap
+// Rule: ts-audit-unpinned-model-alias (issue #439)
+// ---------------------------------------------------------------------------
+
+var AIUnpinnedModelAliasCases = []TestCase{
+	// --- TRUE POSITIVES ---
+	{
+		ID:               "TP-TS-AUDIT-UNPINNED-MODEL-001",
+		Command:          `curl -d '{"model":"gpt-4"}' https://api.openai.com/v1/chat/completions`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "curl API call with unpinned gpt-4 alias in JSON body — silent model substitution risk (EU AI Act Art.13, OWASP LLM05).",
+		Tags:             []string{"tp", "governance", "model-attestation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-UNPINNED-MODEL-002",
+		Command:          `export OPENAI_MODEL=latest`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "OPENAI_MODEL env var set to 'latest' alias — no model version pinning, any provider update silently changes behavior.",
+		Tags:             []string{"tp", "governance", "model-attestation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-UNPINNED-MODEL-003",
+		Command:          `claude --model claude-3-sonnet`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "claude CLI with unversioned claude-3-sonnet alias — no date suffix means model version can silently change.",
+		Tags:             []string{"tp", "governance", "model-attestation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-UNPINNED-MODEL-004",
+		Command:          `ANTHROPIC_MODEL=claude-3-opus python3 run_agent.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "ANTHROPIC_MODEL env var using unversioned claude-3-opus alias — must be pinned to a dated version for compliance.",
+		Tags:             []string{"tp", "governance", "model-attestation"},
+	},
+
+	// --- TRUE NEGATIVES ---
+	// Note: all TNs get AUDIT from the default policy or other rules (curl monitoring,
+	// default AUDIT decision). The key assertion is that ts-audit-unpinned-model-alias
+	// itself must NOT fire on these commands.
+	{
+		ID:               "TN-TS-AUDIT-UNPINNED-MODEL-001",
+		Command:          `curl -d '{"model":"gpt-4-0125-preview"}' https://api.openai.com/v1/chat/completions`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "curl with fully-versioned gpt-4-0125-preview model — date suffix present, ts-audit-unpinned-model-alias must not fire. Gets AUDIT from curl monitoring rules (ne-audit-curl, ne-audit-ai-vendor-api-call).",
+		Tags:             []string{"tn", "safe", "governance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-UNPINNED-MODEL-002",
+		Command:          `export OPENAI_MODEL=gpt-4-0125-preview`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "OPENAI_MODEL set to versioned gpt-4-0125-preview — explicit date pin, ts-audit-unpinned-model-alias must not fire. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "governance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-UNPINNED-MODEL-003",
+		Command:          `claude --model claude-3-5-sonnet-20241022`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "claude CLI with fully-versioned claude-3-5-sonnet-20241022 — date suffix present, ts-audit-unpinned-model-alias must not fire. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "governance"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-UNPINNED-MODEL-004",
+		Command:          `git commit -m 'switch to gpt-4 for inference docs'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-model-attestation-gap",
+		Analyzer:         "regex",
+		Description:      "git commit message mentioning gpt-4 — no --model flag or env var, ts-audit-unpinned-model-alias must not fire. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe", "governance"},
+	},
+}
+
 // AllGovernanceRiskCases aggregates all governance-risk kingdom test cases.
 // AIProvenanceStrippingCases tests gov-audit-strip-ai-coauthor and
 // gov-audit-strip-ai-coauthor-reverse (issue #187).
@@ -1320,6 +1415,7 @@ func AllGovernanceRiskCases() []TestCase {
 	all = append(all, LLMDirectedIaCApplyCases...)
 	all = append(all, ComplianceReportAutoSubmitCases...)
 	all = append(all, AIComplianceArtifactFabricationCases...)
+	all = append(all, AIUnpinnedModelAliasCases...)
 	return all
 }
 
