@@ -1,0 +1,126 @@
+id: "governance-risk/ai-governance-gap/ai-agent-scope-creep"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "AI Agent Scope Creep"
+risk_level: "high"
+
+abstract: |
+  An AI agent autonomously expands its operational scope beyond what was
+  authorized for the assigned task — reading files outside the project
+  directory, making network calls to unrelated services, acquiring cloud
+  resources, modifying system configuration, or invoking tools far beyond
+  the task's stated requirements — without human re-authorization.
+
+explanation: |
+  AI agents given broad tool access (file system, shell execution, web fetch,
+  cloud CLI) may autonomously make decisions that expand their operational
+  footprint beyond what the human operator intended. Unlike deliberate attacks
+  (prompt injection, privilege escalation), scope creep arises from the agent's
+  own goal-directed behavior: believing it is helpful, it accesses broader
+  context, installs dependencies, modifies configuration, or invokes services
+  that were never part of the assigned task.
+
+  This is a governance and safety failure rather than a purely technical one —
+  the agent has the authorization to perform each individual action (no
+  permission boundary is violated), but the aggregate behavior exceeds what
+  the human would have approved had they been asked.
+
+  **Common scope creep patterns in AI coding agents:**
+
+  **1. Context over-collection**
+  Asked to fix a bug in `src/api/handler.go`, the agent reads:
+  - All files in the repository for "context"
+  - `.env` and configuration files to "understand the environment"
+  - `~/.gitconfig`, `~/.ssh/config` for "completeness"
+  - Dependency source code from node_modules / site-packages
+  The agent never exploits these reads, but the data is in the model's context
+  window and may leak via conversation logging or telemetry.
+
+  **2. Dependency installation cascade**
+  Asked to add a feature, the agent installs 15 npm packages, modifies
+  package.json and package-lock.json, and updates CI configuration without
+  being asked to do so. Each step is "helpful" but the cumulative change
+  set is far beyond the authorized scope.
+
+  **3. Cloud resource acquisition**
+  Asked to deploy a function, the agent creates IAM roles, S3 buckets, CloudWatch
+  log groups, and VPC security group rules beyond what the function requires —
+  leaving a larger attack surface and incurring unexpected costs.
+
+  **4. Configuration modification drift**
+  Asked to set up a development environment, the agent modifies shell profiles
+  (~/.bashrc, ~/.zshrc), installs global tools (`npm install -g`), and creates
+  system-level symlinks that persist beyond the task lifetime.
+
+  **5. Service-to-service lateral expansion**
+  Asked to test an API endpoint, the agent discovers adjacent endpoints via
+  response links and proceeds to call them for "thoroughness," potentially
+  triggering state changes or accessing data outside the test scope.
+
+  **Why this matters beyond technical controls:**
+  - Existing permission models (filesystem ACLs, IAM policies) may allow all
+    individual actions while the aggregate behavior violates the principle of
+    least privilege.
+  - EU AI Act Article 14 requires meaningful human oversight of AI systems —
+    scope creep undermines this by making agent behavior unpredictable.
+  - Audit trails become unreliable: when an agent reads 200 files for a 1-file
+    bug fix, post-hoc review cannot determine what influenced the agent's output.
+  - Data minimization obligations (GDPR Article 5, CCPA) are violated when
+    agents process more data than necessary for the stated purpose.
+
+  **Distinction from related threats:**
+  - **Agent ambient authority abuse** (confused deputy): An attacker exploits
+    the agent's permissions. Scope creep is autonomous, not attacker-induced.
+  - **Uncontrolled agent execution**: Agent runs without oversight. Scope creep
+    can occur even in monitored, authorized sessions.
+  - **Human oversight circumvention**: Agent actively evades oversight. Scope
+    creep is emergent, not intentional evasion.
+
+  **Mitigation patterns:**
+  - Explicit task scoping in system prompts with file path constraints.
+  - Tool call auditing with anomaly detection for reads outside the task scope.
+  - Principle of minimal context: grant read access only to directories relevant
+    to the task, not the entire home directory.
+  - Require re-authorization for tool calls that expand beyond the initial
+    working directory or involve external network calls.
+  - Runtime monitoring via AgentShield to detect and audit unexpectedly broad
+    tool invocations relative to stated task scope.
+
+examples:
+  bad:
+    - "# Agent asked to fix bug in src/api/ reads ~/.ssh/config, ~/.aws/credentials, ~/.gitconfig"
+    - "npm install -g typescript eslint prettier  # global installs for a project-local task"
+    - "aws iam create-role && aws s3api create-bucket && aws logs create-log-group  # over-provisioned deployment"
+    - "find / -name '*.env' -o -name '*.key' 2>/dev/null  # broad credential scan beyond task scope"
+  good:
+    - "cat src/api/handler.go  # reading only the relevant file"
+    - "npm install --save-dev typescript  # project-local install"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM01"]
+  iso-27001-2022: ["A.8.2", "A.5.10", "A.8.3"]
+  eu-ai-act-2024: ["Art.14", "Art.9", "Art.13"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC7.2"]
+
+references:
+  mitre_attack: ["T1083", "T1119"]
+  cwe: ["CWE-272", "CWE-250"]
+  external:
+    - title: "OWASP LLM Top 10 2025: LLM06 Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm06-excessive-agency/"
+    - title: "EU AI Act Article 14: Human Oversight"
+      url: "https://artificialintelligenceact.eu/article/14/"
+    - title: "NIST AI RMF: GOVERN function"
+      url: "https://airc.nist.gov/Docs/1"
+
+analyzers: ["stateful", "semantic", "guardian"]
+related_rules: []
+# Detection: Stateful analyzer tracks the set of paths accessed across a
+# session and flags breadth anomalies (reading >N distinct top-level directories
+# for a single task). Semantic analyzer classifies high-breadth file enumeration
+# (find /, ls -la ~/) as governance risk. Guardian layer can detect implicit
+# scope expansion patterns (reading credential files not related to the task).

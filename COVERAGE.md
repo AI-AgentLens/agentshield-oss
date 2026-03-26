@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1033 |
+| Terminal rules | 1034 |
 | MCP rules | 465 |
-| Total rules | 1498 |
-| Test cases (TP+TN) | 3659 |
+| Total rules | 1499 |
+| Test cases (TP+TN) | 3664 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -771,7 +771,7 @@
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
 
-### supply-chain (127 rules)
+### supply-chain (128 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -885,6 +885,7 @@
 | `sc-audit-oras-plain-http-push` | AUDIT | regex | oras push/copy with --plain-http pushes OCI artifacts to a registry over unencrypted HTTP, bypassing TLS certificate validation. Enables substitution of production artifacts via man-in-the-middle or direct push to insecure registries without integrity guarantees. MITRE T1195.002. |
 | `sc-block-ide-vsix-install` | BLOCK | regex | Installing a local .vsix IDE extension — bypasses all VS Code Marketplace security review, publisher verification, and signing. A malicious .vsix runs with full IDE privileges (file system, terminal, network) and persists across restarts. MITRE T1195.001, T1176. |
 | `sc-audit-ide-extension-install` | AUDIT | regex | IDE extension installation by AI agent — extensions run with full IDE privileges and persist permanently. Typosquatted or manipulated extensions are a supply chain risk. Human review required. MITRE T1195.001, T1176. |
+| `sc-block-ide-ai-extension-typosquat` | BLOCK | regex | Typosquatted AI coding extension — extension ID matches a known character-substitution pattern against popular AI coding agent tools (Cline, Continue, GitHub Copilot). Malicious extensions run with full IDE privileges: file system access, terminal execution, and AI prompt interception. MITRE T1176, T1195.001. |
 | `sc-audit-python-inline-weak-hash` | AUDIT | regex | Python inline code using hashlib.md5/sha1 — weak hashing algorithms are insecure for password storage. AI-generated code frequently uses MD5/SHA1 from training examples. Use bcrypt, argon2, or scrypt for passwords. (OWASP LLM05, CWE-327) |
 | `sc-audit-python-inline-sql-injection` | AUDIT | regex | Python inline SQL with string formatting (f-string or % operator) — classic SQL injection pattern from AI-generated code. Use parameterized queries: cursor.execute('SELECT ... WHERE id=%s', (id,)). (OWASP LLM05, CWE-89) |
 | `sc-audit-docker-run-shell` | AUDIT | regex | docker run with a shell (bash/sh) as the container entry point — the execute-on-pull pattern where an AI agent runs an image interactively. Attacker-controlled or hallucinated images can embed malicious content that executes immediately inside the shell. Verify the image source and registry before running a shell inside a container. MITRE T1195.002, OWASP LLM03:2025. |
@@ -1630,7 +1631,7 @@
 | persistence-evasion | 287 | 173 | 460 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 175 | 80 | 255 |
-| supply-chain | 241 | 170 | 411 |
+| supply-chain | 244 | 172 | 416 |
 | unauthorized-execution | 423 | 291 | 714 |
-| **Total** | **2213** | **1446** | **3659** |
+| **Total** | **2216** | **1448** | **3664** |
 
