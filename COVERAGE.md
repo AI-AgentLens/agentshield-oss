@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1037 |
-| MCP rules | 465 |
-| Total rules | 1502 |
+| MCP rules | 466 |
+| Total rules | 1503 |
 | Test cases (TP+TN) | 3678 |
 | Kingdoms covered | 10 |
 
@@ -458,7 +458,7 @@
 | `ts-struct-block-crontab-modify` | BLOCK | structural | crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks. |
 | `ts-struct-block-ssh-keygen-noninteractive` | BLOCK | structural | ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk. |
 | `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
-| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), and heredoc writes to /tmp where authorized_keys appears only as documentation text. (MITRE T1098.004) |
+| `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), heredoc writes to /tmp, and agentshield mcp-eval diagnostic commands (which simulate but do not execute tool calls). (MITRE T1098.004) |
 | `ts-block-ssh-config-write` | BLOCK | regex | Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
 | `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
 | `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
@@ -1103,7 +1103,7 @@
 
 ## MCP Rules
 
-### credential-exposure (217 rules)
+### credential-exposure (218 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1316,6 +1316,7 @@
 | `mcp-sec-block-dvc-config-read` | BLOCK | mcp_rule | Read access to DVC config file is blocked — may contain remote storage credentials (S3, GCS, Azure, SSH) used to access large training datasets and model artifact storage. MITRE T1552.001. |
 | `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to ~/.consul_token is blocked — contains a Consul ACL token granting authenticated access to the service mesh, KV store (often used to hold application secrets), and ACL system. Exfiltration enables full Consul control and Vault pivot. MITRE T1552. |
 | `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to ~/.nomad_token is blocked — contains a Nomad ACL token granting control over workload scheduling, job management, and secrets mounted into running allocations. MITRE T1552. |
+| `mcp-sec-block-maven-security-xml` | BLOCK | mcp_rule | Access to ~/.m2/settings-security.xml is blocked — this file contains Maven's encrypted master password, which decrypts all repository credentials in settings.xml. Exposing it enables full Maven repository credential compromise. MITRE T1552.001. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254 or 169.254.170.2) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
