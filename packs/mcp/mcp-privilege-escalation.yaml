@@ -1,5 +1,5 @@
 name: "MCP Privilege Escalation"
-description: "Block privilege escalation via MCP tool calls: Docker socket access, Kubernetes RBAC escalation, SUID binary planting, and container escape paths"
+description: "Block privilege escalation via MCP tool calls: Docker socket access, D-Bus socket access, Kubernetes RBAC escalation, SUID binary planting, and container escape paths"
 version: "1.0.0"
 author: "AgentShield Security Research"
 
@@ -26,6 +26,39 @@ rules:
         - tool: "write_file"
           args: {"path": "/var/run/docker.sock"}
       tn:
+        - tool: "read_file"
+          args: {"path": "/var/run/app.pid"}
+
+  # === BLOCK: D-Bus system socket access ===
+  # The D-Bus system bus socket is the IPC channel for privileged system daemons
+  # (systemd, NetworkManager, polkit, upower). An agent that reads or writes this
+  # socket can invoke methods on privileged services, exploit policy misconfigurations,
+  # and escalate privileges via authorized helpers.
+  # MITRE T1548 — Abuse Elevation Control Mechanism
+  - id: mcp-privesc-block-dbus-socket
+    taxonomy: "privilege-escalation/command-execution/dbus-socket-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/dbus/**"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Access to D-Bus system socket blocked — the D-Bus socket is the IPC channel for privileged system daemons (systemd, polkit, NetworkManager). Agents can invoke privileged methods or exploit policy misconfigurations to escalate privileges. MITRE T1548."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/var/run/dbus/system_bus_socket"}
+        - tool: "write_file"
+          args: {"path": "/run/dbus/system_bus_socket"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docs/dbus-socket-overview.md"}
         - tool: "read_file"
           args: {"path": "/var/run/app.pid"}
 
@@ -386,3 +419,32 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/project/docs/capabilities.md", "content": "Linux capabilities overview"}
+
+  # === BLOCK: D-Bus socket access via structural match (any tool, path arg) ===
+  # Catches any tool (not just read/write families) that passes a D-Bus socket path
+  # via a `path` argument — e.g., custom MCP tools that wrap dbus-send or socket
+  # client libraries. Complements the glob-based rule above which targets known
+  # file-access tools.
+  - id: mcp-privesc-block-dbus-socket-structural
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)/var/run/dbus/"
+            - "(?i)/run/dbus/"
+            - "(?i)dbus.*\\.sock(et)?$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "D-Bus socket path detected in MCP tool argument — all D-Bus sockets expose privileged IPC channels that can be abused for privilege escalation. MITRE T1548."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/var/run/dbus/system_bus_socket"}
+        - tool: "send_dbus_message"
+          args: {"path": "/run/dbus/system_bus_socket"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/config/socket_config.yaml"}
+        - tool: "read_file"
+          args: {"path": "/var/run/app.pid"}
