@@ -1590,7 +1590,7 @@ resource_rules:
   # A malicious server can register these as file:// resources to exfiltrate
   # OS credentials and privilege configuration.
   - id: mcp-safety-block-resource-file-sensitive-os
-    taxonomy: "credential-exposure/os-credential-access/passwd-shadow-read"
+    taxonomy: "credential-exposure/password-db-access/system-shadow-read"
     match:
       uri_regex: "^file:///etc/(shadow|passwd|sudoers|gshadow|master\\.passwd)(\\.[^/]*)?$"
     decision: "BLOCK"

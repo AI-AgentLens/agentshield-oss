@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1055 |
+| Terminal rules | 1056 |
 | MCP rules | 498 |
-| Total rules | 1553 |
-| Test cases (TP+TN) | 3756 |
+| Total rules | 1554 |
+| Test cases (TP+TN) | 3759 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -704,7 +704,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (72 rules)
+### reconnaissance (73 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -776,6 +776,7 @@
 | `ts-block-pgrep-security-tool-targeting` | BLOCK | regex | Direct pgrep or tasklist+findstr targeting named security tools — this is unambiguous security software discovery (MITRE T1057/T1518.001) to identify and subsequently disable active security controls. OWASP LLM01. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 | `ts-audit-credential-dir-ls-chain` | AUDIT | regex | Chained ls on 2+ credential directories in a single compound command — systematic enumeration of available credential stores is a pre-exfiltration reconnaissance step. OWASP LLM01, MITRE T1083/T1592. |
+| `ts-audit-vector-store-bulk-enum` | AUDIT | regex | Python inline vector store bulk read (.get()/.scroll()/.search() with large limit and no tenant filter) — may enumerate all stored agent memories across users (OWASP LLM06, MITRE T1530). |
 | `ts-block-osint-email-harvesting` | BLOCK | regex | OSINT email/identity harvesting tool detected. theHarvester collects email addresses and hostnames from search engines and social networks; h8mail checks breach databases for compromised credentials; holehe enumerates account registrations across 120+ websites. These tools are purpose-built for pre-attack reconnaissance (MITRE T1589, T1596.005). AI agents have no legitimate use case for targeting external individuals or organizations. OWASP LLM02/LLM06. |
 | `ts-block-osint-subdomain-enum` | BLOCK | regex | OSINT subdomain and asset enumeration tool detected. subfinder/assetfinder discover subdomains via 40+ passive sources; amass maps the full attack surface via DNS, CT logs, and APIs; waybackurls/gau harvest all known URLs from Wayback Machine and Common Crawl. These tools build comprehensive target attack surface maps (MITRE T1589, T1593, T1596). AI agents have no legitimate use case for external attack surface enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
@@ -1686,6 +1687,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 440 | 303 | 743 |
-| **Total** | **2266** | **1490** | **3756** |
+| unauthorized-execution | 442 | 304 | 746 |
+| **Total** | **2268** | **1491** | **3759** |
 
