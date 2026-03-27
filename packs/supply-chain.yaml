@@ -194,6 +194,38 @@ rules:
       tn:
         - "dotnet build"
 
+  # === BLOCK: Keylogger library installation (pynput, keyboard, evdev) ===
+  # Issue #501: Block installation of userspace keylogging libraries.
+  # An AI agent coerced via prompt injection may install pynput, keyboard, or evdev
+  # to silently capture all keystrokes — passwords, API keys, MFA codes typed anywhere
+  # on the system. These libraries provide OS-level input hooks requiring no root.
+  # Taxonomy: credential-exposure/input-capture/userspace-keylogger
+  # MITRE T1056.001
+  #
+  # TP: pip install pynput → BLOCK
+  # TP: pip3 install keyboard evdev → BLOCK
+  # TN: pip install requests → ALLOW
+  # TN: pip install keyboard-shortcuts → ALLOW (different package, not exact match)
+  - id: "sc-block-keylogger-library-install"
+    taxonomy: "credential-exposure/input-capture/userspace-keylogger"
+    match:
+      structural:
+        executable: ["pip", "pip3", "pip2", "python", "python2", "python3", "uv"]
+        args_any: ["pynput", "keyboard", "evdev"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Keylogger library installation blocked — pynput, keyboard, and evdev provide OS-level input hooks that silently capture all keystrokes including passwords, API keys, and MFA codes. An AI agent coerced via prompt injection may install these libraries to exfiltrate credentials typed anywhere on the system (MITRE T1056.001)."
+    tests:
+      tp:
+        - "pip install pynput"
+        - "pip3 install keyboard evdev"
+        - "pip3 install evdev"
+        - "python3 -m pip install pynput"
+      tn:
+        - "pip install requests"
+        - "pip install keyboard-shortcuts"
+        - "pip install evdev-tool"
+
   # === BLOCK: Direct URL installs (bypass registry) ===
   # Issue #282: added pip3, python -m pip, uv pip install variants
   - id: "sc-block-pip-url-install"

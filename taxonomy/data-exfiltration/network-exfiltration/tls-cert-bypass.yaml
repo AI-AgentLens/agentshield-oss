@@ -84,9 +84,12 @@ references:
   mitre_attack: ["T1557"]
   cwe: ["CWE-295"]
   external:
-    - "https://attack.mitre.org/techniques/T1557/"
-    - "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
-    - "https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/"
+    - title: "MITRE ATT&CK T1557 — Adversary-in-the-Middle"
+      url: "https://attack.mitre.org/techniques/T1557/"
+    - title: "OWASP A02 — Cryptographic Failures"
+      url: "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+    - title: "OWASP LLM02 — Sensitive Information Disclosure"
+      url: "https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/"
 
 analyzers: ["regex", "semantic"]
 related_rules: ["data-exfiltration/network-exfiltration/network-config-tampering"]

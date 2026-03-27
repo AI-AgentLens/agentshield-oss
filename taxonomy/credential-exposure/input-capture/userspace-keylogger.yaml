@@ -69,8 +69,10 @@ references:
   mitre_attack: ["T1056.001"]
   cwe: ["CWE-200", "CWE-312"]
   external:
-    - "https://attack.mitre.org/techniques/T1056/001/"
-    - "https://genai.owasp.org/llmrisk/llm06-excessive-agency/"
+    - title: "MITRE ATT&CK T1056.001 — Keylogging"
+      url: "https://attack.mitre.org/techniques/T1056/001/"
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm06-excessive-agency/"
 
 analyzers: ["regex", "structural", "semantic"]
 related_rules: ["credential-exposure/input-capture/tty-keylogging"]
