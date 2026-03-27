@@ -329,6 +329,53 @@ func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
 	return false, nil
 }
 
+// HandleNotificationMessage evaluates a notifications/message notification from an MCP server.
+// The MCP logging channel is server-initiated and requires no prior tool call — it is a covert
+// prompt injection surface. Notifications containing injection, credential-harvesting, or
+// exfiltration patterns are BLOCKED (the notification is dropped and not forwarded to the client).
+// Returns (true, nil) if the notification should be dropped; (false, nil) otherwise.
+// Note: notifications have no ID, so there is no JSON-RPC error response to send — we simply
+// drop the notification to prevent the payload from reaching the client.
+func (h *MessageHandler) HandleNotificationMessage(msg *Message) bool {
+	if msg.Method != MethodNotificationsMessage {
+		return false
+	}
+
+	scanResult := ScanNotificationMessage(msg.Params)
+	if !scanResult.Blocked {
+		return false
+	}
+
+	triggered := []string{"notification-injection-scan"}
+	var reasons []string
+	for _, f := range scanResult.Findings {
+		triggered = append(triggered, "notification:"+string(f.Signal))
+		reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (field: "+f.Field+")")
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED notifications/message (%d signals)\n",
+		len(scanResult.Findings))
+	for _, f := range scanResult.Findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (field: %s)\n", f.Signal, f.Detail, f.Field)
+	}
+
+	if h.OnAudit != nil {
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "notifications/message",
+			Decision:       "BLOCK",
+			Flagged:        true,
+			TriggeredRules: triggered,
+			Reasons:        reasons,
+			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
+			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-logging-notification-injection",
+		})
+	}
+
+	return true // drop the notification
+}
+
 // FilterToolsListResponse checks if a response is a tools/list result.
 // If it is, scans each tool description for poisoning and removes poisoned tools.
 // Returns the modified JSON bytes, or nil if the message is not a tools/list response

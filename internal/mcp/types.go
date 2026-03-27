@@ -129,6 +129,7 @@ const (
 	MethodSamplingCreateMessage = "sampling/createMessage"
 	MethodElicitationCreate     = "elicitation/create"
 	MethodRootsList             = "roots/list"
+	MethodNotificationsMessage  = "notifications/message"
 )
 
 // --- MCP roots types ---
