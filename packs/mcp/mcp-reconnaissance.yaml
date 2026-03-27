@@ -74,6 +74,51 @@ rules:
         - tool: "read_file"
           args: {"path": "/proc/self/status"}
 
+  # === BLOCK: /proc/PID/mem — direct process memory access (T1003) ===
+  #
+  # /proc/PID/mem is the Linux kernel interface for reading and writing process
+  # memory directly. Unlike other /proc paths, it exposes raw process RAM —
+  # allowing an attacker to dump decrypted credentials, session tokens, private
+  # keys, and password hashes that reside in memory. There is no legitimate
+  # developer or MCP agent use case for reading raw process memory.
+  #
+  # This rule must appear BEFORE mcp-recon-audit-proc-read so the BLOCK
+  # decision wins via most_restrictive_wins combiner.
+  #
+  # Examples:
+  #   read_file /proc/self/mem      → dump own process memory
+  #   read_file /proc/1/mem         → dump init/root process memory
+  #   read_file /proc/1234/mem      → dump target process by PID
+  - id: mcp-recon-block-proc-mem-access
+    taxonomy: "reconnaissance/system-discovery/process-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "edit_file"
+      argument_patterns:
+        path: "/proc/*/mem"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Access to /proc/PID/mem is blocked — this is the Linux process memory interface used for credential dumping (reading decrypted keys/tokens directly from RAM). No legitimate MCP agent operation requires raw process memory access. MITRE T1003."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/proc/self/mem"}
+        - tool: "read_file"
+          args: {"path": "/proc/1/mem"}
+        - tool: "read_file"
+          args: {"path": "/proc/1234/mem"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/self/status"}
+        - tool: "read_file"
+          args: {"path": "/proc/net/tcp"}
+
   - id: mcp-recon-audit-proc-read
     taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
     match:
