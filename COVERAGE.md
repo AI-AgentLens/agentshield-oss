@@ -6,15 +6,15 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1045 |
+| Terminal rules | 1048 |
 | MCP rules | 477 |
-| Total rules | 1522 |
-| Test cases (TP+TN) | 3717 |
+| Total rules | 1525 |
+| Test cases (TP+TN) | 3729 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (125 rules)
+### credential-exposure (126 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -118,6 +118,7 @@
 | `sec-audit-docker-daemon-config` | AUDIT | regex | Reading Docker daemon configuration — may reveal credential helper configuration, TLS certificate paths, insecure registry endpoints, and security policy settings. Flagged for review. MITRE T1083, T1552.001. |
 | `sec-block-git-add-credential-files` | BLOCK | regex | git add on a known credential file — staging .env, credentials.json, secrets.yaml, or .netrc risks committing live secrets to version control. AI coding agents may inadvertently stage these files after reading them for context. OWASP LLM02, MITRE T1552.001. |
 | `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
+| `sc-block-keylogger-library-install` | BLOCK | structural | Keylogger library installation blocked — pynput, keyboard, and evdev provide OS-level input hooks that silently capture all keystrokes including passwords, API keys, and MFA codes. An AI agent coerced via prompt injection may install these libraries to exfiltrate credentials typed anywhere on the system (MITRE T1056.001). |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
@@ -144,7 +145,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (171 rules)
+### data-exfiltration (173 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -233,6 +234,8 @@
 | `ne-block-insecure-llm-transport` | BLOCK | regex | LLM API call over plaintext HTTP (non-loopback) — exposes prompts, completions, and embedded credentials to network interception. Use HTTPS. OWASP LLM02, LLM06. MITRE T1040. |
 | `ne-block-llm-configfile-endpoint-hijack` | BLOCK | regex | Writing base_url or api_base override to an LLM SDK config file — persists endpoint redirect across all sessions and processes loading the config, silently intercepting all LLM calls including system prompts, RAG context, and agent state (OWASP LLM02/LLM08, MITRE T1565.001). |
 | `ne-block-llm-userconfig-endpoint-hijack` | BLOCK | regex | Writing LLM base_url override to user-level SDK config directory — machine-wide persistent redirect of all LLM API calls to attacker-controlled infrastructure, affecting all projects and sessions on this machine (OWASP LLM02/LLM08, MITRE T1565.001, T1552.004). |
+| `ne-audit-tls-reject-unauthorized` | AUDIT | regex | TLS certificate verification disabled via environment variable (NODE_TLS_REJECT_UNAUTHORIZED=0, GIT_SSL_NO_VERIFY=1, or PYTHONHTTPSVERIFY=0) — disables certificate chain validation for all HTTPS connections in the process, enabling MITM attacks (CWE-295, MITRE T1557). |
+| `ne-audit-curl-insecure` | AUDIT | structural | curl -k / --insecure skips TLS certificate verification — removes protection against man-in-the-middle attacks on all data transmitted in this request (CWE-295, MITRE T1557). |
 | `ne-block-unauthenticated-llm-endpoint` | BLOCK | regex | LLM inference server bound to 0.0.0.0 exposes the API to the network without authentication — any peer can submit arbitrary prompts, extract inference history, or abuse compute. Use --host 127.0.0.1 for local-only access. OWASP LLM02/LLM06, MITRE T1046. |
 | `sec-block-base64-sensitive` | BLOCK | regex | Base64 encoding of credential files is a common exfiltration technique. Excludes base64 -d/--decode (decode operations are not exfiltration — e.g. deploying a public key via 'echo $PUBKEY \| base64 -d > ~/.ssh/authorized_keys'). |
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
@@ -1647,8 +1650,8 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 289 | 218 | 507 |
-| data-exfiltration | 312 | 199 | 511 |
+| credential-exposure | 292 | 220 | 512 |
+| data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 287 | 175 | 462 |
@@ -1656,5 +1659,5 @@
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 426 | 294 | 720 |
-| **Total** | **2243** | **1474** | **3717** |
+| **Total** | **2250** | **1479** | **3729** |
 

@@ -36,7 +36,7 @@ rules:
   # and escalate privileges via authorized helpers.
   # MITRE T1548 — Abuse Elevation Control Mechanism
   - id: mcp-privesc-block-dbus-socket
-    taxonomy: "privilege-escalation/command-execution/dbus-socket-access"
+    taxonomy: "privilege-escalation/dbus-privilege-escalation/system-bus-generic"
     match:
       tool_name_any:
         - "read_file"
