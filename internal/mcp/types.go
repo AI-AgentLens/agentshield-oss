@@ -132,6 +132,7 @@ const (
 	MethodNotificationsMessage  = "notifications/message"
 	MethodPromptsGet            = "prompts/get"
 	MethodPromptsList           = "prompts/list"
+	MethodCompletionComplete    = "completion/complete"
 )
 
 // --- MCP roots types ---
@@ -234,6 +235,20 @@ type PromptDefinition struct {
 type ListPromptsResult struct {
 	Prompts    []PromptDefinition `json:"prompts"`
 	NextCursor string             `json:"nextCursor,omitempty"`
+}
+
+// --- MCP completion types ---
+
+// CompletionItems holds the suggestions returned by a completion/complete response.
+type CompletionItems struct {
+	Values  []string `json:"values"`
+	Total   int      `json:"total,omitempty"`
+	HasMore bool     `json:"hasMore,omitempty"`
+}
+
+// CompletionCompleteResult is the JSON-RPC result for a completion/complete response.
+type CompletionCompleteResult struct {
+	Completion CompletionItems `json:"completion"`
 }
 
 // --- JSON-RPC error codes ---

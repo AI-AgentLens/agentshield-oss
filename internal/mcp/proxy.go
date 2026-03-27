@@ -222,6 +222,12 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
+		// Scan completion/complete responses for injected suggestion values
+		if filtered := p.handler.FilterCompletionResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
 		// Intercept sampling/createMessage, elicitation/create, and notifications/message (server→client)
 		msg, kind, err := ParseMessage(line)
 		if err == nil {

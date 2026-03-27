@@ -200,6 +200,18 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		return "ALLOW"
 	}
 
+	// completion/complete response scenario: scan suggestion values for injection.
+	if sc.CompletionValues != nil {
+		result := &CompletionCompleteResult{
+			Completion: CompletionItems{Values: sc.CompletionValues},
+		}
+		scanResult := ScanCompletionResponse(result)
+		if scanResult.Poisoned {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
 	// notifications/message scenario: run notification scanner.
 	if sc.NotificationParams != nil {
 		params, err := json.Marshal(map[string]interface{}{
