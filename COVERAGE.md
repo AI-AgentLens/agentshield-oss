@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1055 |
-| MCP rules | 492 |
-| Total rules | 1547 |
+| MCP rules | 493 |
+| Total rules | 1548 |
 | Test cases (TP+TN) | 3756 |
 | Kingdoms covered | 10 |
 
@@ -1481,7 +1481,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (23 rules)
+### persistence-evasion (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1507,6 +1507,7 @@
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
 | `mcp-persist-block-ipython-startup-write` | BLOCK | structural | MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016. |
 | `mcp-persist-block-python-pth-write` | BLOCK | structural | MCP write to Python .pth file or sitecustomize.py/usercustomize.py in site-packages — these files execute automatically on every Python invocation, providing silent persistent code execution across pip, pytest, jupyter, and all Python tooling. MITRE T1546.016. |
+| `mcp-persist-block-jupyter-kernel-write` | BLOCK | structural | MCP write to Jupyter kernel spec or config directory — kernel.json hijacking routes every notebook kernel start through attacker code; custom.js injects JavaScript into every Jupyter session; server config can disable authentication. Persistent silent code execution in data-science environments. MITRE T1546.016, T1059.006. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
 ### privilege-escalation (19 rules)
