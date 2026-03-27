@@ -1,0 +1,76 @@
+id: "credential-exposure/private-key-access/nss-certificate-database-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Private Key Access"
+category_id: "2.1"
+name: "NSS Certificate Database Access"
+risk_level: "high"
+
+abstract: |
+  An AI agent reads or writes the Network Security Services (NSS) certificate
+  database (~/.pki/nssdb/), exposing stored TLS client certificates, private
+  keys, and trusted CA roots used by browsers and system applications.
+
+explanation: |
+  NSS (Network Security Services) is Mozilla's cryptographic library used by
+  Firefox, Chrome/Chromium, Thunderbird, and many Linux system tools. The NSS
+  certificate database (~/.pki/nssdb/ on Linux, ~/Library/Application Support/
+  on macOS) stores:
+  - **User TLS client certificates** — used for mutual TLS authentication to
+    corporate services, VPNs, and government portals.
+  - **Private keys** for those certificates — extractable and usable for
+    impersonation.
+  - **Trusted CA roots** — an attacker writing a rogue CA cert here causes the
+    browser to trust MITM certificates, enabling silent traffic interception.
+  - **Site-specific certificates** — pinned or accepted exceptions that reveal
+    internal service topology.
+
+  Key database files:
+  - `key4.db` / `key3.db` — private keys (NSS SQLite format)
+  - `cert9.db` / `cert8.db` — certificate store
+  - `secmod.db` — PKCS#11 module configuration
+
+  Attack scenarios:
+  - **Read key4.db**: Extract private keys for client certificate impersonation.
+  - **Write cert9.db**: Add a rogue CA certificate; browser trusts MITM certs.
+  - **Read secmod.db**: Discover HSM/smart card modules and their configuration.
+
+  An AI agent prompted to "check browser certificates" or "fix SSL trust issues"
+  may legitimately access these files, making this a high-risk MCP tool call path.
+
+recommendation: |
+  - Block all MCP read/write access to ~/.pki/nssdb/ and its contents.
+  - Block access to /etc/ssl/private/ (TLS server private keys — separate threat).
+  - If browser certificate management is needed, require explicit user confirmation.
+  - Use certutil (NSS CLI) with restricted paths rather than direct DB file access.
+  - Audit any agent action that mentions "certificate", "pki", or "nssdb".
+
+examples:
+  bad:
+    - "read_file ~/.pki/nssdb/key4.db"
+    - "read_file ~/.pki/nssdb/cert9.db"
+    - "write_file ~/.pki/nssdb/cert9.db '<rogue CA cert data>'"
+    - "ls ~/.pki/nssdb/"
+  good:
+    - "certutil -L -d sql:$HOME/.pki/nssdb"  # read-only listing via CLI
+    - "openssl s_client -connect example.com:443"  # remote cert inspection
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.004", "T1539"]
+  cwe: ["CWE-522", "CWE-312"]
+  external:
+    - title: "NSS Certificate Database (Mozilla)"
+      url: "https://firefox-source-docs.mozilla.org/security/nss/legacy/tools/certutil/index.html"
+    - title: "MITRE ATT&CK: Steal Web Session Cookie"
+      url: "https://attack.mitre.org/techniques/T1539/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-nss-cert-database"]

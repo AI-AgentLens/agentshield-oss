@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1055 |
-| MCP rules | 489 |
-| Total rules | 1544 |
+| MCP rules | 492 |
+| Total rules | 1547 |
 | Test cases (TP+TN) | 3756 |
 | Kingdoms covered | 10 |
 
@@ -1121,7 +1121,7 @@
 
 ## MCP Rules
 
-### credential-exposure (228 rules)
+### credential-exposure (229 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1155,6 +1155,7 @@
 | `mcp-sec-block-kube-access` | BLOCK | mcp_rule | Access to Kubernetes config is blocked. |
 | `mcp-sec-block-k8s-service-account-token` | BLOCK | mcp_rule | Kubernetes service account token/cert — Bearer token for API server auth. Reading this grants the reader ability to impersonate the Pod's service account, potentially with cluster-admin RBAC. |
 | `mcp-sec-block-k8s-pki-keys` | BLOCK | mcp_rule | Access to Kubernetes PKI directory is blocked — contains cluster CA and component private keys that enable impersonating the API server, etcd, or any control-plane component. MITRE T1552.004. |
+| `mcp-sec-block-nss-cert-database` | BLOCK | mcp_rule | Access to ~/.pki/nssdb/ is blocked — contains the NSS user certificate database (key4.db private keys, cert9.db trust store). Reading exposes client TLS private keys; writing can install malicious root CA certificates that silently MITM all HTTPS traffic in Firefox and Chromium. MITRE T1552.004, T1553.004. |
 | `mcp-sec-block-k8s-system-kubeconfig` | BLOCK | mcp_rule | Access to Kubernetes system kubeconfig files is blocked — admin.conf, controller-manager.conf, and scheduler.conf contain embedded cluster-admin tokens. Exfiltrating these grants full cluster access. MITRE T1552.001. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
@@ -1559,7 +1560,7 @@
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
 
-### supply-chain (13 rules)
+### supply-chain (14 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1573,6 +1574,7 @@
 | `mcp-sc-audit-package-manifest-write` | AUDIT | structural | MCP write to package manifest — dependency changes expand the attack surface and may introduce typosquatted or compromised packages. Flagged for human review. MITRE T1195.001. |
 | `mcp-sc-audit-rag-write` | AUDIT | structural | MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010. |
 | `mcp-sc-block-mcp-config-write` | BLOCK | structural | MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002. |
+| `mcp-sc-block-user-bin-path-shadow` | BLOCK | structural | MCP write to user PATH directory using a well-known system tool name — installs a trojaned binary that silently intercepts every invocation of that tool (git, curl, python, etc.), enabling persistent credential harvesting, MITM, or code execution. Attack survives session end. MITRE T1574.007, T1036.003. |
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
@@ -1649,7 +1651,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (11 rules)
+### uncategorized (12 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1664,6 +1666,7 @@
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
+| `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
 
 ## Test Coverage
 
