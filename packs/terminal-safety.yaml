@@ -2093,6 +2093,42 @@ rules:
       tn:
         - "curl -X POST https://api.example.com/users/register -d '{\"username\":\"alice\"}'"
 
+  # === BLOCK: MCP HTTP proxy bound to all interfaces — DNS rebinding attack surface ===
+  #
+  # MCP HTTP servers (agentshield mcp-http-proxy, python -m mcp.server.http, etc.)
+  # that bind to 0.0.0.0 instead of 127.0.0.1 are vulnerable to DNS rebinding:
+  # a malicious web page can rebind its domain to 127.0.0.1 and then issue
+  # cross-origin fetches to the local MCP server, invoking any registered tool
+  # (execute_bash, read_file, etc.) without the user's knowledge.
+  #
+  # TP examples (should BLOCK):
+  #   agentshield mcp-http-proxy --bind 0.0.0.0:8811
+  #   python -m mcp.server.http --host 0.0.0.0
+  #   npx @modelcontextprotocol/server-http --listen 0.0.0.0:3000
+  #
+  # TN examples (should ALLOW):
+  #   agentshield mcp-http-proxy --bind 127.0.0.1:8811
+  #   python -m mcp.server.http --host 127.0.0.1
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-local-server-dns-rebinding
+  # OWASP LLM01, LLM06 — CWE-346 (Origin Validation Error)
+  - id: "ts-block-mcp-http-proxy-all-interfaces"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-local-server-dns-rebinding"
+    match:
+      command_regex: "(?i)(agentshield\\s+mcp-http-proxy|python3?\\s+-m\\s+mcp\\.server\\.http|npx\\s+@modelcontextprotocol/server-http).*--(?:bind|host|listen)\\s+0\\.0\\.0\\.0"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "MCP HTTP server bound to 0.0.0.0 (all interfaces) instead of 127.0.0.1 — enables DNS rebinding attacks where a malicious web page rebinds its domain to localhost and invokes any registered MCP tool (execute_bash, read_file, etc.) without user consent (CWE-346, OWASP LLM01/LLM06, MITRE T1557)."
+    tests:
+      tp:
+        - "agentshield mcp-http-proxy --bind 0.0.0.0:8811"
+        - "python -m mcp.server.http --host 0.0.0.0 --port 8811"
+        - "python3 -m mcp.server.http --host 0.0.0.0"
+        - "npx @modelcontextprotocol/server-http --listen 0.0.0.0:3000"
+      tn:
+        - "agentshield mcp-http-proxy --bind 127.0.0.1:8811"
+        - "python -m mcp.server.http --host 127.0.0.1 --port 8811"
+
   # === BLOCK: Indirect prompt injection via HTML comment agent directives (LLM01) ===
   #
   # Detects HTML comments containing agent-targeted directives — a common indirect

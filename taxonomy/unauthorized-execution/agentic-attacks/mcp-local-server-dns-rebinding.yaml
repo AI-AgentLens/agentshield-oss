@@ -1,0 +1,92 @@
+id: "unauthorized-execution/agentic-attacks/mcp-local-server-dns-rebinding"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Local Server DNS Rebinding"
+risk_level: "high"
+
+abstract: |
+  A web attacker exploits DNS rebinding to bypass the browser's same-origin
+  policy and issue authenticated requests to a locally-running MCP HTTP server,
+  invoking any exposed MCP tool — executing shell commands, reading files, or
+  exfiltrating data — without the AI agent's user consenting.
+
+explanation: |
+  AI coding agent frameworks (Claude Code, Cursor, Windsurf) frequently run
+  MCP HTTP servers on localhost to expose tools to the agent. When these
+  servers bind to all interfaces (`0.0.0.0`) or omit CORS/origin validation,
+  they become reachable from browser-side JavaScript via DNS rebinding:
+
+  **DNS rebinding attack chain:**
+  1. User visits `attacker.com` while an MCP HTTP server runs on
+     `localhost:8811`.
+  2. `attacker.com` initially resolves to the attacker's IP; the page loads
+     JavaScript.
+  3. The attacker's DNS server lowers the TTL and rebinds `attacker.com`
+     to `127.0.0.1`.
+  4. JavaScript now sends `fetch("http://attacker.com:8811/mcp/tools/call",
+     ...)` — the browser routes this to `localhost:8811` (same-origin after
+     rebind).
+  5. The MCP server, lacking origin checks, accepts the request and executes
+     the tool (e.g., `execute_bash`, `read_file`).
+  6. The attacker exfiltrates the output via fetch back to their C2.
+
+  **Root causes:**
+  - Binding to `0.0.0.0` allows access from all network interfaces, not
+    just loopback.
+  - Missing `Host` header validation allows rebinding to non-localhost
+    hostnames that resolve to 127.0.0.1.
+  - Absent or permissive CORS headers allow cross-origin JavaScript fetch.
+
+  **Distinct from related entries:**
+  - `mcp-authorization-bypass` targets OAuth token theft in remote MCP
+    deployments, not local HTTP rebinding.
+  - `agent-session-hijacking` operates at the transport layer (socket/pipe
+    interception), not at the DNS/browser layer.
+  - `mcp-streamable-http-session-fixation` concerns session ID fixation in
+    the MCP HTTP transport, not DNS-based origin bypass.
+
+recommendation: |
+  - Always bind MCP HTTP servers to `127.0.0.1` (loopback only), never
+    `0.0.0.0`.
+  - Validate the `Host` header on every MCP HTTP request; reject any value
+    that is not `localhost` or `127.0.0.1`.
+  - Return strict CORS headers: `Access-Control-Allow-Origin: null` or a
+    specific expected origin — never a wildcard.
+  - Implement CSRF tokens or require custom request headers (e.g.,
+    `X-MCP-Request: 1`) so that cross-origin fetch cannot omit them.
+  - Monitor AgentShield audit logs for commands that start MCP HTTP servers
+    with `--bind 0.0.0.0` and BLOCK them before they launch.
+
+examples:
+  bad:
+    - "agentshield mcp-http-proxy --bind 0.0.0.0:8811  # Binds to all interfaces — vulnerable to DNS rebinding"
+    - "python -m mcp.server.http --host 0.0.0.0 --port 8811"
+    - "npx @modelcontextprotocol/server-http --listen 0.0.0.0:3000"
+  good:
+    - "agentshield mcp-http-proxy --bind 127.0.0.1:8811  # Loopback only — safe"
+    - "python -m mcp.server.http --host 127.0.0.1 --port 8811"
+    - "MCP HTTP server with Host header validation rejecting non-localhost values"
+
+compliance:
+  owasp-llm-2025: ["LLM01", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23", "A.8.25"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC6.7"]
+
+references:
+  mitre_attack: ["T1557", "T1059"]
+  cwe: ["CWE-346", "CWE-184", "CWE-183"]
+  external:
+    - title: "OWASP: DNS Rebinding"
+      url: "https://owasp.org/www-community/attacks/DNS_Rebinding"
+    - title: "MCP Specification: Transport Security (2025-03-26)"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/transports"
+    - title: "Taviso: DNS Rebinding Attacks (reference)"
+      url: "https://blog.taviso.net/"
+
+analyzers: ["regex", "structural"]
+related_rules: ["ts-block-mcp-http-proxy-all-interfaces"]
