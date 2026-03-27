@@ -1,0 +1,121 @@
+id: "reconnaissance/llm-introspection/agent-memory-store-enumeration"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "LLM Introspection"
+category_id: "8.2"
+name: "Agent Memory Store Enumeration"
+risk_level: "high"
+
+abstract: |
+  An attacker with read access to a shared AI agent memory backend (vector
+  store, embedding database, or structured memory API) enumerates stored
+  memories to reconstruct sensitive conversation history, extract proprietary
+  organizational knowledge, discover embedded credentials and PII, or map
+  behavioral patterns — targeting live vector store APIs rather than
+  file-based state on disk.
+
+explanation: |
+  Agentic frameworks increasingly persist long-term memory in external
+  vector stores (Pinecone, Chroma, Weaviate, pgvector, Qdrant) and
+  structured memory APIs (mem0, LangGraph checkpoints). These stores
+  accumulate highly sensitive data over time:
+
+  - **Conversation reconstruction**: Retrieving all memories for a user
+    reassembles prior conversation history, including credentials,
+    API keys, and internal URLs that were discussed with the agent.
+  - **Cross-user leakage in multi-tenant stores**: If a shared Pinecone
+    or Chroma index lacks per-user namespace isolation, querying without
+    filters returns all users' memories. AI IDEs (Cursor, Claude Code)
+    and coding agents that persist workspace context on shared servers
+    are especially exposed.
+  - **Proprietary knowledge extraction**: Stored memories capture
+    business logic, system architecture, internal documentation, and
+    unreleased feature details that users delegated to the agent over
+    time — a high-value intelligence target.
+  - **Behavioral fingerprinting**: Memory stores reveal what tasks users
+    delegate to agents, how they work, and what they trust the agent
+    with — useful for designing follow-on social engineering or spear
+    phishing.
+  - **API-surface attack**: Unlike file-based state exfiltration (which
+    requires disk read access), this attack targets HTTP/gRPC APIs — the
+    Chroma REST API on :8000, the Pinecone control plane, or the Qdrant
+    gRPC port — making it accessible from network-adjacent positions or
+    via SSRF.
+
+  **Distinction from related entries:**
+
+  | Entry | Distinction |
+  |-------|-------------|
+  | `agent-memory-poisoning` | Writes malicious content (write path); this is read/enumeration (read path) |
+  | `agent-state-serialization-exfiltration` | Reads serialized files from disk; this targets live vector store APIs |
+  | `training-data-extraction` | Extracts from model weights; this attacks external memory stores |
+  | `context-window-probe` | Probes the current context window; this attacks persistent long-term memory |
+
+  Example enumeration via Chroma HTTP API (no auth by default):
+  ```python
+  # Enumerate all user memories without tenant filter
+  chroma_client.get_collection("agent_memories").get(
+      where={},   # no filter — returns ALL users' memories
+      limit=1000
+  )
+  ```
+
+  Example SSRF-mediated enumeration: an MCP tool making HTTP requests
+  can reach `http://localhost:8000/api/v1/collections/agent_memories/get`
+  from inside the agent's execution environment, bypassing network controls
+  that might protect the store from external access.
+
+recommendation: |
+  - Enforce per-user namespace isolation in all vector store collections;
+    reject queries that omit user/tenant filters.
+  - Require authentication and authorization for all vector store API
+    endpoints — disable default unauthenticated access (e.g., Chroma's
+    default :8000 endpoint).
+  - Apply network segmentation: vector stores should not be reachable
+    from MCP tool execution environments or from public networks.
+  - Implement rate limiting and anomaly detection on collection-level
+    enumeration queries (high-volume, no filter, broad limit values).
+  - Audit vector store access logs for queries without tenant/user filters.
+  - Apply data minimization: do not store raw credentials, API keys, or
+    PII in memory; store only task-relevant summaries with sensitive data
+    redacted.
+
+examples:
+  bad:
+    - |
+      chroma_client.get_collection("memories").get(where={}, limit=10000)
+      # Returns all users' memories with no tenant isolation
+    - |
+      curl http://localhost:8000/api/v1/collections/agent_memories/get
+      # Unauthenticated access to Chroma REST API returns all stored memories
+    - |
+      pinecone.Index("agent-memory").query(vector=[0]*1536, top_k=1000, filter={})
+      # No namespace filter — cross-user vector retrieval
+  good:
+    - "Vector store queries include a mandatory user_id or tenant_id filter enforced server-side"
+    - "Chroma deployed with authentication middleware; unauthenticated requests return 401"
+    - "Network policy blocks MCP tool environments from reaching vector store ports directly"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.5.10", "A.8.4", "A.8.12"]
+  eu-ai-act-2024: ["Art.10", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-4", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC7.1"]
+
+references:
+  mitre_attack: ["T1530", "T1213", "T1119"]
+  cwe: ["CWE-639", "CWE-284", "CWE-200"]
+  external:
+    - title: "Chroma: Authentication and Authorization"
+      url: "https://docs.trychroma.com/deployment/auth"
+    - title: "OWASP LLM06:2025 — Sensitive Information Disclosure"
+      url: "https://genai.owasp.org/llmrisk/llm06-sensitive-information-disclosure/"
+
+analyzers: ["regex", "dataflow"]
+related_rules: ["mcp-resource-uri-ssrf", "agent-state-serialization-exfiltration"]
+# Detection at the shell/MCP level: flag curl/http requests to vector store
+# API endpoints (localhost:8000, localhost:6333, localhost:8080 with Qdrant
+# or Weaviate paths) without authentication headers. Dataflow layer can
+# detect MCP tool calls to HTTP endpoints matching vector store patterns.
