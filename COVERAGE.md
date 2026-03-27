@@ -1,6 +1,6 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-26 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-27 by `go run ./cmd/coverage`*
 
 ## Summary
 
@@ -9,7 +9,7 @@
 | Terminal rules | 1044 |
 | MCP rules | 472 |
 | Total rules | 1516 |
-| Test cases (TP+TN) | 3704 |
+| Test cases (TP+TN) | 3708 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1645,10 +1645,10 @@
 | data-exfiltration | 312 | 199 | 511 |
 | destructive-ops | 132 | 89 | 221 |
 | governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 287 | 173 | 460 |
+| persistence-evasion | 287 | 175 | 462 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 175 | 80 | 255 |
-| supply-chain | 254 | 179 | 433 |
+| supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 426 | 294 | 720 |
-| **Total** | **2238** | **1466** | **3704** |
+| **Total** | **2238** | **1470** | **3708** |
 
