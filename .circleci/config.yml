@@ -2,8 +2,8 @@ version: 2.1
 
 jobs:
   test:
-    docker:
-      - image: cimg/go:1.23
+    machine: true
+    resource_class: aiagentlens/local
     steps:
       - checkout
       - restore_cache:
@@ -39,8 +39,8 @@ jobs:
           command: make build
 
   release:
-    docker:
-      - image: cimg/go:1.23
+    machine: true
+    resource_class: aiagentlens/local
     steps:
       - checkout
       - restore_cache:
@@ -93,7 +93,7 @@ jobs:
       - run:
           name: Run GoReleaser
           command: |
-            curl -sfL https://goreleaser.com/static/run | GITHUB_TOKEN=$GITHUB_TOKEN HOMEBREW_TAP_TOKEN=$HOMEBREW_TAP_TOKEN bash -s -- release --clean
+            GITHUB_TOKEN=$GITHUB_TOKEN HOMEBREW_TAP_TOKEN=$HOMEBREW_TAP_TOKEN goreleaser release --clean
       - run:
           name: Upload release artifacts to aiagentlens.com
           command: |
