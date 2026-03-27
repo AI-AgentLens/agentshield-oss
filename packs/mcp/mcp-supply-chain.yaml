@@ -270,6 +270,8 @@ structural_rules:
             - "(?:^|/)bunfig\\.toml$"
             # npm registry and auth token config (issue #209)
             - "(?:^|/)\\.npmrc$"
+            # Go user-level env config — sets GOPROXY/GONOSUMDB/GOFLAGS (issue #534)
+            - "(?:^|/)go/env$"
     decision: "BLOCK"
     reason: "MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001."
     confidence: 0.95
@@ -279,9 +281,13 @@ structural_rules:
           args: {"path": "/home/user/.npmrc"}
         - tool: "edit_file"
           args: {"path": "/home/user/.pypirc"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/go/env"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/npm_utils.js"}
+        - tool: "write_file"
+          args: {"path": "/project/src/go_env_parser.go"}
 
   # === BLOCK: ML training dataset and model checkpoint writes via MCP (issue #173) ===
   #
