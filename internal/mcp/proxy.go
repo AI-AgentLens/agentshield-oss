@@ -210,6 +210,18 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
+		// Scan prompts/get responses for injected prompt template content
+		if filtered := p.handler.FilterPromptsGetResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
+		// Scan prompts/list responses for poisoned prompt descriptions
+		if filtered := p.handler.FilterPromptsListResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
 		// Intercept sampling/createMessage, elicitation/create, and notifications/message (server→client)
 		msg, kind, err := ParseMessage(line)
 		if err == nil {

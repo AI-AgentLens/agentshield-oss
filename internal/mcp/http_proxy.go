@@ -290,6 +290,16 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 		respBody = filtered
 	}
 
+	// Scan for prompts/get response poisoning
+	if filtered := hp.handler.FilterPromptsGetResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
+	// Scan for prompts/list description poisoning
+	if filtered := hp.handler.FilterPromptsListResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
 	// Copy response headers (skip Content-Length — we may have changed the body)
 	for k, vs := range resp.Header {
 		if k == "Content-Length" {
@@ -343,6 +353,20 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 
 			// Scan JSON-RPC data for tools/call response poisoning
 			if filtered := hp.handler.FilterToolCallResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan JSON-RPC data for prompts/get response poisoning
+			if filtered := hp.handler.FilterPromptsGetResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan JSON-RPC data for prompts/list description poisoning
+			if filtered := hp.handler.FilterPromptsListResponse(data); filtered != nil {
 				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
 				flusher.Flush()
 				continue

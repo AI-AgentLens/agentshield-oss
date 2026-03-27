@@ -376,6 +376,148 @@ func (h *MessageHandler) HandleNotificationMessage(msg *Message) bool {
 	return true // drop the notification
 }
 
+// FilterPromptsGetResponse checks if a response is a prompts/get result.
+// If it is, scans each message's text content for prompt injection, credential
+// harvesting, and exfiltration patterns. When poisoned content is found the
+// entire response is replaced with a JSON-RPC error to prevent the payload
+// reaching the LLM context.
+// Returns the replacement JSON bytes, or nil if the message is not a prompts/get
+// response or no poisoning was detected.
+func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	result := parsePromptsGetResult(msg.Result)
+	if result == nil {
+		return nil
+	}
+
+	scanResult := ScanPromptsGetResponse(result)
+	if !scanResult.Poisoned {
+		return nil
+	}
+
+	reason := "prompts/get response contains injected instructions"
+	if len(scanResult.Findings) > 0 {
+		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED prompts/get response blocked (%d signals)\n",
+		len(scanResult.Findings))
+	for _, f := range scanResult.Findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (field: %s)\n", f.Signal, f.Detail, f.Field)
+	}
+
+	if h.OnAudit != nil {
+		reasons := make([]string, 0, len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (field: "+f.Field+")")
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       MethodPromptsGet,
+			Decision:       "BLOCK",
+			Flagged:        true,
+			TriggeredRules: []string{"prompts-get-injection-scan"},
+			Reasons:        reasons,
+			Source:         "mcp-proxy-prompts-scan",
+			ServerName:     h.ServerName,
+			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
+		})
+	}
+
+	replacement, err := NewBlockResponse(msg.ID, reason)
+	if err != nil {
+		return nil
+	}
+	return replacement
+}
+
+// FilterPromptsListResponse checks if a response is a prompts/list result.
+// If it is, scans each prompt's description for injection patterns that could
+// prime the agent with malicious context during prompt selection.
+// Returns modified JSON bytes with poisoned prompts removed, or nil if no
+// poisoning was detected or the message is not a prompts/list response.
+func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	result := parsePromptsListResult(msg.Result)
+	if result == nil {
+		return nil
+	}
+
+	// Filter out poisoned prompts
+	var clean []PromptDefinition
+	removed := 0
+	for _, prompt := range result.Prompts {
+		singleResult := &ListPromptsResult{Prompts: []PromptDefinition{prompt}}
+		scanResult := ScanPromptsListDescriptions(singleResult)
+		if scanResult.Poisoned {
+			removed++
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED prompt hidden: %s (%d signals)\n",
+				prompt.Name, len(scanResult.Findings))
+			for _, f := range scanResult.Findings {
+				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+			}
+
+			if h.OnAudit != nil {
+				reasons := make([]string, 0, len(scanResult.Findings))
+				for _, f := range scanResult.Findings {
+					reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+				}
+				h.OnAudit(AuditEntry{
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					ToolName:       prompt.Name,
+					Decision:       "BLOCK",
+					Flagged:        true,
+					TriggeredRules: []string{"prompts-list-description-poisoning"},
+					Reasons:        reasons,
+					Source:         "mcp-proxy-prompts-scan",
+					ServerName:     h.ServerName,
+					TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
+				})
+			}
+			continue
+		}
+		clean = append(clean, prompt)
+	}
+
+	if removed == 0 {
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] prompts/list: %d/%d prompts passed, %d hidden\n",
+		len(clean), len(result.Prompts), removed)
+
+	result.Prompts = clean
+	newResult, err := json.Marshal(result)
+	if err != nil {
+		return nil
+	}
+
+	msg.Result = newResult
+	out, err := json.Marshal(msg)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
 // FilterToolsListResponse checks if a response is a tools/list result.
 // If it is, scans each tool description for poisoning and removes poisoned tools.
 // Returns the modified JSON bytes, or nil if the message is not a tools/list response

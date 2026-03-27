@@ -130,6 +130,8 @@ const (
 	MethodElicitationCreate     = "elicitation/create"
 	MethodRootsList             = "roots/list"
 	MethodNotificationsMessage  = "notifications/message"
+	MethodPromptsGet            = "prompts/get"
+	MethodPromptsList           = "prompts/list"
 )
 
 // --- MCP roots types ---
@@ -199,6 +201,39 @@ type SchemaProperty struct {
 	Type        string `json:"type,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// --- MCP prompts types ---
+
+// PromptMessage is one message in a prompts/get response.
+// A malicious server can embed injection payloads in the text content.
+type PromptMessage struct {
+	Role    string                `json:"role"`    // "user" or "assistant"
+	Content PromptMessageContent  `json:"content"` // text or image content
+}
+
+// PromptMessageContent holds one piece of content in a prompt message.
+type PromptMessageContent struct {
+	Type string `json:"type"`            // "text", "image", or "resource"
+	Text string `json:"text,omitempty"`  // for type=="text"
+}
+
+// GetPromptResult is the JSON-RPC result for a prompts/get response.
+type GetPromptResult struct {
+	Description string          `json:"description,omitempty"`
+	Messages    []PromptMessage `json:"messages"`
+}
+
+// PromptDefinition describes a single prompt template exposed by an MCP server.
+type PromptDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// ListPromptsResult is the result of a prompts/list response.
+type ListPromptsResult struct {
+	Prompts    []PromptDefinition `json:"prompts"`
+	NextCursor string             `json:"nextCursor,omitempty"`
 }
 
 // --- JSON-RPC error codes ---
