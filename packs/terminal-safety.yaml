@@ -10254,18 +10254,57 @@ rules:
         - "which curl"
 
   - id: "ts-audit-security-tool-process-probe"
-    taxonomy: "reconnaissance/llm-introspection/agent-capability-enumeration"
+    taxonomy: "reconnaissance/system-discovery/process-enumeration"
     match:
-      command_regex: "ps\\s+-?(aux|ef|a|e|ax)\\s*\\|\\s*grep\\s+(-i\\s+)?['\"]?(agentshield|guardrail|falco|auditd|securityd|osquery|sentinel|crowdstrike|cylance|carbonblack)"
+      command_regex: "ps\\s+-?(aux|ef|a|e|ax)\\s*\\|\\s*grep\\s+(-[iEe]\\s+)?['\"]?(agentshield|guardrail|falco|auditd|securityd|osquery|sentinel|crowdstrike|cylance|carbonblack|\\\\bedr\\\\b|edr)"
     decision: "AUDIT"
     confidence: 0.88
-    reason: "ps aux/ps -ef | grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592."
+    reason: "ps aux/ps -ef | grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592 (Process Discovery, Security Software Discovery)."
     tests:
       tp:
         - "ps aux | grep agentshield"
         - "ps -ef | grep -i crowdstrike"
+        - "ps aux | grep -i edr"
+        - "ps aux | grep -E 'agentshield|sentinel|crowdstrike'"
       tn:
         - "ps aux | grep nginx"
+        - "ps aux | grep myapp"
+
+  # === BLOCK: Direct pgrep targeting of security tools (T1057 — Process Discovery) ===
+  #
+  # Taxonomy: reconnaissance/system-discovery/process-enumeration
+  # MITRE T1057 — Process Discovery, T1518.001 — Security Software Discovery
+  # OWASP LLM01 — Prompt Injection (attacker-driven recon)
+  #
+  # pgrep is purpose-built to search for processes by name — using it to target
+  # security tools (AgentShield, Falco, CrowdStrike, etc.) is unambiguous discovery
+  # of active security controls. Higher confidence than ps|grep because pgrep has
+  # no benign use case when explicitly naming EDR/security tooling.
+  #
+  # Also covers Windows tasklist | findstr targeting security products.
+  #
+  # Examples:
+  #   pgrep -a agentshield
+  #   pgrep -f crowdstrike
+  #   tasklist | findstr /i "crowdstrike cylance"
+  - id: "ts-block-pgrep-security-tool-targeting"
+    taxonomy: "reconnaissance/system-discovery/process-enumeration"
+    match:
+      command_regex: "(pgrep\\s+(-[afloP]\\s+)*['\"]?(agentshield|guardrail|falco|auditd|osquery|sentinel|crowdstrike|cylance|carbonblack|edr|securityd))|(tasklist[^|]*\\|[^|]*findstr\\s+(/i\\s+)?['\"]?(crowdstrike|cylance|sentinel|falco|auditd|agentshield|edr))"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Direct pgrep or tasklist+findstr targeting named security tools — this is unambiguous security software discovery (MITRE T1057/T1518.001) to identify and subsequently disable active security controls. OWASP LLM01."
+    tests:
+      tp:
+        - "pgrep -a agentshield"
+        - "pgrep -f crowdstrike"
+        - "pgrep falco"
+        - "tasklist | findstr /i \"crowdstrike cylance\""
+        - "tasklist | findstr /i sentinel"
+      tn:
+        - "pgrep -x nginx"
+        - "pgrep myapp"
+        - "tasklist | findstr myservice"
 
   - id: "ts-audit-writable-dir-enumeration"
     taxonomy: "reconnaissance/llm-introspection/agent-capability-enumeration"
