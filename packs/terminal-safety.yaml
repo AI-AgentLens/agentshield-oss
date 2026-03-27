@@ -3658,7 +3658,7 @@ rules:
   # OWASP LLM08 — Integrity Failures
   # MITRE T1057 — Process Discovery
   - id: "ts-block-proc-mem-read"
-    taxonomy: "reconnaissance/llm-introspection/context-window-probe"
+    taxonomy: "credential-exposure/process-credential/proc-mem-credential-dump"
     match:
       command_regex: "(strings|cat|dd|xxd|hexdump|od)\\s+.*(/proc/(self|[0-9]+)/mem|/proc/(self|[0-9]+)/maps)"
     decision: "BLOCK"
