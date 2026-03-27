@@ -5310,4 +5310,26 @@ var TestFileSabotageCases = []TestCase{
 		Description:      "sed -i removing a non-security linting rule (line-length E501) — security plugin removal rule must not fire (issue #476)",
 		Tags:             []string{"tn", "safe"},
 	},
+	// FP regression: protected-path must NOT fire when ~/.m2/settings.xml appears as a
+	// Python string literal in a heredoc body (test fixture file write) (issue #486).
+	{
+		ID:               "TN-PROTECTED-PATH-M2-HEREDOC-001",
+		Command:          "tee /tmp/test_fixed.py << 'EOF'\nwith open(\"~/.m2/settings.xml\", \"r\") as f:\n    content = f.read()\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #486): tee heredoc writing a Python test fixture that contains ~/.m2/settings.xml as a string literal — protected-path rule must NOT fire on heredoc body content",
+		Tags:             []string{"tn", "fp-regression", "heredoc", "tee", "protected-path", "regression"},
+	},
+	{
+		ID:               "TN-PROTECTED-PATH-M2-HEREDOC-002",
+		Command:          "cat > /tmp/test_vulnerable.py << 'EOF'\n# TP pattern: reading ~/.m2/settings.xml directly\nwith open(\"~/.m2/settings.xml\", \"r\") as f:\n    pass\nEOF",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
+		Analyzer:         "regex",
+		Description:      "FP regression (issue #486): cat heredoc writing a Python test file with ~/.m2/settings.xml as a string literal — protected-path rule must NOT fire on cat heredoc body content",
+		Tags:             []string{"tn", "fp-regression", "heredoc", "cat", "protected-path", "regression"},
+	},
 }
