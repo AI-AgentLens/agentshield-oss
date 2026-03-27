@@ -15314,3 +15314,58 @@ rules:
         - "find ./config -name '*.toml'"
         - "ls ~/.config/myapp/settings.yaml"
 
+  # ===========================================================================
+  # Many-Shot Jailbreaking (MSJ) — Reading Suspicious Demonstration Files
+  # Taxonomy: unauthorized-execution/agentic-attacks/many-shot-jailbreak
+  # OWASP LLM01 — Prompt Injection, LLM05 — Improper Output Handling
+  # CWE-74 — Improper Neutralization of Special Elements in Output
+  # ===========================================================================
+  #
+  # Many-Shot Jailbreaking (MSJ) embeds hundreds of fabricated Q&A demonstration
+  # pairs in a document to override an LLM's safety alignment within a single
+  # session. An AI coding agent that reads a file containing such a payload
+  # effectively loads the attack into its context window.
+  #
+  # This rule flags shell reads of files whose names explicitly indicate MSJ or
+  # adversarial demonstration content — high-signal names used in red-team
+  # toolkits, research datasets, and crafted attack files (e.g., "jailbreak",
+  # "msj_payload", "few_shot_demo", "adversarial_prompts").
+  #
+  # See: https://www.anthropic.com/research/many-shot-jailbreaking
+  #
+  # TP examples (should AUDIT):
+  #   cat /tmp/msj_payload.jsonl
+  #   head -100 ./data/jailbreak_demos.json
+  #   less adversarial_prompts.txt
+  #   cat ~/red-team/few_shot_demo_dataset.jsonl
+  #
+  # TN examples (should ALLOW):
+  #   cat README.md
+  #   head -20 tests/test_prompts.txt
+  #   cat examples/api_usage.py
+  #
+  # Decision: AUDIT — reading a file named with explicit MSJ/adversarial terms
+  # warrants human review before the content enters agent context.
+  # Confidence: 0.82 — file naming is high-signal for adversarial content.
+  - id: "ts-audit-msj-file-read"
+    taxonomy: "unauthorized-execution/agentic-attacks/many-shot-jailbreak"
+    match:
+      command_regex: "(?i)\\b(cat|head|tail|less|more|strings|bat)\\b[^|;#]*\\b(jailbreak|msj_payload|msj[-_]demo|few_shot_demo|adversarial_prompt|adversarial_example|demo_pairs|demonstration_pairs|shot_jailbreak)"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "Reading a file with an MSJ or adversarial-demonstration name — such files commonly contain many-shot jailbreak payloads that could override safety alignment when loaded into agent context (OWASP LLM01, LLM05)."
+    tests:
+      tp:
+        - "cat /tmp/msj_payload.jsonl"
+        - "head -100 ./data/jailbreak_demos.json"
+        - "less adversarial_prompts.txt"
+        - "cat ~/red-team/few_shot_demo_dataset.jsonl"
+        - "tail -50 msj_payload_v2.txt"
+        - "bat demo_pairs.jsonl"
+      tn:
+        - "cat README.md"
+        - "head -20 tests/test_prompts.txt"
+        - "cat examples/api_usage.py"
+        - "less CHANGELOG.md"
+        - "cat docs/how-to-write-good-prompts.md"
+

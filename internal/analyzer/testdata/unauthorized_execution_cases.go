@@ -3970,6 +3970,7 @@ func AllUnauthorizedExecutionCases() []TestCase {
 	all = append(all, AwkCommandExecCases...)
 	all = append(all, BidiReorderingCases...)
 	all = append(all, ArraySubscriptInjectionCases...)
+	all = append(all, ManyShotJailbreakCases...)
 	return all
 }
 
@@ -8835,5 +8836,107 @@ var BuildDiagnosticPromptInjectionCases = []TestCase{
 		Analyzer:         "stateful",
 		Description:      "cargo build piped to tee — standard log capture pattern. Must NOT be blocked (AUDIT from other rules is acceptable).",
 		Tags:             []string{"tn", "safe", "build"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Many-Shot Jailbreaking (MSJ) — Reading MSJ/Adversarial Payload Files
+// Taxonomy: unauthorized-execution/agentic-attacks/many-shot-jailbreak
+// Rule: ts-audit-msj-file-read
+//
+// Many-shot jailbreaking (MSJ) embeds hundreds of fabricated Q&A pairs in a
+// document to override LLM safety alignment. When an AI agent reads a file
+// explicitly named as an MSJ or adversarial payload (e.g., "msj_payload.jsonl",
+// "jailbreak_demos.json"), it risks loading the attack into its context window.
+// ---------------------------------------------------------------------------
+
+var ManyShotJailbreakCases = []TestCase{
+	// TP-1: cat on msj_payload file
+	{
+		ID:               "TP-MSJ-001",
+		Command:          "cat /tmp/msj_payload.jsonl",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading a file explicitly named 'msj_payload' — high-signal MSJ attack file name; must be audited.",
+		Tags:             []string{"tp", "msj", "jailbreak"},
+	},
+	// TP-2: head on jailbreak_demos file
+	{
+		ID:               "TP-MSJ-002",
+		Command:          "head -100 ./data/jailbreak_demos.json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading first 100 lines of 'jailbreak_demos.json' — explicit adversarial demonstration dataset; must be audited.",
+		Tags:             []string{"tp", "msj", "jailbreak"},
+	},
+	// TP-3: less on adversarial_prompts.txt
+	{
+		ID:               "TP-MSJ-003",
+		Command:          "less adversarial_prompts.txt",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Paging through 'adversarial_prompts.txt' — named adversarial prompt file; must be audited.",
+		Tags:             []string{"tp", "msj", "jailbreak"},
+	},
+	// TP-4: cat on few_shot_demo_dataset.jsonl
+	{
+		ID:               "TP-MSJ-004",
+		Command:          "cat ~/red-team/few_shot_demo_dataset.jsonl",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading a few-shot demo dataset from a red-team directory — characteristic MSJ payload file; must be audited.",
+		Tags:             []string{"tp", "msj", "jailbreak"},
+	},
+	// TP-5: tail on msj_payload_v2
+	{
+		ID:               "TP-MSJ-005",
+		Command:          "tail -50 msj_payload_v2.txt",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading tail of versioned msj_payload file — MSJ toolkit file naming convention; must be audited.",
+		Tags:             []string{"tp", "msj", "jailbreak"},
+	},
+	// TN-1: cat on README.md — must not trigger
+	{
+		ID:               "TN-MSJ-001",
+		Command:          "cat README.md",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading a standard README — no MSJ indicators; must not be audited by MSJ rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// TN-2: Docs file with 'jailbreak' as a word in prose — excluded because it's an echo/print
+	{
+		ID:               "TN-MSJ-002",
+		Command:          "cat docs/how-to-write-good-prompts.md",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading legitimate documentation file — no MSJ payload name; must not trigger MSJ rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+	// TN-3: head on normal test file
+	{
+		ID:               "TN-MSJ-003",
+		Command:          "head -20 tests/test_prompts.txt",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/many-shot-jailbreak",
+		Analyzer:         "regex",
+		Description:      "Reading a benign test prompts file — 'test_prompts' has no MSJ naming indicators; must not trigger.",
+		Tags:             []string{"tn", "safe"},
 	},
 }
