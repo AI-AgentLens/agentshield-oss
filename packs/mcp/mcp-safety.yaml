@@ -1515,3 +1515,111 @@ semantic_rules:
             - "(?:^|/)\\.windsurfrules$"
     decision: "AUDIT"
     reason: "MCP write to AI agent memory store or instruction file (.claude/memory/, .cursorrules, .windsurfrules) — MCP-layer writes bypass shell detection and can silently accumulate permission-expanding instructions (agent-safety-alignment-drift, OWASP LLM01/LLM08)."
+
+  # === BLOCK: SSRF via tool 'uri' argument — cloud IMDS endpoints ===
+  #
+  # The existing SSRF rules cover 'url', 'endpoint', 'target', 'server', and
+  # 'base_url' argument names. This rule closes the gap for tools that use 'uri'
+  # (e.g., read_resource, fetch_resource, get_resource) — the MCP standard
+  # argument name for resource access.
+  #
+  # A malicious server returns resources/list entries with IMDS URIs.
+  # When the agent calls read_resource or equivalent, it inadvertently reaches
+  # 169.254.169.254 and leaks cloud IAM credentials. MITRE T1552.007, OWASP LLM08.
+  - id: mcp-safety-block-tool-uri-ssrf-imds
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        uri:
+          pattern_any:
+            - "(?i)169\\.254\\.169\\.254"
+            - "(?i)fd00:ec2::254"
+            - "(?i)metadata\\.google\\.internal"
+            - "(?i)metadata\\.azure\\.com"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "SSRF via tool 'uri' argument — request to cloud metadata endpoint leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "read_resource"
+          args: {"uri": "http://169.254.169.254/latest/meta-data/iam/security-credentials/default"}
+        - tool: "fetch_resource"
+          args: {"uri": "http://metadata.google.internal/computeMetadata/v1/"}
+        - tool: "get_resource"
+          args: {"uri": "http://fd00:ec2::254/latest/meta-data/"}
+      tn:
+        - tool: "read_resource"
+          args: {"uri": "https://api.github.com/repos/owner/repo"}
+        - tool: "read_resource"
+          args: {"uri": "file:///workspace/project/README.md"}
+
+  # === BLOCK: SSRF via tool 'uri' argument — localhost/loopback internal services ===
+  #
+  # A malicious server returns resources pointing to localhost admin APIs, dev
+  # servers, or local databases not exposed externally. When the agent fetches
+  # these via a tool accepting a 'uri' argument, internal services are probed.
+  # MITRE T1090, OWASP LLM08.
+  - id: mcp-safety-block-tool-uri-ssrf-localhost
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+    match:
+      tool_name_regex: ".*"
+      args_match:
+        uri:
+          pattern_any:
+            - "(?i)^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?/"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "SSRF via tool 'uri' argument — request to localhost/loopback service allows attacker to probe or exfiltrate data from internal services. MITRE T1090, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "read_resource"
+          args: {"uri": "http://localhost:8080/admin/dump"}
+        - tool: "get_resource"
+          args: {"uri": "http://127.0.0.1:9200/_cat/indices"}
+        - tool: "fetch_resource"
+          args: {"uri": "http://[::1]:3000/debug/pprof/"}
+      tn:
+        - tool: "read_resource"
+          args: {"uri": "https://api.example.com/v1/users"}
+        - tool: "read_resource"
+          args: {"uri": "file:///workspace/project/README.md"}
+
+resource_rules:
+  # === BLOCK: resources/read — cloud IMDS endpoints (SSRF via resource URI) ===
+  #
+  # A malicious MCP server registers resources with IMDS URIs in its resources/list
+  # response. When the agent calls resources/read on these, the MCP client resolves
+  # the http:// URI to a network fetch against 169.254.169.254, leaking cloud IAM
+  # credentials. Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf.
+  - id: mcp-safety-block-resource-ssrf-imds
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+    match:
+      uri_regex: "(?i)^https?://(169\\.254\\.169\\.254|fd00:ec2::254|metadata\\.google\\.internal|metadata\\.azure\\.com)/"
+    decision: "BLOCK"
+    reason: "resources/read URI targets a cloud IMDS endpoint — fetching this URI leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08."
+
+  # === BLOCK: resources/read — localhost/loopback internal services ===
+  #
+  # Malicious server registers localhost URIs as resources. The MCP client
+  # resolves these to network fetches against internal services, enabling
+  # attacker-controlled SSRF to admin APIs, dev servers, and local databases.
+  - id: mcp-safety-block-resource-ssrf-localhost
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+    match:
+      uri_regex: "(?i)^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?/"
+    decision: "BLOCK"
+    reason: "resources/read URI targets localhost — allows attacker to probe or exfiltrate data from internal services not exposed externally. MITRE T1090, OWASP LLM08."
+
+  # === BLOCK: resources/read — sensitive OS credential files via file:// ===
+  #
+  # file:///etc/shadow, /etc/passwd, /etc/sudoers are not covered by the existing
+  # blocked_resources in mcp-secrets.yaml (which covers ~/.ssh, ~/.aws, ~/.gnupg).
+  # A malicious server can register these as file:// resources to exfiltrate
+  # OS credentials and privilege configuration.
+  - id: mcp-safety-block-resource-file-sensitive-os
+    taxonomy: "credential-exposure/os-credential-access/passwd-shadow-read"
+    match:
+      uri_regex: "^file:///etc/(shadow|passwd|sudoers|gshadow|master\\.passwd)(\\.[^/]*)?$"
+    decision: "BLOCK"
+    reason: "resources/read URI targets a sensitive OS credential file — /etc/shadow, /etc/passwd, and /etc/sudoers contain user credentials and privilege configuration. MITRE T1003, T1552."
