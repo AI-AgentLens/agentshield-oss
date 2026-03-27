@@ -5473,4 +5473,27 @@ var AliasInterceptionCases = []TestCase{
 		Description:      "FP regression (issue #180): git commit -m containing alias ssh= — ts-block-alias-shadow-security-cmd must NOT fire on git message flags",
 		Tags:             []string{"tn", "fp-regression", "git-commit", "alias"},
 	},
+	// FP regression: guardian-disable_security must NOT fire on tee heredoc bodies
+	// containing "skip security" in Python comments/docstrings (issue #487).
+	// The fix extended fileWriteHeredocStartRe/fileWriteHeredocAnywhereRe to cover tee.
+	{
+		ID:               "TN-GUARDIAN-DISABLE-SECURITY-TEE-001",
+		Command:          "tee /tmp/test_fixed.py << 'EOF'\n# FIXED: Remove skip decorator and implement the access control security test\ndef test_security_policy():\n    pass\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/security-bypass",
+		Analyzer:         "guardian",
+		Description:      "FP regression (issue #487): tee heredoc writing a Python test file with 'skip security' in a comment — guardian-disable_security must NOT fire on tee heredoc bodies",
+		Tags:             []string{"tn", "fp-regression", "guardian", "heredoc", "tee", "regression"},
+	},
+	{
+		ID:               "TN-GUARDIAN-DISABLE-SECURITY-TEE-002",
+		Command:          "cd /tmp && tee test_fixture.py << 'EOF'\n# This test verifies that skip policy decorators are removed\ndef test_enforce_security_policy():\n    assert True\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/security-bypass",
+		Analyzer:         "guardian",
+		Description:      "FP regression (issue #487): compound command with tee heredoc body mentioning 'skip policy' — guardian-disable_security must NOT fire on tee file-write heredoc bodies",
+		Tags:             []string{"tn", "fp-regression", "guardian", "heredoc", "tee", "compound", "regression"},
+	},
 }
