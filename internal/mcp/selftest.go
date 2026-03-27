@@ -166,6 +166,40 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		}
 	}
 
+	// prompts/get response scenario: scan message content for injection.
+	if sc.PromptsGetMessages != nil {
+		result := &GetPromptResult{
+			Description: sc.PromptsGetDescription,
+		}
+		for _, m := range sc.PromptsGetMessages {
+			result.Messages = append(result.Messages, PromptMessage{
+				Role:    m.Role,
+				Content: PromptMessageContent{Type: "text", Text: m.Content},
+			})
+		}
+		scanResult := ScanPromptsGetResponse(result)
+		if scanResult.Poisoned {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
+	// prompts/list response scenario: scan prompt descriptions for injection seeds.
+	if sc.PromptsListEntries != nil {
+		result := &ListPromptsResult{}
+		for _, e := range sc.PromptsListEntries {
+			result.Prompts = append(result.Prompts, PromptDefinition{
+				Name:        e.Name,
+				Description: e.Description,
+			})
+		}
+		scanResult := ScanPromptsListDescriptions(result)
+		if scanResult.Poisoned {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
 	// notifications/message scenario: run notification scanner.
 	if sc.NotificationParams != nil {
 		params, err := json.Marshal(map[string]interface{}{
