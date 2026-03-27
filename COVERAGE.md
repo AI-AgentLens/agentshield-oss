@@ -14,7 +14,7 @@
 
 ## Runtime Rules by Kingdom
 
-### credential-exposure (124 rules)
+### credential-exposure (125 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -120,6 +120,7 @@
 | `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
+| `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
 | `ts-audit-proc-fd-list` | AUDIT | regex | Listing /proc/PID/fd/ enumerates another process's open file descriptors — reconnaissance for fd hijacking attacks. |
 | `ts-block-git-credential-modify` | BLOCK | regex | Modifying git credential helper can redirect stored credentials. |
@@ -698,7 +699,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (73 rules)
+### reconnaissance (72 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -756,7 +757,6 @@
 | `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
 | `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 | `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
-| `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `recon-llm-cache-timing-probe` | AUDIT | regex | LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208). |
 | `recon-thinking-token-probe` | AUDIT | regex | LLM API call with budget_tokens co-occurring with .thinking content access — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts (OWASP LLM02, LLM06, CWE-208). |
