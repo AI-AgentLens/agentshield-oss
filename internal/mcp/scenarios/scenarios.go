@@ -5258,4 +5258,53 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-response-integrity-web-search",
 		Description:      "search_documents (RAG tool) — audited by rag-retrieval rule, not by web-search rule; must be AUDIT not BLOCK (issue #405)",
 	},
+
+	// === /proc/*/mem process memory access BLOCK (issue #492) ===
+	// mcp-recon-block-proc-mem-access: direct process memory access must be BLOCK
+	{
+		ID:               "MCP-TP-790",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/proc/self/mem"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-proc-mem-access",
+		Description:      "read_file on /proc/self/mem — process memory dump, must be BLOCK (T1003 OS Credential Dumping). Issue #492.",
+	},
+	{
+		ID:               "MCP-TP-791",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/proc/1/mem"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-proc-mem-access",
+		Description:      "read_file on /proc/1/mem — root process memory dump via init PID, must be BLOCK.",
+	},
+	{
+		ID:               "MCP-TP-792",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/proc/1234/mem"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-recon-block-proc-mem-access",
+		Description:      "read_file on /proc/1234/mem — arbitrary PID memory dump, must be BLOCK.",
+	},
+	// TN: other /proc paths remain AUDIT (not BLOCK)
+	{
+		ID:               "MCP-TN-790",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/proc/self/status"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-recon-block-proc-mem-access",
+		Description:      "read_file on /proc/self/status — process status, must be AUDIT not BLOCK (no credential dumping risk).",
+	},
+	{
+		ID:               "MCP-TN-791",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/proc/net/tcp"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-recon-block-proc-mem-access",
+		Description:      "read_file on /proc/net/tcp — network enumeration, must be AUDIT not BLOCK.",
+	},
 }
