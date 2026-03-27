@@ -139,6 +139,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GORELEASER_CURRENT_TAG}"
+          sudo rm -f /tmp/agentshield.rb
           bash scripts/generate-cask.sh "${VERSION}" dist /tmp/agentshield.rb
           sudo rm -rf /tmp/homebrew-tap
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/AI-AgentLens/homebrew-tap.git /tmp/homebrew-tap
