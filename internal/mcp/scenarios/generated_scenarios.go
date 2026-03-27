@@ -5894,4 +5894,64 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "credential-exposure",
 		Description:      "read PKI setup documentation — file may mention /etc/ssl/private and .pki/nssdb as text but is a doc, not a key. Rules must NOT fire (issue #531).",
 	},
+	// Issue #539: TP — SSRF via tool 'uri' argument — AWS IMDS endpoint
+	{
+		ID:               "MCP-TP-817",
+		ToolName:         "read_resource",
+		Arguments:        map[string]interface{}{"uri": "http://169.254.169.254/latest/meta-data/iam/security-credentials/default"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "read_resource with uri=169.254.169.254 IMDS endpoint — SSRF via resource URI leaks IAM credentials. mcp-safety-block-tool-uri-ssrf-imds must fire (issue #539).",
+	},
+	// Issue #539: TP — SSRF via tool 'uri' argument — GCP IMDS
+	{
+		ID:               "MCP-TP-818",
+		ToolName:         "fetch_resource",
+		Arguments:        map[string]interface{}{"uri": "http://metadata.google.internal/computeMetadata/v1/"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "fetch_resource with GCP metadata.google.internal URI — SSRF via resource URI. mcp-safety-block-tool-uri-ssrf-imds must fire (issue #539).",
+	},
+	// Issue #539: TP — SSRF via tool 'uri' argument — localhost admin API
+	{
+		ID:               "MCP-TP-819",
+		ToolName:         "read_resource",
+		Arguments:        map[string]interface{}{"uri": "http://localhost:8080/admin/dump"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "read_resource with uri=localhost:8080/admin — SSRF to internal admin API. mcp-safety-block-tool-uri-ssrf-localhost must fire (issue #539).",
+	},
+	// Issue #539: TP — SSRF via tool 'uri' argument — loopback IPv4
+	{
+		ID:               "MCP-TP-820",
+		ToolName:         "get_resource",
+		Arguments:        map[string]interface{}{"uri": "http://127.0.0.1:9200/_cat/indices"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "unauthorized-execution",
+		Description:      "get_resource with uri=127.0.0.1:9200 (Elasticsearch) — SSRF to internal service. mcp-safety-block-tool-uri-ssrf-localhost must fire (issue #539).",
+	},
+	// Issue #539: TN — benign public HTTPS URI in 'uri' argument
+	{
+		ID:               "MCP-TN-817",
+		ToolName:         "read_resource",
+		Arguments:        map[string]interface{}{"uri": "https://api.github.com/repos/owner/repo"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "unauthorized-execution",
+		Description:      "read_resource with public HTTPS URI — legitimate resource access. SSRF rules must NOT fire (issue #539).",
+	},
+	// Issue #539: TN — workspace file:// URI in 'uri' argument
+	{
+		ID:               "MCP-TN-818",
+		ToolName:         "read_resource",
+		Arguments:        map[string]interface{}{"uri": "file:///workspace/project/README.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "unauthorized-execution",
+		Description:      "read_resource with workspace file:// URI — benign project file access. SSRF rules must NOT fire (issue #539).",
+	},
 }
