@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 498 |
-| Total rules | 1554 |
+| MCP rules | 499 |
+| Total rules | 1555 |
 | Test cases (TP+TN) | 3759 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (230 rules)
+### credential-exposure (231 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1333,6 +1333,7 @@
 | `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
 | `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
+| `mcp-sec-block-netskope-token` | BLOCK | mcp_rule | Access to ~/.netskopetoken is blocked — contains the Netskope SASE/SSE platform authentication token. Reading it exposes enterprise network access control and DLP policy credentials. MITRE T1552. |
 | `mcp-sec-block-container-secrets-mount` | BLOCK | mcp_rule | Access to /run/secrets/* is blocked — Docker Swarm and Kubernetes mount container secrets here in plaintext. Reading these exposes API keys, database passwords, and tokens injected by the orchestrator. MITRE T1552. |
 | `mcp-sec-block-huggingface-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub token file is blocked — this token grants access to private model repositories, gated datasets, and inference API billing. MITRE T1552.001, OWASP LLM06. |
 | `mcp-sec-block-wandb-settings-read` | BLOCK | mcp_rule | Read access to W&B settings file is blocked — contains the WANDB_API_KEY granting access to experiment data, model checkpoints, and training datasets. MITRE T1552.001, OWASP LLM06. |
