@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1048 |
-| MCP rules | 477 |
-| Total rules | 1525 |
+| MCP rules | 479 |
+| Total rules | 1527 |
 | Test cases (TP+TN) | 3729 |
 | Kingdoms covered | 10 |
 
@@ -1467,7 +1467,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (21 rules)
+### persistence-evasion (23 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1488,9 +1488,11 @@
 | `mcp-persist-block-git-repo-config-write` | BLOCK | structural | MCP write to .git/config (project-level git config) can redirect git hooks to attacker scripts or intercept git credentials via url.insteadOf. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
+| `mcp-persist-block-ide-extension-dir-write` | BLOCK | structural | MCP write to IDE extension directory installs a persistent plugin that executes code in the IDE process on every project open — no shell command required. Covers VS Code, VSCodium, Cursor, Windsurf, and JetBrains IDEs. MITRE T1176, T1547. |
 | `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
 | `mcp-persist-block-ipython-startup-write` | BLOCK | structural | MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016. |
+| `mcp-persist-block-python-pth-write` | BLOCK | structural | MCP write to Python .pth file or sitecustomize.py/usercustomize.py in site-packages — these files execute automatically on every Python invocation, providing silent persistent code execution across pip, pytest, jupyter, and all Python tooling. MITRE T1546.016. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
 ### privilege-escalation (19 rules)
