@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1053 |
+| Terminal rules | 1055 |
 | MCP rules | 489 |
-| Total rules | 1542 |
-| Test cases (TP+TN) | 3752 |
+| Total rules | 1544 |
+| Test cases (TP+TN) | 3756 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -323,7 +323,7 @@
 | `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
 | `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
 
-### destructive-ops (70 rules)
+### destructive-ops (72 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -339,6 +339,8 @@
 | `ts-block-unbounded-api-loop` | BLOCK | regex | Infinite loop making AI API calls — denial-of-wallet attack pattern that consumes unbounded tokens/compute with no termination condition (OWASP LLM10). |
 | `ts-block-unbounded-agent-loop` | BLOCK | regex | Infinite loop invoking AI agent CLI — spawns unbounded agent sessions consuming API quota without termination condition (OWASP LLM10). |
 | `ts-audit-mass-agent-spawn` | AUDIT | regex | High-count for-loop invoking AI agent or AI API — may spawn thousands of agent sessions or API calls, exhausting quota (OWASP LLM10). |
+| `ts-audit-yes-compute-bomb-llm` | AUDIT | regex | yes piped through head with ≥10,000 lines then into an LLM CLI — adversarial compute-bomb pattern that stuffs massive repetitive token sequences into LLM inference (OWASP LLM04, LLM10). |
+| `ts-audit-python-repetition-bomb-llm` | AUDIT | regex | Python one-liner generating ≥10,000-repetition string piped to an LLM CLI — adversarial compute-bomb that floods LLM context with synthetic tokens (OWASP LLM04, LLM10). |
 | `ts-block-chmod-777` | BLOCK | regex | chmod 777 on root paths removes all file protections. |
 | `ts-block-chmod-recursive-sensitive` | BLOCK | regex | Recursive permission change on sensitive system directory. |
 | `ts-block-shutdown` | BLOCK | prefix | System shutdown/reboot must be done manually. |
@@ -1343,7 +1345,7 @@
 | `mcp-sec-block-restic-dotfile-password` | BLOCK | mcp_rule | Access to ~/.restic-password is blocked — stores the restic backup encryption master password (RESTIC_PASSWORD_FILE convention). MITRE T1552. |
 | `mcp-sec-block-borgmatic-config` | BLOCK | mcp_rule | Access to ~/.config/borgmatic/ is blocked — borgmatic config files contain borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
 | `mcp-sec-block-borg-repo-keys` | BLOCK | mcp_rule | Access to ~/.config/borg/keys/ is blocked — borg repository key files are the encryption keys for backup archives; compromise allows mounting and decrypting all borg backups. MITRE T1552. |
-| `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254 or 169.254.170.2) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
+| `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
 | `mcp-sec-block-postgres-uri` | BLOCK | resource_rule | Direct PostgreSQL database access via MCP is blocked. |
@@ -1669,12 +1671,12 @@
 |---------|----|----|-------|
 | credential-exposure | 292 | 220 | 512 |
 | data-exfiltration | 316 | 202 | 518 |
-| destructive-ops | 132 | 89 | 221 |
+| destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 287 | 175 | 462 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 440 | 303 | 743 |
-| **Total** | **2264** | **1488** | **3752** |
+| **Total** | **2266** | **1490** | **3756** |
 
