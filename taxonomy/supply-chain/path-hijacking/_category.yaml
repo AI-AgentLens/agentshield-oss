@@ -1,0 +1,7 @@
+id: "7.8"
+name: "Path Hijacking"
+kingdom_id: 7
+description: >
+  Techniques where an AI agent writes executables or scripts to directories on
+  the user's PATH (~/bin, ~/.local/bin, /usr/local/bin, etc.), allowing malicious
+  code to intercept future invocations of standard commands.
