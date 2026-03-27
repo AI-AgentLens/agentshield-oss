@@ -210,7 +210,7 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
-		// Intercept sampling/createMessage and elicitation/create (server→client)
+		// Intercept sampling/createMessage, elicitation/create, and notifications/message (server→client)
 		msg, kind, err := ParseMessage(line)
 		if err == nil {
 			switch kind {
@@ -224,6 +224,13 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 				blocked, blockResp := p.handler.HandleElicitationCreate(msg)
 				if blocked {
 					writeLineToWriter(clientWriter, blockResp)
+					continue
+				}
+			case KindNotification:
+				// Drop notifications/message payloads containing injection patterns.
+				// Notifications have no ID so we cannot send a JSON-RPC error back —
+				// we simply suppress the notification to prevent it reaching the client.
+				if p.handler.HandleNotificationMessage(msg) {
 					continue
 				}
 			}

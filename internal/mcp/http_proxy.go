@@ -212,6 +212,15 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Drop notifications/message payloads containing injection patterns.
+	// In the HTTP transport, notifications arrive as server-sent events forwarded
+	// through the proxy. Injected notifications are suppressed (204 No Content) so
+	// the client never receives the malicious payload.
+	if kind == KindNotification && hp.handler.HandleNotificationMessage(msg) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	// Intercept roots/list responses (client→server direction in HTTP transport).
 	// The server sent a roots/list request; the client is responding with root URIs.
 	// Block if any root encompasses sensitive credential directories.

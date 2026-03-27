@@ -166,6 +166,23 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		}
 	}
 
+	// notifications/message scenario: run notification scanner.
+	if sc.NotificationParams != nil {
+		params, err := json.Marshal(map[string]interface{}{
+			"level":  sc.NotificationParams.Level,
+			"logger": sc.NotificationParams.Logger,
+			"data":   sc.NotificationParams.Data,
+		})
+		if err != nil {
+			return "ALLOW" // fail open
+		}
+		scanResult := ScanNotificationMessage(params)
+		if scanResult.Blocked {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
 	// Sampling/createMessage scenario: run sampling scanner instead of tool call pipeline.
 	if sc.SamplingMessages != nil {
 		params := &SamplingCreateMessageParams{
