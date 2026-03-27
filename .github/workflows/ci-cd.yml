@@ -72,7 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
-          rm -rf /tmp/AI_risk_compliance
+          sudo rm -rf /tmp/AI_risk_compliance
           git clone https://x-access-token:${GH_TOKEN}@github.com/AI-AgentLens/AI_risk_compliance.git /tmp/AI_risk_compliance
           cd /tmp/AI_risk_compliance
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "git@github.com:"
@@ -143,7 +143,7 @@ jobs:
         run: |
           VERSION="${GORELEASER_CURRENT_TAG}"
           bash scripts/generate-cask.sh "${VERSION}" dist /tmp/agentshield.rb
-          rm -rf /tmp/homebrew-tap
+          sudo rm -rf /tmp/homebrew-tap
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/AI-AgentLens/homebrew-tap.git /tmp/homebrew-tap
           cp /tmp/agentshield.rb /tmp/homebrew-tap/Casks/agentshield.rb
           cd /tmp/homebrew-tap
