@@ -739,6 +739,76 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/src/extension.js"}
 
+  # === BLOCK: IDE extension directory writes via MCP (issue #506) ===
+  #
+  # Writing files into an IDE's extension directory installs a persistent plugin that
+  # executes code in the IDE process every time a project is opened — no shell command
+  # needed, bypassing all shell-level rules. Unlike .cursorrules / settings.json (already
+  # blocked), this targets the extension LOADER path, not config files.
+  #
+  # Covered directories:
+  #   ~/.vscode/extensions/         — VS Code (Linux/macOS user extensions)
+  #   ~/.vscode-oss/extensions/     — VSCodium
+  #   ~/.cursor/extensions/         — Cursor IDE
+  #   ~/.windsurf/extensions/       — Windsurf IDE
+  #   ~/Library/Application Support/Code/User/extensions/   — VS Code on macOS
+  #   ~/.local/share/JetBrains/**/plugins/  — IntelliJ, PyCharm, WebStorm, etc. (user-level)
+  #
+  # Attack scenario:
+  #   1. Agent writes a malicious extension.js + package.json to ~/.vscode/extensions/evil/
+  #   2. Next time VS Code opens (any project), the extension is auto-loaded
+  #   3. Extension can read filesystem, spawn processes, exfiltrate data — all within VS Code's
+  #      Node.js sandbox (which has full OS access)
+  #   4. No shell command was ever evaluated by AgentShield
+  #
+  # Different from IDE settings-write (mcp-persist-block-ide-settings-write):
+  #   settings.json only changes behavior; extension directories add NEW CODE EXECUTION
+  #
+  # MITRE T1176   — Browser/Application Extensions (same pattern, adapted for IDEs)
+  # MITRE T1547   — Boot or Logon Autostart Execution (IDE auto-loads extensions on open)
+  - id: mcp-persist-block-ide-extension-dir-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:\\.vscode|\\.vscode-oss|\\.cursor|\\.windsurf)/extensions/"
+            - "(?i)Library/Application Support/(?:Code|Cursor|Windsurf)/User/extensions/"
+            - "(?:^|/)\\.local/share/JetBrains/[^/]+/plugins/"
+    decision: "BLOCK"
+    reason: "MCP write to IDE extension directory installs a persistent plugin that executes code in the IDE process on every project open — no shell command required. Covers VS Code, VSCodium, Cursor, Windsurf, and JetBrains IDEs. MITRE T1176, T1547."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.vscode/extensions/backdoor/extension.js"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.cursor/extensions/evil/main.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.vscode-oss/extensions/malware/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.windsurf/extensions/spy/extension.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/share/JetBrains/IntelliJIdea2024.1/plugins/evil/lib/evil.jar"}
+        - tool: "str_replace_editor"
+          args: {"path": "/Users/user/Library/Application Support/Code/User/extensions/backdoor/extension.js"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/vscode-extension/extension.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.vscode/settings.json"}
+
   # === BLOCK: X11 session startup and PAM environment file writes via MCP (issue #373) ===
   #
   # X11 session files execute during graphical login, before the user's shell
