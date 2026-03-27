@@ -1,0 +1,92 @@
+id: "data-exfiltration/network-exfiltration/tls-cert-bypass"
+version: "1.0.0"
+kingdom: "Data Exfiltration"
+kingdom_id: 3
+category: "Network Exfiltration via Config Tampering"
+category_id: "3.7"
+name: "TLS Certificate Verification Bypass"
+risk_level: "high"
+
+abstract: |
+  AI coding agents frequently generate code that disables TLS certificate verification
+  (`verify=False`, `NODE_TLS_REJECT_UNAUTHORIZED=0`) when resolving SSL errors, creating
+  a silent adversary-in-the-middle (AiTM) channel through which credentials, API keys,
+  and LLM prompt payloads can be intercepted and exfiltrated.
+
+explanation: |
+  TLS certificate verification is the primary defense against network adversary-in-the-
+  middle attacks. When disabled, any HTTPS connection — including calls to LLM APIs,
+  credential exchanges, and CI/CD webhooks — can be silently intercepted:
+
+  **Python (requests)**:
+  ```python
+  requests.get(url, verify=False)          # disables all CA verification
+  session.verify = False                    # disables for all session requests
+  ```
+
+  **Python (httpx)**:
+  ```python
+  httpx.Client(verify=False)               # all httpx connections unverified
+  ```
+
+  **Node.js / TypeScript**:
+  ```javascript
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'   // global, affects all HTTPS
+  https.request({ rejectUnauthorized: false })      // per-request bypass
+  ```
+
+  **OpenSSL / curl**:
+  ```bash
+  curl -k https://api.example.com          # -k skips cert verification
+  ```
+
+  AI agent attack surface: An AI agent prompted to "fix SSL errors quickly" may
+  propagate `verify=False` into production code. Once deployed, any network path
+  between the service and its dependencies becomes an exfiltration vector — including
+  LLM API calls that carry sensitive prompt context.
+
+  This is classified as a data exfiltration threat because the primary harm is the
+  enablement of passive credential and data capture by a network-positioned adversary,
+  not the initial misconfiguration itself.
+
+recommendation: |
+  - Flag and reject `verify=False`, `rejectUnauthorized: false`, and `NODE_TLS_REJECT_UNAUTHORIZED=0`
+    in code review and static analysis.
+  - For self-signed certs in development, add the CA to the trust store rather than
+    disabling verification globally.
+  - Use mutual TLS (mTLS) for agent-to-agent communication.
+  - Enforce cert pinning for sensitive endpoints (LLM APIs, credential stores).
+  - Never ship code with TLS verification disabled; CI linting should catch this.
+
+examples:
+  bad:
+    - "requests.get(url, verify=False)"
+    - "session.verify = False"
+    - "httpx.Client(verify=False)"
+    - "process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'"
+    - "https.request({ rejectUnauthorized: false })"
+    - "ssl_context.check_hostname = False; ssl_context.verify_mode = ssl.CERT_NONE"
+    - "curl -k https://api.example.com"
+  good:
+    - "requests.get(url, verify='/path/to/ca-bundle.crt')"
+    - "requests.get(url)  # uses default CA bundle"
+    - "httpx.Client(verify='/etc/ssl/certs/ca-certificates.crt')"
+    - "ssl_context.load_verify_locations('/path/to/ca.pem')"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.20", "A.8.23", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MEASURE-2"]
+  soc2-type2: ["CC6.6", "CC6.7", "CC7.1"]
+
+references:
+  mitre_attack: ["T1557"]
+  cwe: ["CWE-295"]
+  external:
+    - "https://attack.mitre.org/techniques/T1557/"
+    - "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+    - "https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/"
+
+analyzers: ["regex", "semantic"]
+related_rules: ["data-exfiltration/network-exfiltration/network-config-tampering"]
