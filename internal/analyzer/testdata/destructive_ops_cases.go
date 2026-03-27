@@ -1980,6 +1980,52 @@ var UnboundedAgentConsumptionCases = []TestCase{
 		Description:      "bounded for-loop over local files with go vet — normal development pattern. Gets AUDIT (default) but must NOT be BLOCK.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// --- TRUE POSITIVES: adversarial inference compute bombs (issue #526) ---
+
+	{
+		ID:               "TP-DO-YES-COMPUTE-BOMB-LLM-001",
+		Command:          `yes 'attack token' | head -100000 | claude summarize`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion",
+		Analyzer:         "regex",
+		Description:      "yes piped through head -100000 into claude CLI — adversarial compute-bomb stuffing 100k repetitive tokens into LLM inference; must be AUDIT'd (ts-audit-yes-compute-bomb-llm).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+	{
+		ID:               "TP-DO-PYTHON-REPETITION-BOMB-LLM-001",
+		Command:          `python3 -c "print('attack ' * 100000)" | claude --prompt -`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion",
+		Analyzer:         "regex",
+		Description:      "Python one-liner generating 100k-repetition string piped to claude — adversarial inference compute-bomb; must be AUDIT'd (ts-audit-python-repetition-bomb-llm).",
+		Tags:             []string{"tp", "destructive", "resource-exhaustion"},
+	},
+
+	// --- TRUE NEGATIVES: compute-bomb patterns without LLM pipe ---
+
+	{
+		ID:               "TN-DO-YES-SMALL-COUNT-001",
+		Command:          `yes 'y' | head -10 | claude ask`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion",
+		Analyzer:         "regex",
+		Description:      "yes piped through head -10 (small count) into claude — benign; must NOT trigger ts-audit-yes-compute-bomb-llm.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-DO-PYTHON-REPETITION-NO-LLM-001",
+		Command:          `python3 -c "print('x ' * 100000)" | wc -w`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion",
+		Analyzer:         "regex",
+		Description:      "Python one-liner generating large string piped to wc (not LLM) — benign analysis; must NOT trigger ts-audit-python-repetition-bomb-llm.",
+		Tags:             []string{"tn", "safe"},
+	},
 }
 
 // DatabaseDestructionCases tests detection of database destruction operations.

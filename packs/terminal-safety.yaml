@@ -286,6 +286,58 @@ rules:
         - "xargs -P4 claude < tasks.txt"
         - "xargs -P50 wc -l < files.txt"
 
+  # === AUDIT: Adversarial inference compute bomb piped to LLM CLI (issue #526) ===
+  #
+  # Commands that generate massive repetitive token sequences and pipe them into
+  # an LLM CLI tool. Unlike the bulk-input patterns above (which pipe large
+  # *files*), these generate synthetic compute-intensive inputs on the fly,
+  # potentially triggering O(n²) attention costs and forcing the model to
+  # produce enormous outputs.
+  #
+  # Attack patterns:
+  #   yes "attack token" | head -100000 | claude "summarize"
+  #   python3 -c "print('x ' * 100000)" | claude --prompt -
+  #   python3 -c "print('[' * 5000 + ']' * 5000)" | llm complete
+  #
+  # Decision: AUDIT — some scripted workflows pipe generated content to LLMs
+  # (e.g. test data generators), but 10k+ repetitions into an LLM CLI is
+  # almost always either a mistake or an intentional compute-bomb.
+  #
+  # Taxonomy: destructive-ops/resource-exhaustion/adversarial-inference-exhaustion
+  # OWASP LLM04 (Model DoS), LLM10 (Unbounded Consumption)
+
+  # --- AUDIT: yes | head -N (≥10000) piped to LLM CLI ---
+  - id: "ts-audit-yes-compute-bomb-llm"
+    taxonomy: "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion"
+    match:
+      command_regex: "(?i)\\byes\\b.*\\|\\s*head\\s+-?n?\\s*\\d{5,}\\s*\\|.*\\b(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "yes piped through head with ≥10,000 lines then into an LLM CLI — adversarial compute-bomb pattern that stuffs massive repetitive token sequences into LLM inference (OWASP LLM04, LLM10)."
+    tests:
+      tp:
+        - "yes 'attack token' | head -100000 | claude summarize"
+        - "yes 'x' | head -n50000 | openai complete"
+      tn:
+        - "yes 'y' | head -10 | claude ask"
+        - "yes | head -100 | wc -l"
+
+  # --- AUDIT: Python/Perl one-liner with large repetition count piped to LLM CLI ---
+  - id: "ts-audit-python-repetition-bomb-llm"
+    taxonomy: "destructive-ops/resource-exhaustion/adversarial-inference-exhaustion"
+    match:
+      command_regex: "(?i)\\bpython3?\\b.*-c.*['\"].*\\*\\s*\\d{5,}.*['\"]\\s*\\|.*\\b(claude|openai|gemini|llm|gpt|copilot|codex|mistral|cohere)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "Python one-liner generating ≥10,000-repetition string piped to an LLM CLI — adversarial compute-bomb that floods LLM context with synthetic tokens (OWASP LLM04, LLM10)."
+    tests:
+      tp:
+        - "python3 -c \"print('attack ' * 100000)\" | claude --prompt -"
+        - "python3 -c \"print('[' * 50000 + ']' * 50000)\" | llm complete"
+      tn:
+        - "python3 -c \"print('hello world')\" | claude summarize"
+        - "python3 -c \"print('x ' * 100000)\" | wc -w"
+
   # === AUDIT: find | xargs AI-CLI bulk file dispatch ===
   #
   # Taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
