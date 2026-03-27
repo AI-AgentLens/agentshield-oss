@@ -24,14 +24,22 @@ func sendRemoteAudit(event *logger.AuditEvent) {
 		command = "mcp:" + event.ToolName
 	}
 
+	entry := map[string]any{
+		"command":  command,
+		"decision": event.Decision,
+		"rule_id":  firstRule(event.TriggeredRules),
+		"reason":   firstReason(event.Reasons),
+		"source":   event.Source,
+	}
+	if event.ToolName != "" {
+		entry["tool_name"] = event.ToolName
+	}
+	if len(event.MCPArguments) > 0 {
+		entry["arguments"] = event.MCPArguments
+	}
+
 	payload, err := json.Marshal(map[string]any{
-		"events": []map[string]any{{
-			"command":  command,
-			"decision": event.Decision,
-			"rule_id":  firstRule(event.TriggeredRules),
-			"reason":   firstReason(event.Reasons),
-			"source":   event.Source,
-		}},
+		"events": []map[string]any{entry},
 	})
 	if err != nil {
 		return
