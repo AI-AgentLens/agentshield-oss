@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1048 |
-| MCP rules | 479 |
-| Total rules | 1527 |
-| Test cases (TP+TN) | 3729 |
+| Terminal rules | 1049 |
+| MCP rules | 485 |
+| Total rules | 1534 |
+| Test cases (TP+TN) | 3737 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -917,7 +917,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (183 rules)
+### unauthorized-execution (184 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1104,6 +1104,7 @@
 | `ts-block-delegation-artifact-write` | BLOCK | regex | Write to an agent delegation artifact file (.agent/delegation.json, .agentauth/, .orchestrator/tokens/, *_approved.json) — direct shell writes to these paths are a reliable indicator of delegation chain forgery; legitimate orchestration frameworks use authenticated API calls, not raw shell writes (OWASP LLM06/LLM09, MITRE T1565.001). |
 | `ts-block-redis-agent-auth-inject` | BLOCK | regex | redis-cli SET with an agent delegation or auth key — injecting forged authorization into Redis state bypasses the orchestrator's authentication layer and grants the agent permissions it never legitimately received (OWASP LLM06, MITRE T1565.001). |
 | `ts-audit-delegation-env-inject` | AUDIT | regex | Delegation environment variable set before process spawn — injecting AGENT_DELEGATED_BY, ORCHESTRATOR_TOKEN, or AGENT_AUTH_BYPASS can bypass per-request authorization checks in multi-agent pipelines (OWASP LLM06). Warrants human review. |
+| `ts-audit-msj-file-read` | AUDIT | regex | Reading a file with an MSJ or adversarial-demonstration name — such files commonly contain many-shot jailbreak payloads that could override safety alignment when loaded into agent context (OWASP LLM01, LLM05). |
 
 ### uncategorized (2 rules)
 
@@ -1114,7 +1115,7 @@
 
 ## MCP Rules
 
-### credential-exposure (222 rules)
+### credential-exposure (224 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1286,11 +1287,13 @@
 | `mcp-sec-block-discord-creds` | BLOCK | mcp_rule | Access to ~/.config/discord/ is blocked — contains Discord client tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-chrome-linux-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory (Linux) is blocked — ~/.config/google-chrome/ contains saved passwords (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-chromium-credential-db` | BLOCK | mcp_rule | Access to Chromium browser profile directory (Linux) is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-chromium-credential-db-mac` | BLOCK | mcp_rule | Access to Chromium browser profile directory (macOS) is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-brave-credential-db` | BLOCK | mcp_rule | Access to Brave browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-edge-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
-| `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory is blocked — contains encrypted password database and the key database required to decrypt them. MITRE T1555.003. |
+| `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (Linux) is blocked — contains encrypted password database (logins.json + key4.db) and session cookies. MITRE T1555.003. |
+| `mcp-sec-block-firefox-macos-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (macOS) is blocked — ~/Library/Application Support/Firefox/Profiles/ contains logins.json (encrypted passwords) and key4.db (decryption keys). MITRE T1555.003. |
 | `mcp-sec-block-claude-credentials-read` | BLOCK | mcp_rule | Access to Claude CLI credential directory (~/.config/claude/) is blocked — contains OAuth tokens and session keys for Anthropic API access. MITRE T1552. |
 | `mcp-sec-block-claude-dot-credentials-read` | BLOCK | mcp_rule | Access to ~/.claude/credentials is blocked — this is Claude Code's OAuth token file. Exfiltration enables impersonation of the user to Anthropic's API. MITRE T1552. |
 | `mcp-sec-block-claude-dot-apikey-read` | BLOCK | mcp_rule | Access to ~/.claude/api_key is blocked — contains Anthropic API key for Claude Code. MITRE T1552. |
@@ -1564,7 +1567,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (63 rules)
+### unauthorized-execution (67 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1591,6 +1594,9 @@
 | `mcp-content-audit-rag-chroma-dir-write` | AUDIT | mcp_rule | MCP write to ChromaDB data directory (.chroma/). Direct file-level writes to the vector store bypass client library access controls and can corrupt or poison the RAG knowledge base (OWASP LLM08, LLM01, MITRE T1565). |
 | `mcp-content-audit-rag-faiss-write` | AUDIT | mcp_rule | MCP write to FAISS index file (*.faiss). FAISS binary index files store embedding vectors used for nearest-neighbor retrieval — direct overwrites can inject adversarial embeddings that map to attacker-controlled documents, poisoning RAG retrieval results (OWASP LLM08, LLM01, MITRE T1565). |
 | `mcp-content-audit-rag-lance-write` | AUDIT | mcp_rule | MCP write to LanceDB Lance-format file (*.lance). Lance columnar storage files back LanceDB vector stores — direct writes can corrupt the embedding index or inject poisoned document vectors into the RAG retrieval pipeline (OWASP LLM08, LLM01, MITRE T1565). |
+| `mcp-content-audit-msj-filename-read` | AUDIT | mcp_rule | MCP read of a file with 'jailbreak' in its name — such files commonly contain many-shot jailbreaking payloads that override safety alignment when loaded into agent context (OWASP LLM01, LLM05). |
+| `mcp-content-audit-msj-adversarial-read` | AUDIT | mcp_rule | MCP read of a file named 'msj_payload' — a naming convention used by many-shot jailbreak red-team toolkits. Loading this file into agent context could override safety alignment for the session (OWASP LLM01). |
+| `mcp-content-audit-msj-demo-pairs-read` | AUDIT | mcp_rule | MCP read of a few-shot demonstration file — large collections of instruction-response demo pairs are the primary vehicle for many-shot jailbreaking (OWASP LLM01). |
 | `mcp-struct-block-shell-meta-in-path` | BLOCK | structural | Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling) |
 | `mcp-struct-audit-shell-var-in-path` | AUDIT | structural | Variable expansion syntax in MCP path argument — ${VAR} is common in Docker/CI configs but may also indicate path injection. AUDIT for review (OWASP LLM02). |
 | `mcp-struct-block-shell-inject-in-command` | BLOCK | structural | Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02) |
@@ -1602,6 +1608,7 @@
 | `mcp-block-session-fixation-header-injection` | BLOCK | structural | Mcp-Session-Id header injection pattern detected in tool call content — session fixation attack embedding explicit session ID directives to override the server-assigned session context. OWASP LLM06 (Excessive Agency), CWE-384 (Session Fixation). |
 | `mcp-audit-session-store-write` | AUDIT | structural | Write to MCP session store file — may persist forged session IDs or overwrite active session state, enabling session fixation or replay attacks. OWASP LLM06, CWE-384. |
 | `mcp-audit-session-store-read` | AUDIT | structural | Read of MCP session store file — exposes active session IDs that may be used for session enumeration, fixation, or replay attacks. OWASP LLM06, CWE-384, CWE-613. |
+| `mcp-struct-audit-msj-payload-write` | AUDIT | structural | MCP write containing multiple instruction-response demonstration pairs — this Q&A repetition pattern is the primary construction method for many-shot jailbreak payloads that override LLM safety alignment when injected into agent context (OWASP LLM01). |
 | `mcp-block-checkpoint-file-write` | BLOCK | mcp_rule | MCP write to a checkpoint .pkl file — pickle-serialized checkpoint files are deserialized at framework resume, so writing attacker-controlled pickle data achieves RCE (CWE-502). OWASP LLM06, MITRE T1565.001. |
 | `mcp-audit-checkpoint-db-read` | AUDIT | mcp_rule | MCP read of a checkpoints.db SQLite file — agent checkpoint databases store execution state, tool results, and context. Read access may be reconnaissance before tampering. OWASP LLM06. |
 | `mcp-block-delegation-token-path-access` | BLOCK | mcp_rule | MCP access to .agent/delegation.json — direct file tool access to this delegation token file enables both forgery (write) and token replay (read) attacks without invoking a shell (OWASP LLM06/LLM09, MITRE T1565.001). |
@@ -1660,6 +1667,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 426 | 294 | 720 |
-| **Total** | **2250** | **1479** | **3729** |
+| unauthorized-execution | 431 | 297 | 728 |
+| **Total** | **2255** | **1482** | **3737** |
 
