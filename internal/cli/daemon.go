@@ -100,7 +100,7 @@ func installLaunchd() error {
 </plist>`, launchdLabel, binPath, logPath, logPath)
 
 	plistFile := plistPath()
-	os.MkdirAll(filepath.Dir(plistFile), 0755)
+	_ = os.MkdirAll(filepath.Dir(plistFile), 0755)
 
 	if err := os.WriteFile(plistFile, []byte(plist), 0644); err != nil {
 		return fmt.Errorf("write plist: %w", err)
@@ -117,8 +117,8 @@ func installLaunchd() error {
 
 func uninstallLaunchd() {
 	plistFile := plistPath()
-	exec.Command("launchctl", "unload", plistFile).Run()
-	os.Remove(plistFile)
+	_ = exec.Command("launchctl", "unload", plistFile).Run()
+	_ = os.Remove(plistFile)
 }
 
 // --- Fallback: detached process ---
@@ -142,9 +142,9 @@ func startDetachedProcess() error {
 	}
 
 	pidFile := pidFilePath()
-	os.MkdirAll(filepath.Dir(pidFile), 0700)
-	os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0600)
-	cmd.Process.Release()
+	_ = os.MkdirAll(filepath.Dir(pidFile), 0700)
+	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0600)
+	_ = cmd.Process.Release()
 
 	return nil
 }
@@ -157,16 +157,16 @@ func killPidFile() {
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		os.Remove(pidFile)
+		_ = os.Remove(pidFile)
 		return
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		os.Remove(pidFile)
+		_ = os.Remove(pidFile)
 		return
 	}
-	proc.Signal(syscall.SIGTERM)
-	os.Remove(pidFile)
+	_ = proc.Signal(syscall.SIGTERM)
+	_ = os.Remove(pidFile)
 }
 
 func isPidAlive() bool {

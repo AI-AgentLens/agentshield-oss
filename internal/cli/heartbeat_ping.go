@@ -25,7 +25,7 @@ func sendOpportunisticHeartbeat() {
 
 	// Restart daemon if it died (brew update, reboot, etc.)
 	if !isHeartbeatRunning() {
-		startHeartbeatDaemon()
+		_ = startHeartbeatDaemon()
 	}
 
 	// Check cooldown — don't send more than once per 10 minutes
@@ -60,9 +60,9 @@ func sendOpportunisticHeartbeat() {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Update stamp file
-	os.MkdirAll(filepath.Dir(stampFile), 0700)
-	os.WriteFile(stampFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0600)
+	_ = os.MkdirAll(filepath.Dir(stampFile), 0700)
+	_ = os.WriteFile(stampFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0600)
 }

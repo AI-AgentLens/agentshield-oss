@@ -145,8 +145,8 @@ func handleRevocation() {
 
 	// Remove credentials so the daemon won't restart successfully
 	home, _ := os.UserHomeDir()
-	os.Remove(filepath.Join(home, ".agentshield", "credentials.json"))
-	os.Remove(filepath.Join(home, ".agentshield", "last_heartbeat"))
+	_ = os.Remove(filepath.Join(home, ".agentshield", "credentials.json"))
+	_ = os.Remove(filepath.Join(home, ".agentshield", "last_heartbeat"))
 
 	// Exit the process. Launchd will try to restart, but connect will fail
 	// with "not logged in" and exit immediately, so it won't keep retrying.

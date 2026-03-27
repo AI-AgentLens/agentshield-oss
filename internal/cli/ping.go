@@ -58,7 +58,7 @@ func pingCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("ping failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	latency := time.Since(start)
 
 	if resp.StatusCode == 200 {

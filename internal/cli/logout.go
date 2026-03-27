@@ -45,7 +45,7 @@ func deleteAgentFromSaaS(creds *auth.Credentials) {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func logoutCommand(cmd *cobra.Command, args []string) error {

@@ -49,7 +49,7 @@ func sendRemoteAudit(event *logger.AuditEvent) {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 func firstRule(rules []string) string {
