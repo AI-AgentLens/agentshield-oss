@@ -10868,6 +10868,36 @@ rules:
       tn:
         - 'python3 -c "import chromadb; print(chromadb.__version__)"'
 
+  # === AUDIT: vector store bulk enumeration — get() without tenant filter ===
+  #
+  # Taxonomy: reconnaissance/llm-introspection/agent-memory-store-enumeration
+  # OWASP LLM06 — Sensitive Information Disclosure
+  # MITRE T1530 — Data from Cloud Storage, T1213 — Data from Information Repositories
+  # CWE-639 — Authorization Bypass Through User-Controlled Key, CWE-284 — Improper Access Control
+  #
+  # AI agents using Chroma, Qdrant, or Weaviate as long-term memory stores accumulate
+  # sensitive conversation history, credentials, and organizational knowledge over time.
+  # Calling .get() without a where/filter or user namespace argument returns ALL stored
+  # memories across tenants — a critical cross-user data exposure.
+  #
+  # Examples:
+  #   python3 -c "import chromadb; c=chromadb.Client(); c.get_collection('memories').get(where={}, limit=1000)"
+  #   python3 -c "from qdrant_client import QdrantClient; c=QdrantClient('localhost'); print(c.scroll('agent_memories', limit=1000))"
+  - id: "ts-audit-vector-store-bulk-enum"
+    taxonomy: "reconnaissance/llm-introspection/agent-memory-store-enumeration"
+    match:
+      command_regex: "python[23]?\\s+-c\\s+.*\\b(chromadb|qdrant_client|weaviate|pymilvus|lancedb)\\b.*\\.(get|scroll|list|search)\\s*\\([^)]*\\blimit\\s*=\\s*[1-9]\\d{2,}"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Python inline vector store bulk read (.get()/.scroll()/.search() with large limit and no tenant filter) — may enumerate all stored agent memories across users (OWASP LLM06, MITRE T1530)."
+    tests:
+      tp:
+        - 'python3 -c "import chromadb; c=chromadb.Client(); c.get_collection(''memories'').get(where={}, limit=1000)"'
+        - 'python3 -c "from qdrant_client import QdrantClient; c=QdrantClient(''localhost''); c.scroll(''agent_memories'', limit=500)"'
+      tn:
+        - 'python3 -c "import chromadb; print(chromadb.__version__)"'
+        - 'python3 -c "import chromadb; col.get(where={''user_id'': ''alice''}, limit=10)"'
+
   # ── AI Safety Control Bypass ────────────────────────────────────────────────
   #
   # Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations

@@ -1027,6 +1027,38 @@ var AIContentIntegrityCases = []TestCase{
 		Description:      "Grep for similarity_search in source code — search, not execution. Should not trigger RAG rule.",
 		Tags:             []string{"tn", "safe", "rag-poisoning"},
 	},
+
+	// Rule: ts-audit-vector-store-bulk-enum
+	{
+		ID:               "TP-TS-AUDIT-VECTOR-ENUM-001",
+		Command:          `python3 -c "import chromadb; c=chromadb.Client(); c.get_collection('memories').get(where={}, limit=1000)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/agent-memory-store-enumeration",
+		Analyzer:         "regex",
+		Description:      "Chroma .get() with large limit and no user filter — bulk agent memory enumeration, must be AUDIT.",
+		Tags:             []string{"tp", "vector-store", "memory-enumeration"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-VECTOR-ENUM-002",
+		Command:          `python3 -c "from qdrant_client import QdrantClient; c=QdrantClient('localhost'); c.scroll('agent_memories', limit=500)"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/llm-introspection/agent-memory-store-enumeration",
+		Analyzer:         "regex",
+		Description:      "Qdrant .scroll() with large limit — bulk agent memory enumeration, must be AUDIT.",
+		Tags:             []string{"tp", "vector-store", "memory-enumeration"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-VECTOR-ENUM-001",
+		Command:          `grep -r "get_collection" ./src/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/agent-memory-store-enumeration",
+		Analyzer:         "regex",
+		Description:      "Grep for get_collection in source code — text search, not vector store execution. Should not trigger bulk enum rule.",
+		Tags:             []string{"tn", "safe", "vector-store"},
+	},
 }
 
 // ---------------------------------------------------------------------------
