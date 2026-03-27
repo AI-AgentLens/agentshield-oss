@@ -5691,4 +5691,45 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-read",
 		Description:      "Reading project integration docs — similar name to lastpass config but in workspace, not home dir (issue #519)",
 	},
+
+	// Issue #525: TP — fetch AWS IMDS IPv6 endpoint to steal EC2 IAM role credentials
+	{
+		ID:               "MCP-TP-805",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "http://[fd00:ec2::254]/latest/meta-data/iam/security-credentials/"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cloud-imds",
+		Description:      "fetch AWS IMDS via IPv6 fd00:ec2::254 — steals EC2 IAM role credentials. Must be BLOCKED by mcp-sec-block-aws-imds (issue #525).",
+	},
+	// Issue #525: TP — http_request to AWS IMDS IPv6 for token endpoint
+	{
+		ID:               "MCP-TP-806",
+		ToolName:         "http_request",
+		Arguments:        map[string]interface{}{"url": "http://[fd00:ec2::254]/latest/api/token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "cloud-imds",
+		Description:      "http_request to AWS IMDS IPv6 endpoint for IMDSv2 token — credential theft. Must be BLOCKED by mcp-sec-block-aws-imds (issue #525).",
+	},
+	// Issue #525: TN — fetch legitimate IPv6 API (not IMDS)
+	{
+		ID:               "MCP-TN-799",
+		ToolName:         "fetch",
+		Arguments:        map[string]interface{}{"url": "http://[::1]/api/status"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cloud-imds",
+		Description:      "fetch localhost IPv6 loopback — legitimate local dev server, not IMDS. mcp-sec-block-aws-imds must NOT fire (issue #525).",
+	},
+	// Issue #525: TN — doc about AWS IMDS IPv6 (not an actual fetch)
+	{
+		ID:               "MCP-TN-800",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/aws-imds-ipv6-migration.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cloud-imds",
+		Description:      "read_file on AWS IMDS IPv6 migration docs — file contains 'fd00:ec2::254' as text but is not an HTTP fetch to that endpoint. mcp-sec-block-aws-imds must NOT fire (issue #525).",
+	},
 }
