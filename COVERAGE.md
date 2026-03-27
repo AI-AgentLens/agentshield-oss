@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1045 |
-| MCP rules | 473 |
-| Total rules | 1518 |
+| MCP rules | 477 |
+| Total rules | 1522 |
 | Test cases (TP+TN) | 3717 |
 | Kingdoms covered | 10 |
 
@@ -1490,17 +1490,20 @@
 | `mcp-persist-block-ipython-startup-write` | BLOCK | structural | MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
-### privilege-escalation (16 rules)
+### privilege-escalation (19 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-ts-block-ldso-conf-write` | BLOCK | mcp_rule | [MCP] Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426. |
 | `mcp-privesc-block-docker-socket` | BLOCK | mcp_rule | Access to Docker socket blocked — enables container escape and full host compromise. MITRE T1611. |
+| `mcp-privesc-block-dbus-socket` | BLOCK | mcp_rule | Access to D-Bus system socket blocked — the D-Bus socket is the IPC channel for privileged system daemons (systemd, polkit, NetworkManager). Agents can invoke privileged methods or exploit policy misconfigurations to escalate privileges. MITRE T1548. |
 | `mcp-privesc-block-containerd-socket` | BLOCK | mcp_rule | Access to containerd socket blocked — the containerd runtime socket offers the same container escape and host compromise vector as the Docker socket. MITRE T1611. |
 | `mcp-privesc-block-crio-socket` | BLOCK | mcp_rule | Access to CRI-O socket blocked — the CRI-O container runtime socket enables container escape and arbitrary workload injection on the host. MITRE T1611. |
 | `mcp-privesc-block-podman-socket` | BLOCK | mcp_rule | Access to Podman socket blocked — enables rootless or rootful container creation that can be used as a container escape or privilege escalation path. MITRE T1611. |
 | `mcp-privesc-block-sudoers-read` | BLOCK | mcp_rule | Read access to /etc/sudoers is blocked — reveals all sudo-enabled accounts and NOPASSWD entries, enabling targeted privilege escalation. MITRE T1548.003. |
 | `mcp-privesc-block-sudoersd-read` | BLOCK | mcp_rule | Read access to /etc/sudoers.d/ is blocked — drop-in sudoers files list privileged accounts and NOPASSWD grants. MITRE T1548.003. |
+| `mcp-privesc-block-pam-read` | BLOCK | mcp_rule | Read access to /etc/pam.d/ blocked — PAM configuration reveals auth stack modules, bypass opportunities, and lockout settings that enable targeted privilege escalation. MITRE T1556.003. |
+| `mcp-privesc-block-polkit-read` | BLOCK | mcp_rule | Read access to /etc/polkit-1/ blocked — polkit rules reveal which D-Bus actions are authorized for unprivileged users, admin group definitions, and passwordless pkexec paths for privilege escalation. MITRE T1548. |
 | `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
 | `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
 | `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611. |
@@ -1624,7 +1627,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (10 rules)
+### uncategorized (11 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1633,6 +1636,7 @@
 | `mcp-audit-consensus-artifact-write` | AUDIT | structural | MCP write to consensus artifact file — writing fabricated consensus state allows a voting oracle attack that biases all downstream agents reading from this shared truth store (OWASP LLM09). |
 | `mcp-fin-block-all-balance-amount` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string indicates intent to send entire balance |
 | `mcp-fin-block-all-balance-value` | BLOCK | structural | Unbounded transfer detected — 'ALL_BALANCE' or equivalent string in value argument |
+| `mcp-privesc-block-dbus-socket-structural` | BLOCK | structural | D-Bus socket path detected in MCP tool argument — all D-Bus sockets expose privileged IPC channels that can be abused for privilege escalation. MITRE T1548. |
 | `mcp-response-integrity-struct-block-c2-url` | BLOCK | structural | Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659) |
 | `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
