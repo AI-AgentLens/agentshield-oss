@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1055 |
-| MCP rules | 493 |
-| Total rules | 1548 |
+| MCP rules | 498 |
+| Total rules | 1553 |
 | Test cases (TP+TN) | 3756 |
 | Kingdoms covered | 10 |
 
@@ -1121,7 +1121,7 @@
 
 ## MCP Rules
 
-### credential-exposure (229 rules)
+### credential-exposure (230 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1143,6 +1143,7 @@
 | `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
 | `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory |
 | `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory |
+| `mcp-safety-block-resource-file-sensitive-os` | BLOCK | resource_rule | resources/read URI targets a sensitive OS credential file — /etc/shadow, /etc/passwd, and /etc/sudoers contain user credentials and privilege configuration. MITRE T1003, T1552. |
 | `mcp-sec-block-ssh-access` | BLOCK | mcp_rule | Write access to SSH directory is blocked — modifications to ~/.ssh/ can install backdoors (authorized_keys) or redirect connections (config). MITRE T1098.004, T1552.004. |
 | `mcp-sec-block-ssh-private-key-read` | BLOCK | mcp_rule | Read access to SSH private key (id_rsa) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
 | `mcp-sec-block-ssh-ed25519-key-read` | BLOCK | mcp_rule | Read access to SSH private key (id_ed25519) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
@@ -1580,7 +1581,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (67 rules)
+### unauthorized-execution (69 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1649,10 +1650,12 @@
 | `mcp-struct-block-shell-in-command-arg` | BLOCK | structural | Shell command detected in command argument — possible disguised execution tool |
 | `mcp-struct-block-shell-in-exec-arg` | BLOCK | structural | Shell command detected in exec argument — hidden command execution |
 | `mcp-struct-block-dcr-registration` | BLOCK | structural | MCP tool POSTing a Dynamic Client Registration payload to a /register endpoint — RFC 7591 DCR abuse allows a rogue OAuth client to be silently registered on the MCP authorization server, creating a persistent trusted identity that enables future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
+| `mcp-safety-block-resource-ssrf-imds` | BLOCK | resource_rule | resources/read URI targets a cloud IMDS endpoint — fetching this URI leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
+| `mcp-safety-block-resource-ssrf-localhost` | BLOCK | resource_rule | resources/read URI targets localhost — allows attacker to probe or exfiltrate data from internal services not exposed externally. MITRE T1090, OWASP LLM08. |
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (12 rules)
+### uncategorized (14 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1666,6 +1669,8 @@
 | `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
+| `mcp-safety-block-tool-uri-ssrf-imds` | BLOCK | structural | SSRF via tool 'uri' argument — request to cloud metadata endpoint leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
+| `mcp-safety-block-tool-uri-ssrf-localhost` | BLOCK | structural | SSRF via tool 'uri' argument — request to localhost/loopback service allows attacker to probe or exfiltrate data from internal services. MITRE T1090, OWASP LLM08. |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 | `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
 
