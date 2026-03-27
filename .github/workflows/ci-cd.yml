@@ -105,10 +105,6 @@ jobs:
           git push origin "$NEW_TAG"
           echo "GORELEASER_CURRENT_TAG=$NEW_TAG" >> "$GITHUB_ENV"
 
-      - name: Install GoReleaser
-        run: |
-          curl -sfL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin goreleaser 2>/dev/null || true
-
       - name: Run GoReleaser
         env:
           GITHUB_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
