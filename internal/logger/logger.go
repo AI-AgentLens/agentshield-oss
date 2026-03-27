@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/security-researcher-ca/agentshield/internal/redact"
@@ -37,9 +38,116 @@ func (e AuditEvent) IsMCP() bool {
 // DisplayLabel returns a human-readable label: the command (shell) or tool name (MCP).
 func (e AuditEvent) DisplayLabel() string {
 	if e.ToolName != "" {
-		return "[MCP] " + e.ToolName
+		return "[MCP] " + mcpSummary(e.ToolName, e.MCPArguments)
 	}
 	return e.Command
+}
+
+// mcpSummary builds a friendly one-line summary from a tool name and its arguments.
+func mcpSummary(tool string, args map[string]interface{}) string {
+	if len(args) == 0 {
+		return tool
+	}
+
+	str := func(key string) string {
+		if v, ok := args[key]; ok {
+			if s, ok := v.(string); ok {
+				return s
+			}
+		}
+		return ""
+	}
+
+	num := func(key string) (int, bool) {
+		if v, ok := args[key]; ok {
+			switch n := v.(type) {
+			case float64:
+				return int(n), true
+			case int:
+				return n, true
+			}
+		}
+		return 0, false
+	}
+
+	switch tool {
+	case "Read":
+		fp := str("file_path")
+		if fp == "" {
+			return tool
+		}
+		offset, hasOff := num("offset")
+		limit, hasLim := num("limit")
+		if hasOff && hasLim {
+			return fmt.Sprintf("Read %s (lines %d-%d)", fp, offset, offset+limit)
+		} else if hasOff {
+			return fmt.Sprintf("Read %s (from line %d)", fp, offset)
+		} else if hasLim {
+			return fmt.Sprintf("Read %s (first %d lines)", fp, limit)
+		}
+		return "Read " + fp
+
+	case "Edit":
+		fp := str("file_path")
+		if fp == "" {
+			return tool
+		}
+		return "Edit " + fp
+
+	case "Write":
+		fp := str("file_path")
+		if fp == "" {
+			return tool
+		}
+		return "Write " + fp
+
+	case "Grep":
+		pattern := str("pattern")
+		path := str("path")
+		if pattern == "" {
+			return tool
+		}
+		if path != "" {
+			return fmt.Sprintf("Grep %q in %s", pattern, path)
+		}
+		return fmt.Sprintf("Grep %q", pattern)
+
+	case "Glob":
+		pattern := str("pattern")
+		path := str("path")
+		if pattern == "" {
+			return tool
+		}
+		if path != "" {
+			return fmt.Sprintf("Glob %s in %s", pattern, path)
+		}
+		return "Glob " + pattern
+
+	case "Bash":
+		cmd := str("command")
+		if cmd == "" {
+			return tool
+		}
+		// Truncate long commands
+		cmd = strings.ReplaceAll(cmd, "\n", " ")
+		if len(cmd) > 80 {
+			cmd = cmd[:77] + "..."
+		}
+		return "Bash: " + cmd
+
+	default:
+		// For unknown tools, show first string argument value
+		for _, v := range args {
+			if s, ok := v.(string); ok && s != "" {
+				if len(s) > 60 {
+					s = s[:57] + "..."
+				}
+				return tool + " " + s
+				// only show the first one
+			}
+		}
+		return tool
+	}
 }
 
 // Ensure AuditLogger implements Logger.

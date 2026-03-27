@@ -150,6 +150,11 @@ func printEvents(events []logger.AuditEvent) {
 		if e.Cwd != "" {
 			fmt.Printf("     Cwd: %s\n", e.Cwd)
 		}
+		if len(e.MCPArguments) > 0 {
+			for k, v := range e.MCPArguments {
+				fmt.Printf("     %s: %v\n", k, v)
+			}
+		}
 		fmt.Println()
 	}
 }
