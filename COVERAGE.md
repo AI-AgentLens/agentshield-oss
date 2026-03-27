@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1044 |
-| MCP rules | 472 |
-| Total rules | 1516 |
-| Test cases (TP+TN) | 3708 |
+| Terminal rules | 1045 |
+| MCP rules | 473 |
+| Total rules | 1518 |
+| Test cases (TP+TN) | 3717 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -698,7 +698,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (72 rules)
+### reconnaissance (73 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -767,7 +767,8 @@
 | `ts-block-find-shadow-hunt` | BLOCK | regex | find searching for 'shadow' files across the filesystem is targeted reconnaissance for the system password database (/etc/shadow). No legitimate development task requires locating shadow files. MITRE T1083, T1552.001. |
 | `ts-audit-find-credential-hunt` | AUDIT | regex | find searching broad filesystem paths for credential file names (SSH keys, PEM/key files, keystores, credential files) is a reconnaissance pattern for credential enumeration. AI agents have no legitimate need to hunt for credential files system-wide. MITRE T1083, T1552.001, CWE-200. |
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
-| `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592. |
+| `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592 (Process Discovery, Security Software Discovery). |
+| `ts-block-pgrep-security-tool-targeting` | BLOCK | regex | Direct pgrep or tasklist+findstr targeting named security tools — this is unambiguous security software discovery (MITRE T1057/T1518.001) to identify and subsequently disable active security controls. OWASP LLM01. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 | `ts-audit-credential-dir-ls-chain` | AUDIT | regex | Chained ls on 2+ credential directories in a single compound command — systematic enumeration of available credential stores is a pre-exfiltration reconnaissance step. OWASP LLM01, MITRE T1083/T1592. |
 | `ts-block-osint-email-harvesting` | BLOCK | regex | OSINT email/identity harvesting tool detected. theHarvester collects email addresses and hostnames from search engines and social networks; h8mail checks breach databases for compromised credentials; holehe enumerates account registrations across 120+ websites. These tools are purpose-built for pre-attack reconnaissance (MITRE T1589, T1596.005). AI agents have no legitimate use case for targeting external individuals or organizations. OWASP LLM02/LLM06. |
@@ -1510,11 +1511,12 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (21 rules)
+### reconnaissance (22 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-recon-audit-etc-listing` | AUDIT | mcp_rule | Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083. |
+| `mcp-recon-block-proc-mem-access` | BLOCK | mcp_rule | Access to /proc/PID/mem is blocked — this is the Linux process memory interface used for credential dumping (reading decrypted keys/tokens directly from RAM). No legitimate MCP agent operation requires raw process memory access. MITRE T1003. |
 | `mcp-recon-audit-proc-read` | AUDIT | mcp_rule | Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057. |
 | `mcp-recon-audit-home-listing` | AUDIT | mcp_rule | Listing /home root-level user directory flagged — enumerates local user accounts. Deep project paths under /home are excluded to avoid noise on legitimate project work. MITRE T1083. |
 | `mcp-recon-audit-os-release-read` | AUDIT | mcp_rule | Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082. |
@@ -1647,8 +1649,8 @@
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 287 | 175 | 462 |
 | privilege-escalation | 284 | 172 | 456 |
-| reconnaissance | 175 | 80 | 255 |
+| reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 426 | 294 | 720 |
-| **Total** | **2238** | **1470** | **3708** |
+| **Total** | **2243** | **1474** | **3717** |
 
