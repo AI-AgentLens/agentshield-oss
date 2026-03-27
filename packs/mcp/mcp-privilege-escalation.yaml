@@ -187,6 +187,78 @@ rules:
         - tool: "read_file"
           args: {"path": "/etc/apt/sources.list.d/custom.list"}
 
+  # === BLOCK: PAM configuration read access (auth-stack recon) ===
+  # The PAM stack (/etc/pam.d/) controls every authentication event on Linux:
+  # SSH login, sudo, su, screen unlock, etc. Reading PAM config reveals:
+  # - Modules that can be bypassed (pam_permit, null passwords)
+  # - Account lockout bypass opportunities (pam_faillock thresholds)
+  # - Session recording modules to disable (pam_tty_audit)
+  # Write access is already blocked by mcp-safety-block-etc-write.
+  # MITRE T1556.003 — Modify Authentication Process: PAM
+  - id: mcp-privesc-block-pam-read
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/etc/pam.d/**"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Read access to /etc/pam.d/ blocked — PAM configuration reveals auth stack modules, bypass opportunities, and lockout settings that enable targeted privilege escalation. MITRE T1556.003."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/pam.d/sudo"}
+        - tool: "cat_file"
+          args: {"path": "/etc/pam.d/common-auth"}
+        - tool: "view_file"
+          args: {"path": "/etc/pam.d/sshd"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docs/pam-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/etc/ssh/sshd_config"}
+
+  # === BLOCK: Polkit rules read access (privilege authorization recon) ===
+  # PolicyKit (/etc/polkit-1/) is the Linux privilege broker between unprivileged
+  # applications and privileged system daemons. Reading polkit rules reveals:
+  # - Which D-Bus actions unprivileged users are authorized to invoke
+  # - Admin group definitions that can be targeted (e.g., "wheel", "sudo")
+  # - Whether privilege escalation via pkexec is available without password
+  # Write access is already blocked by mcp-safety-block-etc-write.
+  # MITRE T1548 — Abuse Elevation Control Mechanism
+  - id: mcp-privesc-block-polkit-read
+    taxonomy: "privilege-escalation/command-execution/sudo-invocation"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/etc/polkit-1/**"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Read access to /etc/polkit-1/ blocked — polkit rules reveal which D-Bus actions are authorized for unprivileged users, admin group definitions, and passwordless pkexec paths for privilege escalation. MITRE T1548."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/polkit-1/rules.d/99-custom.rules"}
+        - tool: "cat_file"
+          args: {"path": "/etc/polkit-1/localauthority/10-vendor.d/custom.pkla"}
+        - tool: "view_file"
+          args: {"path": "/etc/polkit-1/rules.d/50-default.rules"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docs/polkit-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/etc/apt/sources.list"}
+
   # === BLOCK: Kubernetes privilege-granting manifest writes ===
   - id: mcp-privesc-block-k8s-clusterrolebinding-write
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
