@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1049 |
-| MCP rules | 485 |
-| Total rules | 1534 |
-| Test cases (TP+TN) | 3737 |
+| Terminal rules | 1053 |
+| MCP rules | 489 |
+| Total rules | 1542 |
+| Test cases (TP+TN) | 3752 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -917,7 +917,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (184 rules)
+### unauthorized-execution (188 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -962,6 +962,7 @@
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
 | `ts-block-mcp-dcr-curl-post` | BLOCK | regex | curl/wget POST to a /register endpoint with DCR payload (client_name or redirect_uris) — MCP Dynamic Client Registration abuse (RFC 7591). Registering a rogue OAuth client on the MCP authorization server creates a persistent trusted identity enabling future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
+| `ts-block-mcp-http-proxy-all-interfaces` | BLOCK | regex | MCP HTTP server bound to 0.0.0.0 (all interfaces) instead of 127.0.0.1 — enables DNS rebinding attacks where a malicious web page rebinds its domain to localhost and invokes any registered MCP tool (execute_bash, read_file, etc.) without user consent (CWE-346, OWASP LLM01/LLM06, MITRE T1557). |
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
 | `ts-block-indirect-injection-llm-format` | BLOCK | regex | LLM format escape marker ([/INST], <\|start_header_id\|>system) in command — used to break out of the instruction frame and inject a new system directive in retrieved content (OWASP LLM01). |
 | `ts-block-indirect-injection-markdown-alt` | BLOCK | regex | Markdown image alt-text containing an injection directive — indirect prompt injection via retrieved Markdown; agents may act on instructions embedded in image alt-text (OWASP LLM01). |
@@ -1105,6 +1106,9 @@
 | `ts-block-redis-agent-auth-inject` | BLOCK | regex | redis-cli SET with an agent delegation or auth key — injecting forged authorization into Redis state bypasses the orchestrator's authentication layer and grants the agent permissions it never legitimately received (OWASP LLM06, MITRE T1565.001). |
 | `ts-audit-delegation-env-inject` | AUDIT | regex | Delegation environment variable set before process spawn — injecting AGENT_DELEGATED_BY, ORCHESTRATOR_TOKEN, or AGENT_AUTH_BYPASS can bypass per-request authorization checks in multi-agent pipelines (OWASP LLM06). Warrants human review. |
 | `ts-audit-msj-file-read` | AUDIT | regex | Reading a file with an MSJ or adversarial-demonstration name — such files commonly contain many-shot jailbreak payloads that could override safety alignment when loaded into agent context (OWASP LLM01, LLM05). |
+| `ts-block-sog-jq-shell-pipe` | BLOCK | regex | jq field extraction piped directly to a shell interpreter — a classic structured-output guardrail bypass. JSON fields from LLM responses or config files may embed shell payloads that are invisible to string-based safety checks but executed when piped to bash/sh (OWASP LLM01, LLM02, MITRE T1059, CWE-78). |
+| `ts-block-sog-python-json-shell-exec` | BLOCK | regex | Python inline one-liner parsing JSON and passing the result to os.system(), subprocess, or exec() — a structured-output guardrail bypass. The JSON field extraction conceals shell payloads from static command analysis; at runtime the payload is extracted and executed with full agent privileges (OWASP LLM01, LLM02, MITRE T1059.006, CWE-78). |
+| `ts-block-sog-python-json-b64-exec` | BLOCK | regex | Python inline one-liner combining JSON field extraction, base64 decoding, and exec()/eval() — a structured-output guardrail bypass using payload fragmentation. Base64 encoding hides the payload from string-based safety checks; the JSON structure distributes it across typed schema fields; exec() runs the reassembled payload at full agent privileges (OWASP LLM01, LLM02, MITRE T1027.013, CWE-78). |
 
 ### uncategorized (2 rules)
 
@@ -1115,7 +1119,7 @@
 
 ## MCP Rules
 
-### credential-exposure (224 rules)
+### credential-exposure (228 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1309,6 +1313,8 @@
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
 | `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config file is blocked — contains personal access tokens and scoped service tokens that grant read access to all managed secrets across all configured projects. MITRE T1552.001. |
+| `mcp-sec-block-infisical-homedir-read` | BLOCK | mcp_rule | Access to Infisical CLI home-dir credential store (~/.infisical/) is blocked — contains user JWTs and service tokens granting full access to all secrets in Infisical projects without a master password. MITRE T1552.001, T1555.004. |
+| `mcp-sec-block-infisical-xdg-config-read` | BLOCK | mcp_rule | Access to Infisical CLI XDG config dir (~/.config/infisical/) is blocked — XDG-compliant location for Infisical auth tokens and service tokens. MITRE T1552.001, T1555.004. |
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
 | `mcp-sec-audit-jupyter-notebook-read` | AUDIT | mcp_rule | Reading a Jupyter notebook (.ipynb) — notebooks may contain embedded credentials in cell outputs. Auditing for review. |
 | `mcp-sec-block-snowsql-credentials-read` | BLOCK | mcp_rule | Access to Snowflake SQL credential directory (~/.snowsql/) is blocked — contains account passwords and MFA configuration. MITRE T1552. |
@@ -1317,6 +1323,8 @@
 | `mcp-sec-block-bitwarden-session-token` | BLOCK | mcp_rule | Access to ~/.bitwarden_session is blocked — contains an authenticated Bitwarden CLI session token granting full vault access without the master password. MITRE T1555.005. |
 | `mcp-sec-block-bitwarden-snap-data` | BLOCK | mcp_rule | Access to ~/.local/share/bitwarden/ is blocked — Bitwarden desktop app (Snap/AppImage) stores encrypted vault cache and session tokens here. MITRE T1555. |
 | `mcp-sec-block-lastpass-config-dir` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/LastPass/) is blocked — contains session tokens and account configuration. MITRE T1555.005. |
+| `mcp-sec-block-lpass-cli-dir` | BLOCK | mcp_rule | Access to LastPass CLI session directory (~/.lpass/) is blocked — contains session tokens and cached vault data that enable access to all stored passwords without the master password. MITRE T1555.005. |
+| `mcp-sec-block-lastpass-config-dir-lowercase` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/lastpass/, lowercase) is blocked — case-sensitive Linux complement to the existing ~/.config/LastPass/ rule. Contains session tokens and account configuration. MITRE T1555.005. |
 | `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
 | `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
@@ -1667,6 +1675,6 @@
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 431 | 297 | 728 |
-| **Total** | **2255** | **1482** | **3737** |
+| unauthorized-execution | 440 | 303 | 743 |
+| **Total** | **2264** | **1488** | **3752** |
 
