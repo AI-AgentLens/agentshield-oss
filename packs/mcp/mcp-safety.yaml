@@ -440,6 +440,94 @@ rules:
         - tool: "read_file"
           args: {"path": "/workspace/README.md"}
 
+  # === BLOCK: resources/subscribe — sensitive credential paths (passive exfiltration) ===
+  #
+  # MCP 2024-11+ resources/subscribe enables passive file monitoring: once subscribed,
+  # the server pushes notifications/resources/updated events whenever the file changes,
+  # delivering the new content without the agent ever issuing a read_file call.
+  # An attacker (via prompt injection) can subscribe to credential files and receive
+  # secrets passively, bypassing all existing read_file guards. For active harvesting,
+  # the attacker prompts the agent to touch target files to trigger notification delivery.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-subscription-abuse
+  # MCP Spec: resources/subscribe (2024-11), notifications/resources/updated
+  # MITRE: T1552 (Credentials in Files), OWASP LLM08
+  - id: mcp-safety-block-subscribe-credentials
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-subscription-abuse"
+    match:
+      tool_name_any:
+        - "resources/subscribe"
+      argument_patterns:
+        uri: "**/.ssh/**"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Subscribing to SSH credential files via MCP resources/subscribe enables passive exfiltration: the server pushes file content via change notifications without requiring explicit read_file calls, bypassing existing credential guards. MITRE T1552, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.ssh/config"}
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.ssh/id_rsa"}
+      tn:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///workspace/src/main.go"}
+
+  - id: mcp-safety-block-subscribe-aws
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-subscription-abuse"
+    match:
+      tool_name_any:
+        - "resources/subscribe"
+      argument_patterns:
+        uri: "**/.aws/**"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Subscribing to AWS credential files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.aws/credentials"}
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.aws/config"}
+      tn:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///workspace/README.md"}
+
+  - id: mcp-safety-block-subscribe-gnupg
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-subscription-abuse"
+    match:
+      tool_name_any:
+        - "resources/subscribe"
+      argument_patterns:
+        uri: "**/.gnupg/**"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Subscribing to GPG key files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.gnupg/secring.gpg"}
+      tn:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///workspace/docs/gpg-guide.md"}
+
+  - id: mcp-safety-block-subscribe-kube
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-subscription-abuse"
+    match:
+      tool_name_any:
+        - "resources/subscribe"
+      argument_patterns:
+        uri: "**/.kube/**"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Subscribing to Kubernetes config files via MCP resources/subscribe enables passive exfiltration of cluster credentials through change notifications. MITRE T1552, OWASP LLM08."
+    tests:
+      tp:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///home/user/.kube/config"}
+      tn:
+        - tool: "resources/subscribe"
+          args: {"uri": "file:///workspace/k8s/deployment.yaml"}
+
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/policy"
@@ -174,6 +175,74 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 
 	if result.Decision == "AUDIT" {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT resource read: %s\n", params.URI)
+	}
+
+	return false, nil
+}
+
+// HandleResourceSubscribe evaluates a resources/subscribe message against MCP policy.
+// resources/subscribe (MCP spec 2024-11+) enables passive file monitoring — a server that
+// receives a subscription begins watching the path and pushes notifications/resources/updated
+// events to the client when the file changes. This is a passive exfiltration vector that
+// bypasses explicit read_file guards.
+//
+// We evaluate subscriptions as tool calls so YAML rules can use tool_name_any:
+// ["resources/subscribe"] with argument_patterns on the uri field.
+// Returns (true, blockResponseJSON) if blocked.
+func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
+	params, err := ExtractResourceSubscribe(msg)
+	if err != nil {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract resource subscribe: %v\n", err)
+		return false, nil // fail open
+	}
+
+	// Evaluate as a tool call so tool_name_any: ["resources/subscribe"] rules fire.
+	result := h.Evaluator.EvaluateToolCall(MethodResourcesSubscribe, map[string]interface{}{"uri": params.URI})
+
+	// Also check config guard on file:// URIs (same protection as resources/read).
+	if result.Decision != "BLOCK" {
+		guardResult := CheckConfigGuard(MethodResourcesSubscribe, map[string]interface{}{"path": strings.TrimPrefix(params.URI, "file://")})
+		if guardResult.Blocked {
+			result.Decision = "BLOCK"
+			result.TriggeredRules = append(result.TriggeredRules, "config-file-guard")
+			for _, f := range guardResult.Findings {
+				result.Reasons = append(result.Reasons, "["+f.Category+"] "+f.Reason)
+			}
+		}
+	}
+
+	// Log the audit entry
+	if h.OnAudit != nil {
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       MethodResourcesSubscribe,
+			Arguments:      map[string]interface{}{"uri": params.URI},
+			Decision:       string(result.Decision),
+			Flagged:        result.Decision == "BLOCK" || result.Decision == "AUDIT",
+			TriggeredRules: result.TriggeredRules,
+			Reasons:        result.Reasons,
+			Source:         "mcp-proxy",
+			ServerName:     h.ServerName,
+		})
+	}
+
+	if result.Decision == "BLOCK" {
+		reason := "Blocked by policy"
+		if len(result.Reasons) > 0 {
+			reason = result.Reasons[0]
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resource subscribe: %s — %s\n", params.URI, reason)
+
+		blockResp, err := NewBlockResponse(msg.ID, reason)
+		if err != nil {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] error creating block response: %v\n", err)
+			return false, nil
+		}
+		return true, blockResp
+	}
+
+	if result.Decision == "AUDIT" {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT resource subscribe: %s\n", params.URI)
 	}
 
 	return false, nil

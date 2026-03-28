@@ -37,6 +37,8 @@ func ClassifyMessage(msg *Message) MessageKind {
 			return KindToolList
 		case MethodResourcesRead:
 			return KindResourceRead
+		case MethodResourcesSubscribe:
+			return KindResourceSubscribe
 		case MethodSamplingCreateMessage:
 			return KindSamplingCreateMessage
 		case MethodElicitationCreate:
@@ -84,6 +86,26 @@ func ExtractResourceRead(msg *Message) (*ReadResourceParams, error) {
 	}
 	if params.URI == "" {
 		return nil, fmt.Errorf("resources/read params missing required field 'uri'")
+	}
+	return &params, nil
+}
+
+// ExtractResourceSubscribe extracts the resource URI from a resources/subscribe request.
+// The MCP spec uses the same {uri} param structure as resources/read.
+func ExtractResourceSubscribe(msg *Message) (*ReadResourceParams, error) {
+	if msg.Method != MethodResourcesSubscribe {
+		return nil, fmt.Errorf("not a resources/subscribe request: method=%q", msg.Method)
+	}
+	if msg.Params == nil {
+		return nil, fmt.Errorf("resources/subscribe request has no params")
+	}
+
+	var params ReadResourceParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return nil, fmt.Errorf("failed to parse resources/subscribe params: %w", err)
+	}
+	if params.URI == "" {
+		return nil, fmt.Errorf("resources/subscribe params missing required field 'uri'")
 	}
 	return &params, nil
 }
