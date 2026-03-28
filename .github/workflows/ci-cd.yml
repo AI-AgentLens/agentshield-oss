@@ -112,6 +112,16 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: goreleaser release --clean
 
+      - name: Build macOS DMG installers
+        run: |
+          VERSION="${GORELEASER_CURRENT_TAG}"
+          for ARCH in arm64 amd64; do
+            echo "Building DMG for darwin/${ARCH}..."
+            VERSION="${VERSION}" bash scripts/build-app.sh "${ARCH}"
+            VERSION="${VERSION}" bash scripts/build-dmg.sh "${ARCH}"
+          done
+          ls -lh build/*.dmg
+
       - name: Upload release artifacts to aiagentlens.com
         env:
           RELEASE_UPLOAD_TOKEN: ${{ secrets.RELEASE_UPLOAD_TOKEN }}
@@ -124,6 +134,15 @@ jobs:
               -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@${archive}" \
+              "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=${FILENAME}"
+          done
+          for dmg in build/*.dmg; do
+            FILENAME=$(basename "$dmg")
+            echo "  Uploading ${FILENAME}..."
+            curl -sf -X POST \
+              -H "Authorization: Bearer ${RELEASE_UPLOAD_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${dmg}" \
               "https://aiagentlens.com/api/releases/upload?version=${VERSION}&filename=${FILENAME}"
           done
           if [ -f dist/checksums.txt ]; then
