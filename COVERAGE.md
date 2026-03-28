@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 523 |
-| Total rules | 1579 |
+| MCP rules | 527 |
+| Total rules | 1583 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1532,7 +1532,7 @@
 | `mcp-persist-block-jupyter-kernel-write` | BLOCK | structural | MCP write to Jupyter kernel spec or config directory — kernel.json hijacking routes every notebook kernel start through attacker code; custom.js injects JavaScript into every Jupyter session; server config can disable authentication. Persistent silent code execution in data-science environments. MITRE T1546.016, T1059.006. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 
-### privilege-escalation (19 rules)
+### privilege-escalation (21 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1547,21 +1547,25 @@
 | `mcp-privesc-block-pam-read` | BLOCK | mcp_rule | Read access to /etc/pam.d/ blocked — PAM configuration reveals auth stack modules, bypass opportunities, and lockout settings that enable targeted privilege escalation. MITRE T1556.003. |
 | `mcp-privesc-block-polkit-read` | BLOCK | mcp_rule | Read access to /etc/polkit-1/ blocked — polkit rules reveal which D-Bus actions are authorized for unprivileged users, admin group definitions, and passwordless pkexec paths for privilege escalation. MITRE T1548. |
 | `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
+| `mcp-privesc-block-core-pattern-write` | BLOCK | mcp_rule | Write to /proc/sys/kernel/core_pattern is blocked — this file controls the core dump handler executable. Setting it to a pipe command (e.g., \|/tmp/evil) executes arbitrary code with root privileges whenever any setuid binary crashes. This is a well-known container escape and privilege escalation vector. MITRE T1068, T1543. |
 | `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
 | `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611. |
 | `mcp-privesc-block-k8s-cluster-admin` | BLOCK | structural | Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001. |
 | `mcp-privesc-block-privileged-container` | BLOCK | structural | Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611. |
 | `mcp-privesc-audit-sudoers-content` | AUDIT | structural | Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003. |
 | `mcp-privesc-block-linux-capabilities` | BLOCK | structural | Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001. |
+| `mcp-recon-block-dev-port-access` | BLOCK | mcp_rule | Access to /dev/port is blocked — this character device provides raw x86 hardware I/O port access, which can be used for privilege escalation and hardware-level attacks. No legitimate AI agent task requires hardware port I/O. MITRE T1068. |
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (22 rules)
+### reconnaissance (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-recon-audit-etc-listing` | AUDIT | mcp_rule | Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083. |
 | `mcp-recon-block-proc-mem-access` | BLOCK | mcp_rule | Access to /proc/PID/mem is blocked — this is the Linux process memory interface used for credential dumping (reading decrypted keys/tokens directly from RAM). No legitimate MCP agent operation requires raw process memory access. MITRE T1003. |
+| `mcp-recon-block-dev-mem-access` | BLOCK | mcp_rule | Access to /dev/mem is blocked — this character device provides raw read/write access to physical RAM, enabling extraction of encryption keys, in-memory credentials, and kernel secrets. MITRE T1003.007. |
+| `mcp-recon-block-debugfs-access` | BLOCK | mcp_rule | Access to the kernel debug filesystem (/sys/kernel/debug/) is blocked — exposes kernel tracing (ftrace), eBPF maps, and memory subsystem internals that can be used to dump credentials, intercept system calls, and conduct kernel-level surveillance. MITRE T1003.007, T1014. |
 | `mcp-recon-audit-proc-read` | AUDIT | mcp_rule | Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057. |
 | `mcp-recon-audit-home-listing` | AUDIT | mcp_rule | Listing /home root-level user directory flagged — enumerates local user accounts. Deep project paths under /home are excluded to avoid noise on legitimate project work. MITRE T1083. |
 | `mcp-recon-audit-os-release-read` | AUDIT | mcp_rule | Reading /etc/os-release to fingerprint OS version and distribution. MITRE T1082. |
