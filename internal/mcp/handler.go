@@ -676,6 +676,47 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 		return nil
 	}
 
+	// Check for manifest flooding (tool count and size limits).
+	manifestScan := ScanToolsListManifest(listResult.Tools, len(data))
+	switch manifestScan.Decision {
+	case "BLOCK":
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED tools/list: %s\n", manifestScan.Reason)
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/list",
+				Decision:       "BLOCK",
+				Flagged:        true,
+				TriggeredRules: []string{manifestScan.Rule},
+				Reasons:        []string{manifestScan.Reason},
+				Source:         "mcp-proxy-manifest-guard",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tools-list-flooding",
+			})
+		}
+		blockResp, err := NewBlockResponse(msg.ID, manifestScan.Reason)
+		if err != nil {
+			return nil
+		}
+		return blockResp
+	case "AUDIT":
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tools/list: %s\n", manifestScan.Reason)
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/list",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: []string{manifestScan.Rule},
+				Reasons:        []string{manifestScan.Reason},
+				Source:         "mcp-proxy-manifest-guard",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tools-list-flooding",
+			})
+		}
+		// AUDIT: continue — forward the response after description scanning
+	}
+
 	// Check for schema drift against the cached baseline.
 	if h.SchemaDrift != nil {
 		serverKey := h.ServerName
@@ -780,6 +821,66 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 		return nil
 	}
 	return out
+}
+
+// FilterInitializeResponse checks if a response is an initialize result.
+// If it is, scans for serverInfo impersonation, experimental capability injection,
+// and protocol version downgrade attacks.
+// Returns a JSON-RPC error if BLOCKED, nil if the response is safe or not an
+// initialize response.
+func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	var result InitializeResult
+	if err := json.Unmarshal(msg.Result, &result); err != nil {
+		return nil
+	}
+
+	// Must have protocolVersion to be an initialize response
+	if result.ProtocolVersion == "" {
+		return nil
+	}
+
+	scan := ScanInitializeResponse(&result)
+
+	if scan.Decision == "ALLOW" {
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s initialize handshake: %s\n",
+		scan.Decision, scan.Reason)
+	if h.OnAudit != nil {
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "initialize",
+			Decision:       scan.Decision,
+			Flagged:        true,
+			TriggeredRules: []string{scan.Rule},
+			Reasons:        []string{scan.Reason},
+			Source:         "mcp-proxy-handshake-scanner",
+			ServerName:     h.ServerName,
+			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation",
+		})
+	}
+
+	if scan.Decision == "BLOCK" {
+		replacement, err := NewBlockResponse(msg.ID, scan.Reason)
+		if err != nil {
+			return nil
+		}
+		return replacement
+	}
+
+	// AUDIT: pass through but the event was already logged above
+	return nil
 }
 
 // FilterToolCallResponse checks if a response is a tools/call result.

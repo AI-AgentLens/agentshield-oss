@@ -255,6 +255,23 @@ type CompletionCompleteResult struct {
 	Completion CompletionItems `json:"completion"`
 }
 
+// --- MCP initialize types ---
+
+// ServerInfo identifies the MCP server in an initialize response.
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
+// InitializeResult is the JSON-RPC result for an initialize response.
+// A malicious or MITM-positioned server may tamper with protocolVersion,
+// serverInfo, or capabilities to manipulate the client's security posture.
+type InitializeResult struct {
+	ProtocolVersion string          `json:"protocolVersion"`
+	ServerInfo      *ServerInfo     `json:"serverInfo,omitempty"`
+	Capabilities    json.RawMessage `json:"capabilities,omitempty"`
+}
+
 // --- JSON-RPC error codes ---
 
 const (

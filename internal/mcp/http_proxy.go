@@ -311,7 +311,12 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 
-	// Scan for tools/list poisoning
+	// Inspect initialize responses for handshake manipulation
+	if filtered := hp.handler.FilterInitializeResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
+	// Scan for tools/list poisoning and manifest flooding
 	if filtered := hp.handler.FilterToolsListResponse(respBody); filtered != nil {
 		respBody = filtered
 	}
@@ -380,7 +385,14 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 		if strings.HasPrefix(line, "data: ") {
 			data := []byte(strings.TrimPrefix(line, "data: "))
 
-			// Scan JSON-RPC data for tools/list poisoning
+			// Inspect initialize responses for handshake manipulation
+			if filtered := hp.handler.FilterInitializeResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan JSON-RPC data for tools/list poisoning and manifest flooding
 			if filtered := hp.handler.FilterToolsListResponse(data); filtered != nil {
 				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
 				flusher.Flush()

@@ -224,7 +224,13 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
-		// Scan tools/list responses for poisoned tool descriptions
+		// Inspect initialize responses for handshake manipulation (downgrade, impersonation, capability injection)
+		if filtered := p.handler.FilterInitializeResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
+		// Scan tools/list responses for poisoned tool descriptions and manifest flooding
 		if filtered := p.handler.FilterToolsListResponse(line); filtered != nil {
 			writeLineToWriter(clientWriter, filtered)
 			continue
