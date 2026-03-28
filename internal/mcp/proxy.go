@@ -148,6 +148,24 @@ func (p *Proxy) proxyClientToServer(clientReader io.Reader, serverWriter io.Writ
 			continue
 		}
 
+		// JSON-RPC 2.0 batch request (JSON array): evaluate each item individually.
+		// Block the entire batch if any item violates policy (fail-closed).
+		if IsBatch(line) {
+			msgs, err := ParseBatch(line)
+			if err != nil {
+				_, _ = fmt.Fprintf(p.stderr, "[AgentShield MCP] warning: failed to parse batch, forwarding: %v\n", err)
+				writeLineToWriter(serverWriter, line)
+				continue
+			}
+			blocked, batchResp := p.handler.HandleBatch(msgs)
+			if blocked {
+				writeLineToWriter(clientWriter, batchResp)
+				continue
+			}
+			writeLineToWriter(serverWriter, line)
+			continue
+		}
+
 		msg, kind, err := ParseMessage(line)
 		if err != nil {
 			// Can't parse — forward as-is (fail open)
