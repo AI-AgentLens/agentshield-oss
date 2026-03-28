@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/security-researcher-ca/agentshield/internal/unicode"
 )
 
 // MinAcceptedProtocolVersion is the earliest MCP protocol version that
@@ -72,6 +74,27 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 					Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q matches impersonation pattern %q — possible server identity spoofing", result.ServerInfo.Name, pattern),
 					Rule:     "mcp-initialize-handshake-manipulation",
 				}
+			}
+		}
+
+		// BLOCK: Unicode homoglyph or zero-width character injection in serverInfo.name
+		// Attackers use look-alike characters (e.g. Cyrillic 'о' for Latin 'o') to spoof
+		// trusted server names while evading substring-based checks.
+		if scan := unicode.Scan(result.ServerInfo.Name); !scan.Clean {
+			for _, threat := range scan.Threats {
+				if threat.Severity == "block" {
+					return HandshakeScanResult{
+						Decision: "BLOCK",
+						Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q contains suspicious Unicode (%s at %s) — possible homoglyph server name spoofing", result.ServerInfo.Name, threat.Description, threat.Codepoint),
+						Rule:     "mcp-initialize-handshake-manipulation",
+					}
+				}
+			}
+			// Audit-level threats (e.g. zero-width characters without block-severity)
+			return HandshakeScanResult{
+				Decision: "AUDIT",
+				Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q contains non-ASCII Unicode — possible homoglyph server name spoofing", result.ServerInfo.Name),
+				Rule:     "mcp-initialize-handshake-manipulation-audit",
 			}
 		}
 	}
