@@ -175,6 +175,24 @@ type ResourceReadResult struct {
 	Contents []ResourceContentItem `json:"contents"`
 }
 
+// --- OAuth AS metadata types ---
+
+// OAuthASMetadata represents the OAuth 2.0 Authorization Server Metadata
+// document served at /.well-known/oauth-authorization-server (RFC 8414).
+// MCP 2025-03-26 requires OAuth 2.1 with PKCE for remote server authentication.
+type OAuthASMetadata struct {
+	Issuer                            string   `json:"issuer"`
+	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
+	TokenEndpoint                     string   `json:"token_endpoint"`
+	IntrospectionEndpoint             string   `json:"introspection_endpoint,omitempty"`
+	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
+	JWKsURI                           string   `json:"jwks_uri,omitempty"`
+	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
+	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
+	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
+	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty"`
+}
+
 // --- MCP sampling types ---
 
 // SamplingMessage is one message in a sampling/createMessage request.

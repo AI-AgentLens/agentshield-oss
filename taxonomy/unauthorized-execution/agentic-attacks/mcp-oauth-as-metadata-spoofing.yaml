@@ -1,0 +1,117 @@
+id: "unauthorized-execution/agentic-attacks/mcp-oauth-as-metadata-spoofing"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP OAuth Authorization Server Metadata Spoofing"
+risk_level: "high"
+
+abstract: |
+  An attacker who controls the network path (DNS poisoning, BGP hijacking,
+  compromised local resolver, or a malicious MCP server registered in mcp.json)
+  serves manipulated OAuth 2.1 authorization server metadata from
+  /.well-known/oauth-authorization-server, redirecting MCP clients to a rogue
+  authorization server, downgrading PKCE enforcement, or widening redirect URI
+  scope. This enables token theft, authorization code interception, and
+  credential relay without any client-visible error.
+
+explanation: |
+  The MCP 2025-03-26 specification mandates OAuth 2.1 with PKCE for remote
+  server authentication. Before the MCP initialize handshake, the client fetches
+  authorization server (AS) metadata from a well-known discovery endpoint to
+  learn token endpoints, authorization endpoints, and supported grant types.
+  This discovery phase is unauthenticated and unsigned -- an attacker who can
+  control the response has full leverage over the subsequent OAuth flow:
+
+  - **Rogue AS redirect**: The attacker's metadata points
+    authorization_endpoint and token_endpoint at an attacker-controlled server.
+    The MCP client presents its credentials to the rogue AS, which captures
+    tokens and optionally relays them to the legitimate AS (transparent proxy),
+    leaving the session appearing normal while all tokens are compromised.
+
+  - **PKCE downgrade**: Setting code_challenge_methods_supported to an empty
+    array or omitting it causes conformant clients to skip PKCE enforcement.
+    Without PKCE, a stolen authorization code can be replayed by an attacker
+    to obtain tokens without possessing the original code verifier.
+
+  - **Open redirect widening**: Setting permissive redirect_uris_supported
+    values enables open redirectors in the OAuth flow, allowing an attacker
+    to capture authorization codes by registering a redirect URI that passes
+    server-side validation but routes codes to an attacker endpoint.
+
+  - **Scope escalation**: Returning inflated scopes_supported values causes
+    clients to request -- and the legitimate AS to grant -- broader permissions
+    than the agent developer intended, enabling privilege escalation purely
+    through metadata manipulation.
+
+  This attack is pre-authentication: it occurs before any token is issued or
+  any MCP tool is called. No client-visible error is triggered because the
+  rogue AS can relay requests to the legitimate AS while capturing tokens.
+
+  This is distinct from:
+  - **mcp-dynamic-client-registration-abuse**: Targets the DCR endpoint to
+    register malicious OAuth clients. AS metadata spoofing targets the discovery
+    metadata that clients trust before any registration occurs.
+  - **mcp-authorization-bypass**: Bypasses auth checks entirely (e.g., token
+    validation weakness). AS metadata spoofing subverts the OAuth flow before
+    tokens are issued.
+  - **mcp-initialize-handshake-manipulation**: Targets the MCP protocol-level
+    handshake (protocolVersion, capabilities). OAuth AS metadata is fetched
+    before the MCP connection and operates at the HTTP/OAuth layer.
+
+recommendation: |
+  - Validate that all endpoints in AS metadata (authorization_endpoint,
+    token_endpoint, introspection_endpoint) use HTTPS, not HTTP. Reject
+    metadata with plaintext HTTP endpoints.
+  - Verify that code_challenge_methods_supported includes "S256" -- refuse
+    OAuth flows where PKCE with S256 is not advertised by the AS.
+  - Validate that the AS metadata origin (the domain from which it was fetched)
+    matches the MCP server's registered domain. Cross-origin AS metadata is
+    a strong indicator of redirection attack.
+  - Pin AS metadata on first successful fetch (trust-on-first-use) and alert
+    on subsequent changes to endpoint URLs, supported methods, or issuer.
+  - Log and alert when AS metadata is fetched over HTTP or when
+    code_challenge_methods_supported is absent/empty.
+  - In the MCP proxy, intercept /.well-known/oauth-authorization-server
+    responses and scan for non-HTTPS endpoints and missing PKCE support before
+    forwarding to the MCP client.
+
+examples:
+  bad:
+    - "AS metadata returns authorization_endpoint: http://attacker.example.com/oauth/authorize (non-HTTPS)"
+    - "AS metadata returns code_challenge_methods_supported: [] disabling PKCE enforcement"
+    - "AS metadata from mcp.example.com points token_endpoint to attacker.example.com/token (domain mismatch)"
+    - "AS metadata includes additional scopes not registered for this MCP server (scope inflation)"
+  good:
+    - "MCP proxy verifies AS metadata endpoints use HTTPS before forwarding to client"
+    - "Client rejects AS metadata where code_challenge_methods_supported does not include S256"
+    - "AS metadata origin is validated against the MCP server's registered domain"
+    - "Pinned AS metadata changes trigger an AUDIT alert requiring human review"
+
+compliance:
+  owasp-llm-2025: ["LLM08", "LLM02"]
+  iso-27001-2022: ["A.8.9", "A.8.20", "A.5.1"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC7.2"]
+
+references:
+  mitre_attack: ["T1557", "T1550.001", "T1111"]
+  cwe: ["CWE-345", "CWE-924", "CWE-757"]
+  external:
+    - title: "RFC 8414: OAuth 2.0 Authorization Server Metadata"
+      url: "https://datatracker.ietf.org/doc/html/rfc8414"
+    - title: "RFC 7636: Proof Key for Code Exchange (PKCE)"
+      url: "https://datatracker.ietf.org/doc/html/rfc7636"
+    - title: "MCP 2025-03-26 Specification: Authorization"
+      url: "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization"
+    - title: "OAuth 2.1 Security Best Current Practice"
+      url: "https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics"
+
+analyzers: ["guardian"]
+related_rules: ["mcp-dynamic-client-registration-abuse", "mcp-authorization-bypass", "mcp-initialize-handshake-manipulation"]
+# Detection: intercept GET /.well-known/oauth-authorization-server responses in
+# the MCP HTTP proxy. Scan the JSON metadata for: (1) non-HTTPS endpoints in
+# authorization_endpoint / token_endpoint, (2) missing or empty
+# code_challenge_methods_supported, (3) issuer domain mismatch vs. request origin.
