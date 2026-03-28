@@ -1,0 +1,92 @@
+id: "privilege-escalation/kernel-memory/kernel-module-load"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Kernel Memory Access"
+category_id: "5.10"
+name: "Kernel Module Load — Ring-0 Privilege Escalation"
+risk_level: "critical"
+
+abstract: |
+  Loading a kernel module via `insmod`, `modprobe`, or `kmod` grants ring-0
+  (kernel-level) execution privileges, enabling rootkit installation, security
+  module bypass, and full system compromise beyond the reach of any user-space
+  security control.
+
+explanation: |
+  Linux kernel modules run in ring-0 with unrestricted access to all memory,
+  hardware, and kernel data structures. An AI agent that generates or executes
+  code to load a kernel module can:
+
+  - **Install rootkits**: Hide processes, files, network connections, and other
+    kernel objects from user-space inspection tools (ls, ps, netstat).
+  - **Bypass security enforcement**: Disable SELinux, AppArmor, or seccomp by
+    patching or unloading their kernel modules.
+  - **Modify the syscall table**: Intercept system calls (open, read, execve)
+    to steal credentials or redirect execution.
+  - **Establish kernel-level persistence**: A loaded rootkit survives process
+    restarts, container recreation, and most forensic scanning tools.
+  - **Remove legitimate security modules**: `rmmod` can unload active security
+    modules (e.g., `rmmod apparmor`, `rmmod selinux`), dropping enforcement silently.
+
+  Common execution vectors:
+  ```bash
+  insmod /tmp/evil.ko                    # direct insertion of malicious kernel object
+  modprobe evil_module                   # load by name (searches /lib/modules)
+  kmod load evil_module                  # kmod CLI loader
+  rmmod apparmor                         # remove active security enforcement module
+  ```
+
+  Loading a kernel module requires `CAP_SYS_MODULE` or root. Once loaded, the
+  module has full kernel privileges regardless of the process that loaded it.
+  Secure Boot with module signature verification (CONFIG_MODULE_SIG_ENFORCE)
+  blocks unsigned modules, but many developer environments disable this.
+
+recommendation: |
+  - Block all agent-generated code that calls `insmod`, `modprobe`, `kmod load`,
+    or `rmmod` — especially targeting security modules.
+  - Enable kernel module signing enforcement (`module.sig_enforce=1`).
+  - Use `kernel.modules_disabled=1` sysctl after system initialization.
+  - Monitor module load/unload events via auditd (`-a always,exit -F arch=b64 -S init_module`).
+  - Apply seccomp filters blocking `init_module` and `finit_module` syscalls in
+    containerized environments.
+
+examples:
+  bad:
+    - "insmod /tmp/rootkit.ko"
+    - "subprocess.run(['modprobe', 'evil_module'])"
+    - "os.system('kmod load backdoor')"
+    - "subprocess.check_call(['rmmod', 'apparmor'])"
+  good:
+    - "lsmod"
+    - "modinfo e1000"
+    - "cat /proc/modules"
+
+compliance:
+  owasp_llm_2025:
+    - id: "LLM06"
+      name: "Excessive Agency"
+      notes: "Kernel module loading grants unbounded OS-level agency."
+  mitre_attack:
+    - id: "T1547.006"
+      name: "Boot or Logon Autostart Execution: Kernel Modules and Extensions"
+    - id: "T1014"
+      name: "Rootkit"
+    - id: "T1055"
+      name: "Process Injection"
+  cwe:
+    - id: "CWE-250"
+      name: "Execution with Unnecessary Privileges"
+    - id: "CWE-269"
+      name: "Improper Privilege Management"
+  iso_27001_2022:
+    - id: "A.8.2"
+      name: "Privileged access rights"
+    - id: "A.8.7"
+      name: "Protection against malware"
+  nist_ai_rmf:
+    - id: "MANAGE-2"
+    - id: "GOVERN-4"
+  eu_ai_act:
+    - id: "Art.15"
+      name: "Accuracy, robustness and cybersecurity"

@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 512 |
-| Total rules | 1568 |
+| MCP rules | 519 |
+| Total rules | 1575 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (239 rules)
+### credential-exposure (246 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1194,6 +1194,7 @@
 | `mcp-sec-block-npm-legacy-auth-tokens` | BLOCK | mcp_rule | Access to ~/.npm/_authtoken is blocked — contains npm registry auth token used by older npm versions. Exfiltrating this enables unauthorized package publishing (supply chain attack). MITRE T1552. |
 | `mcp-sec-block-npm-legacy-auth-base64` | BLOCK | mcp_rule | Access to ~/.npm/_auth is blocked — contains base64-encoded npm registry credentials (username:password). Exfiltrating this enables unauthorized registry access and package publishing. MITRE T1552. |
 | `mcp-sec-block-npm-config-authtoken-lowercase` | BLOCK | mcp_rule | Access to ~/.config/npm/authtoken (lowercase) is blocked — lowercase variant of the npm XDG auth token file on case-sensitive Linux filesystems. Contains npm registry authentication token. MITRE T1552. |
+| `mcp-sec-block-npm-tokens-json` | BLOCK | mcp_rule | Access to ~/.npm/tokens.json is blocked — npm stores registry auth tokens here in newer versions. Exfiltrating this enables unauthorized package publishing (supply chain attack). MITRE T1552. |
 | `mcp-sec-block-pypirc` | BLOCK | mcp_rule | Access to .pypirc is blocked — contains plaintext PyPI credentials. |
 | `mcp-sec-block-condarc` | BLOCK | mcp_rule | Read access to .condarc is blocked — Conda user config can contain private channel tokens and embedded credentials for Anaconda.org or enterprise conda registries. MITRE T1552. |
 | `mcp-sec-block-conda-condarc` | BLOCK | mcp_rule | Read access to ~/.conda/condarc is blocked — XDG-path Conda config can contain private channel tokens and embedded credentials. MITRE T1552. |
@@ -1282,7 +1283,13 @@
 | `mcp-sec-block-square-creds` | BLOCK | mcp_rule | Access to Square CLI credentials is blocked — contains OAuth access tokens authorizing point-of-sale and payment operations. MITRE T1552.001. |
 | `mcp-sec-block-paypal-creds` | BLOCK | mcp_rule | Access to PayPal CLI config is blocked — contains client ID and client secret for payment initiation and account access. MITRE T1552.001. |
 | `mcp-sec-block-paypalrc-creds` | BLOCK | mcp_rule | Access to ~/.paypalrc is blocked — contains PayPal API credentials for payment operations. MITRE T1552.001. |
+| `mcp-sec-block-paypal-home-dir-creds` | BLOCK | mcp_rule | Access to ~/.paypal/ directory is blocked — PayPal SDKs and OAuth flows store access tokens and credentials here (e.g., ~/.paypal/token.json). Exfiltrating these enables unauthorized payment operations. MITRE T1552.001. |
 | `mcp-sec-block-recurlyrc-creds` | BLOCK | mcp_rule | Access to ~/.recurlyrc is blocked — contains Recurly API key for subscription billing operations. MITRE T1552.001. |
+| `mcp-sec-block-quickbooks-creds` | BLOCK | mcp_rule | Access to ~/.quickbooks/ is blocked — QuickBooks stores OAuth tokens and credentials here. Exfiltrating enables unauthorized access to accounting data, invoices, and payroll. MITRE T1552.001. |
+| `mcp-sec-block-quickbooks-config-creds` | BLOCK | mcp_rule | Access to ~/.config/quickbooks/ is blocked — QuickBooks CLI/SDK stores OAuth tokens here. Exfiltrating enables unauthorized access to accounting data and payroll. MITRE T1552.001. |
+| `mcp-sec-block-xero-creds` | BLOCK | mcp_rule | Access to ~/.config/xero/ is blocked — Xero CLI stores OAuth tokens and credentials here. Exfiltrating enables unauthorized access to accounting records, payroll, and bank feeds. MITRE T1552.001. |
+| `mcp-sec-block-freshbooks-creds` | BLOCK | mcp_rule | Access to ~/.config/freshbooks/ is blocked — Freshbooks stores OAuth tokens here. Exfiltrating enables unauthorized access to invoicing, time tracking, and payment data. MITRE T1552.001. |
+| `mcp-sec-block-plaid-creds` | BLOCK | mcp_rule | Access to ~/.config/plaid/ is blocked — Plaid stores API credentials and access tokens here. Exfiltrating enables unauthorized access to linked bank account data (open banking). MITRE T1552.001. |
 | `mcp-sec-block-twilio-creds` | BLOCK | mcp_rule | Access to Twilio CLI config is blocked — contains Account SID and Auth Token enabling SMS/voice calls and contact list exfiltration. MITRE T1552.001. |
 | `mcp-sec-block-twilio-creds-dotfile` | BLOCK | mcp_rule | Access to ~/.twilio-config.json is blocked — the Twilio CLI v3+ stores Account SID and Auth Token here. MITRE T1552.001. |
 | `mcp-sec-block-twilio-cli-dir` | BLOCK | mcp_rule | Access to ~/.twilio-cli/ is blocked — contains Twilio CLI config.yaml (Account SID and Auth Token) and OAuth credentials. Stolen credentials enable mass SMS/voice fraud and customer data exfiltration. MITRE T1552.001, OWASP LLM06. |
