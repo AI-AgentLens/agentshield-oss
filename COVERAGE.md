@@ -1,14 +1,14 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-27 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-28 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 499 |
-| Total rules | 1555 |
+| MCP rules | 501 |
+| Total rules | 1557 |
 | Test cases (TP+TN) | 3759 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (231 rules)
+### credential-exposure (233 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1246,6 +1246,7 @@
 | `mcp-sec-block-rclone-credentials` | BLOCK | mcp_rule | Access to rclone config is blocked — contains credentials for all configured cloud storage remotes (S3, GCS, Azure, Dropbox, etc.). MITRE T1552. |
 | `mcp-sec-block-s3cmd-credentials` | BLOCK | mcp_rule | Access to s3cmd config is blocked — contains AWS access key ID and secret for S3 bucket access. MITRE T1552. |
 | `mcp-sec-block-boto-credentials` | BLOCK | mcp_rule | Access to boto config is blocked — contains AWS/GCP credentials used by Python boto, boto3, and gsutil. MITRE T1552. |
+| `mcp-sec-block-minio-client-credentials` | BLOCK | mcp_rule | Access to MinIO client config directory is blocked — ~/.mc/ contains config.json and aliases.json with access key IDs and secret access keys for MinIO, AWS S3, and other S3-compatible object storage backends. MITRE T1552. |
 | `mcp-sec-block-bitwarden-desktop-access` | BLOCK | mcp_rule | Access to Bitwarden desktop app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
 | `mcp-sec-block-bitwarden-flatpak-access` | BLOCK | mcp_rule | Access to Bitwarden Flatpak app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
 | `mcp-sec-block-terraform-state` | BLOCK | mcp_rule | Access to Terraform state files is blocked — contains plaintext credentials embedded in resource attributes (database passwords, API keys, cloud tokens). MITRE T1552. |
@@ -1293,6 +1294,7 @@
 | `mcp-sec-block-slack-creds` | BLOCK | mcp_rule | Access to ~/.slack/ is blocked — the Slack CLI stores workspace tokens and OAuth credentials here, enabling channel access and message exfiltration. MITRE T1552.001. |
 | `mcp-sec-block-slack-cli-creds` | BLOCK | mcp_rule | Access to ~/.slack-cli/ is blocked — Slack CLI v2 stores OAuth tokens and workspace credentials here. Stolen tokens enable reading all workspace messages and DMs. MITRE T1552.001. |
 | `mcp-sec-block-slack-config-creds` | BLOCK | mcp_rule | Access to ~/.config/slack/ is blocked — contains Slack desktop app OAuth tokens and session credentials. Stolen tokens enable workspace message exfiltration. MITRE T1552.001. |
+| `mcp-sec-block-slack-desktop-creds` | BLOCK | mcp_rule | Access to ~/.config/Slack/ is blocked — the Linux Slack desktop app stores session cookies, OAuth tokens, and leveldb session data here (capital-S variant). Stolen tokens enable workspace message exfiltration and user impersonation. MITRE T1552.001. |
 | `mcp-sec-block-discord-creds` | BLOCK | mcp_rule | Access to ~/.config/discord/ is blocked — contains Discord client tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
