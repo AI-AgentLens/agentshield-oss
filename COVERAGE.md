@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 511 |
-| Total rules | 1567 |
+| MCP rules | 512 |
+| Total rules | 1568 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1572,13 +1572,14 @@
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
 
-### supply-chain (14 rules)
+### supply-chain (15 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-sc-audit-gem-volatile-install-dir` | AUDIT | mcp_rule | [MCP] gem install --install-dir/--bindir to a volatile or world-writable path (/tmp, /dev/shm, /var/tmp) installs gems outside system gem isolation — no disk trace after reboot (/dev/shm). MITRE T1195.001, CWE-829. |
 | `mcp-sc-block-lockfile-write` | BLOCK | structural | MCP write to dependency lock file — lock files are machine-generated checksums. Hand-editing can pin a compromised version or strip integrity hashes. MITRE T1195.001. |
 | `mcp-sc-block-cicd-config-write` | AUDIT | structural | MCP write to CI/CD pipeline config — pipeline modifications can inject malicious build steps, exfiltrate secrets, or backdoor release artifacts. Downgraded to AUDIT because agents routinely create/edit CI configs (GitHub Actions, CircleCI) as a core workflow. MITRE T1195.002. |
+| `mcp-sc-block-codeowners-write` | BLOCK | structural | MCP write to CODEOWNERS — modifying code ownership gates removes mandatory human reviewers from security-critical paths, enabling subsequent malicious changes to bypass review silently. MITRE T1195.002. |
 | `mcp-sc-block-dockerfile-write` | AUDIT | structural | MCP write to Dockerfile or docker-compose config — injecting malicious instructions could backdoor containers. Downgraded to AUDIT because editing Dockerfiles is one of the most common agent tasks. Human reviews the diff at commit time. MITRE T1612, T1195.002. |
 | `mcp-sc-block-pkgmgr-config-write` | BLOCK | structural | MCP write to package manager config file — directly overwriting registry config redirects all future dependency installs to an attacker-controlled source without any shell command. Persistent supply chain poisoning. MITRE T1195.001. |
 | `mcp-sc-block-training-data-write` | AUDIT | structural | MCP write to ML training dataset — injecting poisoned examples can corrupt fine-tuned model behavior. Downgraded to AUDIT: ML developers legitimately create and edit training data files as part of normal workflows. Human review ensures no poisoned examples are introduced. MITRE AML.T0010, OWASP LLM04. |
