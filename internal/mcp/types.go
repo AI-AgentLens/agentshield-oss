@@ -89,6 +89,7 @@ const (
 	KindToolCall                          // tools/call request
 	KindToolList                          // tools/list request
 	KindResourceRead                      // resources/read request
+	KindResourceSubscribe                 // resources/subscribe request
 	KindSamplingCreateMessage             // sampling/createMessage request (server→client)
 	KindElicitationCreate                 // elicitation/create request (server→client)
 	KindNotification                      // any notification (no id)
@@ -105,6 +106,8 @@ func (k MessageKind) String() string {
 		return "tools/list"
 	case KindResourceRead:
 		return "resources/read"
+	case KindResourceSubscribe:
+		return "resources/subscribe"
 	case KindSamplingCreateMessage:
 		return "sampling/createMessage"
 	case KindElicitationCreate:
@@ -123,16 +126,17 @@ func (k MessageKind) String() string {
 // --- Well-known MCP methods ---
 
 const (
-	MethodToolsCall             = "tools/call"
-	MethodToolsList             = "tools/list"
-	MethodResourcesRead         = "resources/read"
-	MethodSamplingCreateMessage = "sampling/createMessage"
-	MethodElicitationCreate     = "elicitation/create"
-	MethodRootsList             = "roots/list"
-	MethodNotificationsMessage  = "notifications/message"
-	MethodPromptsGet            = "prompts/get"
-	MethodPromptsList           = "prompts/list"
-	MethodCompletionComplete    = "completion/complete"
+	MethodToolsCall              = "tools/call"
+	MethodToolsList              = "tools/list"
+	MethodResourcesRead          = "resources/read"
+	MethodResourcesSubscribe     = "resources/subscribe"
+	MethodSamplingCreateMessage  = "sampling/createMessage"
+	MethodElicitationCreate      = "elicitation/create"
+	MethodRootsList              = "roots/list"
+	MethodNotificationsMessage   = "notifications/message"
+	MethodPromptsGet             = "prompts/get"
+	MethodPromptsList            = "prompts/list"
+	MethodCompletionComplete     = "completion/complete"
 )
 
 // --- MCP roots types ---

@@ -173,6 +173,14 @@ func (p *Proxy) proxyClientToServer(clientReader io.Reader, serverWriter io.Writ
 			}
 		}
 
+		if kind == KindResourceSubscribe {
+			blocked, blockResp := p.handler.HandleResourceSubscribe(msg)
+			if blocked {
+				writeLineToWriter(clientWriter, blockResp)
+				continue
+			}
+		}
+
 		// roots/list responses (client→server): intercept to detect overbroad root declarations.
 		// The server sent a roots/list REQUEST; the client is now responding with root URIs.
 		// We inspect the response before forwarding to catch privilege escalation attempts.

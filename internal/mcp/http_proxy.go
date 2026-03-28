@@ -190,6 +190,17 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Evaluate resources/subscribe requests (passive file monitoring — exfiltration via change notifications)
+	if kind == KindResourceSubscribe {
+		blocked, blockResp := hp.handler.HandleResourceSubscribe(msg)
+		if blocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(blockResp)
+			return
+		}
+	}
+
 	// Evaluate sampling/createMessage requests (server-initiated prompt injection surface)
 	if kind == KindSamplingCreateMessage {
 		blocked, blockResp := hp.handler.HandleSamplingCreateMessage(msg)
