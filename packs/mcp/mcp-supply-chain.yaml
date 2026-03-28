@@ -142,6 +142,60 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/src/ci_utils.go"}
 
+  # === BLOCK: CODEOWNERS write via MCP (issue #579) ===
+  #
+  # CODEOWNERS is a GitHub/GitLab/Bitbucket file that defines which humans must
+  # approve changes to specific code paths before they can be merged. An AI agent
+  # writing to CODEOWNERS via MCP write_file can:
+  #   1. Remove mandatory reviewers from security-critical paths — enabling
+  #      subsequent malicious code changes to bypass human review entirely.
+  #   2. Add attacker-controlled owners who silently approve malicious PRs.
+  #
+  # This is more dangerous than CI/CD config edits because its effect is persistent
+  # and invisible: no logs, no alerts, just missing approval gates on future PRs.
+  #
+  # Files covered:
+  #   .github/CODEOWNERS  (GitHub)
+  #   CODEOWNERS          (GitLab, Bitbucket — root or docs/)
+  #   docs/CODEOWNERS
+  #
+  # MITRE T1195.002 — Supply Chain Compromise: Compromise Software Supply Chain
+  - id: mcp-sc-block-codeowners-write
+    taxonomy: "supply-chain/dependency-tampering/cicd-pipeline-poisoning"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.github/CODEOWNERS$"
+            - "(?:^|/)CODEOWNERS$"
+            - "(?:^|/)docs/CODEOWNERS$"
+    decision: "BLOCK"
+    reason: "MCP write to CODEOWNERS — modifying code ownership gates removes mandatory human reviewers from security-critical paths, enabling subsequent malicious changes to bypass review silently. MITRE T1195.002."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/.github/CODEOWNERS"}
+        - tool: "edit_file"
+          args: {"path": "/workspace/CODEOWNERS"}
+        - tool: "str_replace_editor"
+          args: {"path": "/project/docs/CODEOWNERS"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/.github/CODEOWNERS"}
+        - tool: "write_file"
+          args: {"path": "/project/docs/codeowners-guide.md"}
+
   # === BLOCK: Dockerfile and container image build config writes via MCP (issue #171) ===
   #
   # Dockerfile and docker-compose.yml define the container build environment.
