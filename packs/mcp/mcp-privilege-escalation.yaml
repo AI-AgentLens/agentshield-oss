@@ -285,6 +285,44 @@ rules:
         - tool: "write_file"
           args: {"path": "/k8s/manifests/deployment.yaml"}
 
+  # === BLOCK: Write to /proc/sys/kernel/core_pattern ===
+  # core_pattern controls the handler executed when any process produces a core dump.
+  # Setting it to `|/tmp/evil_script %p` executes arbitrary code (as root for setuid
+  # binaries) when any program crashes — a classic container escape and privilege
+  # escalation technique used in multiple CVEs (CVE-2022-0185, etc.).
+  # Distinguishing from the sysrq-trigger block: this is write-only (read is benign).
+  # MITRE T1068, T1543 | CWE-269 | OWASP LLM08
+  - id: mcp-privesc-block-core-pattern-write
+    taxonomy: "privilege-escalation/kernel-exploit/core-dump-handler-hijack"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "write_to_file"
+      argument_patterns:
+        path: "/proc/sys/kernel/core_pattern"
+    decision: "BLOCK"
+    confidence: 0.98
+    reason: "Write to /proc/sys/kernel/core_pattern is blocked — this file controls the core dump handler executable. Setting it to a pipe command (e.g., |/tmp/evil) executes arbitrary code with root privileges whenever any setuid binary crashes. This is a well-known container escape and privilege escalation vector. MITRE T1068, T1543."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/core_pattern", "content": "|/tmp/exploit %p"}
+        - tool: "edit_file"
+          args: {"path": "/proc/sys/kernel/core_pattern", "content": "core"}
+        - tool: "create_file"
+          args: {"path": "/proc/sys/kernel/core_pattern", "content": "|/bin/sh -i"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/sys/kernel/core_pattern"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/core-pattern-guide.md", "content": "# Linux Core Patterns\nSee /proc/sys/kernel/core_pattern for config."}
+
 structural_rules:
   # === BLOCK: SUID bit set on executables via chmod ===
   - id: mcp-privesc-block-suid-chmod
