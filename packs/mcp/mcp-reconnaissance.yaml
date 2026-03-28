@@ -119,6 +119,110 @@ rules:
         - tool: "read_file"
           args: {"path": "/proc/net/tcp"}
 
+  # === BLOCK: Physical memory device access (/dev/mem, /dev/port) ===
+  # These character devices expose raw physical memory and hardware I/O ports.
+  # Reading /dev/mem can extract encryption keys, credentials, and secrets from RAM.
+  # /dev/port provides raw x86 hardware I/O port access used for privilege escalation.
+  # No legitimate AI agent task requires direct hardware memory access.
+  # MITRE T1003.007, T1068 | OWASP LLM02
+  - id: mcp-recon-block-dev-mem-access
+    taxonomy: "reconnaissance/system-discovery/memory-credential-dump"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "edit_file"
+        - "create_file"
+        - "append_file"
+      argument_patterns:
+        path: "/dev/mem"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Access to /dev/mem is blocked — this character device provides raw read/write access to physical RAM, enabling extraction of encryption keys, in-memory credentials, and kernel secrets. MITRE T1003.007."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/dev/mem"}
+        - tool: "write_file"
+          args: {"path": "/dev/mem"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/README.md"}
+        - tool: "read_file"
+          args: {"path": "/dev/null"}
+
+  # === BLOCK: /dev/port hardware I/O port access ===
+  - id: mcp-recon-block-dev-port-access
+    taxonomy: "privilege-escalation/kernel-exploit/hardware-io-port-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "edit_file"
+        - "create_file"
+        - "append_file"
+      argument_patterns:
+        path: "/dev/port"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "Access to /dev/port is blocked — this character device provides raw x86 hardware I/O port access, which can be used for privilege escalation and hardware-level attacks. No legitimate AI agent task requires hardware port I/O. MITRE T1068."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/dev/port"}
+        - tool: "write_file"
+          args: {"path": "/dev/port"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/config.yaml"}
+        - tool: "read_file"
+          args: {"path": "/dev/null"}
+
+  # === BLOCK: Kernel debug filesystem (debugfs) access ===
+  # /sys/kernel/debug/ exposes kernel tracing, eBPF programs, and ftrace.
+  # An attacker can use this to intercept all system calls, dump memory maps,
+  # read credentials from kernel memory, and monitor all process activity.
+  # MITRE T1003.007, T1014 | OWASP LLM02
+  - id: mcp-recon-block-debugfs-access
+    taxonomy: "reconnaissance/system-discovery/kernel-debug-filesystem"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "edit_file"
+        - "create_file"
+        - "append_file"
+      argument_patterns:
+        path: "/sys/kernel/debug/**"
+    decision: "BLOCK"
+    confidence: 0.96
+    reason: "Access to the kernel debug filesystem (/sys/kernel/debug/) is blocked — exposes kernel tracing (ftrace), eBPF maps, and memory subsystem internals that can be used to dump credentials, intercept system calls, and conduct kernel-level surveillance. MITRE T1003.007, T1014."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/sys/kernel/debug/tracing/trace_pipe"}
+        - tool: "read_file"
+          args: {"path": "/sys/kernel/debug/tracing/events"}
+        - tool: "write_file"
+          args: {"path": "/sys/kernel/debug/tracing/set_ftrace_filter"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/sys/class/net/eth0/operstate"}
+        - tool: "read_file"
+          args: {"path": "/sys/block/sda/queue/scheduler"}
+
   - id: mcp-recon-audit-proc-read
     taxonomy: "reconnaissance/network-discovery/filesystem-enumeration"
     match:
