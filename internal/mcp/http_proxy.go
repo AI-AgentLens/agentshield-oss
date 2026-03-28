@@ -446,10 +446,35 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 	}
 }
 
-// handleGet handles GET requests, which in Streamable HTTP transport are used
-// for opening an SSE stream for server-initiated notifications.
-// We proxy this through to the upstream server.
+// handleGet handles GET requests.
+// In Streamable HTTP transport, GET is used to open an SSE stream for
+// server-initiated notifications. We also intercept OAuth AS metadata
+// discovery requests (/.well-known/oauth-authorization-server) to scan
+// for non-HTTPS endpoints, missing PKCE support, and domain mismatch attacks.
 func (hp *HTTPProxy) handleGet(w http.ResponseWriter, r *http.Request) {
+	// Intercept OAuth AS metadata discovery (RFC 8414).
+	// Extract the origin domain from the request host for domain-mismatch detection.
+	originDomain := r.Host
+	if h, _, err := net.SplitHostPort(originDomain); err == nil {
+		originDomain = h
+	}
+
+	intercepted, statusCode, body := interceptOAuthASMetadata(
+		hp.cfg.UpstreamURL,
+		r.URL.Path,
+		originDomain,
+		hp.client,
+		hp.cfg.OnAudit,
+		hp.cfg.ServerName,
+		hp.stderr,
+	)
+	if intercepted {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		_, _ = w.Write(body)
+		return
+	}
+
 	hp.proxyPassthrough(w, r)
 }
 
