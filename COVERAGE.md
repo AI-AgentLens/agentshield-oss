@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 501 |
-| Total rules | 1557 |
+| MCP rules | 503 |
+| Total rules | 1559 |
 | Test cases (TP+TN) | 3759 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (233 rules)
+### credential-exposure (235 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1232,6 +1232,7 @@
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
 | `mcp-sec-block-bw-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden bw CLI config directory is blocked — ~/.config/bw/data.json contains encrypted vault cache and cached session tokens. Official Bitwarden CLI installs as 'bw'. MITRE T1555, T1552.001. |
+| `mcp-sec-block-bitwarden-cli-capital-path` | BLOCK | mcp_rule | Access to ~/.config/Bitwarden CLI/ is blocked — this capitalized-space variant of the Bitwarden bw CLI data directory contains encrypted vault cache and cached session tokens. MITRE T1555, T1552.001. |
 | `mcp-sec-block-bw-session-file` | BLOCK | mcp_rule | Access to Bitwarden session file is blocked — ~/.bw-session contains a plaintext BW_SESSION key granting full vault read access without requiring the master password. MITRE T1552.001. |
 | `mcp-sec-block-keybase-access` | BLOCK | mcp_rule | Access to ~/.config/keybase/ is blocked — contains Keybase session tokens and encrypted private key material (KBFS signing keys). Exfiltration enables identity impersonation and access to encrypted team data. MITRE T1552, T1555. |
 | `mcp-sec-block-age-identity-access` | BLOCK | mcp_rule | Access to age encryption identity directory is blocked — age identity files are used to decrypt sensitive data stores (sops, chezmoi). |
@@ -1283,6 +1284,7 @@
 | `mcp-sec-block-recurlyrc-creds` | BLOCK | mcp_rule | Access to ~/.recurlyrc is blocked — contains Recurly API key for subscription billing operations. MITRE T1552.001. |
 | `mcp-sec-block-twilio-creds` | BLOCK | mcp_rule | Access to Twilio CLI config is blocked — contains Account SID and Auth Token enabling SMS/voice calls and contact list exfiltration. MITRE T1552.001. |
 | `mcp-sec-block-twilio-creds-dotfile` | BLOCK | mcp_rule | Access to ~/.twilio-config.json is blocked — the Twilio CLI v3+ stores Account SID and Auth Token here. MITRE T1552.001. |
+| `mcp-sec-block-twilio-cli-dir` | BLOCK | mcp_rule | Access to ~/.twilio-cli/ is blocked — contains Twilio CLI config.yaml (Account SID and Auth Token) and OAuth credentials. Stolen credentials enable mass SMS/voice fraud and customer data exfiltration. MITRE T1552.001, OWASP LLM06. |
 | `mcp-sec-block-sendgrid-creds` | BLOCK | mcp_rule | Access to SendGrid credential file is blocked — contains SENDGRID_API_KEY enabling mass email sending. MITRE T1552.001. |
 | `mcp-sec-block-mailgun-creds` | BLOCK | mcp_rule | Access to Mailgun config is blocked — contains API keys for email delivery that can be used to send phishing emails or exfiltrate domain data. MITRE T1552.001. |
 | `mcp-sec-block-mailchimp-creds` | BLOCK | mcp_rule | Access to Mailchimp config is blocked — contains API keys for audience lists and email campaign management. MITRE T1552.001. |
