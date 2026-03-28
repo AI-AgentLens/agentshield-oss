@@ -212,6 +212,36 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		return "ALLOW"
 	}
 
+	// tools/list manifest flooding scenario.
+	if sc.ToolsListTools != nil {
+		tools := make([]ToolDefinition, 0, len(sc.ToolsListTools))
+		for _, t := range sc.ToolsListTools {
+			tools = append(tools, ToolDefinition{Name: t.Name, Description: t.Description})
+		}
+		// Compute a realistic manifest byte count from the JSON representation.
+		result := ListToolsResult{Tools: tools}
+		resultBytes, _ := json.Marshal(result)
+		scan := ScanToolsListManifest(tools, len(resultBytes))
+		return scan.Decision
+	}
+
+	// initialize handshake response scenario.
+	if sc.InitializeResponse != nil {
+		var capBytes json.RawMessage
+		if sc.InitializeResponse.Capabilities != nil {
+			capBytes, _ = json.Marshal(sc.InitializeResponse.Capabilities)
+		}
+		initResult := &InitializeResult{
+			ProtocolVersion: sc.InitializeResponse.ProtocolVersion,
+			Capabilities:    capBytes,
+		}
+		if sc.InitializeResponse.ServerName != "" {
+			initResult.ServerInfo = &ServerInfo{Name: sc.InitializeResponse.ServerName}
+		}
+		scan := ScanInitializeResponse(initResult)
+		return scan.Decision
+	}
+
 	// notifications/message scenario: run notification scanner.
 	if sc.NotificationParams != nil {
 		params, err := json.Marshal(map[string]interface{}{
