@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 507 |
-| Total rules | 1563 |
-| Test cases (TP+TN) | 3759 |
+| MCP rules | 511 |
+| Total rules | 1567 |
+| Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1591,7 +1591,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 
-### unauthorized-execution (69 rules)
+### unauthorized-execution (73 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1651,6 +1651,10 @@
 | `mcp-sec-audit-tool-description-changed` | AUDIT | mcp_rule | MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195. |
 | `mcp-guardian-annotation-spoofing` | AUDIT | mcp_rule | MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09. |
 | `mcp-safety-block-tool-name-injection` | BLOCK | mcp_rule | Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning) |
+| `mcp-safety-block-subscribe-credentials` | BLOCK | mcp_rule | Subscribing to SSH credential files via MCP resources/subscribe enables passive exfiltration: the server pushes file content via change notifications without requiring explicit read_file calls, bypassing existing credential guards. MITRE T1552, OWASP LLM08. |
+| `mcp-safety-block-subscribe-aws` | BLOCK | mcp_rule | Subscribing to AWS credential files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
+| `mcp-safety-block-subscribe-gnupg` | BLOCK | mcp_rule | Subscribing to GPG key files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
+| `mcp-safety-block-subscribe-kube` | BLOCK | mcp_rule | Subscribing to Kubernetes config files via MCP resources/subscribe enables passive exfiltration of cluster credentials through change notifications. MITRE T1552, OWASP LLM08. |
 | `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
 | `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
 | `mcp-struct-block-prompt-injection-content` | BLOCK | structural | Prompt injection detected in content argument — attempt to manipulate LLM behavior |
@@ -1688,7 +1692,7 @@
 
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
-| credential-exposure | 292 | 220 | 512 |
+| credential-exposure | 292 | 221 | 513 |
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
@@ -1697,5 +1701,5 @@
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2268** | **1491** | **3759** |
+| **Total** | **2268** | **1492** | **3760** |
 
