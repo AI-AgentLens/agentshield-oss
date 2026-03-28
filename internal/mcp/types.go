@@ -161,6 +161,20 @@ type ReadResourceParams struct {
 	URI string `json:"uri"`
 }
 
+// ResourceContentItem is one content entry in a resources/read response.
+// Per the MCP spec, a resource can return text or blob content.
+type ResourceContentItem struct {
+	URI      string `json:"uri"`
+	MIMEType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"` // present when type is text
+	Blob     string `json:"blob,omitempty"` // base64-encoded binary content
+}
+
+// ResourceReadResult is the JSON-RPC result for a resources/read response.
+type ResourceReadResult struct {
+	Contents []ResourceContentItem `json:"contents"`
+}
+
 // --- MCP sampling types ---
 
 // SamplingMessage is one message in a sampling/createMessage request.

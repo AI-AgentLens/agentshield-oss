@@ -212,6 +212,19 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		return "ALLOW"
 	}
 
+	// resources/read response scenario: scan content items for injection payloads.
+	if sc.ResourceReadTexts != nil {
+		items := make([]ContentItem, 0, len(sc.ResourceReadTexts))
+		for _, text := range sc.ResourceReadTexts {
+			items = append(items, ContentItem{Type: "text", Text: text})
+		}
+		scanResult := ScanToolCallResponse(items)
+		if scanResult.Poisoned {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
 	// tools/list manifest flooding scenario.
 	if sc.ToolsListTools != nil {
 		tools := make([]ToolDefinition, 0, len(sc.ToolsListTools))

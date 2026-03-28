@@ -954,6 +954,110 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	return replacement
 }
 
+// resourceContentMaxBytes is the threshold above which a single resources/read
+// response is treated as suspicious flooding / injection risk and AUDITED.
+const resourceContentMaxBytes = 50 * 1024 // 50KB
+
+// FilterResourceReadResponse checks if a response is a resources/read result.
+// If it is, scans each text content item for prompt injection, action directives,
+// exfiltration instructions, and encoded payloads — the same detection pipeline
+// used for tool call responses. Also audits responses larger than 50KB.
+// Returns the replacement JSON bytes, or nil if the message is not a
+// resources/read response or no poisoning was detected.
+func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	// Try to parse as ResourceReadResult — must have a non-empty contents array
+	var readResult ResourceReadResult
+	if err := json.Unmarshal(msg.Result, &readResult); err != nil {
+		return nil
+	}
+	if len(readResult.Contents) == 0 {
+		return nil
+	}
+
+	// Audit oversized responses (flooding / injection padding risk)
+	if len(data) > resourceContentMaxBytes {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT oversized resources/read response (%d bytes)\n", len(data))
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "resources/read",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: []string{"resource-content-injection"},
+				Reasons:        []string{fmt.Sprintf("oversized resources/read response: %d bytes (threshold: %d)", len(data), resourceContentMaxBytes)},
+				Source:         "mcp-proxy-resource-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-content-injection",
+			})
+		}
+		// Do NOT block oversized responses alone — AUDIT only; poisoning check below may BLOCK
+	}
+
+	// Reuse tool-call response scanner: convert ResourceContentItems to ContentItems
+	items := make([]ContentItem, 0, len(readResult.Contents))
+	for _, c := range readResult.Contents {
+		if c.Text != "" {
+			items = append(items, ContentItem{Type: "text", Text: c.Text})
+		}
+		// blob content: treat as a large base64 blob for scanning
+		if c.Blob != "" {
+			items = append(items, ContentItem{Type: "text", Text: c.Blob})
+		}
+	}
+
+	scanResult := ScanToolCallResponse(items)
+	if !scanResult.Poisoned {
+		return nil
+	}
+
+	// Build human-readable reason from the first finding
+	reason := "resource content contains injected instructions"
+	if len(scanResult.Findings) > 0 {
+		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED resources/read response blocked (%d signals)\n",
+		len(scanResult.Findings))
+	for _, f := range scanResult.Findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+	}
+
+	// Audit the poisoned response
+	if h.OnAudit != nil {
+		reasons := make([]string, 0, len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       "resources/read",
+			Decision:       "BLOCK",
+			Flagged:        true,
+			TriggeredRules: []string{"resource-content-injection"},
+			Reasons:        reasons,
+			Source:         "mcp-proxy-resource-scan",
+			ServerName:     h.ServerName,
+			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-content-injection",
+		})
+	}
+
+	replacement, err := NewBlockResponse(msg.ID, reason)
+	if err != nil {
+		return nil
+	}
+	return replacement
+}
+
 // HandleRootsListResponse intercepts roots/list responses (client→server) to detect
 // MCP servers that have elicited access to sensitive filesystem paths.
 //
