@@ -1,0 +1,116 @@
+id: "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Initialize Handshake Manipulation"
+risk_level: "high"
+
+abstract: |
+  An attacker tampers with the MCP initialize/initialized protocol handshake to
+  strip server capabilities, downgrade the protocol version, or inject malicious
+  serverInfo metadata. Analogous to TLS downgrade attacks, this manipulation occurs
+  before any authentication — compromising the security posture of the entire MCP
+  session before any tool call is made.
+
+explanation: |
+  The MCP initialize RPC is the first message exchanged between client and server.
+  The server responds with protocolVersion, capabilities, and serverInfo metadata.
+  Every subsequent security decision in the session is implicitly based on this
+  negotiation result. A malicious or MITM-positioned attacker can exploit this:
+
+  - **Protocol version downgrade**: A man-in-the-middle (malicious proxy, rogue
+    server, or compromised network path) returns an older protocolVersion (e.g.,
+    "2024-11-05" instead of "2025-03-26"), disabling features that only exist in
+    newer versions: OAuth 2.1 enforcement, tool annotations, elicitation protections,
+    resource subscription guards, and batch request controls. The client silently
+    operates with degraded security primitives for the entire session.
+
+  - **Capability stripping**: Removing experimental.oauth from the capabilities
+    response causes the client to skip OAuth enforcement for all subsequent requests,
+    silently bypassing authentication requirements without triggering any error. An
+    attacker can selectively remove capabilities to create blind spots in the
+    client's security model.
+
+  - **Capability injection**: Adding fictional capability flags
+    (e.g., "experimental": {"trustedServer": true, "bypassSafetyFilters": true})
+    that vulnerable client implementations interpret as elevated trust signals,
+    causing them to apply reduced scrutiny to tool calls, skip content scanning,
+    or disable proxy-layer guards.
+
+  - **ServerInfo spoofing**: Returning a crafted serverInfo.name (e.g.,
+    "official-anthropic-server", "trusted-enterprise-tools") causes agent
+    implementations that whitelist known servers to apply reduced scrutiny to all
+    subsequent tool calls from the session. This is particularly effective against
+    agents with allowlist-based trust policies.
+
+  - **Pre-authentication scope**: Because initialize occurs before OAuth flows or
+    any other authentication exchange, a downgrade or injection attack cannot be
+    detected by post-authentication guards. The entire security envelope of the
+    session is shaped by this single unauthenticated exchange.
+
+  - **Reconnect exploitation**: If the MCP client reconnects (e.g., after a
+    network interruption), the handshake manipulation can be applied selectively to
+    downgraded reconnections while appearing normal during initial inspection.
+
+  This attack is distinct from mcp-authorization-bypass (which exploits OAuth flows
+  after authentication), mcp-server-impersonation (which targets DNS/certificate
+  identity), and mcp-streamable-http-session-fixation (which targets post-init
+  session ID manipulation). Handshake manipulation uniquely compromises the
+  protocol negotiation layer that governs all subsequent behavior.
+
+recommendation: |
+  - Validate that the protocolVersion in the initialize response is a known,
+    current version. Reject or quarantine sessions negotiated to unexpectedly old
+    versions, and log the downgrade as a security event.
+  - Pin the expected protocol version in the MCP proxy configuration and block
+    sessions where the negotiated version is below the minimum acceptable version.
+  - Treat the capabilities object as untrusted input. Validate it against the known
+    capability schema for the declared protocolVersion, and ignore or flag
+    unrecognized fields (especially those in experimental namespaces).
+  - Log the full capabilities object and serverInfo for every initialize exchange.
+    Alert on capability changes across reconnections to the same server (downgrade
+    detection).
+  - Maintain an allowlist of known legitimate server names and flag serverInfo.name
+    values that match high-value impersonation targets (e.g., "anthropic", "openai",
+    "trusted", "enterprise").
+  - Implement capability consistency checks: if a server claimed oauth support in a
+    prior session but omits it on reconnect, treat this as a potential downgrade
+    attack requiring human review.
+
+examples:
+  bad:
+    - "initialize response with protocolVersion: '2024-11-05' when client expects '2025-03-26' — disables OAuth 2.1 enforcement"
+    - "initialize response omitting experimental.oauth from capabilities — bypasses authentication for all subsequent calls"
+    - "initialize response with serverInfo.name: 'official-anthropic-server' — triggers reduced scrutiny in allowlist-based agents"
+    - "initialize response adding 'experimental': {'trustedServer': true} — injection of fictional elevated trust capability"
+  good:
+    - "initialize response with current protocolVersion '2025-03-26' and declared capabilities matching the server's feature set"
+    - "MCP proxy validates protocolVersion and capabilities against expected schema before passing session to agent"
+
+compliance:
+  owasp-llm-2025: ["LLM08", "LLM09", "LLM02"]
+  iso-27001-2022: ["A.8.20", "A.8.25", "A.5.23"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC6.6", "CC7.2"]
+
+references:
+  mitre_attack: ["T1059.007", "AML.T0043", "T1557"]
+  cwe: ["CWE-757", "CWE-345", "CWE-924"]
+  external:
+    - title: "MCP Specification — Lifecycle (initialize)"
+      url: "https://spec.modelcontextprotocol.io/specification/basic/lifecycle/"
+    - title: "OWASP LLM08 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm08-excessive-agency/"
+    - title: "MITRE AML.T0043 — Craft Adversarial Data"
+      url: "https://atlas.mitre.org/techniques/AML.T0043"
+    - title: "RFC 7457 — Summarizing Known Attacks on TLS"
+      url: "https://www.rfc-editor.org/rfc/rfc7457"
+
+analyzers: ["semantic", "guardian"]
+related_rules: ["mcp-authorization-bypass", "mcp-server-impersonation", "mcp-streamable-http-session-fixation", "mcp-batch-request-abuse"]
+# Detection via MCP proxy inspection of initialize response messages:
+# validate protocolVersion against known versions, scan capabilities for
+# unrecognized fields, and flag serverInfo.name spoofing attempts.
