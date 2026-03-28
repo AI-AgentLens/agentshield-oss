@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 519 |
-| Total rules | 1575 |
+| MCP rules | 523 |
+| Total rules | 1579 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (246 rules)
+### credential-exposure (250 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1272,9 +1272,13 @@
 | `mcp-sec-block-flyio-credentials` | BLOCK | mcp_rule | Access to ~/.fly/config.yml or ~/.fly/config.yaml is blocked — contains Fly.io auth token with application and secret management access. MITRE T1552. |
 | `mcp-sec-block-railway-credentials` | BLOCK | mcp_rule | Access to Railway credential files is blocked — contains API token with project and service management access. MITRE T1552. |
 | `mcp-sec-block-railway-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Railway config directory (~/.config/railway/) is blocked — newer Railway CLI versions store API token here. MITRE T1552. |
+| `mcp-sec-block-planetscale-credentials` | BLOCK | mcp_rule | Access to PlanetScale CLI config directory is blocked — contains API service tokens granting full database branch, deploy, and schema change access across all PlanetScale organizations. MITRE T1552.001. |
+| `mcp-sec-block-turso-credentials` | BLOCK | mcp_rule | Access to Turso CLI config directory is blocked — contains auth token granting full access to embedded SQLite databases including schema modification and data read/write. MITRE T1552.001. |
+| `mcp-sec-block-neon-credentials` | BLOCK | mcp_rule | Access to Neon CLI config directory is blocked — contains API key for serverless Postgres with full project, branch, and database management access. MITRE T1552.001. |
 | `mcp-sec-block-render-credentials` | BLOCK | mcp_rule | Access to Render credential directories is blocked — contains API key with service deployment and environment variable management access. MITRE T1552. |
 | `mcp-sec-block-render-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Render config directory (~/.config/render/) is blocked — newer Render CLI versions store API key here. MITRE T1552. |
 | `mcp-sec-block-supabase-credentials` | BLOCK | mcp_rule | Access to Supabase CLI config directory is blocked — contains access token and project refs with database admin and edge function access. MITRE T1552. |
+| `mcp-sec-block-supabase-home-credentials` | BLOCK | mcp_rule | Access to ~/.supabase/ directory is blocked — Supabase CLI stores the personal access token at ~/.supabase/access-token (home-dir path, separate from the XDG config path). This token grants full database admin, edge function deployment, and project management access across all Supabase projects. MITRE T1552.001. |
 | `mcp-sec-block-pulumi-credentials` | BLOCK | mcp_rule | Access to ~/.pulumi/credentials.json is blocked — contains Pulumi access token with infrastructure state and secret management access. MITRE T1552. |
 | `mcp-sec-block-wrangler-credentials` | BLOCK | mcp_rule | Access to ~/.wrangler/config/ directory is blocked — contains Cloudflare API token with Workers deployment and KV/R2 storage access. MITRE T1552. |
 | `mcp-sec-block-payment-processor-creds` | BLOCK | mcp_rule | Access to Stripe CLI config is blocked — contains live and test API keys, restricted keys, and webhook secrets with direct financial impact. MITRE T1552.001, OWASP LLM06. |
