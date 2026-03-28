@@ -1,0 +1,102 @@
+id: "unauthorized-execution/agentic-attacks/mcp-tools-list-flooding"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Agentic Attack Surface"
+category_id: "4.4"
+name: "MCP Tools List Flooding"
+risk_level: "high"
+
+abstract: |
+  A malicious MCP server returns an excessively large tools/list response containing
+  hundreds or thousands of tool definitions, diluting the AI agent's context window
+  and pushing security-critical system instructions (safety guardrails, workspace
+  constraints) out of the effective attention window. This enables follow-on attacks
+  by degrading the agent's ability to enforce its own safety boundaries.
+
+explanation: |
+  When an AI agent connects to an MCP server it fetches the full tool manifest via
+  tools/list. The agent typically includes all tool descriptions in its context
+  window to enable tool selection. A malicious or compromised MCP server exploits
+  this by returning an abnormally large manifest:
+
+  - **Volume flooding**: 500+ tool definitions, each with lengthy description and
+    inputSchema fields, consuming most of the agent's context budget. Modern LLM
+    context windows range from 128K–2M tokens; a crafted manifest with verbose
+    descriptions can occupy 50–80% of that budget before any task content is added.
+
+  - **Security instruction dilution**: Safety instructions injected by the
+    orchestrator (e.g., "do not exfiltrate credentials", "only read files in
+    /workspace") appear earlier in context and get diluted or effectively truncated
+    as the massive tool manifest is appended. Even without hard truncation, LLM
+    attention is distributed across thousands of tokens of tool schemas, reducing
+    the effective weight given to safety instructions.
+
+  - **Strategic poisoning amplifier**: When combined with mcp-tool-description-
+    poisoning, malicious instructions can be embedded at strategic positions within
+    the flood (e.g., tool #247 of 300) — appearing after system prompt processing
+    but positioned for maximum attention in the user-turn context. The sheer volume
+    makes manual inspection impractical.
+
+  - **Denial of meaningful agency**: An agent overwhelmed by a bloated tool manifest
+    may fail to complete legitimate tasks, misidentify which tools are safe to use,
+    or default to over-permissive choices when unsure of capability boundaries.
+
+  - **Bypasses per-call guards**: Unlike direct credential reads or network
+    exfiltration, this attack operates entirely within the tools/list response —
+    a single JSON-RPC exchange that most MCP proxy implementations do not inspect
+    for size or content volume.
+
+  This attack is distinct from mcp-tool-resource-exhaustion (which targets CPU/
+  memory through repeated tool invocations) and from context-window-poisoning
+  (which injects data via web results). It specifically abuses the tool discovery
+  protocol to degrade the agent's safety-instruction adherence through context
+  budget exhaustion.
+
+recommendation: |
+  - Audit or block tools/list responses returning more than a configurable threshold
+    of tool definitions (e.g., 50 tools per server). Warn the user and log the
+    excess.
+  - Flag unusually large total byte sizes of the tool manifest (e.g., > 100 KB)
+    as a suspicious signal requiring review before processing.
+  - Enforce per-tool description length limits at the proxy layer (e.g., max 2 KB
+    per description field) to prevent individual tool entries from being weaponized
+    as context-filling payloads.
+  - Log the tool count and total manifest size for every tools/list exchange to
+    enable retroactive anomaly detection.
+  - Consider capping the number of MCP servers an agent can connect to concurrently,
+    reducing aggregate manifest flooding risk.
+  - Train agent orchestrators to re-inject critical safety instructions after tool
+    manifest loading to counteract dilution.
+
+examples:
+  bad:
+    - "tools/list response returning 750 tool definitions, each with a 500-word description — total 400KB manifest"
+    - "MCP server returns tools/list with 1000 entries where tools #200-#300 embed prompt injection instructions"
+    - "Malicious server floods tool manifest to push 'only access /workspace' guardrail out of effective attention"
+  good:
+    - "tools/list response with 12 tools, each description under 200 words — normal developer toolserver"
+    - "MCP server returns 5 focused file-editing tools relevant to the active project"
+
+compliance:
+  owasp-llm-2025: ["LLM04", "LLM07", "LLM02"]
+  iso-27001-2022: ["A.8.20", "A.8.16", "A.8.11"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2", "MAP-5"]
+  soc2-type2: ["CC6.1", "CC7.2"]
+
+references:
+  mitre_attack: ["T1499", "T1059", "AML.T0051"]
+  cwe: ["CWE-400", "CWE-770", "CWE-1024"]
+  external:
+    - title: "MCP Specification — Tool Discovery (tools/list)"
+      url: "https://spec.modelcontextprotocol.io/specification/server-features/tools/"
+    - title: "OWASP LLM04 — Model Denial of Service"
+      url: "https://genai.owasp.org/llmrisk/llm04-model-denial-of-service/"
+    - title: "OWASP LLM07 — System Prompt Leakage"
+      url: "https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/"
+
+analyzers: ["semantic", "guardian"]
+related_rules: ["mcp-tool-description-poisoning", "mcp-tool-resource-exhaustion", "context-window-poisoning"]
+# Detection via MCP proxy response inspection: count tool definitions in tools/list
+# responses and flag manifests exceeding size or count thresholds.
