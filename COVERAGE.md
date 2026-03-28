@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 529 |
-| Total rules | 1585 |
+| MCP rules | 538 |
+| Total rules | 1594 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (250 rules)
+### credential-exposure (259 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1203,6 +1203,7 @@
 | `mcp-sec-block-gradle-properties` | BLOCK | mcp_rule | Access to Gradle user properties is blocked — may contain Maven/Gradle repository passwords. |
 | `mcp-sec-block-dbt-profiles` | BLOCK | mcp_rule | Access to ~/.dbt/profiles.yml is blocked — contains database credentials for data warehouse connections (BigQuery, Snowflake, Redshift, Databricks, etc.). MITRE T1552. |
 | `mcp-sec-block-snyk-config` | BLOCK | mcp_rule | Access to Snyk CLI config is blocked — contains the Snyk API authentication token. MITRE T1552. |
+| `mcp-sec-block-snyk-dotdir` | BLOCK | mcp_rule | Access to ~/.snyk/config.json is blocked — this Snyk CLI credential file contains the Snyk API authentication token. MITRE T1552. |
 | `mcp-sec-block-helm-credentials` | BLOCK | mcp_rule | Access to Helm config directory is blocked — contains OCI registry credentials and repository passwords. |
 | `mcp-sec-block-helm-legacy-dir` | BLOCK | mcp_rule | Access to Helm legacy directory is blocked — contains registry authentication tokens and OCI credentials. MITRE T1552.001. |
 | `mcp-sec-block-helm-xdg-registry` | BLOCK | mcp_rule | Access to Helm XDG data directory is blocked — contains OCI registry credentials in docker-credential-store format. Exfiltrating this enables unauthorized access to private Helm registries. MITRE T1552.001. |
@@ -1237,6 +1238,7 @@
 | `mcp-sec-block-bitwarden-cli-capital-path` | BLOCK | mcp_rule | Access to ~/.config/Bitwarden CLI/ is blocked — this capitalized-space variant of the Bitwarden bw CLI data directory contains encrypted vault cache and cached session tokens. MITRE T1555, T1552.001. |
 | `mcp-sec-block-bw-session-file` | BLOCK | mcp_rule | Access to Bitwarden session file is blocked — ~/.bw-session contains a plaintext BW_SESSION key granting full vault read access without requiring the master password. MITRE T1552.001. |
 | `mcp-sec-block-keybase-access` | BLOCK | mcp_rule | Access to ~/.config/keybase/ is blocked — contains Keybase session tokens and encrypted private key material (KBFS signing keys). Exfiltration enables identity impersonation and access to encrypted team data. MITRE T1552, T1555. |
+| `mcp-sec-block-keybase-legacy-access` | BLOCK | mcp_rule | Access to ~/.keybase/ (legacy Keybase data directory used on macOS and older Linux) is blocked — contains session tokens, config.json, and encrypted key material. Exfiltration enables identity impersonation and access to encrypted Keybase team data. MITRE T1552, T1555. |
 | `mcp-sec-block-age-identity-access` | BLOCK | mcp_rule | Access to age encryption identity directory is blocked — age identity files are used to decrypt sensitive data stores (sops, chezmoi). |
 | `mcp-sec-block-sops-age-key-access` | BLOCK | mcp_rule | Access to age default key directory is blocked — ~/.age/ contains the age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-sops-age-config-key-access` | BLOCK | mcp_rule | Access to SOPS age key directory is blocked — ~/.config/sops/age/keys.txt is the age private key used by SOPS to decrypt secrets.enc.yaml files in git repositories. MITRE T1552. |
@@ -1265,6 +1267,8 @@
 | `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-jenkins-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credentials (API tokens, SSH keys, username/password) granting pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-travis-credentials` | BLOCK | mcp_rule | Access to ~/.config/travis/config is blocked — contains Travis CI authentication token granting access to build pipelines and repository secrets. MITRE T1552. |
+| `mcp-sec-block-travis-legacy-credentials` | BLOCK | mcp_rule | Access to ~/.travis/ (Travis CI CLI legacy credential directory) is blocked — contains API token granting access to build pipelines and repository secrets. MITRE T1552. |
+| `mcp-sec-block-buildkite-credentials` | BLOCK | mcp_rule | Access to ~/.buildkite/settings.json is blocked — contains Buildkite personal API token enabling pipeline execution, secret enumeration, and CI/CD infrastructure access. MITRE T1552.001. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
 | `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
 | `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
@@ -1303,6 +1307,7 @@
 | `mcp-sec-block-shopify-creds` | BLOCK | mcp_rule | Access to Shopify CLI config is blocked — contains store access tokens and partner credentials. MITRE T1552.001. |
 | `mcp-sec-block-datadog-creds` | BLOCK | mcp_rule | Access to Datadog config is blocked — contains API key and App key enabling metric injection, monitor silencing, and alert manipulation. MITRE T1552.001. |
 | `mcp-sec-block-datadog-creds-dotdir` | BLOCK | mcp_rule | Access to ~/.datadog/ is blocked — the Datadog Agent and CLI store API keys and app keys here. MITRE T1552.001. |
+| `mcp-sec-block-datadog-agent-config` | BLOCK | mcp_rule | Access to ~/.config/datadog-agent/ is blocked — contains Datadog API key and App key (datadog.yaml). Enables metric injection, monitor silencing, and alert manipulation. MITRE T1552.001. |
 | `mcp-sec-block-newrelic-creds` | BLOCK | mcp_rule | Access to New Relic CLI config is blocked — contains account credentials for the observability platform. MITRE T1552.001. |
 | `mcp-sec-block-newrelic-creds-dotdir` | BLOCK | mcp_rule | Access to ~/.newrelic/ is blocked — the New Relic CLI stores account API keys and credentials here. MITRE T1552.001. |
 | `mcp-sec-block-slack-creds` | BLOCK | mcp_rule | Access to ~/.slack/ is blocked — the Slack CLI stores workspace tokens and OAuth credentials here, enabling channel access and message exfiltration. MITRE T1552.001. |
@@ -1330,6 +1335,10 @@
 | `mcp-sec-block-windsurf-oauth-token-read` | BLOCK | mcp_rule | Access to Windsurf globalStorage OAuth token file is blocked — contains Codeium OAuth token granting AI completions access under the user's identity. MITRE T1539, T1552. |
 | `mcp-sec-block-cursor-oauth-token-read` | BLOCK | mcp_rule | Access to Cursor globalStorage OAuth token file is blocked — contains Cursor account OAuth token enabling API calls under the victim's identity. MITRE T1539, T1552. |
 | `mcp-sec-block-vscode-copilot-globalstorage-read` | BLOCK | mcp_rule | Access to VS Code Copilot globalStorage directory is blocked — contains GitHub Copilot OAuth session data. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-cline-credentials-read` | BLOCK | mcp_rule | Access to Cline (Claude Dev) VSCode extension globalStorage is blocked — contains Anthropic API keys and session data enabling full Claude API impersonation. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-anthropic-extension-credentials-read` | BLOCK | mcp_rule | Access to Claude for VS Code extension globalStorage is blocked — contains Anthropic OAuth tokens enabling API access under the victim's identity. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-copilot-nightly-credentials-read` | BLOCK | mcp_rule | Access to GitHub Copilot Nightly VSCode extension globalStorage is blocked — contains GitHub OAuth session tokens with the same access scope as the stable Copilot extension. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-continue-credentials-read` | BLOCK | mcp_rule | Access to Continue.dev VSCode extension globalStorage is blocked — contains API keys for configured LLM providers (Anthropic, OpenAI, Gemini) enabling impersonation across multiple AI services. MITRE T1539, T1552. |
 | `mcp-sec-block-gemini-cli-v2-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI v2 OAuth credentials file is blocked — contains Google OAuth token for Gemini API. Stolen token enables AI inference under the victim's billing account. MITRE T1539, T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
