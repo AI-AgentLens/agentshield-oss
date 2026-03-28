@@ -2426,7 +2426,7 @@ rules:
     taxonomy: "persistence-evasion/lateral-movement/ssh-key-generation"
     match:
       command_regex: "\\.ssh/authorized_keys2?"
-      command_regex_exclude: "^(echo|printf)\\s+[\"'][^\"']*[\"']\\s*$|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|>>?\\s*[\"']?/tmp/|^agentshield\\s+mcp-eval\\s+"
+      command_regex_exclude: "^(echo|printf)\\s+[\"'][^\"']*[\"']\\s*$|^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|>>?\\s*[\"']?/tmp/|\\bagentshield\\s+mcp-eval\\b"
     decision: "BLOCK"
     confidence: 0.97
     reason: "Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), heredoc writes to /tmp, and agentshield mcp-eval diagnostic commands (which simulate but do not execute tool calls). (MITRE T1098.004)"
@@ -2437,6 +2437,7 @@ rules:
       tn:
         - "ls ~/.ssh/known_hosts"
         - "agentshield mcp-eval --tool create_file --arg path=/home/user/.ssh/authorized_keys"
+        - "cd /workspace && agentshield mcp-eval --tool write_file --arg path=/home/user/.ssh/authorized_keys 2>&1; echo $?"
 
   # === BLOCK: SSH client config tampering (MITM, ProxyCommand injection) ===
   # Modifying ~/.ssh/config is a critical lateral movement vector. Attackers add
