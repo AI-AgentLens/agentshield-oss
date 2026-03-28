@@ -1765,6 +1765,20 @@ var ShadowReadCases = []TestCase{
 			Excluded by agentshield\\s+mcp-eval\\s in command_regex_exclude (issue #633).`,
 		Tags: []string{"fp-fix", "mcp-eval", "issue-633"},
 	},
+	{
+		ID:               "TN-SHADOW-010",
+		Command:          "cd ~/dev/project && gh issue create --repo org/repo --title 'rule-request' --body \"$(cat <<'EOF'\nExample: /etc/shadow is a sensitive path\nEOF\n)\"",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Compound command: cd changes directory, then gh issue create passes /etc/shadow as
+			documentation text in a heredoc command substitution passed to --body.
+			Previously blocked because the command starts with 'cd', not 'gh', so the old
+			^gh... exclude pattern didn't match. Fixed in issue #573 by extending the gh exclude
+			to match after '&&' and ';' separators: (?:^|&&\\s*|;\\s*)gh\\s+...`,
+		Tags: []string{"fp-fix", "gh-cli", "compound-cmd", "issue-573"},
+	},
 }
 
 // ---------------------------------------------------------------------------

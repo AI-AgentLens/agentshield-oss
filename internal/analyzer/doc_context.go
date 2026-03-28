@@ -16,11 +16,14 @@ const DocContextExcludePattern = `` +
 	// echo/printf — all args are display text
 	`^(echo|printf)\s` +
 	// git commit/tag/notes/stash/merge -m/--message
-	`|^git\s+(?:commit|tag|notes\s+(?:add|edit|append)|stash(?:\s+(?:push|save))?|merge)\b.*(?:\s-m\s|\s--message[\s=])` +
+	// Handles compound commands like `cd /dir && git commit -m "..."`.
+	`|(?:^|&&\s*|;\s*)git\s+(?:commit|tag|notes\s+(?:add|edit|append)|stash(?:\s+(?:push|save))?|merge)\b.*(?:\s-m\s|\s--message[\s=])` +
 	// gh issue/pr/release/gist/repo --body/--title/--notes/--description
-	`|^gh\s+(?:issue|pr|release|gist|repo)\s+\S+\b.*\s--(?:body(?:-file)?|title|notes|description)(?:\s|=)` +
+	// Handles both standalone (`gh issue create --body ...`) and compound commands
+	// (`cd /dir && gh issue create --body ...`) where gh appears after && or ;.
+	`|(?:^|&&\s*|;\s*)gh\s+(?:issue|pr|release|gist|repo)\s+\S+\b.*\s--(?:body(?:-file)?|title|notes|description)(?:\s|=)` +
 	// gh short flags -b -t
-	`|^gh\s+.*\s-[bt]\s` +
+	`|(?:^|&&\s*|;\s*)gh\s+.*\s-[bt]\s` +
 	// System messaging
 	`|^(logger|wall|say|notify-send|terminal-notifier)\s` +
 	// npm/yarn version -m/--message
