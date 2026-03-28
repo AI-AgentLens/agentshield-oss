@@ -6004,4 +6004,54 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "credential-exposure",
 		Description:      "read_file on project docs mentioning mc — benign documentation. mcp-sec-block-minio-client-credentials must NOT fire (issue #554).",
 	},
+	// Issue #556: TP — Slack desktop (capital S) Cookies read
+	{
+		ID:               "MCP-TP-837",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/Slack/Cookies"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "read_file on ~/.config/Slack/Cookies (capital S) — Linux Slack desktop session cookie store. mcp-sec-block-slack-desktop-creds must fire (issue #556).",
+	},
+	// Issue #556: TP — Slack desktop leveldb session storage
+	{
+		ID:               "MCP-TP-838",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/Slack/Local Storage/leveldb/MANIFEST-000001"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "read_file on ~/.config/Slack/Local Storage — Slack session tokens in leveldb. mcp-sec-block-slack-desktop-creds must fire (issue #556).",
+	},
+	// Issue #556: TP — Slack desktop storage write
+	{
+		ID:               "MCP-TP-839",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/root/.config/Slack/storage/root~2"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "write_file to ~/.config/Slack/ — credential injection into Slack desktop storage. mcp-sec-block-slack-desktop-creds must fire (issue #556).",
+	},
+	// Issue #556: TN — Slack bot source code (not a credential path)
+	{
+		ID:               "MCP-TN-835",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/slack_bot.py"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure",
+		Description:      "read_file on Slack bot source file — benign project code. mcp-sec-block-slack-desktop-creds must NOT fire (issue #556).",
+	},
+	// Issue #556: TN — docs file with 'Slack' in path but not credential dir
+	{
+		ID:               "MCP-TN-836",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/Slack-integration-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure",
+		Description:      "read_file on docs containing 'Slack' in name — benign documentation. mcp-sec-block-slack-desktop-creds must NOT fire (issue #556).",
+	},
 }
