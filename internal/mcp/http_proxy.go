@@ -159,6 +159,26 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// JSON-RPC 2.0 batch request (JSON array): evaluate each item individually.
+	// Block the entire batch if any item violates policy (fail-closed).
+	if IsBatch(body) {
+		msgs, err := ParseBatch(body)
+		if err != nil {
+			_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] warning: failed to parse batch, forwarding: %v\n", err)
+			hp.forwardPost(w, r, body)
+			return
+		}
+		blocked, batchResp := hp.handler.HandleBatch(msgs)
+		if blocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(batchResp)
+			return
+		}
+		hp.forwardPost(w, r, body)
+		return
+	}
+
 	// Parse the JSON-RPC message
 	msg, kind, err := ParseMessage(body)
 	if err != nil {

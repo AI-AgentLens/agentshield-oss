@@ -20,6 +20,69 @@ type MessageHandler struct {
 	SchemaDrift  *SchemaDriftScanner // optional; nil disables schema drift detection
 }
 
+// BatchLargeAuditThreshold is the batch size above which AgentShield emits an AUDIT
+// event as a potential batch enumeration or log dilution probe.
+const BatchLargeAuditThreshold = 10
+
+// HandleBatch evaluates a JSON-RPC 2.0 batch request. Each item is evaluated
+// individually through the full per-request pipeline. If any item would be blocked,
+// the entire batch is blocked (fail-closed). Large batches (> BatchLargeAuditThreshold)
+// are AUDIT-logged even when all items are individually allowed.
+// Returns (true, batchBlockRespJSON) if the batch should be blocked.
+func (h *MessageHandler) HandleBatch(msgs []*Message) (bool, []byte) {
+	// AUDIT large batches regardless of content — potential enumeration probe.
+	if len(msgs) > BatchLargeAuditThreshold {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT large batch: %d items (threshold: %d)\n",
+			len(msgs), BatchLargeAuditThreshold)
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:  time.Now().UTC().Format(time.RFC3339),
+				ToolName:   "batch-request",
+				Decision:   "AUDIT",
+				Flagged:    true,
+				TriggeredRules: []string{"mcp-batch-large-audit"},
+				Reasons: []string{fmt.Sprintf(
+					"batch contains %d items (threshold: %d) — potential enumeration or log dilution",
+					len(msgs), BatchLargeAuditThreshold,
+				)},
+				Source:      "mcp-proxy-batch",
+				ServerName:  h.ServerName,
+				TaxonomyRef: "unauthorized-execution/agentic-attacks/mcp-batch-request-abuse",
+			})
+		}
+	}
+
+	// Evaluate each item individually; block the entire batch on first violation.
+	for _, msg := range msgs {
+		kind := ClassifyMessage(msg)
+		var blocked bool
+
+		switch kind {
+		case KindToolCall:
+			blocked, _ = h.HandleToolCall(msg)
+		case KindResourceRead:
+			blocked, _ = h.HandleResourceRead(msg)
+		case KindResourceSubscribe:
+			blocked, _ = h.HandleResourceSubscribe(msg)
+		}
+
+		if blocked {
+			_, _ = fmt.Fprintf(h.Stderr,
+				"[AgentShield MCP] BLOCKED batch: item %q violates policy (%d total items)\n",
+				msg.Method, len(msgs))
+
+			batchResp, err := NewBatchBlockResponse(msgs,
+				fmt.Sprintf("batch blocked: item %q violates policy", msg.Method))
+			if err != nil {
+				return true, nil
+			}
+			return true, batchResp
+		}
+	}
+
+	return false, nil
+}
+
 // HandleToolCall evaluates a tools/call message against policy, content scanning,
 // value limits, and config guard. Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
