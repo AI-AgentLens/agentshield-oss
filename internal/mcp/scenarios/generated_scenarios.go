@@ -5954,4 +5954,54 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "unauthorized-execution",
 		Description:      "read_resource with workspace file:// URI — benign project file access. SSRF rules must NOT fire (issue #539).",
 	},
+	// Issue #554: TP — MinIO client config.json read
+	{
+		ID:               "MCP-TP-834",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.mc/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "read_file on ~/.mc/config.json — contains MinIO/S3 access key IDs and secrets. mcp-sec-block-minio-client-credentials must fire (issue #554).",
+	},
+	// Issue #554: TP — MinIO client aliases.json read
+	{
+		ID:               "MCP-TP-835",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.mc/aliases.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "read_file on ~/.mc/aliases.json — modern MinIO client credential store. mcp-sec-block-minio-client-credentials must fire (issue #554).",
+	},
+	// Issue #554: TP — MinIO client config.json write (credential injection)
+	{
+		ID:               "MCP-TP-836",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/root/.mc/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "write_file to ~/.mc/config.json — credential injection into MinIO client. mcp-sec-block-minio-client-credentials must fire (issue #554).",
+	},
+	// Issue #554: TN — MinIO upload script (benign source code)
+	{
+		ID:               "MCP-TN-833",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/minio_upload.py"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure",
+		Description:      "read_file on project MinIO upload script — benign source code. mcp-sec-block-minio-client-credentials must NOT fire (issue #554).",
+	},
+	// Issue #554: TN — docs file mentioning mc config in text
+	{
+		ID:               "MCP-TN-834",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/mc-quickstart.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure",
+		Description:      "read_file on project docs mentioning mc — benign documentation. mcp-sec-block-minio-client-credentials must NOT fire (issue #554).",
+	},
 }
