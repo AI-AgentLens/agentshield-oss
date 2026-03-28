@@ -70,34 +70,12 @@ examples:
     - "subprocess.run(['getent', 'passwd', 'root'])"
 
 compliance:
-  owasp_llm_2025:
-    - id: "LLM06"
-      name: "Excessive Agency"
-      notes: "Reading auth stack configuration prepares for authentication bypass."
-    - id: "LLM02"
-      name: "Sensitive Information Disclosure"
-      notes: "PAM configs reveal authentication topology and security module placement."
-  mitre_attack:
-    - id: "T1556"
-      name: "Modify Authentication Process"
-      notes: "Reconnaissance prerequisite to modifying the PAM authentication stack."
-    - id: "T1082"
-      name: "System Information Discovery"
-    - id: "T1068"
-      name: "Exploitation for Privilege Escalation"
-  cwe:
-    - id: "CWE-285"
-      name: "Improper Authorization"
-    - id: "CWE-200"
-      name: "Information Exposure"
-  iso_27001_2022:
-    - id: "A.9.4"
-      name: "System and application access control"
-    - id: "A.8.2"
-      name: "Privileged access rights"
-  nist_ai_rmf:
-    - id: "MANAGE-2"
-    - id: "GOVERN-4"
-  eu_ai_act:
-    - id: "Art.15"
-      name: "Accuracy, robustness and cybersecurity"
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.9", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "GOVERN-6"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1556", "T1082", "T1068"]
+  cwe: ["CWE-285", "CWE-200"]

@@ -2,7 +2,7 @@ id: "persistence-evasion/config-modification/jupyter-kernel-spec"
 version: "1.0.0"
 kingdom: "Persistence & Defense Evasion"
 kingdom_id: 6
-category: "Git Configuration Code Execution"
+category: "Configuration Modification"
 category_id: "6.6"
 name: "Jupyter Kernel Spec Persistence"
 risk_level: "critical"
@@ -79,31 +79,12 @@ examples:
     - "import ipykernel"
 
 compliance:
-  owasp_llm_2025:
-    - id: "LLM06"
-      name: "Excessive Agency"
-      notes: "Writing kernel specs establishes silent persistent execution."
-  mitre_attack:
-    - id: "T1546"
-      name: "Event Triggered Execution"
-      notes: "Kernel spec fires on every Jupyter kernel start event."
-    - id: "T1059.004"
-      name: "Command and Scripting Interpreter: Unix Shell"
-    - id: "T1543"
-      name: "Create or Modify System Process"
-  cwe:
-    - id: "CWE-693"
-      name: "Protection Mechanism Failure"
-    - id: "CWE-114"
-      name: "Process Control"
-  iso_27001_2022:
-    - id: "A.8.7"
-      name: "Protection against malware"
-    - id: "A.8.2"
-      name: "Privileged access rights"
-  nist_ai_rmf:
-    - id: "MANAGE-2"
-    - id: "GOVERN-4"
-  eu_ai_act:
-    - id: "Art.15"
-      name: "Accuracy, robustness and cybersecurity"
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.9", "A.8.23"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "GOVERN-6"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1546", "T1059.004", "T1543"]
+  cwe: ["CWE-693", "CWE-114"]

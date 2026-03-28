@@ -63,30 +63,12 @@ examples:
     - "cat /proc/modules"
 
 compliance:
-  owasp_llm_2025:
-    - id: "LLM06"
-      name: "Excessive Agency"
-      notes: "Kernel module loading grants unbounded OS-level agency."
-  mitre_attack:
-    - id: "T1547.006"
-      name: "Boot or Logon Autostart Execution: Kernel Modules and Extensions"
-    - id: "T1014"
-      name: "Rootkit"
-    - id: "T1055"
-      name: "Process Injection"
-  cwe:
-    - id: "CWE-250"
-      name: "Execution with Unnecessary Privileges"
-    - id: "CWE-269"
-      name: "Improper Privilege Management"
-  iso_27001_2022:
-    - id: "A.8.2"
-      name: "Privileged access rights"
-    - id: "A.8.7"
-      name: "Protection against malware"
-  nist_ai_rmf:
-    - id: "MANAGE-2"
-    - id: "GOVERN-4"
-  eu_ai_act:
-    - id: "Art.15"
-      name: "Accuracy, robustness and cybersecurity"
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.9", "A.8.23"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "GOVERN-6"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+
+references:
+  mitre_attack: ["T1547.006", "T1014", "T1055"]
+  cwe: ["CWE-250", "CWE-269"]
