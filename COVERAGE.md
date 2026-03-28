@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 503 |
-| Total rules | 1559 |
+| MCP rules | 507 |
+| Total rules | 1563 |
 | Test cases (TP+TN) | 3759 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (235 rules)
+### credential-exposure (239 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1184,6 +1184,7 @@
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
 | `mcp-sec-block-psql-history` | BLOCK | mcp_rule | Access to ~/.psql_history is blocked — PostgreSQL shell history can contain ALTER ROLE ... PASSWORD and \password command output with plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-rediscli-history` | BLOCK | mcp_rule | Access to ~/.rediscli_history is blocked — Redis CLI history can contain AUTH <password> and CONFIG SET requirepass <password> commands with plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-block-rediscli-auth` | BLOCK | mcp_rule | Access to ~/.rediscli_auth is blocked — this file stores a plaintext Redis authentication password used by redis-cli for automatic login. MITRE T1552.001. |
 | `mcp-sec-block-shell-history` | BLOCK | mcp_rule | Access to shell history file is blocked — command history routinely contains passwords passed as CLI args, API keys set via export, and git URLs with embedded credentials. MITRE T1552.003. |
 | `mcp-sec-block-fish-history` | BLOCK | mcp_rule | Access to fish shell history file is blocked — fish stores command history at ~/.local/share/fish/fish_history and it routinely contains credentials passed as CLI arguments. MITRE T1552.003. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
@@ -1337,6 +1338,9 @@
 | `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
 | `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
+| `mcp-sec-block-cloudflare-api-credentials` | BLOCK | mcp_rule | Access to Cloudflare API credential files (~/.cloudflare/credentials) is blocked — contains API tokens granting full Cloudflare API access including DNS, Workers, and Zero Trust policies. MITRE T1552. |
+| `mcp-sec-block-cloudflare-config-credentials` | BLOCK | mcp_rule | Access to Cloudflare config credentials (~/.config/cloudflare/credentials.json) is blocked — contains API tokens for wrangler and Cloudflare tooling. MITRE T1552. |
+| `mcp-sec-block-fastlane-credentials` | BLOCK | mcp_rule | Access to ~/.fastlane/credentials is blocked — stores Apple ID / App Store Connect credentials used by Fastlane for iOS/macOS deployment automation. MITRE T1552.001. |
 | `mcp-sec-block-netskope-token` | BLOCK | mcp_rule | Access to ~/.netskopetoken is blocked — contains the Netskope SASE/SSE platform authentication token. Reading it exposes enterprise network access control and DLP policy credentials. MITRE T1552. |
 | `mcp-sec-block-container-secrets-mount` | BLOCK | mcp_rule | Access to /run/secrets/* is blocked — Docker Swarm and Kubernetes mount container secrets here in plaintext. Reading these exposes API keys, database passwords, and tokens injected by the orchestrator. MITRE T1552. |
 | `mcp-sec-block-huggingface-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub token file is blocked — this token grants access to private model repositories, gated datasets, and inference API billing. MITRE T1552.001, OWASP LLM06. |
