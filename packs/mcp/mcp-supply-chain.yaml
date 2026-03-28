@@ -831,3 +831,126 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/cache_utils.py"}
+
+  # === BLOCK: MCP write to Python user site-packages (issue #616) ===
+  #
+  # Shell-level rules block `echo > ~/.local/lib/python3.11/site-packages/requests/__init__.py`.
+  # But an AI agent using MCP write_file bypasses shell evaluation entirely.
+  #
+  # Writing to user-installed Python packages injects malicious code that executes on every
+  # import by any Python script run by the user. This is a stealthy persistent attack:
+  #
+  #   - Overwrite requests/__init__.py to exfiltrate all HTTP request bodies
+  #   - Modify boto3/__init__.py to harvest AWS credentials at import time
+  #   - Patch a test framework (pytest) to leak secrets from CI environment variables
+  #
+  # The attack is nearly invisible: the package version appears correct, no pip install
+  # occurred, and the file modification time is the only indicator.
+  #
+  # Covered paths:
+  #   ~/.local/lib/python*/site-packages/**  — user pip install --user (PEP 370)
+  #
+  # TN: Writing to project source files that happen to be in a Python package layout
+  # (e.g., /project/src/mypackage/__init__.py) is a common agent task — these are NOT
+  # in the site-packages directory.
+  #
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1565.001 — Data Manipulation: Stored Data Manipulation
+  - id: mcp-sc-block-python-sitepackages-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # User-installed packages: ~/.local/lib/python*/site-packages/**
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.local/lib/python[0-9.]+/site-packages/.+"
+            - "^~/\\.local/lib/python[0-9.]+/site-packages/.+"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/lib/python3.11/site-packages/requests/__init__.py"}
+        - tool: "str_replace_editor"
+          args: {"path": "/root/.local/lib/python3.12/site-packages/boto3/__init__.py"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/src/mypackage/__init__.py"}
+        - tool: "write_file"
+          args: {"path": "/project/src/site_packages_utils.py"}
+
+  # === BLOCK: MCP write to npm/npx global cache (issue #617) ===
+  #
+  # Shell-level rules block `echo > ~/.npm/_npx/cache/node_modules/react/index.js`.
+  # But an AI agent using MCP write_file bypasses shell evaluation entirely.
+  #
+  # Writing to npm's global cache or npx's execution cache injects malicious code that
+  # runs when the user executes a cached package via `npx <package>` or requires a
+  # globally-cached module. This is a persistent supply chain attack:
+  #
+  #   - Overwrite ~/.npm/_npx/cache/node_modules/react/index.js to backdoor all npx runs
+  #   - Write to ~/.npm/node_modules/.bin/<tool> to hijack a globally-installed CLI tool
+  #
+  # The attack is invisible: npm list shows the correct version, no npm install occurred.
+  #
+  # Covered paths:
+  #   ~/.npm/_npx/**         — npx execution cache (packages run via npx use this)
+  #   ~/.npm/node_modules/** — npm global node_modules cache
+  #
+  # Note: Read access to ~/.npmrc (auth tokens) is already blocked by mcp-sec-block-package-manager-creds.
+  # This rule specifically targets write access to the npm package cache itself.
+  #
+  # TN: Writing to a project's node_modules (within a project directory) is a normal
+  # development workflow. Only the user-level ~/.npm cache is blocked here.
+  #
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1565.001 — Data Manipulation: Stored Data Manipulation
+  - id: mcp-sc-block-npm-cache-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # npm npx execution cache
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm/_npx/.+"
+            - "^~/\\.npm/_npx/.+"
+            # npm global node_modules cache
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm/node_modules/.+"
+            - "^~/\\.npm/node_modules/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.npm/_npx/cache/node_modules/react/index.js"}
+        - tool: "edit_file"
+          args: {"path": "/root/.npm/node_modules/.bin/create-react-app"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/node_modules/react/index.js"}
+        - tool: "write_file"
+          args: {"path": "/project/src/npm_cache_utils.js"}
