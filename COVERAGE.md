@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 538 |
-| Total rules | 1594 |
+| MCP rules | 540 |
+| Total rules | 1596 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1122,7 +1122,7 @@
 
 ## MCP Rules
 
-### credential-exposure (259 rules)
+### credential-exposure (261 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1340,6 +1340,8 @@
 | `mcp-sec-block-vscode-copilot-nightly-credentials-read` | BLOCK | mcp_rule | Access to GitHub Copilot Nightly VSCode extension globalStorage is blocked — contains GitHub OAuth session tokens with the same access scope as the stable Copilot extension. MITRE T1539, T1552. |
 | `mcp-sec-block-vscode-continue-credentials-read` | BLOCK | mcp_rule | Access to Continue.dev VSCode extension globalStorage is blocked — contains API keys for configured LLM providers (Anthropic, OpenAI, Gemini) enabling impersonation across multiple AI services. MITRE T1539, T1552. |
 | `mcp-sec-block-gemini-cli-v2-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI v2 OAuth credentials file is blocked — contains Google OAuth token for Gemini API. Stolen token enables AI inference under the victim's billing account. MITRE T1539, T1552. |
+| `mcp-sec-block-openai-codex-cli-credentials-read` | BLOCK | mcp_rule | Access to OpenAI Codex CLI credential directory (~/.openai-codex/) is blocked — contains OpenAI API keys and OAuth tokens. Exfiltration enables unauthorized LLM usage billed to the victim. MITRE T1552. |
+| `mcp-sec-block-amazon-q-cli-credentials-read` | BLOCK | mcp_rule | Access to Amazon Q Developer CLI credential directory (~/.q/) is blocked — contains AWS authentication tokens and session data. Exfiltration enables unauthorized AWS service usage billed to the victim. MITRE T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
 | `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config file is blocked — contains personal access tokens and scoped service tokens that grant read access to all managed secrets across all configured projects. MITRE T1552.001. |
