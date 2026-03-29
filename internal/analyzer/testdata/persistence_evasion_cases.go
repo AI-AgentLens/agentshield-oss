@@ -5077,6 +5077,83 @@ var AuditctlDmesgSysrqCases = []TestCase{
 	},
 
 	// ---------------------------------------------------------------------------
+	// Syslog Daemon Stopping — Audit Log Clearing (issue #683)
+	// Taxonomy: persistence-evasion/anti-forensics/audit-log-clearing
+	// Rules: ts-block-syslog-daemon-stop, ts-block-syslog-daemon-stop-reverse
+	// MITRE T1070.002
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "TP-TS-BLOCK-SYSLOG-DAEMON-001",
+		Command:          "systemctl stop rsyslog",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "systemctl stop rsyslog — severs syslog pipeline, prevents log recording. MITRE T1070.002.",
+		Tags:             []string{"tp", "anti-forensics", "syslog"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-SYSLOG-DAEMON-002",
+		Command:          "systemctl disable syslog-ng",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "systemctl disable syslog-ng — disables syslog-ng to prevent log forwarding to SIEM.",
+		Tags:             []string{"tp", "anti-forensics", "syslog"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-SYSLOG-DAEMON-REVERSE-001",
+		Command:          "systemctl rsyslog stop",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "systemctl rsyslog stop — reverse argument order variant.",
+		Tags:             []string{"tp", "anti-forensics", "syslog"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-SYSLOG-DAEMON-REVERSE-002",
+		Command:          "service syslogd stop",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "service syslogd stop — SysV init variant with daemon-before-action ordering.",
+		Tags:             []string{"tp", "anti-forensics", "syslog"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-SYSLOG-DAEMON-001",
+		Command:          "systemctl status rsyslog",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "systemctl status rsyslog — read-only status check, not a stop/disable (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-SYSLOG-DAEMON-002",
+		Command:          "systemctl restart rsyslog",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "systemctl restart rsyslog — legitimate restart after config change (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-SYSLOG-DAEMON-003",
+		Command:          "journalctl -u rsyslog",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/audit-log-clearing",
+		Analyzer:         "regex",
+		Description:      "journalctl reading rsyslog logs — read-only diagnostic (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// ---------------------------------------------------------------------------
 	// Timestamp Manipulation — Anti-Forensics (issue #682)
 	// Taxonomy: persistence-evasion/anti-forensics/timestamp-manipulation
 	// Rule: ts-block-touch-timestamp-manipulation

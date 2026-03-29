@@ -9118,6 +9118,57 @@ rules:
       tn:
         - "auditctl -l"
 
+  # === BLOCK: Stopping system logging daemons (audit log clearing) ===
+  #
+  # Stopping rsyslog, syslog-ng, or syslogd severs the centralized log pipeline —
+  # system events stop being recorded or forwarded to SIEM/SOC immediately.
+  # Unlike auditd (covered by ts-block-auditd-disable), these are the syslog
+  # transport daemons responsible for collecting and routing all application and
+  # kernel log messages.
+  #
+  # Note: auditd + auditctl are covered by ts-block-auditd-disable and
+  # ts-block-auditctl-disable. This rule covers the syslog layer specifically.
+  #
+  # Patterns:
+  #   systemctl stop rsyslog
+  #   systemctl disable syslog-ng
+  #   service syslogd stop
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/audit-log-clearing
+  # MITRE ATT&CK: T1070.002
+  # OWASP LLM: LLM02, LLM08; CWE-778
+  - id: "ts-block-syslog-daemon-stop"
+    taxonomy: "persistence-evasion/anti-forensics/audit-log-clearing"
+    match:
+      command_regex: "\\b(systemctl|service)\\b.*(stop|mask|disable)\\b.*(rsyslog|syslog-ng|syslogd|\\bsyslog\\b)"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Stopping or disabling a syslog daemon (rsyslog, syslog-ng, syslogd) — severs the centralized log pipeline, preventing events from being recorded and forwarded to SIEM. MITRE T1070.002."
+    tests:
+      tp:
+        - "systemctl stop rsyslog"
+        - "systemctl disable syslog-ng"
+      tn:
+        - "systemctl status rsyslog"
+        - "systemctl restart rsyslog"
+        - "journalctl -u rsyslog"
+
+  - id: "ts-block-syslog-daemon-stop-reverse"
+    taxonomy: "persistence-evasion/anti-forensics/audit-log-clearing"
+    match:
+      command_regex: "\\b(systemctl|service)\\b.*(rsyslog|syslog-ng|syslogd|\\bsyslog\\b).*(stop|mask|disable)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Stopping or disabling a syslog daemon (reverse argument order) — severs the centralized log pipeline, preventing events from being recorded. MITRE T1070.002."
+    tests:
+      tp:
+        - "systemctl rsyslog stop"
+        - "service syslog-ng disable"
+        - "service syslogd stop"
+      tn:
+        - "systemctl rsyslog status"
+        - "service syslog-ng status"
+
   # === BLOCK: dmesg --clear — wipes kernel ring buffer (anti-forensics) ===
   #
   # dmesg --clear (-C) empties the kernel ring buffer, destroying boot messages,
