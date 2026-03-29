@@ -125,6 +125,11 @@ type Scenario struct {
 	// The evaluator runs ScanToolCallResponse to detect content injection payloads.
 	ResourceReadTexts []string
 
+	// ResourceListURIs, if non-nil, makes this a resources/list response scenario.
+	// Each string is a resource URI returned in the resources/list result.
+	// The evaluator runs ScanResourcesListResponse to detect URI template injection.
+	ResourceListURIs []string
+
 	// ToolsListTools, if non-nil, makes this a tools/list manifest flooding scenario.
 	// The evaluator calls ScanToolsListManifest with the constructed tool list.
 	ToolsListTools []ToolsListTool

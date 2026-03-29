@@ -331,6 +331,11 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 		respBody = filtered
 	}
 
+	// Scan for resources/list URI template injection
+	if filtered := hp.handler.FilterResourceListResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
 	// Scan for prompts/get response poisoning
 	if filtered := hp.handler.FilterPromptsGetResponse(respBody); filtered != nil {
 		respBody = filtered
@@ -413,6 +418,13 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 
 			// Scan JSON-RPC data for resources/read response content injection
 			if filtered := hp.handler.FilterResourceReadResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan JSON-RPC data for resources/list URI template injection
+			if filtered := hp.handler.FilterResourceListResponse(data); filtered != nil {
 				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
 				flusher.Flush()
 				continue
