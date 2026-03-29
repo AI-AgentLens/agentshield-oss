@@ -169,7 +169,7 @@ jobs:
           if command -v aws &>/dev/null; then
             aws --version
           elif command -v docker &>/dev/null; then
-            docker run --rm amazon/aws-cli:2 --version
+            docker run --rm amazon/aws-cli:latest --version
           else
             echo "Neither aws nor docker is available on this runner."
             exit 1
@@ -196,7 +196,7 @@ jobs:
               -e AWS_EC2_METADATA_DISABLED
               -v "$PWD:/work"
               -w /work
-              amazon/aws-cli:2
+              amazon/aws-cli:latest
             )
           else
             echo "Neither aws nor docker is available on this runner."
