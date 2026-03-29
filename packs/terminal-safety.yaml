@@ -1164,8 +1164,45 @@ rules:
         - "echo 'auth sufficient pam_permit.so' > /etc/pam.d/sshd"
         - "echo 'auth sufficient pam_permit.so' | tee /etc/pam.d/login"
       tn:
-        - "cat /etc/pam.d/sshd"
-        - "grep pam_permit /etc/pam.d/su"
+        - "cat /etc/hosts"
+        - "systemctl status sssd"
+
+  # === AUDIT: PAM configuration reconnaissance — auth-stack mapping ===
+  #
+  # An AI agent that reads /etc/pam.conf or /etc/pam.d/* can map the full
+  # authentication stack to identify exploitable weaknesses:
+  #   - Which modules are "optional" vs "required" (optional can be bypassed)
+  #   - MFA module presence and bypass surface
+  #   - Account lockout thresholds for calibrated brute-force
+  #   - Sudo authentication chain weaknesses
+  #
+  # Attack examples:
+  #   cat /etc/pam.conf
+  #   cat /etc/pam.d/sudo
+  #   grep "sufficient" /etc/pam.d/sshd
+  #   ls /etc/pam.d/
+  #
+  # Taxonomy: privilege-escalation/command-execution/auth-stack-recon
+  # MITRE T1082 (System Information Discovery), T1556 (Modify Authentication Process)
+  # OWASP LLM06 (Excessive Agency), LLM02 (Sensitive Information Disclosure)
+
+  - id: "ts-audit-pam-config-read"
+    taxonomy: "privilege-escalation/command-execution/auth-stack-recon"
+    match:
+      command_regex: "(cat|less|head|tail|more|strings|grep|find|ls|stat|file|bat)(\\s+-\\S+)*\\s+.*(/etc/pam\\.conf|/etc/pam\\.d)"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Reading PAM configuration files reveals the authentication stack (module types, required/optional flags, MFA presence) enabling targeted privilege escalation planning. MITRE T1082, T1556."
+    tests:
+      tp:
+        - "cat /etc/pam.conf"
+        - "cat /etc/pam.d/sudo"
+        - "grep sufficient /etc/pam.d/sshd"
+        - "ls /etc/pam.d/"
+      tn:
+        - "cat /etc/hosts"
+        - "ls /etc/nginx/"
+        - "grep Listen /etc/apache2/apache2.conf"
 
   # === BLOCK: LLM-controlled file permissions ===
   - id: "ts-block-llm-chmod-dangerous"
