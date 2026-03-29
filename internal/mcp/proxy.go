@@ -248,6 +248,12 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
+		// Scan resources/list responses for URI template injection
+		if filtered := p.handler.FilterResourceListResponse(line); filtered != nil {
+			writeLineToWriter(clientWriter, filtered)
+			continue
+		}
+
 		// Scan prompts/get responses for injected prompt template content
 		if filtered := p.handler.FilterPromptsGetResponse(line); filtered != nil {
 			writeLineToWriter(clientWriter, filtered)

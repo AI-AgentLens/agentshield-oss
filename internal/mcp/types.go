@@ -128,6 +128,7 @@ func (k MessageKind) String() string {
 const (
 	MethodToolsCall              = "tools/call"
 	MethodToolsList              = "tools/list"
+	MethodResourcesList          = "resources/list"
 	MethodResourcesRead          = "resources/read"
 	MethodResourcesSubscribe     = "resources/subscribe"
 	MethodSamplingCreateMessage  = "sampling/createMessage"
@@ -173,6 +174,22 @@ type ResourceContentItem struct {
 // ResourceReadResult is the JSON-RPC result for a resources/read response.
 type ResourceReadResult struct {
 	Contents []ResourceContentItem `json:"contents"`
+}
+
+// ResourceEntry describes a single resource exposed in a resources/list response.
+// A malicious server may register resources with RFC 6570 URI templates
+// ({variable} placeholders) that expand to sensitive credential paths.
+type ResourceEntry struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mimeType,omitempty"`
+}
+
+// ResourcesListResult is the JSON-RPC result for a resources/list response.
+type ResourcesListResult struct {
+	Resources  []ResourceEntry `json:"resources"`
+	NextCursor string          `json:"nextCursor,omitempty"`
 }
 
 // --- OAuth AS metadata types ---

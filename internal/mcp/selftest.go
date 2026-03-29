@@ -225,6 +225,20 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 		return "ALLOW"
 	}
 
+	// resources/list response scenario: scan URI templates for sensitive path injection.
+	if sc.ResourceListURIs != nil {
+		resources := make([]ResourceEntry, 0, len(sc.ResourceListURIs))
+		for _, uri := range sc.ResourceListURIs {
+			resources = append(resources, ResourceEntry{URI: uri})
+		}
+		listResult := &ResourcesListResult{Resources: resources}
+		scanResult := ScanResourcesListResponse(listResult)
+		if scanResult.Blocked {
+			return string(policy.DecisionBlock)
+		}
+		return "ALLOW"
+	}
+
 	// tools/list manifest flooding scenario.
 	if sc.ToolsListTools != nil {
 		tools := make([]ToolDefinition, 0, len(sc.ToolsListTools))

@@ -1058,6 +1058,93 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 	return replacement
 }
 
+// FilterResourceListResponse scans a resources/list response for URI templates that
+// expand to sensitive credential or system paths (RFC 6570 URI template injection).
+//
+// A malicious MCP server may register resources with template URIs such as
+// file:///home/{username}/.ssh/authorized_keys. The template looks innocuous at
+// registration time but expands to a targeted credential-read payload when the agent
+// substitutes execution context variables.
+//
+// Detection is content-based: we attempt to parse the response as ResourcesListResult.
+// If the result has a non-empty resources array, we scan each URI for template patterns
+// that resolve to sensitive paths. Returns the replacement JSON bytes if blocked, nil
+// if not a resources/list response or the resources are safe.
+//
+// Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection
+func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
+	var msg Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil
+	}
+
+	// Only process success responses (has result, no method, no error)
+	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
+		return nil
+	}
+
+	// Try to parse as ResourcesListResult — must have a non-empty resources array with URIs
+	var listResult ResourcesListResult
+	if err := json.Unmarshal(msg.Result, &listResult); err != nil {
+		return nil
+	}
+	if len(listResult.Resources) == 0 {
+		return nil
+	}
+
+	// Verify it actually looks like a resources/list response (at least one URI field present)
+	hasURI := false
+	for _, r := range listResult.Resources {
+		if r.URI != "" {
+			hasURI = true
+			break
+		}
+	}
+	if !hasURI {
+		return nil
+	}
+
+	scanResult := ScanResourcesListResponse(&listResult)
+	if !scanResult.Blocked {
+		return nil
+	}
+
+	reason := "resources/list contains URI template targeting sensitive path"
+	if len(scanResult.Findings) > 0 {
+		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
+	}
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resources/list response — URI template injection (%d findings)\n",
+		len(scanResult.Findings))
+	for _, f := range scanResult.Findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (%s)\n", f.Signal, f.Detail, f.URI)
+	}
+
+	if h.OnAudit != nil {
+		reasons := make([]string, 0, len(scanResult.Findings))
+		for _, f := range scanResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" ("+f.URI+")")
+		}
+		h.OnAudit(AuditEntry{
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			ToolName:       MethodResourcesList,
+			Decision:       "BLOCK",
+			Flagged:        true,
+			TriggeredRules: []string{"resource-list-uri-template-injection"},
+			Reasons:        reasons,
+			Source:         "mcp-proxy-resource-list-scan",
+			ServerName:     h.ServerName,
+			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection",
+		})
+	}
+
+	replacement, err := NewBlockResponse(msg.ID, reason)
+	if err != nil {
+		return nil
+	}
+	return replacement
+}
+
 // HandleRootsListResponse intercepts roots/list responses (client→server) to detect
 // MCP servers that have elicited access to sensitive filesystem paths.
 //

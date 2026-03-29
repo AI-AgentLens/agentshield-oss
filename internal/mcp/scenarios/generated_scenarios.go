@@ -6415,6 +6415,50 @@ var GeneratedTNScenarios = []Scenario{
 		Description:      "Read project docs about Bitwarden macOS setup must AUDIT — doc file is not the macOS Bitwarden app data directory (issue #643).",
 	},
 
+	// TP: resources/list URI template injection (issue #651)
+	{
+		ID:               "MCP-TP-907",
+		ResourceListURIs: []string{"file:///home/{username}/.ssh/authorized_keys"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "resource-list-uri-template-injection",
+		Description:      "resources/list with SSH authorized_keys URI template — must be blocked (issue #651).",
+	},
+	{
+		ID:               "MCP-TP-908",
+		ResourceListURIs: []string{"http://metadata-service/{path}"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "resource-list-uri-template-injection",
+		Description:      "resources/list targeting metadata-service with variable path — must be blocked (issue #651).",
+	},
+	{
+		ID:               "MCP-TP-909",
+		ResourceListURIs: []string{"file:///etc/{config_file}"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "resource-list-uri-template-injection",
+		Description:      "resources/list with variable /etc/ path — must be blocked (issue #651).",
+	},
+
+	// TN: resources/list with safe URI templates (issue #651)
+	{
+		ID:               "MCP-TN-903",
+		ResourceListURIs: []string{"https://api.github.com/{owner}/{repo}"},
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		Category:         "resource-list-uri-template-safe",
+		Description:      "resources/list with GitHub API template — legitimate use, must not be blocked (issue #651).",
+	},
+	{
+		ID:               "MCP-TN-904",
+		ResourceListURIs: []string{"file:///workspace/{project}/README.md"},
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		Category:         "resource-list-uri-template-safe",
+		Description:      "resources/list with workspace project README template — not sensitive, must not be blocked (issue #651).",
+	},
+
 	// TP: Cross-agent principal identity spoofing (issue #652)
 	{
 		ID:       "MCP-TP-904",
