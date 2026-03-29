@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1057 |
-| MCP rules | 543 |
-| Total rules | 1600 |
+| MCP rules | 547 |
+| Total rules | 1604 |
 | Test cases (TP+TN) | 3764 |
 | Kingdoms covered | 10 |
 
@@ -1623,7 +1623,7 @@
 | `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (74 rules)
+### unauthorized-execution (78 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1653,6 +1653,9 @@
 | `mcp-content-audit-msj-filename-read` | AUDIT | mcp_rule | MCP read of a file with 'jailbreak' in its name — such files commonly contain many-shot jailbreaking payloads that override safety alignment when loaded into agent context (OWASP LLM01, LLM05). |
 | `mcp-content-audit-msj-adversarial-read` | AUDIT | mcp_rule | MCP read of a file named 'msj_payload' — a naming convention used by many-shot jailbreak red-team toolkits. Loading this file into agent context could override safety alignment for the session (OWASP LLM01). |
 | `mcp-content-audit-msj-demo-pairs-read` | AUDIT | mcp_rule | MCP read of a few-shot demonstration file — large collections of instruction-response demo pairs are the primary vehicle for many-shot jailbreaking (OWASP LLM01). |
+| `mcp-ci-audit-principal-spoof-source-agent-id` | AUDIT | mcp_rule | Tool call claims high-privilege source_agent_id identity — this unsigned field is trivially forgeable and may be used to escalate tool access in multi-agent systems (OWASP LLM09, MITRE T1078). |
+| `mcp-ci-audit-principal-spoof-caller-agent` | AUDIT | mcp_rule | Tool call claims high-privilege caller_agent identity — this unsigned field is trivially forgeable and may be used to escalate tool access in multi-agent systems (OWASP LLM09, MITRE T1078). |
+| `mcp-ci-audit-principal-spoof-principal` | AUDIT | mcp_rule | Tool call carries a principal field claiming high-privilege agent identity — unsigned principal claims are trivially forgeable in multi-agent systems (OWASP LLM09, MITRE T1078). |
 | `mcp-struct-block-shell-meta-in-path` | BLOCK | structural | Shell metacharacters detected in MCP path argument — injection attempt to escape file path context into shell execution (OWASP LLM02: Insecure Output Handling) |
 | `mcp-struct-audit-shell-var-in-path` | AUDIT | structural | Variable expansion syntax in MCP path argument — ${VAR} is common in Docker/CI configs but may also indicate path injection. AUDIT for review (OWASP LLM02). |
 | `mcp-struct-block-shell-inject-in-command` | BLOCK | structural | Shell injection chain detected in MCP command argument — injected sub-command or dangerous command sequence (OWASP LLM02) |
@@ -1688,6 +1691,7 @@
 | `mcp-safety-block-subscribe-aws` | BLOCK | mcp_rule | Subscribing to AWS credential files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
 | `mcp-safety-block-subscribe-gnupg` | BLOCK | mcp_rule | Subscribing to GPG key files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
 | `mcp-safety-block-subscribe-kube` | BLOCK | mcp_rule | Subscribing to Kubernetes config files via MCP resources/subscribe enables passive exfiltration of cluster credentials through change notifications. MITRE T1552, OWASP LLM08. |
+| `mcp-safety-block-resource-uri-template-injection` | BLOCK | mcp_rule | resources/read URI contains RFC 6570 template variable syntax — template placeholders can expand to sensitive credential paths, bypassing static path guards. MITRE T1552, OWASP LLM07/LLM08. |
 | `mcp-struct-block-shell-execution` | BLOCK | structural | MCP tool that executes shell commands should go through AgentShield's command pipeline |
 | `mcp-struct-block-prompt-injection-text` | BLOCK | structural | Prompt injection detected in text argument — attempt to manipulate LLM behavior |
 | `mcp-struct-block-prompt-injection-content` | BLOCK | structural | Prompt injection detected in content argument — attempt to manipulate LLM behavior |
