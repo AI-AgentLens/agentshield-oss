@@ -5473,6 +5473,51 @@ var AliasInterceptionCases = []TestCase{
 		Description:      "FP regression (issue #180): git commit -m containing alias ssh= — ts-block-alias-shadow-security-cmd must NOT fire on git message flags",
 		Tags:             []string{"tn", "fp-regression", "git-commit", "alias"},
 	},
+	// === ts-block-jupyter-kernelspec-install (issue #638) ===
+	// jupyter kernelspec install registers a kernel spec that executes arbitrary code on
+	// every notebook kernel start — a silent persistence mechanism that survives virtualenv
+	// recreation. MITRE T1546 (Event Triggered Execution).
+	{
+		ID:               "TP-TS-BLOCK-JUPYTER-KERNELSPEC-INSTALL-001",
+		Command:          "jupyter kernelspec install /tmp/malicious_kernel --user",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/jupyter-kernel-spec",
+		Analyzer:         "regex",
+		Description:      "jupyter kernelspec install with --user flag installs a persistent kernel spec that executes on every notebook start — BLOCK required",
+		Tags:             []string{"tp", "persistence", "jupyter", "kernelspec"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-JUPYTER-KERNELSPEC-INSTALL-002",
+		Command:          "jupyter kernelspec install /tmp/evil_kernel --sys-prefix",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/config-modification/jupyter-kernel-spec",
+		Analyzer:         "regex",
+		Description:      "jupyter kernelspec install --sys-prefix installs into the active virtualenv prefix — persistent kernel spec execution on every notebook start",
+		Tags:             []string{"tp", "persistence", "jupyter", "kernelspec"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-JUPYTER-KERNELSPEC-INSTALL-001",
+		Command:          "jupyter kernelspec list",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/jupyter-kernel-spec",
+		Analyzer:         "regex",
+		Description:      "jupyter kernelspec list is a read-only command that shows installed kernels — must NOT be blocked",
+		Tags:             []string{"tn", "safe", "jupyter", "kernelspec"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-JUPYTER-KERNELSPEC-INSTALL-002",
+		Command:          "jupyter kernelspec remove mykernel",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/config-modification/jupyter-kernel-spec",
+		Analyzer:         "regex",
+		Description:      "jupyter kernelspec remove unregisters a kernel — not a persistence mechanism; ts-allow-jupyter-interactive allows all kernelspec subcommands except install",
+		Tags:             []string{"tn", "safe", "jupyter", "kernelspec"},
+	},
+
 	// FP regression: guardian-disable_security must NOT fire on tee heredoc bodies
 	// containing "skip security" in Python comments/docstrings (issue #487).
 	// The fix extended fileWriteHeredocStartRe/fileWriteHeredocAnywhereRe to cover tee.

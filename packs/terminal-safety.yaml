@@ -724,6 +724,32 @@ rules:
   #   jupyter lab
   #   jupyter notebook
 
+  # === BLOCK: jupyter kernelspec install (kernel spec persistence, issue #638) ===
+  # `jupyter kernelspec install` registers a new kernel spec directory. An AI agent
+  # can place a crafted kernel.json (with a malicious argv launcher) in a temp directory
+  # and install it as a persistent Jupyter kernel. The malicious code executes with full
+  # user privileges every time that kernel type is started — surviving virtualenv
+  # recreations and package upgrades. MITRE T1546 (Event Triggered Execution).
+  #
+  # Safe alternatives:
+  #   jupyter kernelspec list   — read-only, shows installed kernels
+  #   jupyter kernelspec remove — removes an existing kernel
+  - id: "ts-block-jupyter-kernelspec-install"
+    taxonomy: "persistence-evasion/config-modification/jupyter-kernel-spec"
+    match:
+      command_regex: "\\bjupyter\\s+kernelspec\\s+install\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "jupyter kernelspec install registers a kernel spec that executes arbitrary code on every notebook kernel start — a silent persistence mechanism that survives environment recreation. MITRE T1546."
+    tests:
+      tp:
+        - "jupyter kernelspec install /tmp/malicious_kernel --user"
+        - "jupyter kernelspec install /tmp/evil_kernel --sys-prefix"
+        - "jupyter kernelspec install ./evil_kernel"
+      tn:
+        - "jupyter kernelspec list"
+        - "jupyter kernelspec remove mykernel"
+
   # === ALLOW: Safe jupyter commands (no code execution) ===
   # jupyter lab / jupyter notebook — start interactive servers (require human interaction)
   # jupyter nbconvert --to <format> without --execute — format conversion only
