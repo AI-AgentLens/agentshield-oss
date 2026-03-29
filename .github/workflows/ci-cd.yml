@@ -153,6 +153,10 @@ jobs:
       - name: Build macOS DMG installers
         run: |
           VERSION="${{ needs.release.outputs.version }}"
+          if ! command -v hdiutil &>/dev/null; then
+            echo "hdiutil is unavailable on this runner; skipping DMG packaging."
+            exit 0
+          fi
           for ARCH in arm64 amd64; do
             echo "Building DMG for darwin/${ARCH}..."
             VERSION="${VERSION}" bash scripts/build-app.sh "${ARCH}"
@@ -179,16 +183,21 @@ jobs:
           S3_BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
         run: |
           VERSION="${{ needs.release.outputs.version }}"
+          shopt -s nullglob
+
           # Upload tar.gz archives
-          for archive in dist/agentshield_*.tar.gz; do
+          archives=(dist/agentshield_*.tar.gz)
+          for archive in "${archives[@]}"; do
             FILENAME=$(basename "$archive")
             echo "  Uploading ${FILENAME}..."
             aws s3 cp "$archive" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
               --endpoint-url "${S3_ENDPOINT}" \
               --content-type "application/gzip"
           done
+
           # Upload DMG installers
-          for dmg in build/*.dmg; do
+          dmgs=(build/*.dmg)
+          for dmg in "${dmgs[@]}"; do
             FILENAME=$(basename "$dmg")
             echo "  Uploading ${FILENAME}..."
             aws s3 cp "$dmg" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
