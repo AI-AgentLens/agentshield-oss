@@ -9289,11 +9289,11 @@ rules:
   #   systemctl disable syslog-ng
   #   service syslogd stop
   #
-  # Taxonomy: persistence-evasion/anti-forensics/audit-log-clearing
+  # Taxonomy: persistence-evasion/log-tampering/audit-log-clearing
   # MITRE ATT&CK: T1070.002
   # OWASP LLM: LLM02, LLM08; CWE-778
   - id: "ts-block-syslog-daemon-stop"
-    taxonomy: "persistence-evasion/anti-forensics/audit-log-clearing"
+    taxonomy: "persistence-evasion/log-tampering/audit-log-clearing"
     match:
       command_regex: "\\b(systemctl|service)\\b.*(stop|mask|disable)\\b.*(rsyslog|syslog-ng|syslogd|\\bsyslog\\b)"
     decision: "BLOCK"
@@ -9309,7 +9309,7 @@ rules:
         - "journalctl -u rsyslog"
 
   - id: "ts-block-syslog-daemon-stop-reverse"
-    taxonomy: "persistence-evasion/anti-forensics/audit-log-clearing"
+    taxonomy: "persistence-evasion/log-tampering/audit-log-clearing"
     match:
       command_regex: "\\b(systemctl|service)\\b.*(rsyslog|syslog-ng|syslogd|\\bsyslog\\b).*(stop|mask|disable)\\b"
     decision: "BLOCK"
