@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1067 |
-| MCP rules | 566 |
-| Total rules | 1633 |
+| MCP rules | 571 |
+| Total rules | 1638 |
 | Test cases (TP+TN) | 3804 |
 | Kingdoms covered | 10 |
 
@@ -1622,7 +1622,7 @@
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
 
-### supply-chain (17 rules)
+### supply-chain (20 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1643,8 +1643,11 @@
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 | `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-go-module-cache-write` | BLOCK | structural | MCP write to Go module cache (~~/go/pkg/mod/) — the Go module cache is immutable by design and checksummed in go.sum. Writing here injects code that executes when the affected module is imported, bypassing go.sum verification. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (85 rules)
+### unauthorized-execution (87 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1704,6 +1707,8 @@
 | `mcp-response-integrity-block-exfil-url` | BLOCK | mcp_rule | Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06) |
 | `mcp-response-integrity-audit-web-search` | AUDIT | mcp_rule | Web search tool call — returned page content may contain hidden prompt injection instructions targeting AI assistants (LLM01: web-search-result-injection, MITRE ATLAS AML.T0051) |
 | `mcp-response-integrity-resource-audit-http` | AUDIT | resource_rule | resources/read from external HTTP/HTTPS URI — response content may embed prompt injection payloads or exfiltration directives. Built-in response scanner (Layer 2) inspects actual content. (LLM01, T1659: mcp-resource-content-injection) |
+| `mcp-initialize-handshake-manipulation` | BLOCK | mcp_rule | MCP initialize handshake manipulation detected — server is impersonating a trusted identity or injecting capability flags to inflate trust level. Protocol-layer attack before any tool call authorization. OWASP LLM08, CWE-285, MITRE T1557. |
+| `mcp-initialize-handshake-manipulation-audit` | AUDIT | mcp_rule | MCP initialize handshake anomaly — protocol version downgrade or trust-signaling server name detected. Possible downgrade attack disabling newer security features, or server attempting to inflate perceived trust level. OWASP LLM08, CWE-757, MITRE T1036. |
 | `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
 | `mcp-sec-audit-tool-description-changed` | AUDIT | mcp_rule | MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195. |
 | `mcp-guardian-annotation-spoofing` | AUDIT | mcp_rule | MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09. |
