@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1061 |
+| Terminal rules | 1065 |
 | MCP rules | 566 |
-| Total rules | 1627 |
-| Test cases (TP+TN) | 3784 |
+| Total rules | 1631 |
+| Test cases (TP+TN) | 3797 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -709,7 +709,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (73 rules)
+### reconnaissance (77 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -768,6 +768,8 @@
 | `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 | `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
+| `ts-audit-env-var-secret-grep` | AUDIT | regex | Piping env/printenv/export through grep with secret-suggestive keywords (TOKEN, SECRET, KEY, PASSWORD, CRED, AUTH) — reconnaissance technique to harvest API keys and credentials from the process environment. Pre-exfiltration reconnaissance step (OWASP LLM02, LLM06, MITRE T1552.007, CWE-200). |
+| `ts-block-env-secret-exfil` | BLOCK | regex | Env secret grep output piped to a network tool — credential exfiltration chain: environment variables filtered for secrets are sent directly over the network. No legitimate developer workflow requires this compound pattern (OWASP LLM02, MITRE T1552, T1048, CWE-200). |
 | `recon-llm-cache-timing-probe` | AUDIT | regex | LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts (OWASP LLM02, LLM06, CWE-208). |
 | `recon-thinking-token-probe` | AUDIT | regex | LLM API call with budget_tokens co-occurring with .thinking content access — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts (OWASP LLM02, LLM06, CWE-208). |
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
@@ -776,6 +778,8 @@
 | `ts-block-fanotify-surveillance` | BLOCK | regex | fanotify kernel-level filesystem monitoring — watches entire mount points or filesystems for access events. More powerful than inotify, enables mount-wide surveillance. MITRE T1083. |
 | `ts-block-find-shadow-hunt` | BLOCK | regex | find searching for 'shadow' files across the filesystem is targeted reconnaissance for the system password database (/etc/shadow). No legitimate development task requires locating shadow files. MITRE T1083, T1552.001. |
 | `ts-audit-find-credential-hunt` | AUDIT | regex | find searching broad filesystem paths for credential file names (SSH keys, PEM/key files, keystores, credential files) is a reconnaissance pattern for credential enumeration. AI agents have no legitimate need to hunt for credential files system-wide. MITRE T1083, T1552.001, CWE-200. |
+| `ts-audit-find-hidden-dotfiles` | AUDIT | regex | find scanning home directory for all dotfiles (`-name '.*'`) — broad sweep to discover credential files (.ssh/, .aws/, .kube/, .netrc) before targeted exfiltration. Legitimate tools access specific known paths; they do not enumerate all hidden files system-wide (MITRE T1083, T1552, OWASP LLM02, CWE-200). |
+| `ts-audit-credential-dir-enumeration` | AUDIT | regex | ls/stat with 2+ well-known credential directories in a single command — systematic path enumeration to discover which credential stores exist before targeted access. Legitimate tools access a single specific path; listing multiple credential dirs together is reconnaissance (MITRE T1083, T1552, OWASP LLM02, CWE-200). |
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592 (Process Discovery, Security Software Discovery). |
 | `ts-block-pgrep-security-tool-targeting` | BLOCK | regex | Direct pgrep or tasklist+findstr targeting named security tools — this is unambiguous security software discovery (MITRE T1057/T1518.001) to identify and subsequently disable active security controls. OWASP LLM01. |
@@ -1758,8 +1762,8 @@
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 296 | 183 | 479 |
 | privilege-escalation | 288 | 175 | 463 |
-| reconnaissance | 180 | 84 | 264 |
+| reconnaissance | 188 | 89 | 277 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2281** | **1503** | **3784** |
+| **Total** | **2289** | **1508** | **3797** |
 
