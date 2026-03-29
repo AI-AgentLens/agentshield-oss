@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1065 |
+| Terminal rules | 1067 |
 | MCP rules | 566 |
-| Total rules | 1631 |
-| Test cases (TP+TN) | 3797 |
+| Total rules | 1633 |
+| Test cases (TP+TN) | 3804 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -436,7 +436,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (140 rules)
+### persistence-evasion (141 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -580,8 +580,9 @@
 | `ts-block-alias-body-exfil` | BLOCK | regex | Alias definition containing network exfiltration or code execution commands — regardless of the alias name, embedding curl/wget/nc/eval in an alias value signals credential interception or data exfiltration intent. MITRE T1041, T1546.004. |
 | `ts-block-alias-env-inject` | BLOCK | regex | Alias injecting sensitive environment variables into command execution — aliases can silently prepend LD_PRELOAD, GIT_SSH_COMMAND, http_proxy, or interpreter path variables to hijack library loading, proxy traffic through attacker infrastructure, or inject malicious modules. MITRE T1574.006, T1546.004. |
 | `ts-audit-alias-define` | AUDIT | regex | Shell alias definition detected. While aliases are common in interactive use, they are unusual in AI agent workflows and can shadow security-sensitive commands. Auditing for review. MITRE T1546.004. |
+| `ts-block-bash-aliases-write` | BLOCK | regex | Writing to ~/.bash_aliases establishes persistent shell alias definitions loaded on every interactive session. AI agents writing to .bash_aliases can silently intercept and redirect security-critical commands. MITRE T1546.004. |
 
-### privilege-escalation (123 rules)
+### privilege-escalation (124 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -599,6 +600,7 @@
 | `ts-audit-pam-config-read` | AUDIT | regex | Reading PAM configuration files reveals the authentication stack (module types, required/optional flags, MFA presence) enabling targeted privilege escalation planning. MITRE T1082, T1556. |
 | `ts-block-llm-chmod-dangerous` | BLOCK | regex | World-writable (0777) or variable-mode chmod — LLM-controlled permissions enable prompt injection to set dangerous access bits. Use explicit safe modes (644, 755) instead. |
 | `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
+| `ts-block-kernel-module-command-exec` | BLOCK | structural | Loading kernel modules via insmod/modprobe grants ring-0 kernel access, enabling rootkit installation, syscall hooking, and complete bypass of all userspace security controls. MITRE T1547.006. |
 | `ts-block-bpftool-prog-load` | BLOCK | regex | bpftool prog load installs an eBPF program into the kernel — equivalent in risk to loading a kernel module. Can be used to intercept credentials, trace TLS plaintext, or establish a persistent kernel backdoor. |
 | `ts-block-bpftrace-inline` | BLOCK | regex | bpftrace inline expression (-e) attaches kernel/user-space probes that can intercept credentials from readline, decrypt TLS traffic via SSL_write tracing, or dump exec argv containing secrets. No file artifact — executes immediately. |
 | `ts-block-ebpf-tc-filter` | BLOCK | regex | Attaching an eBPF program to a network interface via tc (traffic control) gives the program access to all packets — enables silent network surveillance and traffic manipulation. |
@@ -1760,10 +1762,10 @@
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 296 | 183 | 479 |
-| privilege-escalation | 288 | 175 | 463 |
+| persistence-evasion | 299 | 185 | 484 |
+| privilege-escalation | 290 | 175 | 465 |
 | reconnaissance | 188 | 89 | 277 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2289** | **1508** | **3797** |
+| **Total** | **2294** | **1510** | **3804** |
 
