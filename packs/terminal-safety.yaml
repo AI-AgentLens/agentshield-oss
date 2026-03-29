@@ -8918,6 +8918,81 @@ rules:
       tn:
         - "find . -name '*.go'"
 
+  # === AUDIT: find home directory for ALL dotfiles (hidden-file-discovery) ===
+  #
+  # `find ~ -name ".*" -type f` recursively scans the entire home directory
+  # for every dotfile — a broad sweep designed to discover credential files
+  # (id_rsa, .aws/credentials, .kube/config, .netrc) before targeted exfiltration.
+  # Legitimate tools access specific known paths; they do not enumerate ALL dotfiles.
+  #
+  # TP examples (should AUDIT):
+  #   find ~ -name ".*" -type f
+  #   find /home -name ".*" -maxdepth 3
+  #   find $HOME -name ".*"
+  #
+  # TN examples (should ALLOW):
+  #   find ~/projects -name "*.go"        ← not scanning for dotfiles
+  #   find . -name ".gitignore"           ← specific file, not wildcard
+  #
+  # Taxonomy: reconnaissance/filesystem/hidden-file-discovery
+  # MITRE T1083 — File and Directory Discovery, T1552 — Unsecured Credentials
+  # OWASP LLM02, LLM06
+  # CWE-200, CWE-538
+  - id: "ts-audit-find-hidden-dotfiles"
+    taxonomy: "reconnaissance/filesystem/hidden-file-discovery"
+    match:
+      command_regex: "find\\s+(~|\\$HOME|/home(/[^/\\s]+)?|/root)(\\s|/).*-name\\s+['\"]?\\.\\*['\"]?"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "find scanning home directory for all dotfiles (`-name '.*'`) — broad sweep to discover credential files (.ssh/, .aws/, .kube/, .netrc) before targeted exfiltration. Legitimate tools access specific known paths; they do not enumerate all hidden files system-wide (MITRE T1083, T1552, OWASP LLM02, CWE-200)."
+    tests:
+      tp:
+        - "find ~ -name \".*\" -type f"
+        - "find /home -name \".*\" -maxdepth 3"
+        - "find $HOME -name \".*\""
+      tn:
+        - "find ~/projects -name \"*.go\""
+        - "find . -name \".gitignore\""
+        - "find /tmp -name \"*.log\""
+
+  # === AUDIT: Credential directory enumeration (ls/stat of multiple dirs) ===
+  #
+  # Checking multiple well-known credential directories in a single command
+  # (`stat ~/.ssh ~/.aws ~/.gnupg ~/.kube`) is systematic path enumeration —
+  # the agent is mapping which credential stores exist before targeted exfil.
+  # Legitimate apps access a single, specific path; enumerating 2+ dirs is
+  # the key signal.
+  #
+  # TP examples (should AUDIT):
+  #   stat ~/.ssh ~/.aws ~/.gnupg
+  #   ls -la ~/.ssh ~/.aws ~/.kube
+  #   ls ~/.docker ~/.azure ~/.kube
+  #
+  # TN examples (should ALLOW):
+  #   ls -la ~/.ssh            ← single directory, not enumeration
+  #   stat /etc/hosts          ← non-credential path
+  #
+  # Taxonomy: reconnaissance/filesystem/credential-path-enumeration
+  # MITRE T1083, T1552
+  # OWASP LLM02, LLM06
+  # CWE-200
+  - id: "ts-audit-credential-dir-enumeration"
+    taxonomy: "reconnaissance/filesystem/credential-path-enumeration"
+    match:
+      command_regex: "(?i)(ls|stat)(\\s+-\\S+)*\\s+.*\\.(ssh|aws|gnupg|kube|docker|azure|config/gcloud|netrc|npmrc|pypirc)\\b.*\\.(ssh|aws|gnupg|kube|docker|azure|config/gcloud|netrc|npmrc|pypirc)\\b"
+    decision: "AUDIT"
+    confidence: 0.87
+    reason: "ls/stat with 2+ well-known credential directories in a single command — systematic path enumeration to discover which credential stores exist before targeted access. Legitimate tools access a single specific path; listing multiple credential dirs together is reconnaissance (MITRE T1083, T1552, OWASP LLM02, CWE-200)."
+    tests:
+      tp:
+        - "stat ~/.ssh ~/.aws ~/.gnupg"
+        - "ls -la ~/.ssh ~/.aws ~/.kube"
+        - "ls ~/.docker ~/.azure"
+      tn:
+        - "ls -la ~/.ssh"
+        - "stat /etc/hosts"
+        - "ls ~/projects"
+
   # === AUDIT: grep -r for API keys across workspace directories (LLM02, LLM06) ===
   #
   # Recursively grepping for API keys, tokens, or credentials across the
