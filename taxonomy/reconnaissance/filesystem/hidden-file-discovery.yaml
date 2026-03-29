@@ -1,0 +1,66 @@
+id: "reconnaissance/filesystem/hidden-file-discovery"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Filesystem Reconnaissance"
+category_id: "8.7"
+name: "Hidden Dotfile Discovery"
+risk_level: "high"
+
+abstract: |
+  Scanning home directories for hidden files (dotfiles) via recursive traversal,
+  used to discover credential files like `.ssh/id_rsa`, `.aws/credentials`, and
+  `.netrc` prior to exfiltration.
+
+explanation: |
+  Unix hidden files begin with `.` and are not shown by default directory listings.
+  User home directories contain a dense concentration of credential and
+  configuration dotfiles — making them a primary reconnaissance target:
+
+  - SSH keys: `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`
+  - Cloud credentials: `~/.aws/credentials`, `~/.config/gcloud/`
+  - VCS tokens: `~/.netrc`, `~/.gitconfig`, `~/.npmrc`, `~/.pypirc`
+  - Browser/keychain data: `~/.mozilla/`, `~/.config/google-chrome/`
+
+  An AI agent compromised via prompt injection may use `os.walk()` (Python),
+  `filepath.Walk()` (Go), or `fs.readdirSync()` (Node) starting from `~` or
+  `/home`, filtering for files beginning with `.`. This pattern is a strong
+  indicator of pre-exfiltration reconnaissance because:
+
+  1. Legitimate applications know which files they need and access them directly.
+  2. Recursive dotfile scanning of home directories has no legitimate use case
+     in agent-generated application code.
+
+recommendation: |
+  - Block or alert on any recursive directory traversal of `/home` or `~` that
+    filters for files starting with `.`.
+  - Use file access monitoring (auditd, inotify) to detect dotfile scanning.
+  - Review agent-generated code for os.walk/filepath.Walk patterns over home dirs.
+
+examples:
+  bad:
+    - |
+      for root, dirs, files in os.walk(os.path.expanduser('~')):
+          for f in files:
+              if f.startswith('.'):
+                  print(os.path.join(root, f))
+    - |
+      filepath.Walk(homeDir, func(path string, info os.FileInfo, err error) error {
+          if strings.HasPrefix(info.Name(), ".") { ... }
+      })
+  good:
+    - "open(os.path.expanduser('~/.ssh/config'))"
+    - "os.path.expanduser('~/.aws/credentials')"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.12"]
+  eu-ai-act-2024: ["Art.13", "Art.14"]
+  nist-ai-rmf-1.0: ["GOVERN-1"]
+  soc2-type2: ["CC6.1"]
+
+references:
+  mitre_attack: ["T1083"]
+  cwe: ["CWE-200"]
+
+analyzers: ["semantic"]

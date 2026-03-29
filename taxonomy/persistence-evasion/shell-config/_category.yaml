@@ -1,0 +1,9 @@
+id: "6.18"
+name: "Shell Configuration Tampering"
+kingdom_id: 6
+description: >
+  Persistence techniques that modify shell configuration to intercept or
+  replace trusted commands. Includes alias hijacking, function shadowing, and
+  PROMPT_COMMAND abuse. Unlike shell-init (which targets startup files) and
+  shell-hooks (which targets completion/readline), this category covers
+  runtime command interception via the shell's name resolution mechanism.

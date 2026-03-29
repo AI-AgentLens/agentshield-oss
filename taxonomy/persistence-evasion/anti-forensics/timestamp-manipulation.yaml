@@ -1,0 +1,62 @@
+id: "persistence-evasion/anti-forensics/timestamp-manipulation"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Anti-Forensics"
+category_id: "6.4"
+name: "Timestamp Manipulation (Timestomping)"
+risk_level: "high"
+
+abstract: |
+  Modifying file access, modification, or creation timestamps to hide when
+  files were created or altered, impeding forensic timeline reconstruction.
+
+explanation: |
+  Timestamp manipulation (MITRE T1070.006 "Timestomp") falsifies a file's
+  metadata to conceal the timeline of an intrusion. An AI agent compromised
+  via prompt injection may generate code that:
+
+  - Uses `touch -t` or `touch --date` to backdate or forward-date files
+  - Calls `os.utime()` (Python), `os.Chtimes()` (Go), or `fs.utimesSync()` (Node)
+    to set arbitrary timestamps on sensitive system paths
+  - Invokes `ctypes` or `syscall` wrappers to call `utimes()`/`utimensat()` directly
+
+  The typical attack pattern is: plant malicious files → timestomp them to
+  match surrounding legitimate files → evade anomaly-based detection.
+  Unlike log clearing, timestomping leaves no obvious artifact and is harder
+  to detect without cryptographic integrity checks (AIDE, Tripwire).
+
+  Legitimate uses of timestamp modification are extremely rare in application
+  code and virtually never touch paths outside the application's own data directory.
+
+recommendation: |
+  - Alert on any timestamp modification of files outside the application working
+    directory by agent processes.
+  - Use cryptographic file integrity monitoring (AIDE, Tripwire, inotifywait)
+    to detect timestamp changes on critical paths.
+  - Enforce immutable attributes (chattr +i) on critical binaries and configs.
+  - Treat any agent-generated code modifying file timestamps as high-risk.
+
+examples:
+  bad:
+    - "touch -t 202001010000 /etc/crontab"
+    - "touch --date='2020-01-01' /usr/bin/malware"
+    - "os.utime('/etc/passwd', (1577836800, 1577836800))"
+    - "os.Chtimes('/var/log/auth.log', oldTime, oldTime)"
+    - "fs.utimesSync('/etc/shadow', oldDate, oldDate)"
+  good:
+    - "touch newfile.txt"
+    - "stat /var/log/auth.log"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM08"]
+  iso-27001-2022: ["A.8.12", "A.8.16"]
+  eu-ai-act-2024: ["Art.13"]
+  nist-ai-rmf-1.0: ["GOVERN-1"]
+  soc2-type2: ["CC7.2"]
+
+references:
+  mitre_attack: ["T1070.006"]
+  cwe: ["CWE-200"]
+
+analyzers: ["semantic"]

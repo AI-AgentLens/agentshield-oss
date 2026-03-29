@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1058 |
-| MCP rules | 564 |
-| Total rules | 1622 |
+| MCP rules | 566 |
+| Total rules | 1624 |
 | Test cases (TP+TN) | 3771 |
 | Kingdoms covered | 10 |
 
@@ -1124,7 +1124,7 @@
 
 ## MCP Rules
 
-### credential-exposure (272 rules)
+### credential-exposure (274 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1195,6 +1195,8 @@
 | `mcp-sec-block-npm-xdg-npmrc` | BLOCK | mcp_rule | Access to npm XDG npmrc config is blocked — ~/.config/npm/npmrc may contain registry auth tokens (//registry.npmjs.org/:_authToken=...). Reads expose tokens; writes can redirect registry auth. MITRE T1552. |
 | `mcp-sec-block-npm-legacy-auth-tokens` | BLOCK | mcp_rule | Access to ~/.npm/_authtoken is blocked — contains npm registry auth token used by older npm versions. Exfiltrating this enables unauthorized package publishing (supply chain attack). MITRE T1552. |
 | `mcp-sec-block-npm-legacy-auth-base64` | BLOCK | mcp_rule | Access to ~/.npm/_auth is blocked — contains base64-encoded npm registry credentials (username:password). Exfiltrating this enables unauthorized registry access and package publishing. MITRE T1552. |
+| `mcp-sec-block-yarnrc-yml` | BLOCK | mcp_rule | Access to .yarnrc.yml is blocked — Yarn Berry v2+ stores npmAuthToken and per-registry auth tokens here in plaintext. Reads expose tokens; writes can redirect yarn installs to a malicious registry. MITRE T1552. |
+| `mcp-sec-block-pnpm-rc-config` | BLOCK | mcp_rule | Access to ~/.config/pnpm/rc is blocked — pnpm's user config file may contain //registry.npmjs.org/:_authToken entries for npm registry authentication. Reads expose tokens; writes can redirect pnpm installs to an attacker registry. MITRE T1552. |
 | `mcp-sec-block-npm-config-authtoken-lowercase` | BLOCK | mcp_rule | Access to ~/.config/npm/authtoken (lowercase) is blocked — lowercase variant of the npm XDG auth token file on case-sensitive Linux filesystems. Contains npm registry authentication token. MITRE T1552. |
 | `mcp-sec-block-npm-tokens-json` | BLOCK | mcp_rule | Access to ~/.npm/tokens.json is blocked — npm stores registry auth tokens here in newer versions. Exfiltrating this enables unauthorized package publishing (supply chain attack). MITRE T1552. |
 | `mcp-sec-block-pypirc` | BLOCK | mcp_rule | Access to .pypirc is blocked — contains plaintext PyPI credentials. |
