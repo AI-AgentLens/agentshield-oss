@@ -528,6 +528,42 @@ rules:
         - tool: "resources/subscribe"
           args: {"uri": "file:///workspace/k8s/deployment.yaml"}
 
+  # === BLOCK: resources/read — RFC 6570 URI template injection ===
+  #
+  # A malicious MCP server returns resources/list entries with URI templates
+  # (RFC 6570 syntax: {user}, {+path}, {#fragment}) that expand to sensitive
+  # credential paths when the agent calls resources/read. The Go scanner detects
+  # these in resources/list responses; this YAML rule provides defense-in-depth
+  # by blocking resources/read calls where the URI still contains template syntax
+  # (e.g., if the resources/list scanner is bypassed or the template passed directly).
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection
+  # OWASP LLM07, LLM08 | MITRE T1552
+  - id: mcp-safety-block-resource-uri-template-injection
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection"
+    match:
+      structural:
+        tool_name_any:
+          - "resources/read"
+        args_match:
+          uri:
+            pattern_any:
+              - "\\{[+#./;?&=,!@|]?[^}]+\\}"  # RFC 6570 template variable syntax
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "resources/read URI contains RFC 6570 template variable syntax — template placeholders can expand to sensitive credential paths, bypassing static path guards. MITRE T1552, OWASP LLM07/LLM08."
+    tests:
+      tp:
+        - tool: "resources/read"
+          args: {"uri": "file:///home/{user}/.vault-token"}
+        - tool: "resources/read"
+          args: {"uri": "http://169.254.{instance}/latest/meta-data/"}
+      tn:
+        - tool: "resources/read"
+          args: {"uri": "file:///workspace/project/README.md"}
+        - tool: "resources/read"
+          args: {"uri": "https://api.example.com/v1/data"}
+
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:
