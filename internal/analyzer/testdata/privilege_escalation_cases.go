@@ -3086,6 +3086,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, AgentErrorRecoveryCases...)
 	all = append(all, LLMControlledPermissionsCases...)
 	all = append(all, SudoersPAMWriteCases...)
+	all = append(all, PAMConfigReconCases...)
 	all = append(all, ChAttrImmutableRemovalCases...)
 	all = append(all, KernelMemoryAccessCases...)
 	return all
@@ -5263,12 +5264,94 @@ var SudoersPAMWriteCases = []TestCase{
 	},
 	{
 		ID:               "TN-TS-BLOCK-PAM-WRITE-001",
-		Command:          `cat /etc/pam.d/sshd`,
+		Command:          `cat /etc/hosts`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
 		Analyzer:         "regex",
-		Description:      "Reading /etc/pam.d/sshd for audit — read-only, no modification.",
+		Description:      "Reading /etc/hosts — not a PAM config, must be allowed.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// PAM Configuration Reconnaissance (issue #665)
+// Taxonomy: privilege-escalation/command-execution/auth-stack-recon
+//
+// Reading PAM configs reveals the authentication stack — which modules are
+// optional vs required, MFA presence, lockout thresholds — enabling targeted
+// privilege escalation planning.
+// ---------------------------------------------------------------------------
+
+var PAMConfigReconCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-PAM-READ-001",
+		Command:          `cat /etc/pam.conf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Reading /etc/pam.conf reveals the global PAM authentication stack.",
+		Tags:             []string{"tp", "pam", "privilege-escalation", "recon"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-PAM-READ-002",
+		Command:          `cat /etc/pam.d/sudo`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Reading /etc/pam.d/sudo to map sudo authentication chain.",
+		Tags:             []string{"tp", "pam", "privilege-escalation", "recon"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-PAM-READ-003",
+		Command:          `grep sufficient /etc/pam.d/sshd`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Grepping for optional/sufficient modules in PAM SSH config to find bypassable auth steps.",
+		Tags:             []string{"tp", "pam", "privilege-escalation", "recon"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-PAM-READ-004",
+		Command:          `ls /etc/pam.d/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Listing /etc/pam.d/ to enumerate all services with custom PAM policies.",
+		Tags:             []string{"tp", "pam", "privilege-escalation", "recon"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-PAM-READ-001",
+		Command:          `cat /etc/hosts`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Reading /etc/hosts — standard network config, not a PAM file.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-PAM-READ-002",
+		Command:          `ls /etc/nginx/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "Listing /etc/nginx/ — not a PAM directory, no auth-stack reconnaissance.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-PAM-READ-003",
+		Command:          `grep "Listen" /etc/apache2/apache2.conf`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/auth-stack-recon",
+		Analyzer:         "regex",
+		Description:      "grep on Apache config — not a PAM file, no auth-stack recon.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
