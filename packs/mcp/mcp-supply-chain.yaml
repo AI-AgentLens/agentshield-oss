@@ -954,3 +954,132 @@ structural_rules:
           args: {"path": "/project/node_modules/react/index.js"}
         - tool: "write_file"
           args: {"path": "/project/src/npm_cache_utils.js"}
+
+  # === BLOCK: Go module cache writes ===
+  # ~/go/pkg/mod/ is the Go module download cache. Cargo and Go treat their caches
+  # as immutable — files here are checksummed by go.sum / Cargo.lock. An MCP agent
+  # writing to these directories injects code that executes whenever the affected
+  # module is imported, bypassing dependency verification entirely.
+  # MITRE T1195.001 (Compromise Software Dependencies), CWE-494.
+  - id: mcp-sc-block-go-module-cache-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # Standard GOPATH module cache
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/go/pkg/mod/.+"
+            - "^~/go/pkg/mod/.+"
+            # Custom GOPATH variants
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.go/pkg/mod/.+"
+            - "^~/\\.go/pkg/mod/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to Go module cache (~~/go/pkg/mod/) — the Go module cache is immutable by design and checksummed in go.sum. Writing here injects code that executes when the affected module is imported, bypassing go.sum verification. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/go/pkg/mod/github.com/evil/pkg@v1.0.0/hack.go"}
+        - tool: "edit_file"
+          args: {"path": "/root/go/pkg/mod/golang.org/x/net@v0.20.0/http2/transport.go"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/go.sum"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/go_module_cache_utils.go"}
+
+  # === BLOCK: Cargo registry source cache writes ===
+  # ~/.cargo/registry/src/ contains downloaded crate source files.
+  # Cargo treats these as immutable and verifies them against Cargo.lock checksums.
+  # Writing here injects code into Rust crate dependencies without any network trace.
+  # Note: ~/.cargo/config.toml is already blocked by mcp-sc-block-pkgmgr-config-write.
+  - id: mcp-sc-block-cargo-registry-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # Cargo registry source cache (downloaded crate sources)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.cargo/registry/src/.+"
+            - "^~/\\.cargo/registry/src/.+"
+            # Cargo registry index cache
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.cargo/registry/cache/.+"
+            - "^~/\\.cargo/registry/cache/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.cargo/registry/src/crates.io-1234/tokio-1.0.0/src/lib.rs"}
+        - tool: "edit_file"
+          args: {"path": "/root/.cargo/registry/cache/crates.io-1234/serde-1.0.0.crate"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/Cargo.toml"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/src/cargo_registry_client.rs"}
+
+  # === BLOCK: RubyGems local gem cache writes ===
+  # ~/.local/share/gem/ and ~/.gem/ are the user-level gem installation directories.
+  # Writing to gem specifications or installed gem source files injects code that
+  # executes whenever the gem is required in any Ruby process on the machine.
+  - id: mcp-sc-block-rubygems-cache-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # XDG-compliant gem install dir (modern RubyGems)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.local/share/gem/.+"
+            - "^~/\\.local/share/gem/.+"
+            # Legacy gem user install dir
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.gem/ruby/.+"
+            - "^~/\\.gem/ruby/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/share/gem/gems/rails-7.0.0/lib/rails.rb"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.gem/ruby/3.2.0/gems/bundler-2.4.0/lib/bundler.rb"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/Gemfile"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/gem_utils.rb"}
