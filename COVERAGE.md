@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1056 |
-| MCP rules | 541 |
-| Total rules | 1597 |
-| Test cases (TP+TN) | 3760 |
+| Terminal rules | 1057 |
+| MCP rules | 543 |
+| Total rules | 1600 |
+| Test cases (TP+TN) | 3764 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -436,13 +436,14 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (136 rules)
+### persistence-evasion (137 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ne-block-etc-hosts-write` | BLOCK | regex | Write to /etc/hosts — overrides DNS resolution for arbitrary hostnames, enabling MITM attacks, lateral movement, and credential theft. AI agents have no legitimate need to modify /etc/hosts. MITRE T1565.001, T1090. |
 | `ne-block-resolv-conf-write` | BLOCK | regex | Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
 | `ne-block-arp-dns-poisoning-tools` | BLOCK | regex | ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040. |
+| `ts-block-jupyter-kernelspec-install` | BLOCK | regex | jupyter kernelspec install registers a kernel spec that executes arbitrary code on every notebook kernel start — a silent persistence mechanism that survives environment recreation. MITRE T1546. |
 | `ts-block-pipe-to-crontab` | BLOCK | regex | Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively. |
 | `ts-block-at-schedule` | BLOCK | regex | at schedules a persistent one-time job. AI agents must not schedule deferred execution. |
 | `ts-block-batch-schedule` | BLOCK | prefix | batch schedules a persistent background job when system load permits. |
@@ -1122,7 +1123,7 @@
 
 ## MCP Rules
 
-### credential-exposure (261 rules)
+### credential-exposure (263 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1254,6 +1255,8 @@
 | `mcp-sec-block-minio-client-credentials` | BLOCK | mcp_rule | Access to MinIO client config directory is blocked — ~/.mc/ contains config.json and aliases.json with access key IDs and secret access keys for MinIO, AWS S3, and other S3-compatible object storage backends. MITRE T1552. |
 | `mcp-sec-block-bitwarden-desktop-access` | BLOCK | mcp_rule | Access to Bitwarden desktop app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
 | `mcp-sec-block-bitwarden-flatpak-access` | BLOCK | mcp_rule | Access to Bitwarden Flatpak app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
+| `mcp-sec-block-bitwarden-desktop-lowercase` | BLOCK | mcp_rule | Access to ~/.config/bitwarden/ is blocked — lowercase variant of the Bitwarden desktop app data directory contains encrypted vault data and cached session tokens. MITRE T1555. |
+| `mcp-sec-block-bitwarden-macos-desktop` | BLOCK | mcp_rule | Access to ~/Library/Application Support/Bitwarden/ is blocked — macOS Bitwarden desktop app data directory contains encrypted vault data and cached session tokens. Distinct from the Bitwarden CLI path. MITRE T1555. |
 | `mcp-sec-block-terraform-state` | BLOCK | mcp_rule | Access to Terraform state files is blocked — contains plaintext credentials embedded in resource attributes (database passwords, API keys, cloud tokens). MITRE T1552. |
 | `mcp-sec-block-terraform-state-backup` | BLOCK | mcp_rule | Access to Terraform state backup files is blocked — backup state files contain the same plaintext credentials as primary state. MITRE T1552. |
 | `mcp-sec-block-terraform-tfvars` | BLOCK | mcp_rule | Access to *.tfvars files is blocked — Terraform variable files (secrets.tfvars, prod.tfvars, terraform.tfvars, etc.) routinely contain plaintext cloud credentials, API keys, and database passwords passed to terraform apply. MITRE T1552. |
@@ -1726,10 +1729,10 @@
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 287 | 175 | 462 |
+| persistence-evasion | 289 | 177 | 466 |
 | privilege-escalation | 284 | 172 | 456 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2268** | **1492** | **3760** |
+| **Total** | **2270** | **1494** | **3764** |
 

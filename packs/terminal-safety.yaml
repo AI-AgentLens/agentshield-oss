@@ -1184,7 +1184,7 @@ rules:
         - "chmod 755 ./build/app"
 
   - id: "ts-block-kernel-module-load"
-    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    taxonomy: "privilege-escalation/kernel-memory/kernel-module-load"
     match:
       command_regex: "^(sudo\\s+)?(insmod|modprobe)\\s+"
     decision: "BLOCK"
