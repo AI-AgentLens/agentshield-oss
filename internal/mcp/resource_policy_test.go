@@ -224,3 +224,57 @@ func TestResourcePolicy_RedisSchemeBlock(t *testing.T) {
 		t.Errorf("expected BLOCK for redis:// URI, got %s", result.Decision)
 	}
 }
+
+// TestResourcePolicy_HTTPURIAudit validates that an HTTP/HTTPS resources/read URI is
+// flagged with AUDIT by the mcp-response-integrity-resource-audit-http rule.
+// This tests the behaviour codified in packs/mcp/mcp-response-integrity.yaml:resource_rules.
+func TestResourcePolicy_HTTPURIAudit(t *testing.T) {
+	rule := ResourceRule{
+		ID:       "mcp-response-integrity-resource-audit-http",
+		Match:    ResourceMatch{URIRegex: `^https?://`},
+		Decision: policy.DecisionAudit,
+		Reason:   "external HTTP/HTTPS resource",
+	}
+	evaluator := NewPolicyEvaluator(&MCPPolicy{
+		Defaults:      MCPDefaults{Decision: policy.DecisionAllow},
+		ResourceRules: []ResourceRule{rule},
+	})
+
+	tps := []string{
+		"https://attacker.example.com/malicious-resource",
+		"http://api.untrusted.org/data",
+		"https://raw.githubusercontent.com/owner/repo/main/README.md",
+	}
+	for _, uri := range tps {
+		result := evaluator.EvaluateResourceRead(uri)
+		if result.Decision != "AUDIT" {
+			t.Errorf("TP: expected AUDIT for %q, got %s", uri, result.Decision)
+		}
+		found := false
+		for _, id := range result.TriggeredRules {
+			if id == "mcp-response-integrity-resource-audit-http" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TP: expected rule mcp-response-integrity-resource-audit-http in triggered rules for %q, got %v", uri, result.TriggeredRules)
+		}
+	}
+
+	// TN: non-HTTP schemes — should not match the HTTP audit rule (default ALLOW in this test policy)
+	tns := []string{
+		"file:///workspace/project/README.md",
+		"postgres://user@localhost:5432/mydb",
+		"custom-scheme://internal/resource",
+	}
+	for _, uri := range tns {
+		result := evaluator.EvaluateResourceRead(uri)
+		// Should not be AUDIT from the HTTP rule (may be ALLOW from default)
+		for _, id := range result.TriggeredRules {
+			if id == "mcp-response-integrity-resource-audit-http" {
+				t.Errorf("TN: non-HTTP URI %q should not trigger HTTP audit rule, but got rule %q", uri, id)
+			}
+		}
+	}
+}

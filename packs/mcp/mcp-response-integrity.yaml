@@ -382,3 +382,32 @@ structural_rules:
       tn:
         - tool: "fetch_url"
           args: {"url": "https://api.example.com/data?page=1&limit=50"}
+
+resource_rules:
+  # === AUDIT: resources/read — external HTTP/HTTPS URIs ===
+  #
+  # A resources/read call to an HTTP/HTTPS URI fetches content from a potentially
+  # attacker-controlled server. Unlike local file:// resources, external HTTP
+  # content is dynamically generated and may embed prompt injection payloads,
+  # role-override instructions (e.g., "ignore previous instructions"), or
+  # exfiltration directives that persist across agent sessions.
+  #
+  # Defence strategy (defence in depth):
+  #   Layer 1 — This rule: pre-emptively AUDIT all resources/read to HTTP/HTTPS
+  #              URIs so every external resource fetch is logged for human review.
+  #   Layer 2 — Built-in FilterResourceReadResponse() in the MCP proxy: scans the
+  #              actual response content for injection patterns, action directives,
+  #              role-override instructions, base64 payloads, and exfiltration
+  #              instructions (see internal/mcp/handler.go). Blocks poisoned content.
+  #
+  # Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-content-injection
+  # Real-world: Resources returned by MCP servers are treated as trusted ground
+  # truth by agents — unlike tool responses which are ephemeral, resources persist
+  # and are often re-fetched across sessions, making injection persistent.
+  # References: OWASP LLM01 (Prompt Injection), T1659 (Content Injection), CWE-94
+  - id: mcp-response-integrity-resource-audit-http
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-content-injection"
+    match:
+      uri_regex: "^https?://"
+    decision: "AUDIT"
+    reason: "resources/read from external HTTP/HTTPS URI — response content may embed prompt injection payloads or exfiltration directives. Built-in response scanner (Layer 2) inspects actual content. (LLM01, T1659: mcp-resource-content-injection)"
