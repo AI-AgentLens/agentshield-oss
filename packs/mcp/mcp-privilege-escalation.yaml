@@ -375,6 +375,9 @@ structural_rules:
           args: {"path": "/project/docker-compose.yaml"}
 
   # === BLOCK: K8s cluster-admin RBAC grants ===
+  # FP fix (issue #653): Exclude security rule files under rules/ and semgrep/ —
+  # Semgrep YAML rules written by Baby Comply contain K8s API patterns like
+  # `create_cluster_role_binding` as detection targets, not as live RBAC grants.
   - id: mcp-privesc-block-k8s-cluster-admin
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
     match:
@@ -401,6 +404,10 @@ structural_rules:
             - "(?i)^internal[/\\\\].*"
             - "(?i).*[/\\\\]charts[/\\\\].*"
             - "(?i)^charts[/\\\\].*"
+            - "(?i).*[/\\\\]rules[/\\\\].*"
+            - "(?i)^rules[/\\\\].*"
+            - "(?i).*[/\\\\]semgrep[/\\\\].*"
+            - "(?i)^semgrep[/\\\\].*"
     decision: "BLOCK"
     reason: "Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001."
     tests:
@@ -412,9 +419,11 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "taxonomy/k8s-rbac.yaml", "content": "kind: ClusterRoleBinding example"}
-      # TN: exclude path matches taxonomy/
         - tool: "write_file"
           args: {"path": "docs/k8s-security.md", "content": "ClusterRoleBinding is dangerous"}
+        # TN: Semgrep rule file containing K8s API pattern as detection target (issue #653)
+        - tool: "write_file"
+          args: {"path": "rules/ai-llm-output-kubernetes.yaml", "content": "rules:\n  - id: llm-k8s-cluster-admin\n    pattern-sinks:\n      - pattern: $API.create_cluster_role_binding(body=$BODY, ...)"}
 
   # === BLOCK: Privileged container creation ===
   # FP fix (issue #135): Exclude documentation/taxonomy files — descriptive YAML about
