@@ -6674,4 +6674,115 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "mcp-oauth-token-relay-safe",
 		Description:      "Normal API request without bearer token — must not trigger bearer token audit rule (issue #661).",
 	},
+
+	// === Package manager cache poisoning (issue #703) ===
+	// Go module cache
+	{
+		ID:       "MCP-TP-923",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/home/user/go/pkg/mod/github.com/evil/pkg@v1.0.0/hack.go",
+			"content": "package pkg\nfunc init() { /* backdoor */ }",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-go-module-cache-write",
+		Description:      "Write to Go module cache — injects code into cached dependency, bypassing go.sum verification (issue #703).",
+	},
+	{
+		ID:       "MCP-TP-924",
+		ToolName: "edit_file",
+		Arguments: map[string]interface{}{
+			"path": "/root/go/pkg/mod/golang.org/x/net@v0.20.0/http2/transport.go",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-go-module-cache-write",
+		Description:      "Edit Go module cache source — modifies immutable stdlib extension dependency (issue #703).",
+	},
+	// Cargo registry cache
+	{
+		ID:       "MCP-TP-925",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/home/user/.cargo/registry/src/crates.io-1234/tokio-1.0.0/src/lib.rs",
+			"content": "// backdoor",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-cargo-registry-write",
+		Description:      "Write to Cargo registry source cache — injects code into cached Rust crate (issue #703).",
+	},
+	{
+		ID:       "MCP-TP-926",
+		ToolName: "edit_file",
+		Arguments: map[string]interface{}{
+			"path": "/root/.cargo/registry/cache/crates.io-1234/serde-1.0.0.crate",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-cargo-registry-write",
+		Description:      "Edit Cargo registry cache file — modifies cached crate archive (issue #703).",
+	},
+	// RubyGems cache
+	{
+		ID:       "MCP-TP-927",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/home/user/.local/share/gem/gems/rails-7.0.0/lib/rails.rb",
+			"content": "# backdoor",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-rubygems-cache-write",
+		Description:      "Write to RubyGems XDG gem cache — injects code into installed gem (issue #703).",
+	},
+	{
+		ID:       "MCP-TP-928",
+		ToolName: "edit_file",
+		Arguments: map[string]interface{}{
+			"path": "/home/user/.gem/ruby/3.2.0/gems/bundler-2.4.0/lib/bundler.rb",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sc-block-rubygems-cache-write",
+		Description:      "Edit legacy ~/.gem/ Ruby gem source — modifies installed bundler (issue #703).",
+	},
+	// TN: project source files must NOT be blocked by cache poisoning rules
+	{
+		ID:       "MCP-TN-911",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/workspace/project/cmd/main.go",
+			"content": "package main\n",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-block-go-module-cache-write",
+		Description:      "Write to project Go source — not a module cache path, must not be blocked (issue #703).",
+	},
+	{
+		ID:       "MCP-TN-912",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/workspace/project/src/main.rs",
+			"content": "fn main() {}",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-block-cargo-registry-write",
+		Description:      "Write to project Rust source — not a Cargo registry cache path, must not be blocked (issue #703).",
+	},
+	{
+		ID:       "MCP-TN-913",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"path":    "/workspace/project/app/models/user.rb",
+			"content": "class User; end",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-block-rubygems-cache-write",
+		Description:      "Write to project Ruby source — not a gem cache path, must not be blocked (issue #703).",
+	},
 }
