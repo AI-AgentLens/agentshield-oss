@@ -166,31 +166,49 @@ jobs:
 
       - name: Install AWS CLI
         run: |
-          if ! command -v aws &>/dev/null; then
-            curl -sSL "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o /tmp/awscli.pkg
-            sudo installer -pkg /tmp/awscli.pkg -target / || {
-              curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip
-              unzip -qo /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install --update
-            }
+          if command -v aws &>/dev/null; then
+            aws --version
+          elif command -v docker &>/dev/null; then
+            docker run --rm public.ecr.aws/aws-cli/aws-cli:2 --version
+          else
+            echo "Neither aws nor docker is available on this runner."
+            exit 1
           fi
-          aws --version
 
       - name: Upload all artifacts to S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
           S3_ENDPOINT: ${{ secrets.RELEASES_S3_ENDPOINT }}
           S3_BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
         run: |
           VERSION="${{ needs.release.outputs.version }}"
           shopt -s nullglob
 
+          if command -v aws &>/dev/null; then
+            AWS_CMD=(aws)
+          elif command -v docker &>/dev/null; then
+            AWS_CMD=(
+              docker run --rm
+              -e AWS_ACCESS_KEY_ID
+              -e AWS_SECRET_ACCESS_KEY
+              -e AWS_EC2_METADATA_DISABLED
+              -v "$PWD:/work"
+              -w /work
+              public.ecr.aws/aws-cli/aws-cli:2
+            )
+          else
+            echo "Neither aws nor docker is available on this runner."
+            exit 1
+          fi
+
           # Upload tar.gz archives
           archives=(dist/agentshield_*.tar.gz)
           for archive in "${archives[@]}"; do
             FILENAME=$(basename "$archive")
             echo "  Uploading ${FILENAME}..."
-            aws s3 cp "$archive" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
+            "${AWS_CMD[@]}" s3 cp "$archive" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
               --endpoint-url "${S3_ENDPOINT}" \
               --content-type "application/gzip"
           done
@@ -200,14 +218,14 @@ jobs:
           for dmg in "${dmgs[@]}"; do
             FILENAME=$(basename "$dmg")
             echo "  Uploading ${FILENAME}..."
-            aws s3 cp "$dmg" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
+            "${AWS_CMD[@]}" s3 cp "$dmg" "s3://${S3_BUCKET}/${VERSION}/${FILENAME}" \
               --endpoint-url "${S3_ENDPOINT}" \
               --content-type "application/x-apple-diskimage"
           done
           # Upload checksums
           if [ -f dist/checksums.txt ]; then
             echo "  Uploading checksums.txt..."
-            aws s3 cp dist/checksums.txt "s3://${S3_BUCKET}/${VERSION}/checksums.txt" \
+            "${AWS_CMD[@]}" s3 cp dist/checksums.txt "s3://${S3_BUCKET}/${VERSION}/checksums.txt" \
               --endpoint-url "${S3_ENDPOINT}" \
               --content-type "text/plain"
           fi
