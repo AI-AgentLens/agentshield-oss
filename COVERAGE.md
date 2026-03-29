@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1058 |
+| Terminal rules | 1061 |
 | MCP rules | 566 |
-| Total rules | 1624 |
-| Test cases (TP+TN) | 3771 |
+| Total rules | 1627 |
+| Test cases (TP+TN) | 3784 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -436,7 +436,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (137 rules)
+### persistence-evasion (140 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -525,11 +525,14 @@
 | `ts-block-systemd-run-system` | BLOCK | regex | systemd-run --system creates a transient unit running as root — provides root-level command execution without sudo appearing in command history. MITRE T1543.002. |
 | `ts-block-systemd-run-named` | BLOCK | regex | systemd-run with --unit — creates a named transient unit, which can be referenced by other services and is harder to identify as malicious in systemctl output. MITRE T1036.005. |
 | `ts-audit-systemd-run` | AUDIT | regex | systemd-run creates transient systemd units — any invocation from an AI agent is unusual and warrants logging, even without explicit persistence flags. MITRE T1053.006. |
+| `ts-block-syslog-daemon-stop` | BLOCK | regex | Stopping or disabling a syslog daemon (rsyslog, syslog-ng, syslogd) — severs the centralized log pipeline, preventing events from being recorded and forwarded to SIEM. MITRE T1070.002. |
+| `ts-block-syslog-daemon-stop-reverse` | BLOCK | regex | Stopping or disabling a syslog daemon (reverse argument order) — severs the centralized log pipeline, preventing events from being recorded. MITRE T1070.002. |
 | `ts-block-dmesg-clear` | BLOCK | regex | dmesg --clear/-C wipes the kernel ring buffer, destroying boot messages, OOM kills, and security event logs needed for forensic investigation. MITRE T1070. |
 | `ts-block-agentshield-log-delete` | BLOCK | regex | Deleting AgentShield audit log files or directories — destroys the security audit trail for AI agent actions. No legitimate use case. EU AI Act Art.13, SOC 2 CC7.1, MITRE T1070.004. |
 | `ts-block-agentshield-log-truncate` | BLOCK | regex | Truncating or overwriting AgentShield audit log to zero bytes — erases audit evidence while appearing to preserve the file. MITRE T1070.004, EU AI Act Art.26. |
 | `ts-audit-agentshield-log-modify` | AUDIT | regex | In-place modification of AgentShield audit log records — may be used to alter BLOCK/ALLOW decisions or remove evidence of policy violations. MITRE T1565.001, EU AI Act Art.13. |
 | `ts-audit-agentshield-log-env-disable` | AUDIT | regex | Setting AgentShield log-level environment variable to suppress audit output — disables the runtime security audit trail before command execution. OWASP LLM06, MITRE T1562.001. |
+| `ts-block-touch-timestamp-manipulation` | BLOCK | regex | Timestamp backdating on system files — touch -t/-d/--date sets a historical mtime to conceal when a file was created or modified, destroying forensic integrity. MITRE T1070.006. |
 | `ts-audit-agentshield-log-timestamp-tamper` | AUDIT | regex | Timestamp manipulation on AgentShield audit log files — alters file modification times to obscure when audit events occurred, breaking forensic timeline reconstruction. MITRE T1070.006, EU AI Act Art.13. |
 | `ts-audit-agent-instruction-file-tampering` | AUDIT | regex | Writing to an AI agent instruction file (CLAUDE.md, .cursorrules, .clinerules, .aider.conf.yml, .continuerc.json, .github/copilot-instructions.md, codex.md, etc.) — persistent modification of agent system instructions is a config-level prompt injection vector that persists across sessions and propagates via version control. OWASP LLM01, MITRE T1564. |
 | `ts-block-mcp-registration-agent-config-write` | BLOCK | regex | Shell redirect writing to an AI agent MCP config file (Windsurf/Gemini CLI/OpenAI Codex) — injecting attacker-controlled MCP server entries creates a persistent backdoor that reconnects on every future session without re-authorization (OWASP LLM07, MITRE T1543, T1565.001). |
@@ -1753,10 +1756,10 @@
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 289 | 177 | 466 |
+| persistence-evasion | 296 | 183 | 479 |
 | privilege-escalation | 288 | 175 | 463 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2274** | **1497** | **3771** |
+| **Total** | **2281** | **1503** | **3784** |
 
