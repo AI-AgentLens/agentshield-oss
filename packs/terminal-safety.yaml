@@ -9608,6 +9608,38 @@ rules:
       tn:
         - "agentshield run -- ls"
 
+  # === BLOCK: Timestamp manipulation on system files (anti-forensics) ===
+  #
+  # Using touch -t, -d, or --date to backdate file modification times on system
+  # binaries, configs, and log files hides implantation timing from forensic
+  # analysis. Commonly used by adversaries to disguise newly-dropped malware
+  # as a legitimate long-standing file.
+  #
+  # Patterns:
+  #   touch -t 202001010000 /etc/crontab        — set mtime to past date
+  #   touch --date='2020-01-01' /usr/bin/x      — long-form date backdating
+  #   touch -d '1 year ago' /usr/bin/malware    — relative date backdating
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/timestamp-manipulation
+  # MITRE ATT&CK: T1070.006
+  # OWASP LLM: LLM02, LLM08
+  - id: "ts-block-touch-timestamp-manipulation"
+    taxonomy: "persistence-evasion/anti-forensics/timestamp-manipulation"
+    match:
+      command_regex: "\\btouch\\b.*\\s(-t\\s+\\d{6,}|--date[=\\s]\\S+|-d\\s+\\S+).*/(etc|usr|bin|sbin|var|boot|lib|root)/"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Timestamp backdating on system files — touch -t/-d/--date sets a historical mtime to conceal when a file was created or modified, destroying forensic integrity. MITRE T1070.006."
+    tests:
+      tp:
+        - "touch -t 202001010000 /etc/crontab"
+        - "touch --date='2020-01-01' /usr/bin/malware"
+        - "touch -d '1 year ago' /etc/passwd"
+      tn:
+        - "touch newfile.txt"
+        - "touch /tmp/lockfile"
+        - "touch /workspace/project/README.md"
+
   # === AUDIT: Timestamp manipulation on AI audit log files ===
   #
   # Changing mtime/atime on audit files obscures when events occurred,

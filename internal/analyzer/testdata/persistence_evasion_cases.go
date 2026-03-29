@@ -5075,6 +5075,73 @@ var AuditctlDmesgSysrqCases = []TestCase{
 		Description:      "Reading /proc/sysrq-trigger — read-only, no trigger fired.",
 		Tags:             []string{"tn", "safe"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// Timestamp Manipulation — Anti-Forensics (issue #682)
+	// Taxonomy: persistence-evasion/anti-forensics/timestamp-manipulation
+	// Rule: ts-block-touch-timestamp-manipulation
+	// MITRE T1070.006
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "TP-TS-BLOCK-TOUCH-TIMESTAMP-001",
+		Command:          "touch -t 202001010000 /etc/crontab",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "touch -t backdating /etc/crontab to hide malware implantation timing — MITRE T1070.006.",
+		Tags:             []string{"tp", "anti-forensics", "timestamp"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-TOUCH-TIMESTAMP-002",
+		Command:          "touch --date='2020-01-01' /usr/bin/malware",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "touch --date backdating system binary to disguise as old legitimate file.",
+		Tags:             []string{"tp", "anti-forensics", "timestamp"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-TOUCH-TIMESTAMP-003",
+		Command:          "touch -d '1 year ago' /etc/passwd",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "touch -d with relative date to backdate sensitive config file.",
+		Tags:             []string{"tp", "anti-forensics", "timestamp"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-TOUCH-TIMESTAMP-001",
+		Command:          "touch newfile.txt",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "Plain touch to create a new file — no timestamp flag, no system path (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-TOUCH-TIMESTAMP-002",
+		Command:          "touch /tmp/lockfile",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "touch on /tmp — not a system path, no timestamp flag (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-TOUCH-TIMESTAMP-003",
+		Command:          "touch /workspace/project/README.md",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/timestamp-manipulation",
+		Analyzer:         "regex",
+		Description:      "touch on project workspace file — normal developer action (default AUDIT).",
+		Tags:             []string{"tn", "safe"},
+	},
 }
 
 // ---------------------------------------------------------------------------
