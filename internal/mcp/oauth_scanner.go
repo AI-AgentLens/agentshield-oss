@@ -27,6 +27,12 @@ const (
 	// resolves to a different domain than the server that served the metadata.
 	// This suggests redirection to a rogue authorization server.
 	SignalOAuthDomainMismatch OAuthScanSignal = "oauth_domain_mismatch"
+
+	// SignalOAuthIssuerMismatch indicates that the issuer field in AS metadata
+	// does not match the origin domain from which the metadata was fetched.
+	// RFC 8414 §3.3 requires the issuer to exactly match the URL used to
+	// fetch the metadata — a mismatch is a strong indicator of a rogue AS.
+	SignalOAuthIssuerMismatch OAuthScanSignal = "oauth_issuer_mismatch"
 )
 
 // OAuthScanFinding records one suspicious signal in AS metadata.
@@ -130,6 +136,24 @@ func ScanOAuthASMetadata(meta *OAuthASMetadata, originDomain string) OAuthScanRe
 					Value:  ep.value,
 				})
 				break // one mismatch finding is sufficient
+			}
+		}
+	}
+
+	// Check issuer field against origin domain (RFC 8414 §3.3: issuer MUST match
+	// the URL used to fetch the metadata — a mismatch indicates a rogue AS).
+	if originDomain != "" && meta.Issuer != "" {
+		issuerURL, err := url.Parse(meta.Issuer)
+		if err == nil {
+			issuerHost := strings.ToLower(issuerURL.Hostname())
+			origin := strings.ToLower(originDomain)
+			if issuerHost != origin && !strings.HasSuffix(issuerHost, "."+origin) {
+				result.Findings = append(result.Findings, OAuthScanFinding{
+					Signal: SignalOAuthIssuerMismatch,
+					Detail: fmt.Sprintf("OAuth AS issuer %q does not match metadata origin %s — RFC 8414 §3.3 violation, possible rogue AS", meta.Issuer, origin),
+					Field:  "issuer",
+					Value:  meta.Issuer,
+				})
 			}
 		}
 	}
