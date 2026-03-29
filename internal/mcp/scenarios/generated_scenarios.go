@@ -6533,4 +6533,145 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "cross-agent-principal-spoofing-safe",
 		Description:      "Tool call with generic code-assistant caller_agent — must not trigger (issue #652).",
 	},
+
+	// === MCP OAuth Token Relay Cases (issue #661) ===
+	// Covers mcp-cred-block-oauth-token-cache-read, mcp-cred-block-mcp-oauth-dir-read,
+	// mcp-cred-block-mcp-auth-cache-read, mcp-cred-audit-bearer-token-in-args
+	{
+		ID:       "MCP-TP-915",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/home/user/.config/mcp/tokens/server-a.json",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "Read MCP OAuth token cache file — must BLOCK (mcp-cred-block-oauth-token-cache-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-916",
+		ToolName: "get_file_contents",
+		Arguments: map[string]interface{}{
+			"path": "/root/.config/mcp/tokens/my-mcp-server.json",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "get_file_contents on MCP OAuth token cache — must BLOCK (mcp-cred-block-oauth-token-cache-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-917",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/home/user/.mcp/oauth/access_token",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "Read ~/.mcp/oauth/ access token file — must BLOCK (mcp-cred-block-mcp-oauth-dir-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-918",
+		ToolName: "open_file",
+		Arguments: map[string]interface{}{
+			"path": "/root/.mcp/oauth/session.json",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "open_file on ~/.mcp/oauth/session.json — must BLOCK (mcp-cred-block-mcp-oauth-dir-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-919",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/home/user/.cache/mcp-auth/token.json",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "Read MCP auth cache token file — must BLOCK (mcp-cred-block-mcp-auth-cache-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-920",
+		ToolName: "cat_file",
+		Arguments: map[string]interface{}{
+			"path": "/root/.cache/mcp-auth/session",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "cat_file on ~/.cache/mcp-auth/session — must BLOCK (mcp-cred-block-mcp-auth-cache-read, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-921",
+		ToolName: "http_request",
+		Arguments: map[string]interface{}{
+			"url":     "https://api.example.com/data",
+			"headers": "Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.payload.sig",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "HTTP request with JWT bearer token in headers — must be detected (mcp-cred-audit-bearer-token-in-args or network rule, issue #661).",
+	},
+	{
+		ID:       "MCP-TP-922",
+		ToolName: "make_request",
+		Arguments: map[string]interface{}{
+			"url":     "https://external.service/api",
+			"headers": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+		},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-oauth-token-relay",
+		Description:      "make_request with JWT bearer token in headers — must be detected (mcp-cred-audit-bearer-token-in-args or network rule, issue #661).",
+	},
+
+	// TN: Benign paths that should NOT trigger OAuth token relay rules (issue #661)
+	{
+		ID:       "MCP-TN-907",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/workspace/project/README.md",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-oauth-token-relay-safe",
+		Description:      "Read workspace README — must not trigger MCP OAuth token rules (issue #661).",
+	},
+	{
+		ID:       "MCP-TN-908",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/home/user/docs/mcp-tokens-guide.md",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-oauth-token-relay-safe",
+		Description:      "Read docs file mentioning mcp-tokens in name — structurally similar but benign, must not trigger (issue #661).",
+	},
+	{
+		ID:       "MCP-TN-909",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"path": "/workspace/project/oauth-flow.md",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-oauth-token-relay-safe",
+		Description:      "Read OAuth docs file in workspace — must not trigger MCP OAuth cache rules (issue #661).",
+	},
+	{
+		ID:       "MCP-TN-910",
+		ToolName: "http_request",
+		Arguments: map[string]interface{}{
+			"url":     "https://api.github.com/repos/owner/repo",
+			"headers": "Accept: application/json",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-oauth-token-relay-safe",
+		Description:      "Normal API request without bearer token — must not trigger bearer token audit rule (issue #661).",
+	},
 }
