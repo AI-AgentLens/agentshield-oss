@@ -1,0 +1,53 @@
+id: "credential-exposure/cryptocurrency/bitcoin-wallet-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cryptocurrency Wallets & Keys"
+category_id: "2.18"
+name: "Bitcoin Wallet Access"
+risk_level: "critical"
+
+abstract: |
+  Access to Bitcoin Core wallet files exposes encrypted private keys, enabling
+  offline brute-force attacks and irreversible theft of Bitcoin holdings.
+
+explanation: |
+  Bitcoin Core stores wallet data in `~/.bitcoin/wallet.dat`, a BerkeleyDB file
+  containing encrypted private keys and transaction history. Exfiltrating this
+  file enables attackers to:
+  - Perform offline dictionary/brute-force attacks against wallet encryption
+  - Recover plaintext private keys if a weak passphrase is used
+  - Monitor all historical and future transactions associated with the wallet
+  - Drain funds irreversibly — Bitcoin transactions cannot be reversed
+
+  Unlike traditional credentials, compromised cryptocurrency keys result in
+  permanent, unrecoverable financial loss. There is no "reset password" option.
+
+recommendation: |
+  - Block MCP tool access to `~/.bitcoin/wallet.dat` and related files.
+  - Use hardware wallets (Ledger, Trezor) to keep keys offline.
+  - Never store wallet files in project directories accessible by AI agents.
+  - Monitor file access to Bitcoin data directories.
+
+examples:
+  bad:
+    - "cat ~/.bitcoin/wallet.dat"
+    - "cp ~/.bitcoin/wallet.dat /tmp/backup"
+    - "read_file({'path': '/home/user/.bitcoin/wallet.dat'})"
+  good:
+    - "bitcoin-cli getblockcount"
+    - "cat ~/bitcoin-guide.md"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312", "CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-bitcoin-wallet"]

@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1057 |
-| MCP rules | 554 |
-| Total rules | 1611 |
-| Test cases (TP+TN) | 3764 |
+| Terminal rules | 1058 |
+| MCP rules | 562 |
+| Total rules | 1620 |
+| Test cases (TP+TN) | 3771 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -578,7 +578,7 @@
 | `ts-block-alias-env-inject` | BLOCK | regex | Alias injecting sensitive environment variables into command execution — aliases can silently prepend LD_PRELOAD, GIT_SSH_COMMAND, http_proxy, or interpreter path variables to hijack library loading, proxy traffic through attacker infrastructure, or inject malicious modules. MITRE T1574.006, T1546.004. |
 | `ts-audit-alias-define` | AUDIT | regex | Shell alias definition detected. While aliases are common in interactive use, they are unusual in AI agent workflows and can shadow security-sensitive commands. Auditing for review. MITRE T1546.004. |
 
-### privilege-escalation (122 rules)
+### privilege-escalation (123 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -593,6 +593,7 @@
 | `ts-block-sudoers-sed` | BLOCK | regex | In-place editing of /etc/sudoers or sudoers.d files via sed/awk/perl — persistent root privilege escalation. MITRE T1548.003. |
 | `ts-block-visudo` | BLOCK | regex | visudo directly edits the sudoers configuration. AI agents have no legitimate need to modify the privilege escalation policy. MITRE T1548.003. |
 | `ts-block-pam-config-write` | BLOCK | regex | Writing to /etc/pam.d/ modifies the Pluggable Authentication Module configuration, bypassing system-wide authentication (e.g., pam_permit.so makes any auth succeed). MITRE T1556.003. |
+| `ts-audit-pam-config-read` | AUDIT | regex | Reading PAM configuration files reveals the authentication stack (module types, required/optional flags, MFA presence) enabling targeted privilege escalation planning. MITRE T1082, T1556. |
 | `ts-block-llm-chmod-dangerous` | BLOCK | regex | World-writable (0777) or variable-mode chmod — LLM-controlled permissions enable prompt injection to set dangerous access bits. Use explicit safe modes (644, 755) instead. |
 | `ts-block-kernel-module-load` | BLOCK | regex | Loading kernel modules grants ring-0 access and can be used to backdoor the system or bypass all security controls. |
 | `ts-block-bpftool-prog-load` | BLOCK | regex | bpftool prog load installs an eBPF program into the kernel — equivalent in risk to loading a kernel module. Can be used to intercept credentials, trace TLS plaintext, or establish a persistent kernel backdoor. |
@@ -1123,7 +1124,7 @@
 
 ## MCP Rules
 
-### credential-exposure (263 rules)
+### credential-exposure (270 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1369,8 +1370,11 @@
 | `mcp-sec-block-netskope-token` | BLOCK | mcp_rule | Access to ~/.netskopetoken is blocked — contains the Netskope SASE/SSE platform authentication token. Reading it exposes enterprise network access control and DLP policy credentials. MITRE T1552. |
 | `mcp-sec-block-container-secrets-mount` | BLOCK | mcp_rule | Access to /run/secrets/* is blocked — Docker Swarm and Kubernetes mount container secrets here in plaintext. Reading these exposes API keys, database passwords, and tokens injected by the orchestrator. MITRE T1552. |
 | `mcp-sec-block-huggingface-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub token file is blocked — this token grants access to private model repositories, gated datasets, and inference API billing. MITRE T1552.001, OWASP LLM06. |
+| `mcp-sec-block-huggingface-legacy-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub token file is blocked — ~/.huggingface/token is the legacy location for the HF Hub CLI auth token, granting access to private models, gated datasets, and inference API billing. MITRE T1552.001. |
+| `mcp-sec-block-huggingface-xdg-token-read` | BLOCK | mcp_rule | Read access to HuggingFace Hub XDG token file is blocked — ~/.config/huggingface/token is the XDG config location for the HF Hub CLI auth token. MITRE T1552.001. |
 | `mcp-sec-block-wandb-settings-read` | BLOCK | mcp_rule | Read access to W&B settings file is blocked — contains the WANDB_API_KEY granting access to experiment data, model checkpoints, and training datasets. MITRE T1552.001, OWASP LLM06. |
 | `mcp-sec-block-replicate-token-read` | BLOCK | mcp_rule | Read access to Replicate token file is blocked — grants access to serverless model inference APIs with per-call billing. MITRE T1552.001, OWASP LLM06. |
+| `mcp-sec-block-replicate-legacy-token-read` | BLOCK | mcp_rule | Read access to Replicate CLI legacy token file is blocked — ~/.replicate/token is the legacy location for the Replicate API token, granting access to GPU inference and model deployments. MITRE T1552.001. |
 | `mcp-sec-block-comet-config-read` | BLOCK | mcp_rule | Read access to Comet ML config file is blocked — contains API key for experiment tracking platform. MITRE T1552.001. |
 | `mcp-sec-block-ml-platform-write` | BLOCK | mcp_rule | Write access to HuggingFace cache directory is blocked — modifying cached credentials or model metadata could redirect authentication to a malicious endpoint. MITRE T1552.001. |
 | `mcp-sec-block-dagshub-credentials-read` | BLOCK | mcp_rule | Read access to DagsHub credentials directory is blocked — DagsHub tokens grant access to private ML dataset and model repositories on the Git-based ML platform. MITRE T1552.001. |
@@ -1382,6 +1386,10 @@
 | `mcp-sec-block-restic-dotfile-password` | BLOCK | mcp_rule | Access to ~/.restic-password is blocked — stores the restic backup encryption master password (RESTIC_PASSWORD_FILE convention). MITRE T1552. |
 | `mcp-sec-block-borgmatic-config` | BLOCK | mcp_rule | Access to ~/.config/borgmatic/ is blocked — borgmatic config files contain borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
 | `mcp-sec-block-borg-repo-keys` | BLOCK | mcp_rule | Access to ~/.config/borg/keys/ is blocked — borg repository key files are the encryption keys for backup archives; compromise allows mounting and decrypting all borg backups. MITRE T1552. |
+| `mcp-sec-block-bitcoin-wallet` | BLOCK | mcp_rule | Access to Bitcoin Core wallet file is blocked — ~/.bitcoin/wallet.dat contains encrypted private keys in BerkeleyDB format. Exfiltrating this file enables offline brute-force attacks against wallet encryption and irreversible fund theft. MITRE T1552.001. |
+| `mcp-sec-block-ethereum-keystore` | BLOCK | mcp_rule | Access to Ethereum keystore directory is blocked — ~/.ethereum/keystore/ contains encrypted JSON key files (UTC--timestamp--address format). Exfiltrating these enables offline password cracking to recover plaintext private keys. MITRE T1552.001. |
+| `mcp-sec-block-solana-keypair` | BLOCK | mcp_rule | Access to Solana CLI keypair file is blocked — ~/.config/solana/id.json and other Solana keypair files store ED25519 private keys in plaintext JSON arrays. No decryption required — a single read call yields the private key. MITRE T1552.001. |
+| `mcp-sec-block-monero-wallet` | BLOCK | mcp_rule | Access to Monero wallet directory is blocked — ~/.monero/ contains wallet files with encrypted spend and view keys. Monero's privacy model makes fund tracing impossible after theft. MITRE T1552.001. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
@@ -1713,7 +1721,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (14 rules)
+### uncategorized (15 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1729,6 +1737,7 @@
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-safety-block-tool-uri-ssrf-imds` | BLOCK | structural | SSRF via tool 'uri' argument — request to cloud metadata endpoint leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
 | `mcp-safety-block-tool-uri-ssrf-localhost` | BLOCK | structural | SSRF via tool 'uri' argument — request to localhost/loopback service allows attacker to probe or exfiltrate data from internal services. MITRE T1090, OWASP LLM08. |
+| `mcp-sec-block-altcoin-wallet` | BLOCK | structural | Access to altcoin wallet file is blocked — wallet.dat in Dogecoin, Litecoin, Zcash, and similar Bitcoin-derived wallets contains encrypted private keys. MITRE T1552.001. |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 | `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
 
@@ -1741,9 +1750,9 @@
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 289 | 177 | 466 |
-| privilege-escalation | 284 | 172 | 456 |
+| privilege-escalation | 288 | 175 | 463 |
 | reconnaissance | 180 | 84 | 264 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2270** | **1494** | **3764** |
+| **Total** | **2274** | **1497** | **3771** |
 

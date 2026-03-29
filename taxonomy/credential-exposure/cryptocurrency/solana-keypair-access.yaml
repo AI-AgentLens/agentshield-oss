@@ -1,0 +1,56 @@
+id: "credential-exposure/cryptocurrency/solana-keypair-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Cryptocurrency Wallets & Keys"
+category_id: "2.18"
+name: "Solana Keypair Access"
+risk_level: "critical"
+
+abstract: |
+  Access to Solana CLI keypair files exposes ED25519 private keys stored in
+  plaintext JSON arrays, enabling immediate and irreversible theft of SOL and
+  SPL token holdings with no decryption step required.
+
+explanation: |
+  The Solana CLI stores keypairs as JSON arrays of integers in
+  `~/.config/solana/id.json` and other named keypair files. Unlike Ethereum
+  keystores, Solana keypairs are stored in plaintext — there is no password
+  encryption. A single file read immediately yields the full 64-byte ED25519
+  private key. Exfiltration enables attackers to:
+  - Sign arbitrary Solana transactions immediately
+  - Drain SOL and all SPL token balances
+  - Close staking accounts and withdraw staked SOL
+  - Access Solana program upgrade authorities if the key controls any programs
+
+  The plaintext storage makes this exceptionally high-risk — no cracking step
+  is needed. Any agent with file-read capability can exfiltrate a working key.
+
+recommendation: |
+  - Block MCP tool access to `~/.config/solana/*.json`.
+  - Use hardware wallets (Ledger) with Solana CLI for valuable accounts.
+  - Rotate to paper wallets or cold storage for high-value SOL positions.
+  - Never expose keypair files to AI coding agents.
+
+examples:
+  bad:
+    - "cat ~/.config/solana/id.json"
+    - "solana-keygen pubkey ~/.config/solana/id.json"
+    - "read_file({'path': '/home/user/.config/solana/id.json'})"
+  good:
+    - "solana balance"
+    - "cat ~/solana-development-notes.md"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.001"]
+  cwe: ["CWE-312", "CWE-200", "CWE-256"]
+
+analyzers: ["regex", "structural"]
+related_rules: ["mcp-sec-block-solana-keypair"]
