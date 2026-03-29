@@ -775,6 +775,31 @@ var KernelModuleCases = []TestCase{
 		Description:      `modinfo queries module info (read-only). Does not load anything. Default AUDIT — not blocked.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+
+	// --- TRUE POSITIVES: compound commands (ts-block-kernel-module-command-exec) ---
+	// The regex rule ts-block-kernel-module-load uses ^(sudo\s+)? anchor and misses
+	// insmod/modprobe nested after && / ; / ||. The structural rule detects these.
+
+	{
+		ID:               "TP-KMOD-CMDEXEC-001",
+		Command:          `cd /tmp && insmod rootkit.ko`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		Analyzer:         "structural",
+		Description:      `insmod in compound command after cd — regex anchor misses this; structural AST detects insmod as executable.`,
+		Tags:             []string{"tp", "structural", "compound-cmd", "critical"},
+	},
+	{
+		ID:               "TP-KMOD-CMDEXEC-002",
+		Command:          `make module && modprobe ./custom_backdoor`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/kernel-module",
+		Analyzer:         "structural",
+		Description:      `modprobe after make — agent-generated build-then-load pattern. Structural rule catches modprobe despite it not being the first command token.`,
+		Tags:             []string{"tp", "structural", "compound-cmd", "critical"},
+	},
 }
 
 // ---------------------------------------------------------------------------
