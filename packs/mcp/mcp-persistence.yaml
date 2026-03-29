@@ -665,7 +665,9 @@ structural_rules:
             - "(?:^|/)\\.claude/settings\\.local\\.json$"
             - "(?:^|/)\\.cursor/settings\\.json$"
             - "(?i)Cursor/User/settings\\.json$"
+            - "(?:^|/)\\.config/cursor/settings\\.json$"
             - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
+            - "(?:^|/)\\.config/windsurf/settings\\.json$"
             - "(?i)Code/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
@@ -678,9 +680,15 @@ structural_rules:
           args: {"path": "/home/user/.claude/settings.json"}
         - tool: "edit_file"
           args: {"path": "/home/user/.cursor/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/cursor/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/windsurf/settings.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/cursor-settings-guide.md"}
 
   # === BLOCK: Desktop environment extension directory writes via MCP (issue #375) ===
   #
