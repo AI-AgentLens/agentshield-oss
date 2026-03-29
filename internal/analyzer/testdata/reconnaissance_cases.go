@@ -2059,6 +2059,7 @@ func AllReconnaissanceCases() []TestCase {
 	all = append(all, AdminEndpointProbeCases...)
 	all = append(all, FindCredentialHuntingCases...)
 	all = append(all, EnvVarSecretEnumCases...)
+	all = append(all, HiddenFilesReconCases...)
 	return all
 }
 
@@ -3233,6 +3234,79 @@ var EnvVarSecretEnumCases = []TestCase{
 		TaxonomyRef:      "reconnaissance/environment/env-var-enumeration",
 		Analyzer:         "regex",
 		Description:      "env grep DEBUG — filtering for debug flags, not sensitive. Gets AUDIT from sec-audit-env-dump, not from secret keyword rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// Hidden Dotfile Discovery + Credential Directory Enumeration
+// Taxonomy: reconnaissance/filesystem/hidden-file-discovery
+//           reconnaissance/filesystem/credential-path-enumeration
+//
+// Broad dotfile sweep via find (pre-exfiltration recon) and systematic
+// ls/stat of multiple known credential directories.
+// Issue: #689
+// ---------------------------------------------------------------------------
+
+var HiddenFilesReconCases = []TestCase{
+	{
+		ID:               "TP-TS-AUDIT-DOTFILE-001",
+		Command:          `find ~ -name ".*" -type f`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem/hidden-file-discovery",
+		Analyzer:         "regex",
+		Description:      "find home for all dotfiles — broad pre-exfil scan.",
+		Tags:             []string{"tp", "recon", "dotfile"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-DOTFILE-002",
+		Command:          `find /home -name ".*" -maxdepth 3`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem/hidden-file-discovery",
+		Analyzer:         "regex",
+		Description:      "find /home for all dotfiles with maxdepth — attacker scoping credential files.",
+		Tags:             []string{"tp", "recon", "dotfile"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-CRED-DIR-ENUM-001",
+		Command:          "stat ~/.ssh ~/.aws ~/.gnupg",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem/credential-path-enumeration",
+		Analyzer:         "regex",
+		Description:      "stat multiple credential dirs — systematic path enumeration.",
+		Tags:             []string{"tp", "recon", "cred-enum"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-CRED-DIR-ENUM-002",
+		Command:          "ls -la ~/.ssh ~/.aws ~/.kube",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem/credential-path-enumeration",
+		Analyzer:         "regex",
+		Description:      "ls of multiple credential dirs — enumerating credential stores.",
+		Tags:             []string{"tp", "recon", "cred-enum"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-DOTFILE-001",
+		Command:          `find ~/projects -name "*.go"`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem/hidden-file-discovery",
+		Analyzer:         "regex",
+		Description:      "find in projects for Go files — not scanning for dotfiles.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-CRED-DIR-ENUM-001",
+		Command:          "ls -la ~/.ssh",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem/credential-path-enumeration",
+		Analyzer:         "regex",
+		Description:      "ls single credential dir — not multi-dir enumeration, gets ALLOW from ts-allow-readonly.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
