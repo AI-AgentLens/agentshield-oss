@@ -132,6 +132,57 @@ func TestScanOAuthASMetadata_NoOriginDomain_SkipsDomainCheck(t *testing.T) {
 	}
 }
 
+func TestScanOAuthASMetadata_IssuerMismatch(t *testing.T) {
+	// Issuer points to attacker.evil.com but metadata was served from mcp.example.com
+	meta := &OAuthASMetadata{
+		Issuer:                        "https://attacker.evil.com",
+		AuthorizationEndpoint:         "https://mcp.example.com/oauth/authorize",
+		TokenEndpoint:                 "https://mcp.example.com/oauth/token",
+		CodeChallengeMethodsSupported: []string{"S256"},
+	}
+	result := ScanOAuthASMetadata(meta, "mcp.example.com")
+	if result.Decision != "AUDIT" {
+		t.Errorf("expected AUDIT for issuer mismatch, got %s", result.Decision)
+	}
+	found := false
+	for _, f := range result.Findings {
+		if f.Signal == SignalOAuthIssuerMismatch {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected SignalOAuthIssuerMismatch finding, got: %v", result.Findings)
+	}
+}
+
+func TestScanOAuthASMetadata_IssuerMatchesOrigin(t *testing.T) {
+	// Issuer matches origin domain — no mismatch signal
+	meta := &OAuthASMetadata{
+		Issuer:                        "https://mcp.example.com",
+		AuthorizationEndpoint:         "https://mcp.example.com/oauth/authorize",
+		TokenEndpoint:                 "https://mcp.example.com/oauth/token",
+		CodeChallengeMethodsSupported: []string{"S256"},
+	}
+	result := ScanOAuthASMetadata(meta, "mcp.example.com")
+	if result.Decision != "ALLOW" {
+		t.Errorf("expected ALLOW when issuer matches origin, got %s: %v", result.Decision, result.Findings)
+	}
+}
+
+func TestScanOAuthASMetadata_IssuerSubdomainOfOrigin(t *testing.T) {
+	// Issuer is a subdomain of origin — should not mismatch
+	meta := &OAuthASMetadata{
+		Issuer:                        "https://auth.mcp.example.com",
+		AuthorizationEndpoint:         "https://auth.mcp.example.com/oauth/authorize",
+		TokenEndpoint:                 "https://auth.mcp.example.com/oauth/token",
+		CodeChallengeMethodsSupported: []string{"S256"},
+	}
+	result := ScanOAuthASMetadata(meta, "mcp.example.com")
+	if result.Decision != "ALLOW" {
+		t.Errorf("expected ALLOW for issuer as subdomain of origin, got %s: %v", result.Decision, result.Findings)
+	}
+}
+
 func TestIsOAuthMetadataPath(t *testing.T) {
 	tests := []struct {
 		path string
