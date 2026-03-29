@@ -1235,6 +1235,30 @@ rules:
         - "lsmod"
         - "modinfo ext4"
 
+  # === BLOCK: Kernel module loading via subprocess/compound command (command-execution attack vector) ===
+  # The existing regex rule ts-block-kernel-module-load anchors on ^(sudo\s+)?insmod|modprobe
+  # and misses compound commands where insmod/modprobe is not the first token, e.g.
+  # "cd /tmp && insmod rootkit.ko" or "make && modprobe ./evil_mod".
+  # This structural rule uses AST parsing to detect insmod/modprobe as an executable
+  # anywhere within a compound command, covering the agent-generated subprocess call vector.
+  # Taxonomy: privilege-escalation/command-execution/kernel-module (issue #694)
+
+  - id: "ts-block-kernel-module-command-exec"
+    taxonomy: "privilege-escalation/command-execution/kernel-module"
+    match:
+      structural:
+        executable: ["insmod", "modprobe"]
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Loading kernel modules via insmod/modprobe grants ring-0 kernel access, enabling rootkit installation, syscall hooking, and complete bypass of all userspace security controls. MITRE T1547.006."
+    tests:
+      tp:
+        - "cd /tmp && insmod rootkit.ko"
+        - "make module && modprobe ./custom_backdoor"
+      tn:
+        - "lsmod"
+        - "modinfo e1000"
+
   # === BLOCK: eBPF kernel program loading (equivalent to kernel module) ===
   # bpftool prog load installs an eBPF program into the kernel at /sys/fs/bpf/.
   # Unlike kernel modules, eBPF does not require CAP_SYS_MODULE, making it
