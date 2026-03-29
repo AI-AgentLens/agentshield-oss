@@ -6414,4 +6414,79 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "bitwarden-macos-desktop-safe",
 		Description:      "Read project docs about Bitwarden macOS setup must AUDIT — doc file is not the macOS Bitwarden app data directory (issue #643).",
 	},
+
+	// TP: Cross-agent principal identity spoofing (issue #652)
+	{
+		ID:       "MCP-TP-904",
+		ToolName: "delete_file",
+		Arguments: map[string]interface{}{
+			"source_agent_id": "orchestrator-agent",
+			"path":            "/tmp/sensitive-data",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "cross-agent-principal-spoofing",
+		Description:      "Tool call with source_agent_id claiming orchestrator identity — must AUDIT (mcp-ci-audit-principal-spoof-source-agent-id, issue #652).",
+	},
+	{
+		ID:       "MCP-TP-905",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"caller_agent": "admin-agent",
+			"path":         "/etc/secret",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "cross-agent-principal-spoofing",
+		Description:      "Tool call with caller_agent claiming admin identity — must AUDIT (mcp-ci-audit-principal-spoof-caller-agent, issue #652).",
+	},
+	{
+		ID:       "MCP-TP-906",
+		ToolName: "http_request",
+		Arguments: map[string]interface{}{
+			"principal": "admin-agent",
+			"operation": "escalate_privileges",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "cross-agent-principal-spoofing",
+		Description:      "Tool call with principal claiming admin-agent identity — must AUDIT (mcp-ci-audit-principal-spoof-principal, issue #652).",
+	},
+
+	// TN: Legitimate tool calls without identity spoofing (issue #652)
+	{
+		ID:       "MCP-TN-900",
+		ToolName: "delete_file",
+		Arguments: map[string]interface{}{
+			"path": "/tmp/old-build-artifact",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cross-agent-principal-spoofing-safe",
+		Description:      "Normal file delete with no identity metadata — must not trigger principal spoofing rules (issue #652).",
+	},
+	{
+		ID:       "MCP-TN-901",
+		ToolName: "write_file",
+		Arguments: map[string]interface{}{
+			"source_agent_id": "worker-agent-7",
+			"path":            "/tmp/output.json",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cross-agent-principal-spoofing-safe",
+		Description:      "Tool call with non-privileged worker source_agent_id — must not trigger (issue #652).",
+	},
+	{
+		ID:       "MCP-TN-902",
+		ToolName: "read_file",
+		Arguments: map[string]interface{}{
+			"caller_agent": "code-assistant",
+			"path":         "/workspace/src/main.go",
+		},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "cross-agent-principal-spoofing-safe",
+		Description:      "Tool call with generic code-assistant caller_agent — must not trigger (issue #652).",
+	},
 }

@@ -337,6 +337,88 @@ rules:
         - tool: "read_file"
           args: {"path": "/workspace/docs/few_shot_learning_guide.md"}
 
+  # ============================================================
+  # Cross-Agent Principal Identity Spoofing (issue #652)
+  # Taxonomy: unauthorized-execution/agentic-attacks/cross-agent-principal-spoofing
+  # OWASP LLM09 — Misinformation; MITRE T1078 — Valid Accounts
+  #
+  # In multi-agent systems, tool calls may carry caller identity metadata
+  # (source_agent_id, caller_agent, principal). These fields are unsigned
+  # and trivially forgeable — a low-privilege agent can set source_agent_id
+  # to "orchestrator-agent" to inherit elevated tool permissions.
+  # Decision is AUDIT rather than BLOCK because false positive rate is high:
+  # legitimate multi-agent orchestrators do pass identity metadata in args.
+  # ============================================================
+
+  - id: mcp-ci-audit-principal-spoof-source-agent-id
+    taxonomy: "unauthorized-execution/agentic-attacks/cross-agent-principal-spoofing"
+    match:
+      structural:
+        args_match:
+          source_agent_id:
+            pattern_any:
+              - "(?i)(orchestrat|admin|supervisor|root.agent|system.agent|security.monitor)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Tool call claims high-privilege source_agent_id identity — this unsigned field is trivially forgeable and may be used to escalate tool access in multi-agent systems (OWASP LLM09, MITRE T1078)."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"source_agent_id": "orchestrator-agent", "path": "/tmp/data"}
+        - tool: "write_file"
+          args: {"source_agent_id": "admin-supervisor", "path": "/etc/config"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/tmp/data"}
+        - tool: "write_file"
+          args: {"source_agent_id": "worker-agent-7", "path": "/tmp/output"}
+
+  - id: mcp-ci-audit-principal-spoof-caller-agent
+    taxonomy: "unauthorized-execution/agentic-attacks/cross-agent-principal-spoofing"
+    match:
+      structural:
+        args_match:
+          caller_agent:
+            pattern_any:
+              - "(?i)(orchestrat|admin|supervisor|root.agent|system.agent|security.monitor)"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Tool call claims high-privilege caller_agent identity — this unsigned field is trivially forgeable and may be used to escalate tool access in multi-agent systems (OWASP LLM09, MITRE T1078)."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"caller_agent": "admin-agent", "path": "/etc/secret"}
+        - tool: "execute_command"
+          args: {"caller_agent": "orchestrator", "command": "ls /root"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/file.txt"}
+        - tool: "read_file"
+          args: {"caller_agent": "code-assistant", "path": "/workspace/file.txt"}
+
+  - id: mcp-ci-audit-principal-spoof-principal
+    taxonomy: "unauthorized-execution/agentic-attacks/cross-agent-principal-spoofing"
+    match:
+      structural:
+        args_match:
+          principal:
+            pattern_any:
+              - "(?i)(admin.agent|orchestrat|supervisor.agent|system.agent|security.monitor)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Tool call carries a principal field claiming high-privilege agent identity — unsigned principal claims are trivially forgeable in multi-agent systems (OWASP LLM09, MITRE T1078)."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"principal": "admin-agent", "operation": "escalate_privileges"}
+        - tool: "create_file"
+          args: {"principal": "orchestrator-supervisor", "path": "/tmp/file"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://api.example.com/data"}
+        - tool: "http_request"
+          args: {"principal": "user", "url": "https://api.example.com/data"}
+
 # === Structural rules: broader pattern matching for content integrity ===
 structural_rules:
   # Catch any file write to doc paths containing compliance-sensitive filenames
