@@ -366,6 +366,49 @@ rules:
         - tool: "read_file"
           args: {"path": "/workspace/process.log"}
 
+  # === GUARDIAN: MCP initialize handshake manipulation ===
+  # Detection is implemented at the code level in internal/mcp/handshake_scanner.go
+  # and integrated in handler.go (handleInitializeResponse). This YAML entry registers
+  # the taxonomy reference and rule ID for coverage metrics and log correlation.
+  #
+  # BLOCK triggers:
+  #   - serverInfo.name matches impersonation patterns (e.g. "official-anthropic-server")
+  #   - serverInfo.name contains Unicode homoglyphs (e.g. Cyrillic 'а' for Latin 'a')
+  #   - experimental capabilities contain suspicious keys (e.g. "trustedServer", "bypassSafetyFilters")
+  #
+  # AUDIT triggers:
+  #   - protocolVersion is older than MinAcceptedProtocolVersion ("2025-03-26")
+  #   - serverInfo.name contains trust-signaling keywords ("official", "trusted", "verified")
+  #
+  # OWASP LLM08 (Excessive Agency), OWASP LLM06 (Excessive Agency via capability injection)
+  # CWE-757 (Selection of Less-Secure Algorithm During Negotiation), CWE-285 (Improper Authorization)
+  # MITRE T1557 (Adversary-in-the-Middle), T1036 (Masquerading)
+  - id: "mcp-initialize-handshake-manipulation"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation"
+    match: {}  # empty match — rule never fires from YAML evaluator; detection is in handshake_scanner.go
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP initialize handshake manipulation detected — server is impersonating a trusted identity or injecting capability flags to inflate trust level. Protocol-layer attack before any tool call authorization. OWASP LLM08, CWE-285, MITRE T1557."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in handshake_scanner.go (ScanInitializeResponse), not YAML-evaluated.
+    # Unit tests live in internal/mcp/handshake_scanner_test.go.
+
+  # === AUDIT: MCP initialize handshake — downgrade and trust-signaling ===
+  # Companion audit-level rule for the handshake scanner. Emitted when the server
+  # returns a protocol version older than the minimum accepted version (possible downgrade
+  # attack disabling OAuth 2.1 enforcement) or when serverInfo.name contains keywords
+  # like "official", "trusted", or "verified" without matching a specific impersonation target.
+  # Detection is in handshake_scanner.go (ScanInitializeResponse).
+  # CWE-757 (Selection of Less-Secure Algorithm During Negotiation), MITRE T1036 (Masquerading)
+  - id: "mcp-initialize-handshake-manipulation-audit"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation"
+    match: {}  # empty match — rule never fires from YAML; detection is in handshake_scanner.go
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP initialize handshake anomaly — protocol version downgrade or trust-signaling server name detected. Possible downgrade attack disabling newer security features, or server attempting to inflate perceived trust level. OWASP LLM08, CWE-757, MITRE T1036."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in handshake_scanner.go, not YAML-evaluated.
+
   # === GUARDIAN: MCP tool description poisoning ===
   # Detection is implemented at the code level in internal/mcp/description_scanner.go.
   # This rule entry registers the taxonomy reference for coverage metrics.
