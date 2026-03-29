@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0D1117"/>
+      <stop offset="100%" style="stop-color:#161B22"/>
+    </linearGradient>
+    <!-- Shield gradient -->
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#58A6FF"/>
+      <stop offset="50%" style="stop-color:#388BFD"/>
+      <stop offset="100%" style="stop-color:#1F6FEB"/>
+    </linearGradient>
+    <!-- Inner glow -->
+    <radialGradient id="glowGrad" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" style="stop-color:#58A6FF;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#58A6FF;stop-opacity:0"/>
+    </radialGradient>
+    <!-- Eye gradient -->
+    <linearGradient id="eyeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#7EE787"/>
+      <stop offset="100%" style="stop-color:#3FB950"/>
+    </linearGradient>
+    <!-- Scan line gradient -->
+    <linearGradient id="scanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3FB950;stop-opacity:0"/>
+      <stop offset="50%" style="stop-color:#3FB950;stop-opacity:0.6"/>
+      <stop offset="100%" style="stop-color:#3FB950;stop-opacity:0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="url(#bgGrad)"/>
+
+  <!-- Subtle border -->
+  <rect x="4" y="4" width="1016" height="1016" rx="218" ry="218" fill="none" stroke="#30363D" stroke-width="2"/>
+
+  <!-- Inner glow effect -->
+  <ellipse cx="512" cy="420" rx="350" ry="300" fill="url(#glowGrad)"/>
+
+  <!-- Shield shape - main outline -->
+  <path d="M512 140
+           C512 140 280 200 220 240
+           L220 500
+           C220 660 350 790 512 880
+           C674 790 804 660 804 500
+           L804 240
+           C744 200 512 140 512 140Z"
+        fill="none" stroke="url(#shieldGrad)" stroke-width="32" stroke-linejoin="round" opacity="0.9"/>
+
+  <!-- Shield shape - inner fill (subtle) -->
+  <path d="M512 170
+           C512 170 300 224 248 260
+           L248 496
+           C248 644 368 764 512 848
+           C656 764 776 644 776 496
+           L776 260
+           C724 224 512 170 512 170Z"
+        fill="#58A6FF" opacity="0.06"/>
+
+  <!-- Circuit lines on shield - left side -->
+  <path d="M320 340 L380 340 L380 420" fill="none" stroke="#58A6FF" stroke-width="3" opacity="0.3"/>
+  <circle cx="320" cy="340" r="5" fill="#58A6FF" opacity="0.4"/>
+  <circle cx="380" cy="420" r="5" fill="#58A6FF" opacity="0.4"/>
+
+  <path d="M300 460 L360 460 L360 540 L320 540" fill="none" stroke="#58A6FF" stroke-width="3" opacity="0.3"/>
+  <circle cx="300" cy="460" r="5" fill="#58A6FF" opacity="0.4"/>
+  <circle cx="320" cy="540" r="5" fill="#58A6FF" opacity="0.4"/>
+
+  <!-- Circuit lines on shield - right side -->
+  <path d="M704 340 L644 340 L644 420" fill="none" stroke="#58A6FF" stroke-width="3" opacity="0.3"/>
+  <circle cx="704" cy="340" r="5" fill="#58A6FF" opacity="0.4"/>
+  <circle cx="644" cy="420" r="5" fill="#58A6FF" opacity="0.4"/>
+
+  <path d="M724 460 L664 460 L664 540 L704 540" fill="none" stroke="#58A6FF" stroke-width="3" opacity="0.3"/>
+  <circle cx="724" cy="460" r="5" fill="#58A6FF" opacity="0.4"/>
+  <circle cx="704" cy="540" r="5" fill="#58A6FF" opacity="0.4"/>
+
+  <!-- Central eye/lens - outer ring -->
+  <ellipse cx="512" cy="480" rx="140" ry="100" fill="none" stroke="url(#eyeGrad)" stroke-width="6" opacity="0.8"/>
+
+  <!-- Central eye/lens - inner ring -->
+  <ellipse cx="512" cy="480" rx="85" ry="60" fill="none" stroke="#7EE787" stroke-width="3" opacity="0.5"/>
+
+  <!-- Central eye/lens - pupil/core -->
+  <circle cx="512" cy="480" r="32" fill="url(#eyeGrad)" opacity="0.9"/>
+  <circle cx="512" cy="480" r="16" fill="#0D1117"/>
+  <circle cx="522" cy="470" r="6" fill="#FFFFFF" opacity="0.7"/>
+
+  <!-- Scan lines emanating from eye -->
+  <line x1="370" y1="480" x2="280" y2="480" stroke="#3FB950" stroke-width="2" opacity="0.3"/>
+  <line x1="654" y1="480" x2="744" y2="480" stroke="#3FB950" stroke-width="2" opacity="0.3"/>
+  <line x1="512" y1="378" x2="512" y2="310" stroke="#3FB950" stroke-width="2" opacity="0.3"/>
+  <line x1="512" y1="582" x2="512" y2="650" stroke="#3FB950" stroke-width="2" opacity="0.3"/>
+
+  <!-- Diagonal scan lines -->
+  <line x1="414" y1="410" x2="360" y2="356" stroke="#3FB950" stroke-width="1.5" opacity="0.2"/>
+  <line x1="610" y1="410" x2="664" y2="356" stroke="#3FB950" stroke-width="1.5" opacity="0.2"/>
+  <line x1="414" y1="550" x2="360" y2="604" stroke="#3FB950" stroke-width="1.5" opacity="0.2"/>
+  <line x1="610" y1="550" x2="664" y2="604" stroke="#3FB950" stroke-width="1.5" opacity="0.2"/>
+
+  <!-- Small dots at scan line endpoints -->
+  <circle cx="280" cy="480" r="3" fill="#3FB950" opacity="0.5"/>
+  <circle cx="744" cy="480" r="3" fill="#3FB950" opacity="0.5"/>
+  <circle cx="512" cy="310" r="3" fill="#3FB950" opacity="0.5"/>
+  <circle cx="512" cy="650" r="3" fill="#3FB950" opacity="0.5"/>
+
+  <!-- Bottom text area - "AS" monogram -->
+  <text x="512" y="770" text-anchor="middle" font-family="-apple-system, SF Pro Display, Helvetica Neue, sans-serif" font-size="64" font-weight="700" letter-spacing="8" fill="#58A6FF" opacity="0.5">AS</text>
+</svg>
