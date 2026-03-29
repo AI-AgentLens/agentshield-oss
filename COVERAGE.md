@@ -1,14 +1,14 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-28 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-29 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1056 |
-| MCP rules | 540 |
-| Total rules | 1596 |
+| MCP rules | 541 |
+| Total rules | 1597 |
 | Test cases (TP+TN) | 3760 |
 | Kingdoms covered | 10 |
 
@@ -1620,7 +1620,7 @@
 | `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (73 rules)
+### unauthorized-execution (74 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1676,6 +1676,7 @@
 | `mcp-response-integrity-audit-url-arg` | AUDIT | mcp_rule | Content-fetch tool call with HTTP URL — external content returned directly into agent context creates response poisoning risk (LLM01) |
 | `mcp-response-integrity-block-exfil-url` | BLOCK | mcp_rule | Fetch URL matches exfiltration/C2 pattern — blocking to prevent response-poisoning-driven data theft (LLM05, LLM06) |
 | `mcp-response-integrity-audit-web-search` | AUDIT | mcp_rule | Web search tool call — returned page content may contain hidden prompt injection instructions targeting AI assistants (LLM01: web-search-result-injection, MITRE ATLAS AML.T0051) |
+| `mcp-response-integrity-resource-audit-http` | AUDIT | resource_rule | resources/read from external HTTP/HTTPS URI — response content may embed prompt injection payloads or exfiltration directives. Built-in response scanner (Layer 2) inspects actual content. (LLM01, T1659: mcp-resource-content-injection) |
 | `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
 | `mcp-sec-audit-tool-description-changed` | AUDIT | mcp_rule | MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195. |
 | `mcp-guardian-annotation-spoofing` | AUDIT | mcp_rule | MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09. |
