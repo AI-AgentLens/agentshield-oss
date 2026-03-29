@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1057 |
-| MCP rules | 547 |
-| Total rules | 1604 |
+| MCP rules | 554 |
+| Total rules | 1611 |
 | Test cases (TP+TN) | 3764 |
 | Kingdoms covered | 10 |
 
@@ -1623,7 +1623,7 @@
 | `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (78 rules)
+### unauthorized-execution (85 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1703,6 +1703,13 @@
 | `mcp-struct-block-dcr-registration` | BLOCK | structural | MCP tool POSTing a Dynamic Client Registration payload to a /register endpoint — RFC 7591 DCR abuse allows a rogue OAuth client to be silently registered on the MCP authorization server, creating a persistent trusted identity that enables future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
 | `mcp-safety-block-resource-ssrf-imds` | BLOCK | resource_rule | resources/read URI targets a cloud IMDS endpoint — fetching this URI leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
 | `mcp-safety-block-resource-ssrf-localhost` | BLOCK | resource_rule | resources/read URI targets localhost — allows attacker to probe or exfiltrate data from internal services not exposed externally. MITRE T1090, OWASP LLM08. |
+| `mcp-cred-block-oauth-token-cache-read` | BLOCK | mcp_rule | MCP OAuth token cache read blocked — ~/.config/mcp/tokens/ stores OAuth 2.1 bearer tokens issued by remote MCP servers. Bearer token exfiltration enables token relay attacks against any resource server accepting the same audience claim. MITRE T1550.001, T1528, T1552.001. |
+| `mcp-cred-block-mcp-oauth-dir-read` | BLOCK | mcp_rule | MCP OAuth directory read blocked — ~/.mcp/oauth/ is a standard location for MCP client OAuth session data including access tokens and refresh tokens. MITRE T1550.001, T1528. |
+| `mcp-cred-block-mcp-auth-cache-read` | BLOCK | mcp_rule | MCP auth cache read blocked — ~/.cache/mcp-auth/ stores OAuth 2.0 session tokens cached by MCP clients. Exfiltrating these tokens enables bearer token relay across resource servers sharing the same audience claim. MITRE T1552.001. |
+| `mcp-cred-audit-bearer-token-in-args` | AUDIT | mcp_rule | Bearer JWT token detected in MCP HTTP request headers — may indicate sampling-mediated OAuth token relay. The agent may have been prompted to include the current session's Authorization header in an outbound request. MITRE T1550.001. |
+| `mcp-cred-block-mcp-oauth-cache-uri` | BLOCK | resource_rule | Resource read of MCP OAuth token cache directory is blocked. |
+| `mcp-cred-block-mcp-oauth-dir-uri` | BLOCK | resource_rule | Resource read of MCP OAuth session directory is blocked. |
+| `mcp-cred-block-mcp-auth-cache-uri` | BLOCK | resource_rule | Resource read of MCP auth cache directory is blocked. |
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
