@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1058 |
-| MCP rules | 562 |
-| Total rules | 1620 |
+| MCP rules | 564 |
+| Total rules | 1622 |
 | Test cases (TP+TN) | 3771 |
 | Kingdoms covered | 10 |
 
@@ -1124,7 +1124,7 @@
 
 ## MCP Rules
 
-### credential-exposure (270 rules)
+### credential-exposure (272 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1363,6 +1363,8 @@
 | `mcp-sec-block-lastpass-config-dir-lowercase` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/lastpass/, lowercase) is blocked — case-sensitive Linux complement to the existing ~/.config/LastPass/ rule. Contains session tokens and account configuration. MITRE T1555.005. |
 | `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
+| `mcp-sec-block-keepass-kdbx-read` | BLOCK | mcp_rule | Access to KeePass 2.x/KeePassXC database file (.kdbx) is blocked — contains all passwords encrypted with a master password; offline brute-force is feasible. MITRE T1555.005. |
+| `mcp-sec-block-keepass-kdb-read` | BLOCK | mcp_rule | Access to KeePass 1.x database file (.kdb) is blocked — contains all passwords in an older encrypted format; offline brute-force attacks are feasible. MITRE T1555.005. |
 | `mcp-sec-block-cloudflared-credentials-read` | BLOCK | mcp_rule | Access to Cloudflare Tunnel credential directory (~/.cloudflared/) is blocked — contains OAuth tokens granting Cloudflare API access and tunnel management. MITRE T1552. |
 | `mcp-sec-block-cloudflare-api-credentials` | BLOCK | mcp_rule | Access to Cloudflare API credential files (~/.cloudflare/credentials) is blocked — contains API tokens granting full Cloudflare API access including DNS, Workers, and Zero Trust policies. MITRE T1552. |
 | `mcp-sec-block-cloudflare-config-credentials` | BLOCK | mcp_rule | Access to Cloudflare config credentials (~/.config/cloudflare/credentials.json) is blocked — contains API tokens for wrangler and Cloudflare tooling. MITRE T1552. |
