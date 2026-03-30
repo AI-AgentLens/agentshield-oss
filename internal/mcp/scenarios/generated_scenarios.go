@@ -6861,4 +6861,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "mcp-sec-block-opentofu-data-dir-credentials",
 		Description:      "Reading a .desktop file in .local/share/applications — not opentofu data dir, must not be blocked (issue #732).",
 	},
+	// TP: Ansible Galaxy token (issue #733)
+	{
+		ID:               "MCP-TP-934",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ansible/galaxy_token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-ansible-galaxy-token",
+		Description:      "MCP read of ~/.ansible/galaxy_token — Ansible Galaxy API token enabling supply chain compromise, must be blocked (issue #733).",
+	},
+	{
+		ID:               "MCP-TP-935",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/root/.ansible/galaxy_token", "content": "malicious"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-ansible-galaxy-token",
+		Description:      "MCP write to ~/.ansible/galaxy_token — hijack Ansible Galaxy auth for supply chain attack, must be blocked (issue #733).",
+	},
+	// TN: Ansible Galaxy token related benign paths (issue #733)
+	{
+		ID:               "MCP-TN-917",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/ansible/playbook.yml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-ansible-galaxy-token",
+		Description:      "Reading an Ansible playbook — not a credential path, must not be blocked (issue #733).",
+	},
+	{
+		ID:               "MCP-TN-918",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/galaxy-token-howto.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-ansible-galaxy-token",
+		Description:      "Reading documentation mentioning galaxy_token — not the token file itself, must not be blocked (issue #733).",
+	},
 }
