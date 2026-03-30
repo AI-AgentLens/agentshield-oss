@@ -1171,3 +1171,73 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/project/config/app.desktop"}
+
+  # === BLOCK: Global git hooks directory writes via MCP (issue #712) ===
+  #
+  # Git supports a global hooks directory configured via `core.hooksPath` in
+  # ~/.gitconfig. When set to ~/.config/git/hooks (the XDG default used by many
+  # git configurations), any hook file written there executes on every matching
+  # git operation across ALL repositories on the system — pre-commit, post-merge,
+  # pre-push, etc. No per-repo opt-in is required; one write achieves system-wide
+  # persistence via the developer's own git workflow.
+  #
+  # Similarly, ~/.git-templates/hooks/ is the default git init template directory
+  # (configured via `init.templateDir`). Every `git clone` or `git init` copies
+  # these template hooks into the new repo's .git/hooks/, seeding every new
+  # repository with the malicious hook automatically.
+  #
+  # Attack scenario:
+  #   1. Agent writes ~/.config/git/hooks/pre-commit with exfiltration payload
+  #   2. Developer runs `git commit` → hook executes, exfiltrates staged diff to C2
+  #   3. No per-repo modification required; developer cannot easily detect
+  #
+  # TN carve-outs:
+  #   - READ operations are safe (reviewing existing hooks)
+  #   - Writes to project-local .git/hooks/ are per-repo and visible to developers
+  #   - Writes to /workspace/ paths are project-scoped, not global
+  #
+  # MITRE T1546.016 — Event Triggered Execution (git hook as trigger)
+  # MITRE T1059.004 — Command and Scripting Interpreter: Unix Shell
+  - id: mcp-persist-block-global-git-hooks-write
+    taxonomy: "persistence-evasion/event-triggered/global-git-hooks"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # XDG global git hooks (core.hooksPath = ~/.config/git/hooks)
+            - "(?:^|/)\\.config/git/hooks/"
+            # Legacy git template hooks (init.templateDir = ~/.git-templates)
+            - "(?:^|/)\\.git-templates/hooks/"
+            # Common alternate global hooks path
+            - "(?:^|/)git-templates/hooks/"
+    decision: "BLOCK"
+    reason: "MCP write to global git hooks directory — hooks placed here execute on every git operation (commit, push, merge) across all repositories. One write achieves system-wide code execution persistence without modifying any specific repo. MITRE T1546.016, T1059.004."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/git/hooks/pre-commit"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/git/hooks/post-merge"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.git-templates/hooks/pre-push"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.config/git/hooks/pre-receive"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/repo/.git/hooks/pre-commit"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/git/hooks/pre-commit"}
+        - tool: "write_file"
+          args: {"path": "/workspace/myapp/.git/hooks/post-merge"}
