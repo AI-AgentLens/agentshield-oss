@@ -3463,8 +3463,21 @@ var ADLDAPEnumCases = []TestCase{
 		Classification:   "TN",
 		TaxonomyRef:      "reconnaissance/network-discovery/ad-ldap-enumeration",
 		Analyzer:         "regex",
-		Description:      "grep for crackmapexec in requirements — tool name as argument, not in command position, not blocked.",
+		Description:      "grep for crackmapexec in requirements — excluded via grep/rg exclude pattern.",
 		Tags:             []string{"tn", "safe"},
+	},
+	{
+		// grep pipeline FP guard: `agentshield scan | grep -i "enum4linux|ldap|crackmapexec"` was
+		// blocked because `|crackmapexec` inside the quoted grep pattern matched `[|;&]\s*crackmapexec`.
+		// Fix: exclude commands containing grep/rg/awk/sed. Expected AUDIT (default, no rules fire).
+		ID:               "TN-TS-BLOCK-AD-ENUM-003",
+		Command:          `build/agentshield scan 2>&1 | grep -i "enum4linux|ldap|crackmapexec|PASS|FAIL"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/ad-ldap-enumeration",
+		Analyzer:         "regex",
+		Description:      "grep pipeline with AD tool names in quoted pattern — not BLOCKED (grep exclude fires), falls to default AUDIT.",
+		Tags:             []string{"tn", "safe", "fp-guard"},
 	},
 	{
 		// ldapsearch on localhost is NOT blocked by ts-block-ldapsearch-domain-enum (no dc= base,
