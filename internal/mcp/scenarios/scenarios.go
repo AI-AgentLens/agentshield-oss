@@ -6595,4 +6595,62 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "credential-exposure/api-key-access/vcs-credential-access",
 		Description:      "read_file on project Go source file named hub_client.go — benign source file, not the hub credential file (mcp-sec-block-hub-cli-access must not fire)",
 	},
+
+	// TP: Databricks versioned token files and config (issue #760)
+	{
+		ID:               "MCP-TP-942",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.databricks/token-version-1"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read ~/.databricks/token-version-1 — Databricks CLI v0.200+ versioned PAT, must be blocked (mcp-sec-block-databricks-token-read, issue #760)",
+	},
+	{
+		ID:               "MCP-TP-943",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.databricks/token-version-2"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read ~/.databricks/token-version-2 — Databricks CLI versioned PAT (future version), must be blocked (mcp-sec-block-databricks-token-read, issue #760)",
+	},
+	{
+		ID:               "MCP-TP-944",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.databricks/config"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read ~/.databricks/config — Databricks workspace host/profile config (may include inline tokens), must be blocked (mcp-sec-block-databricks-config-read, issue #760)",
+	},
+
+	// TN: benign paths for Databricks rules (issue #760)
+	{
+		ID:               "MCP-TN-942",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/databricks_client.py"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read project source file databricks_client.py — benign code file, must not trigger Databricks token rules (issue #760)",
+	},
+	{
+		ID:               "MCP-TN-943",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/.databricks/config.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read .databricks/config.json (project-scoped, ends in .json) — benign Databricks project config, not the credential file (issue #760)",
+	},
+	{
+		ID:               "MCP-TN-944",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/databricks-tokenization-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/api-keys/data-platform-credential-access",
+		Description:      "Read documentation about Databricks tokenization — docs file, must not trigger credential rules (issue #760)",
+	},
 }
