@@ -13989,7 +13989,7 @@ rules:
     taxonomy: "reconnaissance/network-discovery/ad-ldap-enumeration"
     match:
       command_regex: "(?:^|[|;&])\\s*(?:sudo\\s+)?(enum4linux(?:-ng)?|bloodhound-python|crackmapexec|windapsearch|ldeep)\\b"
-      command_regex_exclude: "^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "\\b(grep|rg|awk|sed)\\b|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
     decision: "BLOCK"
     confidence: 0.95
     reason: "Dedicated Active Directory/LDAP enumeration tool detected. enum4linux enumerates SMB/RPC via null sessions; bloodhound-python performs graph-based attack path analysis against AD; crackmapexec is an AD enumeration and lateral movement framework; windapsearch and ldeep perform comprehensive LDAP queries against domain controllers. A prompt-injected agent could dump domain users, groups, Kerberos settings, and trust relationships in a single session. AI agents have no legitimate use case for AD attack-surface enumeration (MITRE T1087.002, T1069.002, T1482, CWE-200). OWASP LLM02/LLM06."
@@ -14005,6 +14005,7 @@ rules:
         - "pip install bloodhound"
         - "grep crackmapexec requirements.txt"
         - "echo 'run crackmapexec against the lab'"
+        - "rg -l enum4linux docs/"
 
   # --- BLOCK: ldapsearch targeting domain controllers for AD enumeration ---
   #
