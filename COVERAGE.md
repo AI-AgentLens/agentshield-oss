@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1075 |
+| Terminal rules | 1078 |
 | MCP rules | 593 |
-| Total rules | 1668 |
-| Test cases (TP+TN) | 3854 |
+| Total rules | 1671 |
+| Test cases (TP+TN) | 3870 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -715,7 +715,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (77 rules)
+### reconnaissance (80 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -796,6 +796,9 @@
 | `ts-block-osint-subdomain-enum` | BLOCK | regex | OSINT subdomain and asset enumeration tool detected. subfinder/assetfinder discover subdomains via 40+ passive sources; amass maps the full attack surface via DNS, CT logs, and APIs; waybackurls/gau harvest all known URLs from Wayback Machine and Common Crawl. These tools build comprehensive target attack surface maps (MITRE T1589, T1593, T1596). AI agents have no legitimate use case for external attack surface enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-infra-recon` | BLOCK | regex | OSINT infrastructure reconnaissance tool detected. shodan search/scan queries an internet-wide port scan database for exposed services; spiderfoot automates multi-source OSINT correlation; recon-ng is a modular web reconnaissance framework for mapping target organizations. These tools enumerate infrastructure attack surfaces at scale (MITRE T1593, T1596, T1595.001). AI agents have no legitimate use case for external infrastructure enumeration. OWASP LLM02/LLM06. |
 | `ts-block-osint-metadata-harvest` | BLOCK | regex | OSINT document metadata or web-crawl harvesting tool detected. metagoofil uses search engines to extract metadata from public documents exposing internal usernames, paths, and software versions; photon crawls web targets extracting URLs, emails, and secrets. Both tools build pre-attack intelligence profiles (MITRE T1589, T1593). AI agents have no legitimate use case for systematic intelligence extraction against external targets. OWASP LLM02/LLM06. |
+| `ts-block-ad-enum-tools` | BLOCK | regex | Dedicated Active Directory/LDAP enumeration tool detected. enum4linux enumerates SMB/RPC via null sessions; bloodhound-python performs graph-based attack path analysis against AD; crackmapexec is an AD enumeration and lateral movement framework; windapsearch and ldeep perform comprehensive LDAP queries against domain controllers. A prompt-injected agent could dump domain users, groups, Kerberos settings, and trust relationships in a single session. AI agents have no legitimate use case for AD attack-surface enumeration (MITRE T1087.002, T1069.002, T1482, CWE-200). OWASP LLM02/LLM06. |
+| `ts-block-ldapsearch-domain-enum` | BLOCK | regex | ldapsearch targeting a remote LDAP server with domain-enumeration patterns (-b dc=... or objectClass=user/group/computer). This is active directory reconnaissance — querying the organizational identity structure from a domain controller. Legitimate ldapsearch development use targets localhost or uses specific operational DNs; broad objectClass=user/group queries against external DCs have no legitimate agent use case (MITRE T1087.002, T1069.002, CWE-200). OWASP LLM02/LLM06. |
+| `ts-audit-ldapsearch` | AUDIT | regex | ldapsearch invocation detected. LDAP queries may be legitimate (connectivity testing, operational lookups) but warrant monitoring when run by AI agents. Broad domain-enumeration patterns are blocked separately by ts-block-ldapsearch-domain-enum. OWASP LLM02, CWE-200. |
 
 ### supply-chain (133 rules)
 
@@ -1799,8 +1802,8 @@
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 313 | 196 | 509 |
 | privilege-escalation | 290 | 175 | 465 |
-| reconnaissance | 188 | 89 | 277 |
+| reconnaissance | 199 | 94 | 293 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 456 | 315 | 771 |
-| **Total** | **2322** | **1532** | **3854** |
+| **Total** | **2333** | **1537** | **3870** |
 
