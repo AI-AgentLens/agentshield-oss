@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1075 |
-| MCP rules | 578 |
-| Total rules | 1653 |
+| MCP rules | 581 |
+| Total rules | 1656 |
 | Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
@@ -1141,7 +1141,7 @@
 
 ## MCP Rules
 
-### credential-exposure (280 rules)
+### credential-exposure (283 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1351,8 +1351,11 @@
 | `mcp-sec-block-chromium-credential-db-mac` | BLOCK | mcp_rule | Access to Chromium browser profile directory (macOS) is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-brave-credential-db` | BLOCK | mcp_rule | Access to Brave browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-edge-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-edge-linux-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory (Linux) is blocked — ~/.config/microsoft-edge/ contains saved passwords (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (Linux) is blocked — contains encrypted password database (logins.json + key4.db) and session cookies. MITRE T1555.003. |
 | `mcp-sec-block-firefox-macos-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (macOS) is blocked — ~/Library/Application Support/Firefox/Profiles/ contains logins.json (encrypted passwords) and key4.db (decryption keys). MITRE T1555.003. |
+| `mcp-sec-block-safari-credentials` | BLOCK | mcp_rule | Access to Safari browser data directory is blocked — ~/Library/Safari/ contains session cookies (Cookies.binarycookies), saved passwords, and browsing history. Stolen cookies enable account takeover without credentials. MITRE T1555.003. |
+| `mcp-sec-block-macos-system-cookies` | BLOCK | mcp_rule | Access to macOS shared system cookie store is blocked — ~/Library/Cookies/Cookies.binarycookies is a binary plist containing HttpOnly session cookies for Safari and all WebKit-based applications. MITRE T1555.003. |
 | `mcp-sec-block-claude-credentials-read` | BLOCK | mcp_rule | Access to Claude CLI credential directory (~/.config/claude/) is blocked — contains OAuth tokens and session keys for Anthropic API access. MITRE T1552. |
 | `mcp-sec-block-claude-dot-credentials-read` | BLOCK | mcp_rule | Access to ~/.claude/credentials is blocked — this is Claude Code's OAuth token file. Exfiltration enables impersonation of the user to Anthropic's API. MITRE T1552. |
 | `mcp-sec-block-claude-dot-apikey-read` | BLOCK | mcp_rule | Access to ~/.claude/api_key is blocked — contains Anthropic API key for Claude Code. MITRE T1552. |
