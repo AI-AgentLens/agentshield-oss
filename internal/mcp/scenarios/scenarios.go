@@ -6480,6 +6480,82 @@ var TrueNegativeScenarios = []Scenario{
 	},
 
 	// ---------------------------------------------------------------------------
+	// TP/TN: Linode/Scaleway/Vultr/IONOS cloud CLI credentials (issue #741)
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-938",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/linode-cli"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file to ~/.config/linode-cli — Linode CLI API token (mcp-sec-block-linode-cli-credentials)",
+	},
+	{
+		ID:               "MCP-TP-939",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/scw/config.yaml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file to ~/.config/scw/config.yaml — Scaleway CLI credentials (mcp-sec-block-scaleway-cli-credentials)",
+	},
+	{
+		ID:               "MCP-TP-940",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/vultr-cli/config.yaml"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file to ~/.config/vultr-cli/config.yaml — Vultr CLI API key (mcp-sec-block-vultr-cli-credentials)",
+	},
+	{
+		ID:               "MCP-TP-941",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ionosctl/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file to ~/.ionosctl/config.json — IONOS Cloud CLI credentials (mcp-sec-block-ionosctl-credentials)",
+	},
+	{
+		ID:               "MCP-TN-938",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/linode-cli-setup-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file on project docs about Linode CLI — documentation, not the credential file (mcp-sec-block-linode-cli-credentials must not fire)",
+	},
+	{
+		ID:               "MCP-TN-939",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/scw_setup.sh"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file on project setup script for Scaleway — benign source, not the Scaleway CLI config (mcp-sec-block-scaleway-cli-credentials must not fire)",
+	},
+	{
+		ID:               "MCP-TN-940",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/vultr-deployment.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file on project docs about Vultr deployment — documentation, not the Vultr CLI config (mcp-sec-block-vultr-cli-credentials must not fire)",
+	},
+	{
+		ID:               "MCP-TN-941",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/ionos_client.py"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/cloud-credentials/cloud-provider-token",
+		Description:      "read_file on project IONOS client source — benign source, not the ionosctl config (mcp-sec-block-ionosctl-credentials must not fire)",
+	},
+
+	// ---------------------------------------------------------------------------
 	// TP/TN: hub CLI config (~/.config/hub) — GitHub OAuth tokens (issue #740)
 	// mcp-sec-block-hub-cli-access
 	// ---------------------------------------------------------------------------
