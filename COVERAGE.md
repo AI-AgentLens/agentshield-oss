@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1075 |
-| MCP rules | 585 |
-| Total rules | 1660 |
+| MCP rules | 590 |
+| Total rules | 1665 |
 | Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
@@ -1141,7 +1141,7 @@
 
 ## MCP Rules
 
-### credential-exposure (287 rules)
+### credential-exposure (292 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1185,6 +1185,10 @@
 | `mcp-sec-block-oci-credentials` | BLOCK | mcp_rule | Access to Oracle Cloud Infrastructure config (~/.oci/) is blocked — contains API signing keys and tenancy credentials granting full OCI control. MITRE T1552.005. |
 | `mcp-sec-block-ibmcloud-credentials` | BLOCK | mcp_rule | Access to IBM Cloud CLI config is blocked — contains IAM tokens and account credentials granting access to IBM Cloud resources. MITRE T1552.005. |
 | `mcp-sec-block-hcloud-credentials` | BLOCK | mcp_rule | Access to Hetzner Cloud CLI config is blocked — contains API tokens granting full control over Hetzner Cloud servers, networks, and floating IPs. MITRE T1552.005. |
+| `mcp-sec-block-linode-cli-credentials` | BLOCK | mcp_rule | Access to Linode CLI config (~/.config/linode-cli) is blocked — contains API token granting full Linode cloud account access (VPS, DNS, Kubernetes). MITRE T1552.005. |
+| `mcp-sec-block-scaleway-cli-credentials` | BLOCK | mcp_rule | Access to Scaleway CLI config (~/.config/scw/) is blocked — contains access key and secret key granting full Scaleway cloud account control. MITRE T1552.005. |
+| `mcp-sec-block-vultr-cli-credentials` | BLOCK | mcp_rule | Access to Vultr CLI config (~/.config/vultr-cli/) is blocked — contains API key granting full Vultr cloud account access (VPS, Kubernetes, DNS). MITRE T1552.005. |
+| `mcp-sec-block-ionosctl-credentials` | BLOCK | mcp_rule | Access to IONOS Cloud CLI config (~/.ionosctl/) is blocked — contains credentials (username/password or token) granting full IONOS Cloud account access. MITRE T1552.001. |
 | `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
 | `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
@@ -1254,6 +1258,7 @@
 | `mcp-sec-block-kde5-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE5/Plasma) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kwalletd-config-access` | BLOCK | mcp_rule | Access to KDE Wallet daemon config (kwalletd5rc) is blocked — reveals wallet file paths and encryption parameters enabling targeted credential theft. MITRE T1555. |
 | `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
+| `mcp-sec-block-hub-cli-access` | BLOCK | mcp_rule | Access to hub CLI config (~/.config/hub) is blocked — contains plaintext GitHub OAuth tokens granting full API access to all configured GitHub accounts. MITRE T1552.001. |
 | `mcp-sec-block-glab-cli-access` | BLOCK | mcp_rule | Access to GitLab CLI (glab) config is blocked — contains personal access tokens and OAuth tokens that grant full GitLab API access. MITRE T1552.001. |
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
