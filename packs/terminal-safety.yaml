@@ -13955,6 +13955,120 @@ rules:
         - "wget -q https://example.com/public-report.pdf"
 
   # ---------------------------------------------------------------------------
+  # AD/LDAP enumeration tools — active directory attack path analysis (issue #753)
+  # ---------------------------------------------------------------------------
+  #
+  # AI agents running in enterprise environments have access to dedicated AD
+  # enumeration tools that can silently extract the entire organizational identity
+  # infrastructure in a single session:
+  #
+  #   enum4linux / enum4linux-ng  — SMB/RPC enumeration via null sessions
+  #   bloodhound-python           — graph-based attack path analysis against AD
+  #   crackmapexec                — AD enumeration + lateral movement framework
+  #   windapsearch                — LDAP enumeration (users/groups/computers)
+  #   ldeep                       — comprehensive LDAP enumeration across all objects
+  #
+  # A prompt-injected agent could dump the entire domain user list, group
+  # memberships, Kerberos delegation settings, and domain trust relationships,
+  # enabling targeted spear-phishing, Kerberoasting, and privilege escalation.
+  #
+  # MITRE T1018, T1087.002, T1069.002, T1482 | OWASP LLM02/LLM06 | CWE-200, CWE-284
+  #
+  # TP examples (should BLOCK):
+  #   enum4linux -a 10.0.0.1
+  #   enum4linux-ng -A 192.168.1.10
+  #   bloodhound-python -u user -p pass -ns 10.0.0.1 -d corp.local -c all
+  #   crackmapexec ldap 10.0.0.0/24 -u admin -p pass --users
+  #   windapsearch -d corp.local --dc-ip 10.0.0.1 -U
+  #   ldeep ldap -u admin -p pass -d corp.local -s dc01.corp.local all
+  #
+  # TN examples (should ALLOW):
+  #   pip install bloodhound   # installing a package — not executing the tool
+  #   echo "run crackmapexec against the lab"   # doc/body text
+  - id: "ts-block-ad-enum-tools"
+    taxonomy: "reconnaissance/network-discovery/ad-ldap-enumeration"
+    match:
+      command_regex: "(?:^|[|;&])\\s*(?:sudo\\s+)?(enum4linux(?:-ng)?|bloodhound-python|crackmapexec|windapsearch|ldeep)\\b"
+      command_regex_exclude: "^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Dedicated Active Directory/LDAP enumeration tool detected. enum4linux enumerates SMB/RPC via null sessions; bloodhound-python performs graph-based attack path analysis against AD; crackmapexec is an AD enumeration and lateral movement framework; windapsearch and ldeep perform comprehensive LDAP queries against domain controllers. A prompt-injected agent could dump domain users, groups, Kerberos settings, and trust relationships in a single session. AI agents have no legitimate use case for AD attack-surface enumeration (MITRE T1087.002, T1069.002, T1482, CWE-200). OWASP LLM02/LLM06."
+    tests:
+      tp:
+        - "enum4linux -a 10.0.0.1"
+        - "enum4linux-ng -A 192.168.1.10"
+        - "bloodhound-python -u user -p pass -ns 10.0.0.1 -d corp.local -c all"
+        - "crackmapexec ldap 10.0.0.0/24 -u admin -p pass --users"
+        - "windapsearch -d corp.local --dc-ip 10.0.0.1 -U"
+        - "ldeep ldap -u admin -p pass -d corp.local -s dc01.corp.local all"
+      tn:
+        - "pip install bloodhound"
+        - "grep crackmapexec requirements.txt"
+        - "echo 'run crackmapexec against the lab'"
+
+  # --- BLOCK: ldapsearch targeting domain controllers for AD enumeration ---
+  #
+  # ldapsearch is a standard LDAP client with legitimate dev/ops uses (testing
+  # LDAP connectivity, querying local directory services). However, ldapsearch
+  # queries targeting non-localhost LDAP servers with domain-discovery patterns
+  # (-b dc=..., objectClass=user/group/computer) are AD enumeration — extracting
+  # the full organizational identity structure.
+  #
+  # The exclude pattern protects: localhost/127.0.0.1 targets (local dev testing).
+  #
+  # TP examples (should BLOCK):
+  #   ldapsearch -x -H ldap://dc01 -b 'dc=corp,dc=local' '(objectClass=user)'
+  #   ldapsearch -x -H ldap://10.0.0.1 -b "dc=example,dc=com" "(objectClass=group)"
+  #   ldapsearch -LLL -H ldaps://ldap.corp.com -b "dc=corp,dc=com" "(objectClass=computer)"
+  #
+  # TN examples (should ALLOW):
+  #   ldapsearch -x -H ldap://localhost -b '' -s base   # root DSE — connectivity test
+  #   ldapsearch -x -H ldap://127.0.0.1 -b '' -s base objectClass=*   # local dev
+  - id: "ts-block-ldapsearch-domain-enum"
+    taxonomy: "reconnaissance/network-discovery/ad-ldap-enumeration"
+    match:
+      command_regex: "\\bldapsearch\\b.+(?:-b\\s+[\"']?dc=|objectClass=(?:user|group|computer|organizationalUnit|domain)\\b)"
+      command_regex_exclude: "-H\\s+ldaps?://(?:localhost|127\\.0\\.0\\.1)[:/\\s\"']|^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "ldapsearch targeting a remote LDAP server with domain-enumeration patterns (-b dc=... or objectClass=user/group/computer). This is active directory reconnaissance — querying the organizational identity structure from a domain controller. Legitimate ldapsearch development use targets localhost or uses specific operational DNs; broad objectClass=user/group queries against external DCs have no legitimate agent use case (MITRE T1087.002, T1069.002, CWE-200). OWASP LLM02/LLM06."
+    tests:
+      tp:
+        - "ldapsearch -x -H ldap://dc01 -b 'dc=corp,dc=local' '(objectClass=user)'"
+        - "ldapsearch -x -H ldap://10.0.0.1 -b \"dc=example,dc=com\" \"(objectClass=group)\""
+        - "ldapsearch -LLL -H ldaps://ldap.corp.com -b \"dc=corp,dc=com\" \"(objectClass=computer)\""
+      tn:
+        - "ldapsearch -x -H ldap://localhost -b '' -s base"
+        - "ldapsearch -x -H ldap://127.0.0.1 -b '' -s base objectClass=*"
+
+  # --- AUDIT: ldapsearch general usage (non-domain-enum patterns) ---
+  #
+  # Any remaining ldapsearch invocation not covered by the BLOCK rule above —
+  # e.g., connectivity probes, custom filter queries, operational DN lookups.
+  # AUDIT provides visibility without blocking legitimate LDAP administration.
+  #
+  # TP examples (should AUDIT):
+  #   ldapsearch -x -H ldap://ldap.internal -b 'ou=people,dc=corp,dc=local' uid=jsmith
+  #   ldapsearch -x -H ldap://localhost:389 -b 'cn=config'
+  #
+  # TN examples (should ALLOW):
+  #   python -c "import ldap; c = ldap.initialize('ldap://localhost')"   # Python LDAP init
+  - id: "ts-audit-ldapsearch"
+    taxonomy: "reconnaissance/network-discovery/ad-ldap-enumeration"
+    match:
+      command_regex: "\\bldapsearch\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "ldapsearch invocation detected. LDAP queries may be legitimate (connectivity testing, operational lookups) but warrant monitoring when run by AI agents. Broad domain-enumeration patterns are blocked separately by ts-block-ldapsearch-domain-enum. OWASP LLM02, CWE-200."
+    tests:
+      tp:
+        - "ldapsearch -x -H ldap://ldap.internal -b 'ou=people,dc=corp,dc=local' uid=jsmith"
+        - "ldapsearch -x -H ldap://localhost:389 -b 'cn=config'"
+      tn:
+        - "python -c \"import ldap; c = ldap.initialize('ldap://localhost')\""
+
+  # ---------------------------------------------------------------------------
   # chattr / setfacl — file attribute and ACL manipulation (issue #614)
   # ---------------------------------------------------------------------------
   #
