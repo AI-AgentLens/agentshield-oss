@@ -819,3 +819,123 @@ structural_rules:
       tn:
         - tool: "send_message"
           args: {"message": "Can you explain how RBAC works in Kubernetes?"}
+
+  # === BLOCK: Sensitive environment variable access via MCP tools (issue #770) ===
+  #
+  # MCP servers can expose environment variable access APIs. An AI agent instructed
+  # via prompt injection can call get_env_var(name="AWS_SECRET_ACCESS_KEY") to
+  # harvest cloud credentials, database passwords, and API tokens directly from the
+  # process environment — bypassing file-based access controls entirely.
+  #
+  # The existing mcp-recon-block-proc-environ rule blocks FILE reads of
+  # /proc/self/environ. This rule closes the complementary gap: direct named
+  # access via MCP tool APIs.
+  #
+  # Variable name patterns covered:
+  #   - AWS credentials:  AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_ACCESS_KEY_ID
+  #   - Database:         DATABASE_PASSWORD, DB_PASSWORD, POSTGRES_PASSWORD
+  #   - Generic secrets:  *_SECRET_KEY, *_API_KEY, *_TOKEN, *_PASSWORD
+  #   - Private keys:     *_PRIVATE_KEY
+  #
+  # TN carve-out: Generic env vars (PATH, HOME, USER, SHELL) are not blocked —
+  # only variables whose names match known credential patterns.
+  #
+  # MITRE T1552.007 — Unsecured Credentials: Container API
+  # MITRE T1552    — Unsecured Credentials
+  # OWASP LLM02 2025 — Sensitive Information Disclosure
+  - id: mcp-recon-block-sensitive-envvar-name
+    taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
+    match:
+      tool_name_any:
+        - "get_env_var"
+        - "read_env_var"
+        - "get_environment_variable"
+        - "read_environment"
+        - "get_env"
+        - "env_get"
+        - "read_process_env"
+        - "get_process_env"
+      args_match:
+        name:
+          pattern_any:
+            - "(?i).*_secret(_key)?$"
+            - "(?i).*_access_key$"
+            - "(?i).*_password$"
+            - "(?i).*_passwd$"
+            - "(?i).*_token$"
+            - "(?i).*_api_key$"
+            - "(?i)^aws_"
+            - "(?i)^database_"
+            - "(?i)^db_"
+            - "(?i).*_credentials$"
+            - "(?i).*_private_key$"
+            - "(?i).*_secret_id$"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Access to sensitive environment variable via MCP tool — variable name matches a known credential pattern (AWS keys, database passwords, API tokens). Environment variables are the primary secret delivery mechanism in cloud deployments. MITRE T1552.007."
+    tests:
+      tp:
+        - tool: "get_env_var"
+          args: {"name": "AWS_SECRET_ACCESS_KEY"}
+        - tool: "get_env_var"
+          args: {"name": "DATABASE_PASSWORD"}
+        - tool: "read_environment"
+          args: {"name": "STRIPE_API_KEY"}
+        - tool: "get_environment_variable"
+          args: {"name": "DB_PASSWORD"}
+        - tool: "get_env"
+          args: {"name": "GITHUB_TOKEN"}
+      tn:
+        - tool: "get_env_var"
+          args: {"name": "PATH"}
+        - tool: "get_env_var"
+          args: {"name": "HOME"}
+        - tool: "get_env_var"
+          args: {"name": "USER"}
+        - tool: "read_file"
+          args: {"path": "/workspace/.env.example"}
+
+  # === BLOCK: Sensitive env var access via 'variable' argument key (issue #770) ===
+  # Same threat as above — some MCP tools use 'variable' instead of 'name'.
+  - id: mcp-recon-block-sensitive-envvar-variable
+    taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
+    match:
+      tool_name_any:
+        - "get_env_var"
+        - "read_env_var"
+        - "get_environment_variable"
+        - "read_environment"
+        - "get_env"
+        - "env_get"
+        - "read_process_env"
+        - "get_process_env"
+      args_match:
+        variable:
+          pattern_any:
+            - "(?i).*_secret(_key)?$"
+            - "(?i).*_access_key$"
+            - "(?i).*_password$"
+            - "(?i).*_passwd$"
+            - "(?i).*_token$"
+            - "(?i).*_api_key$"
+            - "(?i)^aws_"
+            - "(?i)^database_"
+            - "(?i)^db_"
+            - "(?i).*_credentials$"
+            - "(?i).*_private_key$"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Access to sensitive environment variable via MCP tool — 'variable' argument matches a known credential pattern. MITRE T1552.007."
+    tests:
+      tp:
+        - tool: "read_environment"
+          args: {"variable": "AWS_SECRET_ACCESS_KEY"}
+        - tool: "get_env_var"
+          args: {"variable": "DATABASE_PASSWORD"}
+        - tool: "get_environment_variable"
+          args: {"variable": "OPENAI_API_KEY"}
+      tn:
+        - tool: "get_env_var"
+          args: {"variable": "PATH"}
+        - tool: "get_env_var"
+          args: {"variable": "TERM"}
