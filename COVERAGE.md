@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1075 |
-| MCP rules | 590 |
-| Total rules | 1665 |
+| MCP rules | 593 |
+| Total rules | 1668 |
 | Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
@@ -1141,7 +1141,7 @@
 
 ## MCP Rules
 
-### credential-exposure (292 rules)
+### credential-exposure (295 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1260,6 +1260,7 @@
 | `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
 | `mcp-sec-block-hub-cli-access` | BLOCK | mcp_rule | Access to hub CLI config (~/.config/hub) is blocked — contains plaintext GitHub OAuth tokens granting full API access to all configured GitHub accounts. MITRE T1552.001. |
 | `mcp-sec-block-glab-cli-access` | BLOCK | mcp_rule | Access to GitLab CLI (glab) config is blocked — contains personal access tokens and OAuth tokens that grant full GitLab API access. MITRE T1552.001. |
+| `mcp-sec-block-glab-xdg-credentials` | BLOCK | mcp_rule | Access to GitLab CLI (glab v1.30+) config is blocked — ~/.config/glab/config.yml contains personal access tokens and OAuth tokens granting full GitLab API access. MITRE T1552.001. |
 | `mcp-sec-block-bitwarden-cli-access` | BLOCK | mcp_rule | Access to Bitwarden CLI data directory is blocked — contains encrypted vault data and cached session tokens. |
 | `mcp-sec-block-bitwarden-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden CLI config directory is blocked — contains encrypted vault data and account credentials. |
 | `mcp-sec-block-bw-cli-config-access` | BLOCK | mcp_rule | Access to Bitwarden bw CLI config directory is blocked — ~/.config/bw/data.json contains encrypted vault cache and cached session tokens. Official Bitwarden CLI installs as 'bw'. MITRE T1555, T1552.001. |
@@ -1305,6 +1306,7 @@
 | `mcp-sec-block-buildkite-credentials` | BLOCK | mcp_rule | Access to ~/.buildkite/settings.json is blocked — contains Buildkite personal API token enabling pipeline execution, secret enumeration, and CI/CD infrastructure access. MITRE T1552.001. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
 | `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
+| `mcp-sec-block-heroku-json-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/credentials.json is blocked — newer Heroku CLI (v7+) stores OAuth token in JSON format, granting full app management access (config vars, dynos, add-ons). MITRE T1552. |
 | `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
 | `mcp-sec-block-vercel-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Vercel config directory (~/.config/vercel/) is blocked — contains the same auth token as ~/.vercel/auth.json. MITRE T1552. |
 | `mcp-sec-block-flyio-credentials` | BLOCK | mcp_rule | Access to ~/.fly/config.yml or ~/.fly/config.yaml is blocked — contains Fly.io auth token with application and secret management access. MITRE T1552. |
@@ -1318,6 +1320,7 @@
 | `mcp-sec-block-supabase-credentials` | BLOCK | mcp_rule | Access to Supabase CLI config directory is blocked — contains access token and project refs with database admin and edge function access. MITRE T1552. |
 | `mcp-sec-block-supabase-home-credentials` | BLOCK | mcp_rule | Access to ~/.supabase/ directory is blocked — Supabase CLI stores the personal access token at ~/.supabase/access-token (home-dir path, separate from the XDG config path). This token grants full database admin, edge function deployment, and project management access across all Supabase projects. MITRE T1552.001. |
 | `mcp-sec-block-pulumi-credentials` | BLOCK | mcp_rule | Access to ~/.pulumi/credentials.json is blocked — contains Pulumi access token with infrastructure state and secret management access. MITRE T1552. |
+| `mcp-sec-block-pulumi-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/pulumi/credentials.json is blocked — XDG variant of Pulumi access token file, granting infrastructure state and secret management access. MITRE T1552. |
 | `mcp-sec-block-wrangler-credentials` | BLOCK | mcp_rule | Access to ~/.wrangler/config/ directory is blocked — contains Cloudflare API token with Workers deployment and KV/R2 storage access. MITRE T1552. |
 | `mcp-sec-block-payment-processor-creds` | BLOCK | mcp_rule | Access to Stripe CLI config is blocked — contains live and test API keys, restricted keys, and webhook secrets with direct financial impact. MITRE T1552.001, OWASP LLM06. |
 | `mcp-sec-block-stripe-home-creds` | BLOCK | mcp_rule | Access to ~/.stripe config directory is blocked — contains Stripe CLI API keys and session tokens. MITRE T1552.001. |
