@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 594 |
-| Total rules | 1672 |
+| MCP rules | 595 |
+| Total rules | 1673 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (296 rules)
+### credential-exposure (297 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1428,9 +1428,10 @@
 | `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to ~/.consul_token is blocked — contains a Consul ACL token granting authenticated access to the service mesh, KV store (often used to hold application secrets), and ACL system. Exfiltration enables full Consul control and Vault pivot. MITRE T1552. |
 | `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to ~/.nomad_token is blocked — contains a Nomad ACL token granting control over workload scheduling, job management, and secrets mounted into running allocations. MITRE T1552. |
 | `mcp-sec-block-maven-security-xml` | BLOCK | mcp_rule | Access to ~/.m2/settings-security.xml is blocked — this file contains Maven's encrypted master password, which decrypts all repository credentials in settings.xml. Exposing it enables full Maven repository credential compromise. MITRE T1552.001. |
-| `mcp-sec-block-restic-xdg-password` | BLOCK | mcp_rule | Access to ~/.config/restic/password is blocked — contains the master encryption password for all restic backup repositories. Compromise allows decrypting all backup archives and recovering historical secrets. MITRE T1552. |
+| `mcp-sec-block-restic-xdg-password` | BLOCK | mcp_rule | Access to ~/.config/restic/ is blocked — this directory contains the restic master encryption password (password, password.txt, repo-password, etc.). Compromise allows decrypting all backup archives and recovering historical secrets. MITRE T1552. |
 | `mcp-sec-block-restic-dotfile-password` | BLOCK | mcp_rule | Access to ~/.restic-password is blocked — stores the restic backup encryption master password (RESTIC_PASSWORD_FILE convention). MITRE T1552. |
 | `mcp-sec-block-borgmatic-config` | BLOCK | mcp_rule | Access to ~/.config/borgmatic/ is blocked — borgmatic config files contain borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
+| `mcp-sec-block-borgmatic-dotfile-config` | BLOCK | mcp_rule | Access to ~/.borgmatic/ is blocked — the legacy borgmatic config path contains borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
 | `mcp-sec-block-borg-repo-keys` | BLOCK | mcp_rule | Access to ~/.config/borg/keys/ is blocked — borg repository key files are the encryption keys for backup archives; compromise allows mounting and decrypting all borg backups. MITRE T1552. |
 | `mcp-sec-block-bitcoin-wallet` | BLOCK | mcp_rule | Access to Bitcoin Core wallet file is blocked — ~/.bitcoin/wallet.dat contains encrypted private keys in BerkeleyDB format. Exfiltrating this file enables offline brute-force attacks against wallet encryption and irreversible fund theft. MITRE T1552.001. |
 | `mcp-sec-block-ethereum-keystore` | BLOCK | mcp_rule | Access to Ethereum keystore directory is blocked — ~/.ethereum/keystore/ contains encrypted JSON key files (UTC--timestamp--address format). Exfiltrating these enables offline password cracking to recover plaintext private keys. MITRE T1552.001. |
