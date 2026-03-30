@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 595 |
-| Total rules | 1673 |
+| MCP rules | 598 |
+| Total rules | 1676 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (297 rules)
+### credential-exposure (299 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1163,6 +1163,8 @@
 | `mcp-gen-protected-path-m2-settingsxml` | BLOCK | mcp_rule | [MCP] Access to protected path ~/.m2/settings.xml is blocked. |
 | `mcp-gen-ts-block-symlink-credential-files` | BLOCK | mcp_rule | [MCP] Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link. CWE-367, MITRE T1547.009. |
 | `mcp-recon-block-proc-environ` | BLOCK | mcp_rule | Access to /proc/PID/environ or /proc/self/environ is blocked — contains all environment variables of the target process in plaintext, including API keys, cloud credentials, and database passwords. MITRE T1552.007. |
+| `mcp-recon-block-sensitive-envvar-name` | BLOCK | structural | Access to sensitive environment variable via MCP tool — variable name matches a known credential pattern (AWS keys, database passwords, API tokens). Environment variables are the primary secret delivery mechanism in cloud deployments. MITRE T1552.007. |
+| `mcp-recon-block-sensitive-envvar-variable` | BLOCK | structural | Access to sensitive environment variable via MCP tool — 'variable' argument matches a known credential pattern. MITRE T1552.007. |
 | `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
 | `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory |
 | `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory |
@@ -1572,13 +1574,14 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (25 rules)
+### persistence-evasion (26 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-ne-block-resolv-conf-write` | BLOCK | mcp_rule | [MCP] Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
 | `mcp-gen-ts-block-authorized-keys-write` | BLOCK | mcp_rule | [MCP] Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004) |
 | `mcp-gen-ts-block-ssh-config-write` | BLOCK | mcp_rule | [MCP] Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
+| `mcp-persist-block-browser-extension-install` | BLOCK | mcp_rule | Browser extension installation via MCP tool — extensions execute code in every browser session, creating persistent access that survives agent termination. No legitimate developer workflow requires autonomous extension installation. MITRE T1176, OWASP LLM06. |
 | `mcp-persist-block-shell-profile-write` | BLOCK | structural | MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004. |
 | `mcp-persist-block-modern-shell-profile-write` | BLOCK | structural | MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
 | `mcp-persist-block-fish-config-write` | BLOCK | structural | MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
