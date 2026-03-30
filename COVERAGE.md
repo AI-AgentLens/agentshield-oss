@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-29 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-30 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1067 |
-| MCP rules | 571 |
-| Total rules | 1638 |
-| Test cases (TP+TN) | 3804 |
+| Terminal rules | 1075 |
+| MCP rules | 572 |
+| Total rules | 1647 |
+| Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -436,7 +436,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (141 rules)
+### persistence-evasion (145 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -581,6 +581,10 @@
 | `ts-block-alias-env-inject` | BLOCK | regex | Alias injecting sensitive environment variables into command execution — aliases can silently prepend LD_PRELOAD, GIT_SSH_COMMAND, http_proxy, or interpreter path variables to hijack library loading, proxy traffic through attacker infrastructure, or inject malicious modules. MITRE T1574.006, T1546.004. |
 | `ts-audit-alias-define` | AUDIT | regex | Shell alias definition detected. While aliases are common in interactive use, they are unusual in AI agent workflows and can shadow security-sensitive commands. Auditing for review. MITRE T1546.004. |
 | `ts-block-bash-aliases-write` | BLOCK | regex | Writing to ~/.bash_aliases establishes persistent shell alias definitions loaded on every interactive session. AI agents writing to .bash_aliases can silently intercept and redirect security-critical commands. MITRE T1546.004. |
+| `ts-block-cnfh-override-exec` | BLOCK | regex | Redefining command_not_found_handle with network/execution commands — intercepts every unknown command in the shell. Enables keylogging (exfiltrating mistyped commands which often contain partial credentials), silent code execution on typos, or persistent beaconing. MITRE T1546.004, CWE-78. |
+| `ts-audit-cnfh-override` | AUDIT | regex | Defining command_not_found_handle — this bash function intercepts every unknown command. Even without obviously malicious content, redefining this from an AI agent context is suspicious and warrants human review. MITRE T1546.004. |
+| `ts-block-env-strip-shell-exec` | BLOCK | regex | env -i (empty environment) with shell/interpreter execution — strips ALL environment variables including security controls (PATH restrictions, LD_PRELOAD guards, monitoring hooks) before launching a shell. Creates a clean-slate execution context invisible to environment-based security monitoring. MITRE T1562.001, T1070.004, CWE-250. |
+| `ts-audit-env-strip` | AUDIT | regex | env -i strips the entire environment before executing a command — may bypass security controls that rely on environment variable inheritance. Even non-shell targets lose visibility from monitoring tools. MITRE T1562.001. |
 
 ### privilege-escalation (124 rules)
 
@@ -931,7 +935,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (188 rules)
+### unauthorized-execution (192 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1123,6 +1127,10 @@
 | `ts-block-sog-jq-shell-pipe` | BLOCK | regex | jq field extraction piped directly to a shell interpreter — a classic structured-output guardrail bypass. JSON fields from LLM responses or config files may embed shell payloads that are invisible to string-based safety checks but executed when piped to bash/sh (OWASP LLM01, LLM02, MITRE T1059, CWE-78). |
 | `ts-block-sog-python-json-shell-exec` | BLOCK | regex | Python inline one-liner parsing JSON and passing the result to os.system(), subprocess, or exec() — a structured-output guardrail bypass. The JSON field extraction conceals shell payloads from static command analysis; at runtime the payload is extracted and executed with full agent privileges (OWASP LLM01, LLM02, MITRE T1059.006, CWE-78). |
 | `ts-block-sog-python-json-b64-exec` | BLOCK | regex | Python inline one-liner combining JSON field extraction, base64 decoding, and exec()/eval() — a structured-output guardrail bypass using payload fragmentation. Base64 encoding hides the payload from string-based safety checks; the JSON structure distributes it across typed schema fields; exec() runs the reassembled payload at full agent privileges (OWASP LLM01, LLM02, MITRE T1027.013, CWE-78). |
+| `ts-block-mapfile-callback-exec` | BLOCK | regex | mapfile/readarray -C with execution callback (eval/exec/bash/sh/interpreter) — the callback executes for every N lines read, turning data input into arbitrary code execution. The payload is separated from the execution mechanism, evading command-name detection. No legitimate workflow uses -C with exec/eval. CWE-78, MITRE T1059.004. |
+| `ts-audit-mapfile-callback-any` | AUDIT | regex | mapfile/readarray with -C callback — even non-exec callbacks are unusual. The -C flag runs an arbitrary command for every N lines read. Auditing to catch novel callback targets. CWE-78. |
+| `ts-block-nameref-eval-chain` | BLOCK | regex | Bash nameref (declare/typeset/local -n) combined with eval/exec/command substitution in the same compound command — nameref creates an alias to another variable, and eval/exec resolves the indirection chain at runtime to execute the final value. The actual command never appears in the shell text, completely evading pattern matching. CWE-78, MITRE T1059.004, T1027. |
+| `ts-audit-nameref-declaration` | AUDIT | regex | Bash nameref variable declaration — namerefs create indirect variable references that can be used to construct and execute commands through indirection chains invisible to static analysis. Auditing for review. MITRE T1027. |
 
 ### uncategorized (2 rules)
 
@@ -1538,7 +1546,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (24 rules)
+### persistence-evasion (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1566,6 +1574,7 @@
 | `mcp-persist-block-python-pth-write` | BLOCK | structural | MCP write to Python .pth file or sitecustomize.py/usercustomize.py in site-packages — these files execute automatically on every Python invocation, providing silent persistent code execution across pip, pytest, jupyter, and all Python tooling. MITRE T1546.016. |
 | `mcp-persist-block-jupyter-kernel-write` | BLOCK | structural | MCP write to Jupyter kernel spec or config directory — kernel.json hijacking routes every notebook kernel start through attacker code; custom.js injects JavaScript into every Jupyter session; server config can disable authentication. Persistent silent code execution in data-science environments. MITRE T1546.016, T1059.006. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
+| `mcp-persist-block-global-git-hooks-write` | BLOCK | structural | MCP write to global git hooks directory — hooks placed here execute on every git operation (commit, push, merge) across all repositories. One write achieves system-wide code execution persistence without modifying any specific repo. MITRE T1546.016, T1059.004. |
 
 ### privilege-escalation (21 rules)
 
@@ -1767,10 +1776,10 @@
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 299 | 185 | 484 |
+| persistence-evasion | 313 | 196 | 509 |
 | privilege-escalation | 290 | 175 | 465 |
 | reconnaissance | 188 | 89 | 277 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 442 | 304 | 746 |
-| **Total** | **2294** | **1510** | **3804** |
+| unauthorized-execution | 456 | 315 | 771 |
+| **Total** | **2322** | **1532** | **3854** |
 
