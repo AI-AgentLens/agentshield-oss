@@ -1194,24 +1194,31 @@ rules:
 
   # === BLOCK: credential brute-force tools ===
   #
-  # hydra, medusa, and ncrack automate credential-stuffing and brute-force
-  # attacks across protocols (SSH, HTTP, FTP, SMTP, RDP …). Running these
-  # tools from an AI agent constitutes automated unauthorized access.
+  # hydra, medusa, ncrack, patator, kerbrute, crowbar and thc-hydra automate
+  # credential-stuffing and brute-force attacks across protocols (SSH, HTTP,
+  # FTP, SMTP, RDP, Kerberos …). Running these tools from an AI agent
+  # constitutes automated unauthorized access. MITRE T1110, T1110.001-004.
 
   - id: "ne-block-credential-bruteforce"
-    taxonomy: "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation"
+    taxonomy: "reconnaissance/network-discovery/credential-brute-force"
     match:
       structural:
-        executable: ["hydra", "medusa", "ncrack", "crowbar", "thc-hydra"]
+        executable: ["hydra", "medusa", "ncrack", "patator", "kerbrute", "crowbar", "thc-hydra"]
     decision: "BLOCK"
     confidence: 0.99
-    reason: "Credential brute-force tool detected (hydra/medusa/ncrack). These tools automate credential guessing across network services. An AI agent running credential attacks constitutes unauthorized access. MITRE T1110.001, T1110.003."
+    reason: "Credential brute-force tool detected. hydra/medusa/ncrack/patator automate credential guessing across SSH, HTTP, FTP, RDP and other network services. kerbrute targets Kerberos AS-REQ authentication for user enumeration and password spraying. AI agents have no legitimate use case for password enumeration attacks. MITRE T1110, T1110.001-004. OWASP LLM02/LLM06."
     tests:
       tp:
         - "hydra -l admin -P wordlist.txt ssh://10.0.0.1"
         - "medusa -h 192.168.1.1 -u root -P passwords.txt -M ssh"
+        - "ncrack -p 22 --user root -P pass.txt 10.0.0.1"
+        - "patator ssh_login host=10.0.0.1 user=root password=FILE0 0=pass.txt"
+        - "kerbrute userenum --dc 10.0.0.1 -d corp.local users.txt"
+        - "crowbar -b rdp -s 192.168.1.0/24 -u admin -C pass.txt"
       tn:
         - "echo hydra brute-forces credentials"
+        - "ssh-keygen -t ed25519 -C user@host"
+        - "grep kerbrute README.md"
 
   # ── SQL Injection & Web Attack Tools ─────────────────────────────────────
 
