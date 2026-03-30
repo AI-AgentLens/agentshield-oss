@@ -6399,11 +6399,11 @@ var GeneratedTNScenarios = []Scenario{
 	{
 		ID:               "MCP-TN-898",
 		ToolName:         "read_file",
-		Arguments:        map[string]interface{}{"path": "/Users/user/Library/Application Support/Slack/config.json"},
+		Arguments:        map[string]interface{}{"path": "/Users/user/Library/Application Support/MyApp/preferences.json"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		Category:         "bitwarden-macos-desktop-safe",
-		Description:      "Read ~/Library/Application Support/Slack/config.json must AUDIT — different macOS app under Library/Application Support is not Bitwarden (issue #643).",
+		Description:      "Read ~/Library/Application Support/MyApp/preferences.json must AUDIT — generic macOS app under Library/Application Support is not a credential store (issue #643). Updated: Slack path now correctly BLOCKed by mcp-sec-block-slack-macos-creds (issue #718).",
 	},
 	{
 		ID:               "MCP-TN-899",
