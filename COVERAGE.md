@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1075 |
-| MCP rules | 572 |
-| Total rules | 1647 |
+| MCP rules | 578 |
+| Total rules | 1653 |
 | Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
@@ -1141,7 +1141,7 @@
 
 ## MCP Rules
 
-### credential-exposure (274 rules)
+### credential-exposure (280 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1243,6 +1243,8 @@
 | `mcp-sec-block-1password-desktop-config-access` | BLOCK | mcp_rule | Access to ~/.config/1Password/ is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
 | `mcp-sec-block-1password-desktop-config-lowercase-access` | BLOCK | mcp_rule | Access to ~/.config/1password/ (Linux lowercase path) is blocked — contains 1Password desktop app config including SSH agent configuration (agent.toml listing exposed key vault UUIDs) and account session references. MITRE T1555.005. |
 | `mcp-sec-block-1password-xdg-data-access` | BLOCK | mcp_rule | Access to 1Password XDG data directory (~/.local/share/1password/) is blocked — contains SSH agent socket (ssh/agent.sock) and runtime data. Enumeration reveals agent state and key availability. MITRE T1555.005. |
+| `mcp-sec-block-1password-macos-app-data` | BLOCK | mcp_rule | Access to macOS 1Password app data directory is blocked — ~/Library/Application Support/1Password/ contains encrypted vault data, profile metadata (master password verifier), and cached session material. MITRE T1555.005. |
+| `mcp-sec-block-1password-macos-bundle-data` | BLOCK | mcp_rule | Access to macOS 1Password sandboxed app data (bundle-ID path) is blocked — contains same sensitive vault data and session credentials as the direct-name path. MITRE T1555.005. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
@@ -1338,6 +1340,10 @@
 | `mcp-sec-block-slack-config-creds` | BLOCK | mcp_rule | Access to ~/.config/slack/ is blocked — contains Slack desktop app OAuth tokens and session credentials. Stolen tokens enable workspace message exfiltration. MITRE T1552.001. |
 | `mcp-sec-block-slack-desktop-creds` | BLOCK | mcp_rule | Access to ~/.config/Slack/ is blocked — the Linux Slack desktop app stores session cookies, OAuth tokens, and leveldb session data here (capital-S variant). Stolen tokens enable workspace message exfiltration and user impersonation. MITRE T1552.001. |
 | `mcp-sec-block-discord-creds` | BLOCK | mcp_rule | Access to ~/.config/discord/ is blocked — contains Discord client tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
+| `mcp-sec-block-slack-macos-creds` | BLOCK | mcp_rule | Access to macOS Slack app data directory is blocked — ~/Library/Application Support/Slack/ contains session cookies, OAuth tokens, and leveldb session data. Stolen tokens enable workspace message exfiltration and user impersonation. MITRE T1552.001. |
+| `mcp-sec-block-discord-macos-creds` | BLOCK | mcp_rule | Access to macOS Discord app data directory is blocked — ~/Library/Application Support/discord/ contains auth tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
+| `mcp-sec-block-signal-macos-creds` | BLOCK | mcp_rule | Access to macOS Signal app data directory is blocked — ~/Library/Application Support/Signal/ contains account credentials (config.json), encryption keys, and the encrypted message database. MITRE T1552.001. |
+| `mcp-sec-block-github-desktop-macos-creds` | BLOCK | mcp_rule | Access to macOS GitHub Desktop app data is blocked — ~/Library/Application Support/GitHub Desktop/ contains OAuth tokens granting full GitHub API access under the user's identity. MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-chrome-linux-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory (Linux) is blocked — ~/.config/google-chrome/ contains saved passwords (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
