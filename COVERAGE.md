@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1075 |
-| MCP rules | 581 |
-| Total rules | 1656 |
+| MCP rules | 585 |
+| Total rules | 1660 |
 | Test cases (TP+TN) | 3854 |
 | Kingdoms covered | 10 |
 
@@ -1141,7 +1141,7 @@
 
 ## MCP Rules
 
-### credential-exposure (283 rules)
+### credential-exposure (287 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1286,8 +1286,12 @@
 | `mcp-sec-block-ansible-vault-pass` | BLOCK | mcp_rule | Access to Ansible vault password files is blocked — this is the master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-password-files` | BLOCK | mcp_rule | Access to Ansible vault password files (.vault_pass, .vault-password) is blocked — master decryption key for Ansible Vault secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-pass-dotfile` | BLOCK | mcp_rule | Access to ~/.ansible_vault_pass dotfile is blocked — master decryption key for all Ansible Vault secrets. Commonly configured via vault_password_file in ansible.cfg. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
+| `mcp-sec-block-ansible-galaxy-token` | BLOCK | mcp_rule | Access to ~/.ansible/galaxy_token is blocked — Ansible Galaxy API token enabling supply chain compromise via malicious role/collection publishing. MITRE T1552, T1195. |
 | `mcp-sec-block-terraformrc` | BLOCK | mcp_rule | Access to ~/.terraformrc is blocked — the Terraform CLI config file stores Terraform Cloud/Enterprise API tokens under the credentials block. Reads expose tokens; writes can hijack Terraform registry auth. MITRE T1552. |
 | `mcp-sec-block-terraform-config-credentials` | BLOCK | mcp_rule | Access to Terraform XDG credentials file is blocked — contains Terraform Cloud/Enterprise API tokens for workspace and registry access. MITRE T1552. |
+| `mcp-sec-block-opentofu-credentials` | BLOCK | mcp_rule | Access to OpenTofu XDG credentials file is blocked — contains OpenTofu/Terraform Cloud API tokens granting registry and workspace access. MITRE T1552. |
+| `mcp-sec-block-opentofu-data-dir-credentials` | BLOCK | mcp_rule | Access to OpenTofu XDG data directory is blocked — may contain API tokens, provider cache, and state data. MITRE T1552. |
+| `mcp-sec-block-terraform-dotdir-credentials` | BLOCK | mcp_rule | Access to ~/.terraform/credentials.tfrc.json is blocked — non-standard but valid Terraform credential path containing Cloud/Enterprise API tokens. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-jenkins-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credentials (API tokens, SSH keys, username/password) granting pipeline execution and secret access. MITRE T1552. |
