@@ -6478,4 +6478,45 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-keybase-legacy-access",
 		Description:      "read_file on project documentation mentioning keybase — benign doc, not the credential dir (issue #623)",
 	},
+
+	// ---------------------------------------------------------------------------
+	// TP/TN: hub CLI config (~/.config/hub) — GitHub OAuth tokens (issue #740)
+	// mcp-sec-block-hub-cli-access
+	// ---------------------------------------------------------------------------
+	{
+		ID:               "MCP-TP-936",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/hub"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/api-key-access/vcs-credential-access",
+		Description:      "read_file to ~/.config/hub — hub CLI GitHub OAuth token store (mcp-sec-block-hub-cli-access)",
+	},
+	{
+		ID:               "MCP-TP-937",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/root/.config/hub", "content": "github.com:\n- user: attacker\n"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure/api-key-access/vcs-credential-access",
+		Description:      "write_file to /root/.config/hub — overwriting hub CLI GitHub OAuth credentials (mcp-sec-block-hub-cli-access)",
+	},
+	{
+		ID:               "MCP-TN-936",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/hub-setup-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/api-key-access/vcs-credential-access",
+		Description:      "read_file on project docs about hub CLI setup — documentation, not the hub credential file (mcp-sec-block-hub-cli-access must not fire)",
+	},
+	{
+		ID:               "MCP-TN-937",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/hub_client.go"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure/api-key-access/vcs-credential-access",
+		Description:      "read_file on project Go source file named hub_client.go — benign source file, not the hub credential file (mcp-sec-block-hub-cli-access must not fire)",
+	},
 }
