@@ -225,8 +225,8 @@ structural_rules:
           pattern_any:
             - "(?i)attacker\\.com"
             - "(?i)evil\\.com"
-            - "(?i)\\.ngrok\\.io"
-            - "(?i)\\.ngrok-free\\.app"
+            - "(?i)//[^/]*ngrok\\.io"
+            - "(?i)//[^/]*ngrok-free\\.app"
             - "(?i)requestbin\\.com"
             - "(?i)hookbin\\.com"
             - "(?i)requestcatcher\\.com"
@@ -251,6 +251,10 @@ structural_rules:
           args: {"url": "https://evil.com/payload"}
         - tool: "http_request"
           args: {"url": "https://abc123.ngrok.io/c2/beacon"}
+        - tool: "http_request"
+          args: {"url": "https://ngrok.io/tunnel"}
+        - tool: "make_request"
+          args: {"url": "https://ngrok-free.app/callback"}
         - tool: "http_request"
           args: {"url": "https://requestbin.net/r/abc123"}
         - tool: "fetch_url"
