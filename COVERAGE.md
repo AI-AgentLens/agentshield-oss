@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 593 |
-| Total rules | 1671 |
-| Test cases (TP+TN) | 3870 |
+| MCP rules | 594 |
+| Total rules | 1672 |
+| Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -715,7 +715,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (80 rules)
+### reconnaissance (81 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -739,6 +739,7 @@
 | `ne-block-dir-bruteforce` | BLOCK | structural | Web directory brute-force tool detected (gobuster/dirb/feroxbuster/dirsearch). These tools enumerate hidden files and endpoints at high speed — AI agents must not perform unauthorized web enumeration. MITRE T1595.003. |
 | `ne-block-web-fuzzer` | BLOCK | structural | Web fuzzer detected (ffuf/wfuzz). These tools enumerate directories, parameters, and payloads at high speed — AI agents must not fuzz web applications without explicit authorization. MITRE T1595.003. |
 | `ne-block-whatweb` | BLOCK | structural | whatweb fingerprints web server technology (CMS, frameworks, versions). This is active reconnaissance; AI agents must not fingerprint target systems without authorization. MITRE T1592. |
+| `ne-block-credential-bruteforce` | BLOCK | structural | Credential brute-force tool detected. hydra/medusa/ncrack/patator automate credential guessing across SSH, HTTP, FTP, RDP and other network services. kerbrute targets Kerberos AS-REQ authentication for user enumeration and password spraying. AI agents have no legitimate use case for password enumeration attacks. MITRE T1110, T1110.001-004. OWASP LLM02/LLM06. |
 | `ne-block-sqlmap` | BLOCK | structural | sqlmap is an automated SQL injection and database exploitation tool. Running sqlmap against any target without explicit written authorization constitutes unauthorized access. MITRE T1190. |
 | `ne-block-theharvester` | BLOCK | structural | theHarvester performs OSINT enumeration (emails, subdomains, employee names) against a target domain. AI agents must not perform unsolicited intelligence gathering. MITRE T1589, T1596. |
 | `ne-block-recon-ng` | BLOCK | structural | recon-ng is a modular OSINT framework for harvesting intelligence about domains, people, and organizations. AI agents must not perform intelligence gathering without explicit authorization. MITRE T1596. |
@@ -938,14 +939,13 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (192 rules)
+### unauthorized-execution (191 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `ne-block-metasploit` | BLOCK | structural | Metasploit framework component detected (msfconsole/msfvenom/msfdb). Metasploit automates exploit development and execution — an AI agent invoking Metasploit constitutes automated attack capability. No legitimate AI coding workflow requires this. MITRE T1587.004, T1203. |
 | `ne-block-beef` | BLOCK | structural | BeEF (Browser Exploitation Framework) detected. BeEF hooks browsers and runs client-side attacks. AI agents must not launch browser exploitation sessions. MITRE T1203. |
 | `ne-block-searchsploit` | BLOCK | structural | searchsploit queries Exploit-DB for public exploits targeting specific CVEs or software versions. AI agents actively searching for exploits are preparing attack chains — requires explicit human authorization. MITRE T1588.005. |
-| `ne-block-credential-bruteforce` | BLOCK | structural | Credential brute-force tool detected (hydra/medusa/ncrack). These tools automate credential guessing across network services. An AI agent running credential attacks constitutes unauthorized access. MITRE T1110.001, T1110.003. |
 | `sec-block-credential-env-inline-network` | BLOCK | regex | Inline credential environment variable assignment before a network command — a compromised MCP tool explicitly setting a known credential key before curl/wget is the shell-level signature of credential relay exfiltration (OWASP LLM06, MITRE T1552.007, T1041). |
 | `ts-audit-ai-bulk-input-pipe` | AUDIT | regex | Piping glob-expanded file input (cat ../* \| llm) into an AI CLI — may stuff unbounded token volumes into an LLM prompt, causing runaway API costs (AI Denial of Wallet, OWASP LLM10). |
 | `ts-audit-ai-parallel-dispatch` | AUDIT | regex | xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10). |
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (295 rules)
+### credential-exposure (296 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1390,7 +1390,8 @@
 | `mcp-sec-block-openai-codex-cli-credentials-read` | BLOCK | mcp_rule | Access to OpenAI Codex CLI credential directory (~/.openai-codex/) is blocked — contains OpenAI API keys and OAuth tokens. Exfiltration enables unauthorized LLM usage billed to the victim. MITRE T1552. |
 | `mcp-sec-block-amazon-q-cli-credentials-read` | BLOCK | mcp_rule | Access to Amazon Q Developer CLI credential directory (~/.q/) is blocked — contains AWS authentication tokens and session data. Exfiltration enables unauthorized AWS service usage billed to the victim. MITRE T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
-| `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file (~/.databricks/token) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
+| `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file(s) (~/.databricks/token, ~/.databricks/token-version-*) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
+| `mcp-sec-block-databricks-config-read` | BLOCK | mcp_rule | Access to Databricks CLI config (~/.databricks/config) is blocked — contains workspace host URLs, profile configurations, and may include inline access tokens. MITRE T1552. |
 | `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config file is blocked — contains personal access tokens and scoped service tokens that grant read access to all managed secrets across all configured projects. MITRE T1552.001. |
 | `mcp-sec-block-infisical-homedir-read` | BLOCK | mcp_rule | Access to Infisical CLI home-dir credential store (~/.infisical/) is blocked — contains user JWTs and service tokens granting full access to all secrets in Infisical projects without a master password. MITRE T1552.001, T1555.004. |
 | `mcp-sec-block-infisical-xdg-config-read` | BLOCK | mcp_rule | Access to Infisical CLI XDG config dir (~/.config/infisical/) is blocked — XDG-compliant location for Infisical auth tokens and service tokens. MITRE T1552.001, T1555.004. |
@@ -1802,8 +1803,8 @@
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 313 | 196 | 509 |
 | privilege-escalation | 290 | 175 | 465 |
-| reconnaissance | 199 | 94 | 293 |
+| reconnaissance | 202 | 96 | 298 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 456 | 315 | 771 |
-| **Total** | **2333** | **1537** | **3870** |
+| **Total** | **2336** | **1539** | **3875** |
 
