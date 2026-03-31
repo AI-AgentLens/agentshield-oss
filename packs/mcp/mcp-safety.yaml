@@ -528,6 +528,49 @@ rules:
     # actual detection is code-level in handler.go (HandleBatch), not YAML-evaluated.
     # Unit tests live in internal/mcp/batch_test.go.
 
+  # === BLOCK/AUDIT: tools/list manifest flooding — context-window dilution attack ===
+  # Detection is implemented at the code level in internal/mcp/manifest_guard.go
+  # (ScanToolsListManifest) and triggered by FilterToolsListResponse in handler.go.
+  # These YAML entries register the taxonomy references and rule IDs for coverage
+  # metrics and audit log correlation.
+  #
+  # BLOCK triggers (mcp-tools-list-flooding):
+  #   - tools/list response contains > 200 tool definitions (ToolsListHardBlockCount)
+  #   - tools/list manifest exceeds 512 KB (ToolsListHardBlockBytes)
+  #
+  # AUDIT triggers (mcp-tools-list-flooding-audit):
+  #   - tools/list response contains > 50 tool definitions (ToolsListAuditCount)
+  #   - tools/list manifest exceeds 100 KB (ToolsListAuditBytes)
+  #   - any single tool description exceeds 2048 bytes (ToolsListMaxDescriptionBytes)
+  #
+  # Attack: A malicious MCP server floods tools/list with hundreds of tool definitions,
+  # consuming the AI agent's context window and pushing safety guardrails out of effective
+  # attention range. A 500–750 tool flood can render safety instructions invisible to the
+  # model. Can amplify mcp-tool-description-poisoning attacks.
+  #
+  # OWASP LLM04 (Model Denial of Service), LLM07 (System Prompt Leakage)
+  # NIST AI RMF MANAGE-1, MEASURE-2
+  # CWE-400 (Uncontrolled Resource Consumption)
+  - id: "mcp-tools-list-flooding"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tools-list-flooding"
+    match: {}  # empty match — rule never fires from YAML; detection is in manifest_guard.go (ScanToolsListManifest)
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "tools/list flooding detected — manifest exceeds hard limits (>200 tools or >512 KB). Context-window dilution attack: safety instructions pushed out of LLM attention range. OWASP LLM04, LLM07."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in manifest_guard.go, not YAML-evaluated.
+    # Unit tests live in internal/mcp/manifest_guard_test.go.
+
+  - id: "mcp-tools-list-flooding-audit"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tools-list-flooding"
+    match: {}  # empty match — rule never fires from YAML; detection is in manifest_guard.go (ScanToolsListManifest)
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "tools/list anomaly — manifest exceeds audit threshold (>50 tools, >100 KB, or tool description >2 KB). Possible context-window dilution or description padding. OWASP LLM04, LLM07."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in manifest_guard.go, not YAML-evaluated.
+    # Unit tests live in internal/mcp/manifest_guard_test.go.
+
   # === BLOCK: Tool name injection patterns (YAML-evaluatable complement to code-level detection) ===
   # A poisoned MCP server may install tools with names that themselves contain
   # injected instructions or dual-use keywords. Blocking calls to tools whose
