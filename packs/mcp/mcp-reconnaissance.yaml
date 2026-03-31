@@ -957,7 +957,6 @@ structural_rules:
     taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
     match:
       tool_name_any:
-        - "get_environment"
         - "list_env"
         - "get_env_all"
         - "get_all_env"
@@ -972,8 +971,6 @@ structural_rules:
     reason: "Bulk environment dump tool — dumps all process environment variables at once, exposing every secret (AWS keys, DB passwords, API tokens) without specifying individual names. MITRE T1552.007."
     tests:
       tp:
-        - tool: "get_environment"
-          args: {}
         - tool: "dump_environment"
           args: {}
         - tool: "get_env_all"
@@ -987,6 +984,8 @@ structural_rules:
       tn:
         - tool: "get_env_var"
           args: {"name": "NODE_ENV"}
+        - tool: "get_environment"
+          args: {"key": "RAILS_ENV"}
         - tool: "read_file"
           args: {"path": "/workspace/.env.example"}
         - tool: "list_files"
