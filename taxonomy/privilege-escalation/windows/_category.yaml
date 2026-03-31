@@ -1,0 +1,7 @@
+id: "5.10"
+name: "Windows Privilege Escalation"
+kingdom_id: 5
+description: >
+  Windows-specific privilege escalation techniques including UAC bypass, token
+  impersonation, and COM/DCOM abuse that allow agents to gain elevated privileges
+  on Windows systems.

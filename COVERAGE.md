@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 612 |
-| Total rules | 1690 |
+| MCP rules | 614 |
+| Total rules | 1692 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (311 rules)
+### credential-exposure (313 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1451,6 +1451,8 @@
 | `mcp-sec-block-ethereum-keystore` | BLOCK | mcp_rule | Access to Ethereum keystore directory is blocked — ~/.ethereum/keystore/ contains encrypted JSON key files (UTC--timestamp--address format). Exfiltrating these enables offline password cracking to recover plaintext private keys. MITRE T1552.001. |
 | `mcp-sec-block-solana-keypair` | BLOCK | mcp_rule | Access to Solana CLI keypair file is blocked — ~/.config/solana/id.json and other Solana keypair files store ED25519 private keys in plaintext JSON arrays. No decryption required — a single read call yields the private key. MITRE T1552.001. |
 | `mcp-sec-block-monero-wallet` | BLOCK | mcp_rule | Access to Monero wallet directory is blocked — ~/.monero/ contains wallet files with encrypted spend and view keys. Monero's privacy model makes fund tracing impossible after theft. MITRE T1552.001. |
+| `mcp-sec-block-bitcoin-node-config` | BLOCK | mcp_rule | Access to bitcoin.conf is blocked — contains rpcuser/rpcpassword granting full JSON-RPC wallet control (list addresses, send transactions, dump private keys). Writes can redirect walletdir or disable security checks. MITRE T1552.001. |
+| `mcp-sec-block-altcoin-node-config` | BLOCK | mcp_rule | Access to litecoin.conf is blocked — contains rpcuser/rpcpassword credentials enabling full JSON-RPC wallet control. Same attack vector as bitcoin.conf. MITRE T1552.001. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |

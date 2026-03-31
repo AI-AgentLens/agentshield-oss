@@ -1,0 +1,65 @@
+id: "reconnaissance/filesystem-surveillance/general-watch"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Filesystem Surveillance"
+category_id: "8.4"
+name: "General Filesystem Event Watch"
+risk_level: "medium"
+
+abstract: |
+  Cross-platform use of filesystem monitoring APIs and libraries (inotify, fsnotify,
+  chokidar, FSEvents) to watch arbitrary paths for changes. While legitimate in
+  build tools and sync clients, agent-initiated general filesystem watching warrants
+  audit logging to detect covert surveillance of sensitive paths.
+
+explanation: |
+  Modern operating systems provide native APIs for real-time filesystem event
+  notifications. Numerous cross-platform libraries abstract these APIs:
+
+  - **Linux**: `inotify` (inotifywait, pyinotify)
+  - **Go**: `fsnotify` (wraps inotify/kqueue/FSEvents/ReadDirectoryChangesW)
+  - **Node.js/TypeScript**: `chokidar` (wraps FSEvents/inotify)
+  - **Ruby**: `listen`, `rb-inotify`, `rb-fsevent`
+  - **Python**: `watchdog`, `pyinotify`
+  - **Windows**: `FileSystemWatcher`, `ReadDirectoryChangesW`
+
+  An AI agent that establishes a general filesystem watch on non-project paths
+  (e.g., `~/.ssh/`, `/etc/`, `$HOME`) may be conducting reconnaissance to detect
+  credential access patterns, monitor security tool activity, or exfiltrate data
+  on change events.
+
+  Distinguishing factor from legitimate use: watches on sensitive system paths,
+  watches established before expected legitimate operations, or watches that trigger
+  data exfiltration callbacks.
+
+recommendation: |
+  - Audit any filesystem watch established outside the project working directory.
+  - Block watches on known sensitive paths (~/.ssh, ~/.aws, /etc, /proc).
+  - Log all filesystem watch registrations with the target path.
+  - Require explicit authorization for persistent background filesystem monitors.
+
+examples:
+  bad:
+    - 'watcher.Add("/home/user/.ssh")'
+    - 'chokidar.watch("/etc", { persistent: true })'
+    - 'INotify.watch("/root", flags: :all_events)'
+  good:
+    - 'watcher.Add("./src")'
+    - 'chokidar.watch("./dist", { persistent: false })'
+    - 'INotify.watch("./tmp", flags: :close_write)'
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.16", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.13"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "GOVERN-1"]
+  soc2-type2: ["CC6.3", "CC7.2"]
+  iso-42001-2023: ["A.7.4", "6.1.2"]
+
+references:
+  mitre_attack: ["T1083", "T1552"]
+  cwe: ["CWE-200"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

@@ -1,0 +1,61 @@
+id: "privilege-escalation/windows/uac-bypass"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Windows Privilege Escalation"
+category_id: "5.10"
+name: "UAC Bypass"
+risk_level: "critical"
+
+abstract: |
+  Bypassing User Account Control (UAC) on Windows allows an agent to elevate from
+  a standard or medium-integrity process to high integrity (Administrator) without
+  triggering a UAC consent prompt, enabling privilege escalation without user interaction.
+
+explanation: |
+  User Account Control (UAC) is a Windows security feature that restricts software
+  from making system changes without explicit user consent. Bypassing UAC allows
+  an unprivileged agent process to obtain Administrator rights silently.
+
+  Common UAC bypass techniques exploited by AI agents:
+  - **fodhelper.exe**: Auto-elevates; abused by writing to `HKCU\Software\Classes\ms-settings\shell\open\command`
+  - **eventvwr.exe**: Auto-elevates; abused via HKCU registry hijack
+  - **DLL hijacking**: Planting DLLs in search paths of auto-elevating processes
+  - **COM object hijacking**: Redirecting COM activations in HKCU to malicious objects
+  - **ICMLuaUtil COM interface**: Direct COM elevation via undocumented interfaces
+  - **Compressed ICO**: Exploiting manifest parsing in older Windows builds
+
+  AI agents generating code that modifies HKCU registry keys for auto-elevating
+  processes, or that spawns known UAC-bypass binaries with crafted arguments,
+  represent a critical escalation risk.
+
+recommendation: |
+  - Block writes to HKCU registry paths used by auto-elevating processes.
+  - Monitor for spawning of known UAC-bypass binaries (fodhelper.exe, eventvwr.exe).
+  - Enable UAC set to "Always Notify" in high-security environments.
+  - Use WDAC or AppLocker to restrict auto-elevating process execution.
+  - Monitor Event ID 4688 for unexpected high-integrity process creation.
+
+examples:
+  bad:
+    - 'reg add "HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command" /d "cmd.exe" /f'
+    - "Start-Process fodhelper.exe"
+    - 'New-ItemProperty -Path "HKCU:\\Software\\Classes\\mscfile\\shell\\open\\command" -Name "(default)" -Value "cmd.exe"'
+  good:
+    - "Get-UACSetting"
+    - "whoami /groups | findstr /i high"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9", "A.8.12"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+  iso-42001-2023: ["A.7.4", "6.1.2", "A.5.2"]
+
+references:
+  mitre_attack: ["T1548.002"]
+  cwe: ["CWE-269", "CWE-250"]
+
+analyzers: ["regex", "structural"]
+related_rules: []

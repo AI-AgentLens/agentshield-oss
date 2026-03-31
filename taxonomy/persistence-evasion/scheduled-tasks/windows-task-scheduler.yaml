@@ -1,0 +1,59 @@
+id: "persistence-evasion/scheduled-tasks/windows-task-scheduler"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Scheduled Tasks"
+category_id: "6.1"
+name: "Windows Task Scheduler Persistence"
+risk_level: "high"
+
+abstract: |
+  Using the Windows Task Scheduler (schtasks.exe or the Task Scheduler API) to
+  register scheduled tasks that execute arbitrary code at future times, enabling
+  persistence that survives reboots and user logouts.
+
+explanation: |
+  The Windows Task Scheduler allows users and services to run programs automatically
+  at specified times, intervals, or system events. An AI agent that creates or
+  modifies scheduled tasks can establish persistent execution of malicious payloads.
+
+  Common attack patterns:
+  - `schtasks /create /tn "BackdoorTask" /tr "C:\tmp\evil.exe" /sc onlogon`
+  - Programmatic creation via `ITaskService` COM interface in C#/.NET
+  - XML-based task import: `schtasks /create /xml task.xml`
+  - Modifying existing tasks to change the action binary
+
+  Scheduled tasks created in the SYSTEM context run with elevated privileges even
+  without UAC prompts, making this a critical persistence and privilege escalation
+  vector in Windows environments.
+
+recommendation: |
+  - Block `schtasks /create` and `/change` in agent execution contexts.
+  - Restrict access to the Task Scheduler COM interfaces from AI agent processes.
+  - Monitor Windows Event Log ID 4698 (Task Created) and 4702 (Task Updated).
+  - Require explicit human approval for any scheduled task creation.
+  - Use AppLocker/WDAC to restrict which executables can be registered as task actions.
+
+examples:
+  bad:
+    - "schtasks /create /tn \"Updater\" /tr \"C:\\tmp\\backdoor.exe\" /sc onlogon /ru SYSTEM"
+    - "schtasks /create /tn \"DailyJob\" /tr \"powershell -enc <base64>\" /sc daily /st 03:00"
+    - "schtasks /change /tn \"LegitTask\" /tr \"C:\\evil.exe\""
+  good:
+    - "schtasks /query /fo LIST"
+    - "schtasks /delete /tn \"OldTask\" /f"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.23", "A.8.9"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  nist-ai-rmf-1.0: ["MANAGE-2", "MANAGE-4"]
+  soc2-type2: ["CC6.3", "CC8.1"]
+  iso-42001-2023: ["A.7.4", "6.1.2", "A.5.2"]
+
+references:
+  mitre_attack: ["T1053.005"]
+  cwe: ["CWE-912"]
+
+analyzers: ["regex", "structural"]
+related_rules: []
