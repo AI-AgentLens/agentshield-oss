@@ -530,6 +530,9 @@ structural_rules:
           args: {"path": "tests/fixtures/sudoers_test", "content": "NOPASSWD for test"}
 
   # === BLOCK: Linux capabilities manipulation ===
+  # FP fix (issue #789): Exclude security rule test files under rules/tests/, semgrep/,
+  # docs/, taxonomy/, and .md files — these legitimately contain Linux capability
+  # strings as detection examples or Semgrep ruleid annotations, not live grants.
   - id: mcp-privesc-block-linux-capabilities
     taxonomy: "privilege-escalation/file-permissions/linux-capabilities"
     match:
@@ -542,6 +545,30 @@ structural_rules:
             - "(?i)SYS_PTRACE"
             - "(?i)SYS_ADMIN"
             - "(?i)ALL_CAPABILITIES"
+      exclude_args_match:
+        path:
+          pattern_any:
+            - "(?i).*[/\\\\]taxonomy[/\\\\].*"
+            - "(?i)^taxonomy[/\\\\].*"
+            - "(?i).*[/\\\\]docs?[/\\\\].*"
+            - "(?i)^docs?[/\\\\].*"
+            - "(?i).*\\.md$"
+            - "(?i).*[/\\\\]rules[/\\\\].*"
+            - "(?i)^rules[/\\\\].*"
+            - "(?i).*[/\\\\]semgrep[/\\\\].*"
+            - "(?i)^semgrep[/\\\\].*"
+            - "(?i).*[/\\\\]packs[/\\\\].*"
+            - "(?i)^packs[/\\\\].*"
+            - "(?i).*[/\\\\]internal[/\\\\].*"
+            - "(?i)^internal[/\\\\].*"
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
+        content:
+          pattern_any:
+            - "(?i)#\\s*ruleid:"
+            - "(?i)#\\s*ok:"
     decision: "BLOCK"
     reason: "Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001."
     tests:
@@ -553,6 +580,10 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/project/docs/capabilities.md", "content": "Linux capabilities overview"}
+        - tool: "write_file"
+          args: {"path": "rules/tests/privilege-escalation/test.rb", "content": "# ruleid: ai-priv-esc-linux-capabilities-ruby\nsetcap(cap_setuid+ep, path)"}
+        - tool: "edit_file"
+          args: {"path": "semgrep/rules/priv-esc.yaml", "content": "# Test: SYS_ADMIN detection\nmessage: Detects SYS_ADMIN capability grant"}
 
   # === BLOCK: D-Bus socket access via structural match (any tool, path arg) ===
   # Catches any tool (not just read/write families) that passes a D-Bus socket path
