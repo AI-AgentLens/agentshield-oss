@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1078 |
-| MCP rules | 617 |
-| Total rules | 1695 |
-| Test cases (TP+TN) | 3875 |
+| Terminal rules | 1079 |
+| MCP rules | 619 |
+| Total rules | 1698 |
+| Test cases (TP+TN) | 3880 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -715,7 +715,7 @@
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
 
-### reconnaissance (81 rules)
+### reconnaissance (82 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -782,6 +782,7 @@
 | `ts-block-inotify-credential-watch` | BLOCK | regex | inotifywait monitoring credential/secret paths — real-time surveillance of sensitive directories enables instant exfiltration when secrets are created or modified. MITRE T1083. |
 | `ts-block-inotify-persistent-monitor` | BLOCK | regex | inotifywait recursive persistent monitoring on broad paths — surveils all file operations under root or home directory. Enables attack timing and data harvesting. MITRE T1083. |
 | `ts-audit-inotifywait-general` | AUDIT | regex | inotifywait filesystem event monitoring — can be used for legitimate file watching (e.g., build tools) but also for surveillance. AUDIT to log usage. MITRE T1083. |
+| `ts-audit-general-filesystem-watch` | AUDIT | regex | Cross-platform filesystem watch tool (watchmedo/chokidar) on sensitive path — potential surveillance of credential or home directories. MITRE T1083. |
 | `ts-block-fanotify-surveillance` | BLOCK | regex | fanotify kernel-level filesystem monitoring — watches entire mount points or filesystems for access events. More powerful than inotify, enables mount-wide surveillance. MITRE T1083. |
 | `ts-block-find-shadow-hunt` | BLOCK | regex | find searching for 'shadow' files across the filesystem is targeted reconnaissance for the system password database (/etc/shadow). No legitimate development task requires locating shadow files. MITRE T1083, T1552.001. |
 | `ts-audit-find-credential-hunt` | AUDIT | regex | find searching broad filesystem paths for credential file names (SSH keys, PEM/key files, keystores, credential files) is a reconnaissance pattern for credential enumeration. AI agents have no legitimate need to hunt for credential files system-wide. MITRE T1083, T1552.001, CWE-200. |
@@ -1701,7 +1702,7 @@
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (90 rules)
+### unauthorized-execution (92 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1769,6 +1770,8 @@
 | `mcp-oauth-as-metadata-spoofing` | BLOCK | mcp_rule | OAuth AS metadata contains non-HTTPS endpoints — plaintext credential exchange is possible. MCP OAuth 2.1 mandates HTTPS for all authorization endpoints (RFC 8414 §3.3). OWASP LLM09, MITRE T1557, CWE-319. |
 | `mcp-oauth-as-metadata-spoofing-audit` | AUDIT | mcp_rule | OAuth AS metadata anomaly — endpoint domain mismatch, issuer mismatch, or missing PKCE S256 support detected. Possible rogue AS redirection or PKCE downgrade attack. Re-verify server identity before proceeding. OWASP LLM09, CWE-757. |
 | `mcp-batch-large-audit` | AUDIT | mcp_rule | JSON-RPC batch request exceeds size threshold — possible batch enumeration probe or log dilution attempt. Each item is individually evaluated; the batch is AUDIT-flagged when item count exceeds 10. OWASP LLM06, CWE-400. |
+| `mcp-tools-list-flooding` | BLOCK | mcp_rule | tools/list flooding detected — manifest exceeds hard limits (>200 tools or >512 KB). Context-window dilution attack: safety instructions pushed out of LLM attention range. OWASP LLM04, LLM07. |
+| `mcp-tools-list-flooding-audit` | AUDIT | mcp_rule | tools/list anomaly — manifest exceeds audit threshold (>50 tools, >100 KB, or tool description >2 KB). Possible context-window dilution or description padding. OWASP LLM04, LLM07. |
 | `mcp-safety-block-tool-name-injection` | BLOCK | mcp_rule | Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning) |
 | `mcp-safety-block-subscribe-credentials` | BLOCK | mcp_rule | Subscribing to SSH credential files via MCP resources/subscribe enables passive exfiltration: the server pushes file content via change notifications without requiring explicit read_file calls, bypassing existing credential guards. MITRE T1552, OWASP LLM08. |
 | `mcp-safety-block-subscribe-aws` | BLOCK | mcp_rule | Subscribing to AWS credential files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
@@ -1826,8 +1829,8 @@
 | governance-risk | 79 | 62 | 141 |
 | persistence-evasion | 313 | 196 | 509 |
 | privilege-escalation | 290 | 175 | 465 |
-| reconnaissance | 202 | 96 | 298 |
+| reconnaissance | 205 | 98 | 303 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 456 | 315 | 771 |
-| **Total** | **2336** | **1539** | **3875** |
+| **Total** | **2339** | **1541** | **3880** |
 

@@ -1,0 +1,129 @@
+id: "governance-risk/ai-governance-gap/ai-generated-code-license-contamination"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "AI-Generated Code License Contamination"
+risk_level: "high"
+
+abstract: |
+  AI coding agents reproduce verbatim or near-verbatim copyleft-licensed code
+  (GPL, AGPL, SSPL, EUPL) from training data into commercial or proprietary
+  codebases — creating legal exposure, open-source license obligations, and
+  intellectual property liability without the developer's knowledge.
+
+explanation: |
+  Large language models used for code generation are trained on vast corpora
+  of publicly available source code, including GPL-licensed, AGPL-licensed,
+  and SSPL-licensed repositories. When a coding agent reproduces a substantial
+  portion of such code (verbatim or with cosmetic edits), the resulting
+  codebase may be legally required to be released under the same copyleft
+  license, exposing the organization to:
+
+  - **Involuntary open-sourcing**: AGPL/GPL viral clauses require derivative
+    works to be released under the same license. A single contaminated file
+    in a commercial SaaS product could require open-sourcing the entire
+    application codebase.
+  - **SSPL risk (MongoDB, Redis pre-7.0)**: SSPL extends viral obligations
+    to the entire service stack — infrastructure, orchestration, and
+    management tools — not just the application code.
+  - **Regulatory exposure**: EU AI Act Art. 53 requires providers of
+    general-purpose AI models to make publicly available a sufficiently
+    detailed summary of training content. Absent this transparency, users
+    cannot assess license contamination risk.
+  - **Audit liability**: When discovered by legal or security audits (via
+    tools like FOSSA, Black Duck, or ScanCode), contamination triggers
+    incident response, legal review, and potential litigation.
+  - **Compound risk with AI-generated commits**: AI agents that generate,
+    stage, and commit code autonomously bypass the human review step that
+    would normally catch suspicious similarity to known OSS code.
+
+  Common contamination patterns observed in AI coding assistants:
+  - Exact reproduction of GPL-licensed algorithm implementations (sort
+    routines, cryptographic primitives, compression libraries)
+  - Near-verbatim copy of AGPL-licensed ORM or database driver code
+  - Structural duplication of LGPL-licensed parsers or protocol handlers
+  - Reproduction of license headers stripped from the generated output
+    (agent omits the original copyright/license notice from copied code)
+
+  This risk is distinct from `ai-generated-code-backdoor` (intentional
+  security weakness injection) and `supply-chain/dependency-confusion`
+  (malicious package substitution). It arises from legitimate model
+  inference producing legally encumbered outputs.
+
+recommendation: |
+  - **Operator controls**: Deploy license scanning (FOSSA, Black Duck,
+    ScanCode Toolkit) as a CI gate — block merges when a new file scores
+    above a similarity threshold to known copyleft-licensed code.
+  - **Agent configuration**: Instruct coding agents to generate novel
+    implementations rather than reproduce known library functions; enable
+    "avoid copying" system-prompt directives where available.
+  - **AgentShield detection**: Flag `git add` / `git commit` patterns where
+    the staged file contains known copyleft license identifier strings
+    (SPDX: GPL-2.0, GPL-3.0, AGPL-3.0, SSPL-1.0, EUPL-1.2) that were
+    not present in the original file before the agent modified it — a
+    signal that the agent may have reproduced a licensed snippet.
+  - **Human review gate**: Require human sign-off on AI-generated code
+    before merging into protected branches; do not allow autonomous
+    agent commit-and-merge workflows on production branches.
+  - **Attribution logging**: Log all AI code generation events with
+    model version and session ID; retain for license audit trail.
+
+examples:
+  bad:
+    - |
+      # AI agent reproduces GPLv3-licensed sort implementation verbatim
+      # in a commercial codebase — viral GPL obligation applies
+      # (agent omits the original copyright notice from the paste)
+      def timsort(arr):
+          # ... exact reproduction of CPython's listsort.txt algorithm ...
+    - |
+      # AI agent copies AGPL-3.0 database connector code into proprietary SaaS
+      # git log shows: "feat: add connection pooling" (AI-generated commit)
+      # No license header present; original file was AGPL-3.0
+    - |
+      # Agent stages file containing SSPL-licensed Redis client code:
+      git add src/cache/redis_client.py
+      git commit -m "feat: add caching layer"
+  good:
+    - |
+      # Human-reviewed AI suggestion with proper attribution
+      # SPDX-License-Identifier: MIT  (confirming permissive license)
+      # Original author: [name], licensed under MIT
+    - |
+      # CI pipeline rejects merge due to license violation
+      # fossa analyze → BLOCKED: AGPL-3.0 code detected in src/db/orm.py
+      # Similarity score: 94% to github.com/sqlalchemy/sqlalchemy (LGPL-2.1)
+
+compliance:
+  owasp-llm-2025: ["LLM03", "LLM06"]
+  iso-27001-2022: ["A.8.4", "A.8.25", "A.5.10"]
+  eu-ai-act-2024: ["Art.13", "Art.9", "Art.50"]
+  nist-ai-rmf-1.0: ["GOVERN-6", "MAP-5", "MANAGE-4"]
+  soc2-type2: ["CC6.1", "CC9.1"]
+  iso-42001-2023: ["6.1.2", "A.5.2", "A.4.3"]
+
+references:
+  mitre_attack: ["T1195.001"]
+  cwe: ["CWE-1104"]
+  external:
+    - title: "FOSSA — Open Source License Compliance"
+      url: "https://fossa.com/learn/open-source-license-compliance"
+    - title: "SPDX License List"
+      url: "https://spdx.org/licenses/"
+    - title: "EU AI Act Art. 53 — Transparency obligations for general-purpose AI"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "GitHub Copilot and Copyright — EFF Analysis"
+      url: "https://www.eff.org/deeplinks/2022/11/analyzing-github-copilots-potential-for-copyright-infringement"
+
+analyzers: ["regex", "structural"]
+related_rules:
+  - "governance-risk/ai-governance-gap/ai-output-provenance-manipulation"
+  - "supply-chain/model-poisoning/ai-generated-code-backdoor"
+  - "credential-exposure/code-generation-exposure/agent-generated-credential-commit"
+# Detection: Structural/regex analyzer can flag `git add` or `git commit`
+# commands on files that contain SPDX license identifier strings for
+# copyleft licenses (GPL-2.0, GPL-3.0, AGPL-3.0, SSPL-1.0, EUPL-1.2)
+# that weren't in the file before agent modification. Guardian can flag
+# large AI-generated code pastes that contain license headers.
