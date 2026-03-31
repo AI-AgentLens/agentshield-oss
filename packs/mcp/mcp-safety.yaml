@@ -1273,7 +1273,7 @@ structural_rules:
   # Real-world: AI agents have accidentally dropped production tables when given
   #             vague "clean up the database" instructions.
   - id: mcp-safety-block-db-destructive-query-arg
-    taxonomy: "destructive-ops/data-destruction/database-drop"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
     match:
       tool_name_any:
         - "run_query"
@@ -1327,7 +1327,7 @@ structural_rules:
   #
   # MITRE T1485 — Data Destruction
   - id: mcp-safety-block-db-destructive-sql-arg
-    taxonomy: "destructive-ops/data-destruction/database-drop"
+    taxonomy: "destructive-ops/database-destruction/sql-database-drop"
     match:
       tool_name_any:
         - "run_query"

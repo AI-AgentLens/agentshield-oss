@@ -1263,7 +1263,7 @@ rules:
   # MITRE T1176 — Browser Extensions
   # OWASP LLM06 2025 — Excessive Agency
   - id: mcp-persist-block-browser-extension-install
-    taxonomy: "persistence-evasion/persistence/browser-extension-install"
+    taxonomy: "persistence-evasion/agent-config-persistence/browser-extension-install"
     match:
       tool_name_any:
         - "install_extension"

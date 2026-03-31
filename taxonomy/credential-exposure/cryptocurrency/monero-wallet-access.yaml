@@ -3,7 +3,7 @@ version: "1.0.0"
 kingdom: "Credential & Secret Exposure"
 kingdom_id: 2
 category: "Cryptocurrency Wallets & Keys"
-category_id: "2.18"
+category_id: "2.34"
 name: "Monero Wallet Access"
 risk_level: "critical"
 

@@ -1,0 +1,71 @@
+id: "credential-exposure/env-var-exposure/env-var-api-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Environment Variable Exposure"
+category_id: "2.27"
+name: "Environment Variable API Key Access"
+risk_level: "high"
+
+abstract: |
+  MCP tools or shell commands that read named environment variables containing
+  API keys, tokens, or other credentials via calls like get_environment, printenv,
+  or similar interfaces, enabling targeted extraction of specific secrets without
+  requiring broader environment dumps.
+
+explanation: |
+  Modern AI agents and MCP tooling often have access to environment-reading
+  primitives that accept a variable name and return its value. Attackers or
+  malicious agent instructions can exploit these to extract specific high-value
+  credentials by name:
+
+  - `get_environment("OPENAI_API_KEY")` — reads an AI platform API key
+  - `get_environment("AWS_SECRET_ACCESS_KEY")` — reads cloud credentials
+  - `get_environment("DATABASE_URL")` — reads a database connection string
+    with embedded password
+  - `get_environment("GITHUB_TOKEN")` — reads a source control token
+
+  Unlike bulk environment dumps (covered under `process-environ-read`), this
+  technique is surgical — it targets specific, known secret names. This makes
+  it harder to detect via volume-based heuristics, and more dangerous because
+  it demonstrates attacker intent and prior knowledge of the environment.
+
+  MCP tools commonly used for this pattern include: `get_environment`,
+  `read_env`, `get_env_var`, and similar primitives exposed by IDE MCP servers
+  or custom agent tooling.
+
+recommendation: |
+  - Block or audit MCP tool calls to `get_environment` (and equivalents)
+    when the requested variable name matches known secret patterns.
+  - Allowlist specific variable names that are safe for agents to read
+    (e.g., non-sensitive paths and feature flags) and deny all others.
+  - Prefer injecting credentials via scoped secrets rather than exposing
+    them as environment variables to agent processes.
+  - Audit all agent access to environment variable APIs in security monitoring.
+
+examples:
+  bad:
+    - "get_environment('OPENAI_API_KEY')"
+    - "get_environment('AWS_SECRET_ACCESS_KEY')"
+    - "get_environment('DATABASE_URL')"
+    - "get_environment('GITHUB_TOKEN')"
+    - "printenv STRIPE_SECRET_KEY"
+  good:
+    - "get_environment('NODE_ENV')"
+    - "get_environment('PORT')"
+    - "printenv PATH"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+  iso-42001-2023: ["A.3.3", "6.1.2", "9.1"]
+
+references:
+  mitre_attack: ["T1552", "T1552.007"]
+  cwe: ["CWE-214", "CWE-312", "CWE-522"]
+
+analyzers: ["regex", "structural", "mcp"]
+related_rules: ["mcp-safety-audit-get-environment"]

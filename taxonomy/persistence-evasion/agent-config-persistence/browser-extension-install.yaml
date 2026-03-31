@@ -1,0 +1,75 @@
+id: "persistence-evasion/agent-config-persistence/browser-extension-install"
+version: "1.0.0"
+kingdom: "Persistence & Defense Evasion"
+kingdom_id: 6
+category: "Agent Configuration Persistence"
+category_id: "6.7"
+name: "Malicious Browser Extension Installation"
+risk_level: "high"
+
+abstract: |
+  Installation of malicious or unauthorized browser extensions via MCP
+  filesystem or browser automation tools as a persistence mechanism. Browser
+  extensions run with elevated browser privileges, survive agent session
+  restarts, and can intercept credentials, monitor activity, and exfiltrate
+  data on behalf of an attacker.
+
+explanation: |
+  Browser extensions represent a high-value persistence target because they:
+
+  - Run continuously in the browser context with access to all browsing activity
+  - Can intercept HTTP requests, read cookies and session tokens, and modify
+    page content
+  - Survive system reboots and agent session restarts
+  - Are difficult to detect through standard filesystem auditing
+  - Can exfiltrate credentials silently without triggering endpoint security
+
+  AI agents with MCP filesystem access can install extensions by writing
+  extension files to browser extension directories. Similarly, browser
+  automation MCP tools (Playwright, Puppeteer, browser-use) can be used to
+  install extensions programmatically. Attack vectors include:
+
+  - Writing extension manifest and JavaScript to browser extension load paths
+    (`~/.config/chromium/Default/Extensions/`, Chrome's `--load-extension`)
+  - Using browser automation tools to navigate to chrome://extensions or
+    the Web Store and trigger installation
+  - Dropping extension archives (`.crx` files) to auto-install paths
+  - Modifying existing extension directories to inject malicious code
+
+  This technique maps to MITRE ATT&CK T1176 (Browser Extensions) and is
+  particularly relevant for AI agents that have access to both filesystem
+  write primitives and browser automation tooling.
+
+recommendation: |
+  - Block MCP tool calls that write to browser extension directories.
+  - Block browser automation sequences that navigate to extension installation
+    pages (chrome://extensions, edge://extensions).
+  - Monitor for `.crx` file creation and for new directories in browser
+    extension paths.
+  - Require human confirmation before any browser extension installation.
+  - Implement allowlist-based extension policy via enterprise browser management.
+
+examples:
+  bad:
+    - "write_file('~/.config/chromium/Default/Extensions/malicious-ext/manifest.json', ...)"
+    - "playwright navigate to chrome://extensions and enable developer mode"
+    - "copy_file('/tmp/malicious.crx', '~/.config/google-chrome/Default/Extensions/')"
+    - "bash -c 'google-chrome --load-extension=/tmp/spy-ext'"
+  good:
+    - "read_file('~/.config/chromium/Default/Preferences')  # reading browser prefs"
+    - "playwright navigate to https://example.com  # normal browser automation"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.25", "A.8.28"]
+  eu-ai-act-2024: ["Art.9", "Art.14", "Art.15"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC7.1", "CC8.1"]
+  iso-42001-2023: ["A.7.4", "6.1.2", "A.5.2"]
+
+references:
+  mitre_attack: ["T1176"]
+  cwe: ["CWE-94", "CWE-829", "CWE-284"]
+
+analyzers: ["regex", "structural", "semantic", "mcp"]
+related_rules: ["mcp-persist-block-browser-extension-install"]

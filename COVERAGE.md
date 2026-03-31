@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 607 |
-| Total rules | 1685 |
+| MCP rules | 612 |
+| Total rules | 1690 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (308 rules)
+### credential-exposure (311 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1165,6 +1165,9 @@
 | `mcp-recon-block-proc-environ` | BLOCK | mcp_rule | Access to /proc/PID/environ or /proc/self/environ is blocked — contains all environment variables of the target process in plaintext, including API keys, cloud credentials, and database passwords. MITRE T1552.007. |
 | `mcp-recon-block-sensitive-envvar-name` | BLOCK | structural | Access to sensitive environment variable via MCP tool — variable name matches a known credential pattern (AWS keys, database passwords, API tokens). Environment variables are the primary secret delivery mechanism in cloud deployments. MITRE T1552.007. |
 | `mcp-recon-block-sensitive-envvar-variable` | BLOCK | structural | Access to sensitive environment variable via MCP tool — 'variable' argument matches a known credential pattern. MITRE T1552.007. |
+| `mcp-recon-block-bulk-env-dump-tools` | BLOCK | structural | Bulk environment dump tool — dumps all process environment variables at once, exposing every secret (AWS keys, DB passwords, API tokens) without specifying individual names. MITRE T1552.007. |
+| `mcp-recon-block-env-wildcard-name` | BLOCK | structural | Environment variable tool called with wildcard 'name' — requests full environment dump. Exposes all process secrets without specifying individual variable names. MITRE T1552.007. |
+| `mcp-recon-block-env-wildcard-key` | BLOCK | structural | Environment variable tool called with wildcard 'key' — requests full environment dump. Exposes all process secrets without specifying individual variable names. MITRE T1552.007. |
 | `mcp-struct-block-sensitive-path-write` | BLOCK | structural | MCP tool writing to sensitive/protected path |
 | `mcp-struct-block-path-traversal` | BLOCK | structural | Path traversal detected in path argument (including URL-encoded variants) — attempt to escape intended directory |
 | `mcp-struct-block-path-traversal-directory` | BLOCK | structural | Path traversal detected in directory argument (including URL-encoded variants) — attempt to escape intended directory |
@@ -1509,7 +1512,7 @@
 | `mcp-sec-block-curlrc-write` | BLOCK | mcp_rule | MCP write to ~/.curlrc — any proxy directive injected here silently intercepts all future curl traffic (including auth tokens and API credentials) via MITM. MITRE T1557. |
 | `mcp-sec-block-wgetrc-write` | BLOCK | mcp_rule | MCP write to ~/.wgetrc — any proxy directive injected here silently intercepts all future wget traffic (including auth tokens and credentials) via MITM. MITRE T1557. |
 
-### destructive-ops (25 rules)
+### destructive-ops (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1538,6 +1541,8 @@
 | `mcp-safety-block-boot-path-delete` | BLOCK | mcp_rule | File deletion in /boot/ system directory is blocked — deleting kernel or bootloader files bricks the system. MITRE T1485. |
 | `mcp-safety-audit-delete` | AUDIT | mcp_rule | File deletion operations flagged for review. |
 | `mcp-safety-audit-process` | AUDIT | mcp_rule | Process/system management operations flagged for review. |
+| `mcp-safety-block-db-destructive-query-arg` | BLOCK | structural | Irreversible database destruction command (DROP TABLE/DATABASE/SCHEMA, TRUNCATE, or full-table DELETE) in 'query' argument — AI agents must not issue destructive DDL/DML without explicit human confirmation. MITRE T1485. |
+| `mcp-safety-block-db-destructive-sql-arg` | BLOCK | structural | Irreversible database destruction command (DROP TABLE/DATABASE/SCHEMA, TRUNCATE, or full-table DELETE) in 'sql' argument — AI agents must not issue destructive DDL/DML without explicit human confirmation. MITRE T1485. |
 
 ### governance-risk (26 rules)
 
