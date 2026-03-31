@@ -29,11 +29,14 @@ type MCPDefaults struct {
 
 // MCPRule defines a single MCP policy rule.
 type MCPRule struct {
-	ID       string          `yaml:"id"`
-	Match    MCPMatch        `yaml:"match"`
-	Decision policy.Decision `yaml:"decision"`
-	Reason   string          `yaml:"reason"`
-	Tests    *MCPRuleTest    `yaml:"tests,omitempty"` // inline TP/TN test cases
+	ID        string          `yaml:"id"`
+	Match     MCPMatch        `yaml:"match"`
+	Decision  policy.Decision `yaml:"decision"`
+	Reason    string          `yaml:"reason"`
+	Tests     *MCPRuleTest    `yaml:"tests,omitempty"`     // inline TP/TN test cases
+	Engine    string          `yaml:"engine,omitempty"`    // sentinel: Go engine name (skip pattern matching)
+	Taxonomy  string          `yaml:"taxonomy,omitempty"`  // taxonomy reference
+	Suggested string          `yaml:"suggested,omitempty"` // remediation guidance for UI
 }
 
 // MCPRuleTest holds inline test cases for an MCP rule.
@@ -117,7 +120,8 @@ type MCPEvalResult struct {
 
 // PolicyEvaluator evaluates MCP tool calls against an MCPPolicy.
 type PolicyEvaluator struct {
-	policy *MCPPolicy
+	policy        *MCPPolicy
+	SentinelRules map[string]*MCPRule // indexed by Engine name for O(1) lookup
 }
 
 // NewPolicyEvaluator creates a new evaluator from the given MCP policy.
@@ -130,7 +134,21 @@ func NewPolicyEvaluator(p *MCPPolicy) *PolicyEvaluator {
 	if p.Defaults.Decision == "" {
 		p.Defaults.Decision = policy.DecisionAudit
 	}
-	return &PolicyEvaluator{policy: p}
+	sentinels := make(map[string]*MCPRule)
+	for i := range p.Rules {
+		if p.Rules[i].Engine != "" {
+			sentinels[p.Rules[i].Engine] = &p.Rules[i]
+		}
+	}
+	return &PolicyEvaluator{policy: p, SentinelRules: sentinels}
+}
+
+// LookupSentinel returns the sentinel rule for the given engine name, or nil if not found.
+func (e *PolicyEvaluator) LookupSentinel(engine string) *MCPRule {
+	if e == nil || e.SentinelRules == nil {
+		return nil
+	}
+	return e.SentinelRules[engine]
 }
 
 // EvaluateToolCall checks a tool call against the MCP policy.
@@ -207,6 +225,10 @@ func (e *PolicyEvaluator) EvaluateToolCallFull(toolName string, arguments map[st
 }
 
 func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interface{}, rule MCPRule) bool {
+	// Sentinel rules are claimed by Go engines, not pattern-matched.
+	if rule.Engine != "" {
+		return false
+	}
 	m := rule.Match
 
 	// Tool name matching (if any name matcher is specified, at least one must match)

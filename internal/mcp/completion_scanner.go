@@ -75,16 +75,22 @@ func (h *MessageHandler) FilterCompletionResponse(data []byte) []byte {
 		for _, f := range scanResult.Findings {
 			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (field: "+f.Field+")")
 		}
+		ruleID := "completion-injection-scan"
+		taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-completion-endpoint-injection"
+		if sentinel := h.Evaluator.LookupSentinel("mcp-completion-scan"); sentinel != nil {
+			ruleID = sentinel.ID
+			taxonomyRef = sentinel.Taxonomy
+		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       MethodCompletionComplete,
 			Decision:       "BLOCK",
 			Flagged:        true,
-			TriggeredRules: []string{"completion-injection-scan"},
+			TriggeredRules: []string{ruleID},
 			Reasons:        reasons,
 			Source:         "mcp-proxy-completion-scan",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-completion-endpoint-injection",
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 

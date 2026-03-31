@@ -13,11 +13,12 @@ import (
 // MessageHandler encapsulates the shared MCP message evaluation logic
 // used by both stdio and HTTP transport proxies.
 type MessageHandler struct {
-	Evaluator    *PolicyEvaluator
-	OnAudit      AuditFunc
-	Stderr       io.Writer
-	ServerName   string             // identifies the downstream MCP server in audit entries
-	SchemaDrift  *SchemaDriftScanner // optional; nil disables schema drift detection
+	Evaluator     *PolicyEvaluator
+	OnAudit       AuditFunc
+	Stderr        io.Writer
+	ServerName    string              // identifies the downstream MCP server in audit entries
+	SchemaDrift   *SchemaDriftScanner // optional; nil disables schema drift detection
+	ToolRegistry  *ToolRegistry       // optional; nil disables cross-server collision detection
 }
 
 // BatchLargeAuditThreshold is the batch size above which AgentShield emits an AUDIT
@@ -478,7 +479,14 @@ func (h *MessageHandler) HandleNotificationMessage(msg *Message) bool {
 		return false
 	}
 
-	triggered := []string{"notification-injection-scan"}
+	ruleID := "notification-injection-scan"
+	taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-logging-notification-injection"
+	if sentinel := h.Evaluator.LookupSentinel("mcp-notification-scan"); sentinel != nil {
+		ruleID = sentinel.ID
+		taxonomyRef = sentinel.Taxonomy
+	}
+
+	triggered := []string{ruleID}
 	var reasons []string
 	for _, f := range scanResult.Findings {
 		triggered = append(triggered, "notification:"+string(f.Signal))
@@ -501,7 +509,7 @@ func (h *MessageHandler) HandleNotificationMessage(msg *Message) bool {
 			Reasons:        reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-logging-notification-injection",
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 
@@ -552,16 +560,22 @@ func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
 		for _, f := range scanResult.Findings {
 			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (field: "+f.Field+")")
 		}
+		ruleID := "prompts-get-injection-scan"
+		taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection"
+		if sentinel := h.Evaluator.LookupSentinel("mcp-prompt-scan"); sentinel != nil {
+			ruleID = sentinel.ID
+			taxonomyRef = sentinel.Taxonomy
+		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       MethodPromptsGet,
 			Decision:       "BLOCK",
 			Flagged:        true,
-			TriggeredRules: []string{"prompts-get-injection-scan"},
+			TriggeredRules: []string{ruleID},
 			Reasons:        reasons,
 			Source:         "mcp-proxy-prompts-scan",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 
@@ -762,6 +776,45 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 						ServerName: serverKey,
 					})
 				}
+			}
+		}
+	}
+
+	// Check for cross-server tool name collisions.
+	if h.ToolRegistry != nil {
+		serverKey := h.ServerName
+		if serverKey == "" {
+			serverKey = "default"
+		}
+		collisionResult := h.ToolRegistry.Register(serverKey, listResult.Tools)
+		if collisionResult != nil && len(collisionResult.Collisions) > 0 {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] TOOL COLLISION detected for server %q: %s\n",
+				serverKey, collisionResult.CollisionSummary())
+
+			if h.OnAudit != nil {
+				ruleID := "mcp-tool-name-collision"
+				reason := collisionResult.CollisionSummary()
+				taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-tool-name-collision"
+				if sentinel := h.Evaluator.LookupSentinel("mcp-tool-collision"); sentinel != nil {
+					ruleID = sentinel.ID
+					if sentinel.Reason != "" {
+						reason = sentinel.Reason + " " + collisionResult.CollisionSummary()
+					}
+					if sentinel.Taxonomy != "" {
+						taxonomyRef = sentinel.Taxonomy
+					}
+				}
+				h.OnAudit(AuditEntry{
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					ToolName:       "tools/list",
+					Decision:       "AUDIT",
+					Flagged:        true,
+					TriggeredRules: []string{ruleID},
+					Reasons:        []string{reason},
+					Source:         "mcp-proxy-tool-collision",
+					ServerName:     serverKey,
+					TaxonomyRef:    taxonomyRef,
+				})
 			}
 		}
 	}

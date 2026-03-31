@@ -68,11 +68,12 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:   cfg.Evaluator,
-			OnAudit:     cfg.OnAudit,
-			Stderr:      stderr,
-			ServerName:  cfg.ServerName,
-			SchemaDrift: newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			Evaluator:    cfg.Evaluator,
+			OnAudit:      cfg.OnAudit,
+			Stderr:       stderr,
+			ServerName:   cfg.ServerName,
+			SchemaDrift:  newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			ToolRegistry: newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
 		},
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // generous timeout for long-running tool calls

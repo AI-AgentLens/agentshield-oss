@@ -75,11 +75,12 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:   cfg.Evaluator,
-			OnAudit:     cfg.OnAudit,
-			Stderr:      stderr,
-			ServerName:  cfg.ServerName,
-			SchemaDrift: newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			Evaluator:    cfg.Evaluator,
+			OnAudit:      cfg.OnAudit,
+			Stderr:       stderr,
+			ServerName:   cfg.ServerName,
+			SchemaDrift:  newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			ToolRegistry: newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
 		},
 	}
 }

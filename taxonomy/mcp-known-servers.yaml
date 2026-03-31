@@ -1,0 +1,226 @@
+# MCP Known Servers — Trust Assessment Database
+#
+# Used by AI Agent Lens (AI BOM) to provide human-readable trust assessments
+# for MCP servers detected in customer environments.
+#
+# Trust levels:
+#   official   — Published and maintained by the platform vendor. Verified source.
+#   community  — Popular open-source, widely adopted. Review recommended.
+#   unknown    — Not in this database. Manual review strongly recommended.
+#
+# name_pattern: matched against the MCP server name from audit events.
+#   Supports exact match and trailing wildcard (*).
+#
+# This file is curated by AI Agent Lens security research. Contributions welcome.
+
+servers:
+  # ── Anthropic ──────────────────────────────────────────────────────
+  - name_pattern: "claude-code-mcp"
+    display_name: "Claude Code MCP"
+    vendor: "Anthropic"
+    trust: official
+    category: "Development"
+    description: >
+      Official MCP server for Claude Code by Anthropic. Provides code editing,
+      file operations, and development workflow tools. Widely deployed in
+      enterprise development environments.
+    security_notes: >
+      Grants file system access within configured project boundaries.
+      Ensure project paths are scoped appropriately.
+
+  - name_pattern: "claude-ai-*"
+    display_name: "Claude AI Services"
+    vendor: "Anthropic"
+    trust: official
+    category: "AI Services"
+    description: >
+      Official Anthropic MCP services for Claude integrations including
+      Figma, Gmail, Notion, and other first-party connectors.
+    security_notes: >
+      Each service has its own OAuth scopes. Review granted permissions
+      per integration.
+
+  # ── GitHub ─────────────────────────────────────────────────────────
+  - name_pattern: "github-mcp-server"
+    display_name: "GitHub MCP"
+    vendor: "GitHub"
+    trust: official
+    category: "Development"
+    description: >
+      Official GitHub MCP server for repository management, issue tracking,
+      pull request operations, and code search. Published by GitHub.
+    security_notes: >
+      Requires a GitHub personal access token. Review token scopes —
+      prefer read-only tokens unless write access is needed.
+
+  - name_pattern: "github*"
+    display_name: "GitHub Integration"
+    vendor: "GitHub"
+    trust: official
+    category: "Development"
+    description: >
+      GitHub-published MCP server for repository and workflow operations.
+
+  # ── Slack ──────────────────────────────────────────────────────────
+  - name_pattern: "slack-mcp*"
+    display_name: "Slack MCP"
+    vendor: "Salesforce/Slack"
+    trust: official
+    category: "Communication"
+    description: >
+      Official Slack MCP server for workspace messaging, channel management,
+      and team collaboration. Published by Slack.
+    security_notes: >
+      Sends messages on behalf of the authenticated user. Review channel
+      access and ensure the bot token has minimal required scopes.
+
+  # ── Google ─────────────────────────────────────────────────────────
+  - name_pattern: "google-drive*"
+    display_name: "Google Drive MCP"
+    vendor: "Google"
+    trust: official
+    category: "Productivity"
+    description: >
+      MCP server for Google Drive file operations — search, read, and
+      manage documents, spreadsheets, and presentations.
+    security_notes: >
+      Accesses Google Drive with the authenticated user's permissions.
+      Scope to specific folders when possible.
+
+  # ── Atlassian ──────────────────────────────────────────────────────
+  - name_pattern: "jira*"
+    display_name: "Jira MCP"
+    vendor: "Atlassian"
+    trust: official
+    category: "Project Management"
+    description: >
+      MCP server for Jira issue tracking — create, update, search, and
+      manage issues and sprints.
+
+  - name_pattern: "confluence*"
+    display_name: "Confluence MCP"
+    vendor: "Atlassian"
+    trust: official
+    category: "Documentation"
+    description: >
+      MCP server for Confluence wiki — search, read, and create pages.
+
+  # ── Reference / Community Servers ──────────────────────────────────
+  - name_pattern: "filesystem*"
+    display_name: "Filesystem Server"
+    vendor: "MCP Reference"
+    trust: community
+    category: "System"
+    description: >
+      Reference MCP server for local filesystem operations. Part of the
+      MCP specification examples. Community-maintained.
+    security_notes: >
+      Grants direct file read/write access. Review configured paths
+      carefully — restrict to project directories only.
+
+  - name_pattern: "sqlite*"
+    display_name: "SQLite Server"
+    vendor: "MCP Reference"
+    trust: community
+    category: "Database"
+    description: >
+      Reference MCP server for SQLite database operations. Executes
+      SQL queries against local SQLite databases.
+    security_notes: >
+      Allows arbitrary SQL execution. Ensure database files do not
+      contain sensitive data unless access is intended.
+
+  - name_pattern: "postgres*"
+    display_name: "PostgreSQL Server"
+    vendor: "Community"
+    trust: community
+    category: "Database"
+    description: >
+      Community MCP server for PostgreSQL database operations.
+    security_notes: >
+      Connects to a PostgreSQL instance with the configured credentials.
+      Use read-only database users when possible.
+
+  - name_pattern: "brave-search*"
+    display_name: "Brave Search"
+    vendor: "Brave"
+    trust: community
+    category: "Search"
+    description: >
+      MCP server for web search via the Brave Search API. Returns
+      search results that the AI agent can use for research tasks.
+
+  - name_pattern: "puppeteer*"
+    display_name: "Puppeteer Browser"
+    vendor: "Community"
+    trust: community
+    category: "Browser Automation"
+    description: >
+      MCP server for browser automation via Puppeteer. Controls a
+      headless Chrome instance for web scraping and testing.
+    security_notes: >
+      Browser automation can navigate to arbitrary URLs and execute
+      JavaScript. Monitor for credential exposure and data exfiltration.
+
+  - name_pattern: "playwright*"
+    display_name: "Playwright Browser"
+    vendor: "Community"
+    trust: community
+    category: "Browser Automation"
+    description: >
+      MCP server for browser automation via Playwright. Controls
+      browser instances for testing and web interaction.
+    security_notes: >
+      Similar risks to Puppeteer — can navigate to arbitrary URLs
+      and execute JavaScript in page context.
+
+  - name_pattern: "docker*"
+    display_name: "Docker MCP"
+    vendor: "Community"
+    trust: community
+    category: "Infrastructure"
+    description: >
+      MCP server for Docker container management — build, run, and
+      manage containers.
+    security_notes: >
+      Docker access implies significant system privilege. Ensure the
+      Docker socket is not exposed to untrusted MCP clients.
+
+  - name_pattern: "linear*"
+    display_name: "Linear MCP"
+    vendor: "Linear"
+    trust: community
+    category: "Project Management"
+    description: >
+      MCP server for Linear issue tracking — create, update, and
+      search issues and projects.
+
+  - name_pattern: "notion*"
+    display_name: "Notion MCP"
+    vendor: "Notion"
+    trust: community
+    category: "Productivity"
+    description: >
+      MCP server for Notion workspace operations — pages, databases,
+      and content management.
+
+  - name_pattern: "sentry*"
+    display_name: "Sentry MCP"
+    vendor: "Sentry"
+    trust: community
+    category: "Observability"
+    description: >
+      MCP server for Sentry error tracking — search issues, view
+      stack traces, and manage error resolution.
+
+  - name_pattern: "open-brain*"
+    display_name: "Open Brain Memory"
+    vendor: "Internal"
+    trust: community
+    category: "AI Memory"
+    description: >
+      Semantic long-term memory server using vector embeddings.
+      Stores and retrieves memories across AI agent sessions.
+    security_notes: >
+      Stores conversation context persistently. Review what data
+      is being captured and ensure PII handling is appropriate.
