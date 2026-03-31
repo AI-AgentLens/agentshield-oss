@@ -1724,6 +1724,121 @@ semantic_rules:
     decision: "AUDIT"
     reason: "MCP write to AI agent memory store or instruction file (.claude/memory/, .cursorrules, .windsurfrules) — MCP-layer writes bypass shell detection and can silently accumulate permission-expanding instructions (agent-safety-alignment-drift, OWASP LLM01/LLM08)."
 
+  # === BLOCK: Database destructive SQL via generic query tools — 'query' arg (issue #780) ===
+  #
+  # AI agents with database access can accidentally (or via prompt injection) issue
+  # irreversible destructive SQL commands through generic MCP database query tools.
+  # Shell-level rules block `echo "DROP TABLE users" | psql` but MCP query tools
+  # bypass the shell entirely.
+  #
+  # This rule covers tools that use 'query' as the argument key.
+  # Separate rules cover 'sql' and 'statement' argument keys.
+  #
+  # MITRE T1485 — Data Destruction
+  # Real-world: AI agents have accidentally dropped production tables when given
+  #             vague "clean up the database" instructions.
+  - id: mcp-safety-block-db-destructive-query-arg
+    taxonomy: "destructive-ops/data-destruction/database-drop"
+    match:
+      tool_name_any:
+        - "run_query"
+        - "query"
+        - "database_query"
+        - "db_query"
+        - "execute_query"
+        - "sql_query"
+        - "pg_query"
+        - "mysql_query"
+        - "sqlite_query"
+        - "run_sql"
+        - "execute_sql_query"
+        - "db_run"
+      args_match:
+        query:
+          pattern_any:
+            - "(?i)^\\s*DROP\\s+(TABLE|DATABASE|SCHEMA|INDEX)\\b"
+            - "(?i)^\\s*TRUNCATE\\s+(TABLE\\s+)?\\w"
+            - "(?i)\\bDELETE\\s+FROM\\s+\\w[\\w.]*\\s+WHERE\\s+(1\\s*=\\s*1|TRUE|1)\\s*;?\\s*$"
+            - "(?i)\\bDELETE\\s+FROM\\s+\\w[\\w.]*\\s*;?\\s*$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Irreversible database destruction command (DROP TABLE/DATABASE/SCHEMA, TRUNCATE, or full-table DELETE) in 'query' argument — AI agents must not issue destructive DDL/DML without explicit human confirmation. MITRE T1485."
+    tests:
+      tp:
+        - tool: "run_query"
+          args: {"query": "DROP TABLE users"}
+        - tool: "database_query"
+          args: {"query": "DROP SCHEMA production CASCADE"}
+        - tool: "database_query"
+          args: {"query": "TRUNCATE TABLE session_data"}
+        - tool: "run_query"
+          args: {"query": "DELETE FROM users WHERE 1=1"}
+        - tool: "pg_query"
+          args: {"query": "DELETE FROM logs"}
+      tn:
+        - tool: "run_query"
+          args: {"query": "SELECT * FROM users WHERE id = 1"}
+        - tool: "run_query"
+          args: {"query": "DELETE FROM sessions WHERE expires_at < NOW()"}
+        - tool: "database_query"
+          args: {"query": "CREATE TABLE new_users (id INT)"}
+        - tool: "read_file"
+          args: {"path": "/workspace/migrations/drop_old_table.sql"}
+
+  # === BLOCK: Database destructive SQL — 'sql' arg (issue #780) ===
+  #
+  # Same threat as above — some MCP tools use 'sql' instead of 'query' for the arg.
+  # For example: run_query(sql="DROP TABLE users"), query(sql="TRUNCATE TABLE data").
+  #
+  # MITRE T1485 — Data Destruction
+  - id: mcp-safety-block-db-destructive-sql-arg
+    taxonomy: "destructive-ops/data-destruction/database-drop"
+    match:
+      tool_name_any:
+        - "run_query"
+        - "query"
+        - "database_query"
+        - "db_query"
+        - "execute_query"
+        - "sql_query"
+        - "pg_query"
+        - "mysql_query"
+        - "sqlite_query"
+        - "run_sql"
+        - "execute_sql_query"
+        - "db_run"
+      args_match:
+        sql:
+          pattern_any:
+            - "(?i)^\\s*DROP\\s+(TABLE|DATABASE|SCHEMA|INDEX)\\b"
+            - "(?i)^\\s*TRUNCATE\\s+(TABLE\\s+)?\\w"
+            - "(?i)\\bDELETE\\s+FROM\\s+\\w[\\w.]*\\s+WHERE\\s+(1\\s*=\\s*1|TRUE|1)\\s*;?\\s*$"
+            - "(?i)\\bDELETE\\s+FROM\\s+\\w[\\w.]*\\s*;?\\s*$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Irreversible database destruction command (DROP TABLE/DATABASE/SCHEMA, TRUNCATE, or full-table DELETE) in 'sql' argument — AI agents must not issue destructive DDL/DML without explicit human confirmation. MITRE T1485."
+    tests:
+      tp:
+        - tool: "run_query"
+          args: {"sql": "DROP TABLE users"}
+        - tool: "query"
+          args: {"sql": "TRUNCATE TABLE customers"}
+        - tool: "run_query"
+          args: {"sql": "DELETE FROM users WHERE 1=1"}
+        - tool: "pg_query"
+          args: {"sql": "DELETE FROM session_data"}
+        - tool: "mysql_query"
+          args: {"sql": "DROP DATABASE analytics"}
+      tn:
+        - tool: "run_query"
+          args: {"sql": "SELECT COUNT(*) FROM orders WHERE status='pending'"}
+        - tool: "run_query"
+          args: {"sql": "DELETE FROM temp_logs WHERE created_at < '2024-01-01'"}
+        - tool: "query"
+          args: {"sql": "INSERT INTO events (name) VALUES ('deploy')"}
+        - tool: "read_file"
+          args: {"path": "/workspace/migrations/001_drop_legacy.sql"}
+
 resource_rules:
   # === BLOCK: resources/read — cloud IMDS endpoints (SSRF via resource URI) ===
   #
@@ -1762,3 +1877,4 @@ resource_rules:
       uri_regex: "^file:///etc/(shadow|passwd|sudoers|gshadow|master\\.passwd)(\\.[^/]*)?$"
     decision: "BLOCK"
     reason: "resources/read URI targets a sensitive OS credential file — /etc/shadow, /etc/passwd, and /etc/sudoers contain user credentials and privilege configuration. MITRE T1003, T1552."
+
