@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 614 |
-| Total rules | 1692 |
+| MCP rules | 617 |
+| Total rules | 1695 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1701,7 +1701,7 @@
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (87 rules)
+### unauthorized-execution (90 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1766,6 +1766,9 @@
 | `mcp-guardian-tool-description-poisoning` | BLOCK | mcp_rule | MCP tool description poisoning detected — hidden instructions or credential-harvesting prompts found in tool metadata |
 | `mcp-sec-audit-tool-description-changed` | AUDIT | mcp_rule | MCP tool description changed since last approval — possible rug-pull attack where server altered tool behavior post-authorization. Re-verify tool intent before use. OWASP LLM07/LLM09, MITRE T1036/T1195. |
 | `mcp-guardian-annotation-spoofing` | AUDIT | mcp_rule | MCP tool annotation inconsistency detected — readOnly:true annotation contradicts destructive verb in tool name, or openWorld:false conceals egress behavior. Possible rug-pull via annotation spoofing. OWASP LLM07/LLM09. |
+| `mcp-oauth-as-metadata-spoofing` | BLOCK | mcp_rule | OAuth AS metadata contains non-HTTPS endpoints — plaintext credential exchange is possible. MCP OAuth 2.1 mandates HTTPS for all authorization endpoints (RFC 8414 §3.3). OWASP LLM09, MITRE T1557, CWE-319. |
+| `mcp-oauth-as-metadata-spoofing-audit` | AUDIT | mcp_rule | OAuth AS metadata anomaly — endpoint domain mismatch, issuer mismatch, or missing PKCE S256 support detected. Possible rogue AS redirection or PKCE downgrade attack. Re-verify server identity before proceeding. OWASP LLM09, CWE-757. |
+| `mcp-batch-large-audit` | AUDIT | mcp_rule | JSON-RPC batch request exceeds size threshold — possible batch enumeration probe or log dilution attempt. Each item is individually evaluated; the batch is AUDIT-flagged when item count exceeds 10. OWASP LLM06, CWE-400. |
 | `mcp-safety-block-tool-name-injection` | BLOCK | mcp_rule | Tool name contains prompt-injection or jailbreak keywords — likely installed by a poisoned MCP server to hijack agent behavior (LLM01: mcp-tool-description-poisoning) |
 | `mcp-safety-block-subscribe-credentials` | BLOCK | mcp_rule | Subscribing to SSH credential files via MCP resources/subscribe enables passive exfiltration: the server pushes file content via change notifications without requiring explicit read_file calls, bypassing existing credential guards. MITRE T1552, OWASP LLM08. |
 | `mcp-safety-block-subscribe-aws` | BLOCK | mcp_rule | Subscribing to AWS credential files via MCP resources/subscribe enables passive exfiltration through change notifications. MITRE T1552, OWASP LLM08. |
