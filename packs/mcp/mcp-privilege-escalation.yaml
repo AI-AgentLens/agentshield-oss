@@ -434,6 +434,10 @@ structural_rules:
   # FP fix (issue #145): Exclude packs/ and internal/ — AgentShield policy pack YAML and
   # test fixture files legitimately contain "privileged: true" as a detection example or
   # test case, not as live container configuration. Same applies to the taxonomy/ tree.
+  # FP fix (issue #782): Add tests/ path exclusions and content-based exclusion for
+  # Semgrep test annotations (# ruleid: / // ruleid:) — test files with annotated TP/TN
+  # samples demonstrate a vulnerability rather than create live container config.
+  # Also handles tools that lack a path argument (edit_file, str_replace_editor).
   - id: mcp-privesc-block-privileged-container
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
@@ -462,6 +466,14 @@ structural_rules:
             - "(?i)^packs[/\\\\].*"
             - "(?i).*[/\\\\]internal[/\\\\].*"
             - "(?i)^internal[/\\\\].*"
+            - "(?i).*[/\\\\]tests?[/\\\\].*"
+            - "(?i)^tests?[/\\\\].*"
+            - "(?i).*[/\\\\]testdata[/\\\\].*"
+            - "(?i)^testdata[/\\\\].*"
+        content:
+          pattern_any:
+            - "(?i)#\\s*ruleid:"
+            - "(?i)//\\s*ruleid:"
     decision: "BLOCK"
     reason: "Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611."
     tests:
@@ -473,9 +485,12 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "packs/mcp/example.yaml", "content": "privileged: true"}
-      # TN: exclude path matches packs/
         - tool: "write_file"
           args: {"path": "docs/security-guide.md", "content": "Never set privileged: true"}
+        - tool: "write_file"
+          args: {"path": "rules/tests/container-escape/test_go.go", "content": "// ruleid: ai-container-escape\nclient.CreateContainer(ctx, ContainerConfig{Privileged: true})"}
+        - tool: "edit_file"
+          args: {"content": "# ruleid: priv-container\nPrivileged: true\n# ok:\nPrivileged: false"}
 
   # === AUDIT: Sudo configuration modification ===
   # FP fix: exclude documentation, test files, and markdown — these legitimately
