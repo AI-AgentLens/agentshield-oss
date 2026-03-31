@@ -499,6 +499,35 @@ rules:
     # No inline tests — empty match means matchRule always returns false;
     # actual detection is code-level in oauth_scanner.go, not YAML-evaluated.
 
+  # === AUDIT: JSON-RPC batch request — large batch enumeration probe ===
+  # Detection is implemented at the code level in internal/mcp/handler.go
+  # (HandleBatch / BatchLargeAuditThreshold). This YAML entry registers the
+  # taxonomy reference and rule ID for coverage metrics and audit log correlation.
+  #
+  # AUDIT triggers:
+  #   - A JSON-RPC batch request (JSON array at root) contains more than
+  #     BatchLargeAuditThreshold (10) items. Large batches are a typical
+  #     pattern for batch enumeration (probing hundreds of credential path
+  #     variants in one request) and log dilution (masking inner calls behind
+  #     a single audit event).
+  #
+  # Individual items within the batch are each evaluated through the full
+  # per-request pipeline — any item that would be blocked causes the entire
+  # batch to be blocked (fail-closed). That block uses the triggered rules of
+  # the matching per-item rule, not this rule ID.
+  #
+  # OWASP LLM06 (Excessive Agency), MITRE T1059, T1070 (log dilution)
+  # CWE-400 (Uncontrolled Resource Consumption), CWE-778 (Insufficient Logging)
+  - id: "mcp-batch-large-audit"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-batch-request-abuse"
+    match: {}  # empty match — rule never fires from YAML; detection is in handler.go (HandleBatch)
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "JSON-RPC batch request exceeds size threshold — possible batch enumeration probe or log dilution attempt. Each item is individually evaluated; the batch is AUDIT-flagged when item count exceeds 10. OWASP LLM06, CWE-400."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in handler.go (HandleBatch), not YAML-evaluated.
+    # Unit tests live in internal/mcp/batch_test.go.
+
   # === BLOCK: Tool name injection patterns (YAML-evaluatable complement to code-level detection) ===
   # A poisoned MCP server may install tools with names that themselves contain
   # injected instructions or dual-use keywords. Blocking calls to tools whose
