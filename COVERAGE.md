@@ -1,14 +1,14 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-30 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-03-31 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1078 |
-| MCP rules | 598 |
-| Total rules | 1676 |
+| MCP rules | 607 |
+| Total rules | 1685 |
 | Test cases (TP+TN) | 3875 |
 | Kingdoms covered | 10 |
 
@@ -1144,7 +1144,7 @@
 
 ## MCP Rules
 
-### credential-exposure (299 rules)
+### credential-exposure (308 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1206,6 +1206,9 @@
 | `mcp-sec-block-sequel-pro-connections` | BLOCK | mcp_rule | Access to Sequel Pro connection favorites is blocked — plist files store MySQL/PostgreSQL connection details including credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-datasources` | BLOCK | mcp_rule | Access to DataGrip config is blocked — dataSources.local.xml stores database connection credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-jetbrains` | BLOCK | mcp_rule | Access to DataGrip config via JetBrains directory is blocked — dataSources.local.xml stores database connection credentials (newer JetBrains config layout). MITRE T1552.001. |
+| `mcp-sec-block-jetbrains-security-xml` | BLOCK | mcp_rule | Access to JetBrains IDE security.xml is blocked — this file contains the master password hash protecting the IDE's credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
+| `mcp-sec-block-jetbrains-web-servers` | BLOCK | mcp_rule | Access to JetBrains webServers.xml is blocked — contains FTP/SFTP/web server connection credentials stored by the IDE deployment/remote host configuration. MITRE T1552.001. |
+| `mcp-sec-block-jetbrains-datasources` | BLOCK | mcp_rule | Access to JetBrains dataSources.local.xml is blocked — contains database connection credentials (passwords, SSL keys) for all databases configured in any JetBrains IDE. MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
 | `mcp-sec-block-smb-credentials` | BLOCK | mcp_rule | Access to ~/.smbcredentials is blocked — contains Samba network share credentials (username, password, domain) in plaintext, used for auto-mounting CIFS shares. Exfiltration exposes Active Directory credentials. MITRE T1552.001. |
 | `mcp-sec-block-rclone-conf` | BLOCK | mcp_rule | Access to ~/.rclone.conf is blocked — contains OAuth tokens and API keys for all configured cloud storage providers (AWS S3, Google Drive, Dropbox, OneDrive, Azure). A single exfiltration event grants access to all cloud storage. MITRE T1552.001. |
@@ -1361,6 +1364,12 @@
 | `mcp-sec-block-discord-macos-creds` | BLOCK | mcp_rule | Access to macOS Discord app data directory is blocked — ~/Library/Application Support/discord/ contains auth tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-signal-macos-creds` | BLOCK | mcp_rule | Access to macOS Signal app data directory is blocked — ~/Library/Application Support/Signal/ contains account credentials (config.json), encryption keys, and the encrypted message database. MITRE T1552.001. |
 | `mcp-sec-block-github-desktop-macos-creds` | BLOCK | mcp_rule | Access to macOS GitHub Desktop app data is blocked — ~/Library/Application Support/GitHub Desktop/ contains OAuth tokens granting full GitHub API access under the user's identity. MITRE T1552.001. |
+| `mcp-sec-block-telegram-session-linux` | BLOCK | mcp_rule | Access to Telegram Desktop session data is blocked — ~/.local/share/TelegramDesktop/tdata/ contains session keys that authenticate without a password and bypass 2FA, enabling full account takeover and message history access. MITRE T1539, T1552.001. |
+| `mcp-sec-block-telegram-session-macos` | BLOCK | mcp_rule | Access to macOS Telegram app sandboxed data is blocked — contains session keys that authenticate without a password and bypass 2FA. MITRE T1539, T1552.001. |
+| `mcp-sec-block-signal-session-linux` | BLOCK | mcp_rule | Access to Signal Desktop session data on Linux is blocked — ~/.config/Signal/ contains account credentials (config.json), encryption keys, and the SQLCipher encrypted message database. Compromise enables full message history access and account hijacking. MITRE T1552.001. |
+| `mcp-sec-block-whatsapp-desktop-linux` | BLOCK | mcp_rule | Access to WhatsApp Desktop data directory is blocked — contains multi-device session keys and registration credentials enabling account hijacking. MITRE T1539, T1552.001. |
+| `mcp-sec-block-zoom-credentials` | BLOCK | mcp_rule | Access to Zoom credential directory is blocked — ~/.zoom/data/ contains SSO session tokens and authentication credentials enabling unauthorized meeting access. MITRE T1539, T1552.001. |
+| `mcp-sec-block-teams-credentials` | BLOCK | mcp_rule | Access to Microsoft Teams credential directory is blocked — contains OAuth token caches and MSAL session material enabling access to Microsoft 365 resources. MITRE T1552.001. |
 | `mcp-sec-block-pagerduty-creds` | BLOCK | mcp_rule | Access to PagerDuty CLI config is blocked — contains API token enabling incident creation/silencing and responder impersonation. MITRE T1552.001. |
 | `mcp-sec-block-chrome-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-chrome-linux-credential-db` | BLOCK | mcp_rule | Access to Chrome browser profile directory (Linux) is blocked — ~/.config/google-chrome/ contains saved passwords (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
