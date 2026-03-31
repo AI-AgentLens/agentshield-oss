@@ -459,6 +459,46 @@ rules:
     # No inline tests — empty match means matchRule always returns false;
     # actual detection is code-level in description_scanner.go, not YAML-evaluated.
 
+  # === BLOCK: OAuth AS metadata spoofing — non-HTTPS endpoints ===
+  # Detection is implemented at the code level in internal/mcp/oauth_scanner.go
+  # (ScanOAuthASMetadata, interceptOAuthASMetadata) and integrated in http_proxy.go.
+  # This YAML entry registers the taxonomy reference and rule ID for coverage metrics
+  # and audit log correlation.
+  #
+  # BLOCK triggers (non-HTTPS endpoints):
+  #   - authorization_endpoint, token_endpoint, or other OAuth endpoints use HTTP
+  #     instead of HTTPS — enables plaintext credential interception.
+  #
+  # MCP OAuth 2.1 requires all endpoints to use HTTPS (RFC 8414 §3.3).
+  # OWASP LLM09 (Overreliance), MITRE T1557 (Adversary-in-the-Middle)
+  # CWE-319 (Cleartext Transmission of Sensitive Information)
+  - id: "mcp-oauth-as-metadata-spoofing"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-oauth-as-metadata-spoofing"
+    match: {}  # empty match — rule never fires from YAML; detection is in oauth_scanner.go + http_proxy.go
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "OAuth AS metadata contains non-HTTPS endpoints — plaintext credential exchange is possible. MCP OAuth 2.1 mandates HTTPS for all authorization endpoints (RFC 8414 §3.3). OWASP LLM09, MITRE T1557, CWE-319."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in oauth_scanner.go (ScanOAuthASMetadata), not YAML-evaluated.
+    # Unit tests live in internal/mcp/oauth_scanner_test.go.
+
+  # === AUDIT: OAuth AS metadata spoofing — domain mismatch / missing PKCE ===
+  # Companion audit-level rule for the OAuth scanner. Emitted when:
+  #   - An OAuth endpoint domain differs from the metadata origin domain (possible rogue AS redirect)
+  #   - The issuer field in AS metadata doesn't match the serving domain (RFC 8414 §3.3 violation)
+  #   - code_challenge_methods_supported is absent or doesn't include S256 (PKCE downgrade)
+  #
+  # Detection is in oauth_scanner.go (ScanOAuthASMetadata), integrated in http_proxy.go.
+  # OWASP LLM09, MITRE T1557, CWE-757 (Selection of Less-Secure Algorithm During Negotiation)
+  - id: "mcp-oauth-as-metadata-spoofing-audit"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-oauth-as-metadata-spoofing"
+    match: {}  # empty match — rule never fires from YAML; detection is in oauth_scanner.go
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "OAuth AS metadata anomaly — endpoint domain mismatch, issuer mismatch, or missing PKCE S256 support detected. Possible rogue AS redirection or PKCE downgrade attack. Re-verify server identity before proceeding. OWASP LLM09, CWE-757."
+    # No inline tests — empty match means matchRule always returns false;
+    # actual detection is code-level in oauth_scanner.go, not YAML-evaluated.
+
   # === BLOCK: Tool name injection patterns (YAML-evaluatable complement to code-level detection) ===
   # A poisoned MCP server may install tools with names that themselves contain
   # injected instructions or dual-use keywords. Blocking calls to tools whose
