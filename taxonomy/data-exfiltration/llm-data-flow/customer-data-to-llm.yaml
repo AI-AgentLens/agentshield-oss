@@ -40,7 +40,7 @@ examples:
     - "client.messages.create(model='claude-3', messages=[{'role':'user','content': sanitized_query}])"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM06"]
+  owasp-llm-2025: ["LLM02"]
   iso-27001-2022: ["A.8.12", "A.5.34"]
   eu-ai-act-2024: ["Art.10", "Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1"]

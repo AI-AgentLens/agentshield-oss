@@ -90,7 +90,7 @@ examples:
     - "Pinned AS metadata changes trigger an AUDIT alert requiring human review"
 
 compliance:
-  owasp-llm-2025: ["LLM08", "LLM02"]
+  owasp-llm-2025: ["LLM06", "LLM02"]
   iso-27001-2022: ["A.8.9", "A.8.20", "A.5.1"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]

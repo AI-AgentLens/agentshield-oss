@@ -46,7 +46,7 @@ examples:
     - "if human_approval(): subprocess.run(['terraform', 'apply'])"
 
 compliance:
-  owasp-llm-2025: ["LLM08", "LLM02"]
+  owasp-llm-2025: ["LLM05", "LLM06"]
   iso-27001-2022: ["A.8.25", "A.5.34"]
   eu-ai-act-2024: ["Art.14", "Art.15"]
   nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6"]

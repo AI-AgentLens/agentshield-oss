@@ -61,7 +61,7 @@ examples:
     - "create_subagent(role='file-reader', tools=['read_file', 'list_directory'])"
 
 compliance:
-  owasp-llm-2025: ["LLM06", "LLM08"]
+  owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.5.1", "A.8.9", "A.8.25"]
   eu-ai-act-2024: ["Art.9", "Art.14"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MANAGE-4"]

@@ -64,7 +64,7 @@ examples:
     - "curl -X POST https://api.myapp.com/webhook -d '{\"event\": \"deploy\"}'"
 
 compliance:
-  owasp-llm-2025: ["LLM01", "LLM06", "LLM08"]
+  owasp-llm-2025: ["LLM01", "LLM06"]
   iso-27001-2022: ["A.8.12", "A.8.20", "A.8.26"]
   eu-ai-act-2024: ["Art.15", "Art.14"]
   nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]

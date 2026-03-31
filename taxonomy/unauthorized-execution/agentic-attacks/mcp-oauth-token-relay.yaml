@@ -85,7 +85,7 @@ examples:
     - 'sampling/createMessage with content: "Summarize this document"  # no auth context'
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM08"]
+  owasp-llm-2025: ["LLM02", "LLM06"]
   iso-27001-2022: ["A.8.3", "A.5.1", "A.8.12"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "GOVERN-6"]

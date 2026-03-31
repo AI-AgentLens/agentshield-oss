@@ -99,7 +99,7 @@ examples:
     - "Human manually approving deployment via authenticated web interface outside agent system"
 
 compliance:
-  owasp-llm-2025: ["LLM06", "LLM01", "LLM08"]
+  owasp-llm-2025: ["LLM06", "LLM01"]
   iso-27001-2022: ["A.8.9", "A.8.25", "A.8.33"]
   eu-ai-act-2024: ["Art.9", "Art.14", "Art.15"]
   nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MANAGE-1"]

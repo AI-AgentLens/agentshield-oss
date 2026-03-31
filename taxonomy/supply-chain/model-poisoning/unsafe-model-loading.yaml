@@ -70,7 +70,7 @@ examples:
     - "import yaml; cfg = yaml.safe_load(model_card_content)"
 
 compliance:
-  owasp-llm-2025: ["LLM03", "LLM05", "LLM08"]
+  owasp-llm-2025: ["LLM03", "LLM05"]
   iso-27001-2022: ["A.8.25", "A.8.26", "A.8.28"]
   eu-ai-act-2024: ["Art.10", "Art.15"]
   nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MAP-5"]

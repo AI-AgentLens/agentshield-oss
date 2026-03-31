@@ -44,7 +44,7 @@ examples:
     - "docker pull nginx:1.25.3  # pinned version from approved list"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM08"]
+  owasp-llm-2025: ["LLM03", "LLM09"]
   iso-27001-2022: ["A.8.31", "A.5.23"]
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MAP-1", "MANAGE-2"]

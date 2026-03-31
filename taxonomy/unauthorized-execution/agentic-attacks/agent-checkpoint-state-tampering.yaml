@@ -133,7 +133,7 @@ examples:
     - "state = CheckpointStateSchema.model_validate(json.loads(checkpoint_data))"
 
 compliance:
-  owasp-llm-2025: ["LLM07", "LLM08", "LLM02"]
+  owasp-llm-2025: ["LLM07", "LLM06", "LLM02"]
   iso-27001-2022: ["A.8.4", "A.8.9", "A.8.25"]
   nist-ai-rmf-1.0: ["MANAGE-2", "MAP-5", "MEASURE-2"]
   eu-ai-act-2024: ["Art.9", "Art.15"]

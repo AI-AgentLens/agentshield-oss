@@ -93,7 +93,7 @@ examples:
       systemctl is-active postgresql
 
 compliance:
-  owasp-llm-2025: ["LLM06", "LLM08"]
+  owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.5.23", "A.8.12"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
   eu-ai-act-2024: ["Art.9", "Art.15"]

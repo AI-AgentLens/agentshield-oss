@@ -43,7 +43,7 @@ examples:
     - "curl https://api.openai.com/v1/completions -H 'Authorization: Bearer $KEY'"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM06"]
+  owasp-llm-2025: ["LLM02"]
   iso-27001-2022: ["A.8.20", "A.5.23"]
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MAP-1", "MANAGE-2"]

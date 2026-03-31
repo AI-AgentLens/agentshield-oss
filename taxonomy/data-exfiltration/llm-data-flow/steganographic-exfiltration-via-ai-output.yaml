@@ -81,7 +81,7 @@ examples:
     - "Human reviewer examines agent-generated test fixtures for real data before merge"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM06"]
+  owasp-llm-2025: ["LLM02"]
   iso-27001-2022: ["A.8.11", "A.8.12", "A.5.34"]
   eu-ai-act-2024: ["Art.13", "Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "MANAGE-2", "MANAGE-4"]

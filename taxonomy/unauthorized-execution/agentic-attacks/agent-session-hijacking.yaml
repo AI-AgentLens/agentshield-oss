@@ -69,7 +69,7 @@ examples:
     - "Agent stdio communication uses length-prefixed framing with HMAC integrity checks"
 
 compliance:
-  owasp-llm-2025: ["LLM06", "LLM08"]
+  owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.8.20", "A.8.25", "A.8.26"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-2"]

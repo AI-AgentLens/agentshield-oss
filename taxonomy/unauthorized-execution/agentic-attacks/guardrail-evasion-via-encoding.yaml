@@ -94,7 +94,7 @@ examples:
     - "Input sanitizer removes zero-width characters and HTML comments before LLM processing"
 
 compliance:
-  owasp-llm-2025: ["LLM01", "LLM05", "LLM09"]
+  owasp-llm-2025: ["LLM01", "LLM05"]
   iso-27001-2022: ["A.8.26", "A.8.28", "A.8.9"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "MEASURE-2", "MANAGE-1", "MANAGE-2"]

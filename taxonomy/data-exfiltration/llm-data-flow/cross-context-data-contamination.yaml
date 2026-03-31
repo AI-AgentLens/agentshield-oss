@@ -91,7 +91,7 @@ examples:
     - "Vector store collections partitioned by project ID with enforced access controls"
 
 compliance:
-  owasp-llm-2025: ["LLM02", "LLM06"]
+  owasp-llm-2025: ["LLM02"]
   iso-27001-2022: ["A.5.10", "A.5.34", "A.8.3", "A.8.11"]
   eu-ai-act-2024: ["Art.10", "Art.13"]
   nist-ai-rmf-1.0: ["MAP-1", "MANAGE-1", "MANAGE-2"]

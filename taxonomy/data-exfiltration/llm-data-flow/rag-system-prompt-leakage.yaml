@@ -46,7 +46,7 @@ examples:
     - "prompt = ChatPromptTemplate.from_messages([('system', SYSTEM_PROMPT), ('human', '{input}')])"
 
 compliance:
-  owasp-llm-2025: ["LLM07", "LLM06"]
+  owasp-llm-2025: ["LLM07"]
   iso-27001-2022: ["A.8.12", "A.5.34"]
   eu-ai-act-2024: ["Art.13", "Art.15"]
   nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5"]
