@@ -992,14 +992,14 @@ structural_rules:
         - tool: "list_files"
           args: {"path": "/workspace"}
 
-  # === BLOCK: Bulk env dump via "key=ALL" or "key=*" pattern (issue #779) ===
+  # === BLOCK: Bulk env dump via "name=ALL" or "name=*" (issue #779) ===
   #
-  # Some MCP env tools accept wildcard or "ALL" as a key argument to dump all vars.
-  # For example: get_env(name="ALL"), get_environment(key="*"), read_env(name="").
-  # These sentinel values trigger a full-environment dump rather than a single lookup.
+  # Some MCP env tools accept wildcard or "ALL" as the 'name' argument to dump all vars.
+  # For example: get_env(name="ALL"), get_env_var(name="*").
+  # args_match requires ALL listed keys to be present — split by argument key name.
   #
   # MITRE T1552.007 — Unsecured Credentials: Container API
-  - id: mcp-recon-block-env-wildcard-key
+  - id: mcp-recon-block-env-wildcard-name
     taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
     match:
       tool_name_any:
@@ -1017,26 +1017,69 @@ structural_rules:
         name:
           pattern_any:
             - "(?i)^(ALL|\\*|all_vars|everything|\\.\\.\\.)$"
-        key:
-          pattern_any:
-            - "(?i)^(ALL|\\*|all_vars|everything|\\.\\.\\.)$"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "Environment variable tool called with wildcard or 'ALL' key — requests full environment dump. Equivalent to calling get_env_all(); exposes all process secrets. MITRE T1552.007."
+    reason: "Environment variable tool called with wildcard 'name' — requests full environment dump. Exposes all process secrets without specifying individual variable names. MITRE T1552.007."
     tests:
       tp:
-        - tool: "get_environment"
-          args: {"key": "ALL"}
         - tool: "get_env"
           args: {"name": "*"}
         - tool: "get_env_var"
           args: {"name": "ALL"}
         - tool: "read_environment"
-          args: {"key": "all_vars"}
+          args: {"name": "all_vars"}
+        - tool: "get_environment"
+          args: {"name": "everything"}
       tn:
         - tool: "get_env_var"
           args: {"name": "HOME"}
         - tool: "get_env_var"
           args: {"name": "NODE_ENV"}
+        - tool: "read_file"
+          args: {"path": "/workspace/.env.example"}
+
+  # === BLOCK: Bulk env dump via "key=ALL" or "key=*" (issue #779) ===
+  #
+  # Same threat as above — some MCP tools use 'key' instead of 'name' for the argument.
+  # For example: get_environment(key="ALL"), read_process_env(key="*").
+  # args_match requires ALL listed keys to be present — split into separate rules.
+  #
+  # MITRE T1552.007 — Unsecured Credentials: Container API
+  - id: mcp-recon-block-env-wildcard-key
+    taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
+    match:
+      tool_name_any:
+        - "get_env_var"
+        - "read_env_var"
+        - "get_environment_variable"
+        - "read_environment"
+        - "get_env"
+        - "env_get"
+        - "get_environment"
+        - "read_process_env"
+        - "get_process_env"
+        - "environment_read"
+      args_match:
+        key:
+          pattern_any:
+            - "(?i)^(ALL|\\*|all_vars|everything|\\.\\.\\.)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Environment variable tool called with wildcard 'key' — requests full environment dump. Exposes all process secrets without specifying individual variable names. MITRE T1552.007."
+    tests:
+      tp:
+        - tool: "get_environment"
+          args: {"key": "ALL"}
+        - tool: "get_env"
+          args: {"key": "*"}
+        - tool: "read_environment"
+          args: {"key": "all_vars"}
+        - tool: "environment_read"
+          args: {"key": "ALL"}
+      tn:
+        - tool: "get_env_var"
+          args: {"key": "HOME"}
         - tool: "get_environment"
           args: {"key": "RAILS_ENV"}
+        - tool: "get_env_var"
+          args: {"name": "PATH"}
