@@ -939,3 +939,104 @@ structural_rules:
           args: {"variable": "PATH"}
         - tool: "get_env_var"
           args: {"variable": "TERM"}
+
+  # === BLOCK: Bulk environment dump tools (issue #779) ===
+  #
+  # Some MCP servers expose tools that dump ALL environment variables at once —
+  # get_environment(), list_env(), dump_environment(), get_env_all() — rather than
+  # individual variable lookup. A single call to these tools exposes every secret
+  # in the process environment: AWS keys, database passwords, API tokens, private keys.
+  #
+  # This bypasses the name-based filter in mcp-recon-block-sensitive-envvar-name
+  # because no specific variable name is supplied. An attacker (via prompt injection)
+  # simply calls get_environment() without naming any variable to harvest all secrets.
+  #
+  # MITRE T1552.007 — Unsecured Credentials: Container API
+  # OWASP LLM02 2025 — Sensitive Information Disclosure
+  - id: mcp-recon-block-bulk-env-dump-tools
+    taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
+    match:
+      tool_name_any:
+        - "get_environment"
+        - "list_env"
+        - "get_env_all"
+        - "get_all_env"
+        - "dump_environment"
+        - "list_environment"
+        - "environment_dump"
+        - "env_dump"
+        - "get_all_environment_variables"
+        - "list_all_env_vars"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Bulk environment dump tool — dumps all process environment variables at once, exposing every secret (AWS keys, DB passwords, API tokens) without specifying individual names. MITRE T1552.007."
+    tests:
+      tp:
+        - tool: "get_environment"
+          args: {}
+        - tool: "dump_environment"
+          args: {}
+        - tool: "get_env_all"
+          args: {}
+        - tool: "list_env"
+          args: {}
+        - tool: "list_environment"
+          args: {"filter": ""}
+        - tool: "env_dump"
+          args: {"format": "json"}
+      tn:
+        - tool: "get_env_var"
+          args: {"name": "NODE_ENV"}
+        - tool: "read_file"
+          args: {"path": "/workspace/.env.example"}
+        - tool: "list_files"
+          args: {"path": "/workspace"}
+
+  # === BLOCK: Bulk env dump via "key=ALL" or "key=*" pattern (issue #779) ===
+  #
+  # Some MCP env tools accept wildcard or "ALL" as a key argument to dump all vars.
+  # For example: get_env(name="ALL"), get_environment(key="*"), read_env(name="").
+  # These sentinel values trigger a full-environment dump rather than a single lookup.
+  #
+  # MITRE T1552.007 — Unsecured Credentials: Container API
+  - id: mcp-recon-block-env-wildcard-key
+    taxonomy: "credential-exposure/env-var-exposure/env-var-api-access"
+    match:
+      tool_name_any:
+        - "get_env_var"
+        - "read_env_var"
+        - "get_environment_variable"
+        - "read_environment"
+        - "get_env"
+        - "env_get"
+        - "get_environment"
+        - "read_process_env"
+        - "get_process_env"
+        - "environment_read"
+      args_match:
+        name:
+          pattern_any:
+            - "(?i)^(ALL|\\*|all_vars|everything|\\.\\.\\.)$"
+        key:
+          pattern_any:
+            - "(?i)^(ALL|\\*|all_vars|everything|\\.\\.\\.)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Environment variable tool called with wildcard or 'ALL' key — requests full environment dump. Equivalent to calling get_env_all(); exposes all process secrets. MITRE T1552.007."
+    tests:
+      tp:
+        - tool: "get_environment"
+          args: {"key": "ALL"}
+        - tool: "get_env"
+          args: {"name": "*"}
+        - tool: "get_env_var"
+          args: {"name": "ALL"}
+        - tool: "read_environment"
+          args: {"key": "all_vars"}
+      tn:
+        - tool: "get_env_var"
+          args: {"name": "HOME"}
+        - tool: "get_env_var"
+          args: {"name": "NODE_ENV"}
+        - tool: "get_environment"
+          args: {"key": "RAILS_ENV"}
