@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-03-31 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-01 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1079 |
-| MCP rules | 619 |
-| Total rules | 1698 |
-| Test cases (TP+TN) | 3880 |
+| Terminal rules | 1084 |
+| MCP rules | 623 |
+| Total rules | 1707 |
+| Test cases (TP+TN) | 3896 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -400,11 +400,12 @@
 | `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM06) |
 | `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
-### governance-risk (31 rules)
+### governance-risk (32 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `sec-audit-credential-store-access` | AUDIT | regex | AI agent reading a ML platform credential file (~/.condarc, ~/.databrickscfg, ~/.snowsql/config) — these files may contain private channel tokens, personal access tokens, or passwords. Flagged for governance review. OWASP LLM06, MITRE T1552.001. |
+| `sc-audit-copyleft-spdx-in-command` | AUDIT | regex | Copyleft SPDX license identifier (GPL/AGPL/SSPL/EUPL) detected in a write or commit command — verify AI-generated code is not reproducing copyleft-licensed content without authorization. governance-risk/ai-governance-gap/ai-generated-code-license-contamination. |
 | `ts-audit-ai-compliance-artifact-fabrication` | AUDIT | regex | AI agent generating a compliance artifact (SOC2 report, pentest summary, attestation, audit trail) — human review is mandatory before submission to auditors or regulators. AI-fabricated compliance documents can contain hallucinated evidence and incorrect risk ratings. (OWASP LLM09, EU AI Act Art.14, ISO 27001 A.5.34) |
 | `ts-audit-model-weight-download` | AUDIT | regex | Direct download of AI model weight files (.gguf, .safetensors, .bin, .pt, .ckpt) from a public model hub bypasses organizational model inventory registration and governance review. Downloaded weights are not tracked in any approved registry, creating an AI Model Inventory Gap (EU AI Act Art.9, NIST AI RMF GOVERN-1). Ensure the model is approved, registered in the organization's model inventory, and its provenance and license are verified before use. |
 | `ts-block-ai-api-sensitive-cmd-subst` | BLOCK | regex | curl to an AI API endpoint with shell command substitution reading sensitive files (passwd, shadow, SSH keys, AWS credentials, kubeconfig) — embedding credentials or system secrets in an LLM API payload exfiltrates sensitive data via the AI provider's infrastructure and may enable prompt injection (OWASP LLM02/LLM01, MITRE T1552, EU AI Act Art.26). |
@@ -436,7 +437,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (145 rules)
+### persistence-evasion (147 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -585,8 +586,10 @@
 | `ts-audit-cnfh-override` | AUDIT | regex | Defining command_not_found_handle — this bash function intercepts every unknown command. Even without obviously malicious content, redefining this from an AI agent context is suspicious and warrants human review. MITRE T1546.004. |
 | `ts-block-env-strip-shell-exec` | BLOCK | regex | env -i (empty environment) with shell/interpreter execution — strips ALL environment variables including security controls (PATH restrictions, LD_PRELOAD guards, monitoring hooks) before launching a shell. Creates a clean-slate execution context invisible to environment-based security monitoring. MITRE T1562.001, T1070.004, CWE-250. |
 | `ts-audit-env-strip` | AUDIT | regex | env -i strips the entire environment before executing a command — may bypass security controls that rely on environment variable inheritance. Even non-shell targets lose visibility from monitoring tools. MITRE T1562.001. |
+| `ts-block-schtasks-create` | BLOCK | regex | Windows Task Scheduler task creation/modification — AI agents must not register persistent scheduled tasks. This is a classic persistence mechanism (MITRE T1053.005). |
+| `ts-audit-schtasks-query` | AUDIT | regex | Windows Task Scheduler access — read or delete operations audited for visibility (MITRE T1053.005). |
 
-### privilege-escalation (124 rules)
+### privilege-escalation (126 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -714,6 +717,8 @@
 | `ts-block-dev-kmem-access` | BLOCK | regex | Accessing /dev/kmem provides direct kernel virtual memory read/write — can extract credentials, inject rootkits, or modify kernel data structures. More dangerous than /proc/kcore because it supports writes. MITRE T1014, T1003.007. |
 | `ts-block-dev-kmem-write` | BLOCK | regex | Writing to /dev/kmem modifies live kernel memory — classic rootkit injection vector. Can patch kernel functions, hide processes, or disable security modules. MITRE T1014, T1601. |
 | `ts-audit-proc-kallsyms` | AUDIT | regex | Reading /proc/kallsyms exposes kernel symbol addresses, defeating KASLR (Kernel Address Space Layout Randomization). Enables targeted kernel exploits by providing exact function addresses. Legitimate for kernel debugging but high-risk in AI agent context. MITRE T1082. |
+| `ts-block-uac-bypass-registry` | BLOCK | regex | reg add targeting HKCU\Software\Classes\ms-settings or mscfile — classic UAC bypass registry hijack that redirects auto-elevating binaries (fodhelper.exe, eventvwr.exe) to arbitrary commands without UAC consent. MITRE T1548.002. |
+| `ts-audit-uac-bypass-binary` | AUDIT | regex | Execution of a known Windows UAC auto-elevation binary (fodhelper, eventvwr, sdclt, etc.) — these binaries auto-elevate to high integrity and are commonly abused for UAC bypass. Verify intent before execution. MITRE T1548.002. |
 
 ### reconnaissance (82 rules)
 
@@ -1407,7 +1412,7 @@
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file(s) (~/.databricks/token, ~/.databricks/token-version-*) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
 | `mcp-sec-block-databricks-config-read` | BLOCK | mcp_rule | Access to Databricks CLI config (~/.databricks/config) is blocked — contains workspace host URLs, profile configurations, and may include inline access tokens. MITRE T1552. |
-| `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config file is blocked — contains personal access tokens and scoped service tokens that grant read access to all managed secrets across all configured projects. MITRE T1552.001. |
+| `mcp-sec-block-doppler-config-read` | BLOCK | mcp_rule | Access to Doppler CLI config directory (~/.config/doppler/) is blocked — contains personal access tokens and scoped service tokens granting read access to all managed secrets across all configured projects. MITRE T1552.001. |
 | `mcp-sec-block-infisical-homedir-read` | BLOCK | mcp_rule | Access to Infisical CLI home-dir credential store (~/.infisical/) is blocked — contains user JWTs and service tokens granting full access to all secrets in Infisical projects without a master password. MITRE T1552.001, T1555.004. |
 | `mcp-sec-block-infisical-xdg-config-read` | BLOCK | mcp_rule | Access to Infisical CLI XDG config dir (~/.config/infisical/) is blocked — XDG-compliant location for Infisical auth tokens and service tokens. MITRE T1552.001, T1555.004. |
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
@@ -1702,7 +1707,7 @@
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (92 rules)
+### unauthorized-execution (96 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1796,6 +1801,10 @@
 | `mcp-cred-block-mcp-oauth-cache-uri` | BLOCK | resource_rule | Resource read of MCP OAuth token cache directory is blocked. |
 | `mcp-cred-block-mcp-oauth-dir-uri` | BLOCK | resource_rule | Resource read of MCP OAuth session directory is blocked. |
 | `mcp-cred-block-mcp-auth-cache-uri` | BLOCK | resource_rule | Resource read of MCP auth cache directory is blocked. |
+| `mcp-tool-name-collision` | AUDIT | mcp_rule | Two or more MCP servers registered tools with the same name. A rogue server can shadow a trusted server's tool, causing the AI agent to invoke the attacker's implementation instead.  |
+| `mcp-completion-injection-sentinel` | AUDIT | mcp_rule | Injection detected in MCP completion/complete response. Malicious completions can steer agent behavior by injecting commands or misleading context into auto-complete suggestions.  |
+| `mcp-notification-injection-sentinel` | AUDIT | mcp_rule | Injection detected in MCP notifications/message. Malicious notifications can inject instructions into the agent's context window via log messages.  |
+| `mcp-prompt-injection-sentinel` | AUDIT | mcp_rule | Injection detected in MCP prompts/get response. Malicious prompt templates can inject hidden instructions that alter agent behavior without user awareness.  |
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
@@ -1826,11 +1835,11 @@
 | credential-exposure | 292 | 221 | 513 |
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
-| governance-risk | 79 | 62 | 141 |
-| persistence-evasion | 313 | 196 | 509 |
-| privilege-escalation | 290 | 175 | 465 |
+| governance-risk | 82 | 64 | 146 |
+| persistence-evasion | 316 | 198 | 514 |
+| privilege-escalation | 294 | 177 | 471 |
 | reconnaissance | 205 | 98 | 303 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 456 | 315 | 771 |
-| **Total** | **2339** | **1541** | **3880** |
+| **Total** | **2349** | **1547** | **3896** |
 
