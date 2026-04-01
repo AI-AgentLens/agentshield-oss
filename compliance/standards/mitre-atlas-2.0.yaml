@@ -124,7 +124,18 @@ items:
     name: "Exfiltration via Inference API"
     url: "https://atlas.mitre.org/techniques/AML.T0016"
 
+  # === ML Attack Staging ===
+  - id: "AML.T0039"
+    name: "ML-Specific Phishing"
+    url: "https://atlas.mitre.org/techniques/AML.T0039"
+
   # === Impact ===
+  - id: "AML.T0049"
+    name: "Integrity Violation of ML Model"
+    url: "https://atlas.mitre.org/techniques/AML.T0049"
+  - id: "AML.T0050"
+    name: "Erode ML Model Integrity"
+    url: "https://atlas.mitre.org/techniques/AML.T0050"
   - id: "AML.T0029"
     name: "Denial of ML Service"
     url: "https://atlas.mitre.org/techniques/AML.T0029"

@@ -70,7 +70,8 @@ compliance:
   eu-ai-act-2024: ["Art.9", "Art.15"]
   nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "MANAGE-4"]
   soc2-type2: ["CC9.1", "CC7.2"]
-  iso-42001-2023: ["6.1.2", "8.4", "A.7.4"]
+  iso-42001-2023: ["6.1.2", "A.9.3"]
+  mitre_atlas: ["AML.T0048", "AML.T0058"]
 
 references:
   mitre_attack: ["T1499.004"]

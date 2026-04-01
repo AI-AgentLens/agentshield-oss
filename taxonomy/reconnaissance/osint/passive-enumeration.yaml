@@ -70,11 +70,9 @@ compliance:
   eu-ai-act-2024: ["Art.15"]
   nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
   soc2-type2: ["CC6.6", "CC6.7"]
-  iso-42001-2023: ["6.1.2", "9.1", "A.7.4"]
-  mitre_atlas: ["AML.T0004"]
+  iso-42001-2023: []
 
 references:
-  mitre_atlas: ["AML.T0004"]
   mitre_attack: ["T1589", "T1589.002", "T1593", "T1596", "T1596.005", "T1595.001"]
   cwe: ["CWE-200", "CWE-284"]
 
