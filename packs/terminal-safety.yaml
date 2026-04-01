@@ -16357,3 +16357,52 @@ rules:
         - "env FOO=bar ./test.sh"
         - "env | sort"
 
+  # === Windows UAC Bypass Detection (issue #795) ===
+  #
+  # AI agents can silently elevate privileges on Windows by abusing auto-elevating
+  # binaries (fodhelper.exe, eventvwr.exe) via registry hijacking in HKCU\Software\Classes.
+  # These techniques bypass UAC consent dialogs entirely (MITRE T1548.002).
+  #
+  # privilege-escalation/windows/uac-bypass
+  #
+  # TP: reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "cmd.exe" /f → BLOCK
+  # TP: reg add "HKCU\Software\Classes\mscfile\shell\open\command" /d "evil.exe" /f → BLOCK
+  # TN: whoami /groups | findstr /i high → ALLOW (read-only UAC level query)
+  # TN: reg query "HKCU\Software\Classes" → ALLOW (read-only registry query)
+  - id: "ts-block-uac-bypass-registry"
+    taxonomy: "privilege-escalation/windows/uac-bypass"
+    match:
+      command_regex: "\\breg\\s+add\\b.*\\bHKCU\\\\Software\\\\Classes\\\\(ms-settings|mscfile)\\b"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "reg add targeting HKCU\\Software\\Classes\\ms-settings or mscfile — classic UAC bypass registry hijack that redirects auto-elevating binaries (fodhelper.exe, eventvwr.exe) to arbitrary commands without UAC consent. MITRE T1548.002."
+    tests:
+      tp:
+        - 'reg add "HKCU\Software\Classes\ms-settings\shell\open\command" /d "cmd.exe" /f'
+        - 'reg add "HKCU\Software\Classes\mscfile\shell\open\command" /d "evil.exe" /f'
+        - 'reg add HKCU\Software\Classes\ms-settings\shell\open\command /d powershell.exe /f'
+      tn:
+        - 'reg query "HKCU\Software\Classes"'
+        - "whoami /groups"
+
+  # TP: Start-Process fodhelper.exe → AUDIT (execution of known auto-elevation binary)
+  # TP: eventvwr.exe /r:attack.xml → AUDIT
+  # TN: Get-Process fodhelper → ALLOW (read-only process query)
+  # TN: tasklist | findstr eventvwr → ALLOW (read-only process list)
+  - id: "ts-audit-uac-bypass-binary"
+    taxonomy: "privilege-escalation/windows/uac-bypass"
+    match:
+      command_regex: "\\b(fodhelper|eventvwr|sdclt|computerdefaults|slui|wsreset)\\.exe\\b"
+      command_regex_exclude: "\\b(Get-Process|tasklist|findstr|grep|where|which|ls|dir|type|cat|head|tail|ps)\\b"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Execution of a known Windows UAC auto-elevation binary (fodhelper, eventvwr, sdclt, etc.) — these binaries auto-elevate to high integrity and are commonly abused for UAC bypass. Verify intent before execution. MITRE T1548.002."
+    tests:
+      tp:
+        - "Start-Process fodhelper.exe"
+        - "eventvwr.exe /r:attack.xml"
+        - "sdclt.exe /kickoffelev"
+      tn:
+        - "Get-Process fodhelper"
+        - "tasklist | findstr eventvwr"
+
