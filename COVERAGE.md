@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1084 |
+| Terminal rules | 1086 |
 | MCP rules | 623 |
-| Total rules | 1707 |
-| Test cases (TP+TN) | 3896 |
+| Total rules | 1709 |
+| Test cases (TP+TN) | 3907 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -437,7 +437,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (147 rules)
+### persistence-evasion (148 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -485,6 +485,7 @@
 | `ts-block-history-tamper` | BLOCK | regex | Shell history tampering detected — disabling or clearing HISTFILE/HISTSIZE destroys audit evidence of agent activity (LLM02, LLM08). MITRE T1070.003. |
 | `ts-block-history-file-clear` | BLOCK | regex | Truncating shell history file — destroys forensic record of agent commands (LLM02). MITRE T1070.003. |
 | `ts-block-log-file-clear` | BLOCK | regex | System log file truncation or clearing detected — destroys authentication, audit, and security event records (LLM02, LLM08). MITRE T1070.002. |
+| `ts-audit-ai-log-injection` | AUDIT | regex | Append to audit/security log path detected — AI agents fabricating false audit trail entries create a forged compliance record that masks unauthorized activity (OWASP LLM06, LLM02). MITRE T1565.001. Review the content being appended. |
 | `ts-audit-symlink-system-files` | AUDIT | regex | Creating a symlink to a system file — may be part of a TOCTOU race condition or filesystem redirect attack. CWE-367. |
 | `ts-block-shell-env-startup-export` | BLOCK | regex | Exporting BASH_ENV or ENV causes bash/sh to source the specified file before every non-interactive shell invocation — silently injecting code into all subshells, scripts, and command substitutions. MITRE T1546.004. |
 | `ts-block-shell-env-startup-inline` | BLOCK | regex | Inline BASH_ENV/ENV assignment before a command (e.g., BASH_ENV=/tmp/evil.sh bash -c '...') injects arbitrary code execution into the target shell invocation. MITRE T1546.004. |
@@ -945,7 +946,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (191 rules)
+### unauthorized-execution (192 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1080,6 +1081,7 @@
 | `ts-audit-qrencode-pipe-input` | AUDIT | regex | Data piped into qrencode — QR image encodes input data which may contain credentials or injection payloads invisible to text scanners. OWASP LLM01, MITRE T1027.003. |
 | `ts-audit-network-pipe-to-llm` | AUDIT | regex | Network content piped directly to an LLM CLI tool (llm/sgpt/claude/gemini/mods/ollama/etc.) — fetched content may contain prompt injection payloads that override AI agent instructions. Analogous to curl\|bash but targeting LLM context hijacking (OWASP LLM01, CWE-77). |
 | `ts-audit-mcp-server-npx-install` | AUDIT | regex | npx -y installing an MCP server package without interactive review — typosquatted or compromised MCP server packages can impersonate trusted tools and gain full access to agent context, tool execution, and data flows. OWASP LLM08, MITRE T1195. |
+| `ts-audit-agent-spawn-noninteractive` | AUDIT | structural | Non-interactive AI agent CLI invocation detected — auto-approval flags bypass human oversight and enable recursive agent spawning or authority escalation without confirmation (OWASP LLM06, LLM10). MITRE AML.T0034, AML.T0058. |
 | `ts-block-agent-settings-write` | BLOCK | regex | Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization (OWASP LLM06, MITRE T1548, SOC 2 CC6.3). |
 | `ts-block-claude-mcp-add` | BLOCK | regex | claude mcp add (or npx @anthropic-ai/claude-code mcp add) registers a new MCP server into the agent's runtime configuration — an agent injecting a filesystem or exec MCP server acquires OS-level capabilities that were never explicitly authorized, bypassing the human-in-the-loop trust model (OWASP LLM06/LLM07, MITRE T1548, SOC 2 CC6.1). |
 | `ts-block-git-commit-no-verify` | BLOCK | regex | git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control (OWASP LLM05, CWE-799). |
@@ -1836,10 +1838,10 @@
 | data-exfiltration | 316 | 202 | 518 |
 | destructive-ops | 134 | 91 | 225 |
 | governance-risk | 82 | 64 | 146 |
-| persistence-evasion | 316 | 198 | 514 |
+| persistence-evasion | 319 | 200 | 519 |
 | privilege-escalation | 294 | 177 | 471 |
 | reconnaissance | 205 | 98 | 303 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 456 | 315 | 771 |
-| **Total** | **2349** | **1547** | **3896** |
+| unauthorized-execution | 459 | 318 | 777 |
+| **Total** | **2355** | **1552** | **3907** |
 
