@@ -279,7 +279,18 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 
 ### Taxonomy
 
-`taxonomy/` contains 158 YAML entries organized by 8 kingdoms, each mapping to OWASP LLM Top 10 2025. `internal/taxonomy/` handles loading and compliance index generation.
+`taxonomy/` contains ~480 threat entries organized by 8 kingdoms, each mapping to compliance frameworks. `internal/taxonomy/` handles loading and compliance index generation.
+
+#### Compliance Mapping Policy — Conservative, Not Templated
+
+Compliance mappings in taxonomy YAML files (`compliance:` section) must be **specific and justified**, not bulk-templated per kingdom. Each mapping must satisfy:
+
+1. **Direct relevance**: The compliance control must directly address the threat described — not just vaguely relate to it. A data exfiltration threat should map to data-specific controls, not generic risk assessment.
+2. **No kingdom-wide templates**: Do NOT copy the same set of control IDs to every entry in a kingdom. Each threat is different; its mappings should reflect that.
+3. **Omit rather than stretch**: If no control in a framework applies specifically to a threat, leave that framework's field empty or omit it. An incomplete but accurate mapping is better than a complete but generic one.
+4. **MITRE ATLAS (`mitre_atlas`)**: Only map to ATLAS technique IDs that describe the attack technique, not tangentially related ones. ATLAS IDs go in `compliance.mitre_atlas`, never in `references.mitre_attack`.
+5. **ISO 42001:2023 (`iso-42001-2023`)**: Use the full range of Annex A controls (A.2–A.10) and core clauses (4–10). Don't over-rely on `6.1.2` (risk assessment) — use specific controls like `A.7.3` (data quality) for data poisoning, `A.9.4` (logging) for audit trail threats, `A.9.1` (intended use) for shadow AI, etc.
+6. **Verify before adding**: Cross-reference the standard's text to confirm the control applies. When in doubt, leave it out.
 
 ## Formal Rule Review
 
