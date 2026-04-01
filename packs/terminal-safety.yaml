@@ -4962,6 +4962,42 @@ rules:
       tn:
         - "tail -f /var/log/syslog"
 
+  # === AUDIT: AI audit log injection — append to security audit trails (LLM06/LLM02) ===
+  #
+  # Taxonomy: persistence-evasion/anti-forensics/ai-audit-log-injection
+  # OWASP LLM06 — Excessive Agency, LLM02 — Sensitive Information Disclosure
+  # MITRE T1565.001 — Stored Data Manipulation, CWE-117, CWE-778
+  # EU AI Act Art.12 (Logging), Art.13 (Transparency)
+  #
+  # Unlike log-tampering (truncation/overwrite, already BLOCK), log injection is
+  # constructive forgery — appending synthesized events to create a false audit trail.
+  # Logs appear intact and complete but contain fabricated entries. The compliance
+  # implication differs: deletion creates gaps that trigger alerts; injection is subtle.
+  #
+  # Covers append (>>) to:
+  #   - AgentShield audit logs:  ~/.agentshield/logs/
+  #   - AI IDE logs:             ~/.cursor/logs/, ~/.windsurf/logs/
+  #   - System audit daemon:     /var/log/audit/
+  #   - AI event streams:        /var/log/ai-events*
+  #
+  # The rule does NOT cover generic app logs (./build.log, /tmp/*.log) to avoid FPs
+  # from legitimate application logging.
+  - id: "ts-audit-ai-log-injection"
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-log-injection"
+    match:
+      command_regex: ">>\s*(?:~|\$HOME|/home/[^/\s]+|/root)?/?\\.agentshield/logs/|>>\s*(?:~|\$HOME|/home/[^/\s]+|/root)?/?\\.cursor/logs/|>>\s*(?:~|\$HOME|/home/[^/\s]+|/root)?/?\\.windsurf/logs/|>>\s*/var/log/audit/|>>\s*/var/log/ai-events"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "Append to audit/security log path detected — AI agents fabricating false audit trail entries create a forged compliance record that masks unauthorized activity (OWASP LLM06, LLM02). MITRE T1565.001. Review the content being appended."
+    tests:
+      tp:
+        - "echo '{\"ts\":1234,\"action\":\"allow\"}' >> ~/.agentshield/logs/audit.jsonl"
+        - "printf '{\"decision\":\"ALLOW\"}\\n' >> /var/log/audit/audit.log"
+        - "tee -a ~/.cursor/logs/agent.log <<< '{\"event\":\"approved\"}'"
+      tn:
+        - "echo 'build complete' >> ./build.log"
+        - "agentshield log --tail 50"
+
   # === AUDIT: Agent memory / instruction file writes (issue #206) ===
   #
   # AI agent instruction files (CLAUDE.md, .cursorrules, .windsurfrules) and
