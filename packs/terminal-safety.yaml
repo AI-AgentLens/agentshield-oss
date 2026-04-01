@@ -16406,3 +16406,47 @@ rules:
         - "Get-Process fodhelper"
         - "tasklist | findstr eventvwr"
 
+  # === Windows Task Scheduler Persistence Detection (issue #794) ===
+  #
+  # AI agents on Windows can establish persistence by creating or modifying
+  # scheduled tasks via schtasks.exe. Task creation/modification runs arbitrary
+  # payloads on logon, boot, or schedule — silent persistence (MITRE T1053.005).
+  #
+  # persistence-evasion/scheduled-tasks/windows-task-scheduler
+  #
+  # TP: schtasks /create /tn "Evil" /tr "C:\tmp\evil.exe" /sc onlogon /ru SYSTEM → BLOCK
+  # TP: schtasks /change /tn "LegitTask" /tr "C:\evil.exe" → BLOCK
+  # TN: schtasks /query /fo LIST → AUDIT (read-only)
+  # TN: schtasks /delete /tn "OldTask" /f → AUDIT (destructive but not persistence)
+  - id: "ts-block-schtasks-create"
+    taxonomy: "persistence-evasion/scheduled-tasks/windows-task-scheduler"
+    match:
+      command_regex: '(?i)\bschtasks\b.*/(create|change)\b'
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Windows Task Scheduler task creation/modification — AI agents must not register persistent scheduled tasks. This is a classic persistence mechanism (MITRE T1053.005)."
+    tests:
+      tp:
+        - 'schtasks /create /tn "Evil" /tr "C:\tmp\evil.exe" /sc onlogon /ru SYSTEM'
+        - 'schtasks /change /tn "LegitTask" /tr "C:\evil.exe"'
+        - "schtasks /CREATE /TN updater /TR c:\\malware.exe /SC DAILY"
+      tn:
+        - "schtasks /query /fo LIST"
+        - "schtasks /delete /tn OldTask /f"
+
+  - id: "ts-audit-schtasks-query"
+    taxonomy: "persistence-evasion/scheduled-tasks/windows-task-scheduler"
+    match:
+      command_regex: '(?i)\bschtasks\b'
+      command_regex_exclude: '(?i)\bschtasks\b.*/(create|change)\b'
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "Windows Task Scheduler access — read or delete operations audited for visibility (MITRE T1053.005)."
+    tests:
+      tp:
+        - "schtasks /query /fo LIST"
+        - "schtasks /delete /tn OldTask /f"
+      tn:
+        - "Get-ScheduledTask | Where-Object State -eq Running"
+        - "taskschd.msc"
+
