@@ -220,6 +220,21 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			},
 			escalate: "BLOCK",
 		},
+
+		// --- Steganography: AI-generated code steganography ---
+		{
+			signal: Signal{
+				ID:          "code_steganography",
+				Category:    "steganography",
+				Severity:    "medium",
+				Confidence:  0.75,
+				Description: "Command programmatically adds trailing whitespace or manipulates invisible formatting in source files — potential steganographic data encoding",
+			},
+			match: func(req GuardianRequest) bool {
+				return matchesCodeSteganography(req.RawCommand)
+			},
+			escalate: "AUDIT",
+		},
 	}
 }
 
@@ -689,6 +704,38 @@ func matchesBulkExfil(cmd string) bool {
 	}
 
 	return false
+}
+
+// codeSteganographyPatterns detect commands that programmatically inject trailing
+// whitespace, invisible characters, or other steganographic signals into source files.
+// These can encode data in committed code that evades DLP and human review.
+var codeSteganographyPatterns = compilePatterns([]string{
+	// sed/perl adding trailing whitespace to source files
+	`(?i)sed\s+.*s/\$/\s+/.*\.(py|js|ts|go|java|rb|rs|c|cpp|h|cs)`,
+	`(?i)sed\s+-i.*\$.*\s{2,}.*\.(py|js|ts|go|java|rb|rs|c|cpp|h|cs)`,
+	`(?i)perl\s+-[pi].*s/\$/\s+/`,
+	// awk appending whitespace
+	`(?i)awk\s+.*\{.*print.*\$0.*\s+"?\s+"?\}`,
+	// tr/sed inserting zero-width or non-breaking spaces into source
+	`(?i)(sed|tr|perl).*\\x(c2a0|200b|200c|200d|feff|00ad)`,
+	`(?i)(sed|tr|perl).*\\u(00a0|200b|200c|200d|feff|00ad)`,
+	// Batch trailing whitespace addition via find + xargs/exec
+	`(?i)find\s+.*-name\s+.*\.(py|js|ts|go|java|rb|rs|c|cpp|h|cs).*-exec\s+sed\s+.*\$/`,
+	`(?i)find\s+.*\.(py|js|ts|go|java|rb|rs|c|cpp|h|cs).*xargs.*sed.*\$/`,
+	// Python/ruby one-liners adding whitespace to files
+	`(?i)python3?\s+-c\s+.*open\(.*\).*write.*\s+\\n`,
+	// Explicit whitespace encoding commands targeting many files
+	`(?i)for\s+.*\*\.(py|js|ts|go|java).*sed\s+.*\$/`,
+})
+
+// matchesCodeSteganography detects commands that programmatically inject steganographic
+// signals (trailing whitespace, invisible chars) into source code files.
+func matchesCodeSteganography(cmd string) bool {
+	// Safe callers (gh/git) sending data to APIs are not steganography vectors
+	if safeCallerRe.MatchString(cmd) {
+		return false
+	}
+	return matchesAnyPattern(cmd, codeSteganographyPatterns)
 }
 
 func mostRestrictive(a, b string) string {

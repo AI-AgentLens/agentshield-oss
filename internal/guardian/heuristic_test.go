@@ -901,6 +901,109 @@ func TestHeuristicProvider_EscalationOnly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Code steganography detection (issue #709)
+// ---------------------------------------------------------------------------
+
+func TestHeuristicProvider_CodeSteganographyTruePositives(t *testing.T) {
+	p := NewHeuristicProvider()
+
+	tps := []struct {
+		name string
+		cmd  string
+	}{
+		{
+			name: "sed adding trailing whitespace to python files",
+			cmd:  `sed -i 's/$/ /' app.py`,
+		},
+		{
+			name: "sed adding trailing spaces to typescript",
+			cmd:  `sed -i 's/$/   /' src/index.ts`,
+		},
+		{
+			name: "perl adding trailing whitespace",
+			cmd:  `perl -pi -e 's/$/  /' main.go`,
+		},
+		{
+			name: "find + sed batch trailing whitespace on source files",
+			cmd:  `find src -name "*.py" -exec sed -i 's/$/ /' {} +`,
+		},
+		{
+			name: "find + xargs sed trailing whitespace",
+			cmd:  `find . -name "*.js" | xargs sed -i 's/$/ /'`,
+		},
+		{
+			name: "sed injecting zero-width spaces via hex",
+			cmd:  `sed -i 's/$/\xc2a0/' app.py`,
+		},
+		{
+			name: "for loop adding trailing whitespace to java files",
+			cmd:  `for f in *.java; do sed -i 's/$/ /' "$f"; done`,
+		},
+	}
+
+	for _, tt := range tps {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !hasSignal(resp.Signals, "code_steganography") {
+				t.Errorf("TP missed: signal not triggered on %q, got signals: %v", tt.cmd, signalIDs(resp.Signals))
+			}
+		})
+	}
+}
+
+func TestHeuristicProvider_CodeSteganographyFalsePositives(t *testing.T) {
+	p := NewHeuristicProvider()
+
+	fps := []struct {
+		name string
+		cmd  string
+	}{
+		{
+			name: "sed replacing text content (not whitespace)",
+			cmd:  `sed -i 's/foo/bar/g' app.py`,
+		},
+		{
+			name: "normal git commit",
+			cmd:  `git commit -m "refactor variable names"`,
+		},
+		{
+			name: "sed on non-source file",
+			cmd:  `sed -i 's/$/ /' output.log`,
+		},
+		{
+			name: "prettier formatting source files",
+			cmd:  `npx prettier --write "src/**/*.ts"`,
+		},
+		{
+			name: "gh issue mentioning steganography",
+			cmd:  `gh issue create --title "Steg test" --body "Found trailing whitespace added via sed"`,
+		},
+		{
+			name: "cat writing file with normal content",
+			cmd:  `cat > app.py << 'EOF'
+def hello():
+    print("hello")
+EOF`,
+		},
+	}
+
+	for _, tt := range fps {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if hasSignal(resp.Signals, "code_steganography") {
+				t.Errorf("FP: signal falsely triggered on safe command: %q", tt.cmd)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

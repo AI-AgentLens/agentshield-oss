@@ -48,7 +48,7 @@ func runTestCases(t *testing.T, cases []testdata.TestCase) {
 
 			// Skip promoted TP/TN cases that require structural/semantic analyzers.
 			// These pass with the full pipeline but not the regex-only engine.
-			if tc.Analyzer == "structural" || tc.Analyzer == "semantic" || tc.Analyzer == "stateful" || tc.Analyzer == "dataflow" || tc.Analyzer == "pipeline" {
+			if tc.Analyzer == "structural" || tc.Analyzer == "semantic" || tc.Analyzer == "stateful" || tc.Analyzer == "dataflow" || tc.Analyzer == "pipeline" || tc.Analyzer == "guardian" {
 				t.Skipf("PIPELINE-ONLY — requires %s analyzer", tc.Analyzer)
 				return
 			}

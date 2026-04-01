@@ -85,6 +85,8 @@ func signalToTaxonomy(sig Signal) string {
 		return "unauthorized-execution/code-execution/" + sig.ID
 	case "data-exfiltration":
 		return "data-exfiltration/bulk-transfer/" + sig.ID
+	case "steganography":
+		return "data-exfiltration/steganography/" + sig.ID
 	case "credential-exposure":
 		return "credential-exposure/inline-secret/" + sig.ID
 	default:
