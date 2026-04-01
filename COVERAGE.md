@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1086 |
+| Terminal rules | 1087 |
 | MCP rules | 623 |
-| Total rules | 1709 |
-| Test cases (TP+TN) | 3907 |
+| Total rules | 1710 |
+| Test cases (TP+TN) | 3914 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -323,7 +323,7 @@
 | `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
 | `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
 
-### destructive-ops (72 rules)
+### destructive-ops (73 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -347,6 +347,7 @@
 | `ts-block-systemctl-power` | BLOCK | regex | systemctl power management (poweroff/halt/reboot/suspend/hibernate) must be done manually — bypasses the direct shutdown command block. |
 | `ts-struct-block-rm-system` | BLOCK | structural | Structural: recursive force-delete on system directory (handles flag reordering and sudo). |
 | `ts-allow-rm-tmp` | ALLOW | structural | Recursive remove of /tmp subdirectory — standard temp file cleanup. /tmp is a transient space by OS design. |
+| `ts-allow-rm-var-folders-tmp` | ALLOW | structural | Recursive remove of macOS temp directory (/var/folders/.../T/tmp.*) — standard mktemp cleanup. |
 | `ts-struct-block-chmod-world-writable` | AUDIT | structural | Structural: chmod on system directory flagged for review. |
 | `ts-sem-block-disk-destroy` | BLOCK | semantic | Semantic: any command classified as disk-destroy intent is blocked. |
 | `ts-block-aws-terminate` | BLOCK | regex | AWS EC2 instance termination is a destructive cloud operation. |
@@ -1835,13 +1836,13 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
-| data-exfiltration | 316 | 202 | 518 |
-| destructive-ops | 134 | 91 | 225 |
+| data-exfiltration | 319 | 204 | 523 |
+| destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
 | persistence-evasion | 319 | 200 | 519 |
 | privilege-escalation | 294 | 177 | 471 |
 | reconnaissance | 205 | 98 | 303 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 459 | 318 | 777 |
-| **Total** | **2355** | **1552** | **3907** |
+| **Total** | **2358** | **1556** | **3914** |
 
