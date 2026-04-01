@@ -90,6 +90,7 @@ compliance:
   iso-42001-2023: ["A.3.3", "6.1.2", "8.4"]
 
 references:
+  mitre_atlas: ["AML.T0002", "AML.T0009", "AML.T0059"]
   mitre_attack: ["T1005", "T1041", "T1560.001"]
   cwe: ["CWE-200", "CWE-538", "CWE-312"]
   external:
