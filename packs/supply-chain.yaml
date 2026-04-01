@@ -2909,3 +2909,33 @@ rules:
       tn:
         - "sed -i '/E501/d' .flake8"
         - "grep bandit setup.cfg"
+
+  # === AUDIT: copyleft SPDX license identifier in command (issue #803) ===
+  #
+  # AI coding agents can reproduce GPL/AGPL/SSPL-licensed code from training data
+  # and autonomously commit it, bypassing human review. When a copyleft SPDX
+  # identifier appears in a command (e.g., writing a license header to a source
+  # file or committing GPL-attributed code), flag it for human review.
+  #
+  # governance-risk/ai-governance-gap/ai-generated-code-license-contamination
+  #
+  # TP: echo "// SPDX-License-Identifier: GPL-3.0" >> src/parser.go → AUDIT
+  # TP: git commit -m "add GPL-3.0 licensed parser" src/parser.py → AUDIT
+  # TN: grep "GPL-3.0" LICENSES/ → ALLOW (read-only search)
+  # TN: cat LICENSE | grep AGPL-3.0 → ALLOW (read-only)
+  - id: "sc-audit-copyleft-spdx-in-command"
+    taxonomy: "governance-risk/ai-governance-gap/ai-generated-code-license-contamination"
+    match:
+      command_regex: "\\b(GPL-2\\.0|GPL-3\\.0|AGPL-3\\.0|SSPL-1\\.0|EUPL-1\\.2)(-only|-or-later)?\\b"
+      command_regex_exclude: "\\b(grep|egrep|fgrep|rg|ripgrep|cat|head|tail|less|more|find|stat|ls|diff|wc)\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Copyleft SPDX license identifier (GPL/AGPL/SSPL/EUPL) detected in a write or commit command — verify AI-generated code is not reproducing copyleft-licensed content without authorization. governance-risk/ai-governance-gap/ai-generated-code-license-contamination."
+    tests:
+      tp:
+        - "echo '// SPDX-License-Identifier: GPL-3.0' >> src/parser.go"
+        - "git commit -m 'add GPL-3.0 licensed parser module'"
+        - "printf 'SPDX-License-Identifier: AGPL-3.0\\n' > LICENSE"
+      tn:
+        - "grep 'GPL-3.0' LICENSES/"
+        - "cat LICENSE | head -5"
