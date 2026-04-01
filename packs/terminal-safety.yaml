@@ -10929,6 +10929,46 @@ rules:
       tn:
         - 'claude --allowed-tools "Bash(./src/*)" -p "test"'
 
+  # === AUDIT: Non-interactive AI agent CLI spawn — recursive spawn bombing (LLM06/LLM10) ===
+  #
+  # Taxonomy: unauthorized-execution/ai-resource-abuse/recursive-agent-spawn-bombing
+  # OWASP LLM06 — Excessive Agency, LLM10 — Unbounded Consumption
+  # MITRE ATLAS AML.T0034 (Cost Harvesting), AML.T0058 (LLM DoS)
+  #
+  # A compromised agent spawns child AI CLI sessions in non-interactive or
+  # auto-approval mode, bypassing human oversight. Unlike the BLOCK rule for
+  # --dangerously-skip-permissions (which disables permission checks), this
+  # rule targets the broader class of unattended invocations that remove the
+  # human confirmation gate — creating an unauthorized agent sub-tree.
+  #
+  # Key flag families:
+  #   claude:  -p / --print (non-interactive output mode)
+  #   codex:   -q / --quiet / --full-auto
+  #   aider:   --yes-always / -y (auto-confirm all edits)
+  #   cursor/windsurf: --cmd (unattended command mode)
+  #
+  # Note: --dangerously-skip-permissions is already BLOCK via
+  # ts-block-claude-dangerous-skip-permissions. This rule catches
+  # all other non-interactive auto-approval patterns at AUDIT level.
+  - id: "ts-audit-agent-spawn-noninteractive"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/recursive-agent-spawn-bombing"
+    match:
+      structural:
+        executable: ["claude", "codex", "aider", "cursor", "windsurf"]
+        flags_any: ["p", "print", "q", "quiet", "yes-always", "y", "cmd", "approval-mode", "full-auto"]
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "Non-interactive AI agent CLI invocation detected — auto-approval flags bypass human oversight and enable recursive agent spawning or authority escalation without confirmation (OWASP LLM06, LLM10). MITRE AML.T0034, AML.T0058."
+    tests:
+      tp:
+        - "codex -q \"run deployment script\""
+        - "aider --yes-always --message \"modify config\""
+        - "claude -p \"scan all files and report issues\""
+      tn:
+        - "claude --version"
+        - "aider --help"
+        - "codex"
+
   # ── Agent Capability Escalation ─────────────────────────────────────────────
   #
   # Taxonomy: unauthorized-execution/agentic-attacks/agent-capability-escalation
