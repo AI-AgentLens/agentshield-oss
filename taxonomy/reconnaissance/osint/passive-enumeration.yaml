@@ -71,6 +71,7 @@ compliance:
   nist-ai-rmf-1.0: ["MAP-5", "GOVERN-6"]
   soc2-type2: ["CC6.6", "CC6.7"]
   iso-42001-2023: ["6.1.2", "9.1", "A.7.4"]
+  mitre_atlas: ["AML.T0004"]
 
 references:
   mitre_atlas: ["AML.T0004"]
