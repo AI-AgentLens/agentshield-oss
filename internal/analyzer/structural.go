@@ -80,6 +80,11 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			if f.Confidence == 0 {
 				f.Confidence = 0.85 // structural rules are more precise than regex
 			}
+			// ALLOW rules from structural YAML get the override tag so the
+			// combiner can suppress less-precise regex BLOCKs on the same taxonomy.
+			if f.Decision == "ALLOW" {
+				f.Tags = []string{"structural-override"}
+			}
 			findings = append(findings, f)
 		}
 	}

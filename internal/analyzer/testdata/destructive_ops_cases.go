@@ -320,6 +320,28 @@ var SystemDirectoryDeleteCases = []TestCase{
 		Tags: []string{"regression", "read-only"},
 	},
 
+	// FP fix for issue #820: macOS temp dir cleanup should not be blocked
+	{
+		ID:               "FP-SYSDIR-002",
+		Command:          `rm -rf /var/folders/fb/fgfx4pr5259d6xwcd2qxjp1w0000gn/T/tmp.UU9Dp0TUeE`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
+		Analyzer:         "structural",
+		Description:      "macOS mktemp dir cleanup — /var/folders/.../T/tmp.* is standard temp space, not a system directory.",
+		Tags:             []string{"regression", "fp-fix", "macos"},
+	},
+	{
+		ID:               "FP-SYSDIR-003",
+		Command:          `rm -rf /var/folders/xx/abc123def/T/tmp.test456`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/system-directory-delete",
+		Analyzer:         "structural",
+		Description:      "macOS mktemp dir cleanup — variant path under /var/folders.",
+		Tags:             []string{"regression", "fp-fix", "macos"},
+	},
+
 	// --- FALSE NEGATIVES ---
 
 	{

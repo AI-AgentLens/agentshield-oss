@@ -26,6 +26,7 @@ rules:
     taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
     match:
       command_regex: "^(sudo\\s+)?rm\\s+.*-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\\s+(/etc|/usr|/var|/boot|/sys|/proc)($|/|\\s)"
+      command_regex_exclude: "/var/folders/"
     decision: "BLOCK"
     reason: "Recursive force-remove on critical system directory."
     tests:
@@ -36,6 +37,7 @@ rules:
       tn:
         - "rm -rf /tmp/build"
         - "rm -rf ./usr/test"
+        - "rm -rf /var/folders/fb/fgfx4pr5259d6xwcd2qxjp1w0000gn/T/tmp.UU9Dp0TUeE"
 
   - id: "ts-block-mkfs"
     taxonomy: "destructive-ops/disk-ops/filesystem-format"
@@ -2553,6 +2555,7 @@ rules:
         executable: "rm"
         flags_all: ["r", "f"]
         args_any: ["/", "/etc/**", "/usr/**", "/var/**", "/boot/**", "/sys/**"]
+        args_none: ["/var/folders/**", "/tmp/**"]
     decision: "BLOCK"
     confidence: 0.95
     reason: "Structural: recursive force-delete on system directory (handles flag reordering and sudo)."
@@ -2562,6 +2565,7 @@ rules:
         - "sudo rm -rf /usr/local/old"
       tn:
         - "rm -rf ./build"
+        - "rm -rf /var/folders/fb/fgfx4pr5259d6xwcd2qxjp1w0000gn/T/tmp.UU9Dp0TUeE"
 
   # === ALLOW: /tmp cleanup (FP fix for issue #412) ===
   # rm -rf /tmp/<something> is standard temp file cleanup (e.g., CI scripts, agent workdir cleanup).
@@ -2583,6 +2587,29 @@ rules:
         - "rm -rf /tmp/test-output"
       tn:
         - "rm -rf /tmp"
+
+  # === ALLOW: macOS temp dir cleanup (FP fix for issue #820) ===
+  # macOS mktemp creates dirs under /var/folders/<hash>/T/tmp.<random>.
+  # This is the real path behind /tmp on macOS (symlinked via /private/tmp).
+  # Blocking these paths breaks standard temp cleanup workflows.
+  - id: "ts-allow-rm-var-folders-tmp"
+    taxonomy: "destructive-ops/fs-destruction/system-directory-delete"
+    match:
+      structural:
+        executable: "rm"
+        flags_all: ["r", "f"]
+        args_any: ["/var/folders/**"]
+        args_none: ["/var/folders"]
+    decision: "ALLOW"
+    confidence: 0.90
+    reason: "Recursive remove of macOS temp directory (/var/folders/.../T/tmp.*) — standard mktemp cleanup."
+    tests:
+      tp:
+        - "rm -rf /var/folders/fb/fgfx4pr5259d6xwcd2qxjp1w0000gn/T/tmp.UU9Dp0TUeE"
+        - "rm -rf /var/folders/xx/abc123/T/tmp.test123"
+      tn:
+        - "rm -rf /var/folders"
+        - "rm -rf /var/log/syslog"
 
   - id: "ts-struct-block-chmod-world-writable"
     taxonomy: "destructive-ops/permission-weakening/chmod-world-writable"
