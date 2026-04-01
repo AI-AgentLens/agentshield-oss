@@ -4985,7 +4985,7 @@ rules:
   - id: "ts-audit-ai-log-injection"
     taxonomy: "persistence-evasion/anti-forensics/ai-audit-log-injection"
     match:
-      command_regex: ">>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.agentshield/logs/|>>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.cursor/logs/|>>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.windsurf/logs/|>>\\s*/var/log/audit/|>>\\s*/var/log/ai-events"
+      command_regex: ">>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.agentshield/logs/|>>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.cursor/logs/|>>\\s*(?:~|\\$HOME|/home/[^/\\s]+|/root)?/?\\.windsurf/logs/|>>\\s*/var/log/audit/|>>\\s*/var/log/ai-events|tee\\s+-a\\s+\\S*(?:\\.agentshield/logs|\\.cursor/logs|\\.windsurf/logs|/var/log/audit|/var/log/ai-events)"
     decision: "AUDIT"
     confidence: 0.90
     reason: "Append to audit/security log path detected — AI agents fabricating false audit trail entries create a forged compliance record that masks unauthorized activity (OWASP LLM06, LLM02). MITRE T1565.001. Review the content being appended."
