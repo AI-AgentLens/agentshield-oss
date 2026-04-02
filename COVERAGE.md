@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1089 |
-| MCP rules | 637 |
-| Total rules | 1726 |
+| MCP rules | 648 |
+| Total rules | 1737 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1155,7 +1155,7 @@
 
 ## MCP Rules
 
-### credential-exposure (323 rules)
+### credential-exposure (334 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1196,6 +1196,12 @@
 | `mcp-sec-block-kube-access` | BLOCK | mcp_rule | Access to Kubernetes config is blocked. |
 | `mcp-sec-block-k8s-service-account-token` | BLOCK | mcp_rule | Kubernetes service account token/cert — Bearer token for API server auth. Reading this grants the reader ability to impersonate the Pod's service account, potentially with cluster-admin RBAC. |
 | `mcp-sec-block-k8s-pki-keys` | BLOCK | mcp_rule | Access to Kubernetes PKI directory is blocked — contains cluster CA and component private keys that enable impersonating the API server, etcd, or any control-plane component. MITRE T1552.004. |
+| `mcp-sec-block-kubelet-pki` | BLOCK | mcp_rule | Access to /var/lib/kubelet/pki/ is blocked — contains kubelet serving certificate and private key. Reading the private key enables impersonating the kubelet to exfiltrate pod secrets and execute commands in containers without API server authorization. MITRE T1552.004. |
+| `mcp-sec-block-istio-mtls-cert` | BLOCK | mcp_rule | Access to /etc/istio/proxy/ is blocked — Istio sidecar proxy certificate directory containing workload mTLS private key and cert chain. Exfiltration enables impersonating any service mesh workload and decrypting inter-service traffic. MITRE T1552.004. |
+| `mcp-sec-block-linkerd-identity` | BLOCK | mcp_rule | Access to /var/run/linkerd/identity/ is blocked — Linkerd proxy identity directory containing workload mTLS private key and trust anchor certificate. Exfiltration enables impersonating any Linkerd-injected service mesh workload. MITRE T1552.004. |
+| `mcp-sec-block-spire-identity` | BLOCK | mcp_rule | Access to /run/spire/ is blocked — SPIRE agent workload API socket and identity state directory. Accessing the socket enables obtaining SPIFFE SVIDs for any registered workload, bypassing mTLS authentication across the trust domain. MITRE T1552.004. |
+| `mcp-sec-block-spire-data` | BLOCK | mcp_rule | Access to /opt/spire/data/ is blocked — SPIRE agent/server persistent data directory containing cached SVID private keys for registered workloads. Reading this enables impersonating any SPIFFE-registered workload in the trust domain. MITRE T1552.004. |
+| `mcp-sec-block-envoy-legacy-certs` | BLOCK | mcp_rule | Access to /etc/certs/ is blocked — older Istio/Envoy workload certificate directory containing mTLS private key and certificate chain. Exfiltration enables impersonating any service mesh workload and decrypting inter-service traffic. MITRE T1552.004. |
 | `mcp-sec-block-nss-cert-database` | BLOCK | mcp_rule | Access to ~/.pki/nssdb/ is blocked — contains the NSS user certificate database (key4.db private keys, cert9.db trust store). Reading exposes client TLS private keys; writing can install malicious root CA certificates that silently MITM all HTTPS traffic in Firefox and Chromium. MITRE T1552.004, T1553.004. |
 | `mcp-sec-block-k8s-system-kubeconfig` | BLOCK | mcp_rule | Access to Kubernetes system kubeconfig files is blocked — admin.conf, controller-manager.conf, and scheduler.conf contain embedded cluster-admin tokens. Exfiltrating these grants full cluster access. MITRE T1552.001. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
@@ -1461,6 +1467,11 @@
 | `mcp-sec-block-dvc-config-read` | BLOCK | mcp_rule | Read access to DVC config file is blocked — may contain remote storage credentials (S3, GCS, Azure, SSH) used to access large training datasets and model artifact storage. MITRE T1552.001. |
 | `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to ~/.consul_token is blocked — contains a Consul ACL token granting authenticated access to the service mesh, KV store (often used to hold application secrets), and ACL system. Exfiltration enables full Consul control and Vault pivot. MITRE T1552. |
 | `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to ~/.nomad_token is blocked — contains a Nomad ACL token granting control over workload scheduling, job management, and secrets mounted into running allocations. MITRE T1552. |
+| `mcp-sec-block-vault-agent-config` | BLOCK | mcp_rule | Access to /etc/vault.d/ is blocked — Vault agent configuration directory containing auto_auth credentials (AppRole role_id/secret_id, AWS/GCP auth configs), token sink paths, and Vault address/token settings. Exfiltration enables full Vault API access. MITRE T1552. |
+| `mcp-sec-block-consul-config-dir` | BLOCK | mcp_rule | Access to /etc/consul.d/ is blocked — Consul agent configuration directory that may contain ACL tokens (acl.tokens.agent, acl.tokens.default), gossip encryption keys, and TLS certificates. Exfiltration enables unauthorized Consul API access and service mesh lateral movement. MITRE T1552. |
+| `mcp-sec-block-nomad-config-dir` | BLOCK | mcp_rule | Access to /etc/nomad.d/ is blocked — Nomad agent configuration directory that may contain gossip encryption keys (server.encrypt), ACL bootstrap tokens, TLS certificates, and server/client credentials. Exfiltration enables unauthorized Nomad cluster access and workload hijacking. MITRE T1552. |
+| `mcp-sec-block-nix-config-read` | BLOCK | mcp_rule | Access to ~/.config/nix/nix.conf is blocked — Nix user config file may contain plaintext access-tokens (GitHub/GitLab API tokens for private flake inputs) and secret-key-files paths (Nix binary cache signing keys). MITRE T1552.001, T1195.002. |
+| `mcp-sec-block-nix-system-config-read` | BLOCK | mcp_rule | Access to /etc/nix/nix.conf is blocked — system-level Nix config may contain plaintext access-tokens (GitHub/GitLab API tokens) and secret-key-files paths (Nix binary cache signing keys). In containerized environments, this file is often root-accessible to AI agent processes. MITRE T1552.001, T1195.002. |
 | `mcp-sec-block-maven-security-xml` | BLOCK | mcp_rule | Access to ~/.m2/settings-security.xml is blocked — this file contains Maven's encrypted master password, which decrypts all repository credentials in settings.xml. Exposing it enables full Maven repository credential compromise. MITRE T1552.001. |
 | `mcp-sec-block-restic-xdg-password` | BLOCK | mcp_rule | Access to ~/.config/restic/ is blocked — this directory contains the restic master encryption password (password, password.txt, repo-password, etc.). Compromise allows decrypting all backup archives and recovering historical secrets. MITRE T1552. |
 | `mcp-sec-block-restic-dotfile-password` | BLOCK | mcp_rule | Access to ~/.restic-password is blocked — stores the restic backup encryption master password (RESTIC_PASSWORD_FILE convention). MITRE T1552. |
