@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 654 |
-| Total rules | 1746 |
+| MCP rules | 660 |
+| Total rules | 1752 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1719,7 +1719,7 @@
 | `mcp-recon-block-grep-aws-key-pattern` | BLOCK | structural | MCP content-search with credential pattern — searching for AWS key prefixes, PEM headers, or service-specific token patterns across the filesystem is credential-hunting reconnaissance. No legitimate development task requires searching for these literal credential patterns. MITRE T1552, T1552.001. |
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 
-### supply-chain (20 rules)
+### supply-chain (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1743,8 +1743,12 @@
 | `mcp-sc-block-go-module-cache-write` | BLOCK | structural | MCP write to Go module cache (~~/go/pkg/mod/) — the Go module cache is immutable by design and checksummed in go.sum. Writing here injects code that executes when the affected module is imported, bypassing go.sum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-npm-registry-write` | BLOCK | structural | MCP HTTP PUT/POST to npm registry — npm package publishing uses HTTP PUT. An AI agent writing to the npm registry can inject backdoored package versions into developer supply chains. MITRE T1195.001. |
+| `mcp-sc-block-pypi-upload-api` | BLOCK | structural | MCP request to upload.pypi.org — this endpoint exists exclusively for package uploads (twine, flit, poetry). There is no legitimate read operation on this endpoint. Any AI agent request here is an autonomous package write attempt. MITRE T1195.001. |
+| `mcp-sc-block-cratesio-new-crate` | BLOCK | structural | MCP request to crates.io new-crate endpoint (/api/v1/crates/new) — this path is exclusively for cargo publish operations. An AI agent writing here can inject backdoored Rust crates. MITRE T1195.001. |
+| `mcp-sc-block-rubygems-api-write` | BLOCK | structural | MCP HTTP POST to RubyGems API — gem push uses POST /api/v1/gems to upload packages. An AI agent writing to RubyGems can inject backdoored Ruby dependencies. MITRE T1195.001. |
 
-### unauthorized-execution (97 rules)
+### unauthorized-execution (99 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1763,6 +1767,8 @@
 | `mcp-computer-use-block-keyboard-inject-terminal` | BLOCK | mcp_rule | Keyboard injection targeting a terminal window is a shell hook bypass — commands typed into a terminal execute without AgentShield evaluation. Block all MCP keyboard injection into terminal targets. MITRE T1059. |
 | `mcp-computer-use-block-keyboard-inject-shell` | BLOCK | mcp_rule | Keyboard injection targeting a shell process bypasses AgentShield's command evaluation — typed shell commands execute without policy checks. MITRE T1059. |
 | `mcp-computer-use-block-keyboard-inject-console` | BLOCK | mcp_rule | Keyboard injection targeting a console window bypasses AgentShield's command evaluation. MITRE T1059. |
+| `mcp-computer-use-audit-type-action` | AUDIT | mcp_rule | computer_use action=type injects text into the focused window. If a terminal is focused, typed commands execute without passing through AgentShield's shell evaluation hooks — a direct hook bypass vector. Verify the focused application is not a shell or terminal. MITRE T1059. |
+| `mcp-computer-use-audit-key-action` | AUDIT | mcp_rule | computer_use action=key sends keyboard shortcuts. Shortcuts like ctrl+alt+t (open terminal) or super+r (Windows Run dialog) can open execution contexts that bypass AgentShield's shell hook. Verify the shortcut does not open a shell, terminal, or privileged execution surface. MITRE T1059. |
 | `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
 | `mcp-content-audit-compliance-dir-write` | AUDIT | mcp_rule | AI-generated write to audit directory — fabricated audit results are a compliance liability (LLM09) |
 | `mcp-content-audit-compliance-file-write` | AUDIT | mcp_rule | AI-generated write to compliance directory — unverified compliance claims require human sign-off (LLM09) |
