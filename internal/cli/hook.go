@@ -117,6 +117,14 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: AGENTSHIELD_BYPASS detected in managed mode — ignoring bypass\n")
 	}
 
+	// Check pause — allow shell commands when paused (unless managed mode)
+	if IsPaused() {
+		managedCfg := enterprise.LoadManagedConfig()
+		if managedCfg == nil || !managedCfg.Managed {
+			return nil // paused = allow everything
+		}
+	}
+
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("failed to read stdin: %w", err)
