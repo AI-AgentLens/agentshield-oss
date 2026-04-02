@@ -1259,3 +1259,97 @@ structural_rules:
           args: {"path": "/workspace/scripts/cron_helper.sh"}
         - tool: "read_file"
           args: {"path": "/home/user/.config/myapp/config.yaml"}
+
+  # ------------------------------------------------------------------
+  # Credential File Discovery via find_files/glob (issue #868)
+  # ------------------------------------------------------------------
+  # MCP file-search tools (find_files, glob, list_files) can enumerate
+  # credential files across the filesystem using wildcard patterns —
+  # bypassing path-based blocking rules entirely. Unlike a direct read of
+  # a known path, this attack DISCOVERS credential locations first.
+  #
+  # Examples:
+  #   find_files pattern="**/id_rsa"     → locates all SSH private keys
+  #   find_files pattern="**/.env"       → locates all .env files
+  #   glob pattern="**/*.pem"            → locates all certificate/key files
+  #
+  # This is MITRE T1083 (File and Directory Discovery) used as reconnaissance
+  # for credential theft (T1552), particularly T1552.001 (Credentials in Files).
+  - id: mcp-recon-block-find-ssh-key-pattern
+    taxonomy: "reconnaissance/credential-discovery/find-credential-files"
+    match:
+      tool_name_any:
+        - "find_files"
+        - "find"
+        - "glob"
+        - "list_files"
+        - "search_files"
+        - "file_search"
+        - "search"
+      args_match:
+        pattern:
+          pattern_any:
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\]|^)id_(rsa|ed25519|ecdsa|dsa)(\\.pub)?$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?id_(rsa|ed25519|ecdsa|dsa)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP file-search with SSH private key name pattern — scanning for id_rsa, id_ed25519, id_ecdsa files is a credential discovery technique that bypasses path-based rules by locating keys before accessing them. MITRE T1083, T1552.004."
+    tests:
+      tp:
+        - tool: "find_files"
+          args: {"pattern": "**/id_rsa"}
+        - tool: "glob"
+          args: {"pattern": "**/id_ed25519"}
+        - tool: "find_files"
+          args: {"pattern": "*/id_ecdsa"}
+      tn:
+        - tool: "find_files"
+          args: {"pattern": "**/config.yaml"}
+        - tool: "glob"
+          args: {"pattern": "src/**/*.go"}
+
+  - id: mcp-recon-block-find-credential-files
+    taxonomy: "reconnaissance/credential-discovery/find-credential-files"
+    match:
+      tool_name_any:
+        - "find_files"
+        - "find"
+        - "glob"
+        - "list_files"
+        - "search_files"
+        - "file_search"
+        - "search"
+      args_match:
+        pattern:
+          pattern_any:
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\]|^)\\.env$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\]|^)credentials$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\]|^)\\.aws[/\\\\]credentials$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\]|^)\\.ssh[/\\\\]"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?\\*\\.pem$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?\\*\\.key$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?\\*\\.p12$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?\\*\\.pfx$"
+            - "(?i)(\\*\\*[/\\\\]|\\*[/\\\\])?\\*\\.jks$"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "MCP file-search with credential file pattern — scanning for .env files, credential files, or certificate/key files is credential discovery reconnaissance that locates secrets before reading them. MITRE T1083, T1552.001."
+    tests:
+      tp:
+        - tool: "find_files"
+          args: {"pattern": "**/.env"}
+        - tool: "glob"
+          args: {"pattern": "**/*.pem"}
+        - tool: "find_files"
+          args: {"pattern": "**/*.key"}
+        - tool: "search_files"
+          args: {"pattern": "**/credentials"}
+        - tool: "find_files"
+          args: {"pattern": "**/.ssh/"}
+      tn:
+        - tool: "find_files"
+          args: {"pattern": "**/*.go"}
+        - tool: "glob"
+          args: {"pattern": "src/**/*.ts"}
+        - tool: "find_files"
+          args: {"pattern": "**/README.md"}
