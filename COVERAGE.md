@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1089 |
-| MCP rules | 625 |
-| Total rules | 1714 |
+| MCP rules | 627 |
+| Total rules | 1716 |
 | Test cases (TP+TN) | 3929 |
 | Kingdoms covered | 10 |
 
@@ -1155,7 +1155,7 @@
 
 ## MCP Rules
 
-### credential-exposure (313 rules)
+### credential-exposure (315 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1301,6 +1301,7 @@
 | `mcp-sec-block-bitwarden-app-access` | BLOCK | mcp_rule | Access to ~/.bitwarden directory is blocked — contains Bitwarden app cached vault data and session tokens. MITRE T1555. |
 | `mcp-sec-block-rclone-credentials` | BLOCK | mcp_rule | Access to rclone config is blocked — contains credentials for all configured cloud storage remotes (S3, GCS, Azure, Dropbox, etc.). MITRE T1552. |
 | `mcp-sec-block-s3cmd-credentials` | BLOCK | mcp_rule | Access to s3cmd config is blocked — contains AWS access key ID and secret for S3 bucket access. MITRE T1552. |
+| `mcp-sec-block-s3cmd-xdg-credentials` | BLOCK | mcp_rule | Access to s3cmd XDG config (~/.config/s3cmd/s3cfg) is blocked — contains AWS access key ID and secret for S3 bucket access. MITRE T1552. |
 | `mcp-sec-block-boto-credentials` | BLOCK | mcp_rule | Access to boto config is blocked — contains AWS/GCP credentials used by Python boto, boto3, and gsutil. MITRE T1552. |
 | `mcp-sec-block-minio-client-credentials` | BLOCK | mcp_rule | Access to MinIO client config directory is blocked — ~/.mc/ contains config.json and aliases.json with access key IDs and secret access keys for MinIO, AWS S3, and other S3-compatible object storage backends. MITRE T1552. |
 | `mcp-sec-block-bitwarden-desktop-access` | BLOCK | mcp_rule | Access to Bitwarden desktop app data directory is blocked — contains encrypted vault data and cached session tokens. MITRE T1555. |
@@ -1458,6 +1459,7 @@
 | `mcp-sec-block-borgmatic-config` | BLOCK | mcp_rule | Access to ~/.config/borgmatic/ is blocked — borgmatic config files contain borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
 | `mcp-sec-block-borgmatic-dotfile-config` | BLOCK | mcp_rule | Access to ~/.borgmatic/ is blocked — the legacy borgmatic config path contains borg repository passphrases and SSH key paths for encrypted backup archives. MITRE T1552. |
 | `mcp-sec-block-borg-repo-keys` | BLOCK | mcp_rule | Access to ~/.config/borg/keys/ is blocked — borg repository key files are the encryption keys for backup archives; compromise allows mounting and decrypting all borg backups. MITRE T1552. |
+| `mcp-sec-block-duplicati-config` | BLOCK | mcp_rule | Access to ~/.config/duplicati/ is blocked — Duplicati stores backup encryption passphrases, remote storage credentials (S3, B2, Azure, Dropbox), and the server admin password in this directory. MITRE T1552. |
 | `mcp-sec-block-bitcoin-wallet` | BLOCK | mcp_rule | Access to Bitcoin Core wallet file is blocked — ~/.bitcoin/wallet.dat contains encrypted private keys in BerkeleyDB format. Exfiltrating this file enables offline brute-force attacks against wallet encryption and irreversible fund theft. MITRE T1552.001. |
 | `mcp-sec-block-ethereum-keystore` | BLOCK | mcp_rule | Access to Ethereum keystore directory is blocked — ~/.ethereum/keystore/ contains encrypted JSON key files (UTC--timestamp--address format). Exfiltrating these enables offline password cracking to recover plaintext private keys. MITRE T1552.001. |
 | `mcp-sec-block-solana-keypair` | BLOCK | mcp_rule | Access to Solana CLI keypair file is blocked — ~/.config/solana/id.json and other Solana keypair files store ED25519 private keys in plaintext JSON arrays. No decryption required — a single read call yields the private key. MITRE T1552.001. |
