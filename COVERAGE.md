@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 653 |
-| Total rules | 1745 |
+| MCP rules | 654 |
+| Total rules | 1746 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1625,7 +1625,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (26 rules)
+### persistence-evasion (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1646,6 +1646,7 @@
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig or its XDG equivalent (~/.config/git/config) can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-git-repo-config-write` | BLOCK | structural | MCP write to .git/config (project-level git config) can redirect git hooks to attacker scripts or intercept git credentials via url.insteadOf. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-security-config-delete` | BLOCK | structural | MCP deletion of AI IDE settings or AgentShield config removes hooks and policy, silently disabling all runtime protections. An agent that deletes its own settings.json can bypass AgentShield for all subsequent commands in the session. OWASP LLM06, MITRE T1548, T1485. |
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
 | `mcp-persist-block-ide-extension-dir-write` | BLOCK | structural | MCP write to IDE extension directory installs a persistent plugin that executes code in the IDE process on every project open — no shell command required. Covers VS Code, VSCodium, Cursor, Windsurf, and JetBrains IDEs. MITRE T1176, T1547. |
 | `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
@@ -1737,8 +1738,8 @@
 | `mcp-supply-chain-schema-drift` | AUDIT | structural | MCP tool schema changed since last session — possible tool poisoning or supply chain compromise. Detected by proxy-layer SchemaDriftScanner. OWASP LLM07, MITRE T1195.001. |
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
-| `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001. |
-| `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. Covers ~/.local/lib and pyenv-managed installations. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, and ~/.npm-global prefix. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-go-module-cache-write` | BLOCK | structural | MCP write to Go module cache (~~/go/pkg/mod/) — the Go module cache is immutable by design and checksummed in go.sum. Writing here injects code that executes when the affected module is imported, bypassing go.sum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
