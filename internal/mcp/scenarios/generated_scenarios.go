@@ -7148,4 +7148,42 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "mcp-ci-audit-llm-judge-authority-injection",
 		Description:      "Writing to a docs .md file — excluded from rule (documentation describing human security review) (issue #818).",
 	},
+
+	// === TOTP/MFA seed file access (issue #816) ===
+	{
+		ID:               "MCP-TP-974",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.google_authenticator"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-google-authenticator-read",
+		Description:      "Reading ~/.google_authenticator TOTP seed file — must be BLOCKED (issue #816).",
+	},
+	{
+		ID:               "MCP-TP-975",
+		ToolName:         "cat_file",
+		Arguments:        map[string]interface{}{"path": "/root/.google_authenticator"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-google-authenticator-read",
+		Description:      "cat_file on root ~/.google_authenticator TOTP seed — must be BLOCKED (issue #816).",
+	},
+	{
+		ID:               "MCP-TN-974",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/google_authenticator_setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-google-authenticator-read",
+		Description:      "Reading a docs file about Google Authenticator setup — path does not match .google_authenticator seed file, must be AUDIT (issue #816).",
+	},
+	{
+		ID:               "MCP-TN-975",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/project/README.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-google-authenticator-read",
+		Description:      "Reading a benign project README — unrelated to TOTP seed, must be AUDIT (issue #816).",
+	},
 }
