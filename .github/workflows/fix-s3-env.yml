@@ -2,7 +2,7 @@ name: Fix S3 env on server
 on: workflow_dispatch
 jobs:
   fix:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Update server .env with correct S3 credentials
         env:
@@ -11,24 +11,29 @@ jobs:
           RELEASES_S3_ACCESS_KEY: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
           RELEASES_S3_SECRET_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
         run: |
-          # Update the .env file on the server (runner IS on the server)
           ENV_FILE="/opt/aiagentlens/.env"
+          echo "Runner hostname: $(hostname)"
+          echo "Current ACCESS_KEY: $(grep RELEASES_S3_ACCESS_KEY $ENV_FILE | cut -d= -f2)"
+          echo "New ACCESS_KEY: ${RELEASES_S3_ACCESS_KEY:0:10}..."
           
-          # Replace or add S3 vars
-          sudo sed -i '/^RELEASES_S3_/d' "$ENV_FILE"
-          echo "RELEASES_S3_ENDPOINT=${RELEASES_S3_ENDPOINT}" | sudo tee -a "$ENV_FILE"
-          echo "RELEASES_S3_REGION=$(echo $RELEASES_S3_ENDPOINT | grep -oP 's3\.\K[^.]+')" | sudo tee -a "$ENV_FILE"
-          echo "RELEASES_S3_BUCKET=${RELEASES_S3_BUCKET}" | sudo tee -a "$ENV_FILE"
-          echo "RELEASES_S3_ACCESS_KEY=${RELEASES_S3_ACCESS_KEY}" | sudo tee -a "$ENV_FILE"
-          echo "RELEASES_S3_SECRET_KEY=${RELEASES_S3_SECRET_KEY}" | sudo tee -a "$ENV_FILE"
+          # Remove old S3 lines and add new ones
+          grep -v '^RELEASES_S3_' "$ENV_FILE" > /tmp/env_cleaned
+          echo "RELEASES_S3_ENDPOINT=${RELEASES_S3_ENDPOINT}" >> /tmp/env_cleaned
+          echo "RELEASES_S3_REGION=$(echo $RELEASES_S3_ENDPOINT | sed 's|.*s3\.\([^.]*\)\..*|\1|')" >> /tmp/env_cleaned
+          echo "RELEASES_S3_BUCKET=${RELEASES_S3_BUCKET}" >> /tmp/env_cleaned
+          echo "RELEASES_S3_ACCESS_KEY=${RELEASES_S3_ACCESS_KEY}" >> /tmp/env_cleaned
+          echo "RELEASES_S3_SECRET_KEY=${RELEASES_S3_SECRET_KEY}" >> /tmp/env_cleaned
+          cp /tmp/env_cleaned "$ENV_FILE"
           
-          echo "Updated .env with S3 credentials"
+          echo "Updated .env"
+          grep RELEASES_S3_ACCESS_KEY "$ENV_FILE" | cut -d= -f2 | cut -c1-10
           
-          # Restart the container
+          # Restart container
           cd /opt/aiagentlens
-          sudo docker compose -f docker-compose.production.yml up -d --force-recreate
+          docker compose -f docker-compose.production.yml up -d --force-recreate
+          sleep 8
           
-          sleep 5
-          
-          # Test
-          curl -sf "http://localhost:13435/releases/latest/version" || echo "FAILED"
+          # Verify
+          RESULT=$(curl -sf "http://localhost:13435/releases/latest/version" 2>&1 || echo '{"error":"failed"}')
+          echo "Result: $RESULT"
+          echo "$RESULT" | grep -q "error" && exit 1 || echo "SUCCESS"
