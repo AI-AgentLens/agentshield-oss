@@ -1,0 +1,84 @@
+id: "credential-exposure/scm-credentials/nix-access-token-exposure"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "SCM Tool Credential Files"
+category_id: "2.37"
+name: "Nix Configuration Credential Exposure"
+risk_level: "high"
+
+abstract: |
+  Nix package manager configuration files (~/.config/nix/nix.conf,
+  /etc/nix/nix.conf) may contain plaintext GitHub/GitLab API tokens in
+  access-tokens directives and paths to Ed25519 signing keys in secret-key-files
+  directives. Reading these files exposes credentials that grant access to private
+  repositories or enable supply chain compromise of any Nix binary cache.
+
+explanation: |
+  The Nix package manager supports two categories of sensitive data in its
+  configuration files:
+
+  1. **access-tokens**: Plaintext SCM tokens stored as key-value pairs:
+     ```
+     access-tokens = github.com=ghp_XXXXX gitlab.com=glpat-XXXXX
+     ```
+     These are GitHub Personal Access Tokens or GitLab API tokens used to
+     authenticate when fetching private flake inputs. A token with `repo`
+     scope grants read access to all private repositories. Exfiltrating
+     these tokens is equivalent to stealing the user's SCM credentials.
+
+  2. **secret-key-files**: Filesystem paths to Ed25519 private keys used to
+     sign Nix binary cache substitutes:
+     ```
+     secret-key-files = /etc/nix/signing-key.sec
+     ```
+     An attacker who obtains this signing key can publish maliciously crafted
+     Nix derivations that appear legitimately signed, enabling supply chain
+     compromise of every machine that trusts the associated binary cache.
+
+  Both threat vectors are present in nix.conf at the user level (~/.config/nix/)
+  and system level (/etc/nix/). An AI agent reading either file may inadvertently
+  expose tokens in tool output, or an adversary may direct the agent to read and
+  relay the file's contents.
+
+recommendation: |
+  - Block MCP file-read and shell cat operations targeting nix.conf paths.
+  - Store Nix signing keys in a hardware security module (HSM) rather than
+    plaintext files referenced by secret-key-files.
+  - Use fine-grained GitHub PATs scoped to the minimum required repositories
+    rather than broad tokens in access-tokens.
+  - Audit nix.conf files to verify they do not contain plaintext tokens;
+    prefer credential helpers or environment variable injection at build time.
+
+examples:
+  bad:
+    - "cat ~/.config/nix/nix.conf"
+    - "cat /etc/nix/nix.conf"
+    - "read_file(path='~/.config/nix/nix.conf')"
+    - "read_file(path='/etc/nix/nix.conf')"
+  good:
+    - "cat /workspace/project/nix/default.nix"
+    - "cat /workspace/flake.nix"
+    - "read_file(path='/workspace/docs/nix-configuration-guide.md')"
+
+compliance:
+  owasp-llm-2025: ["LLM02", "LLM06"]
+  iso-27001-2022: ["A.8.4", "A.8.9", "A.8.12"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+  iso-42001-2023: ["A.8.4", "A.9.3"]
+
+references:
+  mitre_attack: ["T1552.001", "T1195.002"]
+  cwe: ["CWE-522", "CWE-312"]
+  external:
+    - title: "Nix Reference Manual: nix.conf — access-tokens"
+      url: "https://nix.dev/manual/nix/stable/command-ref/conf-file.html#conf-access-tokens"
+    - title: "Nix Reference Manual: nix.conf — secret-key-files"
+      url: "https://nix.dev/manual/nix/stable/command-ref/conf-file.html#conf-secret-key-files"
+    - title: "MITRE ATT&CK: Credentials In Files"
+      url: "https://attack.mitre.org/techniques/T1552/001/"
+
+analyzers: ["regex"]
+related_rules: ["mcp-sec-block-nix-config-read", "mcp-sec-block-nix-system-config-read"]
