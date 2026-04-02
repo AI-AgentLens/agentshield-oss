@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1089 |
-| MCP rules | 631 |
-| Total rules | 1720 |
+| MCP rules | 633 |
+| Total rules | 1722 |
 | Test cases (TP+TN) | 3929 |
 | Kingdoms covered | 10 |
 
@@ -1664,7 +1664,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (25 rules)
+### reconnaissance (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1693,6 +1693,8 @@
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
 | `mcp-recon-audit-multi-agent-topology-config` | AUDIT | structural | MCP read of a multi-agent orchestration config file — these files (autogen_config.json, crew.yaml, langgraph.json, .well-known/agent.json) contain the agent network topology: which agents exist, their roles, and tool assignments. An agent reading these is mapping the multi-agent network for reconnaissance. OWASP LLM06/LLM08, MITRE T1592. |
+| `mcp-recon-audit-auth-log-read` | AUDIT | structural | Read access to system authentication or audit logs — these files contain SSH login attempts, sudo command history, PAM events, and user session records. Reading them provides an attacker with a detailed reconnaissance picture of active accounts and privileged activity. MITRE T1552.007, T1087, T1057. |
+| `mcp-recon-audit-cron-config-read` | AUDIT | structural | Read access to cron configuration files — these files reveal scheduled tasks, their execution timing, and what scripts run as privileged users. Used by attackers to identify writable privileged scripts (privilege escalation) or understand monitoring schedules (evasion). MITRE T1053.003, T1057, T1087. |
 
 ### supply-chain (20 rules)
 
