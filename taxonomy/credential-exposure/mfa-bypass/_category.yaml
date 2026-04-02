@@ -1,0 +1,8 @@
+id: "2.35"
+name: "MFA Bypass"
+kingdom_id: 2
+description: >
+  Access to files and data that enable bypassing multi-factor authentication
+  (TOTP seeds, backup codes, hardware token seeds). Exposure of these files
+  renders the second factor useless, granting full account access to anyone
+  with the primary credential.

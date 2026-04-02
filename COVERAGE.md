@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1089 |
-| MCP rules | 633 |
-| Total rules | 1722 |
-| Test cases (TP+TN) | 3929 |
+| MCP rules | 637 |
+| Total rules | 1726 |
+| Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -622,7 +622,7 @@
 | `ts-audit-ld-audit` | AUDIT | regex | LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use. |
 | `ts-block-path-hijack-export` | BLOCK | regex | Exporting PATH with a world-writable or relative directory prepended hijacks command resolution for all subsequent commands in this shell session and child processes. |
 | `ts-block-path-hijack-eval` | BLOCK | regex | Using eval to set PATH with a writable/relative directory is an obfuscated form of PATH hijacking. |
-| `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries. |
+| `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries and grants full host access. Excludes gh/git text-payload flags (--body, --message, -m, etc.) that may document the pattern. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
 | `ts-block-kubectl-create-clusterrolebinding` | BLOCK | regex | kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
 | `ts-block-kubectl-create-rolebinding` | BLOCK | regex | kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
@@ -1155,7 +1155,7 @@
 
 ## MCP Rules
 
-### credential-exposure (319 rules)
+### credential-exposure (323 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1192,12 +1192,15 @@
 | `mcp-sec-block-ssh-authorized-keys-read` | BLOCK | mcp_rule | Read access to SSH authorized_keys is blocked — lists all public keys authorized to log in, useful for lateral movement. MITRE T1087, T1552. |
 | `mcp-sec-block-aws-access` | BLOCK | mcp_rule | Access to AWS credential directories is blocked. |
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
+| `mcp-sec-block-google-authenticator-read` | BLOCK | mcp_rule | Read access to ~/.google_authenticator is blocked — this file contains the HMAC seed secret for TOTP/HOTP MFA. An attacker who reads this file can generate valid one-time passwords and bypass multi-factor authentication. MITRE T1552. |
 | `mcp-sec-block-kube-access` | BLOCK | mcp_rule | Access to Kubernetes config is blocked. |
 | `mcp-sec-block-k8s-service-account-token` | BLOCK | mcp_rule | Kubernetes service account token/cert — Bearer token for API server auth. Reading this grants the reader ability to impersonate the Pod's service account, potentially with cluster-admin RBAC. |
 | `mcp-sec-block-k8s-pki-keys` | BLOCK | mcp_rule | Access to Kubernetes PKI directory is blocked — contains cluster CA and component private keys that enable impersonating the API server, etcd, or any control-plane component. MITRE T1552.004. |
 | `mcp-sec-block-nss-cert-database` | BLOCK | mcp_rule | Access to ~/.pki/nssdb/ is blocked — contains the NSS user certificate database (key4.db private keys, cert9.db trust store). Reading exposes client TLS private keys; writing can install malicious root CA certificates that silently MITM all HTTPS traffic in Firefox and Chromium. MITRE T1552.004, T1553.004. |
 | `mcp-sec-block-k8s-system-kubeconfig` | BLOCK | mcp_rule | Access to Kubernetes system kubeconfig files is blocked — admin.conf, controller-manager.conf, and scheduler.conf contain embedded cluster-admin tokens. Exfiltrating these grants full cluster access. MITRE T1552.001. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
+| `mcp-sec-block-gcp-service-account-json` | BLOCK | mcp_rule | Access to GCP service account JSON key file is blocked — contains RSA private key, service account email, and project credentials granting full GCP API access. MITRE T1552.001. |
+| `mcp-sec-block-gcp-credentials-json` | BLOCK | mcp_rule | Access to GCP credentials JSON file is blocked — likely a service account key file containing RSA private key and GCP project credentials. MITRE T1552.001. |
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
 | `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
 | `mcp-sec-block-digitalocean-config` | BLOCK | mcp_rule | Access to ~/.digitalocean/ config is blocked — may contain DigitalOcean API tokens and authentication state. MITRE T1552.005. |
@@ -1428,6 +1431,7 @@
 | `mcp-sec-block-kaggle-credentials-read` | BLOCK | mcp_rule | Access to Kaggle credential file (~/.kaggle/kaggle.json) is blocked — contains API token for full Kaggle account access including private datasets. MITRE T1552. |
 | `mcp-sec-audit-jupyter-notebook-read` | AUDIT | mcp_rule | Reading a Jupyter notebook (.ipynb) — notebooks may contain embedded credentials in cell outputs. Auditing for review. |
 | `mcp-sec-block-snowsql-credentials-read` | BLOCK | mcp_rule | Access to Snowflake SQL credential directory (~/.snowsql/) is blocked — contains account passwords and MFA configuration. MITRE T1552. |
+| `mcp-sec-block-snowflake-connector-config-read` | BLOCK | mcp_rule | Access to Snowflake connector config (~/.snowflake/) is blocked — contains account credentials, authentication tokens, and private key paths used by the Snowflake Python connector and Snowflake CLI. MITRE T1552. |
 | `mcp-sec-block-confluent-credentials-read` | BLOCK | mcp_rule | Access to Confluent Cloud credential directory (~/.confluent/) is blocked — contains API keys and cluster credentials. MITRE T1552. |
 | `mcp-sec-block-lastpass-local-vault-read` | BLOCK | mcp_rule | Access to LastPass local credential cache (~/.local/share/lastpass/) is blocked — contains encrypted vault blob and local database. MITRE T1555.005. |
 | `mcp-sec-block-bitwarden-session-token` | BLOCK | mcp_rule | Access to ~/.bitwarden_session is blocked — contains an authenticated Bitwarden CLI session token granting full vault access without the master password. MITRE T1555.005. |
@@ -1852,9 +1856,9 @@
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
 | persistence-evasion | 319 | 200 | 519 |
-| privilege-escalation | 294 | 177 | 471 |
+| privilege-escalation | 294 | 179 | 473 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2367** | **1562** | **3929** |
+| **Total** | **2367** | **1564** | **3931** |
 
