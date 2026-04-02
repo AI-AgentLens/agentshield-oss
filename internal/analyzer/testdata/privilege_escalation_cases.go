@@ -331,6 +331,27 @@ var ContainerEscapeCases = []TestCase{
 		Description:      `docker ps lists running containers. Safe read-only operation.`,
 		Tags:             []string{"common-dev-operation"},
 	},
+	// FP fix: issue #844 — rule fired on gh pr create --body containing "docker run --privileged" as documentation
+	{
+		ID:               "TN-CNTESC-FP844-001",
+		Command:          `gh pr create --title "fix: add privileged container detection" --body "ts-block-docker-privileged blocks docker run --privileged to prevent container escape"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `Creating a GitHub PR whose body mentions "docker run --privileged" as documentation. Excluded by command_regex_exclude for gh --body flag. (FP fix #844)`,
+		Tags:             []string{"fp-regression", "doc-context", "issue-844"},
+	},
+	{
+		ID:               "TN-CNTESC-FP844-002",
+		Command:          `git commit -m "docs: document that docker run --privileged is blocked by ts-block-docker-privileged"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/container-escape/docker-privileged",
+		Analyzer:         "regex",
+		Description:      `Git commit whose message documents docker --privileged as a blocked pattern. Excluded by command_regex_exclude for git -m flag. (FP fix #844)`,
+		Tags:             []string{"fp-regression", "doc-context", "issue-844"},
+	},
 	{
 		ID:               "TN-CNTESC-002",
 		Command:          `docker logs web-app-container`,
