@@ -83,6 +83,7 @@ compliance:
 
 references:
   mitre_attack: ["T1195.002", "T1219"]
+  mitre_atlas: ["AML.T0047"]
   cwe: ["CWE-284", "CWE-693"]
   external:
     - title: "EU AI Act Article 26 — Obligations of Deployers"

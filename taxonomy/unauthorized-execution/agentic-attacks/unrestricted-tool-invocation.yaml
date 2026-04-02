@@ -75,6 +75,7 @@ compliance:
 
 references:
   mitre_attack: ["T1059.006", "T1203"]
+  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-94", "CWE-470", "CWE-693"]
   external:
     - title: "OWASP LLM01 — Prompt Injection"

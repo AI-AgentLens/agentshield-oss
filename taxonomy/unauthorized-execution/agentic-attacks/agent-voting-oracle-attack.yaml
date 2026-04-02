@@ -77,6 +77,7 @@ compliance:
 
 references:
   mitre_attack: ["T1565", "T1036", "T1199"]
+  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-345", "CWE-290", "CWE-807"]
   external:
     - title: "OWASP LLM07: System Prompt Leakage"

@@ -109,6 +109,7 @@ compliance:
 
 references:
   mitre_attack: ["T1113", "T1056", "T1185", "T1059"]
+  mitre_atlas: ["AML.T0047"]
   cwe: ["CWE-284", "CWE-359", "CWE-940"]
   external:
     - title: "Anthropic Computer Use API Documentation"

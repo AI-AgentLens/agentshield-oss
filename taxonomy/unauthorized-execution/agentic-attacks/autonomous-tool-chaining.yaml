@@ -87,6 +87,7 @@ compliance:
 
 references:
   mitre_attack: ["T1071.001", "T1027", "T1059"]
+  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-362", "CWE-693", "CWE-841"]
   external:
     - title: "OWASP LLM06 — Excessive Agency"

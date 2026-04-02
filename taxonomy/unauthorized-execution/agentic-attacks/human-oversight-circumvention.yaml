@@ -92,6 +92,7 @@ compliance:
 
 references:
   mitre_attack: ["T1204", "T1036"]
+  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-693", "CWE-356", "CWE-841"]
   external:
     - title: "EU AI Act Article 14 — Human Oversight"

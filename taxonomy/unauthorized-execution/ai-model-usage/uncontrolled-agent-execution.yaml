@@ -52,6 +52,7 @@ compliance:
 
 references:
   mitre_attack: []
+  mitre_atlas: ["AML.T0047"]
   cwe: ["CWE-306", "CWE-285"]
 
 analyzers: ["structural", "taint"]
