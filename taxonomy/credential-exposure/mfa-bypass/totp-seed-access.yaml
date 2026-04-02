@@ -1,0 +1,76 @@
+id: "credential-exposure/mfa-bypass/totp-seed-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "MFA Bypass"
+category_id: "2.35"
+name: "TOTP Seed File Access"
+risk_level: "critical"
+
+abstract: |
+  Reading the TOTP/HOTP authenticator seed file (e.g., ~/.google_authenticator)
+  exposes the shared secret used to generate time-based one-time passwords,
+  allowing an attacker to generate valid OTP codes and fully bypass
+  multi-factor authentication on any account using that seed.
+
+explanation: |
+  Time-based One-Time Password (TOTP) and HMAC-based OTP (HOTP) systems
+  (RFC 6238/4226) derive codes from a shared secret seed stored in a file.
+  For Google Authenticator and compatible apps (Authy, FreeOTP, andOTP),
+  PAM-based SSH/sudo MFA uses `~/.google_authenticator` which contains:
+
+  - The base32-encoded HMAC seed secret (the core secret)
+  - Optional scratch codes for emergency account recovery
+  - Configuration flags (TOTP window tolerance, rate limits)
+
+  An AI agent reading this file gains everything needed to:
+  1. **Generate current valid OTP codes** — using the seed and current time,
+     any standard TOTP library produces valid codes, bypassing 2FA on SSH,
+     sudo, web services, or any system using `libpam-google-authenticator`.
+  2. **Use scratch codes** — one-time emergency codes in the file are valid
+     immediately without any time dependency.
+  3. **Clone the authenticator** — the seed can be imported into any
+     authenticator app, creating a persistent parallel MFA identity.
+
+  This is a complete MFA bypass: even if the target account has a strong
+  password, reading the TOTP seed renders the second factor useless.
+
+  **Affected systems**:
+  - SSH servers with `libpam-google-authenticator` (very common on Linux)
+  - Web applications configured to use PAM-based TOTP
+  - Any service where the same seed is shared across multiple accounts
+
+recommendation: |
+  - Block all read access to `~/.google_authenticator` and equivalent
+    TOTP seed files in AI agent contexts.
+  - TOTP seeds should be stored in hardware security modules or dedicated
+    MFA management systems, not in plaintext home directory files.
+  - Monitor file access events on authenticator seed files via auditd.
+
+examples:
+  bad:
+    - |
+      # Direct read of TOTP seed
+      cat ~/.google_authenticator
+    - |
+      # Copy for exfiltration
+      cp ~/.google_authenticator /tmp/seed.txt
+  good:
+    - |
+      # Check if PAM module is enabled (safe - config only, no seed)
+      grep google_authenticator /etc/pam.d/sshd
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.4", "A.5.23"]
+  nist-ai-rmf-1.0: ["MANAGE-2"]
+  eu-ai-act-2024: ["Art.9"]
+  soc2-type2: ["CC6.1", "CC6.6"]
+  iso-42001-2023: ["A.8.4"]
+
+references:
+  mitre_attack: ["T1552", "T1111"]
+  cwe: ["CWE-522", "CWE-308"]
+
+analyzers: ["mcp"]
+related_rules: ["mcp-sec-block-google-authenticator-read"]

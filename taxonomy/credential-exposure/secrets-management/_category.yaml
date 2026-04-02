@@ -1,0 +1,8 @@
+id: "2.36"
+name: "Secrets Management"
+kingdom_id: 2
+description: >
+  Access to secrets management configuration files and encrypted secret stores
+  (SOPS encrypted files, .sops.yaml master configs). Exposure of these files
+  reveals encryption key topology, enables offline decryption attacks, and
+  allows secret substitution via configuration tampering.
