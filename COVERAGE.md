@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1089 |
-| MCP rules | 627 |
-| Total rules | 1716 |
+| MCP rules | 631 |
+| Total rules | 1720 |
 | Test cases (TP+TN) | 3929 |
 | Kingdoms covered | 10 |
 
@@ -1155,7 +1155,7 @@
 
 ## MCP Rules
 
-### credential-exposure (315 rules)
+### credential-exposure (319 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1248,6 +1248,7 @@
 | `mcp-sec-block-cargo-credentials` | BLOCK | mcp_rule | Access to Cargo credential files is blocked — contains crates.io and private registry tokens (both legacy ~/.cargo/credentials and modern ~/.cargo/credentials.toml). |
 | `mcp-sec-block-pypoetry-credentials` | BLOCK | mcp_rule | Access to Poetry auth.toml is blocked — contains HTTP auth tokens for private PyPI repositories. MITRE T1552. |
 | `mcp-sec-block-gradle-properties` | BLOCK | mcp_rule | Access to Gradle user properties is blocked — may contain Maven/Gradle repository passwords. |
+| `mcp-sec-block-go-env-file` | BLOCK | mcp_rule | Access to Go module environment file is blocked — ~/.config/go/env may contain GOPROXY URLs with embedded authentication tokens for private module proxies, and GOPRIVATE values that reveal internal package namespaces. MITRE T1552. |
 | `mcp-sec-block-dbt-profiles` | BLOCK | mcp_rule | Access to ~/.dbt/profiles.yml is blocked — contains database credentials for data warehouse connections (BigQuery, Snowflake, Redshift, Databricks, etc.). MITRE T1552. |
 | `mcp-sec-block-snyk-config` | BLOCK | mcp_rule | Access to Snyk CLI config is blocked — contains the Snyk API authentication token. MITRE T1552. |
 | `mcp-sec-block-snyk-dotdir` | BLOCK | mcp_rule | Access to ~/.snyk/config.json is blocked — this Snyk CLI credential file contains the Snyk API authentication token. MITRE T1552. |
@@ -1295,6 +1296,9 @@
 | `mcp-sec-block-sops-age-config-key-access` | BLOCK | mcp_rule | Access to SOPS age key directory is blocked — ~/.config/sops/age/keys.txt is the age private key used by SOPS to decrypt secrets.enc.yaml files in git repositories. MITRE T1552. |
 | `mcp-sec-block-age-key-txt-access` | BLOCK | mcp_rule | Access to age private key files is blocked — .age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-age-key-txt-plain` | BLOCK | mcp_rule | Access to age private key files is blocked — age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
+| `mcp-sec-block-sops-encrypted-files` | BLOCK | mcp_rule | Access to SOPS-encrypted secrets file is blocked — secrets.enc.yaml is the standard SOPS output filename containing encrypted application secrets (API keys, passwords, certificates). Ciphertext exposure enables offline decryption attacks. MITRE T1552. |
+| `mcp-sec-block-sops-named-files` | BLOCK | mcp_rule | Access to SOPS-encrypted files is blocked — *.sops.yaml is the alternative SOPS naming convention for in-place encrypted YAML files. These files contain encrypted application secrets even though they appear as ordinary YAML. MITRE T1552. |
+| `mcp-sec-block-sops-master-config` | BLOCK | mcp_rule | Access to SOPS master configuration is blocked — .sops.yaml contains KMS ARN identifiers, GCP key paths, PGP fingerprints, and age public keys that map the entire secrets encryption topology. Exposing this enables targeted key exfiltration. MITRE T1552. |
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
