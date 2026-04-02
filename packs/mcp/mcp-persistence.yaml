@@ -690,6 +690,60 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/workspace/docs/cursor-settings-guide.md"}
 
+  # === BLOCK: Delete/remove of IDE settings and AgentShield config files via MCP (issue #877) ===
+  #
+  # The existing rule mcp-persist-block-ide-settings-write blocks MCP *writes* to IDE
+  # settings files. But deletion is equally dangerous: deleting ~/.claude/settings.json
+  # removes all AgentShield hooks, silently disabling protection for all subsequent
+  # shell commands in the session. Deleting ~/.agentshield/policy.yaml resets to minimal
+  # default policy.
+  #
+  # Unlike writes (which can be detected as content injection), deletions pass silently
+  # through audit-only delete rules — making this a reliable tamper channel for rogue
+  # MCP servers.
+  #
+  # MITRE T1548   — Abuse Elevation Control Mechanism (capability de-escalation via config wipe)
+  # MITRE T1485   — Data Destruction (security config destruction to disable monitoring)
+  # OWASP LLM06   — Excessive Agency (agent self-modifying its own security constraints)
+  - id: mcp-persist-block-security-config-delete
+    taxonomy: "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.claude/settings\\.json$"
+            - "(?:^|/)\\.claude/settings\\.local\\.json$"
+            - "(?:^|/)\\.cursor/settings\\.json$"
+            - "(?i)Cursor/User/settings\\.json$"
+            - "(?:^|/)\\.config/cursor/settings\\.json$"
+            - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
+            - "(?:^|/)\\.config/windsurf/settings\\.json$"
+            - "(?:^|/)\\.config/gemini/settings\\.json$"
+            - "(?:^|/)\\.openai-codex/config\\.json$"
+            - "(?:^|/)\\.agentshield/"
+    decision: "BLOCK"
+    reason: "MCP deletion of AI IDE settings or AgentShield config removes hooks and policy, silently disabling all runtime protections. An agent that deletes its own settings.json can bypass AgentShield for all subsequent commands in the session. OWASP LLM06, MITRE T1548, T1485."
+    confidence: 0.97
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/home/user/.claude/settings.json"}
+        - tool: "remove_file"
+          args: {"path": "/home/user/.agentshield/policy.yaml"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.cursor/settings.json"}
+        - tool: "unlink"
+          args: {"path": "/home/user/.config/windsurf/settings.json"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/project/build/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/workspace/src/cursor-settings-example.json"}
+
   # === BLOCK: Desktop environment extension directory writes via MCP (issue #375) ===
   #
   # Desktop environment extensions execute code in the desktop session process
