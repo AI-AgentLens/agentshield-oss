@@ -1150,3 +1150,60 @@ structural_rules:
           args: {"path": "/project/src/agents/agent_helper.py"}
         - tool: "read_file"
           args: {"path": "/docs/multi-agent-architecture.md"}
+
+  # ------------------------------------------------------------------
+  # System Auth & Audit Log Read (#839)
+  # ------------------------------------------------------------------
+  # Authentication logs contain SSH login attempts, sudo command history,
+  # PAM events, and user login/logout records. The Linux Audit Daemon log
+  # captures syscalls, file accesses, and user activity. Reading these
+  # files provides an attacker with a detailed picture of active users,
+  # privileged command history, and what the system is monitoring.
+  #
+  # wtmp/btmp are binary files recording successful and failed logins
+  # respectively — equivalent to `last` and `lastb` output.
+  #
+  # AUDIT rather than BLOCK: legitimate admins read these for debugging.
+  - id: mcp-recon-audit-auth-log-read
+    taxonomy: "reconnaissance/system-enumeration/auth-log-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      args_match:
+        path:
+          pattern_any:
+            - "^/var/log/auth\\.log(\\.\\d+|\\.gz)?$"
+            - "^/var/log/secure(\\.\\d+|\\.gz)?$"
+            - "^/var/log/audit/audit\\.log(\\.\\d+|\\.gz)?$"
+            - "^/var/log/wtmp(\\.\\d+|\\.gz)?$"
+            - "^/var/log/btmp(\\.\\d+|\\.gz)?$"
+            - "^/var/log/faillog$"
+            - "^/var/log/lastlog$"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Read access to system authentication or audit logs — these files contain SSH login attempts, sudo command history, PAM events, and user session records. Reading them provides an attacker with a detailed reconnaissance picture of active accounts and privileged activity. MITRE T1552.007, T1087, T1057."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/var/log/auth.log"}
+        - tool: "cat_file"
+          args: {"path": "/var/log/secure"}
+        - tool: "read_file"
+          args: {"path": "/var/log/audit/audit.log"}
+        - tool: "open_file"
+          args: {"path": "/var/log/wtmp"}
+        - tool: "read_file"
+          args: {"path": "/var/log/btmp"}
+        - tool: "view_file"
+          args: {"path": "/var/log/auth.log.1"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/logs/app.log"}
+        - tool: "read_file"
+          args: {"path": "/var/log/nginx/access.log"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/auth-flow.md"}
