@@ -10810,6 +10810,44 @@ rules:
         - "pgrep myapp"
         - "tasklist | findstr myservice"
 
+  # === AUDIT: ps/pgrep targeting AI agent processes (issue #819) ===
+  #
+  # Taxonomy: reconnaissance/llm-introspection/multi-agent-topology-enumeration
+  # OWASP LLM06 — Excessive Agency, LLM08 — Vector and Embedding Weaknesses
+  # MITRE T1057 — Process Discovery, T1592 — Gather Victim Host Information
+  #
+  # In a multi-agent system, an agent enumerating peer agent processes is
+  # performing topology reconnaissance — mapping which AI agents are running
+  # so it can identify high-privilege targets for prompt injection or delegation
+  # forgery. Key patterns:
+  #   ps aux | grep -i claude       → enumerate Claude agent processes
+  #   ps aux | grep -i cursor       → enumerate Cursor agent processes
+  #   pgrep -f autogpt              → targeted AI agent process search
+  #   ps aux | grep -i 'crewai\|langchain\|autogen'  → multi-framework sweep
+  #
+  # Distinct from ts-audit-security-tool-process-probe (which covers security
+  # tool targeting). This rule covers AI agent process enumeration — mapping
+  # the *peer* agents in the network, not the security controls.
+  - id: "ts-audit-ai-agent-process-enumeration"
+    taxonomy: "reconnaissance/llm-introspection/multi-agent-topology-enumeration"
+    match:
+      command_regex: "(ps\\s+-?(aux|ef|a|e|ax)\\s*\\|\\s*grep\\s+(-[iEe]\\s+)?['\"]?(claude|cursor|windsurf|codex|copilot|autogpt|autogen|langchain|crewai|langgraph|openai-agent|gemini.cli))|(pgrep\\s+(-[afloP]\\s+)*['\"]?(claude|cursor|windsurf|codex|autogpt|autogen|langchain|crewai|langgraph))"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Process enumeration targeting AI agent names (claude, cursor, autogpt, langchain, crewai, etc.) — detecting peer agents in a multi-agent system is topology reconnaissance that enables targeted prompt injection or delegation forgery against high-privilege agents. OWASP LLM06/LLM08, MITRE T1057/T1592."
+    tests:
+      tp:
+        - "ps aux | grep -i claude"
+        - "ps aux | grep -i cursor"
+        - "ps aux | grep -i autogpt"
+        - "ps -ef | grep -i 'crewai'"
+        - "pgrep -f langchain"
+        - "pgrep -a autogen"
+      tn:
+        - "ps aux | grep nginx"
+        - "ps aux | grep myapp"
+        - "pgrep -x python3"
+
   - id: "ts-audit-writable-dir-enumeration"
     taxonomy: "reconnaissance/llm-introspection/agent-capability-enumeration"
     match:

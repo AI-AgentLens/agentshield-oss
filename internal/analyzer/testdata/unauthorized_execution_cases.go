@@ -4323,11 +4323,11 @@ var AgentSessionHijackCases = []TestCase{
 	{
 		ID:               "TN-AGENTSESS-001",
 		Command:          "ps aux | grep claude",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-session-hijacking",
 		Analyzer:         "regex",
-		Description:      "Listing running claude processes via ps — read-only process enumeration, does not attach or inject; does not match pgrep-based fd/ptrace rules.",
+		Description:      "Listing running claude processes via ps — not agent-session-hijacking (no attach/inject). Correctly AUDITed by ts-audit-ai-agent-process-enumeration for multi-agent topology reconnaissance.",
 		Tags:             []string{"tn", "safe", "process-listing"},
 	},
 	{

@@ -1082,3 +1082,71 @@ structural_rules:
           args: {"key": "RAILS_ENV"}
         - tool: "get_env_var"
           args: {"name": "PATH"}
+
+  # === AUDIT: Multi-agent orchestration config file access (issue #819) ===
+  #
+  # Taxonomy: reconnaissance/llm-introspection/multi-agent-topology-enumeration
+  # OWASP LLM06 — Excessive Agency, LLM08 — Vector and Embedding Weaknesses
+  # MITRE T1592 — Gather Victim Host Information, T1083 — File and Directory Discovery
+  #
+  # Multi-agent orchestration frameworks store their network topology — active
+  # agents, their roles, tool assignments, and trust relationships — in
+  # well-known config files:
+  #   autogen_config.json / OAI_CONFIG_LIST    AutoGen agent registry
+  #   .crew/config.yaml / crew.yaml            CrewAI agent roster
+  #   langgraph.json / langgraph.yaml          LangGraph graph node definitions
+  #   agent_config.yaml / agent-config.yaml    Generic multi-agent configs
+  #   /.well-known/agent.json                  A2A protocol discovery endpoint
+  #
+  # An agent reading these files is mapping the network — learning which peer
+  # agents exist, what tools they can invoke, and which agents are most
+  # privileged. This topology map enables targeted follow-on attacks:
+  # delegation forgery, cross-agent prompt injection, or privilege escalation
+  # via a high-trust agent.
+  #
+  # AUDIT rather than BLOCK because legitimate orchestrators need to read
+  # these configs during initialization. The AUDIT captures the access for
+  # review, flagging unexpected reads by non-orchestrator agents.
+  - id: mcp-recon-audit-multi-agent-topology-config
+    taxonomy: "reconnaissance/llm-introspection/multi-agent-topology-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "read_resource"
+      args_match:
+        path:
+          pattern_any:
+            - "(?i)(^|/)autogen[_-]config\\.json$"
+            - "(?i)(^|/)OAI_CONFIG_LIST(\\.json)?$"
+            - "(?i)(^|/)\\.crew/.*\\.ya?ml$"
+            - "(?i)(^|/)crew\\.ya?ml$"
+            - "(?i)(^|/)langgraph\\.json$"
+            - "(?i)(^|/)langgraph\\.ya?ml$"
+            - "(?i)(^|/)agent[_-]config\\.ya?ml$"
+            - "(?i)\\.well-known/agent\\.json$"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "MCP read of a multi-agent orchestration config file — these files (autogen_config.json, crew.yaml, langgraph.json, .well-known/agent.json) contain the agent network topology: which agents exist, their roles, and tool assignments. An agent reading these is mapping the multi-agent network for reconnaissance. OWASP LLM06/LLM08, MITRE T1592."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/workspace/autogen_config.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/OAI_CONFIG_LIST"}
+        - tool: "read_file"
+          args: {"path": "/project/.crew/config.yaml"}
+        - tool: "open_file"
+          args: {"path": "/app/langgraph.json"}
+        - tool: "read_file"
+          args: {"path": "/server/.well-known/agent.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/README.md"}
+        - tool: "read_file"
+          args: {"path": "/project/src/agents/agent_helper.py"}
+        - tool: "read_file"
+          args: {"path": "/docs/multi-agent-architecture.md"}
