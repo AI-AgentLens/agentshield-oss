@@ -4,7 +4,23 @@ jobs:
   fix:
     runs-on: [self-hosted, Linux, X64]
     steps:
-      - name: Update server .env with correct S3 credentials
+      - name: Verify S3 credentials work first
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          echo "Testing S3 credentials from GitHub Secrets..."
+          echo "Key ID length: ${#AWS_ACCESS_KEY_ID}"
+          echo "Key ID prefix: ${AWS_ACCESS_KEY_ID:0:8}..."
+
+          # Test listing the bucket
+          aws s3 ls "s3://${{ secrets.RELEASES_S3_BUCKET }}/" \
+            --endpoint-url "${{ secrets.RELEASES_S3_ENDPOINT }}" 2>&1 | head -5
+
+          echo "S3 credentials verified!"
+
+      - name: Update server .env and restart
         env:
           RELEASES_S3_ENDPOINT: ${{ secrets.RELEASES_S3_ENDPOINT }}
           RELEASES_S3_BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
@@ -12,28 +28,35 @@ jobs:
           RELEASES_S3_SECRET_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
         run: |
           ENV_FILE="/opt/aiagentlens/.env"
-          echo "Runner hostname: $(hostname)"
-          echo "Current ACCESS_KEY: $(grep RELEASES_S3_ACCESS_KEY $ENV_FILE | cut -d= -f2)"
-          echo "New ACCESS_KEY: ${RELEASES_S3_ACCESS_KEY:0:10}..."
-          
+
+          # Backup
+          cp "$ENV_FILE" "${ENV_FILE}.bak"
+
           # Remove old S3 lines and add new ones
           grep -v '^RELEASES_S3_' "$ENV_FILE" > /tmp/env_cleaned
           echo "RELEASES_S3_ENDPOINT=${RELEASES_S3_ENDPOINT}" >> /tmp/env_cleaned
-          echo "RELEASES_S3_REGION=$(echo $RELEASES_S3_ENDPOINT | sed 's|.*s3\.\([^.]*\)\..*|\1|')" >> /tmp/env_cleaned
+          REGION=$(echo "$RELEASES_S3_ENDPOINT" | sed 's|.*s3\.\([^.]*\)\..*|\1|')
+          echo "RELEASES_S3_REGION=${REGION}" >> /tmp/env_cleaned
           echo "RELEASES_S3_BUCKET=${RELEASES_S3_BUCKET}" >> /tmp/env_cleaned
           echo "RELEASES_S3_ACCESS_KEY=${RELEASES_S3_ACCESS_KEY}" >> /tmp/env_cleaned
           echo "RELEASES_S3_SECRET_KEY=${RELEASES_S3_SECRET_KEY}" >> /tmp/env_cleaned
           cp /tmp/env_cleaned "$ENV_FILE"
-          
-          echo "Updated .env"
-          grep RELEASES_S3_ACCESS_KEY "$ENV_FILE" | cut -d= -f2 | cut -c1-10
-          
+
+          echo "Updated .env (key prefix: ${RELEASES_S3_ACCESS_KEY:0:8}...)"
+
           # Restart container
           cd /opt/aiagentlens
           docker compose -f docker-compose.production.yml up -d --force-recreate
-          sleep 8
-          
-          # Verify
+          sleep 10
+
+          # Verify app can read from S3
           RESULT=$(curl -sf "http://localhost:13435/releases/latest/version" 2>&1 || echo '{"error":"failed"}')
-          echo "Result: $RESULT"
-          echo "$RESULT" | grep -q "error" && exit 1 || echo "SUCCESS"
+          echo "App result: $RESULT"
+
+          if echo "$RESULT" | grep -q '"error"'; then
+            echo "FAILED — app still can't read S3. Restoring backup."
+            cp "${ENV_FILE}.bak" "$ENV_FILE"
+            docker compose -f docker-compose.production.yml up -d --force-recreate
+            exit 1
+          fi
+          echo "SUCCESS — releases endpoint working!"
