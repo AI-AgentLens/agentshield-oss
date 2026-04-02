@@ -1100,3 +1100,140 @@ structural_rules:
           args: {"path": "/workspace/project/Gemfile"}
         - tool: "write_file"
           args: {"path": "/workspace/project/gem_utils.rb"}
+
+  # ============================================================
+  # BLOCK: Direct package registry API calls via MCP network tools (issue #887)
+  # ============================================================
+  # Shell-level supply-chain rules block package publish CLI commands.
+  # But an AI agent that has an MCP HTTP/network tool can call registry APIs
+  # directly — no shell command required, no AgentShield hook triggered.
+  #
+  # Registry write endpoints blocked:
+  #   npm:      PUT/POST to registry.npmjs.org
+  #   PyPI:     any call to upload.pypi.org (upload-only endpoint)
+  #   crates.io: any call to crates.io/api/v1/crates/new
+  #   RubyGems: POST to rubygems.org/api/v1/gems
+  #
+  # MITRE T1195.001, OWASP LLM02
+
+  - id: mcp-sc-block-npm-registry-write
+    taxonomy: "supply-chain/package-publish/npm-autonomous-publish"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)registry\\.npmjs\\.org"
+        method:
+          pattern_any:
+            - "(?i)^(PUT|POST)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP PUT/POST to npm registry — npm package publishing uses HTTP PUT. An AI agent writing to the npm registry can inject backdoored package versions into developer supply chains. MITRE T1195.001."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://registry.npmjs.org/my-package", "method": "PUT"}
+        - tool: "network_request"
+          args: {"url": "https://registry.npmjs.org/evil-package", "method": "POST"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://registry.npmjs.org/react", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://docs.npmjs.com/commands/publish", "method": "GET"}
+
+  - id: mcp-sc-block-pypi-upload-api
+    taxonomy: "supply-chain/package-publish/pypi-autonomous-publish"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)upload\\.pypi\\.org"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP request to upload.pypi.org — this endpoint exists exclusively for package uploads (twine, flit, poetry). There is no legitimate read operation on this endpoint. Any AI agent request here is an autonomous package write attempt. MITRE T1195.001."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://upload.pypi.org/legacy/", "method": "POST"}
+        - tool: "network_request"
+          args: {"url": "https://upload.pypi.org/legacy/", "method": "POST"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://pypi.org/simple/requests/", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://pypi.org/pypi/flask/json", "method": "GET"}
+
+  - id: mcp-sc-block-cratesio-new-crate
+    taxonomy: "supply-chain/package-publish/rust-crates-autonomous-publish"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)crates\\.io/api/v1/crates/new"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP request to crates.io new-crate endpoint (/api/v1/crates/new) — this path is exclusively for cargo publish operations. An AI agent writing here can inject backdoored Rust crates. MITRE T1195.001."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://crates.io/api/v1/crates/new", "method": "PUT"}
+        - tool: "network_request"
+          args: {"url": "https://crates.io/api/v1/crates/new", "method": "PUT"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://crates.io/api/v1/crates/serde", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://crates.io/api/v1/crates", "method": "GET"}
+
+  - id: mcp-sc-block-rubygems-api-write
+    taxonomy: "supply-chain/package-publish/ruby-gem-autonomous-publish"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)rubygems\\.org/api/v1/gems"
+        method:
+          pattern_any:
+            - "(?i)^POST$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP POST to RubyGems API — gem push uses POST /api/v1/gems to upload packages. An AI agent writing to RubyGems can inject backdoored Ruby dependencies. MITRE T1195.001."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
+        - tool: "network_request"
+          args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://rubygems.org/api/v1/gems/rails.json", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://rubygems.org/gems/rails", "method": "GET"}
