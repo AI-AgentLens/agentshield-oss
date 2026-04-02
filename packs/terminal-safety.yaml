@@ -3385,15 +3385,18 @@ rules:
     taxonomy: "privilege-escalation/container-escape/docker-privileged"
     match:
       command_regex: "docker\\s+run\\s+.*--privileged"
+      command_regex_exclude: "^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Running a privileged Docker container disables security boundaries."
+    reason: "Running a privileged Docker container disables security boundaries and grants full host access. Excludes gh/git text-payload flags (--body, --message, -m, etc.) that may document the pattern."
     tests:
       tp:
         - "docker run --privileged alpine"
         - "docker run -d --privileged nginx"
       tn:
         - "docker run alpine echo hello"
+        - "gh pr create --title \"fix\" --body \"docker run --privileged is blocked by ts-block-docker-privileged\""
+        - "git commit -m 'docs: docker run --privileged example in CLAUDE.md'"
 
   - id: "ts-block-docker-host-mount"
     taxonomy: "privilege-escalation/container-escape/docker-host-mount"
