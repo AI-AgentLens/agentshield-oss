@@ -1207,3 +1207,55 @@ structural_rules:
           args: {"path": "/var/log/nginx/access.log"}
         - tool: "read_file"
           args: {"path": "/workspace/docs/auth-flow.md"}
+
+  # ------------------------------------------------------------------
+  # Cron Configuration File Read (#840)
+  # ------------------------------------------------------------------
+  # Reading cron configuration files reveals what scheduled tasks run
+  # as root or other privileged users. Attackers use this to:
+  #   - Identify privileged scripts they can target for tampering
+  #   - Understand monitoring/backup schedules for evasion timing
+  #   - Map infrastructure automation for lateral movement planning
+  #
+  # Note: WRITES to cron directories are already BLOCK-ed by
+  # mcp-persist-block-user-cron-write and mcp-safety-block-etc-write.
+  # This rule audits READ access for reconnaissance detection.
+  - id: mcp-recon-audit-cron-config-read
+    taxonomy: "reconnaissance/system-enumeration/cron-config-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      args_match:
+        path:
+          pattern_any:
+            - "^/etc/crontab$"
+            - "^/etc/cron\\.d/"
+            - "^/etc/cron\\.(hourly|daily|weekly|monthly)/"
+            - "^/var/spool/cron/"
+            - "^/var/spool/cron/crontabs/"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "Read access to cron configuration files — these files reveal scheduled tasks, their execution timing, and what scripts run as privileged users. Used by attackers to identify writable privileged scripts (privilege escalation) or understand monitoring schedules (evasion). MITRE T1053.003, T1057, T1087."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/crontab"}
+        - tool: "cat_file"
+          args: {"path": "/etc/cron.d/logrotate"}
+        - tool: "read_file"
+          args: {"path": "/var/spool/cron/root"}
+        - tool: "open_file"
+          args: {"path": "/etc/cron.daily/apt-compat"}
+        - tool: "view_file"
+          args: {"path": "/var/spool/cron/crontabs/ubuntu"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/project/cron-setup.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/scripts/cron_helper.sh"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/myapp/config.yaml"}
