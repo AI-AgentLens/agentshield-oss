@@ -1353,3 +1353,105 @@ structural_rules:
           args: {"pattern": "src/**/*.ts"}
         - tool: "find_files"
           args: {"pattern": "**/README.md"}
+
+  # ------------------------------------------------------------------
+  # Credential-Hunting via grep_files/search_code (issue #869)
+  # ------------------------------------------------------------------
+  # MCP content-search tools (grep_files, search_code, search_files,
+  # find_in_files) can be used to extract credential material from
+  # codebases and filesystems without knowing the file path first.
+  # This bypasses path-based blocking rules (which are file-location-
+  # specific) by searching CONTENT for credential patterns.
+  #
+  # Two tiers of detection:
+  #
+  # BLOCK (high-confidence): Patterns that are unambiguously credential-
+  # hunting — AWS key prefixes, PEM headers, service-specific token
+  # prefixes. No legitimate developer task requires searching code for
+  # these literal strings across all files.
+  #
+  # AUDIT (moderate-confidence): Generic credential assignment patterns
+  # (password=, api_key =) that may appear in security-focused code
+  # searches but warrant human review.
+  #
+  # MITRE T1552 (Unsecured Credentials), T1552.001 (Credentials in Files),
+  # T1083 (File and Directory Discovery)
+  - id: mcp-recon-block-grep-aws-key-pattern
+    taxonomy: "reconnaissance/credential-discovery/content-search-credentials"
+    match:
+      tool_name_any:
+        - "grep_files"
+        - "grep"
+        - "search_files"
+        - "search_code"
+        - "find_in_files"
+        - "semantic_search"
+        - "ripgrep"
+        - "rg"
+      args_match:
+        pattern:
+          pattern_any:
+            - "(?i)\\bAKIA"
+            - "(?i)\\bASIA"
+            - "(?i)\\bAIDA"
+            - "(?i)BEGIN (RSA|EC|DSA|OPENSSH|PRIVATE) (PRIVATE )?KEY"
+            - "(?i)ghp_"
+            - "(?i)github_pat_"
+            - "(?i)glpat-"
+            - "(?i)\\bsk-[A-Za-z0-9]"
+            - "(?i)xoxb-"
+            - "(?i)xoxp-"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP content-search with credential pattern — searching for AWS key prefixes, PEM headers, or service-specific token patterns across the filesystem is credential-hunting reconnaissance. No legitimate development task requires searching for these literal credential patterns. MITRE T1552, T1552.001."
+    tests:
+      tp:
+        - tool: "grep_files"
+          args: {"pattern": "AKIA[0-9A-Z]{16}"}
+        - tool: "search_code"
+          args: {"pattern": "BEGIN RSA PRIVATE KEY"}
+        - tool: "find_in_files"
+          args: {"pattern": "ghp_[A-Za-z0-9]+"}
+        - tool: "grep"
+          args: {"pattern": "ASIA[0-9A-Z]"}
+      tn:
+        - tool: "grep_files"
+          args: {"pattern": "func handleLogin"}
+        - tool: "search_code"
+          args: {"pattern": "validateToken"}
+        - tool: "grep_files"
+          args: {"pattern": "TODO:"}
+
+  - id: mcp-recon-audit-grep-credential-patterns
+    taxonomy: "reconnaissance/credential-discovery/content-search-credentials"
+    match:
+      tool_name_any:
+        - "grep_files"
+        - "grep"
+        - "search_files"
+        - "search_code"
+        - "find_in_files"
+        - "ripgrep"
+        - "rg"
+      args_match:
+        pattern:
+          pattern_any:
+            - "(?i)(password|passwd|secret|api.?key|access.?token)\\s*[=:]\\s*['\"]?[^{]"
+            - "(?i)(AWS_SECRET|AWS_ACCESS_KEY|DATABASE_URL|DB_PASSWORD|DB_PASS)"
+            - "(?i)private.?key"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001."
+    tests:
+      tp:
+        - tool: "grep_files"
+          args: {"pattern": "password = "}
+        - tool: "search_code"
+          args: {"pattern": "AWS_SECRET_ACCESS_KEY"}
+        - tool: "grep_files"
+          args: {"pattern": "private_key = "}
+      tn:
+        - tool: "grep_files"
+          args: {"pattern": "func validatePassword"}
+        - tool: "search_code"
+          args: {"pattern": "getConfigValue"}
