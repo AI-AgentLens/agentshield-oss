@@ -46,7 +46,7 @@ compliance:
   eu-ai-act-2024: ["Art.15", "Art.9"]
   nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2", "GOVERN-1"]
   soc2-type2: ["CC6.1", "CC8.1", "CC9.1"]
-  iso-42001-2023: ["8.4"]
+  iso-42001-2023: []
 
 references:
   mitre_attack: ["T1195.001", "T1053.005"]
