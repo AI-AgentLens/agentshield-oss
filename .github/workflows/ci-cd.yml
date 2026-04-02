@@ -230,11 +230,11 @@ jobs:
               --content-type "text/plain"
           fi
 
-  # ── Runner 4: Update Homebrew cask ──────────────────────────────
+  # ── Runner 4: Update Homebrew cask (AFTER S3 upload) ────────────
   homebrew:
     name: "Update Homebrew"
     runs-on: self-hosted
-    needs: release
+    needs: [release, package-upload]  # Must wait for S3 upload so brew URLs work
 
     steps:
       - uses: actions/checkout@v4
