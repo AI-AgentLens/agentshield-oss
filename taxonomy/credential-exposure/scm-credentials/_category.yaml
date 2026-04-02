@@ -1,0 +1,8 @@
+id: "2.37"
+name: "SCM Tool Credential Files"
+kingdom_id: 2
+description: >
+  Configuration files for source code management and build tooling that
+  may contain plaintext tokens, signing keys, or authentication material.
+  These files (Nix nix.conf, Cargo credentials.toml, etc.) grant broad access
+  to private repositories, package registries, and binary caches.

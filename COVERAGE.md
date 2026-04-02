@@ -6,9 +6,9 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1089 |
-| MCP rules | 648 |
-| Total rules | 1737 |
+| Terminal rules | 1092 |
+| MCP rules | 649 |
+| Total rules | 1741 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -438,13 +438,16 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (148 rules)
+### persistence-evasion (151 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
+| `ne-block-dns-txt-c2-eval` | BLOCK | regex | DNS TXT record content decoded and evaluated as a shell command — classic dead-drop C2: attacker publishes commands in DNS TXT records, agent fetches and executes them. No legitimate workflow eval-executes DNS TXT content. OWASP LLM01, MITRE T1071.004. |
 | `ne-block-etc-hosts-write` | BLOCK | regex | Write to /etc/hosts — overrides DNS resolution for arbitrary hostnames, enabling MITM attacks, lateral movement, and credential theft. AI agents have no legitimate need to modify /etc/hosts. MITRE T1565.001, T1090. |
 | `ne-block-resolv-conf-write` | BLOCK | regex | Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
 | `ne-block-arp-dns-poisoning-tools` | BLOCK | regex | ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040. |
+| `ts-block-paste-service-dead-drop` | BLOCK | regex | Fetch-and-execute from a paste service — a prompt-injected AI agent fetches attacker commands from public paste infrastructure (Pastebin, GitHub Gist, Hastebin) and pipes them to a shell. These domains blend with legitimate traffic but have no authorized use in pipe-to-shell patterns. OWASP LLM01, MITRE T1102. |
+| `ts-audit-cloud-storage-fetch-exec` | AUDIT | regex | Cloud storage download followed by immediate shell execution — an AI agent may be executing attacker-controlled scripts from a public bucket. Org-controlled buckets are a legitimate CI/CD pattern; flagged for review rather than blocked. MITRE T1102. |
 | `ts-block-jupyter-kernelspec-install` | BLOCK | regex | jupyter kernelspec install registers a kernel spec that executes arbitrary code on every notebook kernel start — a silent persistence mechanism that survives environment recreation. MITRE T1546. |
 | `ts-block-pipe-to-crontab` | BLOCK | regex | Piping to crontab installs persistent scheduled tasks. Use 'crontab -e' interactively. |
 | `ts-block-at-schedule` | BLOCK | regex | at schedules a persistent one-time job. AI agents must not schedule deferred execution. |
@@ -1838,7 +1841,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (15 rules)
+### uncategorized (16 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1857,6 +1860,7 @@
 | `mcp-sec-block-altcoin-wallet` | BLOCK | structural | Access to altcoin wallet file is blocked — wallet.dat in Dogecoin, Litecoin, Zcash, and similar Bitcoin-derived wallets contains encrypted private keys. MITRE T1552.001. |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 | `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
+| `mcp-sec-block-vscode-user-settings-read` | BLOCK | structural | Read access to VS Code or Cursor user-level settings.json is blocked — extensions store API keys (OpenAI, Anthropic, GitHub), MCP server tokens, and OAuth credentials directly in this file. MITRE T1552, T1539. |
 
 ## Test Coverage
 
