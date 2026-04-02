@@ -99,7 +99,6 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MAP-5"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
   soc2-type2: ["CC6.1", "CC6.3", "CC6.7"]
-  iso-42001-2023: ["A.10.1"]
   mitre_atlas: ["AML.T0056"]
 
 references:
