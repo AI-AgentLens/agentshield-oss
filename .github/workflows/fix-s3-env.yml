@@ -1,0 +1,34 @@
+name: Fix S3 env on server
+on: workflow_dispatch
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: Update server .env with correct S3 credentials
+        env:
+          RELEASES_S3_ENDPOINT: ${{ secrets.RELEASES_S3_ENDPOINT }}
+          RELEASES_S3_BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
+          RELEASES_S3_ACCESS_KEY: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
+          RELEASES_S3_SECRET_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
+        run: |
+          # Update the .env file on the server (runner IS on the server)
+          ENV_FILE="/opt/aiagentlens/.env"
+          
+          # Replace or add S3 vars
+          sudo sed -i '/^RELEASES_S3_/d' "$ENV_FILE"
+          echo "RELEASES_S3_ENDPOINT=${RELEASES_S3_ENDPOINT}" | sudo tee -a "$ENV_FILE"
+          echo "RELEASES_S3_REGION=$(echo $RELEASES_S3_ENDPOINT | grep -oP 's3\.\K[^.]+')" | sudo tee -a "$ENV_FILE"
+          echo "RELEASES_S3_BUCKET=${RELEASES_S3_BUCKET}" | sudo tee -a "$ENV_FILE"
+          echo "RELEASES_S3_ACCESS_KEY=${RELEASES_S3_ACCESS_KEY}" | sudo tee -a "$ENV_FILE"
+          echo "RELEASES_S3_SECRET_KEY=${RELEASES_S3_SECRET_KEY}" | sudo tee -a "$ENV_FILE"
+          
+          echo "Updated .env with S3 credentials"
+          
+          # Restart the container
+          cd /opt/aiagentlens
+          sudo docker compose -f docker-compose.production.yml up -d --force-recreate
+          
+          sleep 5
+          
+          # Test
+          curl -sf "http://localhost:13435/releases/latest/version" || echo "FAILED"
