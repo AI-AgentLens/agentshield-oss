@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 660 |
-| Total rules | 1752 |
+| MCP rules | 663 |
+| Total rules | 1755 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1158,7 +1158,7 @@
 
 ## MCP Rules
 
-### credential-exposure (334 rules)
+### credential-exposure (337 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1268,6 +1268,7 @@
 | `mcp-sec-block-helm-legacy-dir` | BLOCK | mcp_rule | Access to Helm legacy directory is blocked — contains registry authentication tokens and OCI credentials. MITRE T1552.001. |
 | `mcp-sec-block-helm-xdg-registry` | BLOCK | mcp_rule | Access to Helm XDG data directory is blocked — contains OCI registry credentials in docker-credential-store format. Exfiltrating this enables unauthorized access to private Helm registries. MITRE T1552.001. |
 | `mcp-sec-block-gem-credentials` | BLOCK | mcp_rule | Access to ~/.gem/credentials is blocked — contains RubyGems registry API keys enabling gem publish supply chain attacks. MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-rubygems-legacy-credentials` | BLOCK | mcp_rule | Access to ~/.rubygems/credentials is blocked — legacy RubyGems credential path containing API keys that enable malicious gem publishing (supply chain attacks). MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-nuget-config` | BLOCK | mcp_rule | Access to ~/.nuget/NuGet.Config is blocked — contains NuGet package source API keys and credentials for private feeds enabling supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-composer-auth` | BLOCK | mcp_rule | Access to ~/.composer/auth.json is blocked — contains Composer OAuth tokens and HTTP credentials for private PHP package repositories. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-ivy-credentials` | BLOCK | mcp_rule | Access to ~/.ivy2/.credentials is blocked — contains Ivy/Scala repository credentials (user, password) for private artifact repositories. MITRE T1195.001, T1552.001. |
@@ -1284,6 +1285,8 @@
 | `mcp-sec-block-1password-xdg-data-access` | BLOCK | mcp_rule | Access to 1Password XDG data directory (~/.local/share/1password/) is blocked — contains SSH agent socket (ssh/agent.sock) and runtime data. Enumeration reveals agent state and key availability. MITRE T1555.005. |
 | `mcp-sec-block-1password-macos-app-data` | BLOCK | mcp_rule | Access to macOS 1Password app data directory is blocked — ~/Library/Application Support/1Password/ contains encrypted vault data, profile metadata (master password verifier), and cached session material. MITRE T1555.005. |
 | `mcp-sec-block-1password-macos-bundle-data` | BLOCK | mcp_rule | Access to macOS 1Password sandboxed app data (bundle-ID path) is blocked — contains same sensitive vault data and session credentials as the direct-name path. MITRE T1555.005. |
+| `mcp-sec-block-bitwarden-config` | BLOCK | mcp_rule | Access to ~/.bitwardenrc is blocked — Bitwarden CLI config file that may contain session tokens and server configuration. Exposure can allow vault access. MITRE T1555. |
+| `mcp-sec-block-bitwarden-data-dir` | BLOCK | mcp_rule | Access to ~/.config/Bitwarden CLI/ is blocked — Bitwarden CLI data directory containing encrypted vault cache and session data. MITRE T1555. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |

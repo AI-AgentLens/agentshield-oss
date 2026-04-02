@@ -81,10 +81,10 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MANAGE-1", "MANAGE-4"]
   soc2-type2: ["CC6.1", "CC6.3", "CC7.2", "CC9.1"]
   iso-42001-2023: ["A.2.2", "A.9.1", "A.9.3"]
+  mitre_atlas: ["AML.T0058"]
 
 references:
   mitre_attack: ["T1078", "T1548"]
-  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-285", "CWE-862", "CWE-693"]
   external:
     - title: "OWASP LLM06 — Excessive Agency"

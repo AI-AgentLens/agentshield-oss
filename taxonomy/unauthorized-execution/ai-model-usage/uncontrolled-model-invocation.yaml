@@ -46,10 +46,10 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2"]
   soc2-type2: ["CC8.1", "CC6.3"]
   iso-42001-2023: ["A.2.2", "A.9.1"]
+  mitre_atlas: ["AML.T0047"]
 
 references:
   mitre_attack: []
-  mitre_atlas: ["AML.T0047"]
   cwe: ["CWE-306"]
 
 analyzers: ["structural", "taint"]

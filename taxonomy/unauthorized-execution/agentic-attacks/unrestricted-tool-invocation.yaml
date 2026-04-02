@@ -72,10 +72,10 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MAP-5"]
   soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
   iso-42001-2023: ["A.10.1"]
+  mitre_atlas: ["AML.T0058"]
 
 references:
   mitre_attack: ["T1059.006", "T1203"]
-  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-94", "CWE-470", "CWE-693"]
   external:
     - title: "OWASP LLM01 — Prompt Injection"

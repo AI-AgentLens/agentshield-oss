@@ -74,10 +74,10 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "MAP-5", "MANAGE-2"]
   soc2-type2: ["CC6.8", "CC7.1", "CC7.2"]
   iso-42001-2023: ["A.10.1"]
+  mitre_atlas: ["AML.T0058"]
 
 references:
   mitre_attack: ["T1565", "T1036", "T1199"]
-  mitre_atlas: ["AML.T0058"]
   cwe: ["CWE-345", "CWE-290", "CWE-807"]
   external:
     - title: "OWASP LLM07: System Prompt Leakage"

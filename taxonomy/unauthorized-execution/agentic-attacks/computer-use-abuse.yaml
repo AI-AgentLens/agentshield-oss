@@ -106,10 +106,10 @@ compliance:
   nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-2", "MEASURE-2"]
   soc2-type2: ["CC6.3", "CC6.6", "CC7.2"]
   iso-42001-2023: ["A.9.1"]
+  mitre_atlas: ["AML.T0047"]
 
 references:
   mitre_attack: ["T1113", "T1056", "T1185", "T1059"]
-  mitre_atlas: ["AML.T0047"]
   cwe: ["CWE-284", "CWE-359", "CWE-940"]
   external:
     - title: "Anthropic Computer Use API Documentation"
