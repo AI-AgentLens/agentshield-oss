@@ -876,15 +876,22 @@ structural_rules:
             # User-installed packages: ~/.local/lib/python*/site-packages/**
             - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.local/lib/python[0-9.]+/site-packages/.+"
             - "^~/\\.local/lib/python[0-9.]+/site-packages/.+"
+            # pyenv-managed Python installations: ~/.pyenv/versions/*/lib/python*/site-packages/**
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.pyenv/versions/[^/]+/lib/python[0-9.]+/site-packages/.+"
+            - "^~/\\.pyenv/versions/[^/]+/lib/python[0-9.]+/site-packages/.+"
     decision: "BLOCK"
     confidence: 0.97
-    reason: "MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. MITRE T1195.001, T1565.001."
+    reason: "MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. Covers ~/.local/lib and pyenv-managed installations. MITRE T1195.001, T1565.001."
     tests:
       tp:
         - tool: "write_file"
           args: {"path": "/home/user/.local/lib/python3.11/site-packages/requests/__init__.py"}
         - tool: "str_replace_editor"
           args: {"path": "/root/.local/lib/python3.12/site-packages/boto3/__init__.py"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.pyenv/versions/3.11.0/lib/python3.11/site-packages/requests/__init__.py"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.pyenv/versions/3.12.1/lib/python3.12/site-packages/boto3/__init__.py"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/mypackage/__init__.py"}
@@ -940,15 +947,25 @@ structural_rules:
             # npm global node_modules cache
             - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm/node_modules/.+"
             - "^~/\\.npm/node_modules/.+"
+            # nvm-managed Node.js global modules: ~/.nvm/versions/node/*/lib/node_modules/**
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.nvm/versions/node/[^/]+/lib/node_modules/.+"
+            - "^~/\\.nvm/versions/node/[^/]+/lib/node_modules/.+"
+            # npm global prefix (~/.npm-global): configured with `npm config set prefix ~/.npm-global`
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm-global/lib/node_modules/.+"
+            - "^~/\\.npm-global/lib/node_modules/.+"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "MCP write to npm/npx global cache — modifying cached npm package files injects malicious code that executes on every `npx <package>` invocation or global module require, enabling persistent code execution without any shell trace. MITRE T1195.001, T1565.001."
+    reason: "MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, and ~/.npm-global prefix. MITRE T1195.001, T1565.001."
     tests:
       tp:
         - tool: "write_file"
           args: {"path": "/home/user/.npm/_npx/cache/node_modules/react/index.js"}
         - tool: "edit_file"
           args: {"path": "/root/.npm/node_modules/.bin/create-react-app"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.nvm/versions/node/v18.0.0/lib/node_modules/axios/index.js"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.npm-global/lib/node_modules/lodash/index.js"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/node_modules/react/index.js"}
