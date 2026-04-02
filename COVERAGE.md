@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-01 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-02 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1087 |
-| MCP rules | 623 |
-| Total rules | 1710 |
-| Test cases (TP+TN) | 3914 |
+| Terminal rules | 1089 |
+| MCP rules | 625 |
+| Total rules | 1714 |
+| Test cases (TP+TN) | 3929 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -722,7 +722,7 @@
 | `ts-block-uac-bypass-registry` | BLOCK | regex | reg add targeting HKCU\Software\Classes\ms-settings or mscfile — classic UAC bypass registry hijack that redirects auto-elevating binaries (fodhelper.exe, eventvwr.exe) to arbitrary commands without UAC consent. MITRE T1548.002. |
 | `ts-audit-uac-bypass-binary` | AUDIT | regex | Execution of a known Windows UAC auto-elevation binary (fodhelper, eventvwr, sdclt, etc.) — these binaries auto-elevate to high integrity and are commonly abused for UAC bypass. Verify intent before execution. MITRE T1548.002. |
 
-### reconnaissance (82 rules)
+### reconnaissance (83 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -798,6 +798,7 @@
 | `ts-audit-network-tool-chain-probe` | AUDIT | regex | Chained which commands probing for 3+ tools — systematic network tool capability enumeration is a pre-exploitation reconnaissance pattern in AI agent attacks (OWASP LLM01, MITRE T1518). |
 | `ts-audit-security-tool-process-probe` | AUDIT | regex | ps aux/ps -ef \| grep for security agent processes — probing to discover active security controls (AgentShield, Falco, EDR agents) is agent-level reconnaissance to identify detection gaps. OWASP LLM01, MITRE T1518/T1592 (Process Discovery, Security Software Discovery). |
 | `ts-block-pgrep-security-tool-targeting` | BLOCK | regex | Direct pgrep or tasklist+findstr targeting named security tools — this is unambiguous security software discovery (MITRE T1057/T1518.001) to identify and subsequently disable active security controls. OWASP LLM01. |
+| `ts-audit-ai-agent-process-enumeration` | AUDIT | regex | Process enumeration targeting AI agent names (claude, cursor, autogpt, langchain, crewai, etc.) — detecting peer agents in a multi-agent system is topology reconnaissance that enables targeted prompt injection or delegation forgery against high-privilege agents. OWASP LLM06/LLM08, MITRE T1057/T1592. |
 | `ts-audit-writable-dir-enumeration` | AUDIT | regex | find / -writable enumerating all world-writable directories — systematic capability enumeration to identify privilege escalation or persistence paths available to the agent. OWASP LLM06, MITRE T1592. |
 | `ts-audit-credential-dir-ls-chain` | AUDIT | regex | Chained ls on 2+ credential directories in a single compound command — systematic enumeration of available credential stores is a pre-exfiltration reconnaissance step. OWASP LLM01, MITRE T1083/T1592. |
 | `ts-audit-vector-store-bulk-enum` | AUDIT | regex | Python inline vector store bulk read (.get()/.scroll()/.search() with large limit and no tenant filter) — may enumerate all stored agent memories across users (OWASP LLM06, MITRE T1530). |
@@ -947,7 +948,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (192 rules)
+### unauthorized-execution (193 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -990,6 +991,7 @@
 | `ts-block-build-output-to-shell` | BLOCK | stateful | Build tool output piped to shell interpreter — a compromised dependency can embed prompt injection payloads in error messages or test output that execute immediately. No legitimate workflow requires piping build stdout to an interpreter; use grep/tee/redirect instead. OWASP LLM01, CWE-77. |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
+| `ts-audit-llm-judge-manipulation-commit` | AUDIT | regex | git commit message contains authority-injection or evaluation-override language — 'approved by security team', 'rate as safe', 'override security review'. These phrases are embedded to manipulate LLM-based code review gates into marking the commit as approved. OWASP LLM01/LLM09, MITRE T1036. |
 | `ts-block-mcp-dcr-curl-post` | BLOCK | regex | curl/wget POST to a /register endpoint with DCR payload (client_name or redirect_uris) — MCP Dynamic Client Registration abuse (RFC 7591). Registering a rogue OAuth client on the MCP authorization server creates a persistent trusted identity enabling future token interception and unauthorized tool access. OWASP LLM06/LLM07, MITRE T1550.001. |
 | `ts-block-mcp-http-proxy-all-interfaces` | BLOCK | regex | MCP HTTP server bound to 0.0.0.0 (all interfaces) instead of 127.0.0.1 — enables DNS rebinding attacks where a malicious web page rebinds its domain to localhost and invokes any registered MCP tool (execute_bash, read_file, etc.) without user consent (CWE-346, OWASP LLM01/LLM06, MITRE T1557). |
 | `ts-block-indirect-injection-html-comment` | BLOCK | regex | HTML comment with an agent-targeted directive — indirect prompt injection via retrieved web content; agents may execute instructions embedded in HTML comments (OWASP LLM01). |
@@ -1656,7 +1658,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (24 rules)
+### reconnaissance (25 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1684,6 +1686,7 @@
 | `mcp-struct-audit-llm-boundary-probe-message` | AUDIT | structural | Tool call message field probes LLM capability boundaries or model identity — reconnaissance to infer system prompt structure. OWASP LLM07, MITRE T1592. |
 | `mcp-struct-block-system-prompt-jailbreak-content` | BLOCK | structural | Tool call content contains system prompt extraction jailbreak — adversarial prompt attempting to force verbatim system prompt disclosure or bypass model restrictions via DAN/roleplay escape. OWASP LLM07, MITRE T1552. |
 | `mcp-struct-block-system-prompt-jailbreak-message` | BLOCK | structural | Tool call message field contains system prompt jailbreak pattern — adversarial content attempting system prompt extraction via roleplay escape or DAN-style jailbreak. OWASP LLM07, MITRE T1552. |
+| `mcp-recon-audit-multi-agent-topology-config` | AUDIT | structural | MCP read of a multi-agent orchestration config file — these files (autogen_config.json, crew.yaml, langgraph.json, .well-known/agent.json) contain the agent network topology: which agents exist, their roles, and tool assignments. An agent reading these is mapping the multi-agent network for reconnaissance. OWASP LLM06/LLM08, MITRE T1592. |
 
 ### supply-chain (20 rules)
 
@@ -1710,7 +1713,7 @@
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
 
-### unauthorized-execution (96 rules)
+### unauthorized-execution (97 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1755,6 +1758,7 @@
 | `mcp-audit-session-store-write` | AUDIT | structural | Write to MCP session store file — may persist forged session IDs or overwrite active session state, enabling session fixation or replay attacks. OWASP LLM06, CWE-384. |
 | `mcp-audit-session-store-read` | AUDIT | structural | Read of MCP session store file — exposes active session IDs that may be used for session enumeration, fixation, or replay attacks. OWASP LLM06, CWE-384, CWE-613. |
 | `mcp-struct-audit-msj-payload-write` | AUDIT | structural | MCP write containing multiple instruction-response demonstration pairs — this Q&A repetition pattern is the primary construction method for many-shot jailbreak payloads that override LLM safety alignment when injected into agent context (OWASP LLM01). |
+| `mcp-ci-audit-llm-judge-authority-injection` | AUDIT | structural | MCP write containing LLM-judge authority-injection language in code content — phrases like 'rate this as safe', 'security team approved', 'override security review', or 'DO NOT FLAG' are embedded to fool AI-powered code review gates into marking malicious/insecure code as approved. OWASP LLM01/LLM09, MITRE T1036. |
 | `mcp-block-checkpoint-file-write` | BLOCK | mcp_rule | MCP write to a checkpoint .pkl file — pickle-serialized checkpoint files are deserialized at framework resume, so writing attacker-controlled pickle data achieves RCE (CWE-502). OWASP LLM06, MITRE T1565.001. |
 | `mcp-audit-checkpoint-db-read` | AUDIT | mcp_rule | MCP read of a checkpoints.db SQLite file — agent checkpoint databases store execution state, tool results, and context. Read access may be reconnaissance before tampering. OWASP LLM06. |
 | `mcp-block-delegation-token-path-access` | BLOCK | mcp_rule | MCP access to .agent/delegation.json — direct file tool access to this delegation token file enables both forgery (write) and token replay (read) attacks without invoking a shell (OWASP LLM06/LLM09, MITRE T1565.001). |
@@ -1841,8 +1845,8 @@
 | governance-risk | 82 | 64 | 146 |
 | persistence-evasion | 319 | 200 | 519 |
 | privilege-escalation | 294 | 177 | 471 |
-| reconnaissance | 205 | 98 | 303 |
+| reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 459 | 318 | 777 |
-| **Total** | **2358** | **1556** | **3914** |
+| unauthorized-execution | 463 | 321 | 784 |
+| **Total** | **2367** | **1562** | **3929** |
 

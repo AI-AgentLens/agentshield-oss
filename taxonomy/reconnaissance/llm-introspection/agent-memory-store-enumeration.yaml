@@ -104,7 +104,7 @@ compliance:
   nist-ai-rmf-1.0: ["MANAGE-4", "MEASURE-2"]
   soc2-type2: ["CC6.1", "CC6.3", "CC7.1"]
   iso-42001-2023: ["A.9.3", "9.1"]
-  mitre_atlas: ["AML.T0001", "AML.T0037"]
+  mitre_atlas: ["AML.T0057"]
 
 references:
   mitre_attack: ["T1530", "T1213", "T1119"]
