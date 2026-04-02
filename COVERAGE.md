@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 649 |
-| Total rules | 1741 |
+| MCP rules | 653 |
+| Total rules | 1745 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1682,7 +1682,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (27 rules)
+### reconnaissance (31 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1713,6 +1713,10 @@
 | `mcp-recon-audit-multi-agent-topology-config` | AUDIT | structural | MCP read of a multi-agent orchestration config file — these files (autogen_config.json, crew.yaml, langgraph.json, .well-known/agent.json) contain the agent network topology: which agents exist, their roles, and tool assignments. An agent reading these is mapping the multi-agent network for reconnaissance. OWASP LLM06/LLM08, MITRE T1592. |
 | `mcp-recon-audit-auth-log-read` | AUDIT | structural | Read access to system authentication or audit logs — these files contain SSH login attempts, sudo command history, PAM events, and user session records. Reading them provides an attacker with a detailed reconnaissance picture of active accounts and privileged activity. MITRE T1552.007, T1087, T1057. |
 | `mcp-recon-audit-cron-config-read` | AUDIT | structural | Read access to cron configuration files — these files reveal scheduled tasks, their execution timing, and what scripts run as privileged users. Used by attackers to identify writable privileged scripts (privilege escalation) or understand monitoring schedules (evasion). MITRE T1053.003, T1057, T1087. |
+| `mcp-recon-block-find-ssh-key-pattern` | BLOCK | structural | MCP file-search with SSH private key name pattern — scanning for id_rsa, id_ed25519, id_ecdsa files is a credential discovery technique that bypasses path-based rules by locating keys before accessing them. MITRE T1083, T1552.004. |
+| `mcp-recon-block-find-credential-files` | BLOCK | structural | MCP file-search with credential file pattern — scanning for .env files, credential files, or certificate/key files is credential discovery reconnaissance that locates secrets before reading them. MITRE T1083, T1552.001. |
+| `mcp-recon-block-grep-aws-key-pattern` | BLOCK | structural | MCP content-search with credential pattern — searching for AWS key prefixes, PEM headers, or service-specific token patterns across the filesystem is credential-hunting reconnaissance. No legitimate development task requires searching for these literal credential patterns. MITRE T1552, T1552.001. |
+| `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 
 ### supply-chain (20 rules)
 
