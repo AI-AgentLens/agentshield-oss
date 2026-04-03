@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 681 |
-| Total rules | 1773 |
+| MCP rules | 684 |
+| Total rules | 1776 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1158,7 +1158,7 @@
 
 ## MCP Rules
 
-### credential-exposure (355 rules)
+### credential-exposure (358 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1211,6 +1211,7 @@
 | `mcp-sec-block-gcp-service-account-json` | BLOCK | mcp_rule | Access to GCP service account JSON key file is blocked — contains RSA private key, service account email, and project credentials granting full GCP API access. MITRE T1552.001. |
 | `mcp-sec-block-gcp-credentials-json` | BLOCK | mcp_rule | Access to GCP credentials JSON file is blocked — likely a service account key file containing RSA private key and GCP project credentials. MITRE T1552.001. |
 | `mcp-sec-block-azure-credentials` | BLOCK | mcp_rule | Access to Azure credential directory is blocked — contains OAuth tokens, MSAL token cache, service principal credentials, and subscription info. MITRE T1552.005. |
+| `mcp-sec-block-azure-xdg-credentials` | BLOCK | mcp_rule | Access to Azure CLI XDG config directory is blocked — when AZURE_CONFIG_DIR points to ~/.config/azure/, credentials including MSAL token cache, service principal entries, and OAuth tokens are stored there. MITRE T1552.005. |
 | `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
 | `mcp-sec-block-digitalocean-config` | BLOCK | mcp_rule | Access to ~/.digitalocean/ config is blocked — may contain DigitalOcean API tokens and authentication state. MITRE T1552.005. |
 | `mcp-sec-block-oci-credentials` | BLOCK | mcp_rule | Access to Oracle Cloud Infrastructure config (~/.oci/) is blocked — contains API signing keys and tenancy credentials granting full OCI control. MITRE T1552.005. |
@@ -1289,6 +1290,8 @@
 | `mcp-sec-block-bitwarden-data-dir` | BLOCK | mcp_rule | Access to ~/.config/Bitwarden CLI/ is blocked — Bitwarden CLI data directory containing encrypted vault cache and session data. MITRE T1555. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
+| `mcp-sec-block-jupyter-server-token` | BLOCK | mcp_rule | Access to Jupyter notebook server session token files is blocked — nbserver-{PID}.json contains the authentication token for the running Jupyter server, granting full code execution, file access, and terminal access on the host. MITRE T1552.001. |
+| `mcp-sec-block-jupyterlab-server-token` | BLOCK | mcp_rule | Access to JupyterLab server session token files is blocked — jpserver-{PID}.json contains the authentication token for the running JupyterLab instance, granting full code execution, file access, and terminal access on the host. MITRE T1552.001. |
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
 | `mcp-sec-block-gnome-keyring-alt-path` | BLOCK | mcp_rule | Access to GNOME Keyring alternate path (~/.local/share/gnome-keyring/) is blocked — contains the same encrypted credential stores as ~/.local/share/keyrings/ (login/session keyrings). MITRE T1555. |
 | `mcp-sec-block-gnome2-keyring-access` | BLOCK | mcp_rule | Access to GNOME 2 legacy keyring files is blocked — contains encrypted credentials that may include WiFi passwords, web credentials, and application secrets. MITRE T1555. |
