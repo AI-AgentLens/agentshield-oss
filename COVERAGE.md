@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 668 |
-| Total rules | 1760 |
+| MCP rules | 677 |
+| Total rules | 1769 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1158,7 +1158,7 @@
 
 ## MCP Rules
 
-### credential-exposure (342 rules)
+### credential-exposure (351 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1351,6 +1351,11 @@
 | `mcp-sec-block-travis-credentials` | BLOCK | mcp_rule | Access to ~/.config/travis/config is blocked — contains Travis CI authentication token granting access to build pipelines and repository secrets. MITRE T1552. |
 | `mcp-sec-block-travis-legacy-credentials` | BLOCK | mcp_rule | Access to ~/.travis/ (Travis CI CLI legacy credential directory) is blocked — contains API token granting access to build pipelines and repository secrets. MITRE T1552. |
 | `mcp-sec-block-buildkite-credentials` | BLOCK | mcp_rule | Access to ~/.buildkite/settings.json is blocked — contains Buildkite personal API token enabling pipeline execution, secret enumeration, and CI/CD infrastructure access. MITRE T1552.001. |
+| `mcp-sec-block-drone-token` | BLOCK | mcp_rule | Access to ~/.config/drone/token is blocked — contains Drone CI personal access token enabling pipeline execution, secret enumeration, and full build system access. MITRE T1552.001. |
+| `mcp-sec-block-atlantis-token` | BLOCK | mcp_rule | Access to ~/.atlantis/token is blocked — contains Atlantis Terraform PR automation token granting Terraform plan/apply access to all managed infrastructure repositories. MITRE T1552.001. |
+| `mcp-sec-block-atlantis-config-token` | BLOCK | mcp_rule | Access to ~/.config/atlantis/token is blocked — XDG config variant of the Atlantis token file. Same risk: Terraform plan/apply execution across all managed repositories. MITRE T1552.001. |
+| `mcp-sec-block-argocd-config` | BLOCK | mcp_rule | Access to ~/.argocd/config is blocked — contains ArgoCD server tokens granting cluster-admin level access to all Kubernetes clusters managed by ArgoCD. MITRE T1552, T1078. |
+| `mcp-sec-block-argocd-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/argocd/config is blocked — XDG config variant of the ArgoCD CLI config. Contains server tokens granting cluster-admin level access to all ArgoCD-managed Kubernetes clusters. MITRE T1552, T1078. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
 | `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
 | `mcp-sec-block-heroku-json-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/credentials.json is blocked — newer Heroku CLI (v7+) stores OAuth token in JSON format, granting full app management access (config vars, dynos, add-ons). MITRE T1552. |
@@ -1496,6 +1501,10 @@
 | `mcp-sec-block-monero-wallet` | BLOCK | mcp_rule | Access to Monero wallet directory is blocked — ~/.monero/ contains wallet files with encrypted spend and view keys. Monero's privacy model makes fund tracing impossible after theft. MITRE T1552.001. |
 | `mcp-sec-block-bitcoin-node-config` | BLOCK | mcp_rule | Access to bitcoin.conf is blocked — contains rpcuser/rpcpassword granting full JSON-RPC wallet control (list addresses, send transactions, dump private keys). Writes can redirect walletdir or disable security checks. MITRE T1552.001. |
 | `mcp-sec-block-altcoin-node-config` | BLOCK | mcp_rule | Access to litecoin.conf is blocked — contains rpcuser/rpcpassword credentials enabling full JSON-RPC wallet control. Same attack vector as bitcoin.conf. MITRE T1552.001. |
+| `mcp-sec-block-pkcs12-cert` | BLOCK | mcp_rule | Access to PKCS#12 (.p12) certificate bundle is blocked — contains a private key and certificate chain. Exfiltrating this file enables signing malicious software with a trusted developer's identity. MITRE T1553.002, T1195.002. |
+| `mcp-sec-block-pfx-cert` | BLOCK | mcp_rule | Access to PFX certificate bundle is blocked — Microsoft PFX format (identical to PKCS#12) contains a private key and certificate chain. Exfiltrating this file enables signing malicious software. MITRE T1553.002, T1195.002. |
+| `mcp-sec-block-java-keystore` | BLOCK | mcp_rule | Access to Java KeyStore (.keystore) file is blocked — contains private keys and certificates for Java app signing, TLS, or Android APK signing. Exfiltrating this enables impersonation or supply chain attacks. MITRE T1553.002, T1195.002. |
+| `mcp-sec-block-jks-keystore` | BLOCK | mcp_rule | Access to JKS (Java KeyStore) file is blocked — contains private keys and certificates for Java TLS, JWT signing, or APK signing. Exfiltrating this enables impersonation or supply chain compromise. MITRE T1553.002, T1195.002. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
