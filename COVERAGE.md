@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1092 |
+| Terminal rules | 1094 |
 | MCP rules | 684 |
-| Total rules | 1776 |
-| Test cases (TP+TN) | 3931 |
+| Total rules | 1778 |
+| Test cases (TP+TN) | 3939 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -145,7 +145,7 @@
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
 
-### data-exfiltration (173 rules)
+### data-exfiltration (175 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -288,6 +288,8 @@
 | `ts-audit-cross-context-env-find` | AUDIT | regex | find searching for .env files across home or workspace directories — collecting environment secrets from sibling projects is a cross-context data contamination pattern (OWASP LLM02, LLM06). |
 | `ts-audit-cross-context-credential-grep` | AUDIT | regex | Recursive grep for credential patterns across workspace/home directories — harvesting API keys or secrets from sibling projects crosses context boundaries and violates least-privilege access (OWASP LLM02, LLM06). |
 | `ts-audit-steganography-tool` | AUDIT | structural | Classical steganography tool invoked — embedding data in image/text files allows secrets to be exfiltrated via AI-generated artifacts that evade content scanners. OWASP LLM02, MITRE T1027.003. |
+| `ts-audit-trailing-whitespace-inject` | AUDIT | regex | Trailing whitespace injection pattern detected — sed character-count quantifiers (\{N\}) or awk line-addressing with explicit $0 output can encode secret data bit-by-bit in source files. A compromised agent can exfiltrate credentials by committing code where line trailing whitespace encodes a bitstream, invisible to reviewers and DLP tools. MITRE T1027, OWASP LLM06. |
+| `ts-audit-mass-identifier-rename` | AUDIT | regex | Mass identifier rename via grep -l \| xargs sed -i — a compromised agent can encode secret data by systematically choosing identifier variants (processRecord vs processRecords) across thousands of functions in a 'refactor' commit. While legitimate for project-wide renaming, bulk AI-driven identifier changes across many source files warrant review. MITRE T1027, T1048. |
 | `ts-block-exiftool-cmd-sub` | BLOCK | regex | exiftool writing shell command substitution output to an EXIF/IPTC/XMP field — embeds stolen credentials or secrets in image metadata for covert exfiltration. No legitimate agent use case. MITRE T1027, T1564. |
 | `ts-audit-exiftool-credential-path` | AUDIT | regex | exiftool accessing credential directory or certificate file — may extract key material or metadata embedded in certificate/key files. MITRE T1005. |
 | `ts-audit-exiftool-strip-metadata` | AUDIT | regex | exiftool -all= stripping all image metadata — anti-forensics technique that removes timestamps and GPS coordinates before exfiltration. MITRE T1070. |
@@ -1902,7 +1904,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
-| data-exfiltration | 319 | 204 | 523 |
+| data-exfiltration | 323 | 208 | 531 |
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
 | persistence-evasion | 319 | 200 | 519 |
@@ -1910,5 +1912,5 @@
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2367** | **1564** | **3931** |
+| **Total** | **2371** | **1568** | **3939** |
 
