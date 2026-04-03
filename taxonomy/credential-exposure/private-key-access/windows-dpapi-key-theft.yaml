@@ -1,0 +1,70 @@
+id: "credential-exposure/private-key-access/windows-dpapi-key-theft"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Private Key Access"
+category_id: "2.1"
+name: "Windows DPAPI Master Key Theft"
+risk_level: "critical"
+
+abstract: |
+  An AI agent reads DPAPI master key files from AppData/Roaming/Microsoft/Protect/<SID>/,
+  enabling decryption of every DPAPI-protected secret on the system including Credential
+  Manager blobs, browser-saved passwords, certificate private keys, and Wi-Fi passwords.
+
+explanation: |
+  Windows Data Protection API (DPAPI) is the encryption backbone for all Windows-stored
+  secrets. Master key files stored in `%APPDATA%\Microsoft\Protect\<SID>\` are the root
+  keys that unlock all DPAPI-encrypted data on a system.
+
+  A single stolen DPAPI master key enables decryption of:
+  - **Credential Manager blobs** — RDP, network share, and application passwords
+  - **Browser-saved passwords** — Chrome, Edge, IE store credentials via DPAPI
+  - **Certificate private keys** — User-scoped code signing and TLS certificates
+  - **Wi-Fi network passwords** — Stored in the Windows CNG key store
+  - **BitLocker recovery keys** — In some configurations
+  - **Outlook/Exchange credentials** — Email account authentication tokens
+
+  The Protect directory contains:
+  - GUID-named master key files (one per rotation period)
+  - `Preferred` file identifying the current active master key
+
+  Tools like Mimikatz's `dpapi::masterkey` module or the Python `dpapick3` library
+  can decrypt master keys when the user's NTLM hash or cleartext password is available.
+  AI agents accessing development or CI/CD environments on Windows machines may
+  inadvertently enumerate these files during filesystem exploration.
+
+recommendation: |
+  - Block all access to `%APPDATA%\Microsoft\Protect\` directory and its contents.
+  - Block the companion Credential Manager blobs in `%APPDATA%\Microsoft\Credentials\`.
+  - No legitimate AI agent workflow requires reading DPAPI master key files.
+  - Consider enabling Credential Guard (Windows 10+) to protect DPAPI master keys
+    in an isolated Hyper-V container inaccessible to OS-level attackers.
+
+examples:
+  bad:
+    - "dir %APPDATA%\\Microsoft\\Protect\\"
+    - "copy %APPDATA%\\Microsoft\\Protect\\S-1-5-21-* C:\\exfil\\"
+    - "Get-ChildItem $env:APPDATA\\Microsoft\\Protect -Recurse"
+    - "cat ~/.local/share/Microsoft/Protect/S-1-5-21-1234/abcdef"
+  good:
+    - "Get-ChildItem $env:APPDATA\\Microsoft"
+
+compliance:
+  owasp-llm-2025: ["LLM02"]
+  iso-27001-2022: ["A.8.3", "A.5.34", "A.8.11"]
+  eu-ai-act-2024: ["Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["MANAGE-1", "MEASURE-2"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552.004"]
+  cwe: ["CWE-522", "CWE-312"]
+  external:
+    - title: "MITRE ATT&CK T1552.004 — Private Keys"
+      url: "https://attack.mitre.org/techniques/T1552/004/"
+    - title: "Gentilkiwi: DPAPI — Extracting Passwords"
+      url: "https://blog.gentilkiwi.com/securite/mimikatz/sekurlsa-wdigest"
+
+analyzers: ["regex", "structural", "mcp"]
+related_rules: ["mcp-sec-block-windows-dpapi-master-keys"]

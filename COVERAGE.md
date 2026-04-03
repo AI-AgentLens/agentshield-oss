@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 677 |
-| Total rules | 1769 |
+| MCP rules | 681 |
+| Total rules | 1773 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1158,7 +1158,7 @@
 
 ## MCP Rules
 
-### credential-exposure (351 rules)
+### credential-exposure (355 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1422,6 +1422,10 @@
 | `mcp-sec-block-brave-credential-db` | BLOCK | mcp_rule | Access to Brave browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-edge-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory is blocked — contains saved password database, cookies with session tokens, and web autofill data. MITRE T1555.003. |
 | `mcp-sec-block-edge-linux-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory (Linux) is blocked — ~/.config/microsoft-edge/ contains saved passwords (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-edge-appdata-credential-db` | BLOCK | mcp_rule | Access to Microsoft Edge browser profile directory (Windows AppData path) is blocked — contains saved password database (Login Data), cookies with session tokens, and web autofill data. MITRE T1555.003. |
+| `mcp-sec-block-powershell-history` | BLOCK | mcp_rule | Access to PowerShell console history (PSReadLine) is blocked — records all PowerShell commands including credentials passed as -Password or exported via $env, and secrets used in Invoke-WebRequest. MITRE T1552.003. |
+| `mcp-sec-block-windows-credential-manager` | BLOCK | mcp_rule | Access to Windows Credential Manager store is blocked — contains encrypted saved credentials for Windows login, RDP sessions, and network shares. MITRE T1555.004. |
+| `mcp-sec-block-windows-dpapi-master-keys` | BLOCK | mcp_rule | Access to Windows DPAPI master key store is blocked — these keys decrypt ALL Windows-encrypted user secrets including Credential Manager, browser passwords, certificate private keys, and Wi-Fi credentials. MITRE T1552.004. |
 | `mcp-sec-block-firefox-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (Linux) is blocked — contains encrypted password database (logins.json + key4.db) and session cookies. MITRE T1555.003. |
 | `mcp-sec-block-firefox-macos-profile-db` | BLOCK | mcp_rule | Access to Firefox profile directory (macOS) is blocked — ~/Library/Application Support/Firefox/Profiles/ contains logins.json (encrypted passwords) and key4.db (decryption keys). MITRE T1555.003. |
 | `mcp-sec-block-safari-credentials` | BLOCK | mcp_rule | Access to Safari browser data directory is blocked — ~/Library/Safari/ contains session cookies (Cookies.binarycookies), saved passwords, and browsing history. Stolen cookies enable account takeover without credentials. MITRE T1555.003. |
