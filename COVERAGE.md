@@ -1,14 +1,14 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-02 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-03 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1092 |
-| MCP rules | 663 |
-| Total rules | 1755 |
+| MCP rules | 668 |
+| Total rules | 1760 |
 | Test cases (TP+TN) | 3931 |
 | Kingdoms covered | 10 |
 
@@ -1158,7 +1158,7 @@
 
 ## MCP Rules
 
-### credential-exposure (337 rules)
+### credential-exposure (342 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1317,6 +1317,11 @@
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
+| `mcp-sec-block-macos-messages-db` | BLOCK | mcp_rule | Access to macOS Messages database is blocked — ~/Library/Messages/chat.db contains all iMessage and SMS history including 2FA codes, personal conversations, and sensitive communications. MITRE T1552.001. |
+| `mcp-sec-block-macos-addressbook-db` | BLOCK | mcp_rule | Access to macOS AddressBook/Contacts database is blocked — exposes full contact list with phone numbers, emails, and personal data enabling targeted phishing and social engineering. MITRE T1589.001. |
+| `mcp-sec-block-macos-calendar-db` | BLOCK | mcp_rule | Access to macOS Calendar database is blocked — ~/Library/Calendars/ contains meeting schedules, travel plans, and business appointments enabling reconnaissance and targeted social engineering. MITRE T1589. |
+| `mcp-sec-block-apple-notes-group-container` | BLOCK | mcp_rule | Access to Apple Notes group container is blocked — NoteStore.sqlite contains all notes in plaintext when unlocked; users commonly store passwords, API keys, and sensitive data in Notes. MITRE T1552.001. |
+| `mcp-sec-block-apple-notes-container` | BLOCK | mcp_rule | Access to Apple Notes app container is blocked — ~/Library/Containers/com.apple.Notes/ contains the Notes database with all note content in plaintext when unlocked. MITRE T1552.001. |
 | `mcp-sec-block-bitwarden-app-access` | BLOCK | mcp_rule | Access to ~/.bitwarden directory is blocked — contains Bitwarden app cached vault data and session tokens. MITRE T1555. |
 | `mcp-sec-block-rclone-credentials` | BLOCK | mcp_rule | Access to rclone config is blocked — contains credentials for all configured cloud storage remotes (S3, GCS, Azure, Dropbox, etc.). MITRE T1552. |
 | `mcp-sec-block-s3cmd-credentials` | BLOCK | mcp_rule | Access to s3cmd config is blocked — contains AWS access key ID and secret for S3 bucket access. MITRE T1552. |

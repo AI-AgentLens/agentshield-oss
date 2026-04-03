@@ -1,0 +1,62 @@
+id: "supply-chain/package-publish/pypi-autonomous-publish"
+version: "1.0.0"
+kingdom: "Supply Chain Attacks"
+kingdom_id: 7
+category: "Package Publish"
+category_id: "7.9"
+name: "Autonomous PyPI Package Publish"
+risk_level: "critical"
+
+abstract: |
+  An AI agent autonomously uploading a Python package to PyPI via MCP
+  HTTP tools or direct API calls, without human review or authorization —
+  potentially injecting malicious or unreviewed code into the Python
+  software supply chain.
+
+explanation: |
+  PyPI uploads via MCP network tools bypass shell-level blocks on
+  `python -m twine upload` or `python -m build && twine upload`. An agent
+  can call the PyPI upload API directly:
+
+  - `POST https://upload.pypi.org/legacy/` — uploads a package distribution
+  - `POST https://test.pypi.org/legacy/` — uploads to TestPyPI (lower scrutiny)
+
+  Risks of autonomous PyPI publish:
+  - **Supply chain injection**: Setup.py or pyproject.toml post-install hooks
+    can execute arbitrary code at pip install time — a powerful attack vector
+  - **Dependency confusion**: Publishing a private package name to PyPI causes
+    consumers to install the public malicious version instead of internal one
+  - **Backdoored versions**: Agent-published minor versions auto-installed by
+    pip users with unpinned version requirements
+  - **Data collection packages**: Agent publishes a utility package that
+    silently collects environment variables or credentials on install
+
+recommendation: |
+  - Block MCP HTTP tool calls to upload.pypi.org and test.pypi.org with POST method.
+  - Require human approval before any package upload operation.
+  - Use PyPI API tokens scoped to specific projects, stored separately from agent env.
+  - Implement pip audit and security scanning before publish in CI/CD.
+  - Restrict PyPI tokens to read-only operations in agent environments.
+
+examples:
+  bad:
+    - "http_request(method='POST', url='https://upload.pypi.org/legacy/', body=sdist_data)"
+    - "make_request(method='POST', url='https://upload.pypi.org/legacy/')"
+  good:
+    - "http_request(method='GET', url='https://pypi.org/pypi/requests/json')"
+    - "# PyPI upload requires explicit human authorization"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM04"]
+  iso-27001-2022: ["A.8.25", "A.5.23"]
+  eu-ai-act-2024: ["Art.14", "Art.15", "Art.9"]
+  nist-ai-rmf-1.0: ["GOVERN-1", "GOVERN-6", "MANAGE-1"]
+  soc2-type2: ["CC8.1", "CC6.8"]
+  iso-42001-2023: ["A.9.1", "A.10.1"]
+  mitre_atlas: ["AML.T0058", "AML.T0047"]
+
+references:
+  mitre_attack: ["T1195.001", "T1072"]
+  cwe: ["CWE-829", "CWE-494"]
+
+analyzers: ["mcp"]
