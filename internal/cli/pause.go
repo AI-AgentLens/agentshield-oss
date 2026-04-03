@@ -131,7 +131,7 @@ func IsPaused() bool {
 	// Check expiry
 	if !state.ExpiresAt.IsZero() && time.Now().After(state.ExpiresAt) {
 		// Expired — auto-resume by removing file
-		os.Remove(fp)
+		_ = os.Remove(fp)
 		return false
 	}
 	return true
