@@ -87,7 +87,6 @@ compliance:
   iso-27001-2022: ["A.8.3", "A.8.4", "A.8.31"]
   iso-42001-2023: ["A.6.2", "A.9.1"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
-  nist-ai-rmf-1.0: ["MAP-5", "MANAGE-1", "MANAGE-4"]
   soc2-type2: ["CC6.1", "CC6.3", "CC6.6"]
   mitre_atlas: ["AML.T0058"]
 

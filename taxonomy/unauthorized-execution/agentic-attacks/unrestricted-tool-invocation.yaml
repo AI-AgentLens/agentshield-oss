@@ -69,7 +69,6 @@ compliance:
   owasp-llm-2025: ["LLM01", "LLM06"]
   iso-27001-2022: ["A.8.26", "A.8.28", "A.8.9"]
   eu-ai-act-2024: ["Art.13", "Art.14", "Art.15"]
-  nist-ai-rmf-1.0: ["GOVERN-1", "MANAGE-1", "MAP-5"]
   soc2-type2: ["CC6.1", "CC6.6", "CC8.1"]
   mitre_atlas: ["AML.T0058"]
 

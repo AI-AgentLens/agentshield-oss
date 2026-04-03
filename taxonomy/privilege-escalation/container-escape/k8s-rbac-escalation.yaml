@@ -62,7 +62,6 @@ compliance:
   owasp-llm-2025: ["LLM05", "LLM06"]
   iso-27001-2022: ["A.5.10", "A.8.3", "A.8.4"]
   eu-ai-act-2024: ["Art.9", "Art.15"]
-  nist-ai-rmf-1.0: ["MANAGE-1", "MANAGE-2"]
   soc2-type2: ["CC6.1", "CC6.3", "CC8.1"]
 
 references:

@@ -292,6 +292,37 @@ Compliance mappings in taxonomy YAML files (`compliance:` section) must be **spe
 5. **ISO 42001:2023 (`iso-42001-2023`)**: Use the full range of Annex A controls (A.2–A.10) and core clauses (4–10). Don't over-rely on `6.1.2` (risk assessment) — use specific controls like `A.7.3` (data quality) for data poisoning, `A.9.4` (logging) for audit trail threats, `A.9.1` (intended use) for shadow AI, etc.
 6. **Verify before adding**: Cross-reference the standard's text to confirm the control applies. When in doubt, leave it out.
 
+#### Compliance Review Process — Mandatory for All Changes
+
+**Review docs**: `~/dev/AI_risk_compliance/docs/compliance-review/` contains per-standard review files with defensibility ratings for every control. These are the authoritative reference for which mappings are approved.
+
+**Defensibility ratings** (set during Gary + Kai review):
+- **STRONG** — Semgrep finding directly evidences a gap in this control.
+- **MODERATE** — Finding indicates a code pattern that creates risk relevant to this control.
+- **WEAK** — Mapping is technically correct but hard to defend to an auditor.
+- **DROP** — Mapping is a stretch. Do not use.
+
+**The auditor test**: Every mapping must pass this: *"If an auditor asks why this finding maps to this control, can you give a clear 2-sentence answer?"* If not, drop the mapping.
+
+**Active compliance frameworks** (6 standards, 73 approved controls):
+- `owasp-llm-2025` — 10 controls (all approved)
+- `eu-ai-act-2024` — 6 controls (Art.9, Art.26 dropped)
+- `iso-27001-2022` — 14 controls (A.5.1, A.8.26, A.8.33 dropped)
+- `soc2-type2` — 10 controls (CC8.1, CC9.1 dropped)
+- `iso-42001-2023` — 7 controls (13 dropped — governance/process)
+- `mitre_atlas` — 26 techniques (14 dropped — recon/generic/duplicates)
+
+**Removed frameworks**:
+- `nist-ai-rmf-1.0` — Governance framework, not technical controls. Positioned at tool level instead.
+
+**Baby Kai compliance rules**:
+1. **NEVER add a new compliance framework** without Gary + Kai review.
+2. **NEVER map to a control rated DROP** in the review docs.
+3. **NEVER bulk-map** — each taxonomy entry's compliance section must be individually justified.
+4. When adding a mapping, check the review doc for the target control. Only map to STRONG or MODERATE controls.
+5. When creating a new taxonomy entry, reference similar existing entries for mapping precedent, but verify each mapping independently.
+6. If you think a dropped control should be reconsidered, file a GitHub issue explaining why — don't just add the mapping.
+
 ## Formal Rule Review
 
 `RULE_REVIEW.md` tracks formal FP/FN reviews of all rule packs. Reviews are conducted by Gary + Kai to catch issues that automated tests miss — over-broad patterns, enterprise workflow conflicts, and attacker bypass techniques. Initial full sweep completed 2026-03-23. New rules reviewed periodically.

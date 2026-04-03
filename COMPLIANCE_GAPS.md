@@ -145,10 +145,13 @@ Standard         Total  Covered  Gap  Coverage%
 OWASP LLM 2025      10      10    0     100.0%  (unchanged)
 ISO 27001:2022       16      14    2      87.5%  (+1 since Audit #184: A.5.23 resolved)
 EU AI Act 2024        7       7    0     100.0%  (unchanged)
-NIST AI RMF 1.0       8       7    1      87.5%  (unchanged — MAP-1 acceptable)
 SOC 2 Type II        12      12    0     100.0%  (unchanged)
+ISO 42001:2023       20       7   13      35.0%  (new — only defensible controls mapped)
+MITRE ATLAS 2.0      40      26   14      65.0%  (new — recon/generic techniques dropped)
 ─────────────────────────────────────────────
-TOTAL                53      50    3      94.3%  (+1.8pp since Audit #184)
+TOTAL               105      76   29      72.4%
+Note: NIST AI RMF 1.0 removed — governance framework, not technical controls.
+See AI_risk_compliance/docs/compliance-review/06-nist-ai-rmf.md for rationale.
 ```
 
 *Note: "Covered" means at least 1 taxonomy entry maps to the control. Quality of coverage varies — see per-standard analysis above.*
