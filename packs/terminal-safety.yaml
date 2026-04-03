@@ -9741,6 +9741,69 @@ rules:
       tn:
         - "echo steghide"
 
+  # === AUDIT: AI code steganography — trailing whitespace injection (issue #917) ===
+  #
+  # A compromised AI agent encodes secret data bit-by-bit by selectively adding
+  # trailing whitespace to specific lines in source code. Each line with trailing
+  # space encodes a '1' bit; absence encodes '0'. This channel is invisible to
+  # reviewers, survives git push to public repos, and evades DLP tools that
+  # inspect file content or network traffic.
+  #
+  # The steganographic sed pattern is distinctive: it uses POSIX character-count
+  # quantifiers (\{N\}) to target specific character positions or line lengths,
+  # typically combined with backreferences (\1) that preserve the original text
+  # while appending a trailing space. The awk variant uses line-number addressing
+  # (NR==N) to append a space to specific output lines via explicit $0 printing.
+  #
+  # Examples:
+  #   sed -i 's/^\(.\{42\}\)$/\1 /' sourcefile.py   # encode bit at col 42
+  #   awk 'NR==42{print $0" "; next}1' file.go > tmp && mv tmp file.go
+  #
+  # MITRE T1027 — Obfuscated Files or Information
+  # OWASP LLM06 — Excessive Agency
+  - id: "ts-audit-trailing-whitespace-inject"
+    taxonomy: "data-exfiltration/steganography/ai-code-steganography"
+    match:
+      command_regex: "(\\bsed\\b.*-[a-zA-Z]*i\\b.*\\\\{[0-9]+\\\\}|\\bawk\\b.*\\bNR==[0-9]+.*\\bprint\\b.*\\$0)"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "Trailing whitespace injection pattern detected — sed character-count quantifiers (\\{N\\}) or awk line-addressing with explicit $0 output can encode secret data bit-by-bit in source files. A compromised agent can exfiltrate credentials by committing code where line trailing whitespace encodes a bitstream, invisible to reviewers and DLP tools. MITRE T1027, OWASP LLM06."
+    tests:
+      tp:
+        - "sed -i 's/^\\(.\\{42\\}\\)$/\\1 /' sourcefile.py"
+        - "awk 'NR==42{print $0\" \"; next}1' file.go > tmp && mv tmp file.go"
+      tn:
+        - "sed -i 's/foo/bar/g' file.py"
+        - "awk '{print $0}' file.go"
+
+  # === AUDIT: AI code steganography — mass identifier rename (issue #917) ===
+  #
+  # A compromised agent encodes data through bulk identifier renaming across many
+  # source files: choosing 'processRecord' vs 'processRecords' encodes 1 bit per
+  # function name. Over thousands of identifiers in a large codebase, hundreds of
+  # bytes can be encoded in a single 'refactor' commit that passes code review.
+  #
+  # The shell signal is mass grep-rl piped to xargs sed -i: the agent discovers
+  # all files containing an identifier and renames them in bulk. This is also a
+  # legitimate developer pattern (project-wide refactoring), so we AUDIT with
+  # low confidence rather than BLOCK.
+  #
+  # MITRE T1027 — Obfuscated Files or Information, T1048 — Exfiltration Over Alt Protocol
+  - id: "ts-audit-mass-identifier-rename"
+    taxonomy: "data-exfiltration/steganography/ai-code-steganography"
+    match:
+      command_regex: "grep\\s+[^|]*-[a-zA-Z]*l[a-zA-Z]*\\s+.*\\|\\s*xargs\\s+sed\\b[^|]*-[a-zA-Z]*i\\b"
+    decision: "AUDIT"
+    confidence: 0.60
+    reason: "Mass identifier rename via grep -l | xargs sed -i — a compromised agent can encode secret data by systematically choosing identifier variants (processRecord vs processRecords) across thousands of functions in a 'refactor' commit. While legitimate for project-wide renaming, bulk AI-driven identifier changes across many source files warrant review. MITRE T1027, T1048."
+    tests:
+      tp:
+        - "grep -rl 'processRecord[^s]' . | xargs sed -i 's/processRecord\\b/processRecords/g'"
+        - "grep -rln 'fooBar' . | xargs sed -i 's/\\bfooBar\\b/fooBar_/g'"
+      tn:
+        - "grep -rl 'TODO' . | wc -l"
+        - "grep -r 'pattern' . | sed 's/old/new/g'"
+
   # === BLOCK: exiftool EXIF credential embedding (issue #402) ===
   #
   # exiftool writes arbitrary content into EXIF/IPTC/XMP metadata fields of
