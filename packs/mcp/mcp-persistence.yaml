@@ -1550,6 +1550,53 @@ structural_rules:
           args: {"path": "/workspace/docs/tmux.conf.example"}
 
 rules:
+  # === BLOCK: /etc/ld.so.preload read access (LD_PRELOAD persistence recon) (issue #956) ===
+  #
+  # /etc/ld.so.preload lists shared libraries injected into EVERY process at startup.
+  # An AI agent reading this file performs critical reconnaissance for LD_PRELOAD
+  # hijacking attacks (MITRE T1574.006):
+  #
+  #   1. Verify own persistence — an attacker who planted a malicious .so reads
+  #      the file back to confirm it persists across reboots
+  #   2. Discover security hooks — EDR agents and audit daemons that use LD_PRELOAD
+  #      expose themselves here; attacker crafts targeted bypasses
+  #   3. Plan library hijacking — understanding the current preload order helps
+  #      craft a conflicting entry that shadows a security library
+  #
+  # Write access is covered by mcp-safety-block-etc-write (blocks all /etc/ writes).
+  # This rule blocks the READ side — the reconnaissance step.
+  # Analogous to mcp-privesc-block-sudoers-read, which blocks /etc/sudoers reads
+  # for the same reason: sensitive security config reveals exploit paths.
+  #
+  # MITRE T1574.006 — Hijack Execution Flow: LD_PRELOAD
+  - id: mcp-persist-block-ld-so-preload-read
+    taxonomy: "persistence-evasion/ldpreload-hijacking/ld-preload-injection"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "**/etc/ld.so.preload"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Read access to /etc/ld.so.preload blocked — lists shared libraries injected into every process at startup. Reading this file is a reconnaissance step for LD_PRELOAD persistence attacks: attackers verify their malicious .so is loaded, discover security hooks to bypass, and plan library hijacking. MITRE T1574.006."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/etc/ld.so.preload"}
+        - tool: "cat_file"
+          args: {"path": "/etc/ld.so.preload"}
+        - tool: "view_file"
+          args: {"path": "/etc/ld.so.preload"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/project/docs/ld-preload-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/project/linker-config-notes.md"}
+
   # === BLOCK: Browser extension installation via MCP tools (issue #769) ===
   #
   # Browser extensions execute code in the browser process on every session,
