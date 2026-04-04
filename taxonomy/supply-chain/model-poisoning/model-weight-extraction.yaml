@@ -100,7 +100,7 @@ examples:
 compliance:
   owasp-llm-2025: ["LLM03", "LLM10"]
   iso-27001-2022: ["A.8.3", "A.8.12", "A.5.23"]
-  eu-ai-act-2024: ["Art.15", "Art.9"]
+  eu-ai-act-2024: ["Art.15"]
   soc2-type2: ["CC6.1", "CC6.6", "CC6.7"]
   iso-42001-2023: ["A.9.3"]
   mitre_atlas: ["AML.T0044", "AML.T0011", "AML.T0002", "AML.T0009", "AML.T0031"]

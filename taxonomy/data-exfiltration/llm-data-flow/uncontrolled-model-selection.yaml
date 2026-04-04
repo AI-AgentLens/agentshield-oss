@@ -41,8 +41,7 @@ examples:
 compliance:
   owasp-llm-2025: ["LLM05", "LLM06"]
   iso-27001-2022: ["A.8.9", "A.8.28"]
-  eu-ai-act-2024: ["Art.9", "Art.13"]
-  soc2-type2: ["CC8.1"]
+  eu-ai-act-2024: ["Art.13"]
   mitre_atlas: ["AML.T0040"]
 
 references:

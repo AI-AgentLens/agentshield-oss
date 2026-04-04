@@ -114,7 +114,7 @@ recommendation: |
 compliance:
   owasp-llm-2025: ["LLM06", "LLM01"]
   iso-27001-2022: ["A.8.4", "A.5.10", "A.8.3"]
-  eu-ai-act-2024: ["Art.14", "Art.9", "Art.13"]
+  eu-ai-act-2024: ["Art.14", "Art.13"]
   soc2-type2: ["CC6.1", "CC6.3", "CC7.2"]
   iso-42001-2023: ["A.2.2", "A.8.4", "A.9.3"]
   mitre_atlas: ["AML.T0058"]

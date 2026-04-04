@@ -65,8 +65,8 @@ examples:
 compliance:
   owasp-llm-2025: ["LLM02", "LLM07"]
   iso-27001-2022: ["A.5.10", "A.8.25", "A.5.23"]
-  eu-ai-act-2024: ["Art.9", "Art.15", "Art.26"]
-  soc2-type2: ["CC6.1", "CC6.6", "CC9.1"]
+  eu-ai-act-2024: ["Art.15"]
+  soc2-type2: ["CC6.1", "CC6.6"]
   mitre_atlas: ["AML.T0056"]
 
 references:

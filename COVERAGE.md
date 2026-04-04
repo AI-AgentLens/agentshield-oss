@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 688 |
-| Total rules | 1782 |
+| MCP rules | 696 |
+| Total rules | 1790 |
 | Test cases (TP+TN) | 3939 |
 | Kingdoms covered | 10 |
 
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (361 rules)
+### credential-exposure (369 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1355,6 +1355,7 @@
 | `mcp-sec-block-terraform-dotdir-credentials` | BLOCK | mcp_rule | Access to ~/.terraform/credentials.tfrc.json is blocked — non-standard but valid Terraform credential path containing Cloud/Enterprise API tokens. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-jfrog-credentials` | BLOCK | mcp_rule | Access to ~/.jfrog/ is blocked — contains JFrog CLI credentials (API keys, access tokens, server config) for Artifactory/Xray. Exfiltration enables publishing malicious artifacts or reading private builds. MITRE T1552.001, T1195.001. |
 | `mcp-sec-block-jenkins-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credentials (API tokens, SSH keys, username/password) granting pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-travis-credentials` | BLOCK | mcp_rule | Access to ~/.config/travis/config is blocked — contains Travis CI authentication token granting access to build pipelines and repository secrets. MITRE T1552. |
 | `mcp-sec-block-travis-legacy-credentials` | BLOCK | mcp_rule | Access to ~/.travis/ (Travis CI CLI legacy credential directory) is blocked — contains API token granting access to build pipelines and repository secrets. MITRE T1552. |
@@ -1416,6 +1417,13 @@
 | `mcp-sec-block-discord-macos-creds` | BLOCK | mcp_rule | Access to macOS Discord app data directory is blocked — ~/Library/Application Support/discord/ contains auth tokens enabling full account takeover (read DMs, server membership, post as user). MITRE T1552.001. |
 | `mcp-sec-block-signal-macos-creds` | BLOCK | mcp_rule | Access to macOS Signal app data directory is blocked — ~/Library/Application Support/Signal/ contains account credentials (config.json), encryption keys, and the encrypted message database. MITRE T1552.001. |
 | `mcp-sec-block-github-desktop-macos-creds` | BLOCK | mcp_rule | Access to macOS GitHub Desktop app data is blocked — ~/Library/Application Support/GitHub Desktop/ contains OAuth tokens granting full GitHub API access under the user's identity. MITRE T1552.001. |
+| `mcp-sec-block-github-adhoc-token-dash` | BLOCK | mcp_rule | Access to ~/.github-token is blocked — ad-hoc file commonly used to store GitHub Personal Access Tokens by CI scripts and shell tooling. MITRE T1552.001. |
+| `mcp-sec-block-github-adhoc-token-underscore` | BLOCK | mcp_rule | Access to ~/.github_token is blocked — underscore variant ad-hoc file used to store GitHub Personal Access Tokens. MITRE T1552.001. |
+| `mcp-sec-block-github-adhoc-token-dir` | BLOCK | mcp_rule | Access to ~/.github/token is blocked — subdirectory variant used by some GitHub Actions tools to store Personal Access Tokens. MITRE T1552.001. |
+| `mcp-sec-block-gh-adhoc-token` | BLOCK | mcp_rule | Access to ~/.gh_token is blocked — short-form ad-hoc file used to store GitHub Personal Access Tokens. MITRE T1552.001. |
+| `mcp-sec-block-gitlab-adhoc-token-dash` | BLOCK | mcp_rule | Access to ~/.gitlab-token is blocked — ad-hoc file used to store GitLab Personal Access Tokens by CI scripts. MITRE T1552.001. |
+| `mcp-sec-block-gitlab-adhoc-token-underscore` | BLOCK | mcp_rule | Access to ~/.gitlab_token is blocked — underscore variant ad-hoc file used to store GitLab Personal Access Tokens. MITRE T1552.001. |
+| `mcp-sec-block-mysql-mylogin-cnf` | BLOCK | mcp_rule | Access to ~/.mylogin.cnf is blocked — MySQL login path file stores server credentials (host, user, password) in a format that is trivially reversible using libmysqlclient's hardcoded XOR key. MITRE T1552.001. |
 | `mcp-sec-block-telegram-session-linux` | BLOCK | mcp_rule | Access to Telegram Desktop session data is blocked — ~/.local/share/TelegramDesktop/tdata/ contains session keys that authenticate without a password and bypass 2FA, enabling full account takeover and message history access. MITRE T1539, T1552.001. |
 | `mcp-sec-block-telegram-session-macos` | BLOCK | mcp_rule | Access to macOS Telegram app sandboxed data is blocked — contains session keys that authenticate without a password and bypass 2FA. MITRE T1539, T1552.001. |
 | `mcp-sec-block-signal-session-linux` | BLOCK | mcp_rule | Access to Signal Desktop session data on Linux is blocked — ~/.config/Signal/ contains account credentials (config.json), encryption keys, and the SQLCipher encrypted message database. Compromise enables full message history access and account hijacking. MITRE T1552.001. |
