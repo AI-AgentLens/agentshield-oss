@@ -16,6 +16,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+  actions: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -65,21 +69,28 @@ jobs:
     steps:
       - name: Clean up old artifacts (keep newest 3)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           KEEP=3
           REPO="${GITHUB_REPOSITORY}"
-          # Fetch all artifact IDs (newest first)
-          IDS=$(gh api "repos/${REPO}/actions/artifacts" --paginate --jq '.artifacts[].id')
+          API="https://api.github.com/repos/${REPO}/actions/artifacts"
+          AUTH="Authorization: Bearer ${GITHUB_TOKEN}"
+          # Fetch artifact IDs (newest first, up to 100)
+          IDS=$(curl -s -H "$AUTH" "${API}?per_page=100" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for a in data.get('artifacts', []):
+              print(a['id'])
+          ")
           COUNT=0
           for id in $IDS; do
             COUNT=$((COUNT + 1))
             if [ "$COUNT" -gt "$KEEP" ]; then
               echo "Deleting artifact $id..."
-              gh api -X DELETE "repos/${REPO}/actions/artifacts/$id" || true
+              curl -s -X DELETE -H "$AUTH" "${API}/$id" || true
             fi
           done
-          echo "Kept $KEEP newest artifacts, deleted $((COUNT - KEEP > 0 ? COUNT - KEEP : 0)) old ones."
+          echo "Kept $KEEP newest, deleted $((COUNT > KEEP ? COUNT - KEEP : 0)) old artifacts."
 
       - uses: actions/checkout@v4
         with:
