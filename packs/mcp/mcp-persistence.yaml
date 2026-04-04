@@ -949,10 +949,15 @@ structural_rules:
   #                          every KDE startup; outside classic dotfile monitoring
   #   ~/.pam_environment  — sets environment variables for ALL PAM sessions
   #                          (X11, SSH, console logins) — highest cross-session impact
+  #   ~/.config/environment.d/*.conf — systemd user environment drop-ins; loaded by
+  #                          pam_systemd for all user processes on login, equivalent
+  #                          to .pam_environment but picked up by systemd 219+
   #
   # Attack impact:
   #   - Code in .xinitrc/.xsession/.xprofile fires on every graphical login
   #   - Code in .pam_environment affects SSH sessions and console logins too
+  #   - Files in environment.d/ affect all user processes via systemd (PATH, LD_PRELOAD,
+  #     HTTPS_PROXY can be set to intercept all traffic or hijack execution)
   #   - No elevated privileges required
   #   - Not blocked by shell rules (write_file bypasses shell evaluation)
   #
@@ -980,8 +985,9 @@ structural_rules:
             - "(?:^|/)\\.xprofile$"
             - "(?:^|/)\\.pam_environment$"
             - "(?:^|/)\\.config/plasma-workspace/env/"
+            - "(?:^|/)\\.config/environment\\.d/"
     decision: "BLOCK"
-    reason: "MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004."
+    reason: "MCP write to X11 session startup, PAM environment, or systemd user environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile), affects all PAM sessions (.pam_environment), or persists via systemd for all user processes (.config/environment.d/). Persistent execution without shell-level visibility. MITRE T1546.004."
     confidence: 0.95
     tests:
       tp:
@@ -989,9 +995,15 @@ structural_rules:
           args: {"path": "/home/user/.xinitrc"}
         - tool: "edit_file"
           args: {"path": "/home/user/.pam_environment"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/environment.d/proxy.conf"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/environment.d/path-override.conf"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/config/x11-settings.conf"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/docs/environment-variables.md"}
 
   # === BLOCK: User-space cron directory writes via MCP (issue #221) ===
   #
