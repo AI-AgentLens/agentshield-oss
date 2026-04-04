@@ -1,0 +1,73 @@
+id: "unauthorized-execution/ai-content-integrity/null-byte-path-injection"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Content Integrity"
+category_id: "4.3"
+name: "Null Byte Path Injection via AI Output"
+risk_level: "high"
+
+abstract: |
+  AI-generated content containing null bytes (\x00) is concatenated into file
+  paths, subprocess arguments, or OS calls without sanitization, causing path
+  truncation at the null byte to bypass extension validation or security filters
+  that use C-style string comparison.
+
+explanation: |
+  Null byte injection exploits the difference between how high-level languages
+  (Python, Ruby, PHP) handle strings versus how C-based OS system calls handle
+  them. C functions treat \x00 as a string terminator, while Python treats it
+  as a regular character.
+
+  When LLM-generated content is concatenated into file operations:
+  ```python
+  # path = "/uploads/user_file.txt\x00.safe"
+  # open() passes this to the C library which truncates at \x00:
+  # → /uploads/user_file.txt  (the ".safe" extension is discarded)
+  open(llm_output + ".safe", "r")
+  ```
+
+  Attack scenarios enabled by LLM output containing null bytes:
+  - **Extension bypass**: `malicious.php\x00.jpg` passes MIME/extension checks
+    but the filesystem opens `malicious.php`
+  - **Path traversal augmentation**: Null bytes can bypass path sanitizers that
+    check for `..` sequences in modern runtimes
+  - **Security filter evasion**: Filters using C-string comparison stop at \x00,
+    missing the rest of the payload
+  - **Subprocess argument manipulation**: Null bytes in argv can truncate intended
+    arguments to shell commands, altering behavior
+
+  Modern Python (3.x) raises `ValueError` on null bytes in `open()` calls, but
+  older code and certain libraries may still be vulnerable. The threat model is
+  that an attacker-controlled LLM or prompt injection causes the model to output
+  null bytes in a response that is subsequently used in file operations.
+
+recommendation: |
+  - Sanitize all AI-generated content before using it in file paths, subprocess
+    arguments, or OS calls: `output.replace('\x00', '')`.
+  - Validate that file paths contain only allowed characters before use.
+  - Never concatenate LLM output directly into filesystem operations without
+    validation — treat AI output as untrusted external input.
+  - Use `os.path.realpath()` and allowlist-based path validation.
+  - Consider using bytes-based path APIs when dealing with binary content.
+
+examples:
+  bad:
+    - "open(llm_output + '.safe', 'r')  # null byte truncates extension check"
+    - "subprocess.run(['validate', user_path + '\\x00' + suffix])  # arg truncated"
+    - "os.path.join(base_dir, ai_filename)  # filename from LLM, unvalidated"
+  good:
+    - "safe_path = llm_output.replace('\\x00', ''); open(safe_path + '.safe', 'r')"
+    - "import re; assert re.match(r'^[\\w\\-\\.]+$', ai_filename)"
+
+compliance:
+  owasp-llm-2025: ["LLM02"]
+  iso-27001-2022: ["A.8.28"]
+  soc2-type2: ["CC6.1"]
+
+references:
+  mitre_attack: ["T1036", "T1190"]
+  cwe: ["CWE-626", "CWE-73", "CWE-22"]
+
+analyzers: ["semgrep"]
+related_rules: []
