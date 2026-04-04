@@ -1371,6 +1371,184 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/workspace/myapp/.git/hooks/post-merge"}
 
+  # === BLOCK: Editor startup file modification via MCP write_file (issue #945) ===
+  #
+  # Vim, NeoVim, and Emacs execute code from startup config files on every
+  # editor launch. An agent that writes to these files achieves persistence
+  # that triggers whenever the developer opens their editor — no cron job,
+  # systemd service, or shell modification required.
+  #
+  # Attack surface:
+  #   Vim:    ~/.vimrc, ~/.vim/plugin/*.vim, ~/.vim/autoload/*.vim
+  #   NeoVim: ~/.config/nvim/init.lua, ~/.config/nvim/init.vim,
+  #           ~/.config/nvim/lua/**, ~/.config/nvim/plugin/**
+  #   Emacs:  ~/.emacs, ~/.emacs.d/init.el, ~/.emacs.d/**/*.el, ~/.emacs.d/**/*.elc
+  #   tmux:   ~/.tmux.conf executes run-shell commands on tmux server start
+  #
+  # Why BLOCK (not AUDIT):
+  #   These files give full scripting language access (VimScript, Lua, Emacs Lisp).
+  #   A prompt-injected agent writing to these files can exfiltrate secrets, run
+  #   reverse shells, or install keyloggers — all triggered silently when the
+  #   developer next opens their editor.
+  #
+  # Legitimate developer workflow: developers write their own vim/nvim/emacs
+  # config manually, never via an autonomous agent. Plugin managers (vim-plug,
+  # lazy.nvim, straight.el) run through explicit developer-triggered invocations,
+  # not via MCP write_file calls.
+  #
+  # MITRE T1546 — Event Triggered Execution
+  # OWASP LLM06 2025 — Excessive Agency
+  - id: mcp-persist-block-vim-config-write
+    taxonomy: "persistence-evasion/agent-config-persistence/editor-config-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "write_to_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.(vimrc|viminfo|vim/plugin/[^/]+\\.vim|vim/autoload/[^/]+\\.vim|vim/after/[^/]+\\.vim)$"
+            - "(?:^|/)\\.vim/(?:plugin|autoload|after|ftplugin|syntax)/"
+    decision: "BLOCK"
+    reason: "MCP write to Vim startup file — VimScript executes on every vim/nvim launch, achieving persistent code execution. MITRE T1546, OWASP LLM06."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.vimrc"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.vim/plugin/evil.vim"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.vim/autoload/init.vim"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/vim-syntax/myapp.vim"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.vimrc"}
+        - tool: "write_file"
+          args: {"path": "/workspace/dotfiles-docs/vimrc-example.md"}
+
+  - id: mcp-persist-block-nvim-config-write
+    taxonomy: "persistence-evasion/agent-config-persistence/editor-config-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "write_to_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)(?:\\.config/nvim/|nvim/)(?:init\\.lua|init\\.vim)"
+            - "(?:^|/)(?:\\.config/nvim/|nvim/)(?:lua|plugin|ftplugin|syntax|after|autoload)/"
+    decision: "BLOCK"
+    reason: "MCP write to NeoVim config — init.lua and Lua plugin directories execute on every nvim launch, giving full Lua scripting persistence. MITRE T1546, OWASP LLM06."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/nvim/init.lua"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.config/nvim/lua/user/init.lua"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.config/nvim/plugin/evil.lua"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/nvim-plugin/plugin.lua"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/nvim/init.lua"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/nvim-config-guide.md"}
+
+  - id: mcp-persist-block-emacs-config-write
+    taxonomy: "persistence-evasion/agent-config-persistence/editor-config-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "write_to_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.(emacs|emacs\\.d/init\\.el|emacs\\.d/early-init\\.el)$"
+            - "(?:^|/)\\.emacs\\.d/(?:[^/]+\\.el|[^/]+\\.elc)$"
+            - "(?:^|/)\\.emacs\\.d/(?:lisp|site-lisp|packages|elpa)/"
+    decision: "BLOCK"
+    reason: "MCP write to Emacs startup file — Emacs Lisp in .emacs.d/init.el and package directories executes on every emacs launch, giving full programmatic persistence. MITRE T1546, OWASP LLM06."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.emacs"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.emacs.d/init.el"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.emacs.d/lisp/evil.el"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/emacs-mode/my-mode.el"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.emacs.d/init.el"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/emacs-config-guide.md"}
+
+  - id: mcp-persist-block-tmux-config-write
+    taxonomy: "persistence-evasion/agent-config-persistence/editor-config-modification"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "write_to_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "filesystem_write"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.(tmux\\.conf|tmux/tmux\\.conf)$"
+            - "(?:^|/)\\.config/tmux/tmux\\.conf$"
+    decision: "BLOCK"
+    reason: "MCP write to tmux config — tmux.conf can execute arbitrary shell commands via run-shell on server startup, achieving persistence triggered on every new terminal session. MITRE T1546, OWASP LLM06."
+    confidence: 0.90
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.tmux.conf"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.config/tmux/tmux.conf"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/project/tmux-session.conf"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.tmux.conf"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/tmux.conf.example"}
+
 rules:
   # === BLOCK: Browser extension installation via MCP tools (issue #769) ===
   #
