@@ -18,6 +18,9 @@ DROPPED = {
     "eu-ai-act-2024": {"Art.9", "Art.26"},
     "soc2-type2":     {"CC8.1", "CC9.1"},
     "iso-27001-2022": {"A.5.1", "A.8.26", "A.8.33"},
+    "mitre_atlas":    {"AML.T0017", "AML.T0031", "AML.T0043", "AML.T0015",
+                       "AML.T0036", "AML.T0040", "AML.T0009", "AML.T0016",
+                       "AML.T0050", "AML.T0046"},
 }
 
 # Files to skip (not entry files)

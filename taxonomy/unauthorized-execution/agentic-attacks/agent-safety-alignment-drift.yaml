@@ -72,7 +72,6 @@ compliance:
   eu-ai-act-2024: ["Art.14", "Art.15"]
   soc2-type2: ["CC6.8", "CC7.1"]
   iso-42001-2023: ["A.9.3"]
-  mitre_atlas: ["AML.T0050"]
 
 references:
   mitre_attack: ["T1546", "T1565", "T1036"]
