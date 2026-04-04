@@ -4418,15 +4418,18 @@ rules:
     taxonomy: "data-exfiltration/version-control/git-mirror-clone"
     match:
       command_regex: "git\\s+clone\\s+--mirror"
+      command_regex_exclude: "^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|\\bagentshield\\s+mcp-eval\\b"
     decision: "BLOCK"
     confidence: 0.85
-    reason: "git clone --mirror copies entire repository including all refs — potential exfiltration."
+    reason: "git clone --mirror copies entire repository including all refs — potential exfiltration. Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.)."
     tests:
       tp:
         - "git clone --mirror https://github.com/org/repo.git"
         - "git clone --mirror git@github.com:org/private-repo.git"
       tn:
         - "git clone https://github.com/org/repo.git"
+        - "gh issue create --title 'FP: ts-block-git-clone-mirror' --body 'git clone --mirror attack pattern detected'"
+        - "git commit -m 'docs: describe git clone --mirror exfiltration vector'"
 
   # === AUDIT: git clone --bare — full object store copy including purged history ===
   # git clone --bare copies all git objects (commits, blobs, trees) and refs into a
@@ -4442,15 +4445,17 @@ rules:
     taxonomy: "data-exfiltration/version-control/git-mirror-clone"
     match:
       command_regex: "git\\s+clone\\s+.*--bare\\b"
+      command_regex_exclude: "^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|\\bagentshield\\s+mcp-eval\\b"
     decision: "AUDIT"
     confidence: 0.80
-    reason: "git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003."
+    reason: "git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003. Excludes gh/git flag-value contexts."
     tests:
       tp:
         - "git clone --bare https://github.com/org/repo.git"
         - "git clone https://github.com/org/repo.git --bare /tmp/repo.git"
       tn:
         - "git init --bare /tmp/new-repo.git"
+        - "gh issue create --body 'git clone --bare is used for server mirrors'"
 
   # === BLOCK: git bundle create — portable full-repo snapshot for offline transfer ===
   # git bundle create packages all git objects (commits, blobs, refs) into a single
@@ -4462,15 +4467,18 @@ rules:
     taxonomy: "data-exfiltration/version-control/git-data-exfil"
     match:
       command_regex: "git\\s+bundle\\s+create\\b"
+      command_regex_exclude: "^(gh|git)\\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|-[mF]\\s+[\"'])|\\bagentshield\\s+mcp-eval\\b"
     decision: "BLOCK"
     confidence: 0.92
-    reason: "git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560)."
+    reason: "git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.)."
     tests:
       tp:
         - "git bundle create repo.bundle --all"
         - "git bundle create backup.bundle main"
       tn:
         - "git bundle verify repo.bundle"
+        - "gh issue create --title 'FP' --body 'git bundle create is an exfiltration risk'"
+        - "git commit -m 'docs: note that git bundle create can be used for data theft'"
 
   # === BLOCK: git archive piped to network sink ===
   # git archive creates a snapshot of the working tree (tar/zip). When piped
