@@ -1,14 +1,14 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-03 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-04 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 684 |
-| Total rules | 1778 |
+| MCP rules | 687 |
+| Total rules | 1781 |
 | Test cases (TP+TN) | 3939 |
 | Kingdoms covered | 10 |
 
@@ -253,9 +253,9 @@
 | `ts-block-ruby-reverse-shell` | BLOCK | regex | Ruby one-liner using TCPSocket is a reverse shell pattern. |
 | `ts-sem-allow-dns-safe` | ALLOW | semantic | Semantic: safe DNS queries (DMARC/SPF/DKIM) are allowed. |
 | `ts-sf-block-recon-then-exfil` | BLOCK | stateful | Stateful: reconnaissance → archive → exfiltrate chain detected. |
-| `ts-block-git-clone-mirror` | BLOCK | regex | git clone --mirror copies entire repository including all refs — potential exfiltration. |
-| `ts-audit-git-clone-bare` | AUDIT | regex | git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003. |
-| `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). |
+| `ts-block-git-clone-mirror` | BLOCK | regex | git clone --mirror copies entire repository including all refs — potential exfiltration. Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.). |
+| `ts-audit-git-clone-bare` | AUDIT | regex | git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003. Excludes gh/git flag-value contexts. |
+| `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.). |
 | `ts-block-git-archive-pipe-network` | BLOCK | regex | git archive piped to a network tool streams the entire repository working tree to an external host — direct exfiltration (MITRE T1560, T1041). |
 | `ts-audit-git-archive` | AUDIT | regex | git archive creates a snapshot of the working tree. Audit for review — piped-to-network variant is blocked separately. |
 | `ts-block-aws-s3-upload-sensitive-path` | BLOCK | regex | aws s3 cp uploading a home directory, system path, or workspace root to S3 — an AI agent copying the home directory or system paths to cloud storage is a high-confidence exfiltration pattern. Legitimate deployments upload build artifacts (./build/, ./dist/), not root directories (OWASP LLM02, MITRE T1048, CWE-200). |
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (358 rules)
+### credential-exposure (360 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1319,6 +1319,8 @@
 | `mcp-sec-block-sops-encrypted-files` | BLOCK | mcp_rule | Access to SOPS-encrypted secrets file is blocked — secrets.enc.yaml is the standard SOPS output filename containing encrypted application secrets (API keys, passwords, certificates). Ciphertext exposure enables offline decryption attacks. MITRE T1552. |
 | `mcp-sec-block-sops-named-files` | BLOCK | mcp_rule | Access to SOPS-encrypted files is blocked — *.sops.yaml is the alternative SOPS naming convention for in-place encrypted YAML files. These files contain encrypted application secrets even though they appear as ordinary YAML. MITRE T1552. |
 | `mcp-sec-block-sops-master-config` | BLOCK | mcp_rule | Access to SOPS master configuration is blocked — .sops.yaml contains KMS ARN identifiers, GCP key paths, PGP fingerprints, and age public keys that map the entire secrets encryption topology. Exposing this enables targeted key exfiltration. MITRE T1552. |
+| `mcp-sec-block-kerberos-keytab` | BLOCK | mcp_rule | Access to Kerberos keytab files is blocked — keytabs contain long-term service principal secret keys that do not expire. A stolen keytab enables indefinite ticket forgery and service impersonation without a password. MITRE T1558, T1552. |
+| `mcp-sec-block-kerberos-tgt-cache` | BLOCK | mcp_rule | Access to Kerberos ticket cache files is blocked — krb5cc_* files contain active Ticket-Granting Tickets (TGTs). A stolen TGT enables pass-the-ticket attacks, authenticating as the user on all Kerberos services without re-entering credentials. MITRE T1558.003, T1550.003. |
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
@@ -1651,7 +1653,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (27 rules)
+### persistence-evasion (28 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1663,6 +1665,7 @@
 | `mcp-persist-block-modern-shell-profile-write` | BLOCK | structural | MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
 | `mcp-persist-block-fish-config-write` | BLOCK | structural | MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
 | `mcp-persist-audit-fish-functions-write` | AUDIT | structural | MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004. |
+| `mcp-persist-block-debugger-init-write` | BLOCK | structural | MCP write to debugger initialization file (.gdbinit, .lldbinit) — code injected here executes on every GDB or LLDB session start. GDB supports shell commands and remote debugging; LLDB supports full Python scripting. Persistent execution triggered by developer build/debug workflow. MITRE T1546.004. |
 | `mcp-persist-block-launchagent-write` | BLOCK | structural | MCP write to macOS LaunchAgent/Daemon directory installs a persistent background service loaded on login. MITRE T1543.001. |
 | `mcp-persist-block-git-hook-write` | AUDIT | structural | MCP write to .git/hooks/ — installs a git hook that executes on every matching git operation. Downgraded to AUDIT: pre-commit/husky installs are common legitimate developer tooling. Human review required to confirm intent. MITRE T1546. |
 | `mcp-persist-block-user-systemd-write` | BLOCK | structural | MCP write to user-level systemd/autostart directory installs a persistent service that starts without root on next login. MITRE T1543.002. |
