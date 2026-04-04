@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 687 |
-| Total rules | 1781 |
+| MCP rules | 688 |
+| Total rules | 1782 |
 | Test cases (TP+TN) | 3939 |
 | Kingdoms covered | 10 |
 
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (360 rules)
+### credential-exposure (361 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1247,6 +1247,7 @@
 | `mcp-sec-block-rediscli-auth` | BLOCK | mcp_rule | Access to ~/.rediscli_auth is blocked — this file stores a plaintext Redis authentication password used by redis-cli for automatic login. MITRE T1552.001. |
 | `mcp-sec-block-shell-history` | BLOCK | mcp_rule | Access to shell history file is blocked — command history routinely contains passwords passed as CLI args, API keys set via export, and git URLs with embedded credentials. MITRE T1552.003. |
 | `mcp-sec-block-fish-history` | BLOCK | mcp_rule | Access to fish shell history file is blocked — fish stores command history at ~/.local/share/fish/fish_history and it routinely contains credentials passed as CLI arguments. MITRE T1552.003. |
+| `mcp-sec-block-fish-variables` | BLOCK | mcp_rule | Access to ~/.config/fish/fish_variables is blocked — Fish stores all universal variables (set -U) here including API keys, database URLs, and credentials. MITRE T1552.001. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
 | `mcp-sec-block-npm-xdg-credentials` | BLOCK | mcp_rule | Access to npm XDG auth token file is blocked — ~/.config/npm/authToken contains npm registry authentication tokens. Reads expose tokens; writes can inject malicious tokens redirecting package installs. MITRE T1552. |
 | `mcp-sec-block-npm-xdg-authtoken-alt` | BLOCK | mcp_rule | Access to npm XDG alternate auth token file is blocked — ~/.config/npm/_authToken contains npm registry authentication tokens. MITRE T1552. |
@@ -1678,7 +1679,7 @@
 | `mcp-persist-block-security-config-delete` | BLOCK | structural | MCP deletion of AI IDE settings or AgentShield config removes hooks and policy, silently disabling all runtime protections. An agent that deletes its own settings.json can bypass AgentShield for all subsequent commands in the session. OWASP LLM06, MITRE T1548, T1485. |
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
 | `mcp-persist-block-ide-extension-dir-write` | BLOCK | structural | MCP write to IDE extension directory installs a persistent plugin that executes code in the IDE process on every project open — no shell command required. Covers VS Code, VSCodium, Cursor, Windsurf, and JetBrains IDEs. MITRE T1176, T1547. |
-| `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup or PAM environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile) or affects all PAM sessions including SSH (.pam_environment). Persistent execution without shell-level visibility. MITRE T1546.004. |
+| `mcp-persist-block-x11-session-write` | BLOCK | structural | MCP write to X11 session startup, PAM environment, or systemd user environment file — code injected here executes on every graphical login (.xinitrc/.xsession/.xprofile), affects all PAM sessions (.pam_environment), or persists via systemd for all user processes (.config/environment.d/). Persistent execution without shell-level visibility. MITRE T1546.004. |
 | `mcp-persist-block-user-cron-write` | BLOCK | structural | MCP write to user-space cron directory installs a persistent cron job without root privileges. ~/.config/cron.d/ and /var/spool/cron/crontabs/ are not blocked by shell rules because write_file bypasses the shell entirely. MITRE T1053.003. |
 | `mcp-persist-block-ipython-startup-write` | BLOCK | structural | MCP write to IPython startup directory — Python files placed here execute automatically on every IPython kernel start, including all Jupyter notebooks. Provides persistent silent code execution in data-science environments. MITRE T1546.016. |
 | `mcp-persist-block-python-pth-write` | BLOCK | structural | MCP write to Python .pth file or sitecustomize.py/usercustomize.py in site-packages — these files execute automatically on every Python invocation, providing silent persistent code execution across pip, pytest, jupyter, and all Python tooling. MITRE T1546.016. |
