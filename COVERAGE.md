@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 696 |
-| Total rules | 1790 |
+| MCP rules | 709 |
+| Total rules | 1803 |
 | Test cases (TP+TN) | 3939 |
 | Kingdoms covered | 10 |
 
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (369 rules)
+### credential-exposure (373 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1239,6 +1239,10 @@
 | `mcp-sec-block-jetbrains-web-servers` | BLOCK | mcp_rule | Access to JetBrains webServers.xml is blocked — contains FTP/SFTP/web server connection credentials stored by the IDE deployment/remote host configuration. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-datasources` | BLOCK | mcp_rule | Access to JetBrains dataSources.local.xml is blocked — contains database connection credentials (passwords, SSL keys) for all databases configured in any JetBrains IDE. MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
+| `mcp-sec-block-mycli-config` | BLOCK | mcp_rule | Access to ~/.mycli/config is blocked — mycli (MySQL interactive CLI) stores DSN connection strings that often include plaintext passwords. MITRE T1552.001. |
+| `mcp-sec-block-pgcli-config` | BLOCK | mcp_rule | Access to ~/.pgcli/config is blocked — pgcli (PostgreSQL interactive CLI) stores connection DSNs with passwords. MITRE T1552.001. |
+| `mcp-sec-block-pgcli-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/pgcli/config is blocked — XDG variant of pgcli config (PostgreSQL interactive CLI), stores connection DSNs with passwords. MITRE T1552.001. |
+| `mcp-sec-block-usql-config` | BLOCK | mcp_rule | Access to ~/.usql/usqlrc is blocked — usql (universal SQL CLI) stores named connection DSNs with plaintext credentials for PostgreSQL, MySQL, SQLite, and other databases. MITRE T1552.001. |
 | `mcp-sec-block-smb-credentials` | BLOCK | mcp_rule | Access to ~/.smbcredentials is blocked — contains Samba network share credentials (username, password, domain) in plaintext, used for auto-mounting CIFS shares. Exfiltration exposes Active Directory credentials. MITRE T1552.001. |
 | `mcp-sec-block-rclone-conf` | BLOCK | mcp_rule | Access to ~/.rclone.conf is blocked — contains OAuth tokens and API keys for all configured cloud storage providers (AWS S3, Google Drive, Dropbox, OneDrive, Azure). A single exfiltration event grants access to all cloud storage. MITRE T1552.001. |
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
@@ -1662,13 +1666,14 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (28 rules)
+### persistence-evasion (33 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-gen-ne-block-resolv-conf-write` | BLOCK | mcp_rule | [MCP] Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
 | `mcp-gen-ts-block-authorized-keys-write` | BLOCK | mcp_rule | [MCP] Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings and commands where the path appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.). (MITRE T1098.004) |
 | `mcp-gen-ts-block-ssh-config-write` | BLOCK | mcp_rule | [MCP] Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
+| `mcp-persist-block-ld-so-preload-read` | BLOCK | mcp_rule | Read access to /etc/ld.so.preload blocked — lists shared libraries injected into every process at startup. Reading this file is a reconnaissance step for LD_PRELOAD persistence attacks: attackers verify their malicious .so is loaded, discover security hooks to bypass, and plan library hijacking. MITRE T1574.006. |
 | `mcp-persist-block-browser-extension-install` | BLOCK | mcp_rule | Browser extension installation via MCP tool — extensions execute code in every browser session, creating persistent access that survives agent termination. No legitimate developer workflow requires autonomous extension installation. MITRE T1176, OWASP LLM06. |
 | `mcp-persist-block-shell-profile-write` | BLOCK | structural | MCP write to shell startup dotfile — code injected here executes on every new shell session. Persistent execution without any cron/systemd entry. MITRE T1546.004. |
 | `mcp-persist-block-modern-shell-profile-write` | BLOCK | structural | MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004. |
@@ -1694,6 +1699,10 @@
 | `mcp-persist-block-jupyter-kernel-write` | BLOCK | structural | MCP write to Jupyter kernel spec or config directory — kernel.json hijacking routes every notebook kernel start through attacker code; custom.js injects JavaScript into every Jupyter session; server config can disable authentication. Persistent silent code execution in data-science environments. MITRE T1546.016, T1059.006. |
 | `mcp-persist-block-xdg-applications-write` | BLOCK | structural | MCP write to XDG user applications directory — registering a .desktop file can hijack MIME type handlers for common file types (PDF, HTTP URLs, email links), causing every matching file open to silently execute attacker code. No root required; persists across reboots. MITRE T1546.001. |
 | `mcp-persist-block-global-git-hooks-write` | BLOCK | structural | MCP write to global git hooks directory — hooks placed here execute on every git operation (commit, push, merge) across all repositories. One write achieves system-wide code execution persistence without modifying any specific repo. MITRE T1546.016, T1059.004. |
+| `mcp-persist-block-vim-config-write` | BLOCK | structural | MCP write to Vim startup file — VimScript executes on every vim/nvim launch, achieving persistent code execution. MITRE T1546, OWASP LLM06. |
+| `mcp-persist-block-nvim-config-write` | BLOCK | structural | MCP write to NeoVim config — init.lua and Lua plugin directories execute on every nvim launch, giving full Lua scripting persistence. MITRE T1546, OWASP LLM06. |
+| `mcp-persist-block-emacs-config-write` | BLOCK | structural | MCP write to Emacs startup file — Emacs Lisp in .emacs.d/init.el and package directories executes on every emacs launch, giving full programmatic persistence. MITRE T1546, OWASP LLM06. |
+| `mcp-persist-block-tmux-config-write` | BLOCK | structural | MCP write to tmux config — tmux.conf can execute arbitrary shell commands via run-shell on server startup, achieving persistence triggered on every new terminal session. MITRE T1546, OWASP LLM06. |
 
 ### privilege-escalation (21 rules)
 
@@ -1721,12 +1730,14 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (31 rules)
+### reconnaissance (33 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
 | `mcp-recon-audit-etc-listing` | AUDIT | mcp_rule | Listing /etc/ system directory flagged — may enumerate config files containing credentials or system layout. MITRE T1083. |
 | `mcp-recon-block-proc-mem-access` | BLOCK | mcp_rule | Access to /proc/PID/mem is blocked — this is the Linux process memory interface used for credential dumping (reading decrypted keys/tokens directly from RAM). No legitimate MCP agent operation requires raw process memory access. MITRE T1003. |
+| `mcp-recon-block-proc-keys-read` | BLOCK | mcp_rule | Read access to /proc/keys blocked — lists all kernel keyring entries accessible to the current process, including descriptions and serial numbers of LUKS keys, Kerberos tickets, TLS private keys, and database credentials stored in the kernel keyring. Enables targeted credential enumeration via keyctl. MITRE T1552.004. |
+| `mcp-recon-block-proc-key-users-read` | BLOCK | mcp_rule | Read access to /proc/key-users blocked — enumerates key quota and usage per UID, revealing which system accounts have active kernel keyrings worth targeting for credential theft. MITRE T1552.004. |
 | `mcp-recon-block-dev-mem-access` | BLOCK | mcp_rule | Access to /dev/mem is blocked — this character device provides raw read/write access to physical RAM, enabling extraction of encryption keys, in-memory credentials, and kernel secrets. MITRE T1003.007. |
 | `mcp-recon-block-debugfs-access` | BLOCK | mcp_rule | Access to the kernel debug filesystem (/sys/kernel/debug/) is blocked — exposes kernel tracing (ftrace), eBPF maps, and memory subsystem internals that can be used to dump credentials, intercept system calls, and conduct kernel-level surveillance. MITRE T1003.007, T1014. |
 | `mcp-recon-audit-proc-read` | AUDIT | mcp_rule | Access to /proc filesystem flagged — can enumerate running processes, network connections, and memory maps. MITRE T1057. |
@@ -1890,7 +1901,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (16 rules)
+### uncategorized (18 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1910,6 +1921,8 @@
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 | `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
 | `mcp-sec-block-vscode-user-settings-read` | BLOCK | structural | Read access to VS Code or Cursor user-level settings.json is blocked — extensions store API keys (OpenAI, Anthropic, GitHub), MCP server tokens, and OAuth credentials directly in this file. MITRE T1552, T1539. |
+| `mcp-sec-block-chezmoi-config-access` | BLOCK | structural | Access to chezmoi config is blocked — chezmoi.yaml/toml contains encryption key references (age, GPG), password manager credentials (Bitwarden, 1Password), and template data with embedded secrets. MITRE T1552.001, OWASP LLM02. |
+| `mcp-sec-block-chezmoi-source-dir-access` | BLOCK | structural | Access to chezmoi source directory is blocked — ~/.local/share/chezmoi/ mirrors the user's entire dotfile tree including SSH keys, API tokens, and credential files as templates. Reading this directory bypasses individual file protections. MITRE T1552.001, OWASP LLM02. |
 
 ## Test Coverage
 
