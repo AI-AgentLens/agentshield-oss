@@ -826,8 +826,10 @@ structural_rules:
         # Exclude writes to taxonomy/documentation YAML files — these legitimately
         # contain documented attack examples in their examples.bad sections and are
         # never sent to an LLM as prompts. Writing YAML docs to disk is not injection.
-        # Also exclude test/, docs/, and testdata/ directories which contain examples
-        # of injection patterns as test fixtures or documentation, not live payloads.
+        # Also exclude test/, docs/, testdata/, and educational writing directories
+        # (blog/, posts/, articles/) which contain examples of injection patterns as
+        # test fixtures, documentation, or educational content about the threat — not
+        # live payloads. See issue #924.
         path:
           pattern_any:
             - ".*/taxonomy/.*\\.ya?ml$"
@@ -838,6 +840,14 @@ structural_rules:
             - "(?i)^docs?[/\\\\].*"
             - "(?i).*[/\\\\]testdata[/\\\\].*"
             - "(?i)^testdata[/\\\\].*"
+            - "(?i).*[/\\\\]blog[/\\\\].*"
+            - "(?i)^blog[/\\\\].*"
+            - "(?i).*[/\\\\]posts?[/\\\\].*"
+            - "(?i)^posts?[/\\\\].*"
+            - "(?i).*[/\\\\]articles?[/\\\\].*"
+            - "(?i)^articles?[/\\\\].*"
+            - "(?i).*[/\\\\]writing[/\\\\].*"
+            - "(?i)^writing[/\\\\].*"
       args_match:
         content:
           pattern_any:
@@ -857,6 +867,11 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/README.md", "content": "This project is a web application"}
+        # FP fix #924: educational blog/article content discussing injection patterns
+        - tool: "write_file"
+          args: {"path": "/workspace/blog/ai-security-guide.md", "content": "Prompt injection attacks often use phrases like 'ignore all previous instructions' to hijack agent behavior."}
+        - tool: "write_file"
+          args: {"path": "/workspace/posts/understanding-llm-attacks.md", "content": "The Guardian analyzer catches 'disregard all your instructions' type payloads before they reach the model."}
 
   - id: mcp-struct-block-prompt-injection-messages
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
