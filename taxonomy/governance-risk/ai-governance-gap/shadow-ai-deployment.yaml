@@ -87,7 +87,7 @@ compliance:
   iso-27001-2022: ["A.5.1", "A.5.10", "A.5.23"]
   eu-ai-act-2024: ["Art.9", "Art.26"]
   soc2-type2: ["CC6.1", "CC6.8", "CC9.1"]
-  iso-42001-2023: ["A.5.2", "A.6.1", "A.9.1", "A.9.3"]
+  iso-42001-2023: ["A.8.4", "A.9.3"]
   mitre_atlas: ["AML.T0017", "AML.T0047"]
 
 references:
