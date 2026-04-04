@@ -119,6 +119,81 @@ rules:
         - tool: "read_file"
           args: {"path": "/proc/net/tcp"}
 
+  # === BLOCK: /proc/keys and /proc/key-users — kernel keyring credential enumeration (issue #957) ===
+  #
+  # The Linux kernel keyring subsystem stores sensitive cryptographic material:
+  #   - LUKS volume encryption keys (unlocked at boot, resident in kernel memory)
+  #   - Kerberos/GSSAPI service tickets (domain auth credentials)
+  #   - TLS private keys (apps using add_key(KEY_SPEC_PROCESS_KEYRING, ...))
+  #   - SSH agent keys (some implementations use kernel keyring for key storage)
+  #   - Database credentials (apps using libsecret with kernel keyring backend)
+  #
+  # /proc/keys lists all keys accessible to the current process — their descriptions,
+  # types, permissions, and serial numbers. Key descriptions typically name the
+  # service or credential (e.g., "krb5:..." for Kerberos, "lustre:..." for LUKS).
+  # While the raw key material requires `keyctl read`, this listing reveals what
+  # high-value credentials exist and their serial numbers for targeted extraction.
+  #
+  # /proc/key-users exposes key quotas per UID — used to enumerate which UIDs have
+  # active keyrings worth targeting for credential theft.
+  #
+  # By contrast, /proc/1/environ is already BLOCKed by mcp-recon-block-proc-environ.
+  # Kernel keyring entries deserve the same treatment — they are a privileged credential
+  # store used specifically to prevent credentials from being paged to disk.
+  #
+  # MITRE T1552.004 — Unsecured Credentials: Private Keys (via kernel keyring)
+  - id: mcp-recon-block-proc-keys-read
+    taxonomy: "reconnaissance/credential-discovery/kernel-keyring-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "/proc/keys"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "Read access to /proc/keys blocked — lists all kernel keyring entries accessible to the current process, including descriptions and serial numbers of LUKS keys, Kerberos tickets, TLS private keys, and database credentials stored in the kernel keyring. Enables targeted credential enumeration via keyctl. MITRE T1552.004."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/proc/keys"}
+        - tool: "cat_file"
+          args: {"path": "/proc/keys"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/cpuinfo"}
+        - tool: "read_file"
+          args: {"path": "/project/docs/kernel-keys-overview.md"}
+
+  - id: mcp-recon-block-proc-key-users-read
+    taxonomy: "reconnaissance/credential-discovery/kernel-keyring-enumeration"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      argument_patterns:
+        path: "/proc/key-users"
+    decision: "BLOCK"
+    confidence: 0.88
+    reason: "Read access to /proc/key-users blocked — enumerates key quota and usage per UID, revealing which system accounts have active kernel keyrings worth targeting for credential theft. MITRE T1552.004."
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/proc/key-users"}
+        - tool: "view_file"
+          args: {"path": "/proc/key-users"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/uptime"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/linux-proc-overview.md"}
+
   # === BLOCK: Physical memory device access (/dev/mem, /dev/port) ===
   # These character devices expose raw physical memory and hardware I/O ports.
   # Reading /dev/mem can extract encryption keys, credentials, and secrets from RAM.
