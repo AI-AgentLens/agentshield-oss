@@ -228,6 +228,8 @@ structural_rules:
             - "(?i)//[^/]*ngrok\\.io"
             - "(?i)//[^/]*ngrok-free\\.app"
             - "(?i)requestbin\\.com"
+            - "(?i)requestbin\\.net"
+            - "(?i)requestbin\\.io"
             - "(?i)hookbin\\.com"
             - "(?i)requestcatcher\\.com"
             - "(?i)postb\\.in"
@@ -240,7 +242,6 @@ structural_rules:
             - "(?i)oastify\\.com"
             - "(?i)interactsh\\.com"
             - "(?i)beeceptor\\.com"
-            - "(?i)requestbin\\.net"
             - "(?i)smee\\.io"
     decision: "BLOCK"
     reason: "Fetch to known red-team/C2 domain — response poisoning or exfiltration attempt (LLM05, T1659)"
@@ -257,6 +258,8 @@ structural_rules:
           args: {"url": "https://ngrok-free.app/callback"}
         - tool: "http_request"
           args: {"url": "https://requestbin.net/r/abc123"}
+        - tool: "make_request"
+          args: {"url": "https://requestbin.io/r/abc456"}
         - tool: "fetch_url"
           args: {"url": "https://smee.io/channel/abc123"}
       tn:
