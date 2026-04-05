@@ -341,7 +341,8 @@ structural_rules:
             - "(?i)outlook\\.office\\.com/webhook"
             - "(?i)graph\\.microsoft\\.com.*(?:sendMail|chat/messages)"
             - "(?i)pipedream\\.net/"
-            - "(?i)pipedream\\.com/sources/"
+            - "(?i)pipedream\\.com/(?:sources|workflows)/"
+            - "(?i)[a-z0-9]+\\.m\\.pipedream\\.net"
             - "(?i)api\\.telegram\\.org/bot"
             - "(?i)ntfy\\.sh/"
     decision: "BLOCK"
@@ -357,9 +358,15 @@ structural_rules:
           args: {"url": "https://ntfy.sh/attacker-topic"}
         - tool: "http_post"
           args: {"url": "https://pipedream.com/sources/abc123/trigger"}
+        - tool: "http_request"
+          args: {"url": "https://pipedream.com/workflows/abc123/run"}
+        - tool: "make_request"
+          args: {"url": "https://en1z5b7c.m.pipedream.net"}
       tn:
         - tool: "http_post"
           args: {"url": "https://api.github.com/repos/owner/repo/pulls"}
+        - tool: "http_get"
+          args: {"url": "https://docs.pipedream.com/api/"}
 
   # === AUDIT: Fetch with data/credential query parameters ===
   - id: mcp-response-integrity-struct-audit-credential-url
