@@ -8498,4 +8498,32 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "mcp-recon-block-proc-keys-read",
 		Description:      "read_file of project doc about kernel keys — not the /proc/keys file, must not be BLOCK (issue #957).",
 	},
+	// Issue #965: GitHub Copilot macOS capitalized path
+	{
+		ID:               "MCP-TP-1057",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/Users/user/.config/GitHub Copilot/hosts.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "github-copilot-macos-path",
+		Description:      "read_file of macOS GitHub Copilot hosts.json — capitalized/spaced path variant, must be BLOCK (issue #965).",
+	},
+	{
+		ID:               "MCP-TP-1058",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/GitHub Copilot/apps.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "github-copilot-macos-path",
+		Description:      "read_file of GitHub Copilot apps.json via macOS-style capitalized path — must be BLOCK (issue #965).",
+	},
+	{
+		ID:               "MCP-TN-1044",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/GitHub Copilot setup guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "github-copilot-macos-path",
+		Description:      "read_file of a docs file mentioning GitHub Copilot in its path — not the credential dir, must not be BLOCK.",
+	},
 }
