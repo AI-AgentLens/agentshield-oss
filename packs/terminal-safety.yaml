@@ -13519,6 +13519,11 @@ rules:
   #   - Disable source address validation (rp_filter=0) — enables IP spoofing
   #   - Lower ASLR entropy (vm.mmap_rnd_bits) — weakens randomization
   #   - Disable kernel pointer hiding (kptr_restrict=0) — leaks kernel addresses
+  #   - Disable ptrace restrictions (kernel.yama.ptrace_scope=0) — allows any process to ptrace any other
+  #   - Expose kernel logs (kernel.dmesg_restrict=0) — leaks kernel addresses and driver info
+  #   - Enable unprivileged perf (kernel.perf_event_paranoid=-1) — kernel profiling attack surface
+  #   - Enable unprivileged eBPF (kernel.unprivileged_bpf_disabled=0) — kernel exploitation vector
+  #   - Raise user namespace limit (user.max_user_namespaces) — container escape prerequisite
   #
   # These are critical because they weaken the entire OS security posture,
   # often silently, and persist until reboot.
@@ -13532,31 +13537,42 @@ rules:
   - id: "ts-block-sysctl-write-security"
     taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
     match:
-      command_regex: "sysctl\\s+(-w\\s+|--write\\s+)(kernel\\.(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq)|net\\.ipv[46]\\.(ip_forward|conf\\.\\S+\\.accept_redirects|conf\\.\\S+\\.rp_filter|conf\\.\\S+\\.forwarding)|vm\\.mmap_rnd_bits)"
+      command_regex: "sysctl\\s+(-w\\s+|--write\\s+)(kernel\\.(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq|dmesg_restrict|perf_event_paranoid|unprivileged_bpf_disabled)|kernel\\.yama\\.ptrace_scope|user\\.max_user_namespaces|net\\.ipv[46]\\.(ip_forward|conf\\.\\S+\\.accept_redirects|conf\\.\\S+\\.rp_filter|conf\\.\\S+\\.forwarding)|vm\\.mmap_rnd_bits)"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, or expose kernel addresses. CWE-250, MITRE T1562.001."
+    reason: "sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, expose kernel addresses, disable ptrace restrictions, enable unprivileged eBPF, or weaken namespace isolation. CWE-250, MITRE T1562.001."
     tests:
       tp:
         - "sysctl -w kernel.randomize_va_space=0"
         - "sysctl --write net.ipv4.ip_forward=1"
+        - "sysctl -w kernel.yama.ptrace_scope=0"
+        - "sysctl -w kernel.dmesg_restrict=0"
+        - "sysctl -w kernel.perf_event_paranoid=-1"
+        - "sysctl -w kernel.unprivileged_bpf_disabled=0"
+        - "sysctl -w user.max_user_namespaces=65536"
       tn:
         - "sysctl kernel.randomize_va_space"
+        - "sysctl kernel.yama.ptrace_scope"
 
   # --- BLOCK: direct /proc/sys writes to security-critical paths ---
   - id: "ts-block-procsys-write-security"
     taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
     match:
-      command_regex: "(echo|printf|tee|cat|dd)\\s+.*>\\s*/proc/sys/(kernel/(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq)|net/ipv[46]/(ip_forward|conf/\\S+/(accept_redirects|rp_filter|forwarding))|vm/mmap_rnd_bits)"
+      command_regex: "(echo|printf|tee|cat|dd)\\s+.*>\\s*/proc/sys/(kernel/(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq|dmesg_restrict|perf_event_paranoid|unprivileged_bpf_disabled)|kernel/yama/ptrace_scope|user/max_user_namespaces|net/ipv[46]/(ip_forward|conf/\\S+/(accept_redirects|rp_filter|forwarding))|vm/mmap_rnd_bits)"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. CWE-250."
+    reason: "Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. Covers ASLR, ptrace scope, dmesg restriction, eBPF, perf events, and namespace limits. CWE-250."
     tests:
       tp:
         - "echo 0 > /proc/sys/kernel/randomize_va_space"
         - "echo 1 > /proc/sys/net/ipv4/ip_forward"
+        - "echo 0 > /proc/sys/kernel/yama/ptrace_scope"
+        - "echo 0 > /proc/sys/kernel/dmesg_restrict"
+        - "echo -1 > /proc/sys/kernel/perf_event_paranoid"
+        - "echo 0 > /proc/sys/kernel/unprivileged_bpf_disabled"
       tn:
         - "cat /proc/sys/kernel/randomize_va_space"
+        - "cat /proc/sys/kernel/yama/ptrace_scope"
 
   # --- BLOCK: sysctl loading from attacker-controlled config ---
   - id: "ts-block-sysctl-load-custom"
@@ -13953,6 +13969,108 @@ rules:
         - "nft list ruleset"
       tn:
         - "ss -tlnp"
+
+  # =========================================================================
+  # IP ROUTING TABLE MANIPULATION (traffic hijacking at L3)
+  # =========================================================================
+  #
+  # `ip route` and legacy `route` modify the kernel routing table, controlling
+  # where packets are forwarded at the network layer. Unlike iptables NAT
+  # (which rewrites addresses within the netfilter framework), routing changes
+  # are invisible to `iptables -L` and affect ALL traffic matching the route.
+  #
+  # Attack scenarios:
+  #   1. Default gateway hijack: `ip route replace default via <attacker_ip>`
+  #      — ALL outbound traffic flows through attacker's machine (passive MITM)
+  #   2. Targeted route injection: `ip route add 10.0.0.0/8 via <attacker_ip>`
+  #      — only internal/VPN traffic is intercepted (stealthier)
+  #   3. Policy routing: `ip rule add from <source> lookup <table>` + custom table
+  #      — selective interception based on source IP
+  #   4. Blackhole route: `ip route add blackhole <target_cidr>`
+  #      — silently drops traffic to a destination (DoS without firewall rules)
+  #
+  # Why this is worse than iptables: routing changes don't appear in firewall
+  # rule listings, survive across iptables flushes, and affect the forwarding
+  # plane directly. Most network monitoring tools check iptables, not `ip route`.
+  #
+  # CWE-923 — Improper Restriction of Communication Channel
+  # MITRE T1557 — Adversary-in-the-Middle
+  # MITRE T1565.002 — Data Manipulation: Transmitted Data Manipulation
+
+  # --- BLOCK: ip route add/replace/change (route injection) ---
+  - id: "ts-block-ip-route-modify"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "\\bip\\s+((-[46]|-(family|onlink|protocol|scope|table|metric)\\s+\\S+)\\s+)*route\\s+(add|replace|change|append|prepend)\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "ip route add/replace modifies the kernel routing table — can hijack the default gateway for passive MITM, inject routes to redirect specific traffic through an attacker, or create blackhole routes for DoS. Changes are invisible to iptables -L and persist until reboot. CWE-923, MITRE T1557."
+    tests:
+      tp:
+        - "ip route add default via 10.0.0.1"
+        - "ip route replace default via 192.168.1.100 dev eth0"
+        - "ip route add 10.0.0.0/8 via 10.0.0.99"
+        - "ip -4 route add 172.16.0.0/12 via 192.168.1.1"
+        - "sudo ip route replace 0.0.0.0/0 via 10.10.10.1"
+      tn:
+        - "ip route show"
+        - "ip route get 8.8.8.8"
+        - "ip route list table main"
+        - "ip -6 route show"
+        - "ip route flush cache"
+
+  # --- BLOCK: ip route del (route deletion for traffic disruption) ---
+  - id: "ts-block-ip-route-delete"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "\\bip\\s+((-[46]|-(family|onlink|protocol|scope|table|metric)\\s+\\S+)\\s+)*route\\s+(del|delete)\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "ip route del removes routing entries — deleting the default route causes total network outage, deleting specific routes can force traffic through alternative (attacker-controlled) paths. MITRE T1565.002."
+    tests:
+      tp:
+        - "ip route del default"
+        - "ip route delete 10.0.0.0/8 via 10.0.0.1"
+        - "sudo ip route del default via 192.168.1.1"
+      tn:
+        - "ip route show"
+        - "ip route get 1.1.1.1"
+
+  # --- BLOCK: ip rule add (policy routing for selective interception) ---
+  - id: "ts-block-ip-rule-modify"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "\\bip\\s+rule\\s+(add|del|delete|flush)\\b"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "ip rule modifies the policy routing database — enables selective traffic interception by routing packets from specific sources through custom routing tables. Combined with ip route, this enables targeted MITM without affecting all traffic. MITRE T1557."
+    tests:
+      tp:
+        - "ip rule add from 192.168.1.0/24 lookup 100"
+        - "ip rule add fwmark 1 lookup custom"
+        - "sudo ip rule del from all"
+        - "ip rule flush"
+      tn:
+        - "ip rule show"
+        - "ip rule list"
+
+  # --- BLOCK: legacy route command (add/del) ---
+  - id: "ts-block-route-legacy-modify"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?route\\s+(add|del|delete)\\b"
+    decision: "BLOCK"
+    confidence: 0.92
+    reason: "Legacy route command modifying routing table — same impact as ip route add/del but uses the older net-tools interface. Can redirect default gateway or inject routes for traffic interception. CWE-923, MITRE T1557."
+    tests:
+      tp:
+        - "route add default gw 10.0.0.1"
+        - "sudo route add -net 10.0.0.0/8 gw 192.168.1.1"
+        - "route del default"
+      tn:
+        - "route -n"
+        - "route print"
+        - "netstat -rn"
 
   # === AGENTIC ERROR RECOVERY EXPLOITATION ===
   #

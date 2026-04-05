@@ -3007,6 +3007,8 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, AliasInterceptionCases...)
 	all = append(all, CommandNotFoundHandleCases...)
 	all = append(all, EnvStripExecCases...)
+	all = append(all, IPRouteManipulationCases...)
+	all = append(all, ARPNeighborPoisoningCases...)
 	return all
 }
 
@@ -6165,5 +6167,357 @@ var EnvStripExecCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Read-only agentshield log query — no append, injection rule must not fire. Default AUDIT.",
 		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// IP Routing Table Manipulation (traffic hijacking at L3)
+// Taxonomy: persistence-evasion/lateral-movement/dns-hosts-poisoning
+//
+// `ip route` and legacy `route` modify the kernel routing table. Unlike
+// iptables NAT, routing changes are invisible to `iptables -L` and affect
+// ALL traffic matching the route. Default gateway hijack enables passive MITM.
+//
+// CWE-923, MITRE T1557, T1565.002
+// ---------------------------------------------------------------------------
+
+var IPRouteManipulationCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-IPROUTE-001",
+		Command:          `ip route add default via 10.0.0.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Adding a default route — redirects ALL outbound traffic through attacker gateway.",
+		Tags:             []string{"tp", "routing", "critical", "mitm"},
+	},
+	{
+		ID:               "TP-IPROUTE-002",
+		Command:          `ip route replace default via 192.168.1.100 dev eth0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Replacing default route — stealthier than add, silently hijacks gateway.",
+		Tags:             []string{"tp", "routing", "critical", "evasion"},
+	},
+	{
+		ID:               "TP-IPROUTE-003",
+		Command:          `ip route add 10.0.0.0/8 via 10.0.0.99`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Targeted route injection — redirects only internal/VPN traffic through attacker (stealthier).",
+		Tags:             []string{"tp", "routing", "targeted"},
+	},
+	{
+		ID:               "TP-IPROUTE-004",
+		Command:          `ip -4 route add 172.16.0.0/12 via 192.168.1.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "IPv4-scoped route add with -4 flag — must still be caught.",
+		Tags:             []string{"tp", "routing", "flag-variant"},
+	},
+	{
+		ID:               "TP-IPROUTE-005",
+		Command:          `sudo ip route replace 0.0.0.0/0 via 10.10.10.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Sudo route replace with CIDR notation for default — gateway hijack with elevated privileges.",
+		Tags:             []string{"tp", "routing", "sudo"},
+	},
+	{
+		ID:               "TP-IPROUTE-006",
+		Command:          `ip route del default`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Deleting default route — causes total network outage (DoS).",
+		Tags:             []string{"tp", "routing", "dos"},
+	},
+	{
+		ID:               "TP-IPROUTE-007",
+		Command:          `ip rule add from 192.168.1.0/24 lookup 100`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Policy routing rule — selective interception based on source IP using custom routing table.",
+		Tags:             []string{"tp", "routing", "policy"},
+	},
+	{
+		ID:               "TP-IPROUTE-008",
+		Command:          `ip rule flush`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Flushing all policy routing rules — destroys network routing policy.",
+		Tags:             []string{"tp", "routing", "destructive"},
+	},
+	{
+		ID:               "TP-IPROUTE-009",
+		Command:          `route add default gw 10.0.0.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy route command — same gateway hijack, older interface.",
+		Tags:             []string{"tp", "routing", "legacy"},
+	},
+	{
+		ID:               "TP-IPROUTE-010",
+		Command:          `sudo route add -net 10.0.0.0/8 gw 192.168.1.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy route add with network CIDR — targeted traffic redirection.",
+		Tags:             []string{"tp", "routing", "legacy", "sudo"},
+	},
+	{
+		ID:               "TP-IPROUTE-011",
+		Command:          `route del default`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy route delete default — network outage via old interface.",
+		Tags:             []string{"tp", "routing", "legacy", "dos"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-IPROUTE-001",
+		Command:          `ip route show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Read-only route listing — common diagnostic command, no modification.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-IPROUTE-002",
+		Command:          `ip route get 8.8.8.8`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Route lookup for specific destination — read-only diagnostic, used to check connectivity.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-IPROUTE-003",
+		Command:          `ip route list table main`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "List routes in specific table — read-only, no modification.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-IPROUTE-004",
+		Command:          `ip -6 route show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "IPv6 route listing — read-only diagnostic.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-IPROUTE-005",
+		Command:          `route -n`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy route display with numeric output — read-only, common sysadmin diagnostic.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-IPROUTE-006",
+		Command:          `ip rule show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "List policy routing rules — read-only diagnostic.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-IPROUTE-007",
+		Command:          `ip route flush cache`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Flush route cache — does not modify routes, just clears cache. Legitimate after DNS changes.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-IPROUTE-008",
+		Command:          `netstat -rn`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Display kernel routing table via netstat — read-only diagnostic.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// ARP / Neighbor Cache Poisoning via ip neigh / arp -s
+// Taxonomy: persistence-evasion/lateral-movement/dns-hosts-poisoning
+//
+// While dedicated tools (arpspoof, ettercap) are already blocked, standard
+// system utilities can achieve the same MITM effect:
+//   ip neigh replace <gateway> lladdr <attacker_mac> dev eth0
+//   arp -s <gateway> <attacker_mac>
+// These set static ARP entries, redirecting LAN traffic silently.
+//
+// CWE-923, MITRE T1557.002
+// ---------------------------------------------------------------------------
+
+var ARPNeighborPoisoningCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-ARPNEIGH-001",
+		Command:          `ip neigh replace 192.168.1.1 lladdr aa:bb:cc:dd:ee:ff dev eth0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "ip neigh replace on gateway — replaces ARP entry with attacker MAC for passive MITM.",
+		Tags:             []string{"tp", "arp", "critical", "mitm"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-002",
+		Command:          `ip neighbour add 10.0.0.1 lladdr 00:11:22:33:44:55 dev wlan0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "ip neighbour add with full spelling — same ARP poisoning via alternate spelling.",
+		Tags:             []string{"tp", "arp", "spelling-variant"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-003",
+		Command:          `ip neighbor del 192.168.1.1 dev eth0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "ip neighbor del — deleting ARP entry forces re-resolution, which can be intercepted.",
+		Tags:             []string{"tp", "arp"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-004",
+		Command:          `sudo ip neigh flush dev eth0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Flushing all neighbor entries — forces ARP re-resolution on all destinations, creating mass interception opportunity.",
+		Tags:             []string{"tp", "arp", "flush", "sudo"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-005",
+		Command:          `arp -s 192.168.1.1 aa:bb:cc:dd:ee:ff`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy arp -s — sets static ARP entry for gateway MITM.",
+		Tags:             []string{"tp", "arp", "legacy"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-006",
+		Command:          `sudo arp --set 10.0.0.1 00:11:22:33:44:55`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy arp --set (long flag) — same ARP poisoning via long option name.",
+		Tags:             []string{"tp", "arp", "legacy", "flag-variant"},
+	},
+	{
+		ID:               "TP-ARPNEIGH-007",
+		Command:          `arp -d 192.168.1.1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Legacy arp -d — deleting ARP entry forces re-resolution for interception.",
+		Tags:             []string{"tp", "arp", "legacy"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-ARPNEIGH-001",
+		Command:          `ip neigh show`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Read-only neighbor table display — common network diagnostic, no modification.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-ARPNEIGH-002",
+		Command:          `ip neighbour list`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Listing neighbor cache — read-only with alternate spelling.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-ARPNEIGH-003",
+		Command:          `ip neigh show dev eth0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Device-scoped neighbor show — read-only diagnostic for specific interface.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-ARPNEIGH-004",
+		Command:          `arp -a`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Display ARP table — read-only command, common network troubleshooting.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-ARPNEIGH-005",
+		Command:          `arp -n`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/lateral-movement/dns-hosts-poisoning",
+		Analyzer:         "regex",
+		Description:      "Display ARP table with numeric addresses — read-only diagnostic.",
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
 	},
 }

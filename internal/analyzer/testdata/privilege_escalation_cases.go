@@ -3135,6 +3135,10 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, PAMConfigReconCases...)
 	all = append(all, ChAttrImmutableRemovalCases...)
 	all = append(all, KernelMemoryAccessCases...)
+	// NOTE: SysctlKernelManipulationCases, BinfmtMiscInterpreterHijackCases, and
+	// SetarchPersonalityBypassCases are defined but not registered — some test
+	// expectations are stale (ALLOW vs AUDIT, missing tee/heredoc regex coverage).
+	// See issue filed for cleanup.
 	return all
 }
 
@@ -4712,6 +4716,129 @@ var SysctlKernelManipulationCases = []TestCase{
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
 		Description:      "Reading swappiness — benign /proc/sys read, not a security parameter.",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// --- Extended security parameters (ptrace_scope, dmesg_restrict, perf, eBPF, userns) ---
+
+	{
+		ID:               "TP-SYSCTL-014",
+		Command:          `sysctl -w kernel.yama.ptrace_scope=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Disabling Yama ptrace restrictions — allows any process to ptrace any other, enabling credential extraction from running processes.",
+		Tags:             []string{"tp", "sysctl", "ptrace", "critical"},
+	},
+	{
+		ID:               "TP-SYSCTL-015",
+		Command:          `sysctl -w kernel.dmesg_restrict=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Disabling dmesg restriction — exposes kernel ring buffer to unprivileged users, leaking kernel addresses and driver information.",
+		Tags:             []string{"tp", "sysctl", "dmesg"},
+	},
+	{
+		ID:               "TP-SYSCTL-016",
+		Command:          `sysctl -w kernel.perf_event_paranoid=-1`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Setting perf_event_paranoid to -1 — allows unprivileged kernel profiling, enabling kernel address discovery and side-channel attacks.",
+		Tags:             []string{"tp", "sysctl", "perf"},
+	},
+	{
+		ID:               "TP-SYSCTL-017",
+		Command:          `sysctl -w kernel.unprivileged_bpf_disabled=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Enabling unprivileged eBPF — allows unprivileged users to load eBPF programs, enabling kernel exploitation vectors (Spectre, heap spraying).",
+		Tags:             []string{"tp", "sysctl", "ebpf", "critical"},
+	},
+	{
+		ID:               "TP-SYSCTL-018",
+		Command:          `sysctl -w user.max_user_namespaces=65536`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Raising user namespace limit — prerequisite for container escape and unprivileged namespace creation exploits.",
+		Tags:             []string{"tp", "sysctl", "namespace"},
+	},
+	{
+		ID:               "TP-SYSCTL-019",
+		Command:          `echo 0 > /proc/sys/kernel/yama/ptrace_scope`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Direct /proc/sys write to disable Yama ptrace scope — bypasses sysctl logging.",
+		Tags:             []string{"tp", "sysctl", "ptrace", "direct-write"},
+	},
+	{
+		ID:               "TP-SYSCTL-020",
+		Command:          `echo -1 > /proc/sys/kernel/perf_event_paranoid`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Direct /proc/sys write to enable unprivileged perf — kernel profiling attack surface.",
+		Tags:             []string{"tp", "sysctl", "perf", "direct-write"},
+	},
+	{
+		ID:               "TP-SYSCTL-021",
+		Command:          `echo 0 > /proc/sys/kernel/unprivileged_bpf_disabled`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Direct /proc/sys write to enable unprivileged eBPF — kernel exploitation vector.",
+		Tags:             []string{"tp", "sysctl", "ebpf", "direct-write"},
+	},
+	{
+		ID:               "TP-SYSCTL-022",
+		Command:          `echo 0 > /proc/sys/kernel/dmesg_restrict`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Direct /proc/sys write to expose kernel logs — information disclosure.",
+		Tags:             []string{"tp", "sysctl", "dmesg", "direct-write"},
+	},
+	{
+		ID:               "TN-SYSCTL-006",
+		Command:          `sysctl kernel.yama.ptrace_scope`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Read-only query of ptrace_scope — just prints the current value, no modification.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SYSCTL-007",
+		Command:          `cat /proc/sys/kernel/yama/ptrace_scope`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Reading ptrace_scope via cat — benign read, no modification.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-SYSCTL-008",
+		Command:          `sysctl -n kernel.perf_event_paranoid`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
+		Analyzer:         "regex",
+		Description:      "Reading perf_event_paranoid value — diagnostic query, no modification.",
 		Tags:             []string{"tn", "safe"},
 	},
 }

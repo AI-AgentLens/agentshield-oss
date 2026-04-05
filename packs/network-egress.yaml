@@ -2510,6 +2510,52 @@ rules:
       tn:
         - "cat << EOF\narpspoof is a MITM tool\nEOF"
 
+  # --- BLOCK: ARP/neighbor cache poisoning via ip neigh or arp -s ---
+  # Dedicated attack tools (arpspoof, ettercap) are blocked above, but an
+  # attacker can achieve the same MITM result using standard system utilities:
+  #   ip neigh replace <gateway> lladdr <attacker_mac> dev eth0
+  #   arp -s <gateway> <attacker_mac>
+  #
+  # This silently redirects all traffic destined for the gateway through the
+  # attacker's machine. Unlike arpspoof (which floods ARP replies), these
+  # commands set a single static entry — much quieter and harder to detect.
+  #
+  # CWE-923, MITRE T1557.002 (ARP Cache Poisoning)
+  - id: "ne-block-arp-static-entry"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "\\bip\\s+neigh(bou?r)?\\s+(add|replace|change|del|delete|flush)\\b"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "ip neigh add/replace modifies the ARP/neighbor cache — setting a static entry for the gateway redirects all LAN traffic through an attacker-controlled MAC address for passive MITM. Quieter than arpspoof (single entry vs continuous flooding). CWE-923, MITRE T1557.002."
+    tests:
+      tp:
+        - "ip neigh replace 192.168.1.1 lladdr aa:bb:cc:dd:ee:ff dev eth0"
+        - "ip neighbour add 10.0.0.1 lladdr 00:11:22:33:44:55 dev wlan0"
+        - "ip neighbor del 192.168.1.1 dev eth0"
+        - "sudo ip neigh flush dev eth0"
+      tn:
+        - "ip neigh show"
+        - "ip neighbour list"
+        - "ip neigh show dev eth0"
+
+  - id: "ne-block-arp-static-set"
+    taxonomy: "persistence-evasion/lateral-movement/dns-hosts-poisoning"
+    match:
+      command_regex: "(^|&&|;|\\|\\s*)(sudo\\s+)?arp\\s+(-s|--set|-d|--delete)\\b"
+    decision: "BLOCK"
+    confidence: 0.94
+    reason: "arp -s sets a static ARP entry — redirects traffic for the target IP through an attacker-controlled MAC address. arp -d deletes entries, forcing re-resolution that can be intercepted. Legacy net-tools equivalent of ip neigh manipulation. MITRE T1557.002."
+    tests:
+      tp:
+        - "arp -s 192.168.1.1 aa:bb:cc:dd:ee:ff"
+        - "sudo arp --set 10.0.0.1 00:11:22:33:44:55"
+        - "arp -d 192.168.1.1"
+      tn:
+        - "arp -a"
+        - "arp -n"
+        - "arp -e"
+
   # ============================================================
   # Packet Capture (taxonomy: reconnaissance/network-discovery/packet-capture)
   # ============================================================
