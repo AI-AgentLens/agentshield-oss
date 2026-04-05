@@ -1553,3 +1553,54 @@ structural_rules:
           args: {"pattern": "func validatePassword"}
         - tool: "search_code"
           args: {"pattern": "getConfigValue"}
+
+  # === AUDIT: IDE extension directory enumeration (issue #992) ===
+  #
+  # Listing the extensions/ directory of VS Code, Cursor, or Windsurf reveals
+  # which extensions are installed — including AI assistants (Copilot, Continue,
+  # Claude), credential managers, and cloud integrations. This intelligence
+  # enables targeted attacks: knowing which OAuth tokens are cached, which
+  # AI extensions store credentials in globalStorage, and which debug adapters
+  # are installed.
+  #
+  # Decision: AUDIT (not BLOCK) — agents may legitimately inspect extension
+  # manifests (e.g., reading a specific extension's package.json for debugging).
+  # Directory listing is the reconnaissance pattern that warrants visibility.
+  #
+  # Complements mcp-sec-block-vscode-state-db-read (#988) which blocks the
+  # actual credential database.
+  - id: mcp-recon-audit-ide-extension-enum
+    taxonomy: "reconnaissance/system-enumeration/cron-config-read"
+    match:
+      tool_name_any:
+        - "list_directory"
+        - "read_directory"
+        - "list_files"
+        - "ls"
+        - "directory_tree"
+        - "list_dir"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.(vscode|cursor|windsurf|cursor-server)/extensions/?$"
+            - "(?:^|/)\\.(vscode|cursor|windsurf|cursor-server)/extensions/$"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083."
+    tests:
+      tp:
+        - tool: "list_directory"
+          args: {"path": "/home/user/.cursor/extensions/"}
+        - tool: "read_directory"
+          args: {"path": "/home/user/.windsurf/extensions/"}
+        - tool: "list_directory"
+          args: {"path": "/Users/dev/.vscode/extensions/"}
+        - tool: "list_directory"
+          args: {"path": "/home/user/.cursor-server/extensions/"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/home/user/.vscode/extensions/ms-python.python-2024.1/package.json"}
+        - tool: "list_directory"
+          args: {"path": "/home/user/.vscode/settings/"}
+        - tool: "list_directory"
+          args: {"path": "/workspace/project/extensions/"}
