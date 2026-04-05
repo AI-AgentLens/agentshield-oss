@@ -100,6 +100,7 @@ structural_rules:
           pattern_any:
             - "(?:^|/)\\.xonshrc$"
             - "(?:^|/)\\.config/nushell/"
+            - "(?:^|/)\\.nushell/"
             - "(?:^|/)\\.elvish/rc\\.elv$"
             - "(?:^|/)\\.config/elvish/"
     decision: "BLOCK"
@@ -111,6 +112,8 @@ structural_rules:
           args: {"path": "/home/user/.xonshrc"}
         - tool: "edit_file"
           args: {"path": "/home/user/.config/nushell/config.nu"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.nushell/env.nu"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/build.sh"}
