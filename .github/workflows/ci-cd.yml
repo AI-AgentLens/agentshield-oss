@@ -320,4 +320,4 @@ jobs:
 
       - name: Clean up staging dir
         if: always()
-        run: rm -rf "/tmp/agentshield-release-dist-${{ github.run_id }}"
+        run: sudo rm -rf "/tmp/agentshield-release-dist-${{ github.run_id }}" || true
