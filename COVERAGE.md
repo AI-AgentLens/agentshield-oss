@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 712 |
-| Total rules | 1806 |
+| MCP rules | 714 |
+| Total rules | 1808 |
 | Test cases (TP+TN) | 3941 |
 | Kingdoms covered | 10 |
 
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (376 rules)
+### credential-exposure (378 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1252,6 +1252,8 @@
 | `mcp-sec-block-shell-history` | BLOCK | mcp_rule | Access to shell history file is blocked — command history routinely contains passwords passed as CLI args, API keys set via export, and git URLs with embedded credentials. MITRE T1552.003. |
 | `mcp-sec-block-fish-history` | BLOCK | mcp_rule | Access to fish shell history file is blocked — fish stores command history at ~/.local/share/fish/fish_history and it routinely contains credentials passed as CLI arguments. MITRE T1552.003. |
 | `mcp-sec-block-fish-variables` | BLOCK | mcp_rule | Access to ~/.config/fish/fish_variables is blocked — Fish stores all universal variables (set -U) here including API keys, database URLs, and credentials. MITRE T1552.001. |
+| `mcp-sec-block-fish-config-read` | BLOCK | mcp_rule | Read access to fish shell config files is blocked — ~/.config/fish/config.fish and conf.d/*.fish are executed on every fish session and commonly contain exported credentials (set -x API_KEY ...). MITRE T1552.001. |
+| `mcp-sec-block-nushell-config-read` | BLOCK | mcp_rule | Read access to nushell config files is blocked — ~/.nushell/env.nu and ~/.config/nushell/env.nu execute on every session and commonly contain $env.API_KEY = ... credential exports. MITRE T1552.001. |
 | `mcp-sec-block-package-manager-creds` | BLOCK | mcp_rule | Read access to .npmrc is blocked — contains npm registry auth tokens that could be exfiltrated. |
 | `mcp-sec-block-npm-xdg-credentials` | BLOCK | mcp_rule | Access to npm XDG auth token file is blocked — ~/.config/npm/authToken contains npm registry authentication tokens. Reads expose tokens; writes can inject malicious tokens redirecting package installs. MITRE T1552. |
 | `mcp-sec-block-npm-xdg-authtoken-alt` | BLOCK | mcp_rule | Access to npm XDG alternate auth token file is blocked — ~/.config/npm/_authToken contains npm registry authentication tokens. MITRE T1552. |

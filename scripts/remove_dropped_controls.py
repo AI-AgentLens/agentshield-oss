@@ -29,16 +29,27 @@ SKIP_FILES = {"_kingdom.yaml", "kingdoms.yaml", "mcp-known-servers.yaml"}
 
 def remove_control_from_array_string(array_str: str, controls_to_remove: set) -> str | None:
     """
-    Given an inline YAML array string like '["Art.9", "Art.15"]',
-    remove any controls in controls_to_remove.
+    Given an inline YAML array string like '["Art.9", "Art.15"]' or
+    "['Art.9', 'Art.15']", remove any controls in controls_to_remove.
     Returns the new array string, or None if array becomes empty.
+    Preserves the original quote style (double or single).
     """
-    # Extract all quoted items from the array
-    items = re.findall(r'"([^"]+)"', array_str)
-    remaining = [item for item in items if item not in controls_to_remove]
-    if not remaining:
-        return None
-    return '[' + ', '.join(f'"{item}"' for item in remaining) + ']'
+    # Detect quote style: single or double
+    single_quoted = re.search(r"'([^']+)'", array_str)
+    double_quoted = re.search(r'"([^"]+)"', array_str)
+
+    if single_quoted and not double_quoted:
+        items = re.findall(r"'([^']+)'", array_str)
+        remaining = [item for item in items if item not in controls_to_remove]
+        if not remaining:
+            return None
+        return '[' + ', '.join(f"'{item}'" for item in remaining) + ']'
+    else:
+        items = re.findall(r'"([^"]+)"', array_str)
+        remaining = [item for item in items if item not in controls_to_remove]
+        if not remaining:
+            return None
+        return '[' + ', '.join(f'"{item}"' for item in remaining) + ']'
 
 
 def process_file(filepath: Path, stats: dict) -> bool:
@@ -61,7 +72,8 @@ def process_file(filepath: Path, stats: dict) -> bool:
             if m:
                 prefix, array_str, trailing, newline = m.groups()
                 new_array = remove_control_from_array_string(array_str, controls_to_drop)
-                removed = set(re.findall(r'"([^"]+)"', array_str)) & controls_to_drop
+                all_items = set(re.findall(r'"([^"]+)"', array_str)) | set(re.findall(r"'([^']+)'", array_str))
+                removed = all_items & controls_to_drop
                 if removed:
                     modified = True
                     # Track stats
