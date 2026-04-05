@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1094 |
-| MCP rules | 715 |
-| Total rules | 1809 |
-| Test cases (TP+TN) | 3941 |
+| Terminal rules | 1100 |
+| MCP rules | 716 |
+| Total rules | 1816 |
+| Test cases (TP+TN) | 3984 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -440,7 +440,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 
-### persistence-evasion (151 rules)
+### persistence-evasion (157 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -448,6 +448,8 @@
 | `ne-block-etc-hosts-write` | BLOCK | regex | Write to /etc/hosts — overrides DNS resolution for arbitrary hostnames, enabling MITM attacks, lateral movement, and credential theft. AI agents have no legitimate need to modify /etc/hosts. MITRE T1565.001, T1090. |
 | `ne-block-resolv-conf-write` | BLOCK | regex | Write to /etc/resolv.conf — replaces system nameserver, redirecting all DNS queries to an attacker-controlled resolver. Enables DNS spoofing, credential interception, and exfiltration. MITRE T1565.001. |
 | `ne-block-arp-dns-poisoning-tools` | BLOCK | regex | ARP/DNS poisoning tool invoked (arpspoof, bettercap, ettercap, Responder, dnsspoof). These tools perform active network-level MITM attacks to intercept credentials and traffic. AI agents must never run attack tools. MITRE T1557, T1040. |
+| `ne-block-arp-static-entry` | BLOCK | regex | ip neigh add/replace modifies the ARP/neighbor cache — setting a static entry for the gateway redirects all LAN traffic through an attacker-controlled MAC address for passive MITM. Quieter than arpspoof (single entry vs continuous flooding). CWE-923, MITRE T1557.002. |
+| `ne-block-arp-static-set` | BLOCK | regex | arp -s sets a static ARP entry — redirects traffic for the target IP through an attacker-controlled MAC address. arp -d deletes entries, forcing re-resolution that can be intercepted. Legacy net-tools equivalent of ip neigh manipulation. MITRE T1557.002. |
 | `ts-block-paste-service-dead-drop` | BLOCK | regex | Fetch-and-execute from a paste service — a prompt-injected AI agent fetches attacker commands from public paste infrastructure (Pastebin, GitHub Gist, Hastebin) and pipes them to a shell. These domains blend with legitimate traffic but have no authorized use in pipe-to-shell patterns. OWASP LLM01, MITRE T1102. |
 | `ts-audit-cloud-storage-fetch-exec` | AUDIT | regex | Cloud storage download followed by immediate shell execution — an AI agent may be executing attacker-controlled scripts from a public bucket. Org-controlled buckets are a legitimate CI/CD pattern; flagged for review rather than blocked. MITRE T1102. |
 | `ts-block-jupyter-kernelspec-install` | BLOCK | regex | jupyter kernelspec install registers a kernel spec that executes arbitrary code on every notebook kernel start — a silent persistence mechanism that survives environment recreation. MITRE T1546. |
@@ -578,6 +580,10 @@
 | `ts-audit-iptables-modify` | AUDIT | regex | iptables rule modification — any firewall rule change by an AI agent warrants visibility. Even benign changes (opening a dev port) may create unintended exposure. |
 | `ts-audit-nft-modify` | AUDIT | regex | nftables rule modification — any nftables change warrants audit. An AI agent should rarely need to modify packet filtering rules. |
 | `ts-audit-firewall-list` | AUDIT | regex | Listing firewall rules — read-only reconnaissance but unusual for an AI coding agent. May indicate preparation for firewall manipulation. |
+| `ts-block-ip-route-modify` | BLOCK | regex | ip route add/replace modifies the kernel routing table — can hijack the default gateway for passive MITM, inject routes to redirect specific traffic through an attacker, or create blackhole routes for DoS. Changes are invisible to iptables -L and persist until reboot. CWE-923, MITRE T1557. |
+| `ts-block-ip-route-delete` | BLOCK | regex | ip route del removes routing entries — deleting the default route causes total network outage, deleting specific routes can force traffic through alternative (attacker-controlled) paths. MITRE T1565.002. |
+| `ts-block-ip-rule-modify` | BLOCK | regex | ip rule modifies the policy routing database — enables selective traffic interception by routing packets from specific sources through custom routing tables. Combined with ip route, this enables targeted MITM without affecting all traffic. MITRE T1557. |
+| `ts-block-route-legacy-modify` | BLOCK | regex | Legacy route command modifying routing table — same impact as ip route add/del but uses the older net-tools interface. Can redirect default gateway or inject routes for traffic interception. CWE-923, MITRE T1557. |
 | `ts-audit-chattr-immutable-tmp` | AUDIT | regex | chattr +i on a file in a world-writable directory (e.g. /tmp, /dev/shm) makes it undeletable even by root, a technique used to protect malware payloads and persistence artifacts from cleanup. Legitimate uses rarely involve making temporary files immutable. (MITRE T1564; OWASP LLM05) |
 | `ts-block-histcontrol-ignore` | BLOCK | regex | HISTCONTROL=ignorespace allows selectively hiding commands from shell history by prefixing them with a space — more insidious than clearing history entirely because the history file still looks 'normal' with suspicious gaps. MITRE T1070.003, CWE-778. |
 | `ts-block-histignore-suppress` | BLOCK | regex | HISTIGNORE='*' suppresses recording of ALL commands in shell history — a total history blackout that is harder to detect than unset HISTFILE because the history file and variable still exist. MITRE T1070.003. |
@@ -703,8 +709,8 @@
 | `ts-block-ldso-conf-write` | BLOCK | regex | Writing to /etc/ld.so.conf or /etc/ld.so.conf.d/ injects a new library search path into the system-wide dynamic linker configuration. After ldconfig rebuilds the cache, every dynamically linked program on the system will search the attacker-controlled directory before system libraries. System-wide and persistent across reboots. MITRE T1574.006, CWE-426. |
 | `ts-block-ldconfig-custom-conf` | BLOCK | regex | ldconfig -f <file> rebuilds the dynamic linker cache from an attacker-supplied config file — bypasses /etc/ld.so.conf.d/ monitoring and loads arbitrary directories into the system-wide library cache. MITRE T1574.006. |
 | `ts-audit-ldconfig-run` | AUDIT | regex | ldconfig invoked without read-only flags — rebuilds the system-wide dynamic linker cache. If /etc/ld.so.conf.d/ was modified prior to this command (within the session), this activates the library path injection. Review for combined ldconfig cache poisoning. MITRE T1574.006. |
-| `ts-block-sysctl-write-security` | BLOCK | regex | sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, or expose kernel addresses. CWE-250, MITRE T1562.001. |
-| `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. CWE-250. |
+| `ts-block-sysctl-write-security` | BLOCK | regex | sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, expose kernel addresses, disable ptrace restrictions, enable unprivileged eBPF, or weaken namespace isolation. CWE-250, MITRE T1562.001. |
+| `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. Covers ASLR, ptrace scope, dmesg restriction, eBPF, perf events, and namespace limits. CWE-250. |
 | `ts-block-sysctl-load-custom` | BLOCK | regex | sysctl --load from world-writable directory — an attacker can stage a sysctl.conf in /tmp with malicious parameters and trick an agent into loading it. CWE-427. |
 | `ts-audit-sysctl-load` | AUDIT | regex | sysctl loading kernel parameters from configuration — may be legitimate system administration, but agents should rarely need to reload kernel parameters. |
 | `ts-block-core-pattern-pipe` | BLOCK | regex | Writing a pipe handler to kernel.core_pattern — when any process crashes, the kernel will execute the specified program with the core dump as stdin. This is a code execution primitive triggered by any segfault. CWE-78. |
@@ -1736,7 +1742,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (33 rules)
+### reconnaissance (34 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1773,6 +1779,7 @@
 | `mcp-recon-block-find-credential-files` | BLOCK | structural | MCP file-search with credential file pattern — scanning for .env files, credential files, or certificate/key files is credential discovery reconnaissance that locates secrets before reading them. MITRE T1083, T1552.001. |
 | `mcp-recon-block-grep-aws-key-pattern` | BLOCK | structural | MCP content-search with credential pattern — searching for AWS key prefixes, PEM headers, or service-specific token patterns across the filesystem is credential-hunting reconnaissance. No legitimate development task requires searching for these literal credential patterns. MITRE T1552, T1552.001. |
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
+| `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
 
 ### supply-chain (24 rules)
 
@@ -1938,10 +1945,10 @@
 | data-exfiltration | 323 | 208 | 531 |
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
-| persistence-evasion | 319 | 202 | 521 |
-| privilege-escalation | 294 | 179 | 473 |
+| persistence-evasion | 337 | 215 | 552 |
+| privilege-escalation | 303 | 182 | 485 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2371** | **1570** | **3941** |
+| **Total** | **2398** | **1586** | **3984** |
 
