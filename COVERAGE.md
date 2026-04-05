@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-04 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-05 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 709 |
-| Total rules | 1803 |
-| Test cases (TP+TN) | 3939 |
+| MCP rules | 712 |
+| Total rules | 1806 |
+| Test cases (TP+TN) | 3941 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -476,8 +476,8 @@
 | `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
 | `ts-block-authorized-keys-write` | BLOCK | regex | Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Excludes read-only echo/printf of quoted strings, gh/git text-payload flags (--body, --body-file, --message, -m, etc.), heredoc writes to /tmp, and agentshield mcp-eval diagnostic commands (which simulate but do not execute tool calls). (MITRE T1098.004) |
 | `ts-block-ssh-config-write` | BLOCK | regex | Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections. |
-| `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
-| `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. |
+| `ts-block-cicd-write` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. Read-only commands (cat/grep/etc. without redirect) are explicitly excluded. |
+| `ts-block-cicd-write-reverse` | BLOCK | regex | Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. Read-only commands are explicitly excluded. |
 | `ts-block-cicd-cp-mv` | BLOCK | regex | Copying or moving files to CI/CD configuration paths is a supply-chain tampering risk. |
 | `ts-block-git-hook-write` | BLOCK | regex | Writing to .git/hooks/ injects code that runs automatically on git operations (pre-commit, pre-push, etc.) — a stealthy local persistence technique. MITRE T1546. |
 | `ts-block-git-hook-cp-mv` | BLOCK | regex | Copying or moving a file into .git/hooks/ installs a git hook — code that runs automatically on git events. MITRE T1546. |
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (373 rules)
+### credential-exposure (376 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1305,7 +1305,8 @@
 | `mcp-sec-block-kde-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE4) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kde5-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE5/Plasma) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kwalletd-config-access` | BLOCK | mcp_rule | Access to KDE Wallet daemon config (kwalletd5rc) is blocked — reveals wallet file paths and encryption parameters enabling targeted credential theft. MITRE T1555. |
-| `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. |
+| `mcp-sec-block-github-copilot-access` | BLOCK | mcp_rule | Access to GitHub Copilot config is blocked — contains OAuth tokens for GitHub authentication. MITRE T1552.001. |
+| `mcp-sec-block-github-copilot-access-macos` | BLOCK | mcp_rule | Access to GitHub Copilot config (macOS path) is blocked — contains OAuth tokens for GitHub authentication. MITRE T1552.001. |
 | `mcp-sec-block-hub-cli-access` | BLOCK | mcp_rule | Access to hub CLI config (~/.config/hub) is blocked — contains plaintext GitHub OAuth tokens granting full API access to all configured GitHub accounts. MITRE T1552.001. |
 | `mcp-sec-block-glab-cli-access` | BLOCK | mcp_rule | Access to GitLab CLI (glab) config is blocked — contains personal access tokens and OAuth tokens that grant full GitLab API access. MITRE T1552.001. |
 | `mcp-sec-block-glab-xdg-credentials` | BLOCK | mcp_rule | Access to GitLab CLI (glab v1.30+) config is blocked — ~/.config/glab/config.yml contains personal access tokens and OAuth tokens granting full GitLab API access. MITRE T1552.001. |
@@ -1529,6 +1530,8 @@
 | `mcp-sec-block-pfx-cert` | BLOCK | mcp_rule | Access to PFX certificate bundle is blocked — Microsoft PFX format (identical to PKCS#12) contains a private key and certificate chain. Exfiltrating this file enables signing malicious software. MITRE T1553.002, T1195.002. |
 | `mcp-sec-block-java-keystore` | BLOCK | mcp_rule | Access to Java KeyStore (.keystore) file is blocked — contains private keys and certificates for Java app signing, TLS, or Android APK signing. Exfiltrating this enables impersonation or supply chain attacks. MITRE T1553.002, T1195.002. |
 | `mcp-sec-block-jks-keystore` | BLOCK | mcp_rule | Access to JKS (Java KeyStore) file is blocked — contains private keys and certificates for Java TLS, JWT signing, or APK signing. Exfiltrating this enables impersonation or supply chain compromise. MITRE T1553.002, T1195.002. |
+| `mcp-sec-block-shell-init-read` | BLOCK | mcp_rule | Read access to shell startup files is blocked — .bashrc, .zshrc, .profile, and similar files commonly contain exported API keys, tokens, and credentials (e.g., export AWS_SECRET_ACCESS_KEY=...). MITRE T1552.001. |
+| `mcp-sec-block-gitconfig-read` | BLOCK | mcp_rule | Read access to ~/.gitconfig is blocked — the file can contain http.extraHeader Bearer tokens for private Git hosts, credential.helper configuration, and url.insteadOf entries that expose internal infrastructure. MITRE T1552.001. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
@@ -1932,10 +1935,10 @@
 | data-exfiltration | 323 | 208 | 531 |
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
-| persistence-evasion | 319 | 200 | 519 |
+| persistence-evasion | 319 | 202 | 521 |
 | privilege-escalation | 294 | 179 | 473 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2371** | **1568** | **3939** |
+| **Total** | **2371** | **1570** | **3941** |
 
