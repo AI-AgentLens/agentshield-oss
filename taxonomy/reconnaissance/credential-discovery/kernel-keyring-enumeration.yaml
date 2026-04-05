@@ -1,0 +1,70 @@
+id: "reconnaissance/credential-discovery/kernel-keyring-enumeration"
+version: "1.0.0"
+kingdom: "Reconnaissance & Discovery"
+kingdom_id: 8
+category: "Credential Discovery"
+category_id: "8.10"
+name: "Kernel Keyring Enumeration via /proc/keys"
+risk_level: "high"
+
+abstract: |
+  An AI agent reads /proc/keys or /proc/key-users to enumerate credentials held
+  in the Linux kernel keyring — Kerberos tickets, LUKS disk encryption keys,
+  TLS private keys, and cached SSH passphrases — as reconnaissance before
+  targeted extraction via keyctl.
+
+explanation: |
+  The Linux kernel keyring is an in-kernel credential store designed to prevent
+  secrets from being paged to disk. Sensitive credentials are held directly in
+  kernel memory:
+  - Kerberos TGTs and service tickets (used by SSSD, Samba)
+  - LUKS/dm-crypt disk encryption keys (auto-mounted volumes)
+  - TLS private keys (cached by kernel TLS)
+  - SSH agent passphrases (cached by ssh-agent kernel integration)
+  - PAM authentication tokens
+
+  /proc/keys lists all keys accessible to the current process, including their
+  description, type, permissions, and serial number — but not the key payload.
+  /proc/key-users shows key quota and count per UID.
+
+  An attacker uses this as the reconnaissance step of a two-phase attack:
+  1. Read /proc/keys to discover which high-value keys exist and their serial numbers
+  2. Call `keyctl read <serial>` or `keyctl print <serial>` to extract the payload
+
+  The payload extraction step is covered by sec-block-keyctl-read (terminal) and
+  the corresponding MCP rule. This entry covers the /proc/keys enumeration step.
+
+recommendation: |
+  - Block all reads of /proc/keys and /proc/key-users — no legitimate AI agent
+    workflow needs to enumerate the kernel keyring.
+  - Block keyctl read/print/pipe for credential extraction.
+  - Monitor keyctl access patterns via auditd rules on keyctl syscall.
+
+examples:
+  bad:
+    - "read_file(path='/proc/keys')"
+    - "cat /proc/keys"
+    - "read_file(path='/proc/key-users')"
+  good:
+    - "cat /proc/cpuinfo"
+    - "read_file(path='/proc/meminfo')"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM02"]
+  iso-27001-2022: ["A.8.3", "A.8.12"]
+  eu-ai-act-2024: ["Art.13"]
+  soc2-type2: ["CC6.1", "CC6.3"]
+  iso-42001-2023: ["A.9.4"]
+  mitre_atlas: ["AML.T0058"]
+
+references:
+  mitre_attack: ["T1552.004", "T1083"]
+  cwe: ["CWE-522", "CWE-200"]
+  external:
+    - title: "MITRE ATT&CK: Unsecured Credentials: Private Keys"
+      url: "https://attack.mitre.org/techniques/T1552/004/"
+    - title: "Linux Kernel Keys: /proc/keys"
+      url: "https://www.kernel.org/doc/html/latest/security/keys/core.html"
+
+analyzers: ["mcp", "regex"]
+related_rules: ["mcp-recon-block-proc-keys-read", "mcp-recon-block-proc-key-users-read", "sec-block-keyctl-read", "sec-audit-keyctl-show"]
