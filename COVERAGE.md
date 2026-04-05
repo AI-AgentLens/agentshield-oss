@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1094 |
-| MCP rules | 714 |
-| Total rules | 1808 |
+| MCP rules | 715 |
+| Total rules | 1809 |
 | Test cases (TP+TN) | 3941 |
 | Kingdoms covered | 10 |
 
@@ -1160,7 +1160,7 @@
 
 ## MCP Rules
 
-### credential-exposure (378 rules)
+### credential-exposure (379 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1463,6 +1463,7 @@
 | `mcp-sec-block-openai-xdg-credentials-read` | BLOCK | mcp_rule | Access to OpenAI XDG credential directory (~/.config/openai/) is blocked — contains OpenAI API keys and organization ID. XDG Base Directory variant of ~/.openai/. MITRE T1552. |
 | `mcp-sec-block-windsurf-oauth-token-read` | BLOCK | mcp_rule | Access to Windsurf globalStorage OAuth token file is blocked — contains Codeium OAuth token granting AI completions access under the user's identity. MITRE T1539, T1552. |
 | `mcp-sec-block-cursor-oauth-token-read` | BLOCK | mcp_rule | Access to Cursor globalStorage OAuth token file is blocked — contains Cursor account OAuth token enabling API calls under the victim's identity. MITRE T1539, T1552. |
+| `mcp-sec-block-vscode-state-db-read` | BLOCK | mcp_rule | Access to VS Code globalStorage state.vscdb is blocked — this SQLite database stores persistent state for all installed extensions, including OAuth tokens from GitHub Copilot, Continue.dev, Claude, and other AI extensions. Reading it leaks credentials from every AI extension at once. MITRE T1539, T1552. |
 | `mcp-sec-block-vscode-copilot-globalstorage-read` | BLOCK | mcp_rule | Access to VS Code Copilot globalStorage directory is blocked — contains GitHub Copilot OAuth session data. MITRE T1539, T1552. |
 | `mcp-sec-block-vscode-cline-credentials-read` | BLOCK | mcp_rule | Access to Cline (Claude Dev) VSCode extension globalStorage is blocked — contains Anthropic API keys and session data enabling full Claude API impersonation. MITRE T1539, T1552. |
 | `mcp-sec-block-vscode-anthropic-extension-credentials-read` | BLOCK | mcp_rule | Access to Claude for VS Code extension globalStorage is blocked — contains Anthropic OAuth tokens enabling API access under the victim's identity. MITRE T1539, T1552. |
