@@ -16904,3 +16904,48 @@ rules:
         - "Get-ScheduledTask | Where-Object State -eq Running"
         - "taskschd.msc"
 
+  # ─── Agent Code Review Bypass ─────────────────────────────────────────────
+  #
+  # AI agents with sufficient GitHub permissions can remove the human review gate by:
+  #   gh pr merge --admin          — bypasses required reviews via admin override
+  #   gh pr review ... --approve   — self-approving a PR the agent itself authored
+  #
+  # Both techniques undermine the mandatory code review control and allow agent
+  # changes to reach production without any human verification.
+  # OWASP LLM06 (Excessive Agency), MITRE ATLAS AML.T0056.
+
+  - id: "gr-block-gh-pr-merge-admin"
+    taxonomy: "governance-risk/ai-governance-gap/agent-code-review-bypass"
+    match:
+      command_regex: "gh\\s+pr\\s+merge\\b.*--admin\\b"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "gh pr merge --admin bypasses required branch protection reviews via admin override. An AI agent using this flag removes the human verification gate entirely, allowing unreviewed code to reach production (OWASP LLM06, MITRE ATLAS AML.T0056)."
+    tests:
+      tp:
+        - "gh pr merge 42 --admin --merge"
+        - "gh pr merge 123 --admin --squash"
+        - "gh pr merge 7 --admin"
+      tn:
+        - "gh pr merge 42 --merge"
+        - "gh pr checks 42"
+        - "gh pr create --title 'fix' --body 'needs review'"
+        - "gh issue create --title 'FP test' --body 'gh pr merge 42 --admin should be blocked'"
+
+  - id: "gr-audit-gh-pr-self-approve"
+    taxonomy: "governance-risk/ai-governance-gap/agent-code-review-bypass"
+    match:
+      command_regex: "gh\\s+pr\\s+review\\b.*--approve\\b"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "gh pr review --approve — an AI agent approving a pull request removes the independent human review requirement. When agents author and self-approve PRs, no human verifies the changes before merge (OWASP LLM06)."
+    tests:
+      tp:
+        - "gh pr review 42 --approve"
+        - "gh pr review 100 --approve -b 'LGTM'"
+      tn:
+        - "gh pr review 42 --comment --body 'please fix tests'"
+        - "gh pr review 42 --request-changes --body 'needs work'"
+        - "gh pr view 42"
+
