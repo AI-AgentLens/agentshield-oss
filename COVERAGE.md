@@ -1,6 +1,6 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-05 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-06 by `go run ./cmd/coverage`*
 
 ## Summary
 
@@ -9,7 +9,7 @@
 | Terminal rules | 1100 |
 | MCP rules | 716 |
 | Total rules | 1816 |
-| Test cases (TP+TN) | 3984 |
+| Test cases (TP+TN) | 3983 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -710,11 +710,11 @@
 | `ts-block-ldconfig-custom-conf` | BLOCK | regex | ldconfig -f <file> rebuilds the dynamic linker cache from an attacker-supplied config file — bypasses /etc/ld.so.conf.d/ monitoring and loads arbitrary directories into the system-wide library cache. MITRE T1574.006. |
 | `ts-audit-ldconfig-run` | AUDIT | regex | ldconfig invoked without read-only flags — rebuilds the system-wide dynamic linker cache. If /etc/ld.so.conf.d/ was modified prior to this command (within the session), this activates the library path injection. Review for combined ldconfig cache poisoning. MITRE T1574.006. |
 | `ts-block-sysctl-write-security` | BLOCK | regex | sysctl -w modifying a security-critical kernel parameter — can disable ASLR, enable IP forwarding for MITM, redirect core dumps to pipes for code execution, expose kernel addresses, disable ptrace restrictions, enable unprivileged eBPF, or weaken namespace isolation. CWE-250, MITRE T1562.001. |
-| `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. Covers ASLR, ptrace scope, dmesg restriction, eBPF, perf events, and namespace limits. CWE-250. |
+| `ts-block-procsys-write-security` | BLOCK | regex | Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Covers echo/printf/dd redirects and tee-as-writer (both pipe and heredoc variants). Same impact as sysctl -w but harder to audit. CWE-250. |
 | `ts-block-sysctl-load-custom` | BLOCK | regex | sysctl --load from world-writable directory — an attacker can stage a sysctl.conf in /tmp with malicious parameters and trick an agent into loading it. CWE-427. |
 | `ts-audit-sysctl-load` | AUDIT | regex | sysctl loading kernel parameters from configuration — may be legitimate system administration, but agents should rarely need to reload kernel parameters. |
 | `ts-block-core-pattern-pipe` | BLOCK | regex | Writing a pipe handler to kernel.core_pattern — when any process crashes, the kernel will execute the specified program with the core dump as stdin. This is a code execution primitive triggered by any segfault. CWE-78. |
-| `ts-block-binfmt-register` | BLOCK | regex | Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. All matching files system-wide will be routed through the attacker's handler. CWE-427, MITRE T1546.004. |
+| `ts-block-binfmt-register` | BLOCK | regex | Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. Covers redirect and tee-as-writer (pipe and heredoc) variants. CWE-427, MITRE T1546.004. |
 | `ts-block-binfmt-modify` | BLOCK | regex | Writing to an existing binfmt_misc entry — can enable/disable or modify registered interpreters, disrupting expected execution behavior. |
 | `ts-block-binfmt-mount` | BLOCK | regex | Mounting binfmt_misc filesystem — prerequisite for registering custom interpreters. An AI agent should never need to mount kernel pseudo-filesystems. |
 | `ts-audit-binfmt-status` | AUDIT | regex | Reading binfmt_misc status — reconnaissance to discover registered interpreters. Low risk but unusual for an AI agent. |
@@ -1946,9 +1946,9 @@
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 82 | 64 | 146 |
 | persistence-evasion | 337 | 215 | 552 |
-| privilege-escalation | 303 | 182 | 485 |
+| privilege-escalation | 302 | 182 | 484 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2398** | **1586** | **3984** |
+| **Total** | **2397** | **1586** | **3983** |
 
