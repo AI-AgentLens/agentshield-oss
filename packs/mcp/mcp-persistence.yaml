@@ -729,6 +729,7 @@ structural_rules:
           pattern_any:
             - "(?:^|/)\\.claude/settings\\.json$"
             - "(?:^|/)\\.claude/settings\\.local\\.json$"
+            - "(?i)Application Support/Claude/settings\\.json$"
             - "(?:^|/)\\.cursor/settings\\.json$"
             - "(?i)Cursor/User/settings\\.json$"
             - "(?:^|/)\\.config/cursor/settings\\.json$"
@@ -750,6 +751,8 @@ structural_rules:
           args: {"path": "/home/user/.config/cursor/settings.json"}
         - tool: "write_file"
           args: {"path": "/home/user/.config/windsurf/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Claude/settings.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
@@ -783,6 +786,7 @@ structural_rules:
           pattern_any:
             - "(?:^|/)\\.claude/settings\\.json$"
             - "(?:^|/)\\.claude/settings\\.local\\.json$"
+            - "(?i)Application Support/Claude/settings\\.json$"
             - "(?:^|/)\\.cursor/settings\\.json$"
             - "(?i)Cursor/User/settings\\.json$"
             - "(?:^|/)\\.config/cursor/settings\\.json$"
