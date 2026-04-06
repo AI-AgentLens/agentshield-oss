@@ -73,6 +73,7 @@ type MCPMatch struct {
 	ToolNameRegex           string              `yaml:"tool_name_regex,omitempty"`            // regex on tool name
 	ToolNameAny             []string            `yaml:"tool_name_any,omitempty"`              // any of these tool names
 	ArgumentPatterns        map[string]string   `yaml:"argument_patterns,omitempty"`          // key=arg name, value=glob pattern on arg value
+	ArgumentRegexPatterns   map[string]string   `yaml:"argument_regex_patterns,omitempty"`    // key=arg name, value=regex pattern on arg value (use for non-path text matching)
 	ExcludeArgumentPatterns map[string][]string `yaml:"exclude_argument_patterns,omitempty"`  // key=arg name, value=list of glob patterns to exclude (if any match, rule does NOT fire)
 	Structural              *MCPStructuralMatch `yaml:"structural,omitempty"`                 // structural match predicates
 	Semantic                *MCPSemanticMatch   `yaml:"semantic,omitempty"`                   // semantic intent match predicates
@@ -279,6 +280,26 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 		}
 	}
 
+	// Argument regex pattern matching (all specified patterns must match).
+	// Use this for free-form text arguments (e.g., `text` in type_text) where path glob
+	// semantics break because * does not match /.
+	if len(m.ArgumentRegexPatterns) > 0 {
+		for argName, pattern := range m.ArgumentRegexPatterns {
+			argVal, ok := arguments[argName]
+			if !ok {
+				return false
+			}
+			valStr := fmt.Sprintf("%v", argVal)
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return false
+			}
+			if !re.MatchString(valStr) {
+				return false
+			}
+		}
+	}
+
 	// Exclude argument patterns — if any exclusion pattern matches, the rule does NOT fire.
 	// Used to carve out known-safe variants from broad glob patterns (e.g., .env.example from **/.env.*).
 	if len(m.ExcludeArgumentPatterns) > 0 {
@@ -307,7 +328,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 
 	// If we had name matchers and they matched (or no name matchers were specified)
 	// AND all argument patterns matched, the rule matches.
-	return nameSpecified || len(m.ArgumentPatterns) > 0
+	return nameSpecified || len(m.ArgumentPatterns) > 0 || len(m.ArgumentRegexPatterns) > 0
 }
 
 // matchToolName checks if a tool name matches a pattern.
