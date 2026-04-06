@@ -44,16 +44,16 @@ See global rules in `~/.claude/CLAUDE.md` for the Fowler philosophy and Go stand
 
 ## Architecture Overview
 
-AgentShield is a **local-first runtime security gateway** that sits between AI agents (Cursor, Windsurf, Claude Code, etc.) and the OS, evaluating every shell command through a 6-layer analyzer pipeline before execution. It also mediates MCP (Model Context Protocol) tool calls.
+AgentShield is a **local-first runtime security gateway** that sits between AI agents (Cursor, Windsurf, Claude Code, etc.) and the OS, evaluating every shell command through a 7-layer analyzer pipeline before execution. It also mediates MCP (Model Context Protocol) tool calls.
 
-### 6-Layer Analyzer Pipeline
+### 7-Layer Analyzer Pipeline
 
 Defined in `internal/policy/pipeline.go` and `internal/analyzer/`. The pipeline runs in order:
 
 ```
-regex → structural → semantic → dataflow → stateful → guardian
-  ↓         ↓           ↓          ↓          ↓          ↓
-           Combiner (most_restrictive_wins) → Policy Engine
+regex → structural → semantic → dataflow → stateful → guardian → datalabel
+  ↓         ↓           ↓          ↓          ↓          ↓          ↓
+                  Combiner (most_restrictive_wins) → Policy Engine
 ```
 
 1. **Regex** (`internal/analyzer/regex.go`) — Pattern matching (prefix, exact, regex). Catches obvious threats like `rm -rf /`, `curl | bash`.
@@ -62,6 +62,7 @@ regex → structural → semantic → dataflow → stateful → guardian
 4. **Dataflow** (`internal/analyzer/dataflow.go`) — Source→sink taint tracking through pipes/redirects. Catches exfiltration chains (`cat ~/.ssh/id_rsa | base64 | curl`).
 5. **Stateful** (`internal/analyzer/stateful.go`) — Multi-step attack chain detection within compound commands connected by `&&`, `||`, `;`, `|`.
 6. **Guardian** (`internal/guardian/`) — Heuristic-based detection: prompt injection, inline secrets, obfuscation, bulk exfiltration.
+7. **Data Label** (`internal/analyzer/datalabel.go`) — Customer-defined sensitive data detection (PII, project codenames, internal IDs). Uses a 4-tier engine: scope filtering → Aho-Corasick keyword matching → compiled regex → validators (Luhn). Conditionally registered — zero overhead when no `data_labels` are configured.
 
 The `AnalysisContext` (`internal/analyzer/types.go`) carries enrichments through all layers — each analyzer reads from and writes to it. The Combiner uses `most_restrictive_wins`: `BLOCK > AUDIT > ALLOW`.
 
@@ -99,7 +100,35 @@ rules:
     decision: "BLOCK"
     reason: "Human-readable explanation"
     confidence: 0.95
+
+# Data label definitions (Layer 7 — customer-defined PII/sensitive data)
+data_labels:
+  - id: "pii-ssn"
+    name: "Social Security Number"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "SSN pattern detected"
+    patterns:
+      - regex: '\b\d{3}-\d{2}-\d{4}\b'
+        context: "ssn|social.security"      # optional: nearby text must match
+      - keywords: ["PHOENIX", "TITAN"]      # Aho-Corasick multi-keyword
+        case_sensitive: true
+      - regex: '\b\d{15,16}\b'
+        validator: "luhn"                   # post-match Luhn check
+    scan_scope:                             # optional: limit what gets scanned
+      tools: ["write_*", "send_*"]          # MCP tool name globs
+      directions: ["outbound"]              # outbound = agent→tool
+      max_scan_bytes: 262144                # 256KB per argument
 ```
+
+### Data Label Detection Engine
+
+`internal/datalabel/` is the shared detection engine used by both the shell analyzer (Layer 7) and MCP scanner. Key design:
+- **Zero cost when disabled**: `NewEngine` returns nil when `data_labels` is empty → analyzer not registered
+- **4-tier detection**: scope check (ns) → Aho-Corasick keywords (μs) → compiled regex (μs-ms) → validators (ns)
+- **Self-contained Aho-Corasick**: No external dependency, handles case-sensitive + insensitive patterns
+- **Early termination**: Stops scanning after first BLOCK match
+- **MaxScanBytes**: Truncates large inputs to prevent ReDoS on oversized MCP arguments
 
 ### MCP Mediation
 
@@ -107,6 +136,7 @@ rules:
 - `handler.go` — Core JSON-RPC dispatch
 - `description_scanner.go` — Detects tool description poisoning (hidden instructions, credential harvesting prompts)
 - `content_scanner.go` — Scans tool call arguments for SSH keys, AWS credentials, base64 blobs
+- `datalabel_scanner.go` — Scans tool call arguments for customer-defined data labels (PII, codenames)
 - `config_guard.go` — Guards config file writes from MCP tools
 - `policy.go` — MCP-specific policy evaluation
 
