@@ -4351,6 +4351,7 @@ rules:
     taxonomy: "destructive-ops/version-control/git-history-destruction"
     match:
       command_regex: "git\\s+reset\\s+--hard\\s+(HEAD[~^][0-9]*|[0-9a-f]{4,40})"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "BLOCK"
     confidence: 0.90
     reason: "git reset --hard HEAD~N, HEAD~ (bare tilde), or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485)."
@@ -4360,6 +4361,8 @@ rules:
         - "git reset --hard abc123f"
       tn:
         - "git reset --soft HEAD~1"
+        - "gh issue create --repo AI-AgentLens/AI_Agent_Shield --title 'FP test' --body 'git reset --hard HEAD~3 was incorrectly blocked'"
+        - "git commit -m 'fix: avoid git reset --hard HEAD~3 in deploy script'"
 
   - id: "ts-block-git-filter-branch"
     taxonomy: "destructive-ops/version-control/git-history-destruction"
@@ -4412,6 +4415,7 @@ rules:
     taxonomy: "destructive-ops/version-control/git-history-destruction"
     match:
       command_regex: "git\\s+reflog\\s+expire\\s+.*--expire=now"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "BLOCK"
     confidence: 0.95
     reason: "git reflog expire --expire=now immediately destroys all reflog entries, eliminating the only mechanism to recover commits dropped by git reset --hard. Typically paired with gc --prune=now to make orphaned commits permanently unrecoverable (MITRE T1485)."
@@ -4421,6 +4425,7 @@ rules:
         - "git reflog expire --expire=now HEAD"
       tn:
         - "git reflog"
+        - "gh issue create --repo AI-AgentLens/AI_Agent_Shield --title 'FP test' --body 'git reflog expire --expire=now was blocked during cleanup'"
 
   - id: "ts-block-git-clone-mirror"
     taxonomy: "data-exfiltration/version-control/git-mirror-clone"
