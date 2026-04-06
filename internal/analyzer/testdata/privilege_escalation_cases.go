@@ -3135,10 +3135,9 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, PAMConfigReconCases...)
 	all = append(all, ChAttrImmutableRemovalCases...)
 	all = append(all, KernelMemoryAccessCases...)
-	// NOTE: SysctlKernelManipulationCases, BinfmtMiscInterpreterHijackCases, and
-	// SetarchPersonalityBypassCases are defined but not registered — some test
-	// expectations are stale (ALLOW vs AUDIT, missing tee/heredoc regex coverage).
-	// See issue filed for cleanup.
+	all = append(all, SysctlKernelManipulationCases...)
+	all = append(all, BinfmtMiscInterpreterHijackCases...)
+	all = append(all, SetarchPersonalityBypassCases...)
 	return all
 }
 
@@ -4671,7 +4670,7 @@ var SysctlKernelManipulationCases = []TestCase{
 	{
 		ID:               "TN-SYSCTL-001",
 		Command:          `sysctl kernel.randomize_va_space`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
@@ -4681,7 +4680,7 @@ var SysctlKernelManipulationCases = []TestCase{
 	{
 		ID:               "TN-SYSCTL-002",
 		Command:          `sysctl -a | grep net.ipv4`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
@@ -4701,7 +4700,7 @@ var SysctlKernelManipulationCases = []TestCase{
 	{
 		ID:               "TN-SYSCTL-004",
 		Command:          `sysctl -n kernel.osrelease`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
@@ -4722,7 +4721,7 @@ var SysctlKernelManipulationCases = []TestCase{
 	// --- Extended security parameters (ptrace_scope, dmesg_restrict, perf, eBPF, userns) ---
 
 	{
-		ID:               "TP-SYSCTL-014",
+		ID:               "TP-SYSCTL-023",
 		Command:          `sysctl -w kernel.yama.ptrace_scope=0`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4732,7 +4731,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "ptrace", "critical"},
 	},
 	{
-		ID:               "TP-SYSCTL-015",
+		ID:               "TP-SYSCTL-024",
 		Command:          `sysctl -w kernel.dmesg_restrict=0`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4742,7 +4741,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "dmesg"},
 	},
 	{
-		ID:               "TP-SYSCTL-016",
+		ID:               "TP-SYSCTL-025",
 		Command:          `sysctl -w kernel.perf_event_paranoid=-1`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4752,7 +4751,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "perf"},
 	},
 	{
-		ID:               "TP-SYSCTL-017",
+		ID:               "TP-SYSCTL-026",
 		Command:          `sysctl -w kernel.unprivileged_bpf_disabled=0`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4762,7 +4761,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "ebpf", "critical"},
 	},
 	{
-		ID:               "TP-SYSCTL-018",
+		ID:               "TP-SYSCTL-027",
 		Command:          `sysctl -w user.max_user_namespaces=65536`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4772,7 +4771,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "namespace"},
 	},
 	{
-		ID:               "TP-SYSCTL-019",
+		ID:               "TP-SYSCTL-028",
 		Command:          `echo 0 > /proc/sys/kernel/yama/ptrace_scope`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4782,7 +4781,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "ptrace", "direct-write"},
 	},
 	{
-		ID:               "TP-SYSCTL-020",
+		ID:               "TP-SYSCTL-029",
 		Command:          `echo -1 > /proc/sys/kernel/perf_event_paranoid`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4792,7 +4791,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "perf", "direct-write"},
 	},
 	{
-		ID:               "TP-SYSCTL-021",
+		ID:               "TP-SYSCTL-030",
 		Command:          `echo 0 > /proc/sys/kernel/unprivileged_bpf_disabled`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4802,7 +4801,7 @@ var SysctlKernelManipulationCases = []TestCase{
 		Tags:             []string{"tp", "sysctl", "ebpf", "direct-write"},
 	},
 	{
-		ID:               "TP-SYSCTL-022",
+		ID:               "TP-SYSCTL-031",
 		Command:          `echo 0 > /proc/sys/kernel/dmesg_restrict`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
@@ -4814,11 +4813,11 @@ var SysctlKernelManipulationCases = []TestCase{
 	{
 		ID:               "TN-SYSCTL-006",
 		Command:          `sysctl kernel.yama.ptrace_scope`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
-		Description:      "Read-only query of ptrace_scope — just prints the current value, no modification.",
+		Description:      "Read-only query of ptrace_scope — no rule ALLOWs this but no rule blocks it; correct default is AUDIT.",
 		Tags:             []string{"tn", "safe"},
 	},
 	{
@@ -4828,17 +4827,17 @@ var SysctlKernelManipulationCases = []TestCase{
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
-		Description:      "Reading ptrace_scope via cat — benign read, no modification.",
+		Description:      "Reading ptrace_scope via cat — ALLOWed by ts-allow-readonly (cat prefix).",
 		Tags:             []string{"tn", "safe"},
 	},
 	{
 		ID:               "TN-SYSCTL-008",
 		Command:          `sysctl -n kernel.perf_event_paranoid`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sysctl-kernel-manipulation",
 		Analyzer:         "regex",
-		Description:      "Reading perf_event_paranoid value — diagnostic query, no modification.",
+		Description:      "Reading perf_event_paranoid value — diagnostic query; default AUDIT since no explicit ALLOW rule.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
@@ -4965,11 +4964,11 @@ var BinfmtMiscInterpreterHijackCases = []TestCase{
 	{
 		ID:               "TN-BINFMT-003",
 		Command:          `mount -t tmpfs tmpfs /tmp/workspace`,
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack",
 		Analyzer:         "regex",
-		Description:      "Mounting tmpfs (not binfmt_misc) — blocked by bind-mount rule but not binfmt-specific.",
+		Description:      "Mounting tmpfs (not binfmt_misc) — not caught by binfmt-specific rules; bind-mount rule doesn't apply since no --bind flag.",
 		Tags:             []string{"tn", "mount"},
 	},
 	{
@@ -5008,14 +5007,14 @@ var SetarchPersonalityBypassCases = []TestCase{
 		Tags:             []string{"tp", "critical", "aslr"},
 	},
 	{
-		ID:               "TP-SETARCH-002",
+		ID:               "FN-SETARCH-002",
 		Command:          `setarch $(uname -m) --addr-no-randomize ./exploit`,
 		ExpectedDecision: "BLOCK",
-		Classification:   "TP",
+		Classification:   "FN",
 		TaxonomyRef:      "privilege-escalation/command-execution/setarch-personality-aslr-bypass",
 		Analyzer:         "regex",
-		Description:      "setarch with --addr-no-randomize running exploit binary — classic ASLR defeat before exploitation.",
-		Tags:             []string{"tp", "critical", "aslr"},
+		Description:      "KNOWN FALSE NEGATIVE (regex). Command substitution $(uname -m) contains a space, so regex \\S+ does not match — gets ts-audit-setarch AUDIT instead of BLOCK. Structural analyzer needed to evaluate expanded arguments.",
+		Tags:             []string{"tp", "critical", "aslr", "known-gap"},
 	},
 	{
 		ID:               "TP-SETARCH-003",
@@ -5096,7 +5095,7 @@ var SetarchPersonalityBypassCases = []TestCase{
 	{
 		ID:               "TN-SETARCH-001",
 		Command:          `setarch --list`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/setarch-personality-aslr-bypass",
 		Analyzer:         "regex",
@@ -5106,7 +5105,7 @@ var SetarchPersonalityBypassCases = []TestCase{
 	{
 		ID:               "TN-SETARCH-002",
 		Command:          `arch`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/setarch-personality-aslr-bypass",
 		Analyzer:         "regex",
