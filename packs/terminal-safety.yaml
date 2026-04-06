@@ -3411,6 +3411,85 @@ rules:
       tn:
         - "az vm create --size Standard_B1s --resource-group rg1 --name smallvm"
 
+  # --- AUDIT: Cloud storage bucket provisioning ---
+  # aws s3 mb s3://my-new-bucket
+  # aws s3api create-bucket --bucket my-bucket --region us-east-1
+  # gcloud storage buckets create gs://my-bucket
+  # Provisioning cloud storage buckets creates persistent data infrastructure. AI agents may
+  # inadvertently create misconfigured buckets (public access, wrong region, no encryption).
+  - id: "ts-audit-cloud-storage-bucket-create"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-directed-cloud-provisioning"
+    match:
+      command_regex: "(aws\\s+s3\\s+mb\\b|aws\\s+s3api\\s+create-bucket\\b|gcloud\\s+storage\\s+buckets\\s+create\\b)"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "Cloud storage bucket provisioning — creating new buckets establishes persistent data infrastructure. AI agents may create misconfigured buckets (public access, no encryption, wrong region) without human review. (OWASP LLM08, MITRE T1578)"
+    tests:
+      tp:
+        - "aws s3 mb s3://my-new-bucket"
+        - "aws s3api create-bucket --bucket project-data --region us-east-1"
+        - "gcloud storage buckets create gs://my-staging-bucket --location=us-central1"
+      tn:
+        - "aws s3 ls s3://existing-bucket"
+        - "aws s3api list-buckets"
+        - "gcloud storage buckets list"
+
+  # --- BLOCK: AWS S3 public bucket policy (Principal: *) ---
+  # aws s3api put-bucket-policy --bucket my-bucket --policy '{"Statement":[{"Principal":"*","Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::my-bucket/*"}]}'
+  # Setting Principal:* makes a bucket publicly accessible to the internet — a critical
+  # misconfiguration that can expose sensitive data and violates most security policies.
+  - id: "ts-block-aws-s3-public-bucket-policy"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-directed-cloud-provisioning"
+    match:
+      command_regex: "aws\\s+s3api\\s+put-bucket-policy\\b.*\"Principal\"\\s*:\\s*\"\\*\""
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "AWS S3 put-bucket-policy with wildcard Principal (*) — this makes a bucket publicly accessible to the entire internet, a critical misconfiguration that exposes stored data to unauthenticated access. Never apply a public bucket policy without explicit human approval. (OWASP LLM08, CWE-732)"
+    tests:
+      tp:
+        - "aws s3api put-bucket-policy --bucket my-bucket --policy '{\"Statement\":[{\"Principal\":\"*\",\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::my-bucket/*\"}]}'"
+      tn:
+        - "aws s3api get-bucket-policy --bucket my-bucket"
+        - "aws s3api put-bucket-policy --bucket my-bucket --policy '{\"Statement\":[{\"Principal\":{\"AWS\":\"arn:aws:iam::123456789:role/MyRole\"},\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::my-bucket/*\"}]}'"
+
+  # --- AUDIT: AWS security group ingress rule open to the internet (0.0.0.0/0) ---
+  # aws ec2 authorize-security-group-ingress --group-id sg-12345 --protocol tcp --port 22 --cidr 0.0.0.0/0
+  # Opening inbound ports to 0.0.0.0/0 exposes services directly to the internet. AI agents
+  # may open SSH, RDP, or database ports unintentionally as part of infrastructure setup.
+  - id: "ts-audit-aws-sg-open-ingress"
+    taxonomy: "unauthorized-execution/ai-resource-abuse/ai-directed-cloud-provisioning"
+    match:
+      command_regex: "aws\\s+ec2\\s+authorize-security-group-ingress\\b.*--cidr\\s+0\\.0\\.0\\.0/0"
+    decision: "AUDIT"
+    confidence: 0.92
+    reason: "AWS EC2 security group ingress rule with CIDR 0.0.0.0/0 — this opens a port to all internet traffic. AI agents provisioning infrastructure may expose SSH (22), RDP (3389), or database ports (3306, 5432) to the internet, creating attack surface. (OWASP LLM08, CWE-284)"
+    tests:
+      tp:
+        - "aws ec2 authorize-security-group-ingress --group-id sg-12345 --protocol tcp --port 22 --cidr 0.0.0.0/0"
+        - "aws ec2 authorize-security-group-ingress --group-id sg-abcde --protocol tcp --port 3389 --cidr 0.0.0.0/0"
+      tn:
+        - "aws ec2 authorize-security-group-ingress --group-id sg-12345 --protocol tcp --port 443 --cidr 10.0.0.0/8"
+        - "aws ec2 describe-security-groups --group-id sg-12345"
+
+  # --- AUDIT: GCloud IAM service account creation ---
+  # gcloud iam service-accounts create my-svc-acct --display-name "My Service Account"
+  # Creating service accounts establishes persistent cloud identities that can be granted
+  # broad permissions. AI agents may create service accounts as a persistence mechanism.
+  - id: "ts-audit-gcloud-iam-service-account-create"
+    taxonomy: "privilege-escalation/agent-containment/agent-credential-scope-abuse"
+    match:
+      command_regex: "gcloud\\s+iam\\s+service-accounts\\s+create\\b"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "gcloud iam service-accounts create — creating a GCP service account establishes a persistent cloud identity. AI agents may create service accounts to establish persistence or as a stepping stone for privilege escalation. Always review service account creation and key issuance. (OWASP LLM06, MITRE T1098)"
+    tests:
+      tp:
+        - "gcloud iam service-accounts create backdoor-sa --display-name 'backdoor'"
+        - "gcloud iam service-accounts create ci-deploy --project my-project"
+      tn:
+        - "gcloud iam service-accounts list"
+        - "gcloud iam service-accounts describe sa@project.iam.gserviceaccount.com"
+
   # --- AUDIT: Kubernetes scale-up to very high replica counts ---
   # kubectl scale deployment web --replicas=500
   - id: "ts-audit-kubectl-scale-bulk"
@@ -11116,13 +11195,14 @@ rules:
   - id: "ts-audit-aws-iam-privilege-creation"
     taxonomy: "privilege-escalation/agent-containment/agent-credential-scope-abuse"
     match:
-      command_regex: "aws\\s+iam\\s+(create-access-key|attach-role-policy|attach-user-policy|put-user-policy|put-role-policy|create-role|add-user-to-group|create-policy)\\b"
+      command_regex: "aws\\s+iam\\s+(create-access-key|create-user|attach-role-policy|attach-user-policy|put-user-policy|put-role-policy|create-role|add-user-to-group|create-policy)\\b"
     decision: "AUDIT"
     confidence: 0.90
-    reason: "aws iam privilege creation/modification — creating new access keys or attaching policies exceeds the scope of deployment or development credentials, granting persistent elevated access. OWASP LLM06, MITRE T1098/T1548."
+    reason: "aws iam privilege creation/modification — creating new access keys, users, or attaching policies exceeds the scope of deployment or development credentials, granting persistent elevated access. OWASP LLM06, MITRE T1098/T1548."
     tests:
       tp:
         - "aws iam create-access-key --user-name admin"
+        - "aws iam create-user --user-name backdoor-svc"
         - "aws iam attach-role-policy --role-name dev --policy-arn arn:aws:iam::policy/Admin"
       tn:
         - "aws iam list-users"
