@@ -13558,10 +13558,10 @@ rules:
   - id: "ts-block-procsys-write-security"
     taxonomy: "privilege-escalation/command-execution/sysctl-kernel-manipulation"
     match:
-      command_regex: "(echo|printf|tee|cat|dd)\\s+.*>\\s*/proc/sys/(kernel/(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq|dmesg_restrict|perf_event_paranoid|unprivileged_bpf_disabled)|kernel/yama/ptrace_scope|user/max_user_namespaces|net/ipv[46]/(ip_forward|conf/\\S+/(accept_redirects|rp_filter|forwarding))|vm/mmap_rnd_bits)"
+      command_regex: "((echo|printf|cat|dd)\\s+.*>\\s*|(.*\\|\\s*)?tee\\s+)/proc/sys/(kernel/(randomize_va_space|core_pattern|kptr_restrict|modules_disabled|sysrq|dmesg_restrict|perf_event_paranoid|unprivileged_bpf_disabled)|kernel/yama/ptrace_scope|user/max_user_namespaces|net/ipv[46]/(ip_forward|conf/\\S+/(accept_redirects|rp_filter|forwarding))|vm/mmap_rnd_bits)"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Same impact as sysctl -w but harder to audit. Covers ASLR, ptrace scope, dmesg restriction, eBPF, perf events, and namespace limits. CWE-250."
+    reason: "Direct write to /proc/sys/ security-critical parameter — bypasses sysctl command logging. Covers echo/printf/dd redirects and tee-as-writer (both pipe and heredoc variants). Same impact as sysctl -w but harder to audit. CWE-250."
     tests:
       tp:
         - "echo 0 > /proc/sys/kernel/randomize_va_space"
@@ -13570,6 +13570,8 @@ rules:
         - "echo 0 > /proc/sys/kernel/dmesg_restrict"
         - "echo -1 > /proc/sys/kernel/perf_event_paranoid"
         - "echo 0 > /proc/sys/kernel/unprivileged_bpf_disabled"
+        - "tee /proc/sys/net/ipv4/conf/eth0/rp_filter <<< 0"
+        - "printf '0' | tee /proc/sys/kernel/randomize_va_space"
       tn:
         - "cat /proc/sys/kernel/randomize_va_space"
         - "cat /proc/sys/kernel/yama/ptrace_scope"
@@ -13644,14 +13646,15 @@ rules:
   - id: "ts-block-binfmt-register"
     taxonomy: "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack"
     match:
-      command_regex: "(echo|printf|tee|cat)\\s+.*>\\s*/proc/sys/fs/binfmt_misc/register"
+      command_regex: "((echo|printf|cat)\\s+.*>\\s*|(.*\\|\\s*)?tee\\s+)/proc/sys/fs/binfmt_misc/register"
     decision: "BLOCK"
     confidence: 0.96
-    reason: "Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. All matching files system-wide will be routed through the attacker's handler. CWE-427, MITRE T1546.004."
+    reason: "Writing to binfmt_misc register — registers a custom interpreter for a file format, enabling transparent code interception. Covers redirect and tee-as-writer (pipe and heredoc) variants. CWE-427, MITRE T1546.004."
     tests:
       tp:
         - "echo ':evil:M::ELF:/tmp/evil:' > /proc/sys/fs/binfmt_misc/register"
         - "printf ':hook:E::py::/tmp/evil-python:' > /proc/sys/fs/binfmt_misc/register"
+        - "tee /proc/sys/fs/binfmt_misc/register <<< ':sh:E::sh::/tmp/evil_sh:'"
       tn:
         - "cat /proc/sys/fs/binfmt_misc/status"
 
