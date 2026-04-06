@@ -105,8 +105,6 @@ references:
       url: "https://spec.modelcontextprotocol.io/specification/basic/lifecycle/"
     - title: "OWASP LLM08 — Excessive Agency"
       url: "https://genai.owasp.org/llmrisk/llm08-excessive-agency/"
-    - title: "MITRE AML.T0043 — Craft Adversarial Data"
-      url: "https://atlas.mitre.org/techniques/AML.T0043"
     - title: "RFC 7457 — Summarizing Known Attacks on TLS"
       url: "https://www.rfc-editor.org/rfc/rfc7457"
 
