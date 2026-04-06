@@ -9,10 +9,11 @@ const (
 )
 
 type Policy struct {
-	Version  string   `yaml:"version"`
-	Defaults Defaults `yaml:"defaults"`
-	Network  Network  `yaml:"network"`
-	Rules    []Rule   `yaml:"rules"`
+	Version    string      `yaml:"version"`
+	Defaults   Defaults    `yaml:"defaults"`
+	Network    Network     `yaml:"network"`
+	Rules      []Rule      `yaml:"rules"`
+	DataLabels []DataLabel `yaml:"data_labels,omitempty"`
 }
 
 type Defaults struct {
@@ -141,6 +142,34 @@ func (s *StringOrList) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 	*s = list
 	return nil
+}
+
+// DataLabel defines a customer-configured sensitive data pattern.
+// Used by both the shell analyzer pipeline and MCP content scanning.
+type DataLabel struct {
+	ID         string             `yaml:"id"`
+	Name       string             `yaml:"name"`
+	Decision   Decision           `yaml:"decision"`
+	Confidence float64            `yaml:"confidence,omitempty"`
+	Reason     string             `yaml:"reason"`
+	Patterns   []DataLabelPattern `yaml:"patterns"`
+	ScanScope  *DataLabelScope    `yaml:"scan_scope,omitempty"`
+}
+
+// DataLabelPattern defines a single detection method within a data label.
+type DataLabelPattern struct {
+	Regex         string   `yaml:"regex,omitempty"`
+	Keywords      []string `yaml:"keywords,omitempty"`
+	CaseSensitive bool     `yaml:"case_sensitive,omitempty"`
+	Context       string   `yaml:"context,omitempty"`
+	Validator     string   `yaml:"validator,omitempty"`
+}
+
+// DataLabelScope controls which tool calls are scanned by a data label.
+type DataLabelScope struct {
+	Tools        []string `yaml:"tools,omitempty"`
+	Directions   []string `yaml:"directions,omitempty"`
+	MaxScanBytes int      `yaml:"max_scan_bytes,omitempty"`
 }
 
 type EvalResult struct {

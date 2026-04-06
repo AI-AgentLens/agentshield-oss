@@ -12,13 +12,14 @@ import (
 // Pack extends Policy with metadata for policy packs.
 // We avoid yaml:",inline" because Policy also has a `version` field.
 type Pack struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	PackVersion string   `yaml:"version"`
-	Author      string   `yaml:"author"`
-	Defaults    Defaults `yaml:"defaults"`
-	Network     Network  `yaml:"network"`
-	Rules       []Rule   `yaml:"rules"`
+	Name        string      `yaml:"name"`
+	Description string      `yaml:"description"`
+	PackVersion string      `yaml:"version"`
+	Author      string      `yaml:"author"`
+	Defaults    Defaults    `yaml:"defaults"`
+	Network     Network     `yaml:"network"`
+	Rules       []Rule      `yaml:"rules"`
+	DataLabels  []DataLabel `yaml:"data_labels,omitempty"`
 }
 
 // PackInfo is a summary of a pack for listing.
@@ -181,6 +182,9 @@ func mergePackInto(target *Policy, pack *Pack) {
 	// Append rules (pack rules run after base rules)
 	target.Rules = append(target.Rules, pack.Rules...)
 
+	// Append data labels
+	target.DataLabels = append(target.DataLabels, pack.DataLabels...)
+
 	// Union protected paths
 	existingPaths := make(map[string]bool)
 	for _, p := range target.Defaults.ProtectedPaths {
@@ -222,6 +226,9 @@ func clonePolicy(p *Policy) *Policy {
 
 	clone.Rules = make([]Rule, len(p.Rules))
 	copy(clone.Rules, p.Rules)
+
+	clone.DataLabels = make([]DataLabel, len(p.DataLabels))
+	copy(clone.DataLabels, p.DataLabels)
 
 	return clone
 }

@@ -13,12 +13,13 @@ import (
 // MessageHandler encapsulates the shared MCP message evaluation logic
 // used by both stdio and HTTP transport proxies.
 type MessageHandler struct {
-	Evaluator     *PolicyEvaluator
-	OnAudit       AuditFunc
-	Stderr        io.Writer
-	ServerName    string              // identifies the downstream MCP server in audit entries
-	SchemaDrift   *SchemaDriftScanner // optional; nil disables schema drift detection
-	ToolRegistry  *ToolRegistry       // optional; nil disables cross-server collision detection
+	Evaluator        *PolicyEvaluator
+	OnAudit          AuditFunc
+	Stderr           io.Writer
+	ServerName       string              // identifies the downstream MCP server in audit entries
+	SchemaDrift      *SchemaDriftScanner // optional; nil disables schema drift detection
+	ToolRegistry     *ToolRegistry       // optional; nil disables cross-server collision detection
+	DataLabelScanner *DataLabelScanner   // optional; nil disables data label scanning
 }
 
 // BatchLargeAuditThreshold is the batch size above which AgentShield emits an AUDIT
@@ -109,6 +110,30 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 				params.Name, len(contentResult.Findings))
 			for _, f := range contentResult.Findings {
 				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (arg: %s)\n", f.Signal, f.Detail, f.ArgName)
+			}
+		}
+	}
+
+	// If still not blocked, scan for customer-defined sensitive data labels
+	if result.Decision != "BLOCK" && h.DataLabelScanner != nil {
+		dlResult := h.DataLabelScanner.ScanToolCallContent(params.Name, params.Arguments)
+		if dlResult.Blocked {
+			result.Decision = "BLOCK"
+			result.TriggeredRules = append(result.TriggeredRules, "data-label-scan")
+			for _, f := range dlResult.Findings {
+				result.TriggeredRules = append(result.TriggeredRules, "datalabel:"+f.LabelID)
+				result.Reasons = append(result.Reasons, f.LabelName+": "+f.Detail+" (arg: "+f.ArgName+")")
+			}
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by data label scan: %s (%d matches)\n",
+				params.Name, len(dlResult.Findings))
+			for _, f := range dlResult.Findings {
+				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (arg: %s)\n", f.LabelID, f.Detail, f.ArgName)
+			}
+		} else if len(dlResult.Findings) > 0 {
+			// AUDIT-level findings
+			for _, f := range dlResult.Findings {
+				result.TriggeredRules = append(result.TriggeredRules, "datalabel:"+f.LabelID)
+				result.Reasons = append(result.Reasons, f.LabelName+": "+f.Detail+" (arg: "+f.ArgName+")")
 			}
 		}
 	}

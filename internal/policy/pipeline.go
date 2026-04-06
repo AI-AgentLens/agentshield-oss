@@ -1,9 +1,12 @@
 package policy
 
 import (
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/security-researcher-ca/agentshield/internal/analyzer"
+	"github.com/security-researcher-ca/agentshield/internal/datalabel"
 	"github.com/security-researcher-ca/agentshield/internal/guardian"
 )
 
@@ -81,8 +84,21 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
 	stateful.SetUserRules(statefulRules)
 	guard := guardian.NewGuardianAnalyzer(guardian.NewHeuristicProvider())
 
+	analyzers := []analyzer.Analyzer{regex, structural, semantic, dataflow, stateful, guard}
+
+	// Conditionally add data label analyzer (Layer 7) when labels are configured.
+	// Zero cost when DataLabels is empty — no analyzer instantiated.
+	if len(pol.DataLabels) > 0 {
+		dlConfigs := convertDataLabels(pol.DataLabels)
+		if engine, err := datalabel.NewEngine(dlConfigs); err != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield] warning: data label engine init failed: %v\n", err)
+		} else if engine != nil {
+			analyzers = append(analyzers, analyzer.NewDataLabelAnalyzer(engine))
+		}
+	}
+
 	return analyzer.NewRegistry(
-		[]analyzer.Analyzer{regex, structural, semantic, dataflow, stateful, guard},
+		analyzers,
 		analyzer.NewCombiner(analyzer.StrategyMostRestrictive),
 	)
 }
@@ -177,6 +193,43 @@ func convertStatefulRule(r Rule) analyzer.StatefulRule {
 		Chain:      chain,
 		Negate:     sm.Negate,
 	}
+}
+
+// convertDataLabels converts policy.DataLabel YAML types to engine-side
+// datalabel.DataLabelConfig types (crossing the package boundary).
+func convertDataLabels(labels []DataLabel) []datalabel.DataLabelConfig {
+	configs := make([]datalabel.DataLabelConfig, len(labels))
+	for i, dl := range labels {
+		cfg := datalabel.DataLabelConfig{
+			ID:         dl.ID,
+			Name:       dl.Name,
+			Decision:   string(dl.Decision),
+			Confidence: dl.Confidence,
+			Reason:     dl.Reason,
+			Patterns:   make([]datalabel.PatternConfig, len(dl.Patterns)),
+		}
+		if cfg.Confidence == 0 {
+			cfg.Confidence = 0.90
+		}
+		for j, p := range dl.Patterns {
+			cfg.Patterns[j] = datalabel.PatternConfig{
+				Regex:         p.Regex,
+				Keywords:      p.Keywords,
+				CaseSensitive: p.CaseSensitive,
+				Context:       p.Context,
+				Validator:     p.Validator,
+			}
+		}
+		if dl.ScanScope != nil {
+			cfg.ScanScope = datalabel.ScanScopeConfig{
+				Tools:        dl.ScanScope.Tools,
+				Directions:   dl.ScanScope.Directions,
+				MaxScanBytes: dl.ScanScope.MaxScanBytes,
+			}
+		}
+		configs[i] = cfg
+	}
+	return configs
 }
 
 // NewEngineWithAnalyzers creates an engine with the full analyzer pipeline enabled.

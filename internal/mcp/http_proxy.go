@@ -39,6 +39,9 @@ type HTTPProxyConfig struct {
 	// SchemaDriftCacheDir overrides the directory used for the schema drift cache.
 	// When empty, defaults to ~/.agentshield. Set to t.TempDir() in tests.
 	SchemaDriftCacheDir string
+
+	// DataLabelScanner is an optional data label scanner for customer-defined PII patterns.
+	DataLabelScanner *DataLabelScanner
 }
 
 // HTTPProxy is a transparent MCP Streamable HTTP reverse proxy that intercepts
@@ -68,12 +71,13 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:    cfg.Evaluator,
-			OnAudit:      cfg.OnAudit,
-			Stderr:       stderr,
-			ServerName:   cfg.ServerName,
-			SchemaDrift:  newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
-			ToolRegistry: newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
+			Evaluator:        cfg.Evaluator,
+			OnAudit:          cfg.OnAudit,
+			Stderr:           stderr,
+			ServerName:       cfg.ServerName,
+			SchemaDrift:      newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			ToolRegistry:     newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
+			DataLabelScanner: cfg.DataLabelScanner,
 		},
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // generous timeout for long-running tool calls

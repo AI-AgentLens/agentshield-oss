@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/datalabel"
 	"github.com/security-researcher-ca/agentshield/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -145,13 +146,26 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		mcpPolPath, len(mcpPolicy.BlockedTools), len(mcpPolicy.Rules), len(mcpPolicy.ValueLimits))
 	fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] started at %s\n", time.Now().UTC().Format(time.RFC3339))
 
+	// Build data label scanner if labels are configured
+	var dlScanner *mcp.DataLabelScanner
+	if len(mcpPolicy.DataLabels) > 0 {
+		dlConfigs := convertMCPDataLabels(mcpPolicy.DataLabels)
+		if engine, dlErr := datalabel.NewEngine(dlConfigs); dlErr != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] warning: data label engine init failed: %v\n", dlErr)
+		} else if engine != nil {
+			dlScanner = mcp.NewDataLabelScanner(engine)
+			fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] data label scanner: %d labels loaded\n", len(mcpPolicy.DataLabels))
+		}
+	}
+
 	proxy := mcp.NewHTTPProxy(mcp.HTTPProxyConfig{
-		UpstreamURL: httpUpstreamURL,
-		ListenAddr:  listenAddr,
-		Evaluator:   evaluator,
-		OnAudit:     onAudit,
-		Stderr:      os.Stderr,
-		ServerName:  deriveServerNameFromURL(httpUpstreamURL),
+		UpstreamURL:      httpUpstreamURL,
+		ListenAddr:       listenAddr,
+		Evaluator:        evaluator,
+		OnAudit:          onAudit,
+		Stderr:           os.Stderr,
+		ServerName:       deriveServerNameFromURL(httpUpstreamURL),
+		DataLabelScanner: dlScanner,
 	})
 
 	// Handle graceful shutdown on SIGINT/SIGTERM

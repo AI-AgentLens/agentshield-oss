@@ -1,0 +1,43 @@
+name: "PII Defaults"
+description: "Common PII patterns for data label scanning. Enable by removing the underscore prefix from the filename."
+version: "1.0.0"
+author: "AgentShield"
+
+data_labels:
+  - id: "pii-ssn"
+    name: "Social Security Number"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Social Security Number pattern detected in AI agent data flow"
+    patterns:
+      - regex: '\b\d{3}-\d{2}-\d{4}\b'
+        context: "ssn|social.security|tax.id"
+      - regex: '\b\d{9}\b'
+        context: "ssn|social.security|tax.id"
+
+  - id: "pii-credit-card"
+    name: "Credit Card Number"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Credit card number detected in AI agent data flow"
+    patterns:
+      # Visa, Mastercard, Amex
+      - regex: '\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b'
+        validator: "luhn"
+
+  - id: "pii-email"
+    name: "Email Address"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "Email address detected in AI agent data flow"
+    patterns:
+      - regex: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+
+  - id: "pii-phone-us"
+    name: "US Phone Number"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "US phone number pattern detected in AI agent data flow"
+    patterns:
+      - regex: '\b(?:\+1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
+        context: "phone|tel|call|mobile|cell|contact"

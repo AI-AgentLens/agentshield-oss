@@ -29,6 +29,7 @@ type MCPPack struct {
 	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
 	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
 	SemanticRules    []MCPSemanticRule   `yaml:"semantic_rules,omitempty"`
+	DataLabels       []policy.DataLabel  `yaml:"data_labels,omitempty"`
 }
 
 // MCPPackInfo describes a loaded MCP pack for reporting.
@@ -137,7 +138,7 @@ func LoadMCPPacks(packsDir string, base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, 
 			continue
 		}
 
-		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules) + len(pack.SemanticRules)
+		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules) + len(pack.SemanticRules) + len(pack.DataLabels)
 		info := MCPPackInfo{
 			Name:        pack.Name,
 			Description: pack.Description,
@@ -208,6 +209,7 @@ func mergeMCPPack(target *MCPPolicy, pack *MCPPack) {
 	target.ValueLimits = append(target.ValueLimits, pack.ValueLimits...)
 	target.StructuralRules = append(target.StructuralRules, pack.StructuralRules...)
 	target.SemanticRules = append(target.SemanticRules, pack.SemanticRules...)
+	target.DataLabels = append(target.DataLabels, pack.DataLabels...)
 }
 
 // cloneMCPPolicy creates a shallow copy of the policy with copied slices.
@@ -222,6 +224,7 @@ func cloneMCPPolicy(p *MCPPolicy) *MCPPolicy {
 	c.ValueLimits = append(c.ValueLimits, p.ValueLimits...)
 	c.StructuralRules = append(c.StructuralRules, p.StructuralRules...)
 	c.SemanticRules = append(c.SemanticRules, p.SemanticRules...)
+	c.DataLabels = append(c.DataLabels, p.DataLabels...)
 	return c
 }
 

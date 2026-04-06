@@ -20,6 +20,7 @@ type MCPPolicy struct {
 	ValueLimits      []ValueLimitRule    `yaml:"value_limits,omitempty"`
 	StructuralRules  []MCPStructuralRule `yaml:"structural_rules,omitempty"`
 	SemanticRules    []MCPSemanticRule   `yaml:"semantic_rules,omitempty"`
+	DataLabels       []policy.DataLabel  `yaml:"data_labels,omitempty"`
 }
 
 // MCPDefaults defines the default decision for MCP tool calls.

@@ -55,6 +55,10 @@ type ProxyConfig struct {
 	// When empty, defaults to ~/.agentshield. Set to t.TempDir() in tests to avoid
 	// polluting the real cache and ensure test isolation.
 	SchemaDriftCacheDir string
+
+	// DataLabelScanner is an optional data label scanner for customer-defined PII patterns.
+	// When nil, data label scanning is disabled.
+	DataLabelScanner *DataLabelScanner
 }
 
 // Proxy is a transparent MCP stdio proxy that intercepts tools/call requests.
@@ -75,12 +79,13 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 		cfg:    cfg,
 		stderr: stderr,
 		handler: &MessageHandler{
-			Evaluator:    cfg.Evaluator,
-			OnAudit:      cfg.OnAudit,
-			Stderr:       stderr,
-			ServerName:   cfg.ServerName,
-			SchemaDrift:  newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
-			ToolRegistry: newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
+			Evaluator:        cfg.Evaluator,
+			OnAudit:          cfg.OnAudit,
+			Stderr:           stderr,
+			ServerName:       cfg.ServerName,
+			SchemaDrift:      newSchemaDriftScannerWithDir(cfg.SchemaDriftCacheDir),
+			ToolRegistry:     newToolRegistryWithDir(cfg.SchemaDriftCacheDir),
+			DataLabelScanner: cfg.DataLabelScanner,
 		},
 	}
 }

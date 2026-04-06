@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/security-researcher-ca/agentshield/internal/datalabel"
 	"github.com/security-researcher-ca/agentshield/internal/mcp"
+	"github.com/security-researcher-ca/agentshield/internal/policy"
 	"github.com/spf13/cobra"
 )
 
@@ -127,12 +129,25 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 		mcpPolPath, len(mcpPolicy.BlockedTools), len(mcpPolicy.Rules))
 	fmt.Fprintf(os.Stderr, "[AgentShield MCP] started at %s\n", time.Now().UTC().Format(time.RFC3339))
 
+	// Build data label scanner if labels are configured
+	var dlScanner *mcp.DataLabelScanner
+	if len(mcpPolicy.DataLabels) > 0 {
+		dlConfigs := convertMCPDataLabels(mcpPolicy.DataLabels)
+		if engine, dlErr := datalabel.NewEngine(dlConfigs); dlErr != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield MCP] warning: data label engine init failed: %v\n", dlErr)
+		} else if engine != nil {
+			dlScanner = mcp.NewDataLabelScanner(engine)
+			fmt.Fprintf(os.Stderr, "[AgentShield MCP] data label scanner: %d labels loaded\n", len(mcpPolicy.DataLabels))
+		}
+	}
+
 	proxy := mcp.NewProxy(mcp.ProxyConfig{
-		ServerCmd:  serverCmd,
-		Evaluator:  evaluator,
-		OnAudit:    onAudit,
-		Stderr:     os.Stderr,
-		ServerName: serverName,
+		ServerCmd:        serverCmd,
+		Evaluator:        evaluator,
+		OnAudit:          onAudit,
+		Stderr:           os.Stderr,
+		ServerName:       serverName,
+		DataLabelScanner: dlScanner,
 	})
 
 	return proxy.Run()
@@ -160,4 +175,41 @@ func deriveServerName(cmd []string) string {
 		}
 	}
 	return base
+}
+
+// convertMCPDataLabels converts policy.DataLabel types from MCP policy to
+// datalabel.DataLabelConfig types for the detection engine.
+func convertMCPDataLabels(labels []policy.DataLabel) []datalabel.DataLabelConfig {
+	configs := make([]datalabel.DataLabelConfig, len(labels))
+	for i, dl := range labels {
+		cfg := datalabel.DataLabelConfig{
+			ID:         dl.ID,
+			Name:       dl.Name,
+			Decision:   string(dl.Decision),
+			Confidence: dl.Confidence,
+			Reason:     dl.Reason,
+			Patterns:   make([]datalabel.PatternConfig, len(dl.Patterns)),
+		}
+		if cfg.Confidence == 0 {
+			cfg.Confidence = 0.90
+		}
+		for j, p := range dl.Patterns {
+			cfg.Patterns[j] = datalabel.PatternConfig{
+				Regex:         p.Regex,
+				Keywords:      p.Keywords,
+				CaseSensitive: p.CaseSensitive,
+				Context:       p.Context,
+				Validator:     p.Validator,
+			}
+		}
+		if dl.ScanScope != nil {
+			cfg.ScanScope = datalabel.ScanScopeConfig{
+				Tools:        dl.ScanScope.Tools,
+				Directions:   dl.ScanScope.Directions,
+				MaxScanBytes: dl.ScanScope.MaxScanBytes,
+			}
+		}
+		configs[i] = cfg
+	}
+	return configs
 }
