@@ -9,7 +9,7 @@
 | Terminal rules | 1106 |
 | MCP rules | 736 |
 | Total rules | 1842 |
-| Test cases (TP+TN) | 4005 |
+| Test cases (TP+TN) | 4006 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -1389,7 +1389,7 @@
 | `mcp-sec-block-argocd-config` | BLOCK | mcp_rule | Access to ~/.argocd/config is blocked — contains ArgoCD server tokens granting cluster-admin level access to all Kubernetes clusters managed by ArgoCD. MITRE T1552, T1078. |
 | `mcp-sec-block-argocd-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/argocd/config is blocked — XDG config variant of the ArgoCD CLI config. Contains server tokens granting cluster-admin level access to all ArgoCD-managed Kubernetes clusters. MITRE T1552, T1078. |
 | `mcp-sec-block-netlify-credentials` | BLOCK | mcp_rule | Access to ~/.config/netlify/config.json is blocked — contains Netlify personal access token with site deployment and environment variable access. MITRE T1552. |
-| `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
+| `mcp-sec-block-heroku-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/netrc (or netrc.json) is blocked — contains Heroku API token in netrc format, granting full app management access. MITRE T1552. |
 | `mcp-sec-block-heroku-json-credentials` | BLOCK | mcp_rule | Access to ~/.config/heroku/credentials.json is blocked — newer Heroku CLI (v7+) stores OAuth token in JSON format, granting full app management access (config vars, dynos, add-ons). MITRE T1552. |
 | `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
 | `mcp-sec-block-vercel-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Vercel config directory (~/.config/vercel/) is blocked — contains the same auth token as ~/.vercel/auth.json. MITRE T1552. |
@@ -1968,7 +1968,7 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
-| data-exfiltration | 323 | 208 | 531 |
+| data-exfiltration | 323 | 209 | 532 |
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 86 | 68 | 154 |
 | persistence-evasion | 337 | 215 | 552 |
@@ -1976,5 +1976,5 @@
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 471 | 327 | 798 |
-| **Total** | **2409** | **1596** | **4005** |
+| **Total** | **2409** | **1597** | **4006** |
 
