@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1106 |
+| Terminal rules | 1108 |
 | MCP rules | 736 |
-| Total rules | 1842 |
-| Test cases (TP+TN) | 4006 |
+| Total rules | 1844 |
+| Test cases (TP+TN) | 4018 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -442,7 +442,7 @@
 | `gr-block-gh-pr-merge-admin` | BLOCK | regex | gh pr merge --admin bypasses required branch protection reviews via admin override. An AI agent using this flag removes the human verification gate entirely, allowing unreviewed code to reach production (OWASP LLM06, MITRE ATLAS AML.T0056). |
 | `gr-audit-gh-pr-self-approve` | AUDIT | regex | gh pr review --approve — an AI agent approving a pull request removes the independent human review requirement. When agents author and self-approve PRs, no human verifies the changes before merge (OWASP LLM06). |
 
-### persistence-evasion (157 rules)
+### persistence-evasion (159 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -475,6 +475,8 @@
 | `ts-block-launchd-user-persist-tee` | BLOCK | regex | Writing a plist to ~/Library/LaunchAgents/ via tee registers a persistent macOS LaunchAgent that auto-starts on user login (MITRE T1543.001). |
 | `ts-block-launchd-system-persist` | BLOCK | regex | Writing a plist to /Library/LaunchDaemons/ creates a system-wide macOS LaunchDaemon that runs as root on every boot (MITRE T1543.004). Critical persistence vector requiring root access. |
 | `ts-audit-systemctl` | AUDIT | prefix | Service management flagged for review. |
+| `ts-audit-git-author-config` | AUDIT | regex | git author identity change (config write, -c inline override, or --author) — may be identity forgery during an agent session. Legitimate developer use is possible; flagged for human review. MITRE T1036. |
+| `ts-audit-git-author-env` | AUDIT | regex | GIT_AUTHOR/COMMITTER env var set before git commit — may forge commit identity during agent session. MITRE T1036. |
 | `ts-struct-block-crontab-modify` | BLOCK | structural | crontab -e (edit) or -r (remove/reinstall) modifies cron schedules. AI agents must not manage persistent scheduled tasks. |
 | `ts-struct-block-ssh-keygen-noninteractive` | BLOCK | structural | ssh-keygen with -N flag runs non-interactively. AI agents generating SSH keys is a persistence and lateral movement risk. |
 | `ts-block-ssh-keygen-piped` | BLOCK | regex | Piping empty passphrase to ssh-keygen bypasses interactive prompt, generating passwordless SSH keys for lateral movement. |
@@ -1971,10 +1973,10 @@
 | data-exfiltration | 323 | 209 | 532 |
 | destructive-ops | 134 | 93 | 227 |
 | governance-risk | 86 | 68 | 154 |
-| persistence-evasion | 337 | 215 | 552 |
+| persistence-evasion | 344 | 220 | 564 |
 | privilege-escalation | 302 | 182 | 484 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
 | unauthorized-execution | 471 | 327 | 798 |
-| **Total** | **2409** | **1597** | **4006** |
+| **Total** | **2416** | **1602** | **4018** |
 
