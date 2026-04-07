@@ -1,0 +1,75 @@
+id: "privilege-escalation/cloud-privilege-escalation/cloud-iam-key-creation"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "Cloud Privilege Escalation"
+category_id: "5.12"
+name: "Cloud IAM Key and Credential Creation"
+risk_level: "critical"
+
+abstract: |
+  An AI agent programmatically creates long-lived cloud IAM credentials (AWS access
+  keys, GCP service account keys, Azure role assignments) via cloud provider APIs,
+  establishing persistent unauthorized access that survives password resets and
+  traditional credential rotation.
+
+explanation: |
+  Cloud IAM APIs expose REST endpoints for creating access keys, service accounts,
+  and role bindings. An agent with an existing cloud credential (stolen API key,
+  instance metadata token, or environment variable) can call these APIs to mint
+  fresh credentials under attacker control:
+
+  - **AWS**: `CreateAccessKey`, `CreateUser`, `AttachRolePolicy`, `PutUserPolicy` via
+    `iam.amazonaws.com` — creates long-lived access key pairs that don't expire
+    by default and survive password reset.
+  - **GCP**: `serviceAccounts.keys.create` via `iam.googleapis.com` — generates a
+    downloadable service account JSON key with no automatic expiry.
+  - **Azure**: Role assignments via `management.azure.com/roleAssignments` grant
+    persistent RBAC access to Azure resources under attacker-controlled identity.
+
+  Unlike stolen credentials, newly created keys:
+  - Don't trigger detection rules based on credential reuse from unusual IPs
+  - Persist indefinitely if the attacker uses them from expected sources
+  - Survive rotation of the original credential used to create them
+  - Are indistinguishable from legitimate programmatic access
+
+  Attack chain: prompt injection instructs the agent to "create a backup service
+  account" → agent POSTs to cloud IAM API using existing environment credential
+  → attacker receives newly created key → persistent cloud access established.
+
+  Agents have no legitimate autonomous need to create cloud IAM keys or role
+  assignments. Infrastructure provisioning must go through IaC workflows
+  (Terraform, Pulumi) with human review, not direct API calls from agent sessions.
+
+recommendation: |
+  - Block MCP network tool calls to cloud IAM key/credential creation API endpoints.
+  - Apply least-privilege cloud credentials to agent sessions — exclude IAM write
+    permissions from tokens provided to AI agents.
+  - Enable CloudTrail (AWS), Cloud Audit Logs (GCP), or Azure Activity Logs and
+    alert on IAM key creation events from automated sources.
+  - Require MFA for cloud IAM key creation operations.
+
+examples:
+  bad:
+    - "http_request(url='https://iam.amazonaws.com/?Action=CreateAccessKey&UserName=agent', method='POST')"
+    - "http_request(url='https://iam.googleapis.com/v1/projects/prod/serviceAccounts/sa@proj.iam.gserviceaccount.com/keys', method='POST')"
+    - "http_request(url='https://iam.amazonaws.com/?Action=AttachRolePolicy&RoleName=dev&PolicyArn=arn:aws:iam::aws:policy/AdministratorAccess')"
+    - "http_request(url='https://management.azure.com/subscriptions/xxx/providers/Microsoft.Authorization/roleAssignments/yyy', method='PUT')"
+  good:
+    - "http_request(url='https://iam.amazonaws.com/?Action=ListUsers')"
+    - "http_request(url='https://iam.amazonaws.com/?Action=GetUser&UserName=agent')"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM09"]
+  iso-27001-2022: ["A.5.10", "A.8.3", "A.8.16"]
+  eu-ai-act-2024: ["Art.9", "Art.15"]
+  soc2-type2: ["CC6.3", "CC6.6", "CC6.8"]
+  iso-42001-2023: ["A.8.4"]
+  mitre_atlas: ["AML.T0058"]
+
+references:
+  mitre_attack: ["T1098", "T1136.003"]
+  cwe: ["CWE-250", "CWE-269"]
+
+analyzers: ["mcp"]
+related_rules: ["mcp-privesc-block-aws-iam-create-api", "mcp-privesc-block-gcp-iam-key-api", "mcp-privesc-block-azure-role-assignment"]

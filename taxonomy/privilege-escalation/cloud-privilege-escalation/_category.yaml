@@ -1,0 +1,8 @@
+id: "5.12"
+name: "Cloud Privilege Escalation"
+kingdom_id: 5
+description: >
+  Techniques that abuse cloud provider APIs to create persistent, privileged credentials
+  or role bindings beyond the agent's intended scope — enabling long-lived unauthorized
+  access to cloud resources that survives password resets and traditional credential
+  rotation. Includes IAM key creation, service account key generation, and role attachment.

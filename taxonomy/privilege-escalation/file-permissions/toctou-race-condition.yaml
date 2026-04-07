@@ -1,0 +1,63 @@
+id: "privilege-escalation/file-permissions/toctou-race-condition"
+version: "1.0.0"
+kingdom: "Privilege Escalation"
+kingdom_id: 5
+category: "File Permissions"
+category_id: "5.2"
+name: "TOCTOU Race Condition Enablement via Kernel Parameter"
+risk_level: "high"
+
+abstract: |
+  Disabling kernel filesystem security parameters (`/proc/sys/fs/protected_hardlinks`,
+  `/proc/sys/fs/protected_symlinks`) removes OS-level TOCTOU (Time-Of-Check to
+  Time-Of-Use) race condition protections, enabling privilege escalation attacks
+  against setuid binaries and world-writable directories.
+
+explanation: |
+  Linux kernels 3.6+ include `protected_hardlinks` and `protected_symlinks` settings
+  under `/proc/sys/fs/` that prevent a class of TOCTOU race condition attacks:
+
+  - **`protected_hardlinks` (default: 1)**: Prevents non-owner users from creating
+    hard links to files they don't own. Without this, an attacker in a world-writable
+    directory can create a hard link to a setuid root binary, then race the privileged
+    program's open() and write() calls to redirect writes to the target file.
+  - **`protected_symlinks` (default: 1)**: Prevents following symlinks in world-writable
+    sticky directories when the symlink owner differs from the follower. Without this,
+    `ln -s /etc/shadow /tmp/attacker-file` followed by racing a privileged program
+    that opens `/tmp/attacker-file` can achieve unauthorized reads/writes.
+
+  Writing `0` to either file via MCP's write_file tool removes these protections globally
+  and immediately. Even brief disablement during a targeted attack window is sufficient.
+
+  An AI agent performing this action either indicates:
+  - Compromise via prompt injection instructing "disable hardening checks"
+  - Misconfigured security-testing automation running with excessive scope
+
+recommendation: |
+  - Block all MCP writes to `/proc/sys/fs/protected_hardlinks` and
+    `/proc/sys/fs/protected_symlinks`.
+  - Monitor writes to any `/proc/sys/fs/` path for values of `0`.
+  - Ensure agents run with minimal privileges — no direct kernel parameter write access.
+
+examples:
+  bad:
+    - "write_file(path='/proc/sys/fs/protected_hardlinks', content='0')"
+    - "write_file(path='/proc/sys/fs/protected_symlinks', content='0')"
+    - "echo 0 > /proc/sys/fs/protected_hardlinks"
+  good:
+    - "read_file(path='/proc/sys/fs/protected_hardlinks')  # reading is benign"
+    - "sysctl fs.protected_hardlinks  # diagnostic only"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.3", "A.8.9"]
+  eu-ai-act-2024: ["Art.15"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+  iso-42001-2023: ["A.8.4"]
+
+references:
+  mitre_attack: ["T1548.001", "T1068"]
+  cwe: ["CWE-362", "CWE-250", "CWE-732"]
+
+analyzers: ["mcp"]
+related_rules: ["mcp-privesc-block-fs-security-params"]

@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1106 |
-| MCP rules | 733 |
-| Total rules | 1839 |
+| MCP rules | 736 |
+| Total rules | 1842 |
 | Test cases (TP+TN) | 4005 |
 | Kingdoms covered | 10 |
 
@@ -1172,7 +1172,7 @@
 
 ## MCP Rules
 
-### credential-exposure (383 rules)
+### credential-exposure (386 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1255,6 +1255,9 @@
 | `mcp-sec-block-pgcli-config` | BLOCK | mcp_rule | Access to ~/.pgcli/config is blocked — pgcli (PostgreSQL interactive CLI) stores connection DSNs with passwords. MITRE T1552.001. |
 | `mcp-sec-block-pgcli-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/pgcli/config is blocked — XDG variant of pgcli config (PostgreSQL interactive CLI), stores connection DSNs with passwords. MITRE T1552.001. |
 | `mcp-sec-block-usql-config` | BLOCK | mcp_rule | Access to ~/.usql/usqlrc is blocked — usql (universal SQL CLI) stores named connection DSNs with plaintext credentials for PostgreSQL, MySQL, SQLite, and other databases. MITRE T1552.001. |
+| `mcp-sec-block-dbcli-config` | BLOCK | mcp_rule | Access to ~/.dbcli/config is blocked — dbcli stores named database connection strings that include plaintext passwords for PostgreSQL and MySQL. MITRE T1552.001. |
+| `mcp-sec-block-mycli-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/mycli/config is blocked — XDG variant of mycli (MySQL interactive CLI) config, stores DSN connection strings that include plaintext passwords. MITRE T1552.001. |
+| `mcp-sec-block-litecli-config` | BLOCK | mcp_rule | Access to ~/.config/litecli/config is blocked — litecli (SQLite interactive CLI) config may contain paths to sensitive database files and connection history. MITRE T1552.001. |
 | `mcp-sec-block-smb-credentials` | BLOCK | mcp_rule | Access to ~/.smbcredentials is blocked — contains Samba network share credentials (username, password, domain) in plaintext, used for auto-mounting CIFS shares. Exfiltration exposes Active Directory credentials. MITRE T1552.001. |
 | `mcp-sec-block-rclone-conf` | BLOCK | mcp_rule | Access to ~/.rclone.conf is blocked — contains OAuth tokens and API keys for all configured cloud storage providers (AWS S3, Google Drive, Dropbox, OneDrive, Azure). A single exfiltration event grants access to all cloud storage. MITRE T1552.001. |
 | `mcp-sec-block-db-cli-history` | BLOCK | mcp_rule | Access to ~/.mysql_history is blocked — MySQL shell history can contain ALTER USER ... IDENTIFIED BY and GRANT statements with plaintext passwords. MITRE T1552.001. |
