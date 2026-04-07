@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1106 |
-| MCP rules | 727 |
-| Total rules | 1833 |
+| MCP rules | 733 |
+| Total rules | 1839 |
 | Test cases (TP+TN) | 4005 |
 | Kingdoms covered | 10 |
 
@@ -1726,7 +1726,7 @@
 | `mcp-persist-block-emacs-config-write` | BLOCK | structural | MCP write to Emacs startup file — Emacs Lisp in .emacs.d/init.el and package directories executes on every emacs launch, giving full programmatic persistence. MITRE T1546, OWASP LLM06. |
 | `mcp-persist-block-tmux-config-write` | BLOCK | structural | MCP write to tmux config — tmux.conf can execute arbitrary shell commands via run-shell on server startup, achieving persistence triggered on every new terminal session. MITRE T1546, OWASP LLM06. |
 
-### privilege-escalation (24 rules)
+### privilege-escalation (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1751,6 +1751,9 @@
 | `mcp-privesc-block-privileged-container` | BLOCK | structural | Privileged container flag detected in MCP content — breaks container isolation and enables host privilege escalation. MITRE T1611. |
 | `mcp-privesc-audit-sudoers-content` | AUDIT | structural | Sudo configuration content (NOPASSWD or ALL=(ALL)) detected in MCP tool argument — may grant passwordless root access. MITRE T1548.003. |
 | `mcp-privesc-block-linux-capabilities` | BLOCK | structural | Linux capabilities grant detected in MCP content — may enable privilege escalation via capability abuse. MITRE T1548.001. |
+| `mcp-privesc-block-aws-iam-create-api` | BLOCK | structural | MCP request to AWS IAM key/user creation or policy attachment API — newly created IAM keys persist even after credential rotation and evade detection by appearing as fresh legitimate credentials. Agents must not autonomously create cloud identity credentials. MITRE T1098, T1136. |
+| `mcp-privesc-block-gcp-iam-key-create-api` | BLOCK | structural | MCP request to GCP IAM service account key creation or IAM policy write API — GCP service account keys are downloaded as JSON files with no expiry. Agents must not autonomously create cloud identity credentials or modify IAM policies. MITRE T1098, T1136. |
+| `mcp-privesc-block-azure-rbac-assignment-api` | BLOCK | structural | MCP PUT/POST/DELETE to Azure RBAC role assignment endpoint — role assignment writes grant persistent privileged access across subscription resources. Agents must not autonomously modify cloud IAM. MITRE T1098, T1136. |
 | `mcp-recon-block-dev-port-access` | BLOCK | mcp_rule | Access to /dev/port is blocked — this character device provides raw x86 hardware I/O port access, which can be used for privilege escalation and hardware-level attacks. No legitimate AI agent task requires hardware port I/O. MITRE T1068. |
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
@@ -1795,7 +1798,7 @@
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 | `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
 
-### supply-chain (24 rules)
+### supply-chain (27 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1823,6 +1826,9 @@
 | `mcp-sc-block-pypi-upload-api` | BLOCK | structural | MCP request to upload.pypi.org — this endpoint exists exclusively for package uploads (twine, flit, poetry). There is no legitimate read operation on this endpoint. Any AI agent request here is an autonomous package write attempt. MITRE T1195.001. |
 | `mcp-sc-block-cratesio-new-crate` | BLOCK | structural | MCP request to crates.io new-crate endpoint (/api/v1/crates/new) — this path is exclusively for cargo publish operations. An AI agent writing here can inject backdoored Rust crates. MITRE T1195.001. |
 | `mcp-sc-block-rubygems-api-write` | BLOCK | structural | MCP HTTP POST to RubyGems API — gem push uses POST /api/v1/gems to upload packages. An AI agent writing to RubyGems can inject backdoored Ruby dependencies. MITRE T1195.001. |
+| `mcp-sc-block-github-actions-secrets-api` | BLOCK | structural | MCP request to GitHub Actions secrets API — agents have no legitimate need to enumerate or modify CI/CD secrets programmatically. Listing secrets leaks secret topology; writes can overwrite secrets with attacker-controlled values enabling supply chain compromise. MITRE T1552.001, T1195.002. |
+| `mcp-sc-block-gitlab-ci-variables-api` | BLOCK | structural | MCP request to GitLab CI variables API — unlike GitHub Actions (which only expose secret names), GitLab CI variables API returns variable values in plaintext for non-masked variables, enabling direct credential extraction. Agents should never enumerate CI/CD variables programmatically. MITRE T1552.001, T1195.002. |
+| `mcp-sc-block-circleci-envvar-api` | BLOCK | structural | MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002. |
 
 ### unauthorized-execution (102 rules)
 
