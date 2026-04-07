@@ -1917,7 +1917,7 @@ rules:
   # MITRE T1195.001 (Supply Chain Compromise). OWASP LLM06 (Excessive Agency).
 
   - id: "sc-block-npm-publish"
-    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    taxonomy: "supply-chain/package-publish/npm-autonomous-publish"
     match:
       command_regex: "(?i)\\bnpm\\s+publish\\b"
     decision: "BLOCK"
@@ -1931,7 +1931,7 @@ rules:
         - "npm pack"
 
   - id: "sc-block-twine-upload"
-    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    taxonomy: "supply-chain/package-publish/pypi-autonomous-publish"
     match:
       command_regex: "(?i)(\\btwine\\s+upload\\b|\\bpython[0-9.]*\\s+-m\\s+twine\\s+upload\\b)"
     decision: "BLOCK"
@@ -1945,7 +1945,7 @@ rules:
         - "twine check dist/*"
 
   - id: "sc-block-cargo-publish"
-    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    taxonomy: "supply-chain/package-publish/rust-crates-autonomous-publish"
     match:
       command_regex: "(?i)\\bcargo\\s+publish\\b"
     decision: "BLOCK"
@@ -1959,7 +1959,7 @@ rules:
         - "cargo package"
 
   - id: "sc-block-gem-push"
-    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    taxonomy: "supply-chain/package-publish/ruby-gem-autonomous-publish"
     match:
       command_regex: "(?i)\\bgem\\s+push\\b"
     decision: "BLOCK"
@@ -1973,7 +1973,7 @@ rules:
         - "gem build my-gem.gemspec"
 
   - id: "sc-block-nuget-push"
-    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    taxonomy: "supply-chain/package-publish/nuget-autonomous-publish"
     match:
       command_regex: "(?i)(\\bdotnet\\s+nuget\\s+push\\b|\\bnuget\\s+push\\b)"
     decision: "BLOCK"
