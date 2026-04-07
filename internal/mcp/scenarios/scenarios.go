@@ -6864,6 +6864,53 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-privesc-block-fs-security-params",
 		Description:      "read_file protected_hardlinks — read is diagnostic only, must not be BLOCK (issue #1034)",
 	},
+	// === TP/TN: IBM Cloud CLI credentials (issue #1070 — fix ~/.ibmcloud + ~/.bluemix paths) ===
+	// mcp-sec-block-ibmcloud-credentials
+	{
+		ID:               "MCP-TP-1070a",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ibmcloud/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-credential-ibmcloud",
+		Description:      "read_file of ~/.ibmcloud/config.json — default IBM Cloud CLI config with IAM API key. Previously returned AUDIT (wrong path in rule). (mcp-sec-block-ibmcloud-credentials)",
+	},
+	{
+		ID:               "MCP-TP-1070b",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.bluemix/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-credential-ibmcloud",
+		Description:      "read_file of ~/.bluemix/config.json — legacy Bluemix CLI config location, still used by enterprise CI pipelines. (mcp-sec-block-ibmcloud-credentials)",
+	},
+	{
+		ID:               "MCP-TP-1070c",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.ibmcloud/plugins/vpc-infrastructure/config.json", "content": "{}"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-credential-ibmcloud",
+		Description:      "write_file to ~/.ibmcloud/plugins/ — overwriting IBM Cloud plugin config. (mcp-sec-block-ibmcloud-credentials)",
+	},
+	{
+		ID:               "MCP-TN-1070a",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/ibmcloud-setup-guide.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-credential-ibmcloud",
+		Description:      "read_file of project docs about IBM Cloud setup — documentation, not credentials. (mcp-sec-block-ibmcloud-credentials TN)",
+	},
+	{
+		ID:               "MCP-TN-1070b",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/ibm_deploy.sh"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-credential-ibmcloud",
+		Description:      "read_file of project IBM Cloud deployment script — source code, not credentials directory. (mcp-sec-block-ibmcloud-credentials TN)",
+	},
 	// === TP/TN: IDE keybindings write via MCP (issue #1068) ===
 	// mcp-persist-block-ide-keybindings-write
 	{
