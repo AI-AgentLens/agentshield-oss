@@ -101,7 +101,7 @@ compliance:
   iso-27001-2022: ["A.5.34", "A.8.12"]
   eu-ai-act-2024: ["Art.10", "Art.13"]
   soc2-type2: ["CC6.7", "C1.1"]
-  iso-42001-2023: ["A.3.3", "A.7.4", "A.9.3"]
+  iso-42001-2023: ["A.3.3", "A.7.4"]
 
 references:
   mitre_attack: ["T1530", "T1552"]
