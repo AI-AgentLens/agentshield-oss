@@ -1537,6 +1537,151 @@ var GitHookInjectionCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
+// Category 6.X: Git Author Identity Forgery
+// Taxonomy: persistence-evasion/cicd-tampering/git-author-identity-forgery
+// Rules: ts-audit-git-author-config, ts-audit-git-author-env
+// Issue: #1058
+// ---------------------------------------------------------------------------
+
+// GitAuthorForgery tests AUDIT detection of git identity override during agent sessions.
+var GitAuthorForgeryCases = []TestCase{
+
+	// --- TRUE POSITIVES: ts-audit-git-author-config ---
+
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-CONFIG-001",
+		Command:          "git config user.email 'senior-dev@company.com'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git config user.email write — persisted identity override, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-CONFIG-002",
+		Command:          "git config --global user.name 'John Smith'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git config --global user.name write — global identity override, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-CONFIG-003",
+		Command:          "git commit --author='Alice <alice@corp.com>' -m 'fix: security patch'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git commit --author flag — per-commit identity override, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-CONFIG-004",
+		Command:          "git -c user.email=trusted@example.com commit -am 'update'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git -c user.email inline override — ephemeral identity injection, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+
+	// --- TRUE POSITIVES: ts-audit-git-author-env ---
+
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-ENV-001",
+		Command:          "GIT_AUTHOR_EMAIL=cto@company.com git commit -m 'approved'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "GIT_AUTHOR_EMAIL env var injection — forges commit author email, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-ENV-002",
+		Command:          "GIT_AUTHOR_NAME='Trusted Human' git commit -am 'deploy'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "GIT_AUTHOR_NAME env var injection — forges commit author name, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-GIT-AUTHOR-ENV-003",
+		Command:          "GIT_COMMITTER_EMAIL=admin@corp.com git commit -m 'hotfix'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "GIT_COMMITTER_EMAIL injection — forges committer email, must AUDIT.",
+		Tags:             []string{"tp", "git-author", "closes-1058"},
+	},
+
+	// --- TRUE NEGATIVES: ts-audit-git-author-config ---
+	// Default pipeline decision is AUDIT (not ALLOW); these commands must not trigger
+	// the author-forgery rule specifically. They will still get AUDIT from the default.
+
+	{
+		ID:               "TN-TS-AUDIT-GIT-AUTHOR-CONFIG-001",
+		Command:          "git config --list",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git config --list is read-only — must NOT trigger author forgery rule (gets default AUDIT).",
+		Tags:             []string{"tn", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-GIT-AUTHOR-CONFIG-002",
+		Command:          "git config --get user.email",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "git config --get is read-only — must NOT trigger author forgery rule (gets default AUDIT).",
+		Tags:             []string{"tn", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-GIT-AUTHOR-CONFIG-003",
+		Command:          "git commit -m 'feat: add authentication middleware'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "Normal git commit without author override — must NOT trigger author forgery rule (gets default AUDIT).",
+		Tags:             []string{"tn", "git-author", "closes-1058"},
+	},
+
+	// --- TRUE NEGATIVES: ts-audit-git-author-env ---
+
+	{
+		ID:               "TN-TS-AUDIT-GIT-AUTHOR-ENV-001",
+		Command:          "git commit -m 'feat: add login page'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "Normal git commit without env var injection — must NOT trigger env rule (gets default AUDIT).",
+		Tags:             []string{"tn", "git-author", "closes-1058"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-GIT-AUTHOR-ENV-002",
+		Command:          "echo 'GIT_AUTHOR_EMAIL=dev@example.com' >> .env",
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/cicd-tampering/git-author-identity-forgery",
+		Analyzer:         "regex",
+		Description:      "Writing GIT_AUTHOR_EMAIL to a .env file (no git invocation) — must NOT trigger env rule. Gets ALLOW from ts-allow-readonly (echo >> .env is not a git invocation).",
+		Tags:             []string{"tn", "git-author", "closes-1058"},
+	},
+}
+
+// ---------------------------------------------------------------------------
 // Category 6.8: Shell Startup Environment Poisoning
 // Taxonomy: persistence-evasion/shell-init/shell-env-poisoning
 // MITRE: T1546.004
@@ -3009,6 +3154,7 @@ func AllPersistenceEvasionCases() []TestCase {
 	all = append(all, EnvStripExecCases...)
 	all = append(all, IPRouteManipulationCases...)
 	all = append(all, ARPNeighborPoisoningCases...)
+	all = append(all, GitAuthorForgeryCases...)
 	return all
 }
 
