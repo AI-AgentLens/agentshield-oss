@@ -738,6 +738,8 @@ structural_rules:
             - "(?i)Code/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
+            - "(?:^|/)\\.config/zed/settings\\.json$"
+            - "(?i)Application Support/Zed/settings\\.json$"
     decision: "BLOCK"
     reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
     confidence: 0.97
@@ -753,11 +755,17 @@ structural_rules:
           args: {"path": "/home/user/.config/windsurf/settings.json"}
         - tool: "write_file"
           args: {"path": "/Users/garyzeng/Library/Application Support/Claude/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/zed/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Zed/settings.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
         - tool: "write_file"
           args: {"path": "/workspace/docs/cursor-settings-guide.md"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/zed-settings-example.md"}
 
   # === BLOCK: Delete/remove of IDE settings and AgentShield config files via MCP (issue #877) ===
   #
