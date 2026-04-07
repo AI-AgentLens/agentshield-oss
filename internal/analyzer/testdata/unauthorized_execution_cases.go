@@ -3260,6 +3260,29 @@ var BraceExpansionEvasionCases = []TestCase{
 		Description:      "ls with brace expansion — listing multiple directories, safe.",
 		Tags:             []string{"tn", "brace-safe"},
 	},
+	// TN-6: agentshield mcp-eval with multi-key JSON — FP fix for issue #1019
+	// The substring "eval" in "mcp-eval" must not match the bash eval builtin rule.
+	{
+		ID:               "TN-BRACE-006",
+		Command:          `agentshield mcp-eval --json '{"action":"type","text":"hello"}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      `agentshield mcp-eval with multi-key JSON — "eval" is a substring of "mcp-eval", not the bash builtin. Must not trigger ts-block-eval-brace-expansion. Fix: negative lookbehind (?<![a-zA-Z0-9_-]) (issue #1019).`,
+		Tags:             []string{"tn", "brace-safe", "fp-fix", "issue-1019"},
+	},
+	// TN-7: agentshield mcp-eval with multi-key JSON (single quotes) — FP fix for issue #1019
+	{
+		ID:               "TN-BRACE-007",
+		Command:          `agentshield mcp-eval --tool write_file --json '{"path":"/tmp/out.txt","content":"hello world"}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
+		Analyzer:         "regex",
+		Description:      `agentshield mcp-eval --tool write_file with multi-key JSON — must not trigger ts-block-eval-brace-expansion (issue #1019).`,
+		Tags:             []string{"tn", "brace-safe", "fp-fix", "issue-1019"},
+	},
 }
 
 // ---------------------------------------------------------------------------
