@@ -1,0 +1,69 @@
+id: "supply-chain/package-publish/maven-autonomous-publish"
+version: "1.0.0"
+kingdom: "Supply Chain Attacks"
+kingdom_id: 7
+category: "Package Publish"
+category_id: "7.11"
+name: "Autonomous Maven/Gradle Artifact Publish"
+risk_level: "critical"
+
+abstract: |
+  An AI agent autonomously publishing Java artifacts to Maven repositories
+  (Maven Central, Sonatype Nexus, Artifactory, etc.) via CLI commands
+  (`mvn deploy`, `gradle publish`) or direct repository API calls, without
+  human review or authorization.
+
+explanation: |
+  Maven Central and private Maven repositories are a critical part of the Java
+  ecosystem supply chain. Autonomous artifact publishes create several risks:
+
+  - **Transitive dependency poisoning**: Published JARs become transitive
+    dependencies across thousands of downstream projects
+  - **Immutability gap**: Maven Central artifacts are immutable once synced,
+    but private Nexus/Artifactory repos may allow overwriting snapshots
+  - **Bytecode execution**: Unlike source packages, JARs run as compiled bytecode
+    with no source review — malicious code is harder to detect
+  - **Release lifecycle**: `mvn release:perform` tags the repo, creates release
+    artifacts, and deploys — all in one command, widening the blast radius
+  - **Gradle plugin publish**: Gradle plugins execute during the build of any
+    project that applies them, enabling remote code execution at build time
+
+  Attack patterns include:
+  - `mvn deploy` — deploys artifacts to remote repository
+  - `mvn release:perform` — full release lifecycle with deploy
+  - `gradle publish` / `gradle publishToMavenCentral`
+  - `gradle uploadArchives` (legacy)
+  - Direct HTTP PUT to Nexus/Artifactory REST API
+  - Sonatype Central Portal API (`https://central.sonatype.com/api/v1/publisher/upload`)
+
+recommendation: |
+  - Require human approval for all Maven/Gradle deploy operations.
+  - Restrict Maven credentials (`settings.xml`, `gradle.properties`) from
+    agent-accessible environment variables.
+  - Use deployment profiles that require human intervention to activate.
+  - Implement Nexus/Artifactory role restrictions for CI service accounts.
+  - Use `--dry-run` or equivalent pre-deploy validation in agent workflows.
+
+examples:
+  bad:
+    - "subprocess.run(['mvn', 'deploy', '-DskipTests'])"
+    - "subprocess.run(['gradle', 'publish'])"
+    - "os.system('mvn release:perform')"
+    - "exec.Command('mvn', 'deploy', '-DskipTests')"
+  good:
+    - "subprocess.run(['mvn', 'verify', '--dry-run'])"
+    - "subprocess.run(['mvn', 'package', '-DskipTests'])"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM04"]
+  iso-27001-2022: ["A.8.25", "A.5.23"]
+  eu-ai-act-2024: ["Art.14", "Art.15"]
+  soc2-type2: ["CC6.8"]
+  iso-42001-2023: ["A.8.4", "A.10.1"]
+  mitre_atlas: ["AML.T0058", "AML.T0047"]
+
+references:
+  mitre_attack: ["T1195.001", "T1072"]
+  cwe: ["CWE-829", "CWE-494"]
+
+analyzers: ["semgrep", "mcp"]

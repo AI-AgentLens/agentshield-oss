@@ -1,0 +1,66 @@
+id: "supply-chain/package-publish/docker-image-autonomous-push"
+version: "1.0.0"
+kingdom: "Supply Chain Attacks"
+kingdom_id: 7
+category: "Package Publish"
+category_id: "7.10"
+name: "Autonomous Docker Image Registry Push"
+risk_level: "critical"
+
+abstract: |
+  An AI agent autonomously pushing Docker images to container registries
+  (Docker Hub, GHCR, ECR, GCR, etc.) via CLI, SDK, or direct registry API,
+  without human review or authorization — potentially injecting malicious or
+  unreviewed container images into the supply chain.
+
+explanation: |
+  Docker registries are a critical distribution channel for software. Autonomous
+  image pushes create several supply chain attack vectors:
+
+  - **Base image poisoning**: A pushed image becomes a base layer for downstream
+    images (`FROM myorg/base:latest`), propagating malicious code to all consumers
+  - **Tag mutability**: Mutable tags (`:latest`, `:main`) mean a single push can
+    silently replace images already in production without consumers noticing
+  - **CI/CD integration**: Many pipelines auto-pull on `docker pull` or via
+    rolling deployments, causing immediate propagation
+  - **Registry impersonation**: An agent can push to a similarly-named namespace
+    (typosquatting) to redirect pulls from legitimate images
+  - **Skopeo/crane bypass**: Tools like `skopeo copy` and `crane push` allow
+    pushing images without the docker daemon, bypassing daemon-level controls
+
+  Attack patterns include:
+  - `docker push <registry>/<image>:<tag>`
+  - `docker buildx push <registry>/<image>`
+  - Python docker SDK: `client.images.push(repository, tag=...)`
+  - Go: `exec.Command("docker", "push", ...)`
+  - `skopeo copy docker-archive:... docker://<registry>/...`
+
+recommendation: |
+  - Require human approval for all registry push operations in agent workflows.
+  - Use immutable tags (digest pinning) to prevent silent tag replacement.
+  - Restrict registry credentials from agent-accessible environment variables.
+  - Implement registry admission policies (OPA Gatekeeper, Cosign signing).
+  - Scan all images before push with `trivy`, `grype`, or similar.
+
+examples:
+  bad:
+    - "subprocess.run(['docker', 'push', 'myregistry/myimage:latest'])"
+    - "client.images.push('myregistry/myimage', tag='latest')"
+    - "exec.Command('docker', 'push', 'ghcr.io/org/image:v1.0')"
+  good:
+    - "subprocess.run(['docker', 'pull', 'myregistry/myimage:sha256-abc123'])"
+    - "# Human-triggered: docker push requires explicit CI/CD approval gate"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM04"]
+  iso-27001-2022: ["A.8.25", "A.5.23"]
+  eu-ai-act-2024: ["Art.14", "Art.15"]
+  soc2-type2: ["CC6.8"]
+  iso-42001-2023: ["A.8.4", "A.10.1"]
+  mitre_atlas: ["AML.T0058", "AML.T0047"]
+
+references:
+  mitre_attack: ["T1195.001", "T1072", "T1610"]
+  cwe: ["CWE-829", "CWE-494"]
+
+analyzers: ["semgrep", "mcp"]
