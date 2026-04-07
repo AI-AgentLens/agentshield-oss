@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-06 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-07 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1100 |
-| MCP rules | 716 |
-| Total rules | 1816 |
-| Test cases (TP+TN) | 3983 |
+| Terminal rules | 1106 |
+| MCP rules | 721 |
+| Total rules | 1827 |
+| Test cases (TP+TN) | 4005 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -403,7 +403,7 @@
 | `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM06) |
 | `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
 
-### governance-risk (32 rules)
+### governance-risk (34 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -439,6 +439,8 @@
 | `ts-audit-unpinned-model-alias` | AUDIT | regex | Unpinned AI model alias detected — using 'latest', 'gpt-4' (without date pin), or 'claude-3-sonnet' (without version suffix) enables silent model substitution. Pin to an exact version (e.g. gpt-4-0125-preview, claude-3-5-sonnet-20241022) for EU AI Act Art.13 compliance (OWASP LLM05, NIST AI RMF GOVERN-1). |
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
+| `gr-block-gh-pr-merge-admin` | BLOCK | regex | gh pr merge --admin bypasses required branch protection reviews via admin override. An AI agent using this flag removes the human verification gate entirely, allowing unreviewed code to reach production (OWASP LLM06, MITRE ATLAS AML.T0056). |
+| `gr-audit-gh-pr-self-approve` | AUDIT | regex | gh pr review --approve — an AI agent approving a pull request removes the independent human review requirement. When agents author and self-approve PRs, no human verifies the changes before merge (OWASP LLM06). |
 
 ### persistence-evasion (157 rules)
 
@@ -602,7 +604,7 @@
 | `ts-block-schtasks-create` | BLOCK | regex | Windows Task Scheduler task creation/modification — AI agents must not register persistent scheduled tasks. This is a classic persistence mechanism (MITRE T1053.005). |
 | `ts-audit-schtasks-query` | AUDIT | regex | Windows Task Scheduler access — read or delete operations audited for visibility (MITRE T1053.005). |
 
-### privilege-escalation (126 rules)
+### privilege-escalation (127 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -633,6 +635,7 @@
 | `ts-audit-ld-audit` | AUDIT | regex | LD_AUDIT is the GNU libc rtld-audit interface — legitimate for debugging symbol resolution, but rare outside of development. Worth flagging any use. |
 | `ts-block-path-hijack-export` | BLOCK | regex | Exporting PATH with a world-writable or relative directory prepended hijacks command resolution for all subsequent commands in this shell session and child processes. |
 | `ts-block-path-hijack-eval` | BLOCK | regex | Using eval to set PATH with a writable/relative directory is an obfuscated form of PATH hijacking. |
+| `ts-audit-gcloud-iam-service-account-create` | AUDIT | regex | gcloud iam service-accounts create — creating a GCP service account establishes a persistent cloud identity. AI agents may create service accounts to establish persistence or as a stepping stone for privilege escalation. Always review service account creation and key issuance. (OWASP LLM06, MITRE T1098) |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries and grants full host access. Excludes gh/git text-payload flags (--body, --message, -m, etc.) that may document the pattern. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
 | `ts-block-kubectl-create-clusterrolebinding` | BLOCK | regex | kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
@@ -687,7 +690,7 @@
 | `ts-block-deep-path-traversal` | BLOCK | regex | Deep relative path traversal (4+ levels) targeting system directories — indicates sandbox escape attempt to access files outside the designated workspace boundary. OWASP LLM06, CWE-22, MITRE T1083. |
 | `ts-audit-chroot-arbitrary` | AUDIT | structural | chroot re-roots the filesystem — legitimate in controlled build environments but unusual for AI agents. Warrants review for potential sandbox escape. MITRE T1611. |
 | `ts-audit-gh-api-scope-abuse` | AUDIT | regex | gh api destructive/write call to a privileged GitHub endpoint (branch protection, hooks, deploy keys, secrets) — agent using a read/review token for write operations that exceed its intended scope. OWASP LLM06, MITRE T1098. |
-| `ts-audit-aws-iam-privilege-creation` | AUDIT | regex | aws iam privilege creation/modification — creating new access keys or attaching policies exceeds the scope of deployment or development credentials, granting persistent elevated access. OWASP LLM06, MITRE T1098/T1548. |
+| `ts-audit-aws-iam-privilege-creation` | AUDIT | regex | aws iam privilege creation/modification — creating new access keys, users, or attaching policies exceeds the scope of deployment or development credentials, granting persistent elevated access. OWASP LLM06, MITRE T1098/T1548. |
 | `ts-audit-gh-secret-access` | AUDIT | regex | gh secret list/set/delete — reading or modifying CI/CD secrets with an agent token that was intended for code operations exceeds intended credential scope. OWASP LLM06, MITRE T1552. |
 | `ts-audit-psql-pg-shadow-query` | AUDIT | regex | psql querying pg_shadow or pg_authid — reading password hashes from system catalogs exceeds normal application database access scope, enabling offline credential attacks. OWASP LLM06, MITRE T1552/T1548. |
 | `ts-block-claude-dangerous-skip-permissions` | BLOCK | regex | claude --dangerously-skip-permissions disables all permission checks — a compromised orchestrator spawning a sub-agent with this flag creates a fully-unrestricted delegated session, achieving authority escalation through delegation. This is the AI-native confused deputy attack (OWASP LLM06, MITRE T1078/T1134). |
@@ -959,7 +962,7 @@
 | `ts-block-agent-hook-injection` | BLOCK | regex | Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking (OWASP LLM03, MITRE T1546). |
 | `ts-audit-vectordb-inline-add` | AUDIT | regex | Python one-liner adding documents to a vector store (Chroma/Qdrant/Weaviate/Pinecone/Milvus) — inline vector store writes bypass provenance validation and are a key delivery mechanism for adversarial embedding manipulation that poisons RAG retrieval results (OWASP LLM04/LLM08, MITRE T1565.001). |
 
-### unauthorized-execution (193 rules)
+### unauthorized-execution (196 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1021,6 +1024,9 @@
 | `ts-audit-pulumi-up` | AUDIT | regex | pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578) |
 | `ts-audit-aws-cfn-deploy` | AUDIT | regex | aws cloudformation deploy/create-stack/update-stack or sam deploy applies infrastructure changes to AWS immediately. AI-generated CloudFormation templates may grant excessive IAM permissions or expose resources publicly. Use --no-execute-changeset to review the changeset before execution. (OWASP LLM08, MITRE T1578) |
 | `ts-audit-compliance-report-auto-submit` | AUDIT | regex | AI agent submitting findings or creating compliance assessments in AWS Audit Manager or Security Hub without human review. AI-generated compliance artifacts may contain fabricated findings, incorrect risk ratings, or hallucinated evidence — injecting false data into the regulatory record. Require human review before any compliance data submission. (OWASP LLM09, EU AI Act Art.14, SOC2 CC8.1) |
+| `ts-audit-cloud-storage-bucket-create` | AUDIT | regex | Cloud storage bucket provisioning — creating new buckets establishes persistent data infrastructure. AI agents may create misconfigured buckets (public access, no encryption, wrong region) without human review. (OWASP LLM08, MITRE T1578) |
+| `ts-block-aws-s3-public-bucket-policy` | BLOCK | regex | AWS S3 put-bucket-policy with wildcard Principal (*) — this makes a bucket publicly accessible to the entire internet, a critical misconfiguration that exposes stored data to unauthenticated access. Never apply a public bucket policy without explicit human approval. (OWASP LLM08, CWE-732) |
+| `ts-audit-aws-sg-open-ingress` | AUDIT | regex | AWS EC2 security group ingress rule with CIDR 0.0.0.0/0 — this opens a port to all internet traffic. AI agents provisioning infrastructure may expose SSH (22), RDP (3389), or database ports (3306, 5432) to the internet, creating attack surface. (OWASP LLM08, CWE-284) |
 | `ts-block-gdb-process-attach` | BLOCK | regex | gdb attached to a running process can inject arbitrary code via call system() or memory writes. Agents have no legitimate need to debug live processes. |
 | `ts-block-proc-mem-write` | BLOCK | regex | Writing to /proc/PID/mem or /dev/mem injects code directly into a running process's address space, bypassing all filesystem execution controls. |
 | `ts-audit-vercel-ai-sdk-install` | AUDIT | regex | Installation of the Vercel AI SDK ('ai' package). Direct model invocations without a governance wrapper are an LLM06 risk. |
@@ -1166,7 +1172,7 @@
 
 ## MCP Rules
 
-### credential-exposure (379 rules)
+### credential-exposure (380 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1477,6 +1483,7 @@
 | `mcp-sec-block-vscode-continue-credentials-read` | BLOCK | mcp_rule | Access to Continue.dev VSCode extension globalStorage is blocked — contains API keys for configured LLM providers (Anthropic, OpenAI, Gemini) enabling impersonation across multiple AI services. MITRE T1539, T1552. |
 | `mcp-sec-block-gemini-cli-v2-credentials-read` | BLOCK | mcp_rule | Access to Gemini CLI v2 OAuth credentials file is blocked — contains Google OAuth token for Gemini API. Stolen token enables AI inference under the victim's billing account. MITRE T1539, T1552. |
 | `mcp-sec-block-openai-codex-cli-credentials-read` | BLOCK | mcp_rule | Access to OpenAI Codex CLI credential directory (~/.openai-codex/) is blocked — contains OpenAI API keys and OAuth tokens. Exfiltration enables unauthorized LLM usage billed to the victim. MITRE T1552. |
+| `mcp-sec-block-codex-cli-credentials-read` | BLOCK | mcp_rule | Access to OpenAI Codex CLI credential directory (~/.codex/) is blocked — contains OpenAI API keys and OAuth tokens. Exfiltration enables unauthorized LLM usage billed to the victim. MITRE T1552. |
 | `mcp-sec-block-amazon-q-cli-credentials-read` | BLOCK | mcp_rule | Access to Amazon Q Developer CLI credential directory (~/.q/) is blocked — contains AWS authentication tokens and session data. Exfiltration enables unauthorized AWS service usage billed to the victim. MITRE T1552. |
 | `mcp-sec-block-databricks-credentials-read` | BLOCK | mcp_rule | Access to Databricks credential config (~/.databrickscfg) is blocked — contains access tokens and workspace host URLs. MITRE T1552. |
 | `mcp-sec-block-databricks-token-read` | BLOCK | mcp_rule | Access to Databricks token file(s) (~/.databricks/token, ~/.databricks/token-version-*) is blocked — contains personal access tokens granting full Databricks API access. MITRE T1552. |
@@ -1742,7 +1749,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (34 rules)
+### reconnaissance (35 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1759,6 +1766,7 @@
 | `mcp-recon-audit-hosts-read` | AUDIT | mcp_rule | Reading /etc/hosts maps internal hostnames to IPs — used for lateral movement target identification. MITRE T1016. |
 | `mcp-recon-block-ai-mcp-config-read` | BLOCK | mcp_rule | Read access to .mcp.json is blocked — contains MCP server URLs, API key variable names, and tool schemas. Exfiltration enables lateral movement to other MCP servers and credential targeting. MITRE T1552, T1083. |
 | `mcp-recon-block-cursor-mcp-config-read` | BLOCK | mcp_rule | Read access to .cursor/mcp.json is blocked — contains Cursor IDE MCP server configuration including URLs and API key names. |
+| `mcp-recon-block-windsurf-mcp-config-read` | BLOCK | mcp_rule | Read access to .windsurf/mcp.json is blocked — contains Windsurf IDE MCP server configuration including server URLs and API key names. Mirrors cursor/mcp.json protection. |
 | `mcp-recon-block-agentshield-policy-read` | BLOCK | mcp_rule | Read access to ~/.agentshield/policy.yaml is blocked — reveals AgentShield security controls and block/allow decisions, enabling bypass construction. MITRE T1518.001 (Security Software Discovery). |
 | `mcp-recon-audit-sys-hardware-fingerprint` | AUDIT | mcp_rule | Access to /sys/class/dmi/id/ is flagged — exposes machine UUID, serial numbers, and BIOS metadata used to fingerprint the host or detect sandboxes. MITRE T1082. |
 | `mcp-recon-audit-sys-mac-address` | AUDIT | mcp_rule | Access to /sys/class/net/<iface>/address is flagged — exposes hardware MAC addresses used for host fingerprinting. MITRE T1016. |
@@ -1810,7 +1818,7 @@
 | `mcp-sc-block-cratesio-new-crate` | BLOCK | structural | MCP request to crates.io new-crate endpoint (/api/v1/crates/new) — this path is exclusively for cargo publish operations. An AI agent writing here can inject backdoored Rust crates. MITRE T1195.001. |
 | `mcp-sc-block-rubygems-api-write` | BLOCK | structural | MCP HTTP POST to RubyGems API — gem push uses POST /api/v1/gems to upload packages. An AI agent writing to RubyGems can inject backdoored Ruby dependencies. MITRE T1195.001. |
 
-### unauthorized-execution (99 rules)
+### unauthorized-execution (102 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1829,6 +1837,9 @@
 | `mcp-computer-use-block-keyboard-inject-terminal` | BLOCK | mcp_rule | Keyboard injection targeting a terminal window is a shell hook bypass — commands typed into a terminal execute without AgentShield evaluation. Block all MCP keyboard injection into terminal targets. MITRE T1059. |
 | `mcp-computer-use-block-keyboard-inject-shell` | BLOCK | mcp_rule | Keyboard injection targeting a shell process bypasses AgentShield's command evaluation — typed shell commands execute without policy checks. MITRE T1059. |
 | `mcp-computer-use-block-keyboard-inject-console` | BLOCK | mcp_rule | Keyboard injection targeting a console window bypasses AgentShield's command evaluation. MITRE T1059. |
+| `mcp-computer-use-block-keyboard-pipe-bash` | BLOCK | mcp_rule | Keyboard injection via MCP with pipe-to-bash pattern in text — typing `\| bash` executes a downloaded script bypassing AgentShield's shell evaluation hook entirely. MITRE T1059, T1105. |
+| `mcp-computer-use-block-keyboard-pipe-sh` | BLOCK | mcp_rule | Keyboard injection via MCP with pipe-to-sh pattern in text — typing `\| sh` executes a downloaded script bypassing AgentShield's shell evaluation hook entirely. MITRE T1059, T1105. |
+| `mcp-computer-use-block-keyboard-pipe-python` | BLOCK | mcp_rule | Keyboard injection via MCP with pipe-to-python pattern in text — executing a downloaded script via Python bypasses AgentShield's shell evaluation hook. MITRE T1059.006. |
 | `mcp-computer-use-audit-type-action` | AUDIT | mcp_rule | computer_use action=type injects text into the focused window. If a terminal is focused, typed commands execute without passing through AgentShield's shell evaluation hooks — a direct hook bypass vector. Verify the focused application is not a shell or terminal. MITRE T1059. |
 | `mcp-computer-use-audit-key-action` | AUDIT | mcp_rule | computer_use action=key sends keyboard shortcuts. Shortcuts like ctrl+alt+t (open terminal) or super+r (Windows Run dialog) can open execution contexts that bypass AgentShield's shell hook. Verify the shortcut does not open a shell, terminal, or privileged execution surface. MITRE T1059. |
 | `mcp-content-audit-security-doc-write` | AUDIT | mcp_rule | AI-generated write to SECURITY file — requires human review before committing (LLM09: misinformation propagation risk) |
@@ -1933,7 +1944,7 @@
 | `mcp-sec-block-altcoin-wallet` | BLOCK | structural | Access to altcoin wallet file is blocked — wallet.dat in Dogecoin, Litecoin, Zcash, and similar Bitcoin-derived wallets contains encrypted private keys. MITRE T1552.001. |
 | `mcp-struct-block-credential-path-access` | BLOCK | structural | MCP tool accessing credential/sensitive path detected by structural match |
 | `mcp-sec-block-tls-server-private-keys` | BLOCK | structural | Access to TLS server private key directory is blocked — /etc/ssl/private/ and /etc/pki/tls/private/ contain server TLS private keys. Exfiltrating these enables decryption of TLS traffic and server impersonation. MITRE T1552.004. |
-| `mcp-sec-block-vscode-user-settings-read` | BLOCK | structural | Read access to VS Code or Cursor user-level settings.json is blocked — extensions store API keys (OpenAI, Anthropic, GitHub), MCP server tokens, and OAuth credentials directly in this file. MITRE T1552, T1539. |
+| `mcp-sec-block-vscode-user-settings-read` | BLOCK | structural | Read access to AI IDE or agent settings files is blocked — VS Code, Cursor, and Windsurf settings store API keys and MCP server tokens; Claude desktop config contains MCP server credentials and environment variables with secrets. MITRE T1552, T1539. |
 | `mcp-sec-block-chezmoi-config-access` | BLOCK | structural | Access to chezmoi config is blocked — chezmoi.yaml/toml contains encryption key references (age, GPG), password manager credentials (Bitwarden, 1Password), and template data with embedded secrets. MITRE T1552.001, OWASP LLM02. |
 | `mcp-sec-block-chezmoi-source-dir-access` | BLOCK | structural | Access to chezmoi source directory is blocked — ~/.local/share/chezmoi/ mirrors the user's entire dotfile tree including SSH keys, API tokens, and credential files as templates. Reading this directory bypasses individual file protections. MITRE T1552.001, OWASP LLM02. |
 
@@ -1944,11 +1955,11 @@
 | credential-exposure | 292 | 221 | 513 |
 | data-exfiltration | 323 | 208 | 531 |
 | destructive-ops | 134 | 93 | 227 |
-| governance-risk | 82 | 64 | 146 |
+| governance-risk | 86 | 68 | 154 |
 | persistence-evasion | 337 | 215 | 552 |
 | privilege-escalation | 302 | 182 | 484 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 254 | 181 | 435 |
-| unauthorized-execution | 463 | 321 | 784 |
-| **Total** | **2397** | **1586** | **3983** |
+| unauthorized-execution | 471 | 327 | 798 |
+| **Total** | **2409** | **1596** | **4005** |
 

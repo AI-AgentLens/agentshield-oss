@@ -1,0 +1,80 @@
+id: "governance-risk/ai-governance-gap/agent-code-review-bypass"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "Agent Code Review Bypass"
+risk_level: "high"
+
+abstract: |
+  An AI agent bypasses mandatory code review controls by merging pull requests
+  with administrative override, self-approving its own changes, or using bypass
+  flags — allowing unreviewed agent-authored code to reach production without
+  human verification.
+
+explanation: |
+  Code review is a critical human oversight control in software development. When
+  an AI agent can merge its own pull requests — either by using admin-bypass flags
+  (e.g. `gh pr merge --admin`) or by self-approving reviews — the mandatory
+  human verification step is eliminated.
+
+  This creates several risks:
+  - **Undetected logic errors**: Agent-generated code that looks syntactically
+    correct may contain subtle logical bugs or security vulnerabilities that a
+    human reviewer would catch.
+  - **Prompt injection via code**: Malicious content in the codebase (comments,
+    strings, config files) can influence agent behavior, causing it to merge
+    compromised code without raising flags.
+  - **Accountability gap**: When an agent self-approves and merges, there is no
+    human approval trail — audit logs show a machine decision, not a human one.
+  - **Compliance violations**: Many regulatory frameworks (SOC 2, ISO 27001,
+    PCI-DSS) require human approval before production changes. Agent self-merge
+    violates these controls.
+
+  Common bypass patterns:
+  - `gh pr merge --admin` — merges without required reviews, even if branch
+    protection rules mandate approvals
+  - `gh pr review --approve` — agent approves its own PR, satisfying the approval
+    count check without independent human review
+  - Setting `GITHUB_TOKEN` permissions to bypass branch protections
+
+recommendation: |
+  - Configure branch protection rules to require at least one human approver and
+    restrict who can bypass those rules (exclude bot/agent accounts).
+  - Use CODEOWNERS files to require human review for sensitive paths.
+  - Monitor for `--admin` flag usage in merge commands via audit logs.
+  - Require that AI agent GitHub tokens have restricted permissions — no admin
+    merge, no self-approval.
+  - Flag any PR where the author and sole approver are the same identity.
+
+examples:
+  bad:
+    - "gh pr merge 42 --admin  # bypasses required review count"
+    - "gh pr review 42 --approve  # agent approving its own PR"
+    - "gh pr merge --merge --admin --squash  # merge with admin override"
+  good:
+    - "gh pr create --title 'fix: update config' --body 'needs human review'"
+    - "gh pr checks 42  # check status without merging"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.4", "A.8.25", "A.8.16"]
+  eu-ai-act-2024: ["Art.14"]
+  soc2-type2: ["CC6.3", "CC7.2"]
+  iso-42001-2023: ["A.9.3", "A.9.1"]
+  mitre_atlas: ["AML.T0058"]
+
+references:
+  mitre_attack: ["T1222", "T1078"]
+  cwe: ["CWE-272", "CWE-693"]
+  external:
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+    - title: "GitHub: About protected branches"
+      url: "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches"
+    - title: "EU AI Act Article 14: Human Oversight"
+      url: "https://artificialintelligenceact.eu/article/14/"
+
+analyzers: ["regex", "structural"]
+related_rules: []
