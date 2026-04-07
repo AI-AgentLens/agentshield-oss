@@ -70,7 +70,7 @@ compliance:
   soc2-type2: ["CC6.8", "CC7.1"]
   mitre_atlas: ["AML.T0054", "AML.T0041"]
 
-  iso-42001-2023: ["A.9.3"]
+  iso-42001-2023: ["A.9.1"]
 
 references:
   mitre_attack: ["T1059", "T1564", "T1036"]

@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1106 |
-| MCP rules | 724 |
-| Total rules | 1830 |
+| MCP rules | 727 |
+| Total rules | 1833 |
 | Test cases (TP+TN) | 4005 |
 | Kingdoms covered | 10 |
 
@@ -1726,7 +1726,7 @@
 | `mcp-persist-block-emacs-config-write` | BLOCK | structural | MCP write to Emacs startup file — Emacs Lisp in .emacs.d/init.el and package directories executes on every emacs launch, giving full programmatic persistence. MITRE T1546, OWASP LLM06. |
 | `mcp-persist-block-tmux-config-write` | BLOCK | structural | MCP write to tmux config — tmux.conf can execute arbitrary shell commands via run-shell on server startup, achieving persistence triggered on every new terminal session. MITRE T1546, OWASP LLM06. |
 
-### privilege-escalation (21 rules)
+### privilege-escalation (24 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1742,6 +1742,9 @@
 | `mcp-privesc-block-polkit-read` | BLOCK | mcp_rule | Read access to /etc/polkit-1/ blocked — polkit rules reveal which D-Bus actions are authorized for unprivileged users, admin group definitions, and passwordless pkexec paths for privilege escalation. MITRE T1548. |
 | `mcp-privesc-block-k8s-clusterrolebinding-write` | BLOCK | mcp_rule | Writing Kubernetes ClusterRoleBinding manifest blocked — may grant cluster-admin to arbitrary service accounts. MITRE T1078.001. |
 | `mcp-privesc-block-core-pattern-write` | BLOCK | mcp_rule | Write to /proc/sys/kernel/core_pattern is blocked — this file controls the core dump handler executable. Setting it to a pipe command (e.g., \|/tmp/evil) executes arbitrary code with root privileges whenever any setuid binary crashes. This is a well-known container escape and privilege escalation vector. MITRE T1068, T1543. |
+| `mcp-privesc-block-kernel-security-params` | BLOCK | mcp_rule | Write to Linux kernel security parameter blocked — /proc/sys/kernel/ controls critical security knobs (perf_event_paranoid, kptr_restrict, dmesg_restrict, unprivileged_userns_clone, yama/ptrace_scope). Lowering these values weakens KASLR, enables unprivileged kernel memory access, exposes kernel addresses, and unlocks container escape vectors. MITRE T1548, T1068. |
+| `mcp-privesc-block-net-fs-security-params` | BLOCK | mcp_rule | Write to /proc/sys/net/ kernel network parameter blocked — enabling ip_forward or IPv6 forwarding turns the host into a router, creating lateral movement paths between containers and enabling host network spoofing. MITRE T1090. |
+| `mcp-privesc-block-fs-security-params` | BLOCK | mcp_rule | Write to /proc/sys/fs/ kernel filesystem parameter blocked — disabling protected_hardlinks or protected_symlinks removes TOCTOU race condition protections, enabling privilege escalation against setuid binaries and race attacks in world-writable directories. MITRE T1548.001. |
 | `mcp-privesc-block-suid-chmod` | BLOCK | structural | SUID bit set on executable blocked — allows local privilege escalation by executing binary as file owner. MITRE T1548.001. |
 | `mcp-privesc-block-docker-sock-structural` | BLOCK | structural | Container runtime socket path (Docker, containerd, CRI-O, Podman) detected in MCP tool argument — all runtime sockets enable container escape and host compromise. MITRE T1611. |
 | `mcp-privesc-block-k8s-cluster-admin` | BLOCK | structural | Kubernetes ClusterRoleBinding or cluster-admin grant detected in MCP content — grants unrestricted cluster access. MITRE T1078.001. |
