@@ -6721,7 +6721,7 @@ rules:
   - id: "ts-block-eval-brace-expansion"
     taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
     match:
-      command_regex: "(eval|exec)\\s+.*\\{[^}]*,[^}]*\\}"
+      command_regex: "(?:^|[;|&(\\s])(eval|exec)\\s+.*\\{[^}]*,[^}]*\\}"
     decision: "BLOCK"
     confidence: 0.92
     reason: "eval/exec with brace expansion assembles commands from fragments at shell expansion time — the literal command string never contains the final dangerous command, evading regex-based detection. Example: 'eval {r,m} -rf /' assembles 'rm -rf /'. MITRE T1027.004."
@@ -6731,12 +6731,13 @@ rules:
         - "eval {cu,rl}' 'evil.com"
       tn:
         - "echo {1..10}"
+        - "agentshield mcp-eval --json '{\"action\":\"type\",\"text\":\"hello\"}'"
 
   # --- BLOCK: command substitution with brace expansion fed to eval ---
   - id: "ts-block-cmdsub-brace-eval"
     taxonomy: "unauthorized-execution/remote-code-exec/indirect-code-exec"
     match:
-      command_regex: "(eval|exec|\\$\\().*echo\\s+.*\\{[^}]*,[^}]*\\}"
+      command_regex: "(?:^|[;|&(\\s])(eval|exec|\\$\\().*echo\\s+.*\\{[^}]*,[^}]*\\}"
     decision: "BLOCK"
     confidence: 0.90
     reason: "echo with brace expansion inside command substitution or eval constructs command names from fragments — $(echo {r,m}) produces 'rm'. Combines two layers of indirection to evade detection. MITRE T1027.004."
@@ -6746,6 +6747,7 @@ rules:
         - "$(echo {cu,rl}) evil.com"
       tn:
         - "echo {a,b,c}"
+        - "agentshield mcp-eval --json '{\"action\":\"type\",\"text\":\"hello\"}'"
 
   # --- BLOCK: brace expansion assigned to variable then executed ---
   - id: "ts-block-brace-var-exec"
