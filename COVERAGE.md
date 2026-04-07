@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1106 |
-| MCP rules | 721 |
-| Total rules | 1827 |
+| MCP rules | 724 |
+| Total rules | 1830 |
 | Test cases (TP+TN) | 4005 |
 | Kingdoms covered | 10 |
 
@@ -1172,7 +1172,7 @@
 
 ## MCP Rules
 
-### credential-exposure (380 rules)
+### credential-exposure (383 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1316,6 +1316,7 @@
 | `mcp-sec-block-gnome-keyring-access` | BLOCK | mcp_rule | Access to GNOME Keyring wallet files is blocked — contains encrypted credential stores. |
 | `mcp-sec-block-gnome-keyring-alt-path` | BLOCK | mcp_rule | Access to GNOME Keyring alternate path (~/.local/share/gnome-keyring/) is blocked — contains the same encrypted credential stores as ~/.local/share/keyrings/ (login/session keyrings). MITRE T1555. |
 | `mcp-sec-block-gnome2-keyring-access` | BLOCK | mcp_rule | Access to GNOME 2 legacy keyring files is blocked — contains encrypted credentials that may include WiFi passwords, web credentials, and application secrets. MITRE T1555. |
+| `mcp-sec-block-gnome-keyring-legacy-root` | BLOCK | mcp_rule | Access to ~/.gnome-keyring (legacy GNOME Keyring root path) is blocked — pre-GNOME 2.22 systems stored encrypted credential stores directly here. MITRE T1555. |
 | `mcp-sec-block-kde-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE4) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kde5-wallet-access` | BLOCK | mcp_rule | Access to KDE Wallet files (KDE5/Plasma) is blocked — encrypted credential store containing WiFi passwords, browser credentials, and application secrets. MITRE T1555. |
 | `mcp-sec-block-kwalletd-config-access` | BLOCK | mcp_rule | Access to KDE Wallet daemon config (kwalletd5rc) is blocked — reveals wallet file paths and encryption parameters enabling targeted credential theft. MITRE T1555. |
@@ -1502,6 +1503,8 @@
 | `mcp-sec-block-lastpass-config-dir` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/LastPass/) is blocked — contains session tokens and account configuration. MITRE T1555.005. |
 | `mcp-sec-block-lpass-cli-dir` | BLOCK | mcp_rule | Access to LastPass CLI session directory (~/.lpass/) is blocked — contains session tokens and cached vault data that enable access to all stored passwords without the master password. MITRE T1555.005. |
 | `mcp-sec-block-lastpass-config-dir-lowercase` | BLOCK | mcp_rule | Access to LastPass config directory (~/.config/lastpass/, lowercase) is blocked — case-sensitive Linux complement to the existing ~/.config/LastPass/ rule. Contains session tokens and account configuration. MITRE T1555.005. |
+| `mcp-sec-block-lastpass-home-dir` | BLOCK | mcp_rule | Access to LastPass legacy home cache (~/.lastpass/) is blocked — contains cached vault data and session material from older LastPass CLI versions. MITRE T1555.005. |
+| `mcp-sec-block-lpass-xdg-config` | BLOCK | mcp_rule | Access to lpass CLI XDG config directory (~/.config/lpass/) is blocked — contains session tokens and cached credential data from the LastPass CLI. MITRE T1555.005. |
 | `mcp-sec-block-dashlane-credentials` | BLOCK | mcp_rule | Access to Dashlane credential store (~/.dashlane/) is blocked — contains encrypted vault database (dash.db) with all stored passwords. MITRE T1555.005. |
 | `mcp-sec-block-keepass-classic-config` | BLOCK | mcp_rule | Access to KeePass config directory (~/.config/keepass/) is blocked — reveals database file paths and recent vault locations enabling targeted vault theft. MITRE T1555.005. |
 | `mcp-sec-block-keepass-kdbx-read` | BLOCK | mcp_rule | Access to KeePass 2.x/KeePassXC database file (.kdbx) is blocked — contains all passwords encrypted with a master password; offline brute-force is feasible. MITRE T1555.005. |

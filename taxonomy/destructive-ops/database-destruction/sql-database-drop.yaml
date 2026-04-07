@@ -60,7 +60,7 @@ compliance:
   iso-27001-2022: ["A.5.10", "A.8.9", "A.8.31"]
   eu-ai-act-2024: ["Art.15"]
   soc2-type2: ["CC7.1"]
-  iso-42001-2023: ["A.9.3", "A.7.4"]
+  iso-42001-2023: ["A.7.4", "A.8.4"]
 
 references:
   mitre_attack: ["T1485", "T1565"]
