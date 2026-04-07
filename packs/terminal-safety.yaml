@@ -2301,6 +2301,63 @@ rules:
         - "git commit -m 'feat: add authentication middleware'"
         - "git commit -m 'chore: update dependencies'"
 
+  # === AUDIT: Git author identity forgery — persisted/per-commit/env-var override (issue #1058) ===
+  #
+  # An AI agent forges commit authorship by overriding git identity via:
+  #   - git config user.email / user.name  (persisted config write)
+  #   - git config --global user.name      (global config override)
+  #   - git commit --author='Name <email>' (per-commit identity override)
+  #   - git -c user.email=<addr> commit    (inline config override)
+  #
+  # Decision: AUDIT (not BLOCK) — legitimate dev workflows may set identity;
+  # flag for human review rather than hard-blocking.
+  #
+  # Taxonomy: persistence-evasion/cicd-tampering/git-author-identity-forgery
+  - id: "ts-audit-git-author-config"
+    taxonomy: "persistence-evasion/cicd-tampering/git-author-identity-forgery"
+    match:
+      command_regex: 'git\s+(-c\s+user\.(email|name)=|config\s+(--global\s+|--local\s+)?(user\.email|user\.name)|commit\s+.*--author=)'
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "git author identity change (config write, -c inline override, or --author) — may be identity forgery during an agent session. Legitimate developer use is possible; flagged for human review. MITRE T1036."
+    tests:
+      tp:
+        - "git config user.email 'senior-dev@company.com'"
+        - "git config --global user.name 'John Smith'"
+        - "git config --local user.email 'ci-bot@corp.com'"
+        - "git commit --author='Alice <alice@corp.com>' -m 'fix: security patch'"
+        - "git -c user.email=trusted@example.com commit -am 'update'"
+      tn:
+        - "git config --list"
+        - "git config --get user.email"
+        - "git commit -m 'feat: add authentication middleware'"
+        - "git log --format='%an <%ae>'"
+
+  # === AUDIT: Git author identity forgery via GIT_AUTHOR/COMMITTER env vars (issue #1058) ===
+  #
+  # Injecting GIT_AUTHOR_EMAIL, GIT_AUTHOR_NAME, GIT_COMMITTER_EMAIL, or
+  # GIT_COMMITTER_NAME env vars before git commit is a low-friction way to
+  # forge commit authorship without touching any config file.
+  #
+  # Taxonomy: persistence-evasion/cicd-tampering/git-author-identity-forgery
+  - id: "ts-audit-git-author-env"
+    taxonomy: "persistence-evasion/cicd-tampering/git-author-identity-forgery"
+    match:
+      command_regex: '(GIT_AUTHOR_EMAIL|GIT_AUTHOR_NAME|GIT_COMMITTER_EMAIL|GIT_COMMITTER_NAME)=.*\bgit\b'
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "GIT_AUTHOR/COMMITTER env var set before git commit — may forge commit identity during agent session. MITRE T1036."
+    tests:
+      tp:
+        - "GIT_AUTHOR_EMAIL=cto@company.com git commit -m 'approved'"
+        - "GIT_AUTHOR_NAME='Trusted Human' git commit -am 'deploy'"
+        - "GIT_COMMITTER_EMAIL=admin@corp.com git commit -m 'hotfix'"
+        - "GIT_COMMITTER_NAME='Release Bot' GIT_AUTHOR_NAME='Release Bot' git commit -m 'release v2'"
+      tn:
+        - "echo 'GIT_AUTHOR_EMAIL=dev@example.com' >> .env"
+        - "git config --get user.email"
+        - "git commit -m 'feat: add login page'"
+
   # === BLOCK: MCP Dynamic Client Registration (DCR) abuse via curl/wget (RFC 7591) ===
   #
   # MCP authorization servers expose a /register endpoint (RFC 7591 Dynamic Client
