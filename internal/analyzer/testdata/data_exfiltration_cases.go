@@ -930,6 +930,20 @@ var SystemPromptExfilCases = []TestCase{
 			No system prompt keywords and no network egress — should be allowed.`,
 		Tags: []string{"safe"},
 	},
+	// Regression: issue #1053 — reading a taxonomy YAML file whose path contains
+	// "system-prompt-exfiltration" must NOT be blocked. The rule requires pipe + network tool.
+	{
+		ID:               "TN-NE-BLOCK-SYSPROMPT-003",
+		Command:          `cat taxonomy/data-exfiltration/llm-data-flow/system-prompt-exfiltration.yaml`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/system-prompt-exfiltration",
+		Analyzer:         "regex",
+		Description: `Reading a taxonomy definition file whose path contains
+			"system-prompt-exfiltration" is a benign developer action. The rule
+			requires both a pipe and a network sink — a plain cat must be allowed.`,
+		Tags: []string{"safe", "regression", "fp-1053"},
+	},
 }
 
 // TrainingDataExfilCases covers shell-level exfiltration of ML training datasets
@@ -6367,3 +6381,4 @@ var NetworkEgressFixes285Cases = []TestCase{
 		Tags:             []string{"tn", "safe"},
 	},
 }
+
