@@ -1239,6 +1239,115 @@ structural_rules:
           args: {"url": "https://rubygems.org/gems/rails", "method": "GET"}
 
   # ===========================================================================
+  # Docker Image Autonomous Push
+  # ===========================================================================
+  #
+  # Taxonomy: supply-chain/package-publish/docker-image-autonomous-push
+  # MITRE T1195.001 — Compromise Software Supply Chain: Compromise Software Dependencies and Development Tools
+  # MITRE T1610 — Deploy Container
+  # OWASP LLM06 — Excessive Agency
+  #
+  # Docker registry APIs (Docker Hub, GHCR, ECR, GCR, etc.) accept image layers
+  # via HTTP PUT to /v2/<name>/blobs/ and manifests via PUT /v2/<name>/manifests/<ref>.
+  # An AI agent with registry credentials can autonomously push images that
+  # propagate as base layers to all downstream consumers.
+
+  - id: mcp-sc-block-docker-registry-push
+    taxonomy: "supply-chain/package-publish/docker-image-autonomous-push"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "put_request"
+        - "post_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/v2/[^/]+(?:/[^/]+)*/(?:manifests|blobs/uploads)"
+            - "(?i)registry-1\\.docker\\.io/v2/.*/manifests/"
+            - "(?i)ghcr\\.io/v2/.*/manifests/"
+            - "(?i)\\.dkr\\.ecr\\.[^/]+\\.amazonaws\\.com/v2/.*/manifests/"
+            - "(?i)gcr\\.io/v2/.*/manifests/"
+        method:
+          pattern_any:
+            - "(?i)^(PUT|POST)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP PUT/POST to a Docker registry manifest or blob-upload endpoint — this is the OCI distribution spec path for pushing image layers and manifests. An AI agent autonomously pushing a Docker image can distribute malicious container layers to all downstream consumers. MITRE T1195.001, T1610."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://registry-1.docker.io/v2/myorg/myimage/manifests/latest", "method": "PUT"}
+        - tool: "http_request"
+          args: {"url": "https://ghcr.io/v2/org/image/manifests/v1.0.0", "method": "PUT"}
+        - tool: "http_request"
+          args: {"url": "https://registry.example.com/v2/myimage/blobs/uploads/", "method": "POST"}
+        - tool: "network_request"
+          args: {"url": "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/myimage/manifests/latest", "method": "PUT"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://registry-1.docker.io/v2/library/nginx/manifests/latest", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://ghcr.io/v2/org/image/tags/list", "method": "GET"}
+
+  # ===========================================================================
+  # Maven/Gradle Autonomous Artifact Publish
+  # ===========================================================================
+  #
+  # Taxonomy: supply-chain/package-publish/maven-autonomous-publish
+  # MITRE T1195.001 — Compromise Software Supply Chain
+  # OWASP LLM06 — Excessive Agency
+  #
+  # Sonatype Central Portal and Nexus REST APIs accept artifact uploads via
+  # HTTP POST/PUT. An AI agent that discovers Maven deploy credentials in the
+  # environment can publish backdoored JARs that propagate as transitive
+  # dependencies across the Java ecosystem.
+
+  - id: mcp-sc-block-maven-central-upload
+    taxonomy: "supply-chain/package-publish/maven-autonomous-publish"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "put_request"
+        - "post_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)central\\.sonatype\\.com/api/v1/publisher/upload"
+            - "(?i)oss\\.sonatype\\.org/service/local/staging"
+            - "(?i)s01\\.oss\\.sonatype\\.org/service/local/staging"
+            - "(?i)/nexus/service/local/artifact/maven/content"
+            - "(?i)/repository/[^/]+/.*\\.(jar|pom|aar)$"
+        method:
+          pattern_any:
+            - "(?i)^(PUT|POST)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP PUT/POST to a Maven repository upload endpoint (Sonatype Central, Nexus, Artifactory) — these endpoints exist exclusively for publishing artifacts. Published JARs propagate as transitive dependencies across the Java ecosystem; Gradle plugins execute as code in every adopter's build. MITRE T1195.001."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://central.sonatype.com/api/v1/publisher/upload", "method": "POST"}
+        - tool: "http_request"
+          args: {"url": "https://oss.sonatype.org/service/local/staging/deploy/maven2/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
+        - tool: "network_request"
+          args: {"url": "https://nexus.example.com/repository/releases/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://central.sonatype.com/api/v1/publisher/status", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://repo1.maven.org/maven2/com/google/guava/guava/32.0.0-jre/guava-32.0.0-jre.jar", "method": "GET"}
+
+  # ===========================================================================
   # CI/CD Secrets API Manipulation
   # ===========================================================================
   #

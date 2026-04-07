@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1108 |
-| MCP rules | 742 |
-| Total rules | 1850 |
-| Test cases (TP+TN) | 4018 |
+| Terminal rules | 1110 |
+| MCP rules | 748 |
+| Total rules | 1858 |
+| Test cases (TP+TN) | 4029 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -826,7 +826,7 @@
 | `ts-block-ldapsearch-domain-enum` | BLOCK | regex | ldapsearch targeting a remote LDAP server with domain-enumeration patterns (-b dc=... or objectClass=user/group/computer). This is active directory reconnaissance — querying the organizational identity structure from a domain controller. Legitimate ldapsearch development use targets localhost or uses specific operational DNs; broad objectClass=user/group queries against external DCs have no legitimate agent use case (MITRE T1087.002, T1069.002, CWE-200). OWASP LLM02/LLM06. |
 | `ts-audit-ldapsearch` | AUDIT | regex | ldapsearch invocation detected. LDAP queries may be legitimate (connectivity testing, operational lookups) but warrant monitoring when run by AI agents. Broad domain-enumeration patterns are blocked separately by ts-block-ldapsearch-domain-enum. OWASP LLM02, CWE-200. |
 
-### supply-chain (133 rules)
+### supply-chain (135 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -921,6 +921,8 @@
 | `sc-block-cargo-publish` | BLOCK | regex | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
 | `sc-block-gem-push` | BLOCK | regex | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
 | `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
+| `sc-block-docker-push` | BLOCK | regex | docker push / docker buildx push autonomously publishes a container image to a registry. A pushed image becomes a base layer for downstream builds and is immediately pulled by rolling deployments — a single autonomous push can distribute malicious code to all consumers of that image. MITRE T1195.001, T1610. |
+| `sc-block-maven-deploy` | BLOCK | regex | mvn deploy / mvn release:perform / gradle publish autonomously publishes Java artifacts to Maven repositories. Published JARs become transitive dependencies in thousands of downstream projects and Gradle plugins execute as code in every adopter's build — a single autonomous publish can distribute malicious bytecode across the entire Java ecosystem. MITRE T1195.001. |
 | `sc-block-github-path-injection` | BLOCK | regex | Writing to $GITHUB_PATH prepends directories to $PATH for all subsequent GitHub Actions steps — enables malicious binary substitution (PATH hijacking). Any legitimate tool invoked in later steps may call attacker-controlled code. MITRE T1574.007, OWASP LLM08. |
 | `sc-audit-github-env-injection` | AUDIT | regex | Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
 | `sc-audit-github-output-injection` | AUDIT | regex | Writing to $GITHUB_OUTPUT sets step output variables consumed by subsequent GitHub Actions jobs — can inject attacker-controlled values into deployment logic or approval gates. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
@@ -1174,7 +1176,7 @@
 
 ## MCP Rules
 
-### credential-exposure (391 rules)
+### credential-exposure (395 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1346,6 +1348,8 @@
 | `mcp-sec-block-sops-age-config-key-access` | BLOCK | mcp_rule | Access to SOPS age key directory is blocked — ~/.config/sops/age/keys.txt is the age private key used by SOPS to decrypt secrets.enc.yaml files in git repositories. MITRE T1552. |
 | `mcp-sec-block-age-key-txt-access` | BLOCK | mcp_rule | Access to age private key files is blocked — .age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
 | `mcp-sec-block-age-key-txt-plain` | BLOCK | mcp_rule | Access to age private key files is blocked — age-key.txt contains the plaintext age private key used to decrypt all age/sops-encrypted secrets. MITRE T1552. |
+| `mcp-sec-block-age-encryption-key` | BLOCK | mcp_rule | Access to age private key files with alternate naming is blocked — .age-encryption.key contains the plaintext age private key used to decrypt all age/SOPS-encrypted secrets. MITRE T1552.004. |
+| `mcp-sec-block-age-dotkey` | BLOCK | mcp_rule | Access to age private key files with alternate naming is blocked — .age.key contains the plaintext age private key used to decrypt all age/SOPS-encrypted secrets. MITRE T1552.004. |
 | `mcp-sec-block-sops-encrypted-files` | BLOCK | mcp_rule | Access to SOPS-encrypted secrets file is blocked — secrets.enc.yaml is the standard SOPS output filename containing encrypted application secrets (API keys, passwords, certificates). Ciphertext exposure enables offline decryption attacks. MITRE T1552. |
 | `mcp-sec-block-sops-named-files` | BLOCK | mcp_rule | Access to SOPS-encrypted files is blocked — *.sops.yaml is the alternative SOPS naming convention for in-place encrypted YAML files. These files contain encrypted application secrets even though they appear as ordinary YAML. MITRE T1552. |
 | `mcp-sec-block-sops-master-config` | BLOCK | mcp_rule | Access to SOPS master configuration is blocked — .sops.yaml contains KMS ARN identifiers, GCP key paths, PGP fingerprints, and age public keys that map the entire secrets encryption topology. Exposing this enables targeted key exfiltration. MITRE T1552. |
@@ -1400,6 +1404,8 @@
 | `mcp-sec-block-vercel-credentials` | BLOCK | mcp_rule | Access to Vercel credential directories is blocked — contains access token (auth.json, credentials.json) with deployment and environment variable exposure. MITRE T1552. |
 | `mcp-sec-block-vercel-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Vercel config directory (~/.config/vercel/) is blocked — contains the same auth token as ~/.vercel/auth.json. MITRE T1552. |
 | `mcp-sec-block-flyio-credentials` | BLOCK | mcp_rule | Access to ~/.fly/config.yml or ~/.fly/config.yaml is blocked — contains Fly.io auth token with application and secret management access. MITRE T1552. |
+| `mcp-sec-block-flyio-xdg-credentials` | BLOCK | mcp_rule | Access to Fly.io XDG config directory (~/.config/fly/) is blocked — newer flyctl versions store the auth token here (XDG base dir spec). Token grants full application and secret management access. MITRE T1552. |
+| `mcp-sec-block-flyio-tokens` | BLOCK | mcp_rule | Access to ~/.fly/tokens.json is blocked — contains Fly.io API bearer tokens (org, machine, and access tokens). Exfiltrating this grants full API access to all configured Fly.io resources. MITRE T1552. |
 | `mcp-sec-block-railway-credentials` | BLOCK | mcp_rule | Access to Railway credential files is blocked — contains API token with project and service management access. MITRE T1552. |
 | `mcp-sec-block-railway-xdg-credentials` | BLOCK | mcp_rule | Access to XDG Railway config directory (~/.config/railway/) is blocked — newer Railway CLI versions store API token here. MITRE T1552. |
 | `mcp-sec-block-planetscale-credentials` | BLOCK | mcp_rule | Access to PlanetScale CLI config directory is blocked — contains API service tokens granting full database branch, deploy, and schema change access across all PlanetScale organizations. MITRE T1552.001. |
@@ -1809,7 +1815,7 @@
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 | `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
 
-### supply-chain (27 rules)
+### supply-chain (29 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1837,6 +1843,8 @@
 | `mcp-sc-block-pypi-upload-api` | BLOCK | structural | MCP request to upload.pypi.org — this endpoint exists exclusively for package uploads (twine, flit, poetry). There is no legitimate read operation on this endpoint. Any AI agent request here is an autonomous package write attempt. MITRE T1195.001. |
 | `mcp-sc-block-cratesio-new-crate` | BLOCK | structural | MCP request to crates.io new-crate endpoint (/api/v1/crates/new) — this path is exclusively for cargo publish operations. An AI agent writing here can inject backdoored Rust crates. MITRE T1195.001. |
 | `mcp-sc-block-rubygems-api-write` | BLOCK | structural | MCP HTTP POST to RubyGems API — gem push uses POST /api/v1/gems to upload packages. An AI agent writing to RubyGems can inject backdoored Ruby dependencies. MITRE T1195.001. |
+| `mcp-sc-block-docker-registry-push` | BLOCK | structural | MCP HTTP PUT/POST to a Docker registry manifest or blob-upload endpoint — this is the OCI distribution spec path for pushing image layers and manifests. An AI agent autonomously pushing a Docker image can distribute malicious container layers to all downstream consumers. MITRE T1195.001, T1610. |
+| `mcp-sc-block-maven-central-upload` | BLOCK | structural | MCP HTTP PUT/POST to a Maven repository upload endpoint (Sonatype Central, Nexus, Artifactory) — these endpoints exist exclusively for publishing artifacts. Published JARs propagate as transitive dependencies across the Java ecosystem; Gradle plugins execute as code in every adopter's build. MITRE T1195.001. |
 | `mcp-sc-block-github-actions-secrets-api` | BLOCK | structural | MCP request to GitHub Actions secrets API — agents have no legitimate need to enumerate or modify CI/CD secrets programmatically. Listing secrets leaks secret topology; writes can overwrite secrets with attacker-controlled values enabling supply chain compromise. MITRE T1552.001, T1195.002. |
 | `mcp-sc-block-gitlab-ci-variables-api` | BLOCK | structural | MCP request to GitLab CI variables API — unlike GitHub Actions (which only expose secret names), GitLab CI variables API returns variable values in plaintext for non-masked variables, enabling direct credential extraction. Agents should never enumerate CI/CD variables programmatically. MITRE T1552.001, T1195.002. |
 | `mcp-sc-block-circleci-envvar-api` | BLOCK | structural | MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002. |
@@ -1982,7 +1990,7 @@
 | persistence-evasion | 344 | 220 | 564 |
 | privilege-escalation | 302 | 182 | 484 |
 | reconnaissance | 210 | 101 | 311 |
-| supply-chain | 254 | 181 | 435 |
+| supply-chain | 261 | 185 | 446 |
 | unauthorized-execution | 471 | 327 | 798 |
-| **Total** | **2416** | **1602** | **4018** |
+| **Total** | **2423** | **1606** | **4029** |
 

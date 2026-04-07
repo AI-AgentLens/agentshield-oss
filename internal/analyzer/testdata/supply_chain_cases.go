@@ -5332,4 +5332,131 @@ var TestFileSabotageCases = []TestCase{
 		Description:      "FP regression (issue #486): cat heredoc writing a Python test file with ~/.m2/settings.xml as a string literal — protected-path rule must NOT fire on cat heredoc body content",
 		Tags:             []string{"tn", "fp-regression", "heredoc", "cat", "protected-path", "regression"},
 	},
+
+	// === sc-block-docker-push ===
+
+	// --- TP: docker push to Docker Hub ---
+	{
+		ID:               "TP-SC-DOCKER-PUSH-001",
+		Command:          "docker push myregistry/myimage:latest",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/docker-image-autonomous-push",
+		Analyzer:         "regex",
+		Description:      "docker push to registry — sc-block-docker-push must fire",
+		Tags:             []string{"tp", "supply-chain", "docker"},
+	},
+	// --- TP: docker push to GHCR ---
+	{
+		ID:               "TP-SC-DOCKER-PUSH-002",
+		Command:          "docker push ghcr.io/org/image:v1.0.0",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/docker-image-autonomous-push",
+		Analyzer:         "regex",
+		Description:      "docker push to GHCR — sc-block-docker-push must fire",
+		Tags:             []string{"tp", "supply-chain", "docker"},
+	},
+	// --- TP: docker buildx build --push ---
+	{
+		ID:               "TP-SC-DOCKER-PUSH-003",
+		Command:          "docker buildx build --push -t myorg/image:latest .",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/docker-image-autonomous-push",
+		Analyzer:         "regex",
+		Description:      "docker buildx build --push — sc-block-docker-push must fire",
+		Tags:             []string{"tp", "supply-chain", "docker"},
+	},
+	// --- TN: docker pull (read-only) ---
+	{
+		ID:               "TN-SC-DOCKER-PUSH-001",
+		Command:          "docker pull myregistry/myimage:sha256-abc123",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-publish/docker-image-autonomous-push",
+		Analyzer:         "regex",
+		Description:      "docker pull is read-only — sc-block-docker-push must not fire",
+		Tags:             []string{"tn", "safe"},
+	},
+	// --- TN: docker build without push ---
+	{
+		ID:               "TN-SC-DOCKER-PUSH-002",
+		Command:          "docker build -t myimage:latest .",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-publish/docker-image-autonomous-push",
+		Analyzer:         "regex",
+		Description:      "docker build without push — sc-block-docker-push must not fire",
+		Tags:             []string{"tn", "safe"},
+	},
+
+	// === sc-block-maven-deploy ===
+
+	// --- TP: mvn deploy ---
+	{
+		ID:               "TP-SC-MAVEN-DEPLOY-001",
+		Command:          "mvn deploy -DskipTests",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "mvn deploy — sc-block-maven-deploy must fire",
+		Tags:             []string{"tp", "supply-chain", "maven"},
+	},
+	// --- TP: mvn release:perform ---
+	{
+		ID:               "TP-SC-MAVEN-DEPLOY-002",
+		Command:          "mvn release:perform",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "mvn release:perform — sc-block-maven-deploy must fire",
+		Tags:             []string{"tp", "supply-chain", "maven"},
+	},
+	// --- TP: gradle publish ---
+	{
+		ID:               "TP-SC-MAVEN-DEPLOY-003",
+		Command:          "gradle publish",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "gradle publish — sc-block-maven-deploy must fire",
+		Tags:             []string{"tp", "supply-chain", "maven", "gradle"},
+	},
+	// --- TP: ./gradlew publishToMavenCentral ---
+	{
+		ID:               "TP-SC-MAVEN-DEPLOY-004",
+		Command:          "./gradlew publishToMavenCentral",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "gradlew publishToMavenCentral — sc-block-maven-deploy must fire",
+		Tags:             []string{"tp", "supply-chain", "maven", "gradle"},
+	},
+	// --- TN: mvn package (build only, no publish) ---
+	{
+		ID:               "TN-SC-MAVEN-DEPLOY-001",
+		Command:          "mvn package -DskipTests",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "mvn package is build-only — sc-block-maven-deploy must not fire",
+		Tags:             []string{"tn", "safe"},
+	},
+	// --- TN: gradle build ---
+	{
+		ID:               "TN-SC-MAVEN-DEPLOY-002",
+		Command:          "gradle build",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/package-publish/maven-autonomous-publish",
+		Analyzer:         "regex",
+		Description:      "gradle build is build-only — sc-block-maven-deploy must not fire",
+		Tags:             []string{"tn", "safe"},
+	},
 }

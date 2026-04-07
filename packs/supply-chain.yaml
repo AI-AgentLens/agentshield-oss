@@ -1986,6 +1986,80 @@ rules:
       tn:
         - "dotnet nuget list source"
 
+  # === BLOCK: Docker image autonomous push (issue taxonomy/docker-image-autonomous-push) ===
+  #
+  # docker push / docker buildx push / skopeo copy / crane push push a container image
+  # to a registry. An AI agent autonomously pushing images can inject malicious layers
+  # that propagate to every downstream consumer (FROM base:latest). Mutable tags (:latest,
+  # :main) mean consumers silently receive the new image on next pull.
+  #
+  # TP examples:
+  #   docker push myorg/myimage:latest
+  #   docker buildx build --push .
+  #   skopeo copy docker-archive:image.tar docker://registry.io/org/image:v1
+  #   crane push image.tar gcr.io/project/image:tag
+  #
+  # TN examples:
+  #   docker pull myorg/myimage:sha256-abc123   (read-only)
+  #   docker images                              (listing)
+  - id: "sc-block-docker-push"
+    taxonomy: "supply-chain/package-publish/docker-image-autonomous-push"
+    match:
+      command_regex: "(?i)(\\bdocker\\s+push\\b|\\bdocker\\s+buildx\\s+build\\b.*--push\\b|\\bdocker\\s+buildx\\s+push\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "docker push / docker buildx push autonomously publishes a container image to a registry. A pushed image becomes a base layer for downstream builds and is immediately pulled by rolling deployments — a single autonomous push can distribute malicious code to all consumers of that image. MITRE T1195.001, T1610."
+    tests:
+      tp:
+        - "docker push myregistry/myimage:latest"
+        - "docker push ghcr.io/org/image:v1.0.0"
+        - "docker buildx build --push -t myorg/image:latest ."
+        - "docker buildx push myorg/image:latest"
+      tn:
+        - "docker pull myregistry/myimage:sha256-abc123"
+        - "docker images"
+        - "docker build -t myimage:latest ."
+
+  # === BLOCK: Maven/Gradle autonomous artifact publish (issue taxonomy/maven-autonomous-publish) ===
+  #
+  # mvn deploy / mvn release:perform / gradle publish push Java artifacts to Maven
+  # repositories. Published JARs propagate as transitive dependencies across thousands
+  # of downstream projects; Gradle plugins execute at build time of any adopter.
+  #
+  # TP examples:
+  #   mvn deploy -DskipTests
+  #   mvn release:perform
+  #   gradle publish
+  #   gradle publishToMavenCentral
+  #   gradle uploadArchives
+  #
+  # TN examples:
+  #   mvn package -DskipTests   (build only, no publish)
+  #   gradle build               (build only)
+  #   mvn verify                 (pre-deploy validation)
+  - id: "sc-block-maven-deploy"
+    taxonomy: "supply-chain/package-publish/maven-autonomous-publish"
+    match:
+      command_regex: "(?i)(\\bmvn(?:\\.cmd)?\\s+(?:[^\\n]*\\s+)?(?:deploy|release:perform)\\b|\\bgradle(?:\\.bat|w)?\\s+(?:[^\\n]*\\s+)?(?:publish(?:ToMavenCentral|ToMavenLocal|AllPublicationsToMavenRepository)?|uploadArchives)\\b)"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "mvn deploy / mvn release:perform / gradle publish autonomously publishes Java artifacts to Maven repositories. Published JARs become transitive dependencies in thousands of downstream projects and Gradle plugins execute as code in every adopter's build — a single autonomous publish can distribute malicious bytecode across the entire Java ecosystem. MITRE T1195.001."
+    tests:
+      tp:
+        - "mvn deploy -DskipTests"
+        - "mvn deploy"
+        - "mvn release:perform"
+        - "gradle publish"
+        - "gradle publishToMavenCentral"
+        - "gradle uploadArchives"
+        - "./gradlew publish"
+        - "./gradlew publishToMavenCentral"
+      tn:
+        - "mvn package -DskipTests"
+        - "mvn verify"
+        - "gradle build"
+        - "./gradlew build"
+
   # === BLOCK: GitHub Actions $GITHUB_PATH injection ===
   #
   # Writing to $GITHUB_PATH prepends a directory to $PATH for all subsequent
