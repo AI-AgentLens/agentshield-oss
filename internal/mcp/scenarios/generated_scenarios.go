@@ -8764,4 +8764,23 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "cloud-iam-key-creation",
 		Description:      "http_request GET to Azure role assignments list — no specific assignment ID, read-only, must AUDIT (issue #1041).",
 	},
+	// issue #1056 — Heroku netrc.json variant
+	{
+		ID:               "MCP-TP-1074",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/heroku/netrc.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "credential-exposure",
+		Description:      "read_file access to ~/.config/heroku/netrc.json — Heroku API token JSON variant, must BLOCK (issue #1056).",
+	},
+	{
+		ID:               "MCP-TN-1057",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/docs/heroku-netrc-setup.md"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "credential-exposure",
+		Description:      "read_file of project docs file mentioning heroku-netrc — benign path, must AUDIT (issue #1056).",
+	},
 }
