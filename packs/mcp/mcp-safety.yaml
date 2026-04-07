@@ -972,6 +972,8 @@ structural_rules:
             - "(?i)169\\.254\\.169\\.254"
             - "(?i)metadata\\.google\\.internal"
             - "(?i)metadata\\.azure\\.com"
+            - "(?i)100\\.100\\.100\\.200"
+            - "(?i)metadata\\.tencentyun\\.com"
     decision: "BLOCK"
     reason: "SSRF detected — request to cloud metadata endpoint"
     confidence: 0.95
@@ -981,6 +983,10 @@ structural_rules:
           args: {"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"}
         - tool: "fetch_url"
           args: {"url": "http://metadata.google.internal/computeMetadata/v1/"}
+        - tool: "make_request"
+          args: {"url": "http://100.100.100.200/latest/meta-data/ram/security-credentials/"}
+        - tool: "http_get"
+          args: {"url": "http://metadata.tencentyun.com/latest/meta-data/"}
       tn:
         - tool: "http_request"
           args: {"url": "https://api.github.com/repos/example/repo"}
