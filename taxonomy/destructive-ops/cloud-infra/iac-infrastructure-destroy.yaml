@@ -86,4 +86,4 @@ references:
       url: "https://developer.hashicorp.com/terraform/cli/commands/destroy"
 
 analyzers: ["regex", "structural"]
-related_rules: ["ts-block-terraform-destroy", "ts-block-tofu-destroy", "ts-block-terragrunt-destroy", "ts-block-pulumi-destroy", "ts-block-cdk-destroy"]
+related_rules: ["ts-block-terraform-destroy", "ts-block-tofu-destroy", "ts-block-terragrunt-destroy", "ts-block-terragrunt-run-all-destroy", "ts-block-pulumi-destroy", "ts-block-cdk-destroy"]

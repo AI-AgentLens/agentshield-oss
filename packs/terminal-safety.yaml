@@ -3101,7 +3101,9 @@ rules:
   - id: "ts-block-terraform-destroy"
     taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
     match:
-      command_regex: "\\bterraform\\s+destroy\\b"
+      structural:
+        executable: ["terraform"]
+        subcommand: "destroy"
     decision: "BLOCK"
     confidence: 0.97
     reason: "terraform destroy tears down ALL resources in the Terraform state file across every cloud provider — equivalent to running many cloud-infra delete commands simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
@@ -3111,11 +3113,14 @@ rules:
         - "terraform destroy -auto-approve"
       tn:
         - "terraform plan"
+        - "gh issue create --body 'terraform destroy docs'"
 
   - id: "ts-block-tofu-destroy"
     taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
     match:
-      command_regex: "\\btofu\\s+destroy\\b"
+      structural:
+        executable: ["tofu"]
+        subcommand: "destroy"
     decision: "BLOCK"
     confidence: 0.97
     reason: "tofu destroy (OpenTofu, the open-source Terraform fork) tears down all managed cloud infrastructure — same blast radius as terraform destroy. AI agents must not run infrastructure destruction commands. (MITRE T1578, T1485)"
@@ -3125,25 +3130,47 @@ rules:
         - "tofu destroy -auto-approve"
       tn:
         - "tofu plan"
+        - "echo 'tofu destroy is dangerous'"
 
   - id: "ts-block-terragrunt-destroy"
     taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
     match:
-      command_regex: "\\bterragrunt\\s+(run-all\\s+)?destroy\\b"
+      structural:
+        executable: ["terragrunt"]
+        subcommand: "destroy"
     decision: "BLOCK"
     confidence: 0.97
-    reason: "terragrunt destroy (especially run-all destroy) tears down infrastructure across multiple Terraform stacks in a directory tree — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+    reason: "terragrunt destroy tears down infrastructure across Terraform stacks — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
     tests:
       tp:
         - "terragrunt destroy"
-        - "terragrunt run-all destroy"
       tn:
         - "terragrunt plan"
+        - "gh issue create --body 'terragrunt destroy docs'"
+
+  - id: "ts-block-terragrunt-run-all-destroy"
+    taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
+    match:
+      structural:
+        executable: ["terragrunt"]
+        subcommand: "run-all"
+        args_any: ["destroy"]
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "terragrunt run-all destroy tears down ALL stacks in a directory tree simultaneously — maximum blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
+    tests:
+      tp:
+        - "terragrunt run-all destroy"
+        - "terragrunt run-all destroy --terragrunt-non-interactive"
+      tn:
+        - "terragrunt run-all plan"
 
   - id: "ts-block-pulumi-destroy"
     taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
     match:
-      command_regex: "\\bpulumi\\s+destroy\\b"
+      structural:
+        executable: ["pulumi"]
+        subcommand: "destroy"
     decision: "BLOCK"
     confidence: 0.97
     reason: "pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
@@ -3153,11 +3180,14 @@ rules:
         - "pulumi destroy --stack prod"
       tn:
         - "pulumi preview"
+        - "echo 'pulumi destroy example'"
 
   - id: "ts-block-cdk-destroy"
     taxonomy: "destructive-ops/cloud-infra/iac-infrastructure-destroy"
     match:
-      command_regex: "\\bcdk\\s+destroy\\b"
+      structural:
+        executable: ["cdk"]
+        subcommand: "destroy"
     decision: "BLOCK"
     confidence: 0.95
     reason: "cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485)"
@@ -3167,6 +3197,7 @@ rules:
         - "cdk destroy --all"
       tn:
         - "cdk synth"
+        - "curl -d 'cdk destroy info' https://example.com"
 
   # === BLOCK/AUDIT: AI-generated IaC misconfiguration — apply without review (issue #134) ===
   #

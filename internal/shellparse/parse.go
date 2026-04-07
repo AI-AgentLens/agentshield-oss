@@ -333,7 +333,8 @@ func IsSubcommandTool(exe string) bool {
 	switch exe {
 	case "npm", "pip", "pip3", "yarn", "pnpm", "cargo", "go",
 		"git", "docker", "kubectl", "brew", "apt", "apt-get",
-		"systemctl", "service", "gh":
+		"systemctl", "service", "gh",
+		"terraform", "tofu", "terragrunt", "pulumi", "cdk":
 		return true
 	}
 	return false
