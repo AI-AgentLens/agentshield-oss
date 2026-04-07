@@ -60,11 +60,11 @@ examples:
     - "dotnet nuget push --dry-run artifact.nupkg  # dry run only"
 
 compliance:
-  owasp-llm-2025: ["LLM06", "LLM04"]
+  owasp-llm-2025: ["LLM06", "LLM03"]
   iso-27001-2022: ["A.8.25", "A.5.23"]
   eu-ai-act-2024: ["Art.14", "Art.15"]
   soc2-type2: ["CC6.8"]
-  iso-42001-2023: ["A.8.4", "A.10.1"]
+  iso-42001-2023: ["A.8.4"]
 
 references:
   mitre_attack: ["T1195.001", "T1072"]
