@@ -750,3 +750,133 @@ structural_rules:
           args: {"path": "/project/config/socket_config.yaml"}
         - tool: "read_file"
           args: {"path": "/var/run/app.pid"}
+
+  # ===========================================================================
+  # Cloud IAM Key / Credential Creation APIs
+  # ===========================================================================
+  #
+  # Taxonomy: privilege-escalation/cloud-privilege-escalation/cloud-iam-key-creation
+  # MITRE T1098 — Account Manipulation
+  # MITRE T1136 — Create Account (cloud variant)
+  # OWASP LLM06 — Excessive Agency
+  #
+  # Cloud IAM APIs allow programmatic creation of long-lived credentials:
+  # access keys (AWS), service account keys (GCP), and role assignments (Azure).
+  # Unlike stolen credentials, newly created keys:
+  #   - Don't trigger alerts based on credential reuse
+  #   - Survive password resets and revocations of the original stolen token
+  #   - Persist indefinitely if the attacker uses them from a new IP
+  #
+  # Attack chain:
+  #   1. Agent fetches external content (URL fetch) → prompt injection
+  #   2. Agent instructed to create a "backup service account"
+  #   3. Agent POSTs to cloud IAM API using existing cloud credentials
+  #   4. Attacker receives newly created key → persistent cloud access
+  #
+  # Agents have no legitimate autonomous need to create cloud IAM keys or
+  # role assignments. Infrastructure provisioning must go through IaC
+  # workflows (Terraform, Pulumi) with human review, not direct API calls.
+
+  - id: mcp-privesc-block-aws-iam-create-api
+    taxonomy: "privilege-escalation/cloud-privilege-escalation/cloud-iam-key-creation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)iam\\.amazonaws\\.com/.*[?&]Action=(CreateAccessKey|CreateUser|CreateRole|CreateGroup|AttachUserPolicy|AttachRolePolicy|PutUserPolicy|PutRolePolicy|AddUserToGroup)"
+            - "(?i)iam\\.amazonaws\\.com[/?].*Action=Create(AccessKey|User|Role|Group)"
+            - "(?i)iam\\.amazonaws\\.com[/?].*Action=Attach(User|Role|Group)Policy"
+            - "(?i)iam\\.amazonaws\\.com[/?].*Action=Put(User|Role|Group)Policy"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP request to AWS IAM key/user creation or policy attachment API — newly created IAM keys persist even after credential rotation and evade detection by appearing as fresh legitimate credentials. Agents must not autonomously create cloud identity credentials. MITRE T1098, T1136."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://iam.amazonaws.com/?Action=CreateAccessKey&UserName=victim"}
+        - tool: "http_request"
+          args: {"url": "https://iam.amazonaws.com/?Action=CreateUser&UserName=backdoor-user"}
+        - tool: "post_request"
+          args: {"url": "https://iam.amazonaws.com/?Action=AttachUserPolicy&UserName=victim&PolicyArn=arn:aws:iam::aws:policy/AdministratorAccess"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://iam.amazonaws.com/?Action=ListUsers"}
+        - tool: "http_request"
+          args: {"url": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateAccessKey.html"}
+
+  - id: mcp-privesc-block-gcp-iam-key-create-api
+    taxonomy: "privilege-escalation/cloud-privilege-escalation/cloud-iam-key-creation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)iam\\.googleapis\\.com/v\\d+/projects/[^/]+/serviceAccounts/[^/]+/keys"
+            - "(?i)cloudresourcemanager\\.googleapis\\.com/v\\d+/projects/[^/]+:setIamPolicy"
+            - "(?i)cloudresourcemanager\\.googleapis\\.com/v\\d+/organizations/[^/]+:setIamPolicy"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP request to GCP IAM service account key creation or IAM policy write API — GCP service account keys are downloaded as JSON files with no expiry. Agents must not autonomously create cloud identity credentials or modify IAM policies. MITRE T1098, T1136."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://iam.googleapis.com/v1/projects/my-project/serviceAccounts/sa@project.iam.gserviceaccount.com/keys", "method": "POST"}
+        - tool: "http_request"
+          args: {"url": "https://cloudresourcemanager.googleapis.com/v1/projects/my-project:setIamPolicy", "method": "POST"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://iam.googleapis.com/v1/projects/my-project/serviceAccounts"}
+        - tool: "http_request"
+          args: {"url": "https://cloud.google.com/iam/docs/creating-managing-service-account-keys"}
+
+  - id: mcp-privesc-block-azure-rbac-assignment-api
+    taxonomy: "privilege-escalation/cloud-privilege-escalation/cloud-iam-key-creation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)management\\.azure\\.com/subscriptions/[^/]+/providers/Microsoft\\.Authorization/roleAssignments/[^/?]"
+            - "(?i)management\\.azure\\.com/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Authorization/roleAssignments/[^/?]"
+        method:
+          pattern_any:
+            - "(?i)^(PUT|POST|DELETE)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP PUT/POST/DELETE to Azure RBAC role assignment endpoint — role assignment writes grant persistent privileged access across subscription resources. Agents must not autonomously modify cloud IAM. MITRE T1098, T1136."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments/assignment-id", "method": "PUT"}
+        - tool: "post_request"
+          args: {"url": "https://management.azure.com/subscriptions/sub-id/resourceGroups/rg/providers/Microsoft.Authorization/roleAssignments/new-id", "method": "POST"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments"}
+        - tool: "http_request"
+          args: {"url": "https://docs.microsoft.com/en-us/azure/role-based-access-control/"}
