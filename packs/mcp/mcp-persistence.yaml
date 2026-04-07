@@ -786,7 +786,7 @@ structural_rules:
   # MITRE T1059     — Command and Scripting Interpreter
   # OWASP LLM06     — Excessive Agency (agent persisting behavior across sessions)
   - id: mcp-persist-block-ide-keybindings-write
-    taxonomy: "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence"
+    taxonomy: "persistence-evasion/agent-config-persistence/ide-keybinding-hijack"
     match:
       tool_name_any:
         - "write_file"
