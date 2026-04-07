@@ -1237,3 +1237,143 @@ structural_rules:
           args: {"url": "https://rubygems.org/api/v1/gems/rails.json", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://rubygems.org/gems/rails", "method": "GET"}
+
+  # ===========================================================================
+  # CI/CD Secrets API Manipulation
+  # ===========================================================================
+  #
+  # Taxonomy: supply-chain/cicd-tampering/cicd-secrets-api-manipulation
+  # MITRE T1552.001 — Credentials from Files (CI/CD env vars store credentials)
+  # MITRE T1195.002 — Compromise Software Supply Chain
+  # OWASP LLM06 — Excessive Agency
+  #
+  # CI/CD platforms expose REST APIs for managing secrets and environment
+  # variables. An AI agent with a valid API token (often available via
+  # ~/.config/gh/hosts.yml or GITHUB_TOKEN env var) can:
+  #   - List secret names (information disclosure — reveals secret topology)
+  #   - Overwrite secrets with attacker-controlled values (supply chain attack)
+  #   - Delete secrets to cause pipeline failures (sabotage)
+  #
+  # Agents have no legitimate need to programmatically enumerate or modify
+  # CI/CD secrets. These operations should go through version-controlled
+  # Infrastructure-as-Code (IaC) tooling with human review, not direct API
+  # calls from an autonomous agent session.
+  #
+  # Attack chain example:
+  #   1. Prompt injection in a web page the agent fetches
+  #   2. Agent instructed to POST secrets to attacker webhook
+  #   3. Agent uses GITHUB_TOKEN to GET /repos/victim/app/actions/secrets
+  #   4. Attacker learns which secrets exist → targeted follow-up attack
+
+  - id: mcp-sc-block-github-actions-secrets-api
+    taxonomy: "supply-chain/cicd-tampering/cicd-secrets-api-manipulation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "get_request"
+        - "put_request"
+        - "delete_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/actions/secrets"
+            - "(?i)api\\.github\\.com/orgs/[^/]+/actions/secrets"
+            - "(?i)api\\.github\\.com/[^/]+/[^/]+/environments/[^/]+/secrets"
+            - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/codespaces/secrets"
+    decision: "BLOCK"
+    confidence: 0.97
+    reason: "MCP request to GitHub Actions secrets API — agents have no legitimate need to enumerate or modify CI/CD secrets programmatically. Listing secrets leaks secret topology; writes can overwrite secrets with attacker-controlled values enabling supply chain compromise. MITRE T1552.001, T1195.002."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo/actions/secrets"}
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo/actions/secrets/MY_SECRET", "method": "PUT"}
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/orgs/myorg/actions/secrets"}
+        - tool: "network_request"
+          args: {"url": "https://api.github.com/repos/victim/app/environments/prod/secrets"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo/actions/workflows"}
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo/issues"}
+
+  - id: mcp-sc-block-gitlab-ci-variables-api
+    taxonomy: "supply-chain/cicd-tampering/cicd-secrets-api-manipulation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "get_request"
+        - "put_request"
+        - "delete_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)gitlab\\.com/api/v\\d+/projects/[^/]+/variables"
+            - "(?i)gitlab\\.com/api/v\\d+/groups/[^/]+/variables"
+            - "(?i)/api/v\\d+/projects/[^/]+/variables"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP request to GitLab CI variables API — unlike GitHub Actions (which only expose secret names), GitLab CI variables API returns variable values in plaintext for non-masked variables, enabling direct credential extraction. Agents should never enumerate CI/CD variables programmatically. MITRE T1552.001, T1195.002."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://gitlab.com/api/v4/projects/123/variables"}
+        - tool: "http_request"
+          args: {"url": "https://gitlab.com/api/v4/projects/123/variables/DATABASE_URL", "method": "PUT"}
+        - tool: "network_request"
+          args: {"url": "https://gitlab.com/api/v4/groups/456/variables"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://gitlab.com/api/v4/projects/123/pipelines"}
+        - tool: "http_request"
+          args: {"url": "https://docs.gitlab.com/ee/ci/variables/"}
+
+  - id: mcp-sc-block-circleci-envvar-api
+    taxonomy: "supply-chain/cicd-tampering/cicd-secrets-api-manipulation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "get_request"
+        - "put_request"
+        - "delete_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)circleci\\.com/api/v\\d+/project/[^/]+/[^/]+/[^/]+/envvar"
+            - "(?i)circleci\\.com/api/v\\d+/project/[^?]*/envvar"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://circleci.com/api/v2/project/github/owner/repo/envvar"}
+        - tool: "http_request"
+          args: {"url": "https://circleci.com/api/v2/project/github/owner/repo/envvar/API_KEY", "method": "DELETE"}
+        - tool: "network_request"
+          args: {"url": "https://circleci.com/api/v1.1/project/github/owner/repo/envvar"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://circleci.com/api/v2/project/github/owner/repo/pipeline"}
+        - tool: "http_request"
+          args: {"url": "https://circleci.com/docs/env-vars/"}
