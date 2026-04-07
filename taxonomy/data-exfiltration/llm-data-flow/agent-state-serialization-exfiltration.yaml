@@ -139,7 +139,7 @@ compliance:
   eu-ai-act-2024: ["Art.12", "Art.15"]
   soc2-type2: ["CC6.1", "CC6.7", "C1.1"]
   iso-42001-2023: ["A.3.3", "A.9.4"]
-  mitre_atlas: ["AML.T0057"]
+  mitre_atlas: ["AML.T0059"]
 
 references:
   mitre_attack: ["T1005", "T1552", "T1560"]
@@ -150,7 +150,7 @@ references:
     - title: "OWASP LLM06 2025 — Excessive Agency"
       url: "https://genai.owasp.org/llmrisk/llm06-excessive-agency/"
     - title: "MITRE ATLAS — LLM Data Leakage"
-      url: "https://atlas.mitre.org/techniques/AML.T0057"
+      url: "https://atlas.mitre.org/techniques/AML.T0059"
 
 analyzers: ["structural", "dataflow", "semantic"]
 related_rules:
