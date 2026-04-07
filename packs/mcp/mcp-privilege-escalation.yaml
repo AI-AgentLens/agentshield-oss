@@ -323,6 +323,65 @@ rules:
         - tool: "write_file"
           args: {"path": "/workspace/docs/core-pattern-guide.md", "content": "# Linux Core Patterns\nSee /proc/sys/kernel/core_pattern for config."}
 
+  # === BLOCK: Writes to Linux kernel security parameters ===
+  # Linux exposes kernel security knobs via /proc/sys/kernel/. Lowering these
+  # values directly weakens kernel defenses and is a prerequisite for many
+  # privilege escalation and container escape techniques:
+  #
+  #   perf_event_paranoid=-1  → unprivileged kernel memory access via perf events
+  #                             (KASLR bypass, kernel exploit enablement; CVE-2022-0185 et al.)
+  #   kptr_restrict=0         → leaks kernel symbol addresses from /proc/kallsyms
+  #                             (KASLR bypass for ROP chains)
+  #   dmesg_restrict=0        → exposes kernel ring buffer (addresses, loaded modules, secrets)
+  #   unprivileged_userns_clone=1 → enables user namespace creation by unprivileged users
+  #                             (root of dozens of container escape CVEs: CVE-2020-14386,
+  #                              CVE-2022-0492, CVE-2022-25636, CVE-2023-0386, etc.)
+  #   yama/ptrace_scope=0     → disables Yama LSM ptrace restriction — any process can
+  #                             trace any other (credential dumping, memory scraping)
+  #
+  # ** glob is needed: yama/ptrace_scope is one level deeper than kernel/.
+  # Writes to core_pattern (code execution via core dumps) are covered by a separate rule.
+  # Read access to these files is benign (diagnostic only) and not blocked.
+  # MITRE T1548 (Abuse Elevation Control Mechanism), T1068 (Exploitation for Privilege Escalation)
+  - id: mcp-privesc-block-kernel-security-params
+    taxonomy: "privilege-escalation/kernel-exploit/kernel-security-parameter-manipulation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "write_to_file"
+      argument_patterns:
+        path: "/proc/sys/kernel/**"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "Write to Linux kernel security parameter blocked — /proc/sys/kernel/ controls critical security knobs (perf_event_paranoid, kptr_restrict, dmesg_restrict, unprivileged_userns_clone, yama/ptrace_scope). Lowering these values weakens KASLR, enables unprivileged kernel memory access, exposes kernel addresses, and unlocks container escape vectors. MITRE T1548, T1068."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/perf_event_paranoid", "content": "-1"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/kptr_restrict", "content": "0"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/dmesg_restrict", "content": "0"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/unprivileged_userns_clone", "content": "1"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/kernel/yama/ptrace_scope", "content": "0"}
+        - tool: "edit_file"
+          args: {"path": "/proc/sys/kernel/perf_event_paranoid", "content": "-1"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/sys/kernel/perf_event_paranoid"}
+        - tool: "read_file"
+          args: {"path": "/proc/sys/kernel/kptr_restrict"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/kernel-security-guide.md", "content": "# Kernel Security\nSee /proc/sys/kernel/perf_event_paranoid for config."}
+
 structural_rules:
   # === BLOCK: SUID bit set on executables via chmod ===
   - id: mcp-privesc-block-suid-chmod
