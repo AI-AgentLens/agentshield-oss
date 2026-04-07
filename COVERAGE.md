@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1108 |
-| MCP rules | 736 |
-| Total rules | 1844 |
+| MCP rules | 741 |
+| Total rules | 1849 |
 | Test cases (TP+TN) | 4018 |
 | Kingdoms covered | 10 |
 
@@ -1174,7 +1174,7 @@
 
 ## MCP Rules
 
-### credential-exposure (386 rules)
+### credential-exposure (391 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1249,6 +1249,10 @@
 | `mcp-sec-block-sequel-pro-connections` | BLOCK | mcp_rule | Access to Sequel Pro connection favorites is blocked — plist files store MySQL/PostgreSQL connection details including credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-datasources` | BLOCK | mcp_rule | Access to DataGrip config is blocked — dataSources.local.xml stores database connection credentials. MITRE T1552.001. |
 | `mcp-sec-block-datagrip-jetbrains` | BLOCK | mcp_rule | Access to DataGrip config via JetBrains directory is blocked — dataSources.local.xml stores database connection credentials (newer JetBrains config layout). MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-connection-string` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'connection_string' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-dsn` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'dsn' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-database-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'database_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-db-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'db_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-security-xml` | BLOCK | mcp_rule | Access to JetBrains IDE security.xml is blocked — this file contains the master password hash protecting the IDE's credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-web-servers` | BLOCK | mcp_rule | Access to JetBrains webServers.xml is blocked — contains FTP/SFTP/web server connection credentials stored by the IDE deployment/remote host configuration. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-datasources` | BLOCK | mcp_rule | Access to JetBrains dataSources.local.xml is blocked — contains database connection credentials (passwords, SSL keys) for all databases configured in any JetBrains IDE. MITRE T1552.001. |
@@ -1558,6 +1562,7 @@
 | `mcp-sec-block-gitconfig-read` | BLOCK | mcp_rule | Read access to ~/.gitconfig is blocked — the file can contain http.extraHeader Bearer tokens for private Git hosts, credential.helper configuration, and url.insteadOf entries that expose internal infrastructure. MITRE T1552.001. |
 | `mcp-sec-block-aws-imds` | BLOCK | structural | MCP HTTP tool accessing AWS IMDS endpoint (169.254.169.254, 169.254.170.2, or fd00:ec2::254 IPv6) — retrieves EC2/ECS IAM role credentials (AccessKeyId, SecretAccessKey, Token) silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-gcp-imds` | BLOCK | structural | MCP HTTP tool accessing GCP IMDS endpoint (metadata.google.internal) — retrieves GCP service account OAuth tokens silently. Agents have no legitimate need to query instance metadata. OWASP LLM02, MITRE T1552.005. |
+| `mcp-sec-block-alibaba-tencent-imds` | BLOCK | structural | MCP HTTP tool accessing Alibaba Cloud ECS IMDS (100.100.100.200) or Tencent Cloud CVM IMDS (metadata.tencentyun.com) — returns RAM/CAM role credentials (AccessKeyId, AccessKeySecret, SecurityToken) silently. No legitimate use for AI agents. OWASP LLM02, MITRE T1552.005. |
 | `mcp-sec-block-mysql-uri` | BLOCK | resource_rule | Direct MySQL database access via MCP is blocked. |
 | `mcp-sec-block-postgres-uri` | BLOCK | resource_rule | Direct PostgreSQL database access via MCP is blocked. |
 | `mcp-sec-block-redis-uri` | BLOCK | resource_rule | Direct Redis access via MCP is blocked. |
