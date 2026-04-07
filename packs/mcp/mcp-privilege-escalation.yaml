@@ -382,6 +382,84 @@ rules:
         - tool: "write_file"
           args: {"path": "/workspace/docs/kernel-security-guide.md", "content": "# Kernel Security\nSee /proc/sys/kernel/perf_event_paranoid for config."}
 
+  # === BLOCK: Writes to /proc/sys/net/ and /proc/sys/fs/ security parameters ===
+  # The /proc/sys/net/ and /proc/sys/fs/ subtrees contain security parameters that,
+  # when weakened, enable network-level container escapes and TOCTOU privilege escalation:
+  #
+  #   net/ipv4/ip_forward=1         → turns host into a router; prerequisite for
+  #                                   container-to-container lateral movement and
+  #                                   host network spoofing. MITRE T1090.
+  #   net/ipv6/conf/all/forwarding=1 → same as ip_forward for IPv6. MITRE T1090.
+  #   fs/protected_hardlinks=0      → disables hardlink protection; enables TOCTOU race
+  #                                   conditions against setuid binaries. MITRE T1548.001.
+  #   fs/protected_symlinks=0       → disables symlink protection in world-writable dirs
+  #                                   (/tmp); enables symlink race attacks. MITRE T1548.001.
+  #
+  # Note: /proc/sys/kernel/** writes are covered by mcp-privesc-block-kernel-security-params.
+  # Read access to these files is benign (diagnostic) and not blocked.
+  # MITRE T1090 (Proxy), T1548.001 (Setuid abuse via TOCTOU)
+  - id: mcp-privesc-block-net-fs-security-params
+    taxonomy: "privilege-escalation/kernel-exploit/kernel-security-parameter-manipulation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "write_to_file"
+      argument_patterns:
+        path: "/proc/sys/net/**"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Write to /proc/sys/net/ kernel network parameter blocked — enabling ip_forward or IPv6 forwarding turns the host into a router, creating lateral movement paths between containers and enabling host network spoofing. MITRE T1090."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/proc/sys/net/ipv4/ip_forward", "content": "1"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/net/ipv6/conf/all/forwarding", "content": "1"}
+        - tool: "edit_file"
+          args: {"path": "/proc/sys/net/ipv4/ip_forward", "content": "1"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/sys/net/ipv4/ip_forward"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/network-config.md", "content": "# Network Config\nSee /proc/sys/net/ipv4/ip_forward"}
+
+  - id: mcp-privesc-block-fs-security-params
+    taxonomy: "privilege-escalation/file-permissions/toctou-race-condition"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "write_to_file"
+      argument_patterns:
+        path: "/proc/sys/fs/**"
+    decision: "BLOCK"
+    confidence: 0.90
+    reason: "Write to /proc/sys/fs/ kernel filesystem parameter blocked — disabling protected_hardlinks or protected_symlinks removes TOCTOU race condition protections, enabling privilege escalation against setuid binaries and race attacks in world-writable directories. MITRE T1548.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/proc/sys/fs/protected_hardlinks", "content": "0"}
+        - tool: "write_file"
+          args: {"path": "/proc/sys/fs/protected_symlinks", "content": "0"}
+        - tool: "edit_file"
+          args: {"path": "/proc/sys/fs/protected_hardlinks", "content": "0"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/proc/sys/fs/protected_hardlinks"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/fs-security.md", "content": "# FS Security\nSee /proc/sys/fs/protected_hardlinks"}
+
 structural_rules:
   # === BLOCK: SUID bit set on executables via chmod ===
   - id: mcp-privesc-block-suid-chmod
