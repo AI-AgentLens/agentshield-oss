@@ -789,6 +789,11 @@ structural_rules:
         - "api_request"
         - "post_request"
         - "put_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -807,6 +812,10 @@ structural_rules:
           args: {"url": "https://iam.amazonaws.com/?Action=CreateUser&UserName=backdoor-user"}
         - tool: "post_request"
           args: {"url": "https://iam.amazonaws.com/?Action=AttachUserPolicy&UserName=victim&PolicyArn=arn:aws:iam::aws:policy/AdministratorAccess"}
+        - tool: "http_post"
+          args: {"url": "https://iam.amazonaws.com/?Action=CreateAccessKey&UserName=victim"}
+        - tool: "http_put"
+          args: {"url": "https://iam.amazonaws.com/?Action=CreateUser&UserName=backdoor"}
       tn:
         - tool: "http_request"
           args: {"url": "https://iam.amazonaws.com/?Action=ListUsers"}
@@ -825,6 +834,11 @@ structural_rules:
         - "api_request"
         - "post_request"
         - "put_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -840,6 +854,8 @@ structural_rules:
           args: {"url": "https://iam.googleapis.com/v1/projects/my-project/serviceAccounts/sa@project.iam.gserviceaccount.com/keys", "method": "POST"}
         - tool: "http_request"
           args: {"url": "https://cloudresourcemanager.googleapis.com/v1/projects/my-project:setIamPolicy", "method": "POST"}
+        - tool: "http_post"
+          args: {"url": "https://iam.googleapis.com/v1/projects/my-project/serviceAccounts/sa@proj.iam.gserviceaccount.com/keys"}
       tn:
         - tool: "http_request"
           args: {"url": "https://iam.googleapis.com/v1/projects/my-project/serviceAccounts"}
@@ -858,6 +874,11 @@ structural_rules:
         - "api_request"
         - "post_request"
         - "put_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -899,6 +920,11 @@ structural_rules:
         - "put_request"
         - "delete_request"
         - "patch_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -945,6 +971,11 @@ structural_rules:
         - "put_request"
         - "delete_request"
         - "patch_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
