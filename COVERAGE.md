@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1110 |
-| MCP rules | 752 |
-| Total rules | 1862 |
+| MCP rules | 758 |
+| Total rules | 1868 |
 | Test cases (TP+TN) | 4042 |
 | Kingdoms covered | 10 |
 
@@ -1176,7 +1176,7 @@
 
 ## MCP Rules
 
-### credential-exposure (395 rules)
+### credential-exposure (401 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1302,6 +1302,8 @@
 | `mcp-sec-block-helm-xdg-registry` | BLOCK | mcp_rule | Access to Helm XDG data directory is blocked — contains OCI registry credentials in docker-credential-store format. Exfiltrating this enables unauthorized access to private Helm registries. MITRE T1552.001. |
 | `mcp-sec-block-gem-credentials` | BLOCK | mcp_rule | Access to ~/.gem/credentials is blocked — contains RubyGems registry API keys enabling gem publish supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-rubygems-legacy-credentials` | BLOCK | mcp_rule | Access to ~/.rubygems/credentials is blocked — legacy RubyGems credential path containing API keys that enable malicious gem publishing (supply chain attacks). MITRE T1195.001, T1552.001. |
+| `mcp-sec-block-bundler-config-read` | BLOCK | mcp_rule | Read access to ~/.bundle/config is blocked — contains Bundler authentication tokens for private RubyGems servers (format: BUNDLE_HTTPS__HOST: "token:key"). Exfiltration enables supply chain attacks via malicious gem publishing. MITRE T1552.001, T1195.001. |
+| `mcp-sec-block-bundler-config-write` | BLOCK | mcp_rule | Write access to ~/.bundle/config is blocked — an agent can redirect gem sources to a malicious registry (via BUNDLE_MIRROR__* or BUNDLE_RUBYGEMS__PKG__*) or disable SSL verification, enabling man-in-the-middle gem installation. MITRE T1195.001. |
 | `mcp-sec-block-nuget-config` | BLOCK | mcp_rule | Access to ~/.nuget/NuGet.Config is blocked — contains NuGet package source API keys and credentials for private feeds enabling supply chain attacks. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-composer-auth` | BLOCK | mcp_rule | Access to ~/.composer/auth.json is blocked — contains Composer OAuth tokens and HTTP credentials for private PHP package repositories. MITRE T1195.001, T1552.001. |
 | `mcp-sec-block-ivy-credentials` | BLOCK | mcp_rule | Access to ~/.ivy2/.credentials is blocked — contains Ivy/Scala repository credentials (user, password) for private artifact repositories. MITRE T1195.001, T1552.001. |
@@ -1388,6 +1390,10 @@
 | `mcp-sec-block-terraform-dotdir-credentials` | BLOCK | mcp_rule | Access to ~/.terraform/credentials.tfrc.json is blocked — non-standard but valid Terraform credential path containing Cloud/Enterprise API tokens. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-jenkins-home-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credential store with encrypted API keys and SSH keys. MITRE T1552.001. |
+| `mcp-sec-block-jenkins-server-credentials` | BLOCK | mcp_rule | Access to /var/lib/jenkins/credentials.xml is blocked — Jenkins server credential store containing encrypted API keys, SSH private keys, and username/password pairs for all CI/CD integrations. MITRE T1552.001, T1195.002. |
+| `mcp-sec-block-jenkins-master-key` | BLOCK | mcp_rule | Read access to /var/lib/jenkins/secrets/ is blocked — contains master.key and hudson.util.Secret which together decrypt ALL Jenkins stored credentials. Exfiltrating these files enables complete CI/CD compromise. MITRE T1552.001. |
+| `mcp-sec-block-jenkins-config-write` | BLOCK | mcp_rule | Write access to /var/lib/jenkins/config.xml is blocked — Jenkins main configuration file; writing can disable authentication, add admin accounts, or reconfigure security settings to enable unauthorized access. MITRE T1098, T1195.002. |
 | `mcp-sec-block-jfrog-credentials` | BLOCK | mcp_rule | Access to ~/.jfrog/ is blocked — contains JFrog CLI credentials (API keys, access tokens, server config) for Artifactory/Xray. Exfiltration enables publishing malicious artifacts or reading private builds. MITRE T1552.001, T1195.001. |
 | `mcp-sec-block-jenkins-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credentials (API tokens, SSH keys, username/password) granting pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-travis-credentials` | BLOCK | mcp_rule | Access to ~/.config/travis/config is blocked — contains Travis CI authentication token granting access to build pipelines and repository secrets. MITRE T1552. |

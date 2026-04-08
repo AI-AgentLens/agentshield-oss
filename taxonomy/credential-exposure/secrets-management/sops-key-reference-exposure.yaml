@@ -70,7 +70,6 @@ compliance:
   owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.8.4", "A.8.9"]
   soc2-type2: ["CC6.1", "CC6.7"]
-  iso-42001-2023: ["A.8.4"]
 
 references:
   mitre_attack: ["T1552", "T1552.001"]
