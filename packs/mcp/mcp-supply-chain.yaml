@@ -1126,6 +1126,11 @@ structural_rules:
         - "make_request"
         - "send_request"
         - "api_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1141,6 +1146,10 @@ structural_rules:
         - tool: "http_request"
           args: {"url": "https://registry.npmjs.org/my-package", "method": "PUT"}
         - tool: "network_request"
+          args: {"url": "https://registry.npmjs.org/evil-package", "method": "POST"}
+        - tool: "http_put"
+          args: {"url": "https://registry.npmjs.org/my-package", "method": "PUT"}
+        - tool: "http_post"
           args: {"url": "https://registry.npmjs.org/evil-package", "method": "POST"}
       tn:
         - tool: "http_request"
@@ -1158,6 +1167,11 @@ structural_rules:
         - "make_request"
         - "send_request"
         - "api_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1170,6 +1184,8 @@ structural_rules:
         - tool: "http_request"
           args: {"url": "https://upload.pypi.org/legacy/", "method": "POST"}
         - tool: "network_request"
+          args: {"url": "https://upload.pypi.org/legacy/", "method": "POST"}
+        - tool: "http_post"
           args: {"url": "https://upload.pypi.org/legacy/", "method": "POST"}
       tn:
         - tool: "http_request"
@@ -1187,6 +1203,11 @@ structural_rules:
         - "make_request"
         - "send_request"
         - "api_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1216,6 +1237,11 @@ structural_rules:
         - "make_request"
         - "send_request"
         - "api_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1264,6 +1290,11 @@ structural_rules:
         - "api_request"
         - "put_request"
         - "post_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1319,6 +1350,11 @@ structural_rules:
         - "api_request"
         - "put_request"
         - "post_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1388,6 +1424,11 @@ structural_rules:
         - "get_request"
         - "put_request"
         - "delete_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1408,6 +1449,10 @@ structural_rules:
           args: {"url": "https://api.github.com/orgs/myorg/actions/secrets"}
         - tool: "network_request"
           args: {"url": "https://api.github.com/repos/victim/app/environments/prod/secrets"}
+        - tool: "http_put"
+          args: {"url": "https://api.github.com/repos/owner/repo/actions/secrets/MY_SECRET"}
+        - tool: "http_post"
+          args: {"url": "https://api.github.com/orgs/myorg/actions/secrets"}
       tn:
         - tool: "http_request"
           args: {"url": "https://api.github.com/repos/owner/repo/actions/workflows"}
@@ -1428,6 +1473,11 @@ structural_rules:
         - "get_request"
         - "put_request"
         - "delete_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1465,6 +1515,11 @@ structural_rules:
         - "get_request"
         - "put_request"
         - "delete_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1506,6 +1561,11 @@ structural_rules:
         - "get_request"
         - "put_request"
         - "delete_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
@@ -1545,6 +1605,11 @@ structural_rules:
         - "api_request"
         - "post_request"
         - "put_request"
+        - "http_get"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "http_patch"
       args_match:
         url:
           pattern_any:
