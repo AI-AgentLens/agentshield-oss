@@ -260,6 +260,14 @@ func runPipelineTestCases(t *testing.T, cases []testdata.TestCase) {
 
 	for _, tc := range cases {
 		t.Run(tc.ID, func(t *testing.T) {
+			// Skip premium-only test cases when premium packs are not loaded.
+			for _, tag := range tc.Tags {
+				if tag == "premium" {
+					t.Skipf("PREMIUM — requires premium rule pack")
+					return
+				}
+			}
+
 			result := engine.Evaluate(tc.Command, nil)
 			actual := string(result.Decision)
 

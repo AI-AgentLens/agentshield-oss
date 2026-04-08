@@ -918,7 +918,7 @@ var AIContentIntegrityCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
 		Analyzer:         "dataflow",
 		Description:      "llm CLI output piped directly to bash — LLM-generated text becomes untrusted shell payload (OWASP LLM01, MITRE T1059).",
-		Tags:             []string{"tp", "llm-injection", "dataflow", "pipe-to-shell"},
+		Tags:             []string{"tp", "llm-injection", "dataflow", "pipe-to-shell", "premium"},
 	},
 	{
 		ID:               "TP-TS-DF-LLM-INJECT-002",
@@ -928,7 +928,7 @@ var AIContentIntegrityCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
 		Analyzer:         "dataflow",
 		Description:      "ollama CLI output piped to sh — local LLM output execution is equally dangerous as cloud LLM output injection.",
-		Tags:             []string{"tp", "llm-injection", "dataflow", "ollama"},
+		Tags:             []string{"tp", "llm-injection", "dataflow", "ollama", "premium"},
 	},
 	{
 		ID:               "TP-TS-DF-LLM-INJECT-003",
@@ -938,7 +938,7 @@ var AIContentIntegrityCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/ai-content-integrity/llm-output-injection",
 		Analyzer:         "dataflow",
 		Description:      "Claude CLI print output piped to bash — agent-to-shell injection via Claude CLI is a common automation anti-pattern.",
-		Tags:             []string{"tp", "llm-injection", "dataflow", "claude-cli"},
+		Tags:             []string{"tp", "llm-injection", "dataflow", "claude-cli", "premium"},
 	},
 
 	// --- TRUE NEGATIVES: LLM queries without shell pipe ---
@@ -2083,7 +2083,7 @@ var MultiAgentTrustExploitationCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/multi-agent-trust-exploitation",
 		Analyzer:         "stateful",
 		Description:      "CrewAI CLI output piped to bash — agent-generated content executes as shell commands (multi-agent trust exploitation, unintended proxy).",
-		Tags:             []string{"tp", "multi-agent", "pipe-to-shell"},
+		Tags:             []string{"tp", "multi-agent", "pipe-to-shell", "premium"},
 	},
 	{
 		ID:               "TP-MSTE-002",
@@ -2093,7 +2093,7 @@ var MultiAgentTrustExploitationCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/multi-agent-trust-exploitation",
 		Analyzer:         "stateful",
 		Description:      "LangGraph CLI output piped to sh — downstream shell executes upstream agent output without sanitization.",
-		Tags:             []string{"tp", "multi-agent", "pipe-to-shell"},
+		Tags:             []string{"tp", "multi-agent", "pipe-to-shell", "premium"},
 	},
 	// --- TRUE POSITIVES: writing injection-pattern text to shared context files ---
 	{
@@ -3684,7 +3684,7 @@ var AutonomousToolChainingCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/autonomous-tool-chaining",
 		Analyzer:         "stateful",
 		Description:      "grep creds → openssl encode → wget POST: multi-stage autonomous pipeline using different tools than cat/base64/curl.",
-		Tags:             []string{"tp", "autonomous-tool-chaining", "exfil"},
+		Tags:             []string{"tp", "autonomous-tool-chaining", "exfil", "premium"},
 	},
 	{
 		ID:               "TN-TOOLCHAIN-001",
@@ -3717,9 +3717,9 @@ var AgentToAgentLateralPivotCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-to-agent-lateral-pivot",
-		Analyzer:         "regex",
+		Analyzer:         "stateful",
 		Description:      "curl POST to localhost:11434 (Ollama) OpenAI-compatible API — sending a crafted message to inject into a peer agent's context.",
-		Tags:             []string{"tp", "agent-lateral-pivot", "ollama"},
+		Tags:             []string{"tp", "agent-lateral-pivot", "ollama", "premium"},
 	},
 	{
 		ID:               "TP-A2A-PIVOT-002",
@@ -8852,7 +8852,7 @@ var BuildDiagnosticPromptInjectionCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/build-diagnostic-prompt-injection",
 		Analyzer:         "stateful",
 		Description:      "npm test output piped to bash — a malicious package can embed injection payloads in test output. Must be blocked.",
-		Tags:             []string{"tp", "build", "prompt-injection"},
+		Tags:             []string{"tp", "build", "prompt-injection", "premium"},
 	},
 	{
 		ID:               "TP-BUILD-DIAG-INJECT-002",
@@ -8862,7 +8862,7 @@ var BuildDiagnosticPromptInjectionCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/build-diagnostic-prompt-injection",
 		Analyzer:         "stateful",
 		Description:      "go build output piped to sh — compiler diagnostics from a malicious dependency could contain injection payloads. Must be blocked.",
-		Tags:             []string{"tp", "build", "prompt-injection"},
+		Tags:             []string{"tp", "build", "prompt-injection", "premium"},
 	},
 	{
 		ID:               "TP-BUILD-DIAG-INJECT-003",
@@ -8872,7 +8872,7 @@ var BuildDiagnosticPromptInjectionCases = []TestCase{
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/build-diagnostic-prompt-injection",
 		Analyzer:         "stateful",
 		Description:      "pytest output piped to bash — test failure messages from malicious PyPI packages could inject commands. Must be blocked.",
-		Tags:             []string{"tp", "build", "prompt-injection"},
+		Tags:             []string{"tp", "build", "prompt-injection", "premium"},
 	},
 	{
 		ID:               "TN-BUILD-DIAG-INJECT-001",

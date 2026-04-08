@@ -3116,7 +3116,7 @@ var FindCredentialHuntingCases = []TestCase{
 		TaxonomyRef:      "reconnaissance/osint/ai-ide-config-osint",
 		Analyzer:         "dataflow",
 		Description:      "cat .mcp.json piped to curl — exfiltrates MCP server config including API key names and tool schemas.",
-		Tags:             []string{"tp", "ai-config", "exfil", "dataflow"},
+		Tags:             []string{"tp", "ai-config", "exfil", "dataflow", "premium"},
 	},
 	{
 		ID:               "TP-SEC-DF-AI-CONFIG-EXFIL-002",
@@ -3126,7 +3126,7 @@ var FindCredentialHuntingCases = []TestCase{
 		TaxonomyRef:      "reconnaissance/osint/ai-ide-config-osint",
 		Analyzer:         "dataflow",
 		Description:      "cat CLAUDE.md piped to curl — exfiltrates agent system prompt and security controls.",
-		Tags:             []string{"tp", "ai-config", "exfil", "dataflow"},
+		Tags:             []string{"tp", "ai-config", "exfil", "dataflow", "premium"},
 	},
 	{
 		ID:               "TP-SEC-DF-AI-CONFIG-EXFIL-003",
@@ -3136,7 +3136,7 @@ var FindCredentialHuntingCases = []TestCase{
 		TaxonomyRef:      "reconnaissance/osint/ai-ide-config-osint",
 		Analyzer:         "dataflow",
 		Description:      "cat .cursorrules piped to nc — exfiltrates Cursor IDE system prompt over raw TCP.",
-		Tags:             []string{"tp", "ai-config", "exfil", "dataflow"},
+		Tags:             []string{"tp", "ai-config", "exfil", "dataflow", "premium"},
 	},
 	{
 		ID:               "TN-SEC-DF-AI-CONFIG-EXFIL-001",

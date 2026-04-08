@@ -1439,9 +1439,9 @@ var GitHistoryMiningCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/history-mining/git-history-secret-mining",
-		Analyzer:         "regex",
+		Analyzer:         "dataflow",
 		Description:      `git log --all -p streams all commit diffs piped to grep for 'password' — mines full git history for accidentally committed credentials. Matched by sec-block-git-log-credential-mining.`,
-		Tags:             []string{"canonical", "critical"},
+		Tags:             []string{"canonical", "critical", "premium"},
 	},
 	{
 		ID:               "TP-GITMINE-002",
@@ -1449,9 +1449,9 @@ var GitHistoryMiningCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/history-mining/git-history-secret-mining",
-		Analyzer:         "regex",
+		Analyzer:         "dataflow",
 		Description:      `git pickaxe search (-S) finds all commits that added or removed OPENAI_API_KEY — purpose-built for secret recovery from history. Matched by sec-block-git-pickaxe-mining.`,
-		Tags:             []string{"canonical", "critical"},
+		Tags:             []string{"canonical", "critical", "premium"},
 	},
 	{
 		ID:               "TP-GITMINE-003",
@@ -1459,9 +1459,9 @@ var GitHistoryMiningCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/history-mining/git-history-secret-mining",
-		Analyzer:         "regex",
+		Analyzer:         "dataflow",
 		Description:      `Extended regex grep across all git history diffs for multiple credential keywords. Same attack as TP-GITMINE-001 with broader keyword set. Matched by sec-block-git-log-credential-mining.`,
-		Tags:             []string{"critical"},
+		Tags:             []string{"critical", "premium"},
 	},
 	{
 		ID:               "TP-GITMINE-004",
@@ -1469,9 +1469,9 @@ var GitHistoryMiningCases = []TestCase{
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/history-mining/git-history-secret-mining",
-		Analyzer:         "regex",
+		Analyzer:         "dataflow",
 		Description:      `git pickaxe with -G (regex) searches for AWS secret key pattern across all commits. The -G flag searches diff content lines, directly targeting credential values. Matched by sec-block-git-pickaxe-mining.`,
-		Tags:             []string{"critical"},
+		Tags:             []string{"critical", "premium"},
 	},
 
 	// --- TRUE NEGATIVES ---
@@ -2476,9 +2476,9 @@ var SecretsPIIPackRuleCases = []TestCase{
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "credential-exposure/secret-env-exposure/env-dump",
-		Analyzer:         "regex",
+		Analyzer:         "dataflow",
 		Description:      "env piped to grep for API_KEY pattern — targeted secret env var access via sec-audit-env-grep-secret.",
-		Tags:             []string{"tp", "env-grep", "secrets-pii"},
+		Tags:             []string{"tp", "env-grep", "secrets-pii", "premium"},
 	},
 	{
 		ID:               "TP-SEC-AUDIT-ENVGREP-002",
@@ -2849,7 +2849,7 @@ var SecretsPIIPackRuleCases = []TestCase{
 		TaxonomyRef:      "data-exfiltration/network-egress/network-http-request",
 		Analyzer:         "dataflow",
 		Description:      "Credential file read → base64 encode → curl POST — sec-df-block-cred-to-network dataflow rule.",
-		Tags:             []string{"tp", "dataflow", "cred-to-network", "secrets-pii"},
+		Tags:             []string{"tp", "dataflow", "cred-to-network", "secrets-pii", "premium"},
 	},
 	{
 		ID:               "TP-SEC-DF-CREDNET-002",
@@ -2859,7 +2859,7 @@ var SecretsPIIPackRuleCases = []TestCase{
 		TaxonomyRef:      "data-exfiltration/network-egress/network-http-request",
 		Analyzer:         "dataflow",
 		Description:      "GPG secret ring piped to curl — credential data flowing to network sink.",
-		Tags:             []string{"tp", "dataflow", "cred-to-network", "secrets-pii"},
+		Tags:             []string{"tp", "dataflow", "cred-to-network", "secrets-pii", "premium"},
 	},
 	{
 		ID:               "TN-SEC-DF-CREDNET-001",
@@ -2885,7 +2885,7 @@ var SecretsPIIPackRuleCases = []TestCase{
 		TaxonomyRef:      "data-exfiltration/encoded-exfil/base64-credential-encode",
 		Analyzer:         "dataflow",
 		Description:      "AWS credentials → base64 encode → curl exfil — sec-df-block-cred-encoded-exfil.",
-		Tags:             []string{"tp", "dataflow", "cred-encoded-exfil", "secrets-pii"},
+		Tags:             []string{"tp", "dataflow", "cred-encoded-exfil", "secrets-pii", "premium"},
 	},
 	{
 		ID:               "TN-SEC-DF-CREDENC-001",
