@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-07 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-08 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1110 |
-| MCP rules | 748 |
-| Total rules | 1858 |
-| Test cases (TP+TN) | 4029 |
+| Terminal rules | 1111 |
+| MCP rules | 752 |
+| Total rules | 1863 |
+| Test cases (TP+TN) | 4033 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -325,7 +325,7 @@
 | `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
 | `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
 
-### destructive-ops (73 rules)
+### destructive-ops (74 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -365,11 +365,12 @@
 | `ts-block-az-sql-delete` | BLOCK | regex | Azure SQL database deletion destroys cloud data. |
 | `ts-block-az-storage-delete` | BLOCK | regex | Azure storage blob batch deletion destroys cloud storage data. |
 | `ts-block-az-group-delete` | BLOCK | regex | Azure resource group deletion destroys all resources in the group. |
-| `ts-block-terraform-destroy` | BLOCK | regex | terraform destroy tears down ALL resources in the Terraform state file across every cloud provider — equivalent to running many cloud-infra delete commands simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
-| `ts-block-tofu-destroy` | BLOCK | regex | tofu destroy (OpenTofu, the open-source Terraform fork) tears down all managed cloud infrastructure — same blast radius as terraform destroy. AI agents must not run infrastructure destruction commands. (MITRE T1578, T1485) |
-| `ts-block-terragrunt-destroy` | BLOCK | regex | terragrunt destroy (especially run-all destroy) tears down infrastructure across multiple Terraform stacks in a directory tree — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
-| `ts-block-pulumi-destroy` | BLOCK | regex | pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
-| `ts-block-cdk-destroy` | BLOCK | regex | cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-terraform-destroy` | BLOCK | structural | terraform destroy tears down ALL resources in the Terraform state file across every cloud provider — equivalent to running many cloud-infra delete commands simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-tofu-destroy` | BLOCK | structural | tofu destroy (OpenTofu, the open-source Terraform fork) tears down all managed cloud infrastructure — same blast radius as terraform destroy. AI agents must not run infrastructure destruction commands. (MITRE T1578, T1485) |
+| `ts-block-terragrunt-destroy` | BLOCK | structural | terragrunt destroy tears down infrastructure across Terraform stacks — the widest possible blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-terragrunt-run-all-destroy` | BLOCK | structural | terragrunt run-all destroy tears down ALL stacks in a directory tree simultaneously — maximum blast radius among IaC tools. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-pulumi-destroy` | BLOCK | structural | pulumi destroy tears down all resources in a Pulumi stack, which can span AWS, Azure, GCP, and Kubernetes simultaneously. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
+| `ts-block-cdk-destroy` | BLOCK | structural | cdk destroy deletes AWS CloudFormation stacks and all resources they manage. The --all flag or '*' wildcard removes every stack in the app. AI agents must not destroy infrastructure. (MITRE T1578, T1485) |
 | `ts-audit-aws-run-instances-bulk` | AUDIT | regex | AWS EC2 run-instances with explicit --count argument — launching many instances incurs significant cost. High counts (especially with expensive GPU/memory-optimized types) may reflect a scale misinterpretation. (MITRE T1578.002, OWASP LLM10) |
 | `ts-audit-aws-run-instances-gpu` | AUDIT | regex | AWS EC2 run-instances with high-cost GPU/accelerated instance type — GPU instances cost $3–$32/hr each. AI agents must not provision accelerated compute without human approval. (MITRE T1578.002, OWASP LLM10) |
 | `ts-audit-gcloud-instances-bulk` | AUDIT | regex | GCP compute instances create with 10+ VM names — bulk instance creation incurs significant recurring cost. AI agents may misinterpret scale requirements. (MITRE T1578.002, OWASP LLM10) |
@@ -1743,7 +1744,7 @@
 | `mcp-persist-block-emacs-config-write` | BLOCK | structural | MCP write to Emacs startup file — Emacs Lisp in .emacs.d/init.el and package directories executes on every emacs launch, giving full programmatic persistence. MITRE T1546, OWASP LLM06. |
 | `mcp-persist-block-tmux-config-write` | BLOCK | structural | MCP write to tmux config — tmux.conf can execute arbitrary shell commands via run-shell on server startup, achieving persistence triggered on every new terminal session. MITRE T1546, OWASP LLM06. |
 
-### privilege-escalation (27 rules)
+### privilege-escalation (28 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1771,6 +1772,7 @@
 | `mcp-privesc-block-aws-iam-create-api` | BLOCK | structural | MCP request to AWS IAM key/user creation or policy attachment API — newly created IAM keys persist even after credential rotation and evade detection by appearing as fresh legitimate credentials. Agents must not autonomously create cloud identity credentials. MITRE T1098, T1136. |
 | `mcp-privesc-block-gcp-iam-key-create-api` | BLOCK | structural | MCP request to GCP IAM service account key creation or IAM policy write API — GCP service account keys are downloaded as JSON files with no expiry. Agents must not autonomously create cloud identity credentials or modify IAM policies. MITRE T1098, T1136. |
 | `mcp-privesc-block-azure-rbac-assignment-api` | BLOCK | structural | MCP PUT/POST/DELETE to Azure RBAC role assignment endpoint — role assignment writes grant persistent privileged access across subscription resources. Agents must not autonomously modify cloud IAM. MITRE T1098, T1136. |
+| `mcp-k8s-block-rbac-api-mutation` | BLOCK | structural | MCP HTTP mutation to Kubernetes RBAC endpoints — creating or modifying ClusterRoleBindings, RoleBindings, ClusterRoles, or Roles escalates privileges across the cluster. AI agents must not modify cluster authorization policies. MITRE T1098, T1548. |
 | `mcp-recon-block-dev-port-access` | BLOCK | mcp_rule | Access to /dev/port is blocked — this character device provides raw x86 hardware I/O port access, which can be used for privilege escalation and hardware-level attacks. No legitimate AI agent task requires hardware port I/O. MITRE T1068. |
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
@@ -1815,7 +1817,7 @@
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 | `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
 
-### supply-chain (29 rules)
+### supply-chain (31 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1848,8 +1850,10 @@
 | `mcp-sc-block-github-actions-secrets-api` | BLOCK | structural | MCP request to GitHub Actions secrets API — agents have no legitimate need to enumerate or modify CI/CD secrets programmatically. Listing secrets leaks secret topology; writes can overwrite secrets with attacker-controlled values enabling supply chain compromise. MITRE T1552.001, T1195.002. |
 | `mcp-sc-block-gitlab-ci-variables-api` | BLOCK | structural | MCP request to GitLab CI variables API — unlike GitHub Actions (which only expose secret names), GitLab CI variables API returns variable values in plaintext for non-masked variables, enabling direct credential extraction. Agents should never enumerate CI/CD variables programmatically. MITRE T1552.001, T1195.002. |
 | `mcp-sc-block-circleci-envvar-api` | BLOCK | structural | MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002. |
+| `mcp-sc-block-terraform-cloud-state-api` | BLOCK | structural | MCP request to Terraform Cloud state API — state versions contain plaintext infrastructure resource IDs, connection strings, and credentials. Read access exfiltrates secrets; write access enables state tampering that can cause resource drift or destruction. MITRE T1552.001, T1578. |
+| `mcp-sc-block-terraform-backend-state-write` | BLOCK | structural | MCP HTTP PUT/POST/DELETE to a Terraform state backend path — writing to .tfstate on S3, GCS, or Azure Blob tampers with infrastructure state, causing Terraform to misidentify existing resources and potentially destroying or recreating them on next apply. MITRE T1578, T1485. |
 
-### unauthorized-execution (102 rules)
+### unauthorized-execution (103 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1908,6 +1912,7 @@
 | `mcp-llmdf-audit-cross-server-log-erasure-injection` | AUDIT | structural | Tool call content instructs log or audit file deletion — may be cross-server request forgery attempting to erase evidence. OWASP LLM06. |
 | `mcp-block-a2a-task-injection` | BLOCK | structural | Prompt injection pattern detected in A2A task description — agent-to-agent protocol injection embeds malicious directives in task delegation payloads, overriding the receiving agent's system context. OWASP LLM01 (Prompt Injection). |
 | `mcp-block-a2a-delegation-file-write` | BLOCK | structural | System prompt override key detected in agent task/delegation file write — writing system_prompt_override to an agent-consumed file silently replaces another agent's safety constraints, a persistent form of A2A protocol injection. OWASP LLM01/LLM08. |
+| `mcp-k8s-block-pod-mutation` | BLOCK | structural | MCP HTTP mutation to Kubernetes workload endpoints — POST/PUT/PATCH/DELETE to pod, deployment, daemonset, or statefulset APIs can spawn unauthorized containers, modify running workloads, or destroy services. AI agents must not interact with the kube-apiserver directly. MITRE T1610, T1613. |
 | `mcp-response-integrity-audit-web-fetch` | AUDIT | mcp_rule | Web-fetch tool retrieves external content — responses may contain prompt injection or exfiltration directives (LLM01, LLM05: mcp-tool-response-poisoning) |
 | `mcp-response-integrity-audit-fetch-pattern` | AUDIT | mcp_rule | Tool name pattern suggests external content retrieval — audit for response poisoning risk (LLM01, LLM05) |
 | `mcp-response-integrity-audit-rag-retrieval` | AUDIT | mcp_rule | RAG/knowledge-retrieval tool — returned document chunks may contain indirect prompt injection payloads (LLM01: mcp-tool-response-poisoning) |
@@ -1985,12 +1990,12 @@
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
 | data-exfiltration | 323 | 209 | 532 |
-| destructive-ops | 134 | 93 | 227 |
+| destructive-ops | 135 | 96 | 231 |
 | governance-risk | 86 | 68 | 154 |
 | persistence-evasion | 344 | 220 | 564 |
 | privilege-escalation | 302 | 182 | 484 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 261 | 185 | 446 |
 | unauthorized-execution | 471 | 327 | 798 |
-| **Total** | **2423** | **1606** | **4029** |
+| **Total** | **2424** | **1609** | **4033** |
 
