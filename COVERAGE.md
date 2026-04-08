@@ -6,10 +6,10 @@
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1111 |
+| Terminal rules | 1110 |
 | MCP rules | 752 |
-| Total rules | 1863 |
-| Test cases (TP+TN) | 4033 |
+| Total rules | 1862 |
+| Test cases (TP+TN) | 4042 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -120,7 +120,7 @@
 | `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
 | `sc-block-keylogger-library-install` | BLOCK | structural | Keylogger library installation blocked — pynput, keyboard, and evdev provide OS-level input hooks that silently capture all keystrokes including passwords, API keys, and MFA codes. An AI agent coerced via prompt injection may install these libraries to exfiltrate credentials typed anywhere on the system (MITRE T1056.001). |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
-| `ts-audit-kubectl-cp` | AUDIT | regex | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
+| `ts-audit-kubectl-cp` | AUDIT | structural | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
 | `ts-block-proc-mem-read` | BLOCK | regex | Reading /proc/PID/mem or /proc/PID/maps extracts raw process memory — can expose injected system prompts, in-heap API keys, and in-flight secrets (LLM07). MITRE T1057. |
 | `ts-block-proc-fd-read` | BLOCK | regex | Reading /proc/PID/fd/ accesses another process's open file descriptors — can steal database connections, deleted secret files, and SSH agent sockets. MITRE T1005. |
 | `ts-audit-proc-fd-list` | AUDIT | regex | Listing /proc/PID/fd/ enumerates another process's open file descriptors — reconnaissance for fd hijacking attacks. |
@@ -325,7 +325,7 @@
 | `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
 | `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
 
-### destructive-ops (74 rules)
+### destructive-ops (73 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -378,8 +378,8 @@
 | `ts-audit-az-vm-create-gpu` | AUDIT | regex | Azure VM creation with high-memory (M-series) or GPU/HPC (N-series/H-series) SKU — these instance types cost $5–$50/hr each. AI agents must not provision expensive compute without human review. (MITRE T1578.002, OWASP LLM10) |
 | `ts-audit-kubectl-scale-bulk` | AUDIT | regex | kubectl scale with 100+ replicas — large replica counts trigger auto-scaling of underlying cloud VMs, incurring unexpected infrastructure cost. AI agents may misinterpret scale factors. (MITRE T1578.002, OWASP LLM10) |
 | `ts-audit-stripe-charge-large` | AUDIT | regex | Stripe payment creation with amount >=10000 cents ($100+) — AI agents executing payment CLI commands risk charging incorrect amounts due to unit confusion (cents vs. dollars). (OWASP LLM05, OWASP LLM10) |
-| `ts-block-kubectl-delete-namespace` | BLOCK | regex | Kubernetes namespace deletion destroys all resources in the namespace. |
-| `ts-block-kubectl-delete-all` | BLOCK | regex | Kubernetes bulk deletion of resources is destructive. |
+| `ts-block-kubectl-delete-namespace` | BLOCK | structural | Kubernetes namespace deletion destroys all resources in the namespace. |
+| `ts-block-kubectl-delete-all` | BLOCK | structural | Kubernetes bulk deletion of resources is destructive. |
 | `ts-block-mysql-drop-database` | BLOCK | regex | MySQL/MariaDB DROP DATABASE destroys all tables and data in the named database — irreversible without a backup. AI agents have no legitimate reason to drop a database. MITRE T1485. |
 | `ts-block-mysqladmin-drop` | BLOCK | regex | mysqladmin drop destroys a MySQL database. MITRE T1485. |
 | `ts-block-psql-drop-database` | BLOCK | regex | PostgreSQL DROP DATABASE executed via psql CLI — permanently removes the database and all its objects. MITRE T1485. |
@@ -390,8 +390,7 @@
 | `ts-block-psql-drop-table` | BLOCK | regex | PostgreSQL DROP TABLE executed via psql CLI — permanently destroys the named table and all its rows. MITRE T1485. |
 | `ts-block-mysql-truncate-table` | BLOCK | regex | MySQL/MariaDB TRUNCATE TABLE destroys all rows in the target table instantly, bypassing triggers and row-level logging. Irreversible without a backup. MITRE T1485. |
 | `ts-block-psql-truncate-table` | BLOCK | regex | PostgreSQL TRUNCATE TABLE executed via psql CLI — deletes all rows immediately, can CASCADE to child tables, and resets sequences. Irreversible without a backup. MITRE T1485. |
-| `ts-block-git-force-push-main` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
-| `ts-block-git-force-push-main-alt` | BLOCK | regex | Force pushing to main/master can destroy shared commit history. |
+| `ts-block-git-force-push-main` | BLOCK | structural | Force pushing to main/master can destroy shared commit history. Structural matching handles any flag/branch ordering and eliminates FPs from quoted text in git commit messages or gh CLI body args. |
 | `ts-block-git-reset-hard-commits` | BLOCK | regex | git reset --hard HEAD~N, HEAD~ (bare tilde), or --hard <sha> permanently drops committed work from the branch. An AI agent running this can silently discard hours of committed changes with no undo (MITRE T1485). |
 | `ts-block-git-filter-branch` | BLOCK | structural | git filter-branch rewrites the entire repository commit graph. This permanently alters history for all branches and is irreversible once force-pushed to remotes (MITRE T1485, T1070.004). |
 | `ts-block-git-filter-repo` | BLOCK | structural | git filter-repo rewrites repository history (modern replacement for filter-branch). Permanent and irreversible once propagated to remotes (MITRE T1485, T1070.004). |
@@ -641,11 +640,11 @@
 | `ts-audit-gcloud-iam-service-account-create` | AUDIT | regex | gcloud iam service-accounts create — creating a GCP service account establishes a persistent cloud identity. AI agents may create service accounts to establish persistence or as a stepping stone for privilege escalation. Always review service account creation and key issuance. (OWASP LLM06, MITRE T1098) |
 | `ts-block-docker-privileged` | BLOCK | regex | Running a privileged Docker container disables security boundaries and grants full host access. Excludes gh/git text-payload flags (--body, --message, -m, etc.) that may document the pattern. |
 | `ts-block-docker-host-mount` | BLOCK | regex | Mounting host root filesystem into a container enables full host access. |
-| `ts-block-kubectl-create-clusterrolebinding` | BLOCK | regex | kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
-| `ts-block-kubectl-create-rolebinding` | BLOCK | regex | kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
-| `ts-block-kubectl-patch-rbac` | BLOCK | regex | kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098) |
-| `ts-audit-kubectl-exec` | AUDIT | regex | kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets. |
-| `ts-audit-kubectl-proxy` | AUDIT | regex | kubectl proxy starts an unauthenticated HTTP reverse proxy to the Kubernetes API server on localhost. Any local process can read Secrets, exec into pods, or modify RBAC without presenting credentials — a significant local privilege escalation surface. (OWASP LLM06, MITRE T1021.006) |
+| `ts-block-kubectl-create-clusterrolebinding` | BLOCK | structural | kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
+| `ts-block-kubectl-create-rolebinding` | BLOCK | structural | kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098) |
+| `ts-block-kubectl-patch-rbac` | BLOCK | structural | kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098) |
+| `ts-audit-kubectl-exec` | AUDIT | structural | kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets. |
+| `ts-audit-kubectl-proxy` | AUDIT | structural | kubectl proxy starts an unauthenticated HTTP reverse proxy to the Kubernetes API server on localhost. Any local process can read Secrets, exec into pods, or modify RBAC without presenting credentials — a significant local privilege escalation surface. (OWASP LLM06, MITRE T1021.006) |
 | `ts-block-docker-exec` | AUDIT | regex | docker exec into a container may enable lateral movement or escape. |
 | `ts-audit-podman-exec` | AUDIT | regex | podman exec executes commands inside a running container — same lateral movement risk as docker exec. May access application secrets, env vars, or escalate privileges if container runs as root. MITRE T1609. |
 | `ts-audit-nerdctl-exec` | AUDIT | regex | nerdctl exec (containerd CLI) executes commands inside a running container — same lateral movement risk as docker exec. MITRE T1609. |
@@ -797,7 +796,7 @@
 | `ne-block-dumpcap-live-capture` | BLOCK | regex | dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040. |
 | `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
 | `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
-| `ts-audit-kubectl-port-forward` | AUDIT | regex | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
+| `ts-audit-kubectl-port-forward` | AUDIT | structural | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `ts-audit-env-var-secret-grep` | AUDIT | regex | Piping env/printenv/export through grep with secret-suggestive keywords (TOKEN, SECRET, KEY, PASSWORD, CRED, AUTH) — reconnaissance technique to harvest API keys and credentials from the process environment. Pre-exfiltration reconnaissance step (OWASP LLM02, LLM06, MITRE T1552.007, CWE-200). |
 | `ts-block-env-secret-exfil` | BLOCK | regex | Env secret grep output piped to a network tool — credential exfiltration chain: environment variables filtered for secrets are sent directly over the network. No legitimate developer workflow requires this compound pattern (OWASP LLM02, MITRE T1552, T1048, CWE-200). |
@@ -1024,9 +1023,9 @@
 | `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
 | `ts-block-terraform-apply-auto-approve` | BLOCK | regex | terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578) |
 | `ts-block-cdk-deploy-no-approval` | BLOCK | regex | cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578) |
-| `ts-audit-terraform-apply-no-scan` | AUDIT | regex | terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578) |
+| `ts-audit-terraform-apply-no-scan` | AUDIT | structural | terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-helm-install-upgrade` | AUDIT | regex | helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578) |
-| `ts-audit-pulumi-up` | AUDIT | regex | pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578) |
+| `ts-audit-pulumi-up` | AUDIT | structural | pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578) |
 | `ts-audit-aws-cfn-deploy` | AUDIT | regex | aws cloudformation deploy/create-stack/update-stack or sam deploy applies infrastructure changes to AWS immediately. AI-generated CloudFormation templates may grant excessive IAM permissions or expose resources publicly. Use --no-execute-changeset to review the changeset before execution. (OWASP LLM08, MITRE T1578) |
 | `ts-audit-compliance-report-auto-submit` | AUDIT | regex | AI agent submitting findings or creating compliance assessments in AWS Audit Manager or Security Hub without human review. AI-generated compliance artifacts may contain fabricated findings, incorrect risk ratings, or hallucinated evidence — injecting false data into the regulatory record. Require human review before any compliance data submission. (OWASP LLM09, EU AI Act Art.14, SOC2 CC8.1) |
 | `ts-audit-cloud-storage-bucket-create` | AUDIT | regex | Cloud storage bucket provisioning — creating new buckets establishes persistent data infrastructure. AI agents may create misconfigured buckets (public access, no encryption, wrong region) without human review. (OWASP LLM08, MITRE T1578) |
@@ -1989,13 +1988,13 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
-| data-exfiltration | 323 | 209 | 532 |
-| destructive-ops | 135 | 96 | 231 |
-| governance-risk | 86 | 68 | 154 |
+| data-exfiltration | 323 | 210 | 533 |
+| destructive-ops | 135 | 100 | 235 |
+| governance-risk | 86 | 69 | 155 |
 | persistence-evasion | 344 | 220 | 564 |
-| privilege-escalation | 302 | 182 | 484 |
+| privilege-escalation | 302 | 184 | 486 |
 | reconnaissance | 210 | 101 | 311 |
 | supply-chain | 261 | 185 | 446 |
-| unauthorized-execution | 471 | 327 | 798 |
-| **Total** | **2424** | **1609** | **4033** |
+| unauthorized-execution | 471 | 328 | 799 |
+| **Total** | **2424** | **1618** | **4042** |
 
