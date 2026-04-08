@@ -1,9 +1,0 @@
-id: "6.16"
-name: "Event Triggered Execution"
-kingdom_id: 6
-description: >
-  Abuse of OS event-handling mechanisms — file associations, MIME handlers,
-  D-Bus activation, or application startup triggers — to execute attacker
-  code when a user or system event fires. Unlike scheduled tasks (cron),
-  these triggers activate on demand in response to normal user activity,
-  making them harder to detect and audit.

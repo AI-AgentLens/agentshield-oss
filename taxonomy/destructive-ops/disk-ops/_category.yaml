@@ -1,7 +1,0 @@
-id: "1.2"
-name: "Disk & Partition Operations"
-kingdom_id: 1
-description: >
-  Commands that overwrite disk data, format filesystems, or modify
-  partition tables. These operations are typically irreversible and
-  can render a system unbootable.

@@ -1,8 +1,0 @@
-id: "8.9"
-name: "System Enumeration"
-kingdom_id: 8
-description: >
-  Reading system configuration and log files to map the host's authentication
-  landscape, scheduled task topology, and operational patterns. Includes auth
-  log analysis for account and session discovery, and cron configuration reads
-  for privilege escalation path discovery and evasion timing.

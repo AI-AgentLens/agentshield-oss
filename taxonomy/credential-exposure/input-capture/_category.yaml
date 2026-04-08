@@ -1,6 +1,0 @@
-id: "2.15"
-name: "Input Capture & Keylogging"
-kingdom_id: 2
-description: >
-  Capturing terminal input, keystrokes, or session recordings to steal credentials entered
-  during interactive sessions.

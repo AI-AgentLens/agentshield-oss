@@ -1,7 +1,0 @@
-id: "7.1"
-name: "Dependency Confusion"
-kingdom_id: 7
-description: >
-  Commands that install packages from non-standard registries or direct
-  URLs, bypassing official package registry verification. Enables
-  dependency confusion and typosquatting attacks.

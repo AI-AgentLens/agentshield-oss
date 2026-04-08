@@ -1,6 +1,0 @@
-id: "5.6"
-name: "Filesystem Permission Bypass"
-kingdom_id: 5
-description: >
-  Using low-level filesystem tools (debugfs) to bypass Unix file permissions, SELinux,
-  and AppArmor by operating directly at block/inode level.

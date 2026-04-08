@@ -1,8 +1,0 @@
-id: "1.5"
-name: "Uncontrolled Resource Commitment"
-kingdom_id: 1
-description: >
-  Actions that commit irreversible resources (financial transactions,
-  API calls with cost implications, blockchain transfers) without
-  adequate limits or confirmation. Includes unbounded spending,
-  accidental bulk transfers, and missing transaction caps.

@@ -1,7 +1,0 @@
-id: "6.19"
-name: "LD_PRELOAD Hijacking"
-kingdom_id: 6
-description: >
-  Abuse of the Linux dynamic linker's LD_PRELOAD mechanism to inject a malicious
-  shared library into every process at startup, enabling credential interception,
-  function hooking, and persistent backdoors without modifying binaries.

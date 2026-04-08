@@ -1,7 +1,0 @@
-id: "6.3"
-name: "CI/CD Pipeline Tampering"
-kingdom_id: 6
-description: >
-  Commands that modify CI/CD pipeline configuration files (GitHub Actions,
-  GitLab CI, CircleCI, Jenkins) to inject malicious steps, exfiltrate secrets,
-  or establish persistence in automated build and deployment pipelines.

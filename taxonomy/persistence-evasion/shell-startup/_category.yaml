@@ -1,9 +1,0 @@
-version: "1.0.0"
-kingdom: "Persistence & Defense Evasion"
-kingdom_id: 6
-name: "Shell Startup Backdoor"
-category_id: "6.5"
-description: |
-  Persistence established by modifying shell startup scripts so that malicious
-  commands execute automatically every time the user opens a new terminal session.
-  Includes writes to .bashrc, .zshrc, .bash_profile, .profile, and similar files.

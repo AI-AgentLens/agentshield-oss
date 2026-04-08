@@ -1,8 +1,0 @@
-id: "8.2"
-name: "LLM Introspection"
-kingdom_id: 8
-description: >
-  Reconnaissance techniques targeting the AI agent's own runtime context:
-  enumerating system prompt environment variables, probing the context
-  window for injected secrets, and discovering the agent's operational
-  parameters to inform subsequent attacks.

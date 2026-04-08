@@ -1,6 +1,0 @@
-id: "2.34"
-name: "Cryptocurrency Wallets & Keys"
-kingdom_id: 2
-description: >
-  Commands or tool calls that access cryptocurrency wallet files, private keypairs,
-  or keystore directories, enabling theft of digital assets through key exfiltration.

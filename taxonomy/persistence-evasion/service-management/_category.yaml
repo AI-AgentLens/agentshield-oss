@@ -1,6 +1,0 @@
-id: "6.2"
-name: "Service Management"
-kingdom_id: 6
-description: >
-  Commands that interact with system service managers (systemctl, launchctl, service)
-  to enable persistence, disable security controls, or disrupt system operations.

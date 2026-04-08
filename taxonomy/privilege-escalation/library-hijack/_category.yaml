@@ -1,8 +1,0 @@
-id: "5.7"
-name: "Shared Library Hijacking"
-kingdom_id: 5
-description: >
-  Manipulation of dynamic library loading mechanisms by AI agents to inject
-  attacker-controlled shared libraries before system libraries. Includes RPATH
-  and RUNPATH poisoning via chrpath/patchelf, and LD_LIBRARY_PATH export to
-  writable directories — causing trusted binaries to load trojan libraries.

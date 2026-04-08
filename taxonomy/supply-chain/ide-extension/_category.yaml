@@ -1,8 +1,0 @@
-id: "7.7"
-name: "IDE Extension Supply Chain"
-kingdom_id: 7
-description: >
-  Malicious or compromised AI IDE extensions (VS Code, Cursor, Windsurf, JetBrains)
-  that intercept AI coding agent interactions, modify code edits before application,
-  harvest prompts and credentials, or achieve persistent code execution in the
-  developer's environment via the extension marketplace supply chain.

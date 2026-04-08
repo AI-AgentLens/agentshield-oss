@@ -1,8 +1,0 @@
-id: "9.1"
-name: "AI Governance Gap"
-kingdom_id: 9
-description: >
-  Missing or inadequate governance controls for AI systems — including absent
-  authorization frameworks for AI-driven decisions, lack of human oversight
-  mechanisms, uncontrolled AI-to-AI invocation chains, and LLM systems used
-  as authorization authorities without appropriate safety controls or audit trails.

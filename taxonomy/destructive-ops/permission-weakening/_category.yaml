@@ -1,7 +1,0 @@
-id: "1.4"
-name: "Permission Weakening"
-kingdom_id: 1
-description: >
-  Commands that weaken file permissions on critical system paths,
-  making them world-writable or removing access controls. Includes
-  chmod 777, recursive permission changes on system directories.

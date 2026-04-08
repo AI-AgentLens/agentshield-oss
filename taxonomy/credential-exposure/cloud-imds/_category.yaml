@@ -1,8 +1,0 @@
-id: "2.13"
-name: "Cloud Instance Metadata Service (IMDS)"
-kingdom_id: 2
-description: >
-  Commands that query the Cloud Instance Metadata Service (IMDS) to retrieve
-  temporary IAM credentials, instance identity, and other sensitive metadata
-  available to EC2, GCE, and Azure VM instances. IMDS credentials grant the
-  full permissions of the instance's attached IAM role.

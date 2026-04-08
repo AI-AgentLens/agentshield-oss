@@ -1,6 +1,0 @@
-id: 2
-name: "Credential & Secret Exposure"
-description: >
-  Harvesting, leaking, or exfiltrating credentials, secrets, and private keys.
-  Includes private key access, password database access, secret environment
-  exposure, and history/log mining.

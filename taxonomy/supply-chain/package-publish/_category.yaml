@@ -1,9 +1,0 @@
-id: "7.9"
-name: "Package Publish"
-kingdom_id: 7
-description: >
-  Techniques where AI agents autonomously publish packages to public registries
-  (npm, PyPI, crates.io, RubyGems) via MCP network tools or direct API calls,
-  without human review or authorization. Each autonomous publish introduces
-  unreviewed code into the software supply chain and can affect thousands of
-  downstream consumers.

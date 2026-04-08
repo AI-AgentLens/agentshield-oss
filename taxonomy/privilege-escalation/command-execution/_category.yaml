@@ -1,6 +1,0 @@
-id: "5.1"
-name: "Command Execution"
-kingdom_id: 5
-description: >
-  Commands that invoke elevated execution contexts, such as sudo or setuid binaries,
-  to gain root or privileged access beyond what the agent is authorized to use.

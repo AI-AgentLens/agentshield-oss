@@ -1,8 +1,0 @@
-id: "1.1"
-name: "Filesystem Destruction"
-kingdom_id: 1
-description: >
-  Commands that irreversibly delete files or directories, targeting the
-  filesystem root or critical system directories. The primary challenge
-  is flag normalization — attackers and confused AI agents use many
-  equivalent flag forms (short, long, separated, combined).

@@ -1,8 +1,0 @@
-id: "1.8"
-name: "Version Control Destruction"
-kingdom_id: 1
-description: >
-  Git operations that permanently destroy repository history, force-overwrite
-  remote branches, or corrupt version control state in ways that are difficult
-  or impossible to reverse. These operations can cause loss of work, break
-  CI/CD pipelines, and disrupt team collaboration.

@@ -1,9 +1,0 @@
-id: "2.33"
-name: "Build Tool Secrets"
-kingdom_id: 2
-description: >
-  Credentials and secrets stored by build tools (Maven, Gradle, Ant) in local
-  configuration files, including encrypted master passwords, repository
-  authentication tokens, and signing credentials. Exposure enables
-  unauthorized access to internal artifact repositories, code signing
-  infrastructure, and supply chain compromise.

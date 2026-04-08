@@ -1,7 +1,0 @@
-id: "3.1"
-name: "Network Egress"
-kingdom_id: 3
-description: >
-  Commands that send data out of the environment via HTTP, DNS, or raw
-  network connections. Includes reverse shells, DNS tunneling, and
-  HTTP-based data exfiltration.

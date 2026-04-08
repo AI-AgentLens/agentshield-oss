@@ -1,7 +1,0 @@
-id: "2.23"
-name: "Shell Abuse for Credential Capture"
-kingdom_id: 2
-description: >
-  Shell built-in features and configuration mechanisms abused by AI agents
-  to capture credentials and secrets in transit. Includes xtrace/BASH_XTRACEFD
-  keylogging that captures fully-expanded variable values during shell execution.

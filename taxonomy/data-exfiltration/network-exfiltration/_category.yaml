@@ -1,7 +1,0 @@
-id: "3.7"
-name: "Network Exfiltration via Config Tampering"
-kingdom_id: 3
-description: >
-  Attacks that modify network client configuration files (curl, wget, git, etc.) to
-  silently redirect outbound traffic through attacker-controlled proxies, enabling
-  adversary-in-the-middle interception of credentials and sensitive data.

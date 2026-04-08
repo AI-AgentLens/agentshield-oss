@@ -1,6 +1,0 @@
-id: 3
-name: "Data Exfiltration"
-description: >
-  Data flowing out of the environment via network, encoding, or side channels.
-  Includes network egress, encoded exfiltration, side-channel leakage,
-  and cloud data egress.

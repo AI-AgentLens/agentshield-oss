@@ -1,8 +1,0 @@
-id: "4.3"
-name: "AI Content Integrity"
-kingdom_id: 4
-description: >
-  AI agents generating, committing, or propagating ungrounded, fabricated,
-  or misleading content without human review. Includes hallucination injection
-  into codebases, documentation, or downstream systems, and misinformation
-  propagation through persistent artifacts such as git commits or config files.

@@ -1,7 +1,0 @@
-id: "2.1"
-name: "Private Key Access"
-kingdom_id: 2
-description: >
-  Commands that read, copy, or export private cryptographic keys
-  (SSH, GPG, TLS). These keys are the highest-value credentials
-  on a developer workstation.

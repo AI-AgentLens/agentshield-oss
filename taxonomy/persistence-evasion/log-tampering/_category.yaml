@@ -1,9 +1,0 @@
-id: "6.17"
-name: "Log Tampering"
-kingdom_id: 6
-description: >
-  Techniques that disable, suppress, or selectively alter logging infrastructure
-  to prevent security events from being recorded. Distinct from anti-forensics
-  (which destroys existing evidence), log tampering prevents evidence from being
-  created in the first place — e.g., stopping syslog daemons, clearing audit
-  rules, or truncating active log files via application code.

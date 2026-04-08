@@ -1,9 +1,0 @@
-id: "8.10"
-name: "Credential Discovery"
-kingdom_id: 8
-description: >
-  Techniques that search filesystem contents or metadata to locate credential
-  files, API keys, tokens, and secrets. Includes MCP tool-based file search
-  and content search patterns targeting credential-bearing files. Typically a
-  pre-exfiltration reconnaissance step performed by compromised AI agents
-  operating through MCP tools.

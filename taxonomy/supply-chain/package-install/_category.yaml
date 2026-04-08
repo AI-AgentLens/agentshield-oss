@@ -1,7 +1,0 @@
-id: "7.3"
-name: "Package Install"
-kingdom_id: 7
-description: >
-  Commands that install third-party packages via npm, pip, yarn, brew, go get,
-  cargo, or gem. Each install introduces unreviewed third-party code and potential
-  supply chain vectors.

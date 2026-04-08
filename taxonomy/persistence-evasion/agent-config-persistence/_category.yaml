@@ -1,9 +1,0 @@
-id: "6.7"
-name: "Agent Configuration Persistence"
-kingdom_id: 6
-description: >
-  Attacks that establish persistence by modifying AI agent instruction files,
-  configuration, or memory stores. Unlike traditional shell profile backdoors,
-  these target the AI-specific configuration layer — instruction files, rules,
-  and settings that agents read at session start — enabling persistent
-  manipulation across all future agent sessions.

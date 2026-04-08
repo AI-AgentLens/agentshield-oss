@@ -1,6 +1,0 @@
-id: "6.6"
-name: "Git Configuration Code Execution"
-kingdom_id: 6
-description: >
-  Modifying git configuration directives that execute arbitrary commands during routine
-  git operations.

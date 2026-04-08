@@ -1,6 +1,0 @@
-id: "3.6"
-name: "Steganographic Data Hiding"
-kingdom_id: 3
-description: >
-  Hiding exfiltrated data in file extended attributes, image EXIF metadata, or other
-  covert channels invisible to standard monitoring and DLP tools.

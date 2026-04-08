@@ -1,7 +1,0 @@
-id: "2.20"
-name: "OAuth Tokens"
-kingdom_id: 2
-description: >
-  Commands that access stored OAuth tokens, authorization codes, or bearer tokens
-  for third-party services (GitHub Copilot, VS Code, IDE integrations) that grant
-  delegated access to external APIs and developer services.

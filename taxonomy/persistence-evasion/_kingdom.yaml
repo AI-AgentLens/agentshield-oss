@@ -1,6 +1,0 @@
-id: 6
-name: "Persistence & Defense Evasion"
-description: >
-  Establishing persistent access or evading security controls.
-  Includes scheduled task persistence, authentication manipulation,
-  log deletion, and security tool disablement.

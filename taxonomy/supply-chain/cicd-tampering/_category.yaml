@@ -1,9 +1,0 @@
-id: "7.10"
-name: "CI/CD Pipeline Tampering"
-kingdom_id: 7
-description: >
-  Attacks that abuse CI/CD platform APIs to manipulate pipeline secrets, environment
-  variables, and execution configurations — enabling supply chain compromise by
-  injecting attacker-controlled values into build and deployment processes. Distinct
-  from pipeline configuration file tampering (see build-pipeline): these attacks
-  operate through authenticated API calls rather than config file writes.

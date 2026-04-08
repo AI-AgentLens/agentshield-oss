@@ -1,6 +1,0 @@
-id: "2.10"
-name: "AI API Credentials"
-kingdom_id: 2
-description: >
-  Code patterns that expose or reference AI service API keys (OpenAI, Anthropic,
-  Gemini, etc.) in source code, environment variables, or configuration files.

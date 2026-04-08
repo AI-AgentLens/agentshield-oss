@@ -1,6 +1,0 @@
-id: 7
-name: "Supply Chain Compromise"
-description: >
-  Dependency confusion, registry manipulation, and package tampering.
-  Includes non-standard registries, config tampering, lock file
-  manipulation, and build system modification.

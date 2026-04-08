@@ -1,6 +1,0 @@
-id: 1
-name: "Destructive Operations"
-description: >
-  Irreversible actions that destroy data, filesystems, or system integrity.
-  Includes filesystem destruction, disk operations, resource exhaustion,
-  and permission weakening.

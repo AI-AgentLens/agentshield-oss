@@ -1,8 +1,0 @@
-id: "6.5"
-name: "Lateral Movement"
-kingdom_id: 6
-description: >
-  Commands that facilitate movement between systems using SSH keys, credentials,
-  or trust relationships. AI agents generating SSH keys without passphrases or
-  creating authorized_keys entries can enable persistent unauthorized access
-  across infrastructure boundaries.

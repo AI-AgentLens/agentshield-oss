@@ -1,9 +1,0 @@
-id: "8.7"
-name: "Filesystem Reconnaissance"
-kingdom_id: 8
-description: >
-  Techniques that enumerate filesystem contents to locate sensitive files and
-  credentials. Includes scanning for hidden dotfiles, iterating over known
-  credential paths, and recursive directory traversal focused on user home
-  directories and system configuration locations. Typically a pre-exfiltration
-  step performed by compromised AI agents.

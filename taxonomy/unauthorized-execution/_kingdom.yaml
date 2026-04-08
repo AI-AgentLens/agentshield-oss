@@ -1,6 +1,0 @@
-id: 4
-name: "Unauthorized Code Execution"
-description: >
-  Running untrusted code via pipe-to-shell, indirect execution, command injection,
-  or script injection. Includes remote code execution, indirect code execution
-  (python -c, node -e), and RC file modification.

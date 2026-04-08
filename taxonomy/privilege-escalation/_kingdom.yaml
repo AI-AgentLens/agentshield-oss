@@ -1,6 +1,0 @@
-id: 5
-name: "Privilege Escalation"
-description: >
-  Gaining elevated permissions or weakening security boundaries.
-  Includes sudo abuse, setuid manipulation, user/group modification,
-  and container escape.

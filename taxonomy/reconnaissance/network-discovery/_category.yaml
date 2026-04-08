@@ -1,6 +1,0 @@
-id: "8.1"
-name: "Network Discovery"
-kingdom_id: 8
-description: >
-  Commands that enumerate network infrastructure including DNS lookups, host discovery,
-  port scanning, and route tracing used to map internal or external network topology.

@@ -1,8 +1,0 @@
-id: "2.27"
-name: "Environment Variable Exposure"
-kingdom_id: 2
-description: >
-  Commands that read environment variables of running processes or dump process
-  memory to extract secrets. Unlike direct file access, these techniques harvest
-  secrets that are only present in memory during execution, including injected
-  tokens, runtime credentials, and dynamically resolved secrets.

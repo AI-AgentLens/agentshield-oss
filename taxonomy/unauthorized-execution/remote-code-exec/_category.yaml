@@ -1,7 +1,0 @@
-id: "4.1"
-name: "Remote Code Execution"
-kingdom_id: 4
-description: >
-  Commands that download and execute untrusted code from remote sources
-  without review. Includes pipe-to-shell patterns and download-and-execute
-  sequences.

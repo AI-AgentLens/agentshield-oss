@@ -1,8 +1,0 @@
-id: "3.2"
-name: "Encoded Exfiltration"
-kingdom_id: 3
-description: >
-  Commands that encode sensitive data (base64, hex, xxd) as a
-  preprocessing step for exfiltration. Encoding transforms credential
-  files into formats that bypass content-based detection and can be
-  transmitted via HTTP, DNS, or other channels.

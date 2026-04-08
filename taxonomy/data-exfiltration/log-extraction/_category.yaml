@@ -1,6 +1,0 @@
-id: "3.3"
-name: "System Log Extraction"
-kingdom_id: 3
-description: >
-  Extracting credentials and sensitive data from systemd journal logs and process core
-  dumps.

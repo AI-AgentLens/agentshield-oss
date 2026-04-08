@@ -309,7 +309,7 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 
 ### Taxonomy
 
-`taxonomy/` contains ~480 threat entries organized by 8 kingdoms, each mapping to compliance frameworks. `internal/taxonomy/` handles loading and compliance index generation.
+Taxonomy and compliance data have been moved to the `AI_risk_compliance` repo (the source of truth). Shield rules still reference taxonomy IDs as plain strings in the `taxonomy:` field — these are metadata labels, never resolved at runtime.
 
 #### Compliance Mapping Policy — Conservative, Not Templated
 

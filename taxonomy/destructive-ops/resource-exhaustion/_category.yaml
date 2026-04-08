@@ -1,7 +1,0 @@
-id: "1.3"
-name: "Resource Exhaustion"
-kingdom_id: 1
-description: >
-  Commands that exhaust system resources (CPU, memory, disk, processes),
-  causing denial of service. Includes fork bombs, disk fills, and
-  memory exhaustion attacks.

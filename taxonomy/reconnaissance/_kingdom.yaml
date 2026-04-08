@@ -1,6 +1,0 @@
-id: 8
-name: "Reconnaissance & Discovery"
-description: >
-  System enumeration, information gathering, and lateral movement preparation.
-  Includes network scanning, process enumeration, file discovery,
-  and route discovery. This is the "plus one" kingdom.

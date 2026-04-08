@@ -1,6 +1,0 @@
-id: "6.11"
-name: "Transient Systemd Persistence"
-kingdom_id: 6
-description: >
-  Creating systemd transient units entirely in memory via systemd-run, bypassing all
-  file-based persistence detection.

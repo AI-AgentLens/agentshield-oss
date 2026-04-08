@@ -1,6 +1,0 @@
-id: "2.16"
-name: "Local File Protocol Abuse"
-kingdom_id: 2
-description: >
-  Using transfer utilities with file:// protocol to read local sensitive files, bypassing
-  file-read detection rules.

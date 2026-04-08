@@ -1,8 +1,0 @@
-id: "6.15"
-name: "Shell Hooks and Keyboard Binding Abuse"
-kingdom_id: 6
-description: >
-  Abuse of shell hook mechanisms (readline key bindings, completion hooks)
-  by AI agents to establish persistent keystroke-triggered code execution.
-  bind -x maps shell commands to keyboard events, enabling silent command
-  execution triggered by normal user keystrokes.

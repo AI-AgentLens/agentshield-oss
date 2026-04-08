@@ -1,9 +1,0 @@
-id: "5.4"
-name: "Agent Containment Bypass"
-kingdom_id: 5
-description: >
-  Attacks where an AI agent escapes its intended execution boundaries —
-  accessing files, network resources, tools, or system capabilities beyond
-  the scope defined by its sandbox, workspace, or permission configuration.
-  Distinct from container escape (Docker/k8s) in that these target the
-  AI-specific containment layer rather than OS-level isolation.

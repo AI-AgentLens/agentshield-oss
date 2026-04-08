@@ -1,8 +1,0 @@
-id: "7.4"
-name: "Model Poisoning"
-kingdom_id: 7
-description: >
-  Attacks that tamper with AI model training data, fine-tuning datasets,
-  or model checkpoint files to introduce backdoors, degrade performance,
-  or redirect model behavior. Covers training-data injection, checkpoint
-  substitution, and dataset integrity violations.
