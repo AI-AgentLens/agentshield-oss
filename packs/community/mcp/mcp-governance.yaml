@@ -1,0 +1,891 @@
+name: "MCP AI Governance"
+description: "Detect MCP tool calls that erode AI output accountability, compliance records, and incident response artifacts — governance-risk kingdom coverage for the MCP layer"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# The terminal-safety pack covers shell commands that delete or truncate AI audit
+# logs (ts-audit-ai-audit-log-delete, ts-audit-ai-log-truncate). But an AI agent
+# using MCP file tools bypasses the shell entirely — there is no shell command to
+# intercept. These rules close that gap by auditing direct MCP tool calls that
+# target AI accountability artifacts.
+#
+# Taxonomy: governance-risk/ai-governance-gap/
+#   ai-output-accountability-gap — AI audit and attribution logs (EU AI Act Art.13,
+#                                  SOC 2 CC7.2, NIST AI RMF GOVERN-1.3, CWE-778)
+#   ai-model-inventory-gap       — AI compliance assessment and model registry files
+#   ai-incident-response-gap     — AI incident response playbooks and runbooks
+#
+# OWASP LLM Top 10 2025:
+#   LLM06 — Excessive Agency (unauthorized destruction of governance artifacts)
+#   LLM09 — Misinformation (erasing proof of AI involvement in outputs)
+
+rules:
+  # ===========================================================================
+  # AI Audit Log Deletion
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+  # OWASP LLM06/LLM09, EU AI Act Art.13, SOC 2 CC7.2, NIST AI RMF GOVERN-1.3
+  # CWE-778 — Insufficient Logging
+  # MITRE T1070.002 — Indicator Removal: Clear Linux or Mac System Logs
+  #
+  # AI audit logs record which outputs were AI-generated, which model was used,
+  # and what human review (if any) occurred. Deleting or truncating these files
+  # destroys the forensic record of AI involvement — making it impossible to
+  # audit AI risk exposure, respond to regulatory inquiries, or investigate
+  # post-incident accountability questions.
+
+  - id: mcp-gov-audit-ai-attribution-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_attribution*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI attribution log file — erases the forensic record of which outputs were AI-generated. Violates EU AI Act Art.13 transparency requirements and SOC 2 CC7.2 audit trail continuity (CWE-778, NIST AI RMF GOVERN-1.3)."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/var/log/ai_attribution.log"}
+        - tool: "rm_file"
+          args: {"path": "/data/logs/ai_attribution_2024.json"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/workspace/old-notes.txt"}
+
+  - id: mcp-gov-audit-ai-audit-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_audit*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI audit log file — destroys the audit trail of AI-assisted decisions and outputs. Required for regulatory accountability under EU AI Act Art.13 and NIST AI RMF GOVERN-1.3 (CWE-778)."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/var/log/ai_audit.log"}
+        - tool: "remove_file"
+          args: {"path": "/data/ai_audit_trail.json"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/workspace/temp-build.log"}
+
+  - id: mcp-gov-audit-ai-output-log-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-output-accountability-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai_output*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI output log file — eliminates evidence of AI-generated content. Accountability records are required by EU AI Act Art.50 and SOC 2 PI1.3 (CWE-778)."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/var/log/ai_output_records.log"}
+        - tool: "unlink"
+          args: {"path": "/data/ai_output_history.json"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/workspace/output.txt"}
+
+  # ===========================================================================
+  # AI Compliance Assessment File Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Management), NIST AI RMF GOVERN-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # AI compliance assessment files document risk evaluation results, model
+  # inventory, and regulatory conformance status. An AI agent silently rewriting
+  # these files can mask policy violations or inflate compliance posture.
+
+  - id: mcp-gov-audit-ai-compliance-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+      argument_patterns:
+        path: "**/*ai*compliance*"
+    decision: "AUDIT"
+    reason: "MCP write to AI compliance assessment file — AI agents should not modify their own compliance records without human review. Silent modification can mask policy violations (CWE-693, EU AI Act Art.9)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/reports/ai_compliance_assessment.yaml", "content": "status: passed"}
+        - tool: "edit_file"
+          args: {"path": "/governance/ai-compliance-report.json", "content": "compliant"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/README.md", "content": "hello"}
+
+  - id: mcp-gov-audit-ai-governance-report-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+      argument_patterns:
+        path: "**/*ai*governance*"
+    decision: "AUDIT"
+    reason: "MCP write to AI governance artifact — modifications to governance documentation by AI agents require human review to prevent silent compliance posture changes (CWE-693, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/docs/ai-governance-policy.md", "content": "updated policy"}
+        - tool: "update_file"
+          args: {"path": "/governance/ai_governance_report.yaml", "content": "approved"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/governance-notes.txt", "content": "meeting notes"}
+
+  # ===========================================================================
+  # AI Incident Response Playbook Deletion
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+  # OWASP LLM06, NIST AI RMF GOVERN-6, EU AI Act Art.73 (Serious Incident)
+  # CWE-778 — Insufficient Logging
+  #
+  # AI incident response playbooks and runbooks document procedures for
+  # responding to AI failures, bias events, and security incidents. Deleting
+  # these artifacts during or after an incident impairs forensic investigation
+  # and regulatory reporting obligations.
+
+  - id: mcp-gov-audit-ai-ir-playbook-delete
+    taxonomy: "governance-risk/ai-governance-gap/ai-incident-response-gap"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+        - "delete"
+        - "rm_file"
+      argument_patterns:
+        path: "**/*ai*incident*"
+    decision: "AUDIT"
+    reason: "MCP delete targeting AI incident response artifact — deleting incident playbooks or runbooks impairs post-incident investigation and EU AI Act Art.73 serious incident reporting obligations (CWE-778, NIST AI RMF GOVERN-6)."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/runbooks/ai-incident-response.md"}
+        - tool: "rm_file"
+          args: {"path": "/playbooks/ai_incident_playbook.yaml"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/workspace/old-draft.md"}
+
+  # ===========================================================================
+  # AI Model Registry and Inventory Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Management), NIST AI RMF GOVERN-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # Model registry and inventory files track which AI models are deployed, their
+  # approved versions, risk classifications, and lineage. An AI agent silently
+  # rewriting these files can mask unauthorized model deployments or suppress
+  # required model approval records. Write operations to these files require
+  # human oversight.
+
+  - id: mcp-gov-audit-ai-model-registry-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*model*registry*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI model registry file — modifications by AI agents can mask unauthorized model deployments or suppress required approval records (CWE-693, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/governance/model_registry.yaml", "content": "model: gpt-5-unapproved"}
+        - tool: "edit_file"
+          args: {"path": "/data/model-registry-v2.json", "content": "approved: true"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/registry-docs.md", "content": "documentation"}
+
+  - id: mcp-gov-audit-ai-model-inventory-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*model*inventory*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI model inventory file — modifications can suppress the approved model version record required by EU AI Act Art.9 and NIST AI RMF GOVERN-1 (CWE-693)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/governance/model_inventory.yaml", "content": "models: []"}
+        - tool: "update_file"
+          args: {"path": "/data/model-inventory-2024.json", "content": "cleared"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/inventory-notes.txt", "content": "notes"}
+
+  # ===========================================================================
+  # AI Risk Assessment File Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9 (Risk Assessment), NIST AI RMF MAP-1
+  # CWE-693 — Protection Mechanism Failure
+  #
+  # AI risk assessment documents record evaluated threats, mitigations, and
+  # residual risk levels. An AI agent silently editing these files can inflate
+  # the assessed compliance posture and hide known vulnerabilities from auditors.
+  # Hyphen-bounded patterns (ai-risk, llm-risk) are used to avoid matching
+  # unrelated terms like "mail-risk" or "trail-risk" that contain "ai" as a
+  # substring.
+
+  - id: mcp-gov-audit-ai-risk-assessment-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*ai-risk*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI risk assessment file — silent edits can inflate compliance posture and conceal known vulnerabilities from auditors (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/governance/ai-risk-assessment.yaml", "content": "risk: low"}
+        - tool: "edit_file"
+          args: {"path": "/reports/ai-risk-review.md", "content": "no risks found"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/risk-notes.txt", "content": "meeting notes"}
+
+  - id: mcp-gov-audit-llm-risk-assessment-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm-risk*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to LLM risk assessment file — silent modification erodes the audit trail for AI risk posture (CWE-693, EU AI Act Art.9, NIST AI RMF MAP-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/governance/llm-risk-assessment.yaml", "content": "risk: none"}
+        - tool: "str_replace_editor"
+          args: {"path": "/reports/llm-risk-review.md", "content": "all clear"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/llm-docs.md", "content": "documentation"}
+
+  # ===========================================================================
+  # AI Policy Configuration Modification
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-model-inventory-gap
+  # OWASP LLM06, EU AI Act Art.9, NIST AI RMF GOVERN-1
+  # CWE-284 — Improper Access Control
+  #
+  # AI policy files configure allowed model behaviors, output filters, and
+  # safety guardrails. An AI agent silently modifying its own policy file
+  # can disable safety controls without triggering a human review workflow.
+  # Hyphen/underscore-bounded patterns avoid matching "mail-policy" etc.
+
+  - id: mcp-gov-audit-ai-policy-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*ai-policy*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to AI policy configuration file — silent modification can disable safety guardrails or expand allowed model behaviors without human review (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/ai-policy.yaml", "content": "safety: disabled"}
+        - tool: "edit_file"
+          args: {"path": "/governance/ai-policy-v2.json", "content": "allow_all: true"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/policy-notes.md", "content": "review notes"}
+
+  - id: mcp-gov-audit-llm-policy-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-model-inventory-gap"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm-policy*"
+    decision: "AUDIT"
+    confidence: 0.85
+    reason: "MCP write to LLM policy configuration file — silent modification can disable output filters or safety guardrails without triggering a human review workflow (CWE-284, EU AI Act Art.9, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/llm-policy.yaml", "content": "filters: none"}
+        - tool: "save_file"
+          args: {"path": "/governance/llm-policy-config.json", "content": "guardrails: off"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/llm-guide.md", "content": "usage guide"}
+
+  # ===========================================================================
+  # Unvalidated Agent Delegation — Sub-Agent Spawning
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
+  # OWASP LLM06 (Excessive Agency), LLM08, EU AI Act Art.9/Art.14
+  # NIST AI RMF GOVERN-1, MANAGE-2 | CWE-285, CWE-862, CWE-272
+  #
+  # When an orchestrator agent invokes sub-agent spawning tools without providing
+  # an explicit permission manifest, the sub-agent inherits the full ambient
+  # authority of the delegating agent — violating least-privilege at every
+  # delegation hop. Every sub-agent spawn warrants human oversight to verify that
+  # delegated permissions are a strict subset of the delegating agent's own.
+
+  - id: mcp-gov-audit-agent-spawn-delegation
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "spawn_agent"
+        - "create_agent"
+        - "create_subagent"
+        - "launch_agent"
+        - "run_agent"
+        - "invoke_agent"
+        - "delegate_task"
+        - "assign_task"
+        - "start_agent"
+        - "start_worker"
+        - "create_worker"
+        - "spawn_worker"
+    decision: "AUDIT"
+    confidence: 0.90
+    reason: "MCP tool invocation that spawns a sub-agent — requires oversight to verify that delegated permissions are a strict subset of the delegating agent's own permissions. Unconstrained delegation violates least-privilege across agent-to-agent boundaries (CWE-285, OWASP LLM06/LLM08, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "spawn_agent"
+          args: {"task": "deploy to production", "permissions": "full"}
+        - tool: "create_subagent"
+          args: {"task": "access database", "role": "admin"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/agent-config.yaml"}
+
+  # ===========================================================================
+  # Unvalidated Agent Delegation — Permission Config Writes
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
+  # OWASP LLM06, EU AI Act Art.9, NIST AI RMF GOVERN-1
+  # CWE-284 — Improper Access Control
+  #
+  # Agent capability, permission, and role config files define what sub-agents
+  # are allowed to do. An AI agent silently rewriting these files can expand
+  # sub-agent permissions beyond intended boundaries without human review.
+
+  - id: mcp-gov-audit-agent-permission-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-permissions*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent permissions config file — silent modification can expand sub-agent permission boundaries beyond what any delegation step was intended to grant (CWE-284, OWASP LLM06, EU AI Act Art.9)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/agent-permissions.yaml", "content": "allow_all: true"}
+        - tool: "edit_file"
+          args: {"path": "/agents/agent-permissions-v2.json", "content": "admin: true"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/permissions-doc.md", "content": "docs"}
+
+  - id: mcp-gov-audit-agent-capabilities-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-capabilities*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent capabilities config file — modifications to agent capability manifests by AI agents require human review to prevent silent permission escalation across delegation chains (CWE-284, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/agent-capabilities.yaml", "content": "capabilities: [shell, network, fs]"}
+        - tool: "update_file"
+          args: {"path": "/agents/agent-capabilities-manifest.json", "content": "escalated"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/capabilities-doc.md", "content": "docs"}
+
+  - id: mcp-gov-audit-agent-roles-config-write
+    taxonomy: "governance-risk/ai-governance-gap/unvalidated-agent-delegation"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*agent-roles*"
+    decision: "AUDIT"
+    confidence: 0.88
+    reason: "MCP write to agent roles config file — role definitions control what a sub-agent is allowed to do; silent modification enables privilege escalation through delegation (CWE-284, CWE-862, EU AI Act Art.9)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/agent-roles.yaml", "content": "role: superadmin"}
+        - tool: "edit_file"
+          args: {"path": "/agents/agent-roles-config.json", "content": "admin: true"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/roles-doc.md", "content": "role definitions"}
+
+  # ===========================================================================
+  # Shadow AI Deployment — LLM Provider Config Writes
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/shadow-ai-deployment
+  # OWASP LLM06/LLM02, EU AI Act Art.9/Art.26, NIST AI RMF GOVERN-1/GOVERN-6
+  # SOC 2 CC6.1/CC6.8/CC9.1 | CWE-284, CWE-693 | MITRE T1219, T1567
+  #
+  # An AI agent writing LLM provider configuration files (openai.yaml,
+  # anthropic.yaml, llm.config.*) can silently deploy unauthorized AI service
+  # connections — creating ungoverned data flows where proprietary code or
+  # customer data is sent to external model providers without security review.
+  # EU AI Act Art.26 imposes obligations on deployers of high-risk AI systems;
+  # organizations cannot comply if shadow AI deployments go undetected.
+
+  - id: mcp-gov-audit-shadow-ai-llm-config-write
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*llm*config*"
+    decision: "AUDIT"
+    confidence: 0.75
+    reason: "MCP write to LLM configuration file — may deploy an unauthorized AI service connection without security review. Shadow AI deployments violate EU AI Act Art.26 deployer obligations and SOC 2 CC6.1 change management controls (CWE-284, NIST AI RMF GOVERN-1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/llm-config.yaml", "content": "provider: openai\nkey: sk-xxx"}
+        - tool: "create_file"
+          args: {"path": "/app/llm_config.json", "content": "endpoint: https://api.openai.com"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/app-config.yaml", "content": "port: 8080"}
+
+  - id: mcp-gov-audit-shadow-ai-openai-config-write
+    taxonomy: "governance-risk/ai-governance-gap/shadow-ai-deployment"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/openai.yaml"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to openai.yaml — creates or modifies an OpenAI service configuration that may send code or data to an external AI provider without organizational security review. Violates shadow-AI governance requirements (EU AI Act Art.26, NIST AI RMF GOVERN-6, SOC 2 CC9.1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/config/openai.yaml", "content": "api_key: sk-xxx"}
+        - tool: "create_file"
+          args: {"path": "/app/config/openai.yaml", "content": "model: gpt-4"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/openai-docs.md", "content": "API documentation"}
+
+  # ===========================================================================
+  # AI Compliance Artifact Fabrication — Write to Compliance Evidence
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication
+  # OWASP LLM09/LLM08, EU AI Act Art.13/Art.14, NIST AI RMF GOVERN-1/GOVERN-6
+  # SOC 2 CC7.1/CC7.2 | CWE-345, CWE-290 | MITRE T1036, T1565
+  #
+  # AI agents writing directly to compliance attestation files (SOC 2 reports,
+  # pentest reports, audit evidence) can produce plausible but fabricated
+  # compliance artifacts. Without human review gates, these can be submitted
+  # to auditors or regulators as genuine evidence — creating regulatory
+  # liability and misrepresenting the organization's true risk posture.
+
+  - id: mcp-gov-audit-compliance-artifact-soc2-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*soc2*"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to SOC 2 artifact — AI agents must not modify compliance reports or attestations without a human review gate. Fabricated SOC 2 evidence submitted to auditors creates regulatory liability (CWE-345, OWASP LLM09, EU AI Act Art.13/Art.14, SOC 2 CC7.1)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/compliance/soc2-report-2024.pdf", "content": "all controls passed"}
+        - tool: "edit_file"
+          args: {"path": "/evidence/soc2-attestation.json", "content": "compliant"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/compliance-notes.md", "content": "notes"}
+
+  - id: mcp-gov-audit-compliance-artifact-pentest-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/*pentest*report*"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to penetration test report — AI-generated pentest findings accepted without verification misrepresent the security posture. Fabricated pentest reports violate audit integrity requirements (CWE-345, OWASP LLM09, NIST AI RMF GOVERN-6, SOC 2 CC7.2)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/reports/pentest-report-q1.pdf", "content": "no vulnerabilities found"}
+        - tool: "create_file"
+          args: {"path": "/evidence/pentest_report_2024.json", "content": "clean"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/security-notes.md", "content": "review notes"}
+
+  - id: mcp-gov-audit-compliance-artifact-audit-evidence-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+      argument_patterns:
+        path: "**/audit-evidence/**"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "MCP write into audit evidence directory — AI agents must not create or modify audit evidence artifacts without human oversight. Silent modification of evidence files used in regulatory audits violates integrity requirements (CWE-345, CWE-290, EU AI Act Art.14, SOC 2 CC7.1/CC7.2)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/compliance/audit-evidence/control-test-results.json", "content": "passed"}
+        - tool: "create_file"
+          args: {"path": "/governance/audit-evidence/access-review.csv", "content": "all approved"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/evidence-notes.md", "content": "review notes"}
+
+  # === AUDIT: AI-generated content written to publishable document format ===
+  # Taxonomy: governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap
+  # EU AI Act Art. 50 requires disclosure when AI generates content for human consumption.
+  # FTC AI disclosure guidelines apply to synthetic media published commercially.
+  #
+  # This rule audits MCP writes of publishable document formats (PDF, DOCX, PPTX,
+  # video/audio) which are typically distributed externally — these require disclosure
+  # or watermarking metadata to comply with transparency regulations.
+  - id: mcp-gov-audit-ai-content-publishable-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/*.pdf"
+    decision: "AUDIT"
+    confidence: 0.72
+    reason: "MCP write to a publishable PDF document — AI-generated PDF content distributed to end users may require disclosure or watermarking under EU AI Act Art.50 and FTC synthetic content guidelines. Verify compliance metadata is present."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/reports/quarterly_summary.pdf", "content": "AI generated report content"}
+        - tool: "create_file"
+          args: {"path": "/output/presentation.pdf", "content": "synthesized content"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/data/results.csv", "content": "raw,data,values"}
+        - tool: "write_file"
+          args: {"path": "/workspace/src/main.py", "content": "print('hello')"}
+
+  - id: mcp-gov-audit-ai-content-docx-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-synthetic-content-disclosure-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/*.docx"
+    decision: "AUDIT"
+    confidence: 0.72
+    reason: "MCP write to a Word document (.docx) — AI-generated document content may require disclosure per EU AI Act Art.50 when distributed to humans. Verify AI authorship is disclosed."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/drafts/proposal.docx", "content": "AI drafted proposal"}
+        - tool: "create_file"
+          args: {"path": "/reports/annual_review.docx", "content": "synthesized annual review"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/data/export.xlsx", "content": "spreadsheet data"}
+        - tool: "read_file"
+          args: {"path": "/workspace/drafts/proposal.docx"}
+
+  # ===========================================================================
+  # AI Data Retention — Unbounded Log Writes Without Rotation
+  # ===========================================================================
+  #
+  # Taxonomy: governance-risk/ai-governance-gap/ai-data-retention-deletion-gap
+  # OWASP LLM06 — Excessive Agency (accumulating PII without lifecycle controls)
+  # GDPR Art.17 — Right to Erasure; EU AI Act Art.10 — Data governance requirements
+  # ISO 27001 A.8.10 — Information deletion; CWE-200 — Information Exposure
+  #
+  # AI agents writing to purpose-named log files (agent.log, memory.jsonl,
+  # tool_history.jsonl) signal unbounded data accumulation. Without a verified
+  # rotation/TTL policy these files grow indefinitely, retain PII across sessions,
+  # and cannot satisfy GDPR erasure requests — a governance gap the Comply static
+  # rules flag at design time but cannot catch at runtime.
+
+  - id: mcp-gov-audit-ai-agent-log-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/agent.log"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to agent.log — AI agent log files accumulate session data, tool call histories, and potentially PII without enforced retention limits. Verify a rotation/TTL policy exists before allowing unbounded writes (GDPR Art.17, EU AI Act Art.10, ISO 27001 A.8.10)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/logs/agent.log", "content": "session started at 2024-01-01"}
+        - tool: "append_file"
+          args: {"path": "/home/user/.ai/agent.log", "content": "tool: read_file path: /workspace/src/main.py"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/logs/deployment.log", "content": "deploy complete"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/agent-guide.md", "content": "# Agent Usage Guide"}
+
+  - id: mcp-gov-audit-ai-memory-jsonl-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/memory.jsonl"
+    decision: "AUDIT"
+    confidence: 0.82
+    reason: "MCP write to memory.jsonl — AI agent memory stores persist conversation context, retrieved documents, and user data across sessions. Without TTL controls these files violate GDPR Art.17 erasure requirements and EU AI Act Art.10 data governance obligations."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/.ai/memory.jsonl", "content": "{\"role\":\"user\",\"content\":\"my name is Alice\"}"}
+        - tool: "append_file"
+          args: {"path": "/home/user/agent/memory.jsonl", "content": "{\"session\":\"abc123\",\"data\":\"context\"}"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/src/memory_test.go", "content": "package memory"}
+        - tool: "write_file"
+          args: {"path": "/workspace/data/results.jsonl", "content": "{\"id\":1,\"value\":42}"}
+
+  - id: mcp-gov-audit-ai-tool-history-write
+    taxonomy: "governance-risk/ai-governance-gap/ai-data-retention-deletion-gap"
+    match:
+      tool_name_any:
+        - write_file
+        - create_file
+        - edit_file
+        - save_file
+        - update_file
+        - append_file
+        - str_replace_editor
+        - write_to_file
+      argument_patterns:
+        path: "**/tool_history.jsonl"
+    decision: "AUDIT"
+    confidence: 0.80
+    reason: "MCP write to tool_history.jsonl — AI tool call history logs record every MCP operation including file paths, arguments, and content. Retaining this data indefinitely exposes sensitive operations to future access and violates data minimisation principles (GDPR Art.5, ISO 27001 A.8.10)."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/workspace/.cache/tool_history.jsonl", "content": "{\"tool\":\"read_file\",\"path\":\"/etc/passwd\"}"}
+        - tool: "append_file"
+          args: {"path": "/home/user/.ai/tool_history.jsonl", "content": "{\"tool\":\"write_file\",\"path\":\"/workspace/config.yaml\"}"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/tool_history.md", "content": "# Tool History Documentation"}
+        - tool: "write_file"
+          args: {"path": "/workspace/data/query_results.jsonl", "content": "{\"id\":1,\"rows\":100}"}

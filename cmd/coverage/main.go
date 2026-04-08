@@ -74,11 +74,15 @@ type flatRule struct {
 func main() {
 	root := findRepoRoot()
 
-	// Parse terminal packs
-	terminalRules := parseTerminalPacks(filepath.Join(root, "packs"))
+	// Parse terminal packs (community + premium)
+	var terminalRules []flatRule
+	terminalRules = append(terminalRules, parseTerminalPacks(filepath.Join(root, "packs", "community"))...)
+	terminalRules = append(terminalRules, parseTerminalPacks(filepath.Join(root, "packs", "premium"))...)
 
-	// Parse MCP packs
-	mcpRules := parseMCPPacks(filepath.Join(root, "packs", "mcp"))
+	// Parse MCP packs (community + premium)
+	var mcpRules []flatRule
+	mcpRules = append(mcpRules, parseMCPPacks(filepath.Join(root, "packs", "community", "mcp"))...)
+	mcpRules = append(mcpRules, parseMCPPacks(filepath.Join(root, "packs", "premium", "mcp"))...)
 
 	// Count test cases by kingdom
 	testCounts := countTestCases(filepath.Join(root, "internal", "analyzer", "testdata"))

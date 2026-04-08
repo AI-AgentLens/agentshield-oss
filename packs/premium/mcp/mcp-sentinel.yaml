@@ -1,0 +1,95 @@
+name: "MCP Sentinel Rules"
+description: >
+  Rules backed by Go detection engines in the AgentShield runtime.
+  YAML provides identity, description, and remediation guidance.
+  Detection logic runs at the proxy layer — these rules cannot be
+  expressed as YAML pattern matches because they require cross-server
+  state or deep content analysis.
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+# Sentinel rules use the `engine` field to declare which Go detection
+# engine claims them. The evaluator skips pattern matching for these
+# rules — they exist to give findings a unique ID, human-readable
+# description, taxonomy reference, and remediation guidance.
+#
+# Benefits of this pattern:
+#   - Transparent: every finding has a rule, every rule has an ID
+#   - Disableable: customers can suppress specific detections
+#   - Auditable: rule IDs flow to dashboards, compliance reports, AIBOM
+#   - Consistent UX: no special cases in the UI
+
+rules:
+  # ------------------------------------------------------------------
+  # MCP Tool Name Collision (#311)
+  # ------------------------------------------------------------------
+  # When multiple MCP servers register tools with the same name, a rogue
+  # server can shadow a trusted server's tool. The AI agent trusts the
+  # approved tool name but invokes the attacker's implementation.
+  #
+  # Detection: file-based cross-server registry in tool_registry.go.
+  # Triggered in FilterToolsListResponse after schema drift check.
+  - id: mcp-tool-name-collision
+    engine: mcp-tool-collision
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-name-collision"
+    decision: AUDIT
+    reason: >
+      Two or more MCP servers registered tools with the same name.
+      A rogue server can shadow a trusted server's tool, causing the
+      AI agent to invoke the attacker's implementation instead.
+    suggested: >
+      Review your MCP server configuration. Remove or rename the
+      duplicate tool. If intentional, verify both servers are trusted
+      and the shadowed tool is not security-sensitive.
+
+  # ------------------------------------------------------------------
+  # Completion Endpoint Injection (#564)
+  # ------------------------------------------------------------------
+  # Detection: ScanCompletionResponse in completion_scanner.go.
+  # Already protected at proxy layer — this sentinel gives it a rule ID.
+  - id: mcp-completion-injection-sentinel
+    engine: mcp-completion-scan
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-completion-endpoint-injection"
+    decision: AUDIT
+    reason: >
+      Injection detected in MCP completion/complete response.
+      Malicious completions can steer agent behavior by injecting
+      commands or misleading context into auto-complete suggestions.
+    suggested: >
+      Investigate the MCP server providing completions. Review its
+      source code and verify it is not returning manipulated results.
+
+  # ------------------------------------------------------------------
+  # Notification Injection (#565)
+  # ------------------------------------------------------------------
+  # Detection: HandleNotificationMessage in handler.go.
+  # Already protected at proxy layer — this sentinel gives it a rule ID.
+  - id: mcp-notification-injection-sentinel
+    engine: mcp-notification-scan
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-logging-notification-injection"
+    decision: AUDIT
+    reason: >
+      Injection detected in MCP notifications/message. Malicious
+      notifications can inject instructions into the agent's context
+      window via log messages.
+    suggested: >
+      Review the MCP server sending notifications. Ensure it does not
+      embed hidden instructions or exfiltration commands in log output.
+
+  # ------------------------------------------------------------------
+  # Prompt Template Injection (#567)
+  # ------------------------------------------------------------------
+  # Detection: FilterPromptsGetResponse in handler.go.
+  # Already protected at proxy layer — this sentinel gives it a rule ID.
+  - id: mcp-prompt-injection-sentinel
+    engine: mcp-prompt-scan
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection"
+    decision: AUDIT
+    reason: >
+      Injection detected in MCP prompts/get response. Malicious prompt
+      templates can inject hidden instructions that alter agent behavior
+      without user awareness.
+    suggested: >
+      Investigate the MCP server providing prompts. Verify prompt
+      templates do not contain hidden system instructions or attempts
+      to override the agent's safety constraints.

@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1110 |
-| MCP rules | 766 |
-| Total rules | 1876 |
+| MCP rules | 768 |
+| Total rules | 1878 |
 | Test cases (TP+TN) | 4042 |
 | Kingdoms covered | 10 |
 
@@ -46,7 +46,6 @@
 | `sec-block-chrome-login-db` | BLOCK | regex | Access to Chrome/Chromium browser credential and cookie databases is blocked (MITRE T1555.003). |
 | `sec-block-firefox-login-db` | BLOCK | regex | Access to Firefox credential database files is blocked (MITRE T1555.003). |
 | `sec-block-history-grep-password` | BLOCK | regex | Searching shell history for credentials is suspicious. |
-| `sec-block-git-log-credential-mining` | BLOCK | dataflow | git log piped to credential-keyword grep mines the full commit graph for accidentally committed secrets. Git history is permanent — deleted files remain recoverable. MITRE T1552.001. |
 | `sec-block-git-pickaxe-mining` | BLOCK | regex | git pickaxe search (-S/-G) finds every commit that added or removed a string — purpose-built for mining secrets from git history. MITRE T1552.001. |
 | `sec-audit-git-log-all-env` | AUDIT | regex | git log --all with full diffs on sensitive file extensions traverses history for credential files — audit to detect accidental secret recovery attempts. MITRE T1552.001. |
 | `sec-audit-env-dump` | AUDIT | prefix | Environment dump may expose secrets (API keys, tokens, passwords). |
@@ -117,7 +116,6 @@
 | `sec-block-terraform-credentials` | BLOCK | regex | Access to ~/.terraform.d/credentials.tfrc.json — contains Terraform Cloud/Enterprise API tokens granting access to all workspaces and state files. State files include plaintext database passwords, API keys, and TLS certificates. MITRE T1552.001. |
 | `sec-audit-docker-daemon-config` | AUDIT | regex | Reading Docker daemon configuration — may reveal credential helper configuration, TLS certificate paths, insecure registry endpoints, and security policy settings. Flagged for review. MITRE T1083, T1552.001. |
 | `sec-block-git-add-credential-files` | BLOCK | regex | git add on a known credential file — staging .env, credentials.json, secrets.yaml, or .netrc risks committing live secrets to version control. AI coding agents may inadvertently stage these files after reading them for context. OWASP LLM02, MITRE T1552.001. |
-| `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
 | `sc-block-keylogger-library-install` | BLOCK | structural | Keylogger library installation blocked — pynput, keyboard, and evdev provide OS-level input hooks that silently capture all keystrokes including passwords, API keys, and MFA codes. An AI agent coerced via prompt injection may install these libraries to exfiltrate credentials typed anywhere on the system (MITRE T1056.001). |
 | `ts-block-kubectl-get-secret` | BLOCK | regex | kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys. |
 | `ts-audit-kubectl-cp` | AUDIT | structural | kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers. |
@@ -144,6 +142,8 @@
 | `ts-audit-procsub-system-read` | AUDIT | regex | Process substitution reading system files (/etc/, /proc/, /sys/) — may be used to access sensitive system data through an ephemeral file descriptor that bypasses path monitoring. MITRE T1005. |
 | `ts-block-hardlink-credential-files` | BLOCK | regex | Creating a hard link to a credential or authentication file — more dangerous than symlinks because hard links are invisible to readlink, survive deletion of the original, and share the same inode. The linked copy cannot be revoked by deleting the original file. CWE-62, MITRE T1547.009. |
 | `ts-block-hardlink-to-tmp` | AUDIT | regex | Hard link into world-writable directory (/tmp, /var/tmp, /dev/shm) — any file hard-linked into /tmp becomes accessible to all processes. CWE-62. |
+| `sec-block-git-log-credential-mining` | BLOCK | dataflow | git log piped to credential-keyword grep mines the full commit graph for accidentally committed secrets. Git history is permanent — deleted files remain recoverable. MITRE T1552.001. |
+| `sec-audit-credential-read-git-push` | AUDIT | stateful | Credential file read followed immediately by git push or commit — AI coding agents may read credentials for context then commit generated code that embeds real values. OWASP LLM02, MITRE T1552.001. |
 
 ### data-exfiltration (175 rules)
 
@@ -241,8 +241,6 @@
 | `sec-block-xxd-sensitive` | BLOCK | regex | Hex dumping credential files is a potential exfiltration technique. |
 | `sec-block-scripting-lang-credential-encode` | BLOCK | regex | Scripting-language inline base64 encoding of credential files is an evasion technique used when the base64 binary is restricted. MITRE T1027. |
 | `sec-block-openssl-credential-encode` | BLOCK | regex | openssl enc -base64 / openssl base64 on credential files encodes private keys or cloud credentials for exfiltration. MITRE T1027. |
-| `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
-| `sec-df-block-cred-encoded-exfil` | BLOCK | dataflow | Dataflow: credential data encoded then sent to network (staged exfiltration). |
 | `sec-block-ai-api-url-credential-leak` | BLOCK | regex | AI API credential embedded in URL query parameter — api_key/access_token in the URL is logged by every proxy, CDN, and server access log, permanently exposing the credential. Pass credentials via Authorization header instead. OWASP LLM02, MITRE T1552.001. |
 | `sec-audit-pii-to-llm-curl` | AUDIT | regex | Request body sent to LLM inference API — verify payload does not contain PII (names, emails, phone numbers, medical data) before submission. Use data anonymization/tokenization for personal data. OWASP LLM02, LLM06; GDPR Art. 5. |
 | `sc-audit-vector-db-bulk-extract` | AUDIT | regex | Python bulk extraction of raw embedding vectors from a vector database (Qdrant scroll, ChromaDB get with embeddings, Pinecone fetch) — harvested vectors enable embedding inversion attacks that reconstruct sensitive source documents with high fidelity. OWASP LLM08, MITRE T1530. |
@@ -251,8 +249,6 @@
 | `ts-block-bash-dev-tcp` | BLOCK | regex | Bash /dev/tcp is commonly used for reverse shells. |
 | `ts-block-python-reverse-shell` | BLOCK | regex | Python one-liner with socket.connect() is a reverse shell pattern. |
 | `ts-block-ruby-reverse-shell` | BLOCK | regex | Ruby one-liner using TCPSocket is a reverse shell pattern. |
-| `ts-sem-allow-dns-safe` | ALLOW | semantic | Semantic: safe DNS queries (DMARC/SPF/DKIM) are allowed. |
-| `ts-sf-block-recon-then-exfil` | BLOCK | stateful | Stateful: reconnaissance → archive → exfiltrate chain detected. |
 | `ts-block-git-clone-mirror` | BLOCK | regex | git clone --mirror copies entire repository including all refs — potential exfiltration. Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.). |
 | `ts-audit-git-clone-bare` | AUDIT | regex | git clone --bare copies the full git object store including all refs and purged history — potential exfiltration of secrets removed from the default branch. Review the remote URL and destination before allowing. MITRE T1213.003. Excludes gh/git flag-value contexts. |
 | `ts-block-git-bundle-create` | BLOCK | regex | git bundle create packages all repository objects into a portable file designed for offline transfer — high-risk exfiltration vector (MITRE T1560). Excludes gh/git commands where the pattern appears as a flag value (--body, -m commit message, etc.). |
@@ -324,6 +320,10 @@
 | `ts-block-doh-content-type` | BLOCK | regex | RFC 8484 DNS-over-HTTPS content type (application/dns-json or application/dns-message) in a curl/wget header. These MIME types are exclusively used for DoH wire-format queries — any agent command referencing them is performing DoH-based DNS tunneling. MITRE T1071.004. |
 | `ts-audit-reasoning-trace-network-pipe` | AUDIT | regex | Reasoning trace file piped to a network tool — AI chain-of-thought traces may contain sensitive data from the model's context window that was redacted from the final response. Exfiltrating traces bypasses output filtering. OWASP LLM02/LLM06, MITRE T1041. |
 | `ts-audit-reasoning-trace-cloud-upload` | AUDIT | regex | Cloud upload command referencing a reasoning trace file — AI reasoning/thinking traces may expose sensitive data that bypasses output filtering. Uploading to external storage is a high-risk exfiltration vector. OWASP LLM02, MITRE T1048. |
+| `sec-df-block-cred-to-network` | BLOCK | dataflow | Dataflow: credential data piped/redirected to network command (exfiltration). |
+| `sec-df-block-cred-encoded-exfil` | BLOCK | dataflow | Dataflow: credential data encoded then sent to network (staged exfiltration). |
+| `ts-sem-allow-dns-safe` | ALLOW | semantic | Semantic: safe DNS queries (DMARC/SPF/DKIM) are allowed. |
+| `ts-sf-block-recon-then-exfil` | BLOCK | stateful | Stateful: reconnaissance → archive → exfiltrate chain detected. |
 
 ### destructive-ops (73 rules)
 
@@ -351,7 +351,6 @@
 | `ts-allow-rm-tmp` | ALLOW | structural | Recursive remove of /tmp subdirectory — standard temp file cleanup. /tmp is a transient space by OS design. |
 | `ts-allow-rm-var-folders-tmp` | ALLOW | structural | Recursive remove of macOS temp directory (/var/folders/.../T/tmp.*) — standard mktemp cleanup. |
 | `ts-struct-block-chmod-world-writable` | AUDIT | structural | Structural: chmod on system directory flagged for review. |
-| `ts-sem-block-disk-destroy` | BLOCK | semantic | Semantic: any command classified as disk-destroy intent is blocked. |
 | `ts-block-aws-terminate` | BLOCK | regex | AWS EC2 instance termination is a destructive cloud operation. |
 | `ts-block-aws-rds-delete` | BLOCK | regex | AWS RDS database deletion destroys data irreversibly. |
 | `ts-block-aws-s3-rm` | BLOCK | regex | AWS S3 recursive deletion or bucket removal destroys cloud storage data. |
@@ -402,6 +401,7 @@
 | `ts-block-sysrq-trigger` | BLOCK | regex | Writing to /proc/sysrq-trigger invokes SysRQ keys from userspace — 'c' crashes the kernel, 'b' forces immediate reboot (data loss), 'o' powers off. Bypasses ts-block-shutdown. MITRE T1529, T1485. |
 | `ts-block-setfacl-world-grant` | BLOCK | regex | setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM06) |
 | `ts-block-setfacl-sensitive-path` | BLOCK | regex | setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl). (MITRE T1222.002; CWE-732; OWASP LLM05/LLM06) |
+| `ts-sem-block-disk-destroy` | BLOCK | semantic | Semantic: any command classified as disk-destroy intent is blocked. |
 
 ### governance-risk (34 rules)
 
@@ -795,7 +795,6 @@
 | `ne-block-tshark-live-capture` | BLOCK | regex | tshark live interface capture detected (-i without -r). Captures and dissects all traffic on the interface. AI agents must not perform live packet capture. MITRE T1040. |
 | `ne-block-dumpcap-live-capture` | BLOCK | regex | dumpcap live interface capture detected (-i flag). Wireshark's capture engine performing live packet sniffing. AI agents must not capture live network traffic. MITRE T1040. |
 | `ne-audit-wireshark-live` | AUDIT | regex | Wireshark launched with a live interface (-i) from the shell. Unusual in automated agent contexts — warrants review. MITRE T1040. |
-| `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 | `ts-audit-kubectl-port-forward` | AUDIT | structural | kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552) |
 | `ts-audit-proc-environ-read` | AUDIT | regex | Reading /proc/PID/environ dumps the full process environment including injected system prompts and API keys — a more thorough context-window probe than printenv (LLM07). MITRE T1057. |
 | `ts-audit-env-var-secret-grep` | AUDIT | regex | Piping env/printenv/export through grep with secret-suggestive keywords (TOKEN, SECRET, KEY, PASSWORD, CRED, AUTH) — reconnaissance technique to harvest API keys and credentials from the process environment. Pre-exfiltration reconnaissance step (OWASP LLM02, LLM06, MITRE T1552.007, CWE-200). |
@@ -825,6 +824,7 @@
 | `ts-block-ad-enum-tools` | BLOCK | regex | Dedicated Active Directory/LDAP enumeration tool detected. enum4linux enumerates SMB/RPC via null sessions; bloodhound-python performs graph-based attack path analysis against AD; crackmapexec is an AD enumeration and lateral movement framework; windapsearch and ldeep perform comprehensive LDAP queries against domain controllers. A prompt-injected agent could dump domain users, groups, Kerberos settings, and trust relationships in a single session. AI agents have no legitimate use case for AD attack-surface enumeration (MITRE T1087.002, T1069.002, T1482, CWE-200). OWASP LLM02/LLM06. |
 | `ts-block-ldapsearch-domain-enum` | BLOCK | regex | ldapsearch targeting a remote LDAP server with domain-enumeration patterns (-b dc=... or objectClass=user/group/computer). This is active directory reconnaissance — querying the organizational identity structure from a domain controller. Legitimate ldapsearch development use targets localhost or uses specific operational DNs; broad objectClass=user/group queries against external DCs have no legitimate agent use case (MITRE T1087.002, T1069.002, CWE-200). OWASP LLM02/LLM06. |
 | `ts-audit-ldapsearch` | AUDIT | regex | ldapsearch invocation detected. LDAP queries may be legitimate (connectivity testing, operational lookups) but warrant monitoring when run by AI agents. Broad domain-enumeration patterns are blocked separately by ts-block-ldapsearch-domain-enum. OWASP LLM02, CWE-200. |
+| `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 
 ### supply-chain (135 rules)
 
@@ -978,7 +978,6 @@
 | `ts-audit-ai-parallel-dispatch` | AUDIT | regex | xargs with high parallelism (-P >= 20) invoking an AI CLI — bulk parallel agent dispatch consumes API quota at scale, a denial-of-wallet pattern (OWASP LLM10). |
 | `ts-audit-ai-find-xargs-dispatch` | AUDIT | regex | find piped to xargs dispatching an AI CLI — bulk file discovery feeds unbounded file count to the LLM, causing runaway token consumption and API costs (AI Denial of Wallet, OWASP LLM10, CWE-400). |
 | `ts-audit-ai-watch-loop` | AUDIT | regex | watch executing an AI CLI — creates an infinite timed loop of API calls with no iteration budget. Even at 2s intervals this fires 1800 API calls/hour; a denial-of-wallet vector (OWASP LLM10, CWE-834). |
-| `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
 | `ts-block-pipe-to-shell` | BLOCK | regex | Pipe-to-shell executes unreviewed remote code. |
 | `ts-block-pipe-to-interpreter` | BLOCK | regex | Pipe to interpreter (python3/node/ruby/perl/php) reading from stdin as code — semantically identical to pipe-to-bash but evades shell-name detection. Matches 'python3', 'python3 -', and 'python3 2>/dev/null' forms; excludes '-c' inline script variants. OWASP LLM06, CWE-78, MITRE T1059. |
 | `ts-block-pipe-to-modern-interpreter` | BLOCK | regex | Pipe to modern interpreter (deno/bun/lua/tclsh/Rscript) reading from stdin as code — semantically identical to pipe-to-bash. Deno and Bun in particular are increasingly common alternatives to node for TypeScript/JS remote code execution. OWASP LLM06, CWE-78, MITRE T1059. |
@@ -1005,8 +1004,6 @@
 | `ts-block-autogpt-continuous` | BLOCK | regex | AutoGPT --continuous mode disables the human pause-after-each-action approval loop, enabling fully autonomous recursive self-direction until resource exhaustion or goal completion. No legitimate use case requires bypassing human review (OWASP LLM06, MITRE T1204). |
 | `ts-block-agent-cli-background` | BLOCK | regex | Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate human-oversight-circumvention pattern (OWASP LLM06, EU AI Act Art.14). |
 | `ts-block-agent-cli-detached-session` | BLOCK | regex | Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (OWASP LLM06, EU AI Act Art.14, human-oversight-circumvention). |
-| `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
-| `ts-block-build-output-to-shell` | BLOCK | stateful | Build tool output piped to shell interpreter — a compromised dependency can embed prompt injection payloads in error messages or test output that execute immediately. No legitimate workflow requires piping build stdout to an interpreter; use grep/tee/redirect instead. OWASP LLM01, CWE-77. |
 | `ts-audit-multi-agent-context-injection` | AUDIT | regex | Writing prompt-injection keywords (SYSTEM:, [INST], ignore previous instructions) to a structured data file — other agents reading this file may execute the embedded directives as authoritative instructions (OWASP LLM01/LLM08). |
 | `ts-audit-a2a-curl-task-post` | AUDIT | structural | curl POST to an A2A protocol task endpoint — agent-to-agent task submission can carry system_prompt_override or injection directives in the body that override the receiving agent's constraints. Review the request payload. OWASP LLM01/LLM06. |
 | `ts-audit-llm-judge-manipulation-commit` | AUDIT | regex | git commit message contains authority-injection or evaluation-override language — 'approved by security team', 'rate as safe', 'override security review'. These phrases are embedded to manipulate LLM-based code review gates into marking the commit as approved. OWASP LLM01/LLM09, MITRE T1036. |
@@ -1020,7 +1017,6 @@
 | `ts-audit-unrestricted-tool-invoke-eval` | AUDIT | regex | eval/exec called on a variable referencing AI agent output — unrestricted dynamic tool invocation allows LLM-generated content to run arbitrary OS commands (OWASP LLM06, CWE-78). |
 | `ts-audit-unrestricted-tool-invoke-config` | AUDIT | regex | Agent configuration with allow_all_tools:true or an empty tool_whitelist grants unrestricted OS tool access — any LLM output can invoke arbitrary commands without boundary checks (OWASP LLM06). |
 | `ts-struct-block-pipe-to-shell` | BLOCK | structural | Structural: download piped to interpreter. Download and inspect first. Excludes python3 -c (inline script reading stdin as data, not as code). |
-| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
 | `ts-block-terraform-apply-auto-approve` | BLOCK | regex | terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578) |
 | `ts-block-cdk-deploy-no-approval` | BLOCK | regex | cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578) |
 | `ts-audit-terraform-apply-no-scan` | AUDIT | structural | terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578) |
@@ -1098,7 +1094,6 @@
 | `ts-block-auditctl-disable` | BLOCK | regex | auditctl disabling the Linux audit subsystem (-e 0), deleting all rules (-D), or flushing the rule queue — blinds kernel-level auditing while auditd appears healthy. Bypasses ts-block-auditd-disable. MITRE T1562.001. |
 | `ts-audit-nohup-agent-oversight` | AUDIT | regex | nohup backgrounding an agent hook or oversight process — detaches the process from the terminal, making it invisible to the session and potentially bypassing approval workflows. OWASP LLM06, MITRE T1562. |
 | `ts-audit-context-file-control-char-injection` | AUDIT | regex | Writing ANSI escape codes, null bytes, or zero-width Unicode characters to an AI agent context file — injects invisible or display-corrupting content into the agent's context window, hiding malicious instructions from human review. OWASP LLM01, MITRE T1059. |
-| `ts-audit-autonomous-cred-encode-exfil-chain` | AUDIT | stateful | 3-stage compound chain: file read → encoding → network transmission — matches the canonical credential-exfiltration pipeline (cat + base64 + curl). Each step is individually low-risk; the combination is a high-confidence exfiltration attempt. OWASP LLM06, MITRE T1059. |
 | `ts-audit-localhost-agent-api-call` | AUDIT | regex | curl POST to a localhost OpenAI-compatible API endpoint — calling a peer agent's API with a crafted payload injects instructions into the target agent's context (agent-to-agent lateral pivot). OWASP LLM06, MITRE T1071. |
 | `ts-audit-multimodal-sensitive-file-api` | AUDIT | regex | Sensitive file read combined with multimodal AI API call — embedding credential files or sensitive content into images/audio submitted to vision models is a multimodal prompt injection vector. OWASP LLM01, MITRE T1059. |
 | `ts-block-qrencode-shell-substitution` | BLOCK | regex | qrencode with shell command substitution — sensitive data may be encoded into a QR image for covert exfiltration or multimodal prompt injection. Multimodal AI agents can decode QR content and follow embedded instructions. OWASP LLM01, LLM02, MITRE T1027.003. |
@@ -1166,6 +1161,11 @@
 | `ts-audit-mapfile-callback-any` | AUDIT | regex | mapfile/readarray with -C callback — even non-exec callbacks are unusual. The -C flag runs an arbitrary command for every N lines read. Auditing to catch novel callback targets. CWE-78. |
 | `ts-block-nameref-eval-chain` | BLOCK | regex | Bash nameref (declare/typeset/local -n) combined with eval/exec/command substitution in the same compound command — nameref creates an alias to another variable, and eval/exec resolves the indirection chain at runtime to execute the final value. The actual command never appears in the shell text, completely evading pattern matching. CWE-78, MITRE T1059.004, T1027. |
 | `ts-audit-nameref-declaration` | AUDIT | regex | Bash nameref variable declaration — namerefs create indirect variable references that can be used to construct and execute commands through indirection chains invisible to static analysis. Auditing for review. MITRE T1027. |
+| `ts-df-block-llm-output-to-shell` | BLOCK | dataflow | LLM CLI output piped to shell execution — prompt injection turns into arbitrary code execution. An attacker who influences LLM context can have the agent run malicious shell commands (OWASP LLM01, MITRE T1059). |
+| `ts-block-agent-cli-to-shell` | BLOCK | stateful | Multi-agent framework CLI output piped to an interpreter — a compromised upstream agent can embed shell commands in its output that the downstream interpreter executes immediately (OWASP LLM06/LLM08, CWE-441 unintended proxy). |
+| `ts-block-build-output-to-shell` | BLOCK | stateful | Build tool output piped to shell interpreter — a compromised dependency can embed prompt injection payloads in error messages or test output that execute immediately. No legitimate workflow requires piping build stdout to an interpreter; use grep/tee/redirect instead. OWASP LLM01, CWE-77. |
+| `ts-sf-block-download-execute` | BLOCK | stateful | Stateful: direct pipe from downloader to interpreter detected (download-then-execute via pipe). Excludes python3 -c (inline script reading stdin as data, not as code). |
+| `ts-audit-autonomous-cred-encode-exfil-chain` | AUDIT | stateful | 3-stage compound chain: file read → encoding → network transmission — matches the canonical credential-exfiltration pipeline (cat + base64 + curl). Each step is individually low-risk; the combination is a high-confidence exfiltration attempt. OWASP LLM06, MITRE T1059. |
 
 ### uncategorized (2 rules)
 
@@ -1864,7 +1864,7 @@
 | `mcp-sc-block-terraform-cloud-state-api` | BLOCK | structural | MCP request to Terraform Cloud state API — state versions contain plaintext infrastructure resource IDs, connection strings, and credentials. Read access exfiltrates secrets; write access enables state tampering that can cause resource drift or destruction. MITRE T1552.001, T1578. |
 | `mcp-sc-block-terraform-backend-state-write` | BLOCK | structural | MCP HTTP PUT/POST/DELETE to a Terraform state backend path — writing to .tfstate on S3, GCS, or Azure Blob tampers with infrastructure state, causing Terraform to misidentify existing resources and potentially destroying or recreating them on next apply. MITRE T1578, T1485. |
 
-### unauthorized-execution (103 rules)
+### unauthorized-execution (105 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1965,6 +1965,8 @@
 | `mcp-cred-block-mcp-oauth-cache-uri` | BLOCK | resource_rule | Resource read of MCP OAuth token cache directory is blocked. |
 | `mcp-cred-block-mcp-oauth-dir-uri` | BLOCK | resource_rule | Resource read of MCP OAuth session directory is blocked. |
 | `mcp-cred-block-mcp-auth-cache-uri` | BLOCK | resource_rule | Resource read of MCP auth cache directory is blocked. |
+| `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
+| `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 | `mcp-tool-name-collision` | AUDIT | mcp_rule | Two or more MCP servers registered tools with the same name. A rogue server can shadow a trusted server's tool, causing the AI agent to invoke the attacker's implementation instead.  |
 | `mcp-completion-injection-sentinel` | AUDIT | mcp_rule | Injection detected in MCP completion/complete response. Malicious completions can steer agent behavior by injecting commands or misleading context into auto-complete suggestions.  |
 | `mcp-notification-injection-sentinel` | AUDIT | mcp_rule | Injection detected in MCP notifications/message. Malicious notifications can inject instructions into the agent's context window via log messages.  |

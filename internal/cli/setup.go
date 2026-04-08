@@ -1334,24 +1334,30 @@ func findWrapperSource() string {
 }
 
 // findPacksSource looks for bundled policy packs in known locations.
+// Prefers packs/community/ subdirectory (new layout), falls back to packs/ (legacy).
 func findPacksSource() string {
-	candidates := []string{
+	baseCandidates := []string{
 		filepath.Join(getShareDir(), "packs"),
 	}
 
 	if binPath, err := exec.LookPath("agentshield"); err == nil {
 		binDir := filepath.Dir(binPath)
-		candidates = append(candidates,
+		baseCandidates = append(baseCandidates,
 			filepath.Join(binDir, "..", "share", "agentshield", "packs"),
 			filepath.Join(binDir, "..", "packs"),
 		)
 	}
 
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "packs"))
+		baseCandidates = append(baseCandidates, filepath.Join(cwd, "packs"))
 	}
 
-	for _, c := range candidates {
+	// Prefer community/ subdirectory (new layout), fall back to base (legacy)
+	for _, c := range baseCandidates {
+		community := filepath.Join(c, "community")
+		if info, err := os.Stat(community); err == nil && info.IsDir() {
+			return community
+		}
 		if info, err := os.Stat(c); err == nil && info.IsDir() {
 			return c
 		}
