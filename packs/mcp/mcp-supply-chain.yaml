@@ -1486,3 +1486,89 @@ structural_rules:
           args: {"url": "https://circleci.com/api/v2/project/github/owner/repo/pipeline"}
         - tool: "http_request"
           args: {"url": "https://circleci.com/docs/env-vars/"}
+
+  # === BLOCK: Terraform Cloud remote state API access ===
+  # Terraform Cloud stores state at app.terraform.io/api/v2/*/state-versions.
+  # State contains plaintext resource IDs, connection strings, and sometimes
+  # passwords. Reading or writing state versions via the API exfiltrates
+  # infrastructure secrets or enables state tampering to cause drift/destruction.
+  - id: mcp-sc-block-terraform-cloud-state-api
+    taxonomy: "supply-chain/config-tampering/iac-state-manipulation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "get_request"
+        - "put_request"
+        - "delete_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)app\\.terraform\\.io/api/v\\d+/[^?]*/state-versions"
+            - "(?i)app\\.terraform\\.io/api/v\\d+/state-versions"
+            - "(?i)app\\.terraform\\.io/api/v\\d+/[^?]*/current-state-version"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP request to Terraform Cloud state API — state versions contain plaintext infrastructure resource IDs, connection strings, and credentials. Read access exfiltrates secrets; write access enables state tampering that can cause resource drift or destruction. MITRE T1552.001, T1578."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://app.terraform.io/api/v2/workspaces/ws-abc123/state-versions"}
+        - tool: "get_request"
+          args: {"url": "https://app.terraform.io/api/v2/workspaces/ws-prod/current-state-version"}
+        - tool: "http_request"
+          args: {"url": "https://app.terraform.io/api/v2/state-versions/sv-abc123", "method": "GET"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://app.terraform.io/api/v2/workspaces/ws-abc123/runs"}
+        - tool: "http_request"
+          args: {"url": "https://developer.hashicorp.com/terraform/cloud-docs/api-docs/state-versions"}
+
+  # === BLOCK: Terraform state backend write (S3/GCS/Azure) ===
+  # Remote Terraform backends store state at well-known paths ending in .tfstate.
+  # HTTP PUT to these paths from MCP tools enables state tampering — modifying the
+  # state causes Terraform to believe resources are in a different configuration,
+  # potentially destroying or recreating infrastructure on the next apply.
+  - id: mcp-sc-block-terraform-backend-state-write
+    taxonomy: "supply-chain/config-tampering/iac-state-manipulation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)\\.tfstate(\\?|$)"
+            - "(?i)\\.tfstate\\.backup(\\?|$)"
+            - "(?i)s3\\.amazonaws\\.com/[^?]*\\.tfstate"
+            - "(?i)storage\\.googleapis\\.com/[^?]*\\.tfstate"
+            - "(?i)blob\\.core\\.windows\\.net/[^?]*\\.tfstate"
+        method:
+          pattern_any:
+            - "(?i)^(PUT|POST|DELETE)$"
+    decision: "BLOCK"
+    confidence: 0.93
+    reason: "MCP HTTP PUT/POST/DELETE to a Terraform state backend path — writing to .tfstate on S3, GCS, or Azure Blob tampers with infrastructure state, causing Terraform to misidentify existing resources and potentially destroying or recreating them on next apply. MITRE T1578, T1485."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate", "method": "PUT"}
+        - tool: "put_request"
+          args: {"url": "https://storage.googleapis.com/my-tf-bucket/env/prod.tfstate", "method": "PUT"}
+        - tool: "http_request"
+          args: {"url": "https://myaccount.blob.core.windows.net/tfstate/terraform.tfstate", "method": "PUT"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs"}
