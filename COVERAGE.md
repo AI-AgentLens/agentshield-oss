@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1110 |
-| MCP rules | 758 |
-| Total rules | 1868 |
+| MCP rules | 766 |
+| Total rules | 1876 |
 | Test cases (TP+TN) | 4042 |
 | Kingdoms covered | 10 |
 
@@ -1176,7 +1176,7 @@
 
 ## MCP Rules
 
-### credential-exposure (401 rules)
+### credential-exposure (407 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1256,6 +1256,7 @@
 | `mcp-sec-block-credential-uri-database-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'database_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-credential-uri-db-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'db_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-security-xml` | BLOCK | mcp_rule | Access to JetBrains IDE security.xml is blocked — this file contains the master password hash protecting the IDE's credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
+| `mcp-sec-block-jetbrains-master-password` | BLOCK | mcp_rule | Access to JetBrains masterPassword.xml is blocked — stores the encrypted master password protecting the IDE credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-web-servers` | BLOCK | mcp_rule | Access to JetBrains webServers.xml is blocked — contains FTP/SFTP/web server connection credentials stored by the IDE deployment/remote host configuration. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-datasources` | BLOCK | mcp_rule | Access to JetBrains dataSources.local.xml is blocked — contains database connection credentials (passwords, SSL keys) for all databases configured in any JetBrains IDE. MITRE T1552.001. |
 | `mcp-sec-block-mysql-cnf` | BLOCK | mcp_rule | Access to ~/.my.cnf is blocked — MySQL client config file commonly contains plaintext password= entries in the [client] section. MITRE T1552.001. |
@@ -1358,6 +1359,8 @@
 | `mcp-sec-block-kerberos-keytab` | BLOCK | mcp_rule | Access to Kerberos keytab files is blocked — keytabs contain long-term service principal secret keys that do not expire. A stolen keytab enables indefinite ticket forgery and service impersonation without a password. MITRE T1558, T1552. |
 | `mcp-sec-block-kerberos-tgt-cache` | BLOCK | mcp_rule | Access to Kerberos ticket cache files is blocked — krb5cc_* files contain active Ticket-Granting Tickets (TGTs). A stolen TGT enables pass-the-ticket attacks, authenticating as the user on all Kerberos services without re-entering credentials. MITRE T1558.003, T1550.003. |
 | `mcp-sec-block-pass-store-access` | BLOCK | mcp_rule | Access to ~/.password-store is blocked — contains GPG-encrypted passwords; reading .gpg-id reveals the encryption key fingerprint. MITRE T1552. |
+| `mcp-sec-block-gopass-store-access` | BLOCK | mcp_rule | Access to GoPass credential store is blocked — contains GPG/age-encrypted secrets; reading .age-ids or .gpg-id reveals the encryption key fingerprint enabling targeted key compromise. MITRE T1552. |
+| `mcp-sec-block-gopass-config-access` | BLOCK | mcp_rule | Access to GoPass config is blocked — ~/.config/gopass/config.yaml reveals credential store paths and encryption key settings. MITRE T1552. |
 | `mcp-sec-block-keepassxc-access` | BLOCK | mcp_rule | Access to KeePassXC config directory is blocked — exposes database file paths, recent vault locations, and plugin configurations enabling targeted vault theft. MITRE T1552. |
 | `mcp-sec-block-macos-keychain-access` | BLOCK | mcp_rule | Access to macOS Keychain database files is blocked — contains all saved passwords, certificates, and private keys; offline copy enables brute-force decryption. MITRE T1555.001. |
 | `mcp-sec-block-macos-messages-db` | BLOCK | mcp_rule | Access to macOS Messages database is blocked — ~/Library/Messages/chat.db contains all iMessage and SMS history including 2FA codes, personal conversations, and sensitive communications. MITRE T1552.001. |
@@ -1388,6 +1391,9 @@
 | `mcp-sec-block-opentofu-credentials` | BLOCK | mcp_rule | Access to OpenTofu XDG credentials file is blocked — contains OpenTofu/Terraform Cloud API tokens granting registry and workspace access. MITRE T1552. |
 | `mcp-sec-block-opentofu-data-dir-credentials` | BLOCK | mcp_rule | Access to OpenTofu XDG data directory is blocked — may contain API tokens, provider cache, and state data. MITRE T1552. |
 | `mcp-sec-block-terraform-dotdir-credentials` | BLOCK | mcp_rule | Access to ~/.terraform/credentials.tfrc.json is blocked — non-standard but valid Terraform credential path containing Cloud/Enterprise API tokens. MITRE T1552. |
+| `mcp-sec-block-consul-token` | BLOCK | mcp_rule | Access to Consul token files is blocked — a compromised token enables service registration manipulation, ACL bypass, KV store access, and service mesh interception. MITRE T1552. |
+| `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to Nomad token files is blocked — a compromised token enables arbitrary workload scheduling, access to Nomad Variables (built-in secrets), and environment variable exposure on allocated tasks. MITRE T1552. |
+| `mcp-sec-block-boundary-token` | BLOCK | mcp_rule | Access to HashiCorp Boundary token files is blocked — a compromised token grants authenticated session access to all production targets (databases, SSH hosts, Kubernetes clusters) the user can reach through the Boundary controller. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
 | `mcp-sec-block-jenkins-home-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credential store with encrypted API keys and SSH keys. MITRE T1552.001. |
@@ -1966,7 +1972,7 @@
 | `mcp-roots-block-sensitive-cred-dir` | BLOCK | go-intercept | Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08). |
 | `mcp-roots-audit-broad-dir` | AUDIT | go-intercept | Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08). |
 
-### uncategorized (18 rules)
+### uncategorized (20 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1980,6 +1986,8 @@
 | `mcp-response-integrity-struct-block-paste-exfil` | BLOCK | structural | MCP network tool targeting a paste or anonymous file-sharing service — pastebin, hastebin, transfer.sh, and similar sites are primary AI agent exfiltration channels. Stolen credentials POSTed here are immediately accessible to the attacker. MITRE T1567.002. |
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
+| `mcp-data-exfil-block-doh-endpoints` | BLOCK | structural | MCP HTTP tool targeting a DNS-over-HTTPS resolver endpoint — AI agents have no legitimate need to call DoH APIs. Data exfiltrated as subdomain labels (e.g., base32(secret).attacker.com) tunneled through HTTPS bypasses all DNS-layer monitoring. MITRE T1071.004, T1048.003. |
+| `mcp-data-exfil-block-doh-content-type` | BLOCK | structural | MCP HTTP tool request using DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003. |
 | `mcp-safety-block-tool-uri-ssrf-imds` | BLOCK | structural | SSRF via tool 'uri' argument — request to cloud metadata endpoint leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
 | `mcp-safety-block-tool-uri-ssrf-localhost` | BLOCK | structural | SSRF via tool 'uri' argument — request to localhost/loopback service allows attacker to probe or exfiltrate data from internal services. MITRE T1090, OWASP LLM08. |
 | `mcp-sec-block-altcoin-wallet` | BLOCK | structural | Access to altcoin wallet file is blocked — wallet.dat in Dogecoin, Litecoin, Zcash, and similar Bitcoin-derived wallets contains encrypted private keys. MITRE T1552.001. |

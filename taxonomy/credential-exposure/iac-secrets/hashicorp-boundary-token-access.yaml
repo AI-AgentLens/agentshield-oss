@@ -1,0 +1,60 @@
+id: "credential-exposure/iac-secrets/hashicorp-boundary-token-access"
+version: "1.0.0"
+kingdom: "Credential & Secret Exposure"
+kingdom_id: 2
+category: "Infrastructure-as-Code Secrets"
+category_id: "2.28"
+name: "HashiCorp Boundary Token Access"
+risk_level: "critical"
+
+abstract: |
+  Direct access to HashiCorp Boundary token files (`~/.boundary/token`) exposes
+  session tokens for the zero-trust access proxy, potentially enabling unauthorized
+  access to SSH hosts, databases, and Kubernetes clusters protected behind Boundary.
+
+explanation: |
+  HashiCorp Boundary is a zero-trust access management plane that brokers connections
+  to infrastructure targets (SSH servers, databases, Kubernetes clusters) without
+  exposing direct network access. Boundary tokens stored in `~/.boundary/token` or
+  `~/.config/boundary/token` are session authentication credentials with significant
+  implications:
+
+  - **Downstream access**: A Boundary token allows connecting to any target the
+    token's role has access to — SSH servers, PostgreSQL instances, Kubernetes API
+    servers — without knowing the underlying credentials.
+  - **Credential brokering bypass**: Boundary integrates with Vault for dynamic
+    credential injection; a valid session token may trigger Vault secret generation
+    for the connected target.
+  - **Audit trail manipulation**: An attacker using a stolen Boundary token inherits
+    the victim's identity in Boundary audit logs, obscuring the breach.
+  - **Scope traversal**: High-privilege Boundary tokens may span multiple projects
+    and scopes, providing broad infrastructure access from a single credential file.
+
+recommendation: |
+  - Block all file read operations on Boundary token storage paths.
+  - Boundary tokens are short-lived by default; ensure token TTLs are appropriately
+    constrained for CI/CD and developer contexts.
+  - Use Boundary Desktop or `boundary authenticate` interactively rather than
+    persisting tokens to disk for long-running processes.
+  - Audit Boundary roles and grant least-privilege host set access.
+
+examples:
+  bad:
+    - "cat ~/.boundary/token"
+    - "cat ~/.config/boundary/token"
+  good:
+    - "boundary targets list"
+    - "boundary sessions list"
+
+compliance:
+  owasp-llm-2025: ["LLM02"]
+  iso-27001-2022: ["A.8.3", "A.8.11", "A.5.34"]
+  eu-ai-act-2024: ["Art.15"]
+  soc2-type2: ["CC6.1", "CC6.2", "C1.1"]
+
+references:
+  mitre_attack: ["T1552", "T1552.001"]
+  cwe: ["CWE-522", "CWE-312"]
+
+analyzers: ["regex", "mcp"]
+related_rules: []
