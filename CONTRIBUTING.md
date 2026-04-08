@@ -13,12 +13,12 @@ Thank you for your interest in contributing to AgentShield! This document provid
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/your-username/AI-Agentic-Shield.git
-   cd AI-Agentic-Shield
+   git clone https://github.com/your-username/agentshield-oss.git
+   cd agentshield-oss
    ```
 3. Add upstream remote:
    ```bash
-   git remote add upstream https://github.com/security-researcher-ca/AI_Agent_Shield.git
+   git remote add upstream https://github.com/AI-AgentLens/agentshield-oss.git
    ```
 4. Install dependencies:
    ```bash
