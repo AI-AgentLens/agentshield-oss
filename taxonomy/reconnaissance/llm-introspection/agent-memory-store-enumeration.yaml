@@ -102,7 +102,7 @@ compliance:
   iso-27001-2022: ["A.5.10", "A.8.4", "A.8.12"]
   eu-ai-act-2024: ["Art.10"]
   soc2-type2: ["CC6.1", "CC6.3", "CC7.1"]
-  iso-42001-2023: ["A.8.4", "A.9.4"]
+  iso-42001-2023: ["A.8.4"]
   mitre_atlas: ["AML.T0057"]
 
 references:
