@@ -880,3 +880,94 @@ structural_rules:
           args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments"}
         - tool: "http_request"
           args: {"url": "https://docs.microsoft.com/en-us/azure/role-based-access-control/"}
+
+  # === BLOCK: Kubernetes pod creation/mutation via HTTP tools ===
+  # AI agents with MCP HTTP tools can bypass kubectl rules by hitting the kube-apiserver
+  # REST API directly. POST to /api/v1/namespaces/*/pods creates unauthorized containers.
+  # PUT/PATCH modify running pods. DELETE can destroy workloads.
+  - id: mcp-k8s-block-pod-mutation
+    taxonomy: "unauthorized-execution/ai-resource-abuse/container-spawn"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+        - "delete_request"
+        - "patch_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/api/v1/namespaces/[^/]+/pods(/[^/?]+)?"
+            - "(?i)/api/v1/namespaces/[^/]+/deployments(/[^/?]+)?"
+            - "(?i)/apis/apps/v\\d+/namespaces/[^/]+/deployments(/[^/?]+)?"
+            - "(?i)/apis/apps/v\\d+/namespaces/[^/]+/daemonsets(/[^/?]+)?"
+            - "(?i)/apis/apps/v\\d+/namespaces/[^/]+/statefulsets(/[^/?]+)?"
+        method:
+          pattern_any:
+            - "(?i)^(POST|PUT|PATCH|DELETE)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP mutation to Kubernetes workload endpoints — POST/PUT/PATCH/DELETE to pod, deployment, daemonset, or statefulset APIs can spawn unauthorized containers, modify running workloads, or destroy services. AI agents must not interact with the kube-apiserver directly. MITRE T1610, T1613."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods", "method": "POST", "body": "{\"kind\":\"Pod\"}"}
+        - tool: "post_request"
+          args: {"url": "https://cluster.local/apis/apps/v1/namespaces/production/deployments", "method": "POST"}
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods/my-pod", "method": "DELETE"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://kubernetes.io/docs/concepts/workloads/pods/"}
+
+  # === BLOCK: Kubernetes RBAC mutation via HTTP tools ===
+  # Complements mcp-recon-block-k8s-secrets (which blocks GET to RBAC endpoints).
+  # This rule explicitly blocks mutation methods to RBAC APIs, which enable
+  # privilege escalation by granting cluster-admin or other elevated roles.
+  - id: mcp-k8s-block-rbac-api-mutation
+    taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
+    match:
+      tool_name_any:
+        - "http_request"
+        - "network_request"
+        - "fetch_url"
+        - "make_request"
+        - "send_request"
+        - "api_request"
+        - "post_request"
+        - "put_request"
+        - "delete_request"
+        - "patch_request"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)/apis/rbac\\.authorization\\.k8s\\.io/v\\d+/clusterrolebindings(/[^/?]+)?"
+            - "(?i)/apis/rbac\\.authorization\\.k8s\\.io/v\\d+/namespaces/[^/]+/rolebindings(/[^/?]+)?"
+            - "(?i)/apis/rbac\\.authorization\\.k8s\\.io/v\\d+/clusterroles(/[^/?]+)?"
+            - "(?i)/apis/rbac\\.authorization\\.k8s\\.io/v\\d+/namespaces/[^/]+/roles(/[^/?]+)?"
+        method:
+          pattern_any:
+            - "(?i)^(POST|PUT|PATCH|DELETE)$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP HTTP mutation to Kubernetes RBAC endpoints — creating or modifying ClusterRoleBindings, RoleBindings, ClusterRoles, or Roles escalates privileges across the cluster. AI agents must not modify cluster authorization policies. MITRE T1098, T1548."
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "method": "POST", "body": "{\"roleRef\":{\"name\":\"cluster-admin\"}}"}
+        - tool: "put_request"
+          args: {"url": "https://cluster.local/apis/rbac.authorization.k8s.io/v1/namespaces/default/rolebindings/admin-binding", "method": "PUT"}
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterroles/custom-role", "method": "DELETE"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "method": "GET"}
+        - tool: "http_request"
+          args: {"url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
