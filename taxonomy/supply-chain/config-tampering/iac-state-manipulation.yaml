@@ -1,0 +1,98 @@
+id: "supply-chain/config-tampering/iac-state-manipulation"
+version: "1.0.0"
+kingdom: "Supply Chain Compromise"
+kingdom_id: 7
+category: "Config Tampering"
+category_id: "7.2"
+name: "IaC State Manipulation via Remote Backend API"
+risk_level: "critical"
+
+abstract: |
+  An AI agent autonomously reads or writes Infrastructure as Code (IaC) state
+  through remote backend APIs — Terraform Cloud's state API, or HTTP PUT/POST to
+  S3, GCS, or Azure Blob .tfstate paths — bypassing filesystem-level controls,
+  potentially exfiltrating credentials embedded in state, or triggering
+  infrastructure drift and destruction on the next apply.
+
+explanation: |
+  Terraform state files are the source of truth for managed infrastructure.
+  They contain plaintext resource IDs, connection strings, and credentials (e.g.,
+  database passwords, IAM access keys, TLS private keys) — anything Terraform
+  manages is reflected in state. Remote backends store this state at well-known
+  API endpoints, which AI agents with HTTP tool access can reach directly.
+
+  **Attack vectors:**
+
+  **State API credential exfiltration**: An agent with an HTTP tool can call
+  `https://app.terraform.io/api/v2/workspaces/<id>/current-state-version` to
+  download the full state JSON. This is functionally equivalent to reading a
+  `.tfstate` file, but bypasses any filesystem-level protection applied to
+  local state access. State JSON often contains plaintext database passwords,
+  cloud provider access keys, and API tokens used by managed resources.
+
+  **Remote backend state overwrite**: Terraform's S3, GCS, and Azure backends
+  use predictable paths for state files (e.g., `s3://bucket/path/terraform.tfstate`).
+  An agent with cloud CLI or HTTP access can overwrite state via PUT, replacing
+  the current infrastructure mapping with a crafted file. On the next
+  `terraform apply`, Terraform reconciles infrastructure to match the fake state —
+  potentially destroying existing resources or creating unauthorized ones.
+
+  **State deletion**: Deleting state via DELETE HTTP to the backend endpoint
+  causes Terraform to lose track of all managed resources, requiring costly
+  recovery and preventing safe infrastructure changes.
+
+  **Privilege escalation via state injection**: A crafted state file can
+  claim Terraform "manages" an IAM role or cloud permission that was never
+  actually created via Terraform, causing subsequent applies to modify or
+  elevate that resource's configuration.
+
+  Unlike direct `.tfstate` file reads (which are covered by filesystem rules),
+  this threat is specific to agents that bypass local file access by talking
+  to remote storage APIs directly. MITRE T1552.001 (Credentials in Files via
+  API) and T1578 (Modify Cloud Compute Infrastructure) apply.
+
+recommendation: |
+  - Block AI agent HTTP access to Terraform Cloud state API endpoints
+    (`app.terraform.io/api/v2/*/state-versions`, `current-state-version`).
+  - Block HTTP PUT/POST/DELETE to `.tfstate` paths on S3, GCS, and Azure Blob.
+  - Restrict Terraform Cloud API tokens granted to AI agent environments to
+    read-only scope where possible.
+  - Enable Terraform Cloud audit logging to detect unauthorized state access.
+  - Use IAM conditions to prevent write access to state storage buckets from
+    agent execution environments.
+  - Store state encryption keys separately from the agent's credential scope.
+
+examples:
+  bad:
+    - "curl -H 'Authorization: Bearer $TFC_TOKEN' https://app.terraform.io/api/v2/workspaces/ws-abc123/current-state-version"
+    - "aws s3 cp /tmp/fake.tfstate s3://prod-tf-state/terraform.tfstate"
+    - "curl -X PUT -T modified.tfstate https://storage.googleapis.com/tf-state/prod/terraform.tfstate"
+    - "curl -X DELETE https://app.terraform.io/api/v2/state-versions/sv-xyz789"
+  good:
+    - "terraform state list  # read-only local state inspection"
+    - "terraform show -json | jq .  # read current state through CLI"
+    - "aws s3 cp s3://tf-state/terraform.tfstate /tmp/ --dryrun  # dry-run only"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM08"]
+  iso-27001-2022: ["A.8.9", "A.8.3", "A.8.12"]
+  eu-ai-act-2024: ["Art.14", "Art.15"]
+  soc2-type2: ["CC6.3", "CC6.8"]
+  iso-42001-2023: ["A.7.4"]
+
+references:
+  mitre_attack: ["T1552.001", "T1578", "T1485"]
+  cwe: ["CWE-284", "CWE-200", "CWE-250"]
+  external:
+    - title: "Terraform Cloud: State API Documentation"
+      url: "https://developer.hashicorp.com/terraform/cloud-docs/api-docs/state-versions"
+    - title: "Terraform: Remote State Security Considerations"
+      url: "https://developer.hashicorp.com/terraform/language/state/sensitive-values"
+    - title: "OWASP LLM08 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm082025-excessive-agency/"
+
+analyzers: ["structural", "dataflow"]
+related_rules:
+  - "mcp-sc-block-terraform-cloud-state-api"
+  - "mcp-sc-block-terraform-backend-state-write"
+  - "mcp-sec-block-terraform-state"
