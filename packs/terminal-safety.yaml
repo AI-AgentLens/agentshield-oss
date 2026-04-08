@@ -3218,6 +3218,7 @@ rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
       command_regex: "\\b(terraform|tofu|terragrunt)\\s+(run-all\\s+)?apply\\b.*--?auto[-_]?approve\\b"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "BLOCK"
     confidence: 0.97
     reason: "terraform/tofu/terragrunt apply -auto-approve skips the plan review step entirely — AI agents may apply wide-scope changes (opening security groups, modifying IAM policies) without any human gate. Always review terraform plan output before apply. (OWASP LLM05, MITRE T1578)"
@@ -3235,6 +3236,7 @@ rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
       command_regex: "\\bcdk\\s+deploy\\b.*--require-approval\\s+never\\b"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "BLOCK"
     confidence: 0.95
     reason: "cdk deploy --require-approval never suppresses the CDK approval prompt for security-sensitive changes (IAM policy broadening, security group rule addition). AI agents must not bypass this gate. (OWASP LLM05, MITRE T1578)"
@@ -3252,7 +3254,9 @@ rules:
   - id: "ts-audit-terraform-apply-no-scan"
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
-      command_regex: "\\bterraform\\s+apply\\b"
+      structural:
+        executable: ["terraform", "tofu", "terragrunt"]
+        subcommand: "apply"
     decision: "AUDIT"
     confidence: 0.75
     reason: "terraform apply — AI-generated IaC may contain wildcard IAM policies or open security groups. Consider running 'checkov -d . && terraform apply' or 'tfsec . && terraform apply' to scan before applying. (OWASP LLM05, MITRE T1578)"
@@ -3260,8 +3264,11 @@ rules:
       tp:
         - "terraform apply"
         - "terraform apply -var='env=prod'"
+        - "tofu apply"
+        - "terragrunt apply"
       tn:
         - "terraform plan"
+        - "gh issue create --body \"terraform apply blocked by AgentShield policy\""
 
   # --- AUDIT: helm install / upgrade (applies unreviewed Kubernetes resources) ---
   # helm install/upgrade deploys Kubernetes resources from a chart. AI-generated
@@ -3270,7 +3277,7 @@ rules:
     taxonomy: "unauthorized-execution/ai-content-integrity/ai-generated-infrastructure-misconfiguration"
     match:
       command_regex: "\\bhelm\\s+(install|upgrade)\\b"
-      command_regex_exclude: "--dry-run"
+      command_regex_exclude: "--dry-run|{{DOC_CONTEXT}}"
     decision: "AUDIT"
     confidence: 0.72
     reason: "helm install/upgrade applies Kubernetes resources to the cluster. AI-generated chart values may set elevated security contexts or overly broad service exposure. Use --dry-run first to review what will be deployed. (OWASP LLM05, MITRE T1578)"
@@ -3298,8 +3305,9 @@ rules:
   - id: "ts-audit-pulumi-up"
     taxonomy: "unauthorized-execution/ai-content-integrity/llm-directed-iac-apply"
     match:
-      command_regex: "\\bpulumi\\s+up\\b"
-      command_regex_exclude: "\\b(preview|--dry-run)\\b"
+      structural:
+        executable: ["pulumi"]
+        subcommand: "up"
     decision: "AUDIT"
     confidence: 0.82
     reason: "pulumi up applies all pending stack changes without a separate plan review step. AI-generated Pulumi code may create misconfigured resources (open security groups, public storage buckets) or enable unauthorized infrastructure modifications. Run 'pulumi preview' first and review the output before applying. (OWASP LLM08, MITRE T1578)"
@@ -3309,6 +3317,7 @@ rules:
         - "pulumi up --stack prod"
       tn:
         - "pulumi preview"
+        - "gh issue create --body \"pulumi up blocked: ts-audit-pulumi-up\""
 
   # === AUDIT: AWS CloudFormation / SAM deploy — LLM-directed IaC apply (issue #204) ===
   #
@@ -3584,6 +3593,7 @@ rules:
     taxonomy: "destructive-ops/resource-commitment/unbounded-transfer"
     match:
       command_regex: "kubectl\\s+scale\\b.*--replicas=([1-9][0-9]{2,})"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "AUDIT"
     confidence: 0.87
     reason: "kubectl scale with 100+ replicas — large replica counts trigger auto-scaling of underlying cloud VMs, incurring unexpected infrastructure cost. AI agents may misinterpret scale factors. (MITRE T1578.002, OWASP LLM10)"
@@ -3646,7 +3656,10 @@ rules:
   - id: "ts-block-kubectl-delete-namespace"
     taxonomy: "destructive-ops/cloud-infra/k8s-namespace-delete"
     match:
-      command_regex: "kubectl\\s+delete\\s+namespace"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "delete"
+        args_any: ["namespace"]
     decision: "BLOCK"
     confidence: 0.90
     reason: "Kubernetes namespace deletion destroys all resources in the namespace."
@@ -3656,11 +3669,15 @@ rules:
         - "kubectl delete namespace staging"
       tn:
         - "kubectl get namespaces"
+        - "gh issue create --body \"kubectl delete namespace broke in staging\""
 
   - id: "ts-block-kubectl-delete-all"
     taxonomy: "destructive-ops/cloud-infra/k8s-bulk-delete"
     match:
-      command_regex: "kubectl\\s+delete\\s+(pvc|pod|deployment|service|configmap|secret)\\s+--all"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "delete"
+        flags_any: ["all"]
     decision: "BLOCK"
     confidence: 0.90
     reason: "Kubernetes bulk deletion of resources is destructive."
@@ -3668,8 +3685,10 @@ rules:
       tp:
         - "kubectl delete pod --all"
         - "kubectl delete deployment --all -n staging"
+        - "kubectl delete pvc --all -n production"
       tn:
         - "kubectl delete pod my-pod"
+        - "gh pr create --body \"kubectl delete pod --all was incorrectly run\""
 
   # === BLOCK: Database destruction operations ===
   # AI agents with database CLI access (mysql, psql, mongosh, redis-cli) can
@@ -3836,6 +3855,7 @@ rules:
     taxonomy: "credential-exposure/container-config/kubernetes-config-access"
     match:
       command_regex: "kubectl\\s+(get|describe)\\s+secret.*-o\\s+(yaml|json|jsonpath)"
+      command_regex_exclude: "{{DOC_CONTEXT}}"
     decision: "BLOCK"
     confidence: 0.92
     reason: "kubectl get/describe secret with -o yaml/json outputs plaintext secret values. Kubernetes Secrets are base64-encoded (not encrypted) in etcd and can contain passwords, API keys, and TLS private keys."
@@ -3854,7 +3874,10 @@ rules:
   - id: "ts-block-kubectl-create-clusterrolebinding"
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
     match:
-      command_regex: "kubectl\\s+create\\s+clusterrolebinding\\b"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "create"
+        args_any: ["clusterrolebinding"]
     decision: "BLOCK"
     confidence: 0.97
     reason: "kubectl create clusterrolebinding binds a ClusterRole (often cluster-admin) to any subject cluster-wide — immediate and persistent privilege escalation. AI agents must not create RBAC bindings. (MITRE T1098)"
@@ -3864,11 +3887,15 @@ rules:
         - "kubectl create clusterrolebinding dev-admin --clusterrole=admin --serviceaccount=default:sa"
       tn:
         - "kubectl get clusterrolebinding"
+        - "gh issue create --body \"kubectl create clusterrolebinding example\""
 
   - id: "ts-block-kubectl-create-rolebinding"
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
     match:
-      command_regex: "kubectl\\s+create\\s+rolebinding\\b"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "create"
+        args_any: ["rolebinding"]
     decision: "BLOCK"
     confidence: 0.95
     reason: "kubectl create rolebinding grants a role to a user/service account within a namespace — can enable secret access, lateral movement, and further escalation. AI agents must not create RBAC bindings. (MITRE T1098)"
@@ -3878,11 +3905,15 @@ rules:
         - "kubectl create rolebinding admin-rb --clusterrole=admin --serviceaccount=default:sa"
       tn:
         - "kubectl get rolebinding -n default"
+        - "git commit -m 'docs: kubectl create rolebinding pattern'"
 
   - id: "ts-block-kubectl-patch-rbac"
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
     match:
-      command_regex: "kubectl\\s+patch\\s+(clusterrolebinding|rolebinding|clusterrole)\\b"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "patch"
+        args_any: ["clusterrolebinding", "rolebinding", "clusterrole"]
     decision: "BLOCK"
     confidence: 0.95
     reason: "kubectl patch on RBAC resources (clusterrolebinding, rolebinding, clusterrole) can widen permissions for all subjects bound to the role — persistent privilege escalation. AI agents must not modify RBAC resources. (MITRE T1098)"
@@ -3890,13 +3921,17 @@ rules:
       tp:
         - "kubectl patch clusterrolebinding admin-binding -p '{\"subjects\":[{\"kind\":\"User\",\"name\":\"attacker\"}]}'"
         - "kubectl patch clusterrole admin -p '{\"rules\":[{\"apiGroups\":[\"*\"],\"resources\":[\"*\"],\"verbs\":[\"*\"]}]}'"
+        - "kubectl patch rolebinding dev-rb -p '{\"subjects\":[{\"kind\":\"User\",\"name\":\"eve\"}]}'"
       tn:
         - "kubectl patch deployment nginx -p '{\"spec\":{\"replicas\":3}}'"
+        - "gh pr create --body \"kubectl patch clusterrolebinding was blocked\"'"
 
   - id: "ts-audit-kubectl-exec"
     taxonomy: "privilege-escalation/container-escape/docker-exec"
     match:
-      command_regex: "kubectl\\s+exec\\s+"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "exec"
     decision: "AUDIT"
     confidence: 0.85
     reason: "kubectl exec opens a shell in a running pod, enabling lateral movement within the cluster and direct access to application runtime secrets."
@@ -3906,11 +3941,14 @@ rules:
         - "kubectl exec my-pod -- cat /etc/passwd"
       tn:
         - "kubectl logs my-pod"
+        - "gh issue create --body \"kubectl exec my-pod -- bash is blocked by policy\""
 
   - id: "ts-audit-kubectl-cp"
     taxonomy: "credential-exposure/container-config/kubernetes-config-access"
     match:
-      command_regex: "kubectl\\s+cp\\s+"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "cp"
     decision: "AUDIT"
     confidence: 0.85
     reason: "kubectl cp copies files between pods and local filesystem. Can exfiltrate application secrets, private keys, or config files from production containers."
@@ -3920,6 +3958,7 @@ rules:
         - "kubectl cp default/web-pod:/app/config.yaml ./config.yaml"
       tn:
         - "kubectl get pods"
+        - "git commit -m 'docs: kubectl cp pattern for secret extraction'"
 
   # === AUDIT: kubectl proxy — exposes full Kubernetes API on localhost ===
   #
@@ -3943,7 +3982,9 @@ rules:
   - id: "ts-audit-kubectl-proxy"
     taxonomy: "privilege-escalation/container-escape/k8s-rbac-escalation"
     match:
-      command_regex: "kubectl\\s+proxy\\b"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "proxy"
     decision: "AUDIT"
     confidence: 0.87
     reason: "kubectl proxy starts an unauthenticated HTTP reverse proxy to the Kubernetes API server on localhost. Any local process can read Secrets, exec into pods, or modify RBAC without presenting credentials — a significant local privilege escalation surface. (OWASP LLM06, MITRE T1021.006)"
@@ -3953,6 +3994,7 @@ rules:
         - "kubectl proxy --port=9090"
       tn:
         - "kubectl get nodes"
+        - "gh issue create --body \"kubectl proxy exposes the API server\"'"
 
   # === AUDIT: kubectl port-forward — tunnels cluster-internal services to localhost ===
   #
@@ -3973,7 +4015,9 @@ rules:
   - id: "ts-audit-kubectl-port-forward"
     taxonomy: "reconnaissance/network-discovery/internal-service-probe"
     match:
-      command_regex: "kubectl\\s+port-forward\\b"
+      structural:
+        executable: ["kubectl"]
+        subcommand: "port-forward"
     decision: "AUDIT"
     confidence: 0.87
     reason: "kubectl port-forward tunnels a cluster-internal pod/service port to localhost, bypassing network policies and ingress controls. Enables direct access to databases, secret stores, and admin APIs not intended to be externally reachable. (OWASP LLM06, MITRE T1090, T1552)"
@@ -3983,6 +4027,7 @@ rules:
         - "kubectl port-forward pod/redis 6379:6379"
       tn:
         - "kubectl get svc"
+        - "git commit -m 'docs: use kubectl port-forward for local debugging'"
 
   - id: "ts-block-docker-exec"
     taxonomy: "privilege-escalation/container-escape/docker-exec"
@@ -4475,30 +4520,24 @@ rules:
   - id: "ts-block-git-force-push-main"
     taxonomy: "destructive-ops/version-control/git-force-push"
     match:
-      command_regex: "git\\s+push\\s+.*(--force|-f)\\s+.*(main|master)"
+      structural:
+        executable: ["git"]
+        subcommand: "push"
+        flags_any: ["force", "f"]
+        args_any: ["main", "master"]
     decision: "BLOCK"
     confidence: 0.90
-    reason: "Force pushing to main/master can destroy shared commit history."
+    reason: "Force pushing to main/master can destroy shared commit history. Structural matching handles any flag/branch ordering and eliminates FPs from quoted text in git commit messages or gh CLI body args."
     tests:
       tp:
         - "git push --force origin main"
         - "git push -f origin master"
-      tn:
-        - "git push origin feature-branch"
-
-  - id: "ts-block-git-force-push-main-alt"
-    taxonomy: "destructive-ops/version-control/git-force-push"
-    match:
-      command_regex: "git\\s+push\\s+.*(main|master)\\s+.*(--force|-f)"
-    decision: "BLOCK"
-    confidence: 0.90
-    reason: "Force pushing to main/master can destroy shared commit history."
-    tests:
-      tp:
         - "git push origin main --force"
         - "git push origin master -f"
       tn:
-        - "git push origin feature"
+        - "git push origin feature-branch"
+        - "git push --force origin feature-branch"
+        - "gh issue create --body \"git push --force origin main is blocked\""
 
   # === BLOCK: git history destruction ===
   # History-rewrite and commit-drop operations that permanently alter or discard
