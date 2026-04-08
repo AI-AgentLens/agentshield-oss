@@ -65,6 +65,9 @@ examples:
     - 'MCP tool call with signed JWT: {"tool": "delete_deployment", "args": {"agent_token": "eyJ...signed..."}}'
     - 'mTLS-authenticated agent call: identity verified at transport layer, no plain-text identity field'
 
+analyzers: ["guardian", "regex"]
+related_rules: []
+
 compliance:
   owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.8.3", "A.8.9"]

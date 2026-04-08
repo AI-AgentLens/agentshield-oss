@@ -84,6 +84,9 @@ examples:
     - 'read_file(path="/workspace/project/README.md")  # workspace file, no credential exposure'
     - 'sampling/createMessage with content: "Summarize this document"  # no auth context'
 
+analyzers: ["guardian", "regex"]
+related_rules: []
+
 compliance:
   owasp-llm-2025: ["LLM02", "LLM06"]
   iso-27001-2022: ["A.8.3", "A.8.12"]
@@ -92,16 +95,6 @@ compliance:
   mitre_atlas: ["AML.T0056"]
   iso-42001-2023: ["A.8.4"]
 
-mitre_attack:
-  - technique: "T1550.001"
-    name: "Use Alternate Authentication Material: Application Access Token"
-  - technique: "T1528"
-    name: "Steal Application Access Token"
-  - technique: "T1552.001"
-    name: "Unsecured Credentials: Credentials In Files"
-
-related_entries:
-  - "unauthorized-execution/agentic-attacks/mcp-credential-relay"
-  - "unauthorized-execution/agentic-attacks/mcp-authorization-bypass"
-  - "unauthorized-execution/agentic-attacks/mcp-oauth-as-metadata-spoofing"
-  - "credential-exposure/ai-api-credentials/api-key-exposure"
+references:
+  mitre_attack: ["T1550.001", "T1528", "T1552.001"]
+  cwe: []
