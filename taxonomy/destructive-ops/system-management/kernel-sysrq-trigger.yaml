@@ -58,6 +58,9 @@ references:
     - title: "Linux Magic SysRQ Key"
       url: "https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html"
 
+analyzers: ["regex", "structural"]
+related_rules: []
+
 compliance:
   owasp-llm-2025: ["LLM06"]
   iso-27001-2022: ["A.8.25"]
