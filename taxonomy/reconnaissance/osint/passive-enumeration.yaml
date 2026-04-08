@@ -69,8 +69,6 @@ compliance:
   iso-27001-2022: ["A.8.20", "A.8.23"]
   eu-ai-act-2024: ["Art.15"]
   soc2-type2: ["CC6.6", "CC6.7"]
-  iso-42001-2023: ["A.8.4"]
-
 references:
   mitre_attack: ["T1589", "T1589.002", "T1593", "T1596", "T1596.005", "T1595.001"]
   cwe: ["CWE-200", "CWE-284"]

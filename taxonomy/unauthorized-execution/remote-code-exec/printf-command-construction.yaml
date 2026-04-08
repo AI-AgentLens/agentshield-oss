@@ -75,11 +75,9 @@ examples:
 
 compliance:
   owasp-llm-2025: ["LLM01", "LLM05"]
-  iso-27001-2022: ["A.8.4", "A.8.28"]
+  iso-27001-2022: ["A.8.28"]
   eu-ai-act-2024: ["Art.14", "Art.15"]
   soc2-type2: ["CC6.8", "CC7.2"]
-  iso-42001-2023: ["A.8.4"]
-
 references:
   mitre_attack: ["T1027.004", "T1059.004"]
   cwe: ["CWE-78", "CWE-116"]
