@@ -111,7 +111,11 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 		mcpPolicy = mcp.DefaultMCPPolicy()
 	}
 	mcpPacksDir := filepath.Join(cfg.ConfigDir, mcp.DefaultMCPPacksDir)
-	mcpPolicy, _, _ = mcp.LoadMCPPacks(mcpPacksDir, mcpPolicy)
+	mcpPolicy, packInfos, _ := mcp.LoadMCPPacks(mcpPacksDir, mcpPolicy)
+	// If no packs loaded from filesystem, fall back to embedded packs
+	if len(packInfos) == 0 {
+		mcpPolicy, _, _ = mcp.LoadEmbeddedMCPPacks(mcpPolicy)
+	}
 	evaluator := mcp.NewPolicyEvaluator(mcpPolicy)
 
 	mcpCases := []mcpScanCase{

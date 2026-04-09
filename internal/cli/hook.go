@@ -403,10 +403,14 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage) erro
 	basePolicy := &mcp.MCPPolicy{
 		Defaults: mcp.MCPDefaults{Decision: policy.DecisionAudit},
 	}
-	mcpPolicy, _, err := mcp.LoadMCPPacks(packsDir, basePolicy)
+	mcpPolicy, packInfos, err := mcp.LoadMCPPacks(packsDir, basePolicy)
 	if err != nil || mcpPolicy == nil {
 		// No MCP policy loaded — allow (fail open)
 		return nil
+	}
+	// Fall back to embedded packs if none installed on disk
+	if len(packInfos) == 0 {
+		mcpPolicy, _, _ = mcp.LoadEmbeddedMCPPacks(mcpPolicy)
 	}
 
 	evaluator := mcp.NewPolicyEvaluator(mcpPolicy)

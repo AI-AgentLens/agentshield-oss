@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/security-researcher-ca/agentshield/packs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -158,6 +159,44 @@ func LoadMCPPacks(packsDir string, base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, 
 		}
 
 		mergeMCPPack(result, pack)
+	}
+
+	return result, infos, nil
+}
+
+// LoadEmbeddedMCPPacks loads MCP packs from the embedded packs.MCPFiles() into
+// the base policy. Used as a fallback when no packs are installed on disk.
+func LoadEmbeddedMCPPacks(base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, error) {
+	embeddedFiles := packs.MCPFiles()
+	if len(embeddedFiles) == 0 {
+		return base, nil, nil
+	}
+
+	result := cloneMCPPolicy(base)
+	var infos []MCPPackInfo
+
+	for name, data := range embeddedFiles {
+		baseName := strings.TrimSuffix(name, filepath.Ext(name))
+
+		var pack MCPPack
+		if err := yaml.Unmarshal(data, &pack); err != nil {
+			continue
+		}
+
+		ruleCount := len(pack.Rules) + len(pack.ResourceRules) + len(pack.ValueLimits) + len(pack.BlockedTools) + len(pack.StructuralRules) + len(pack.SemanticRules) + len(pack.DataLabels)
+		info := MCPPackInfo{
+			Name:      pack.Name,
+			Version:   pack.Version,
+			Enabled:   true,
+			Path:      "(embedded)",
+			RuleCount: ruleCount,
+		}
+		if info.Name == "" {
+			info.Name = baseName
+		}
+		infos = append(infos, info)
+
+		mergeMCPPack(result, &pack)
 	}
 
 	return result, infos, nil
