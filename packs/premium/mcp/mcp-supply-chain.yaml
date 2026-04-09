@@ -88,3 +88,56 @@ rules:
           args: {"path": "/workspace/docs/pnpm-store-architecture.md"}
         - tool: "write_file"
           args: {"path": "/home/user/projects/myapp/node_modules/express/index.js"}
+
+  # === BLOCK: MCP delete of CODEOWNERS file (issue #1142) ===
+  #
+  # The community pack blocks MCP *writes* to CODEOWNERS, but delete operations
+  # are equally dangerous. Deleting CODEOWNERS silently removes ALL mandatory
+  # reviewer requirements from the repository — no branch protection, no required
+  # approvers, no audit trail.
+  #
+  # An AI agent using delete_file/remove_file via MCP can:
+  #   1. Remove the CODEOWNERS file entirely → future PRs bypass human review silently
+  #   2. The effect is persistent and invisible — no CI alert, no log, just missing gates
+  #   3. This bypasses shell-level rules entirely since no shell command is issued
+  #
+  # This is distinct from the mcp-sc-block-codeowners-write rule in the community pack,
+  # which only covers write-family tool names. Delete operations require a separate rule.
+  #
+  # Files covered:
+  #   .github/CODEOWNERS  (GitHub)
+  #   CODEOWNERS          (GitLab, Bitbucket — root)
+  #   docs/CODEOWNERS     (GitLab docs convention)
+  #
+  # MITRE T1195.002 — Supply Chain Compromise: Compromise Software Supply Chain
+  - id: mcp-sc-block-codeowners-delete
+    taxonomy: "supply-chain/build-pipeline/cicd-config-injection"
+    match:
+      tool_name_any:
+        - "delete_file"
+        - "remove_file"
+        - "unlink"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)\\.github/CODEOWNERS$"
+            - "(?:^|/)CODEOWNERS$"
+            - "(?:^|/)docs/CODEOWNERS$"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP delete of CODEOWNERS — removing code ownership gates eliminates mandatory reviewer requirements across the entire repository, enabling subsequent malicious changes to bypass human review silently. Deletion is as dangerous as modification. MITRE T1195.002."
+    tests:
+      tp:
+        - tool: "delete_file"
+          args: {"path": "/project/.github/CODEOWNERS"}
+        - tool: "remove_file"
+          args: {"path": "/workspace/CODEOWNERS"}
+        - tool: "delete_file"
+          args: {"path": "/project/docs/CODEOWNERS"}
+      tn:
+        - tool: "delete_file"
+          args: {"path": "/project/src/codeowners_validator.go"}
+        - tool: "read_file"
+          args: {"path": "/project/.github/CODEOWNERS"}
+        - tool: "delete_file"
+          args: {"path": "/project/docs/codeowners-guide.md"}
