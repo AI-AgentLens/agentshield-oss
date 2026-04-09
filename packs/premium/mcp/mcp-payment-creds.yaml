@@ -1,0 +1,132 @@
+name: "MCP Payment Processor Credentials"
+description: "Block MCP tool access to payment processor credential files not covered by the community pack"
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # ------------------------------------------------------------------
+  # Braintree CLI config directory (~/.config/braintree/)
+  # ------------------------------------------------------------------
+  # The Braintree CLI (Java-based) stores merchant ID, public key, and
+  # private key under ~/.config/braintree/. This is distinct from the
+  # ~/.braintreerc dotfile covered by the community pack.
+  # Merchant credentials enable unauthorized payment initiation and refunds.
+  # MITRE T1552.001, OWASP LLM06.
+  - id: mcp-sec-block-braintree-config-dir
+    taxonomy: "credential-exposure/api-key-access/payment-processor-credential-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "write_file"
+        - "cat_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+        - "open_file"
+        - "view_file"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/.config/braintree/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.config/braintree/ is blocked — contains Braintree merchant credentials (merchant ID, public key, private key) enabling unauthorized payment operations. MITRE T1552.001."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/braintree/config.json"}
+        - tool: "write_file"
+          args: {"path": "/root/.config/braintree/credentials"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/braintree_handler.py"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/braintree-setup.md"}
+
+  # ------------------------------------------------------------------
+  # Square CLI home directory (~/.square/)
+  # ------------------------------------------------------------------
+  # The Square CLI stores OAuth access tokens and app credentials under
+  # ~/.square/. This is distinct from ~/.config/squareup/ covered by
+  # the community pack. Tokens authorize POS and payment operations.
+  # MITRE T1552.001, OWASP LLM06.
+  - id: mcp-sec-block-square-home-dir
+    taxonomy: "credential-exposure/api-key-access/payment-processor-credential-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "write_file"
+        - "cat_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+        - "open_file"
+        - "view_file"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/.square/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.square/ is blocked — contains Square CLI OAuth tokens and app credentials authorizing point-of-sale and payment API operations. MITRE T1552.001."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.square/credentials"}
+        - tool: "write_file"
+          args: {"path": "/root/.square/token"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/square_handler.py"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/square-integration.md"}
+
+  # ------------------------------------------------------------------
+  # Adyen credential files (~/.adyen/)
+  # ------------------------------------------------------------------
+  # Adyen CLI and SDK store API keys and HMAC secrets for payment
+  # notifications under ~/.adyen/. These credentials enable unauthorized
+  # payment initiation and webhook signature forgery.
+  # MITRE T1552.001, OWASP LLM06.
+  - id: mcp-sec-block-adyen-creds
+    taxonomy: "credential-exposure/api-key-access/payment-processor-credential-read"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "write_file"
+        - "cat_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+        - "open_file"
+        - "view_file"
+        - "get_file_contents"
+      argument_patterns:
+        path: "**/.adyen/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.adyen/ is blocked — contains Adyen API keys and HMAC secrets enabling unauthorized payment operations and webhook signature forgery. MITRE T1552.001."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.adyen/credentials.json"}
+        - tool: "write_file"
+          args: {"path": "/root/.adyen/api_key"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/adyen_handler.py"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/adyen-webhook-setup.md"}
