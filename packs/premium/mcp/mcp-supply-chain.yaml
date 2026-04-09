@@ -86,6 +86,86 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/projects/myapp/node_modules/express/index.js"}
 
+  # === BLOCK: MCP write to Go binary install directory (issue #1145) ===
+  #
+  # `~/go/bin/` is the GOPATH bin directory — Go installs executables here via
+  # `go install`. After running `go install`, the binary is in PATH and executes
+  # on every invocation of that tool name.
+  #
+  # An AI agent using MCP write tools can place ANY binary here without triggering
+  # a shell-level rule (no shell command is issued). Attack scenarios:
+  #
+  #   - Write malicious `~/go/bin/gopls` → backdoor the Go language server; every
+  #     IDE that uses gopls for code completion executes the trojaned binary
+  #   - Write to `~/go/bin/golangci-lint` → backdoor the linter used in CI pipelines;
+  #     the trojan runs during every `golangci-lint run` with full repo access
+  #   - Write to `~/go/bin/air` → backdoor the live-reload server; executes on every
+  #     `air` invocation during development, exfiltrating code changes in real time
+  #   - Write to `~/go/bin/<any-name>` → place a new executable in PATH without
+  #     needing to shadow an existing tool — any tool name is reachable
+  #
+  # The existing `mcp-sc-block-user-bin-path-shadow` rule only blocks writes to
+  # `~/.cargo/bin/<well-known-tool>` for a hardcoded list. It does not cover
+  # `~/go/bin/` at all — any tool name (including `gopls`, `golangci-lint`, `air`)
+  # passes undetected.
+  #
+  # Legitimate Go tool installs use `go install pkg@version` at the shell layer;
+  # MCP write tools have no legitimate reason to write to this directory.
+  #
+  # Covered paths (all GOPATH/bin variants):
+  #   ~/go/bin/**                    — default GOPATH ($HOME/go) on all OS
+  #   /home/<user>/go/bin/**         — absolute form (Linux)
+  #   /root/go/bin/**                — root user GOPATH
+  #   /Users/<user>/go/bin/**        — absolute form (macOS)
+  #
+  # TN: project-local bin/ directories (e.g., /workspace/project/bin/tool) must
+  # not trigger this rule. Only the user-level GOPATH bin/ is blocked.
+  #
+  # MITRE T1574.007 — Hijack Execution Flow: Path Interception by PATH Environment Variable
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: mcp-sc-block-go-bin-write
+    taxonomy: "supply-chain/path-hijacking/user-bin-shadow"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # Default GOPATH bin: ~/go/bin/**
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/go/bin/.+"
+            - "^~/go/bin/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to Go binary install directory (~/go/bin/) — GOPATH/bin is on PATH after standard Go installation. Writing any binary here enables persistent code execution on every tool invocation, bypassing shell-level rules entirely. MITRE T1574.007, T1195.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/go/bin/gopls"}
+        - tool: "create_file"
+          args: {"path": "/home/user/go/bin/evil-backdoor"}
+        - tool: "write_file"
+          args: {"path": "/root/go/bin/golangci-lint"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/go/bin/air"}
+        - tool: "write_file"
+          args: {"path": "~/go/bin/staticcheck"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/myproject/bin/tool"}
+        - tool: "read_file"
+          args: {"path": "/home/user/go/bin/gopls"}
+        - tool: "write_file"
+          args: {"path": "/home/user/go/src/myproject/main.go"}
+
   # === BLOCK: MCP delete of CODEOWNERS file (issue #1142) ===
   #
   # The community pack blocks MCP *writes* to CODEOWNERS, but delete operations
