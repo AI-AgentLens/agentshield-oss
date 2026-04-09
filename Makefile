@@ -63,9 +63,11 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 
 deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Deploying packs..."
-	@mkdir -p ~/.agentshield/packs ~/.agentshield/mcp-packs
+	@mkdir -p ~/.agentshield/packs ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
 	@cp packs/community/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
 	@cp packs/premium/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
+	@cp packs/community/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
+	@cp packs/premium/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
 	@echo "Deploying binary..."
 	@cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY) 2>/dev/null || sudo cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY)
 	@echo "Verifying..."
