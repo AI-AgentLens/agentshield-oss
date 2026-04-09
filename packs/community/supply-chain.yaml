@@ -1267,7 +1267,10 @@ rules:
 - id: sc-block-npm-publish
   taxonomy: supply-chain/package-publish/npm-autonomous-publish
   match:
-    command_regex: (?i)\bnpm\s+publish\b
+    structural:
+      executable:
+      - npm
+      subcommand: publish
   decision: BLOCK
   confidence: 0.98
   reason: npm publish uploads the package to the npm registry, making it publicly installable. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored
@@ -1278,6 +1281,7 @@ rules:
     - npm publish --access public
     tn:
     - npm pack
+    - gh issue create --body 'sc-block-npm-publish fires on npm publish'
 - id: sc-block-twine-upload
   taxonomy: supply-chain/package-publish/pypi-autonomous-publish
   match:
@@ -1295,7 +1299,10 @@ rules:
 - id: sc-block-cargo-publish
   taxonomy: supply-chain/package-publish/rust-crates-autonomous-publish
   match:
-    command_regex: (?i)\bcargo\s+publish\b
+    structural:
+      executable:
+      - cargo
+      subcommand: publish
   decision: BLOCK
   confidence: 0.98
   reason: cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide.
@@ -1306,10 +1313,15 @@ rules:
     - cargo publish --allow-dirty
     tn:
     - cargo package
+    - gh issue create --body 'rule sc-block-cargo-publish blocks cargo publish'
 - id: sc-block-gem-push
   taxonomy: supply-chain/package-publish/ruby-gem-autonomous-publish
   match:
-    command_regex: (?i)\bgem\s+push\b
+    structural:
+      executable:
+      - gem
+      args_any:
+      - push
   decision: BLOCK
   confidence: 0.97
   reason: gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001.
@@ -1319,6 +1331,7 @@ rules:
     - gem push pkg/evil-1.0.gem
     tn:
     - gem build my-gem.gemspec
+    - gh issue create --body 'sc-block-gem-push blocks gem push commands'
 - id: sc-block-nuget-push
   taxonomy: supply-chain/package-publish/nuget-autonomous-publish
   match:
