@@ -736,6 +736,9 @@ structural_rules:
             - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
             - "(?:^|/)\\.config/windsurf/settings\\.json$"
             - "(?i)Code/User/settings\\.json$"
+            - "(?i)VSCodium/User/settings\\.json$"
+            - "(?i)code-server/User/settings\\.json$"
+            - "(?i)Windsurf/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
             - "(?:^|/)\\.config/zed/settings\\.json$"
@@ -759,6 +762,12 @@ structural_rules:
           args: {"path": "/home/user/.config/zed/settings.json"}
         - tool: "write_file"
           args: {"path": "/Users/garyzeng/Library/Application Support/Zed/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/VSCodium/User/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/code-server/User/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/Windsurf/User/settings.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
@@ -803,6 +812,8 @@ structural_rules:
         path:
           pattern_any:
             - "(?i)Code/User/keybindings\\.json$"
+            - "(?i)VSCodium/User/keybindings\\.json$"
+            - "(?i)code-server/User/keybindings\\.json$"
             - "(?:^|/)\\.cursor/keybindings\\.json$"
             - "(?i)Cursor/User/keybindings\\.json$"
             - "(?:^|/)\\.config/cursor/keybindings\\.json$"
@@ -829,6 +840,10 @@ structural_rules:
           args: {"path": "/home/user/.config/windsurf/keybindings.json"}
         - tool: "str_replace_editor"
           args: {"path": "/home/user/.config/zed/keymap.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/VSCodium/User/keybindings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/code-server/User/keybindings.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/docs/keybindings-guide.md"}
@@ -868,6 +883,9 @@ structural_rules:
             - "(?:^|/)\\.config/cursor/settings\\.json$"
             - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
             - "(?:^|/)\\.config/windsurf/settings\\.json$"
+            - "(?i)Windsurf/User/settings\\.json$"
+            - "(?i)VSCodium/User/settings\\.json$"
+            - "(?i)code-server/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
             - "(?:^|/)\\.agentshield/"
@@ -882,6 +900,12 @@ structural_rules:
           args: {"path": "/home/user/.agentshield/policy.yaml"}
         - tool: "delete_file"
           args: {"path": "/home/user/.cursor/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/Windsurf/User/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/VSCodium/User/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/code-server/User/settings.json"}
         - tool: "unlink"
           args: {"path": "/home/user/.config/windsurf/settings.json"}
       tn:
