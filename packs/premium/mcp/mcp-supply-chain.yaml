@@ -166,6 +166,95 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/go/src/myproject/main.go"}
 
+  # === BLOCK: MCP write to Maven local repository and Gradle module cache (issue #1146) ===
+  #
+  # Maven (~/.m2/repository/) and Gradle (~/.gradle/caches/) maintain local artifact
+  # caches that act as dependency stores for all Java/Kotlin/Scala projects on the
+  # machine. Both build tools consult the local cache FIRST before fetching from
+  # remote registries — a poisoned local cache silently serves malicious JARs to
+  # every build.
+  #
+  # Attack scenarios:
+  #
+  # Maven (~/.m2/repository/):
+  #   - Write malicious `commons-lang3-3.12.0.jar` to
+  #     ~/.m2/repository/org/apache/commons/commons-lang3/3.12.0/
+  #   - Maven resolves the artifact locally — no network call, no checksum alert
+  #   - Every project on the machine depending on commons-lang3:3.12.0 now loads
+  #     the trojaned JAR on `mvn compile`, `mvn package`, or in CI
+  #   - `.m2/` is not version-controlled and rarely inspected
+  #
+  # Gradle (~/.gradle/caches/modules-2/files-2.1/):
+  #   - Write a malicious JAR to Gradle's content-addressable file store
+  #   - Gradle resolves by group:artifact:version → hash directory lookup
+  #   - A crafted poisoned JAR evades hash checks if the metadata file is also
+  #     overwritten (both live in the same cache directory)
+  #   - All Gradle projects on the machine using that artifact version are backdoored
+  #
+  # Unlike project-local `build/` or `.gradle/` directories (which are per-project),
+  # the user-home `~/.m2/` and `~/.gradle/caches/` are shared across ALL projects
+  # and ALL future builds — one write affects the entire machine indefinitely.
+  #
+  # Legitimate artifact management uses `mvn install`, `gradle build`, or dependency
+  # declarations — not MCP write tools directly modifying the cache.
+  #
+  # Covered paths:
+  #   ~/.m2/repository/**         — Maven local artifact repository
+  #   ~/.gradle/caches/**         — Gradle module + file cache
+  #
+  # TN: project-local `.gradle/` directories and `build/` output dirs are normal
+  # dev workflow and must not trigger this rule. Reading from cache paths is fine.
+  #
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1565.001 — Data Manipulation: Stored Data Manipulation
+  - id: mcp-sc-block-maven-gradle-cache-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # Maven local repository (Linux, macOS, Windows WSL)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.m2/repository/.+"
+            - "^~/\\.m2/repository/.+"
+            # Gradle module cache: caches/modules-2/ stores dependency metadata + jars
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.gradle/caches/.+"
+            - "^~/\\.gradle/caches/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to Maven local repository or Gradle module cache — both build tools resolve artifacts from local cache first. Injecting a malicious JAR into ~/.m2/ or ~/.gradle/caches/ silently backdoors all Java/Kotlin projects on the machine without any network trace or checksum alert. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.m2/repository/org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar"}
+        - tool: "create_file"
+          args: {"path": "/root/.m2/repository/com/example/library/1.0.0/library-1.0.0.jar"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.gradle/caches/modules-2/files-2.1/org.springframework/spring-core/6.0.0/abc123/spring-core-6.0.0.jar"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.gradle/caches/modules-2/metadata-2.99/descriptors/org.example/lib/1.0/descriptor.ivy"}
+        - tool: "write_file"
+          args: {"path": "~/.m2/repository/com/google/guava/guava/32.1.0-jre/guava-32.1.0-jre.jar"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/workspace/myproject/.gradle/build-output.txt"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.m2/repository/org/springframework/spring-core/6.0.0/spring-core-6.0.0.jar"}
+        - tool: "write_file"
+          args: {"path": "/workspace/myproject/build/libs/myapp-1.0.jar"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/maven-dependency-guide.md"}
+
   # === BLOCK: MCP delete of CODEOWNERS file (issue #1142) ===
   #
   # The community pack blocks MCP *writes* to CODEOWNERS, but delete operations
