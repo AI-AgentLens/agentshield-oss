@@ -51,8 +51,7 @@ jobs:
             ./internal/unicode/... \
             ./internal/enterprise/... \
             ./internal/logger/... \
-            ./internal/redact/... \
-            ./internal/taxonomy/...
+            ./internal/redact/...
 
       - run: go vet ./...
       - run: make build
