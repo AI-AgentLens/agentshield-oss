@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-08 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-09 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1110 |
-| MCP rules | 768 |
-| Total rules | 1878 |
-| Test cases (TP+TN) | 4042 |
+| MCP rules | 771 |
+| Total rules | 1881 |
+| Test cases (TP+TN) | 4044 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -916,10 +916,10 @@
 | `sc-audit-logprob-collection-loop` | AUDIT | regex | Loop collecting logprob/token probability outputs from LLM API — logit distributions are the most informative signal for model weight reconstruction. Combined with systematic input variation, this pattern characterizes model extraction. OWASP LLM03, MITRE T1530. |
 | `sc-audit-bulk-embedding-collection` | AUDIT | regex | Python one-liner bulk-collecting embeddings and appending to file — systematic embedding extraction maps model representation space for surrogate training. Dual-use pattern (also used in legitimate eval pipelines) but warrants review. OWASP LLM03. |
 | `sc-audit-inference-loop-collect` | AUDIT | regex | High-count loop querying inference API endpoint and collecting outputs to file — loop+query+collect is the primary bash-level pattern for model extraction attacks. Review for model stealing activity. OWASP LLM03, MITRE T1530. |
-| `sc-block-npm-publish` | BLOCK | regex | npm publish uploads the package to the npm registry, making it publicly installable. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored code to millions of users. MITRE T1195.001. |
+| `sc-block-npm-publish` | BLOCK | structural | npm publish uploads the package to the npm registry, making it publicly installable. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored code to millions of users. MITRE T1195.001. |
 | `sc-block-twine-upload` | BLOCK | regex | twine upload publishes Python packages to PyPI or a private index. Autonomous PyPI publishing by an AI agent is a supply chain attack vector — once published, malicious code is immediately installable by any pip user. MITRE T1195.001. |
-| `sc-block-cargo-publish` | BLOCK | regex | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
-| `sc-block-gem-push` | BLOCK | regex | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
+| `sc-block-cargo-publish` | BLOCK | structural | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
+| `sc-block-gem-push` | BLOCK | structural | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
 | `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
 | `sc-block-docker-push` | BLOCK | regex | docker push / docker buildx push autonomously publishes a container image to a registry. A pushed image becomes a base layer for downstream builds and is immediately pulled by rolling deployments — a single autonomous push can distribute malicious code to all consumers of that image. MITRE T1195.001, T1610. |
 | `sc-block-maven-deploy` | BLOCK | regex | mvn deploy / mvn release:perform / gradle publish autonomously publishes Java artifacts to Maven repositories. Published JARs become transitive dependencies in thousands of downstream projects and Gradle plugins execute as code in every adopter's build — a single autonomous publish can distribute malicious bytecode across the entire Java ecosystem. MITRE T1195.001. |
@@ -1176,7 +1176,7 @@
 
 ## MCP Rules
 
-### credential-exposure (407 rules)
+### credential-exposure (410 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1587,6 +1587,9 @@
 | `mcp-sec-block-mongodb-uri` | BLOCK | resource_rule | Direct MongoDB access via MCP is blocked. |
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
+| `mcp-sec-block-braintree-config-dir` | BLOCK | mcp_rule | Access to ~/.config/braintree/ is blocked — contains Braintree merchant credentials (merchant ID, public key, private key) enabling unauthorized payment operations. MITRE T1552.001. |
+| `mcp-sec-block-square-home-dir` | BLOCK | mcp_rule | Access to ~/.square/ is blocked — contains Square CLI OAuth tokens and app credentials authorizing point-of-sale and payment API operations. MITRE T1552.001. |
+| `mcp-sec-block-adyen-creds` | BLOCK | mcp_rule | Access to ~/.adyen/ is blocked — contains Adyen API keys and HMAC secrets enabling unauthorized payment operations and webhook signature forgery. MITRE T1552.001. |
 
 ### data-exfiltration (47 rules)
 
@@ -2010,7 +2013,7 @@
 | persistence-evasion | 344 | 220 | 564 |
 | privilege-escalation | 302 | 184 | 486 |
 | reconnaissance | 210 | 101 | 311 |
-| supply-chain | 261 | 185 | 446 |
+| supply-chain | 261 | 187 | 448 |
 | unauthorized-execution | 471 | 328 | 799 |
-| **Total** | **2424** | **1618** | **4042** |
+| **Total** | **2424** | **1620** | **4044** |
 
