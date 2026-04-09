@@ -305,7 +305,55 @@ Implemented in `internal/cli/` using Cobra. Key subcommands:
 
 ### Policy Packs
 
-`packs/` contains built-in YAML policy packs (terminal-safety, secrets-pii, network-egress, supply-chain). `internal/policy/pack.go` handles loading. Custom user config lives at `~/.agentshield/`.
+Packs are split into community and premium tiers:
+
+```
+packs/
+├── community/          # Open-source rules (1,096 terminal + 13 MCP packs)
+│   ├── terminal-safety.yaml
+│   ├── secrets-pii.yaml
+│   ├── network-egress.yaml
+│   ├── supply-chain.yaml
+│   └── mcp/            # Community MCP packs (embedded in binary)
+├── premium/            # Premium rules (14 terminal + 1 MCP pack)
+│   ├── terminal-safety.yaml  (semantic, dataflow, stateful rules)
+│   ├── secrets-pii.yaml      (dataflow rules)
+│   └── mcp/
+│       └── mcp-sentinel.yaml
+└── _*.yaml             # Disabled legacy files (underscore prefix)
+```
+
+**Loading order:** Built-in community packs (embedded MCP) → `~/.agentshield/packs/` (user-installed).
+
+### Premium Pack Delivery
+
+```
+agentshield login          # stores token in ~/.agentshield/credentials.json
+agentshield update         # pulls premium packs from SaaS API
+agentshield scan           # shows Premium Status section
+```
+
+**Flow:**
+1. `agentshield update` reads token from `~/.agentshield/credentials.json`
+2. `GET /api/packs` → JSON manifest (filename, version, rule_count)
+3. `GET /api/packs/{filename}` → download YAML pack file
+4. Writes to `~/.agentshield/packs/` (version-checked, skips if up-to-date)
+5. Pack loader picks them up next time the engine initializes
+
+**SaaS side:** `internal/handler/packs.go` serves premium YAML files from `AIAGENTLENS_PREMIUM_PACKS_DIR` (default: `premium-packs/`). Protected by auth middleware.
+
+**Testing:** `make test-premium` — clears packs, runs update, verifies download + scan.
+
+### OSS Publishing
+
+```bash
+./scripts/publish-oss.sh              # dry run
+./scripts/publish-oss.sh --publish    # push to agentshield-oss public repo
+make test-brew                        # verify homebrew install works
+make test-install-oss                 # verify OSS build from source
+```
+
+Excludes from OSS: `packs/premium/`, `packs/packs_premium.go`, `packs/_*.yaml`, `RULE_REVIEW.md`, `FAILING_TESTS.md`.
 
 ### Taxonomy
 

@@ -93,3 +93,23 @@ test-brew: ## Test brew tap + install + scan in Docker container
 		echo ""; \
 		echo "=== HOMEBREW INSTALL TEST PASSED ===" \
 	'
+
+test-premium: build ## Test premium pack update flow (requires agentshield login)
+	@echo "=== Premium Pack Update Test ==="
+	@if [ ! -f ~/.agentshield/credentials.json ]; then \
+		echo "❌ Not logged in. Run: agentshield login"; exit 1; \
+	fi
+	@echo "[1/4] Clearing existing premium packs..."
+	@rm -f ~/.agentshield/packs/terminal-safety.yaml ~/.agentshield/packs/secrets-pii.yaml
+	@echo "[2/4] Running agentshield update..."
+	@$(BUILD_DIR)/$(BINARY) update
+	@echo ""
+	@echo "[3/4] Verifying packs downloaded..."
+	@test -f ~/.agentshield/packs/terminal-safety.yaml || (echo "❌ terminal-safety.yaml not downloaded" && exit 1)
+	@test -f ~/.agentshield/packs/secrets-pii.yaml || (echo "❌ secrets-pii.yaml not downloaded" && exit 1)
+	@echo "  ✅ Premium packs present"
+	@echo ""
+	@echo "[4/4] Running scan with premium packs..."
+	@$(BUILD_DIR)/$(BINARY) scan 2>&1 | grep -A4 "Premium Status"
+	@echo ""
+	@echo "=== PREMIUM UPDATE TEST PASSED ==="
