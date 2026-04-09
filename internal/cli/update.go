@@ -168,7 +168,7 @@ func fetchManifest(endpoint, token string) (*packManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("network error: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, fmt.Errorf("authentication failed (HTTP %d) — try 'agentshield login' again", resp.StatusCode)
@@ -198,7 +198,7 @@ func downloadPack(endpoint, token, filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %s", resp.Status)

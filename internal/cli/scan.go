@@ -406,7 +406,7 @@ func printPremiumStatus(cfg *config.Config) {
 			if err != nil {
 				serverStatus = "unreachable"
 			} else {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
 					serverStatus = "connected"
 				} else {
