@@ -1336,6 +1336,7 @@ rules:
   taxonomy: supply-chain/package-publish/nuget-autonomous-publish
   match:
     command_regex: (?i)(\bdotnet\s+nuget\s+push\b|\bnuget\s+push\b)
+    command_regex_exclude: ^(echo|printf)\s|^(gh|git)\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)|-m\s)
   decision: BLOCK
   confidence: 0.97
   reason: dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects
@@ -1346,6 +1347,9 @@ rules:
     - nuget push pkg.nupkg -Source nuget.org
     tn:
     - dotnet nuget list source
+    - git commit -m "add rule to detect dotnet nuget push autonomous publishing"
+    - gh issue create --body "sc-block-nuget-push blocks nuget push commands"
+    - echo "dotnet nuget push is blocked by AgentShield"
 - id: sc-block-docker-push
   taxonomy: supply-chain/package-publish/docker-image-autonomous-push
   match:
