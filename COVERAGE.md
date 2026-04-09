@@ -7,8 +7,8 @@
 | Metric | Count |
 |--------|-------|
 | Terminal rules | 1110 |
-| MCP rules | 771 |
-| Total rules | 1881 |
+| MCP rules | 781 |
+| Total rules | 1891 |
 | Test cases (TP+TN) | 4044 |
 | Kingdoms covered | 10 |
 
@@ -1176,7 +1176,7 @@
 
 ## MCP Rules
 
-### credential-exposure (410 rules)
+### credential-exposure (416 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1225,6 +1225,7 @@
 | `mcp-sec-block-envoy-legacy-certs` | BLOCK | mcp_rule | Access to /etc/certs/ is blocked — older Istio/Envoy workload certificate directory containing mTLS private key and certificate chain. Exfiltration enables impersonating any service mesh workload and decrypting inter-service traffic. MITRE T1552.004. |
 | `mcp-sec-block-nss-cert-database` | BLOCK | mcp_rule | Access to ~/.pki/nssdb/ is blocked — contains the NSS user certificate database (key4.db private keys, cert9.db trust store). Reading exposes client TLS private keys; writing can install malicious root CA certificates that silently MITM all HTTPS traffic in Firefox and Chromium. MITRE T1552.004, T1553.004. |
 | `mcp-sec-block-k8s-system-kubeconfig` | BLOCK | mcp_rule | Access to Kubernetes system kubeconfig files is blocked — admin.conf, controller-manager.conf, and scheduler.conf contain embedded cluster-admin tokens. Exfiltrating these grants full cluster access. MITRE T1552.001. |
+| `mcp-sec-block-hcp-cli-credentials` | BLOCK | mcp_rule | Access to HashiCorp Cloud Platform (HCP) CLI credentials is blocked — ~/.config/hcp/credentials.json contains OAuth tokens granting access to HCP Vault Secrets, HCP Terraform, HCP Packer, and other HCP services. Exfiltrating this file enables secrets theft and unauthorized infrastructure changes. MITRE T1552. |
 | `mcp-sec-block-gcloud-access` | BLOCK | mcp_rule | Access to Google Cloud credentials is blocked. |
 | `mcp-sec-block-gcp-service-account-json` | BLOCK | mcp_rule | Access to GCP service account JSON key file is blocked — contains RSA private key, service account email, and project credentials granting full GCP API access. MITRE T1552.001. |
 | `mcp-sec-block-gcp-credentials-json` | BLOCK | mcp_rule | Access to GCP credentials JSON file is blocked — likely a service account key file containing RSA private key and GCP project credentials. MITRE T1552.001. |
@@ -1245,6 +1246,7 @@
 | `mcp-sec-block-non-dotfile-env-read` | BLOCK | mcp_rule | Access to non-dotfile *.env file is blocked — files with a .env suffix (secrets.env, credentials.env, app.env) are used by Docker Compose, Kubernetes envFrom, and CI/CD pipelines to store plaintext API keys and credentials. MITRE T1552.001. |
 | `mcp-sec-block-git-credentials` | BLOCK | mcp_rule | Git credential file access is blocked — contains plaintext credentials; writes can redirect git auth to attacker-controlled hosts. |
 | `mcp-sec-block-git-credentials-xdg` | BLOCK | mcp_rule | XDG git credential file access is blocked — ~/.config/git/credentials contains the same plaintext HTTP credentials as ~/.git-credentials (XDG Base Directory spec location). |
+| `mcp-sec-block-git-credential-manager` | BLOCK | mcp_rule | Access to git-credential-manager config directory is blocked — contains OAuth tokens for GitHub, GitLab, Azure DevOps, and Bitbucket that grant full API access without a password. MITRE T1552.001. |
 | `mcp-sec-block-pgpass` | BLOCK | mcp_rule | Access to ~/.pgpass is blocked — contains PostgreSQL passwords in plaintext (host:port:db:user:password format). MITRE T1552.001. |
 | `mcp-sec-block-tableplus-connections` | BLOCK | mcp_rule | Access to TablePlus config is blocked — connection profiles contain database hosts, usernames, and credentials (plaintext or locally-encrypted). MITRE T1552.001. |
 | `mcp-sec-block-dbeaver-datasources` | BLOCK | mcp_rule | Access to DBeaver config is blocked — data-sources.json and credentials files contain database connection profiles with usernames and encrypted passwords. MITRE T1552.001. |
@@ -1323,6 +1325,8 @@
 | `mcp-sec-block-1password-macos-bundle-data` | BLOCK | mcp_rule | Access to macOS 1Password sandboxed app data (bundle-ID path) is blocked — contains same sensitive vault data and session credentials as the direct-name path. MITRE T1555.005. |
 | `mcp-sec-block-bitwarden-config` | BLOCK | mcp_rule | Access to ~/.bitwardenrc is blocked — Bitwarden CLI config file that may contain session tokens and server configuration. Exposure can allow vault access. MITRE T1555. |
 | `mcp-sec-block-bitwarden-data-dir` | BLOCK | mcp_rule | Access to ~/.config/Bitwarden CLI/ is blocked — Bitwarden CLI data directory containing encrypted vault cache and session data. MITRE T1555. |
+| `mcp-sec-block-rbw-bitwarden` | BLOCK | mcp_rule | Access to rbw (Rust Bitwarden client) config directory is blocked — ~/.config/rbw/ contains server configuration and client credentials. MITRE T1555.005. |
+| `mcp-sec-block-rbw-vault-cache` | BLOCK | mcp_rule | Access to rbw vault cache is blocked — ~/.local/share/rbw/db.json contains locally cached Bitwarden vault entries encrypted with the master password; offline brute-force is feasible. MITRE T1555.005. |
 | `mcp-sec-block-jupyter-config` | BLOCK | mcp_rule | Access to ~/.jupyter/ config is blocked — contains notebook server passwords and authentication tokens. MITRE T1552.001. |
 | `mcp-sec-block-jupyter-kernel-runtime` | BLOCK | mcp_rule | Access to Jupyter kernel connection files is blocked — contains HMAC signing keys that allow injecting arbitrary code into a running kernel (RCE). MITRE T1552.001. |
 | `mcp-sec-block-jupyter-server-token` | BLOCK | mcp_rule | Access to Jupyter notebook server session token files is blocked — nbserver-{PID}.json contains the authentication token for the running Jupyter server, granting full code execution, file access, and terminal access on the host. MITRE T1552.001. |
@@ -1385,6 +1389,8 @@
 | `mcp-sec-block-ansible-vault-pass` | BLOCK | mcp_rule | Access to Ansible vault password files is blocked — this is the master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-password-files` | BLOCK | mcp_rule | Access to Ansible vault password files (.vault_pass, .vault-password) is blocked — master decryption key for Ansible Vault secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-vault-pass-dotfile` | BLOCK | mcp_rule | Access to ~/.ansible_vault_pass dotfile is blocked — master decryption key for all Ansible Vault secrets. Commonly configured via vault_password_file in ansible.cfg. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
+| `mcp-sec-block-ansible-vault-hyphenated` | BLOCK | mcp_rule | Access to Ansible vault password files (hyphenated variant) is blocked — master decryption key for all Ansible Vault secrets. Exfiltrating it decrypts the entire organization's automation secrets. MITRE T1552. |
+| `mcp-sec-block-ansible-vault-password-hyphenated-any-path` | BLOCK | mcp_rule | Access to .vault-password* files is blocked — hyphenated Ansible vault password files at project root or home directory are master decryption keys for all Ansible Vault secrets. Exfiltrating them decrypts the entire organization's automation secrets. MITRE T1552. |
 | `mcp-sec-block-ansible-galaxy-token` | BLOCK | mcp_rule | Access to ~/.ansible/galaxy_token is blocked — Ansible Galaxy API token enabling supply chain compromise via malicious role/collection publishing. MITRE T1552, T1195. |
 | `mcp-sec-block-terraformrc` | BLOCK | mcp_rule | Access to ~/.terraformrc is blocked — the Terraform CLI config file stores Terraform Cloud/Enterprise API tokens under the credentials block. Reads expose tokens; writes can hijack Terraform registry auth. MITRE T1552. |
 | `mcp-sec-block-terraform-config-credentials` | BLOCK | mcp_rule | Access to Terraform XDG credentials file is blocked — contains Terraform Cloud/Enterprise API tokens for workspace and registry access. MITRE T1552. |
@@ -1395,7 +1401,7 @@
 | `mcp-sec-block-nomad-token` | BLOCK | mcp_rule | Access to Nomad token files is blocked — a compromised token enables arbitrary workload scheduling, access to Nomad Variables (built-in secrets), and environment variable exposure on allocated tasks. MITRE T1552. |
 | `mcp-sec-block-boundary-token` | BLOCK | mcp_rule | Access to HashiCorp Boundary token files is blocked — a compromised token grants authenticated session access to all production targets (databases, SSH hosts, Kubernetes clusters) the user can reach through the Boundary controller. MITRE T1552. |
 | `mcp-sec-block-circleci-credentials` | BLOCK | mcp_rule | Access to ~/.circleci/cli.yml is blocked — contains CircleCI personal API token with pipeline execution and secret access. MITRE T1552. |
-| `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/cli.yml is blocked — XDG config variant of the CircleCI CLI config containing a personal API token with pipeline execution and secret access. MITRE T1552. |
+| `mcp-sec-block-circleci-xdg-credentials` | BLOCK | mcp_rule | Access to ~/.config/circleci/ is blocked — XDG config directory for the CircleCI CLI containing personal API tokens (cli.yml), OAuth credentials (credentials.json), and session tokens. MITRE T1552. |
 | `mcp-sec-block-jenkins-home-credentials` | BLOCK | mcp_rule | Access to ~/.jenkins/credentials.xml is blocked — contains Jenkins CLI credential store with encrypted API keys and SSH keys. MITRE T1552.001. |
 | `mcp-sec-block-jenkins-server-credentials` | BLOCK | mcp_rule | Access to /var/lib/jenkins/credentials.xml is blocked — Jenkins server credential store containing encrypted API keys, SSH private keys, and username/password pairs for all CI/CD integrations. MITRE T1552.001, T1195.002. |
 | `mcp-sec-block-jenkins-master-key` | BLOCK | mcp_rule | Read access to /var/lib/jenkins/secrets/ is blocked — contains master.key and hudson.util.Secret which together decrypt ALL Jenkins stored credentials. Exfiltrating these files enables complete CI/CD compromise. MITRE T1552.001. |
@@ -1831,7 +1837,7 @@
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 | `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
 
-### supply-chain (31 rules)
+### supply-chain (35 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1851,7 +1857,7 @@
 | `mcp-sc-audit-package-tool-hallucinated-name` | AUDIT | structural | MCP package manager tool installing a package with an AI/LLM hallucination-prone name suffix (-ai, -llm, -agent, -gpt, -unofficial). These patterns are common in typosquatted packages targeting AI development workflows. Verify the package name on the official registry before proceeding. OWASP LLM09, MITRE T1195.001. |
 | `mcp-sc-audit-llm-cache-write` | AUDIT | structural | MCP write to an LLM semantic cache path (GPTCache data dir, LangChain SQLite DB, or /tmp/llm_cache/) — overwriting cached response files via MCP bypasses shell-level detection and can poison future LLM query responses. OWASP LLM04, MITRE AML.T0010. |
 | `mcp-sc-block-python-sitepackages-write` | BLOCK | structural | MCP write to Python user site-packages — modifying installed package source code injects malicious code that executes on every import, enabling persistent credential harvesting or data exfiltration without any shell command trace. Covers ~/.local/lib and pyenv-managed installations. MITRE T1195.001, T1565.001. |
-| `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, and ~/.npm-global prefix. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-npm-cache-write` | BLOCK | structural | MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, ~/.npm-global prefix, ~/.npm/lib (custom prefix), and ~/.config/npm (npm v9+ XDG store). MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-go-module-cache-write` | BLOCK | structural | MCP write to Go module cache (~~/go/pkg/mod/) — the Go module cache is immutable by design and checksummed in go.sum. Writing here injects code that executes when the affected module is imported, bypassing go.sum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-cargo-registry-write` | BLOCK | structural | MCP write to Cargo registry cache (~/.cargo/registry/) — crate source files are immutable by design. Writing here injects malicious code into Rust dependencies without a network trace, bypassing Cargo.lock checksum verification. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-rubygems-cache-write` | BLOCK | structural | MCP write to RubyGems user gem cache (~/.local/share/gem/ or ~/.gem/) — modifying installed gem files injects code that executes on every `require` of the affected gem in any Ruby process. MITRE T1195.001, T1565.001. |
@@ -1866,6 +1872,10 @@
 | `mcp-sc-block-circleci-envvar-api` | BLOCK | structural | MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002. |
 | `mcp-sc-block-terraform-cloud-state-api` | BLOCK | structural | MCP request to Terraform Cloud state API — state versions contain plaintext infrastructure resource IDs, connection strings, and credentials. Read access exfiltrates secrets; write access enables state tampering that can cause resource drift or destruction. MITRE T1552.001, T1578. |
 | `mcp-sc-block-terraform-backend-state-write` | BLOCK | structural | MCP HTTP PUT/POST/DELETE to a Terraform state backend path — writing to .tfstate on S3, GCS, or Azure Blob tampers with infrastructure state, causing Terraform to misidentify existing resources and potentially destroying or recreating them on next apply. MITRE T1578, T1485. |
+| `mcp-sc-block-pnpm-bun-global-write` | BLOCK | structural | MCP write to pnpm or bun global package store — modifying globally-installed package source code injects malicious code that executes on every import, enabling persistent code execution without any shell trace. The pnpm content-addressable store attack is especially severe: one write backdoors all projects sharing that package hash. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-go-bin-write` | BLOCK | structural | MCP write to Go binary install directory (~/go/bin/) — GOPATH/bin is on PATH after standard Go installation. Writing any binary here enables persistent code execution on every tool invocation, bypassing shell-level rules entirely. MITRE T1574.007, T1195.001. |
+| `mcp-sc-block-maven-gradle-cache-write` | BLOCK | structural | MCP write to Maven local repository or Gradle module cache — both build tools resolve artifacts from local cache first. Injecting a malicious JAR into ~/.m2/ or ~/.gradle/caches/ silently backdoors all Java/Kotlin projects on the machine without any network trace or checksum alert. MITRE T1195.001, T1565.001. |
+| `mcp-sc-block-codeowners-delete` | BLOCK | structural | MCP delete of CODEOWNERS — removing code ownership gates eliminates mandatory reviewer requirements across the entire repository, enabling subsequent malicious changes to bypass human review silently. Deletion is as dangerous as modification. MITRE T1195.002. |
 
 ### unauthorized-execution (105 rules)
 
