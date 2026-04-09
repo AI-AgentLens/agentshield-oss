@@ -11,10 +11,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// mcpPacksDir returns the absolute path to the packs/mcp/ directory.
+// mcpPacksDir returns the absolute path to the authoritative MCP packs
+// directory — the one embedded into the binary via packs/packs.go
+// (//go:embed community/mcp/*.yaml). Reading the same source of truth
+// that ships to customers ensures TP/TN tests validate what actually runs.
 func mcpPacksDir() string {
 	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "..", "..", "packs", "mcp")
+	return filepath.Join(filepath.Dir(filename), "..", "..", "packs", "community", "mcp")
 }
 
 // loadAllMCPRules loads all MCP rules from all pack YAML files.

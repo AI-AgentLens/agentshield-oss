@@ -1163,11 +1163,20 @@ structural_rules:
           args: {"url": "https://registry.npmjs.org/my-package", "method": "PUT"}
         - tool: "http_post"
           args: {"url": "https://registry.npmjs.org/evil-package", "method": "POST"}
+        # Regression for #1152: typed tool without explicit method arg —
+        # must fire via HTTP method inference from the tool name.
+        - tool: "http_put"
+          args: {"url": "https://registry.npmjs.org/my-package"}
+        - tool: "http_post"
+          args: {"url": "https://registry.npmjs.org/evil-package"}
       tn:
         - tool: "http_request"
           args: {"url": "https://registry.npmjs.org/react", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://docs.npmjs.com/commands/publish", "method": "GET"}
+        # Typed GET tool — inferred method GET is filtered out.
+        - tool: "http_get"
+          args: {"url": "https://registry.npmjs.org/react"}
 
   - id: mcp-sc-block-pypi-upload-api
     taxonomy: "supply-chain/package-publish/pypi-autonomous-publish"
@@ -1270,6 +1279,11 @@ structural_rules:
           args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
         - tool: "network_request"
           args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
+        # Regression for #1152: typed tool without method arg.
+        - tool: "http_post"
+          args: {"url": "https://rubygems.org/api/v1/gems"}
+        - tool: "post_request"
+          args: {"url": "https://rubygems.org/api/v1/gems"}
       tn:
         - tool: "http_request"
           args: {"url": "https://rubygems.org/api/v1/gems/rails.json", "method": "GET"}
@@ -1331,11 +1345,21 @@ structural_rules:
           args: {"url": "https://registry.example.com/v2/myimage/blobs/uploads/", "method": "POST"}
         - tool: "network_request"
           args: {"url": "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/myimage/manifests/latest", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_put"
+          args: {"url": "https://registry-1.docker.io/v2/myorg/myimage/manifests/latest"}
+        - tool: "http_post"
+          args: {"url": "https://registry.example.com/v2/myimage/blobs/uploads/"}
+        - tool: "put_request"
+          args: {"url": "https://ghcr.io/v2/org/image/manifests/v1.0.0"}
       tn:
         - tool: "http_request"
           args: {"url": "https://registry-1.docker.io/v2/library/nginx/manifests/latest", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://ghcr.io/v2/org/image/tags/list", "method": "GET"}
+        # Typed GET tool — inferred method GET does not match the PUT|POST filter.
+        - tool: "http_get"
+          args: {"url": "https://registry-1.docker.io/v2/library/nginx/manifests/latest"}
 
   # ===========================================================================
   # Maven/Gradle Autonomous Artifact Publish
@@ -1389,6 +1413,11 @@ structural_rules:
           args: {"url": "https://oss.sonatype.org/service/local/staging/deploy/maven2/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
         - tool: "network_request"
           args: {"url": "https://nexus.example.com/repository/releases/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_post"
+          args: {"url": "https://central.sonatype.com/api/v1/publisher/upload"}
+        - tool: "http_put"
+          args: {"url": "https://oss.sonatype.org/service/local/staging/deploy/maven2/com/example/lib/1.0/lib-1.0.jar"}
       tn:
         - tool: "http_request"
           args: {"url": "https://central.sonatype.com/api/v1/publisher/status", "method": "GET"}
@@ -1644,6 +1673,13 @@ structural_rules:
           args: {"url": "https://storage.googleapis.com/my-tf-bucket/env/prod.tfstate", "method": "PUT"}
         - tool: "http_request"
           args: {"url": "https://myaccount.blob.core.windows.net/tfstate/terraform.tfstate", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_put"
+          args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate"}
+        - tool: "http_delete"
+          args: {"url": "https://storage.googleapis.com/my-tf-bucket/env/prod.tfstate"}
+        - tool: "put_request"
+          args: {"url": "https://myaccount.blob.core.windows.net/tfstate/terraform.tfstate"}
       tn:
         - tool: "http_request"
           args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate", "method": "GET"}

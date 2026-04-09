@@ -896,6 +896,11 @@ structural_rules:
           args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments/assignment-id", "method": "PUT"}
         - tool: "post_request"
           args: {"url": "https://management.azure.com/subscriptions/sub-id/resourceGroups/rg/providers/Microsoft.Authorization/roleAssignments/new-id", "method": "POST"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_put"
+          args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments/assignment-id"}
+        - tool: "http_delete"
+          args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments/assignment-id"}
       tn:
         - tool: "http_request"
           args: {"url": "https://management.azure.com/subscriptions/sub-id/providers/Microsoft.Authorization/roleAssignments"}
@@ -947,11 +952,21 @@ structural_rules:
           args: {"url": "https://cluster.local/apis/apps/v1/namespaces/production/deployments", "method": "POST"}
         - tool: "http_request"
           args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods/my-pod", "method": "DELETE"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_post"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods"}
+        - tool: "http_delete"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods/my-pod"}
+        - tool: "http_patch"
+          args: {"url": "https://cluster.local/apis/apps/v1/namespaces/production/deployments/web"}
       tn:
         - tool: "http_request"
           args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://kubernetes.io/docs/concepts/workloads/pods/"}
+        # Typed GET tool — inferred GET is not a mutation.
+        - tool: "http_get"
+          args: {"url": "https://k8s.internal:6443/api/v1/namespaces/default/pods"}
 
   # === BLOCK: Kubernetes RBAC mutation via HTTP tools ===
   # Complements mcp-recon-block-k8s-secrets (which blocks GET to RBAC endpoints).
@@ -997,8 +1012,17 @@ structural_rules:
           args: {"url": "https://cluster.local/apis/rbac.authorization.k8s.io/v1/namespaces/default/rolebindings/admin-binding", "method": "PUT"}
         - tool: "http_request"
           args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterroles/custom-role", "method": "DELETE"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_post"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings"}
+        - tool: "http_delete"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterroles/custom-role"}
+        - tool: "http_patch"
+          args: {"url": "https://cluster.local/apis/rbac.authorization.k8s.io/v1/namespaces/default/rolebindings/admin-binding"}
       tn:
         - tool: "http_request"
           args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
+        - tool: "http_get"
+          args: {"url": "https://k8s.internal:6443/apis/rbac.authorization.k8s.io/v1/clusterroles"}
