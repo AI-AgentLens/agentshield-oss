@@ -140,7 +140,9 @@ rules:
 - id: sc-audit-mvn-build
   taxonomy: supply-chain/dependency-confusion/package-install
   match:
-    command_regex: mvn(w)?\s+(install|compile|package|deploy|dependency:get|dependency:resolve)\b
+    # `deploy` is intentionally excluded here — handled by sc-audit-maven-deploy
+    # (#1153 split) to avoid two rules firing for the same subcommand.
+    command_regex: mvn(w)?\s+(install|compile|package|dependency:get|dependency:resolve)\b
   decision: AUDIT
   confidence: 0.75
   reason: Maven build/install flagged for supply-chain review. Verify pom.xml repositories section before execution.
@@ -150,6 +152,7 @@ rules:
     - mvnw compile
     tn:
     - mvn --version
+    - mvn deploy
 - id: sc-block-dotnet-custom-source
   taxonomy: supply-chain/dependency-confusion/non-standard-registry
   match:
@@ -1350,14 +1353,25 @@ rules:
     - git commit -m "add rule to detect dotnet nuget push autonomous publishing"
     - gh issue create --body "sc-block-nuget-push blocks nuget push commands"
     - echo "dotnet nuget push is blocked by AgentShield"
-- id: sc-block-docker-push
+# Container image push (docker/buildx/crane/skopeo/podman/regctl)
+#
+# ── Two-tier policy (#1153) ────────────────────────────────────────────────
+# Every modern CI pushes images as part of normal delivery (docker/build-push-action,
+# Makefile targets, internal Artifactory). A BLOCK decision on generic push commands
+# is a POC-killer in any enterprise engagement and was shown to block our own
+# `make docker-push` dogfooding workflow. Downgraded to AUDIT for the whole family,
+# following the same BLOCK/AUDIT split applied to terraform-apply. The MCP HTTP
+# mutation rules (mcp-sc-block-docker-registry-push) still BLOCK at the protocol
+# level for agent-initiated registry writes where we have strong signal of
+# autonomous automation.
+- id: sc-audit-docker-push
   taxonomy: supply-chain/package-publish/docker-image-autonomous-push
   match:
     command_regex: (?i)(\bdocker\s+push\b|\bdocker\s+buildx\s+build\b.*--push\b|\bdocker\s+buildx\s+push\b)
-  decision: BLOCK
-  confidence: 0.97
-  reason: docker push / docker buildx push autonomously publishes a container image to a registry. A pushed image becomes a base layer for downstream builds and is immediately pulled by rolling deployments
-    — a single autonomous push can distribute malicious code to all consumers of that image. MITRE T1195.001, T1610.
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.75
+  reason: docker push / docker buildx push publishes a container image to a registry. Routine in CI/CD — AUDIT for supply-chain visibility; verify target registry and tag are the intended scope. MITRE T1195.001, T1610.
   tests:
     tp:
     - docker push myregistry/myimage:latest
@@ -1368,29 +1382,125 @@ rules:
     - docker pull myregistry/myimage:sha256-abc123
     - docker images
     - docker build -t myimage:latest .
-- id: sc-block-maven-deploy
-  taxonomy: supply-chain/package-publish/maven-autonomous-publish
+    - echo "docker push is audited by AgentShield"
+    - gh issue create --body "sc-audit-docker-push triggers on docker push"
+# Companion rules for alternate container-push tools (#1153).
+# These close the FN gap where an attacker (or agent) could bypass docker-push
+# blocking by using crane/skopeo/podman/regctl. AUDIT for visibility — the
+# `make docker-push` equivalent in many projects is actually `crane push`.
+- id: sc-audit-crane-push
+  taxonomy: supply-chain/package-publish/docker-image-autonomous-push
   match:
-    command_regex: (?i)(\bmvn(?:\.cmd)?\s+(?:[^\n]*\s+)?(?:deploy|release:perform)\b|\bgradle(?:\.bat|w)?\s+(?:[^\n]*\s+)?(?:publish(?:ToMavenCentral|ToMavenLocal|AllPublicationsToMavenRepository)?|uploadArchives)\b)
-  decision: BLOCK
-  confidence: 0.97
-  reason: mvn deploy / mvn release:perform / gradle publish autonomously publishes Java artifacts to Maven repositories. Published JARs become transitive dependencies in thousands of downstream projects
-    and Gradle plugins execute as code in every adopter's build — a single autonomous publish can distribute malicious bytecode across the entire Java ecosystem. MITRE T1195.001.
+    command_regex: (?i)\bcrane\s+(?:push|cp|copy|append)\b
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.80
+  reason: crane is a single-binary OCI registry client commonly used in CI to push images without Docker. Routine in distroless/minimal pipelines — AUDIT for supply-chain visibility. MITRE T1195.001.
   tests:
     tp:
-    - mvn deploy -DskipTests
-    - mvn deploy
+    - crane push image.tar myregistry/myimage:latest
+    - crane copy src:tag dst:tag
+    - crane cp myregistry/a:tag myregistry/b:tag
+    tn:
+    - crane digest myregistry/myimage:latest
+    - crane ls myregistry/myimage
+- id: sc-audit-skopeo-copy
+  taxonomy: supply-chain/package-publish/docker-image-autonomous-push
+  match:
+    command_regex: (?i)\bskopeo\s+copy\b.*\bdocker://
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.80
+  reason: skopeo copy with a docker:// destination transfers an image into a container registry. Legitimate in air-gapped/migration workflows — AUDIT for supply-chain visibility. MITRE T1195.001.
+  tests:
+    tp:
+    - skopeo copy docker-daemon:myimage:latest docker://myregistry/myimage:latest
+    - skopeo copy oci:image docker://ghcr.io/org/image:v1.0.0
+    tn:
+    - skopeo inspect docker://registry-1.docker.io/library/alpine:latest
+    - skopeo list-tags docker://ghcr.io/org/image
+- id: sc-audit-podman-push
+  taxonomy: supply-chain/package-publish/docker-image-autonomous-push
+  match:
+    command_regex: (?i)\bpodman\s+push\b
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.80
+  reason: podman push publishes a container image to a registry. Functional equivalent of docker push in rootless/RHEL workflows — AUDIT for supply-chain visibility. MITRE T1195.001.
+  tests:
+    tp:
+    - podman push myimage:latest myregistry/myimage:latest
+    - podman push quay.io/org/image:tag
+    tn:
+    - podman pull docker.io/library/alpine:latest
+    - podman images
+- id: sc-audit-regctl-image-copy
+  taxonomy: supply-chain/package-publish/docker-image-autonomous-push
+  match:
+    command_regex: (?i)\bregctl\s+image\s+copy\b
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.80
+  reason: regctl image copy moves an image between OCI registries. Used in mirroring and release-promotion workflows — AUDIT for supply-chain visibility. MITRE T1195.001.
+  tests:
+    tp:
+    - regctl image copy localhost/myimage:latest myregistry/myimage:latest
+    - regctl image copy src.example.com/img:tag dst.example.com/img:tag
+    tn:
+    - regctl image inspect myregistry/myimage:latest
+    - regctl tag ls myregistry/myimage
+# ── Maven/Gradle autonomous publish (two-tier split, #1153) ───────────────
+# BLOCK narrowly on the release-orchestration commands that distribute to
+# Maven Central (the ecosystem-wide distribution channel). AUDIT the broader
+# `mvn deploy` and repository-specific `gradle publish` commands that are
+# routine in enterprise CI targeting private repositories like Nexus and
+# Artifactory. publishToMavenLocal writes only to ~/.m2 and is dropped
+# entirely — it is equivalent to `mvn install` and has zero supply-chain risk.
+- id: sc-block-maven-central-release
+  taxonomy: supply-chain/package-publish/maven-autonomous-publish
+  match:
+    command_regex: (?i)(\bmvn(?:w|\.cmd)?\s+(?:[^\n]*\s+)?release:perform\b|\bgradle(?:\.bat|w)?\s+(?:[^\n]*\s+)?publishToMavenCentral\b|\b\./gradlew\s+(?:[^\n]*\s+)?publishToMavenCentral\b)
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: BLOCK
+  confidence: 0.95
+  reason: mvn release:perform / gradle publishToMavenCentral is the ecosystem-wide Java artifact release orchestration — it tags, builds, signs, and uploads to Maven Central in a single unattended step. Autonomous execution can publish backdoored JARs that propagate as transitive dependencies across the Java ecosystem. MITRE T1195.001.
+  tests:
+    tp:
     - mvn release:perform
-    - gradle publish
+    - mvnw release:perform
     - gradle publishToMavenCentral
-    - gradle uploadArchives
-    - ./gradlew publish
     - ./gradlew publishToMavenCentral
     tn:
+    - mvn release:prepare
+    - gradle build
+    - ./gradlew assemble
+    - echo "publishToMavenCentral is the maven central release command"
+- id: sc-audit-maven-deploy
+  taxonomy: supply-chain/package-publish/maven-autonomous-publish
+  match:
+    command_regex: (?i)(\bmvn(?:w|\.cmd)?\s+(?:[^\n]*\s+)?(?:deploy|deploy:deploy-file)\b|\bgradle(?:\.bat|w)?\s+(?:[^\n]*\s+)?(?:publishAllPublicationsToMavenRepository|uploadArchives|publish)\b|\b\./gradlew\s+(?:[^\n]*\s+)?(?:publishAllPublicationsToMavenRepository|uploadArchives|publish)\b)
+    command_regex_exclude: '{{DOC_CONTEXT}}'
+  decision: AUDIT
+  confidence: 0.80
+  reason: mvn deploy / gradle publish uploads a build artifact to a configured Maven repository (typically Nexus, Artifactory, or an internal mirror). Routine in enterprise CI — AUDIT for supply-chain visibility. Note publishToMavenLocal is excluded (writes only to ~/.m2, no network). MITRE T1195.001.
+  tests:
+    tp:
+    - mvn deploy
+    - mvn deploy -DskipTests
+    - mvn deploy:deploy-file -Dfile=lib.jar
+    - gradle publish
+    - gradle uploadArchives
+    - ./gradlew publish
+    tn:
+    # publishToMavenLocal writes only to ~/.m2, no network — zero risk.
+    - gradle publishToMavenLocal
+    - ./gradlew publishToMavenLocal
     - mvn package -DskipTests
     - mvn verify
     - gradle build
     - ./gradlew build
+    - echo "mvn deploy is audited by AgentShield"
+    - gh pr create --body "fix sc-audit-maven-deploy false positive"
 - id: sc-block-github-path-injection
   taxonomy: supply-chain/build-pipeline/github-actions-env-injection
   match:
