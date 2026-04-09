@@ -175,15 +175,7 @@ Verify with `agentshield scan` — shows Tamper Protection section in managed mo
 
 ## Known Limitations
 
-AgentShield is a **user-space hook-based evaluator**, not a kernel-level enforcement mechanism.
-
-| Limitation | Mitigation |
-|-----------|------------|
-| Agent can disable hooks | Managed mode blocks this |
-| Agent can tamper with audit logs | Hash-chained logs + remote forwarding |
-| Agent can modify policy files | Self-protection rules block writes |
-| Only intercepts hooked commands | OS-level controls (macOS TCC, SELinux) |
-| Not a network firewall | Combine with network firewalls |
+AgentShield operates at the user-space hook layer. For enterprise-grade hardening — tamper-proof hooks, fail-closed mode, hash-chained audit logs, and remote SIEM forwarding — see [Enterprise Tamper Protection](#enterprise-tamper-protection) and [AI Agent Lens](https://aiagentlens.com).
 
 ## Development
 
