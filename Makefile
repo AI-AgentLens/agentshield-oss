@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes
+.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -63,13 +63,33 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 
 deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Deploying packs..."
-	@mkdir -p ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
-	@cp packs/terminal-safety.yaml packs/network-egress.yaml packs/secrets-pii.yaml packs/supply-chain.yaml ~/.agentshield/packs/
-	@cp packs/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
-	@cp packs/mcp/*.yaml ~/.agentshield/mcp-packs/ 2>/dev/null || true
+	@mkdir -p ~/.agentshield/packs ~/.agentshield/mcp-packs
+	@cp packs/community/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
+	@cp packs/premium/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
 	@echo "Deploying binary..."
 	@cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY) 2>/dev/null || sudo cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY)
 	@echo "Verifying..."
 	@agentshield scan > /dev/null 2>&1 && echo "✅ AgentShield deployed and verified" || echo "⚠️  Deploy done but scan failed"
 
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
+
+test-install: ## Test homebrew install in Docker container (full build)
+	@echo "=== Installation Test (full) ==="
+	@./scripts/integration-test-oss.sh
+
+test-install-oss: ## Test homebrew install in Docker container (OSS build, premium excluded)
+	@echo "=== Installation Test (OSS) ==="
+	@./scripts/integration-test-oss.sh --oss
+
+test-brew: ## Test brew tap + install + scan in Docker container
+	@echo "=== Homebrew Tap Install Test ==="
+	@docker run --rm homebrew/brew:latest bash -c ' \
+		set -e; \
+		HOMEBREW_NO_AUTO_UPDATE=1 brew tap AI-AgentLens/oss 2>&1 | tail -2; \
+		HOMEBREW_NO_AUTO_UPDATE=1 brew install AI-AgentLens/oss/agentshield 2>&1 | tail -3; \
+		mkdir -p $$HOME/.agentshield; \
+		echo ""; \
+		agentshield scan 2>&1; \
+		echo ""; \
+		echo "=== HOMEBREW INSTALL TEST PASSED ===" \
+	'
