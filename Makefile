@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss
+.PHONY: build test lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -30,9 +30,6 @@ clean: ## Remove build artifacts
 install: build ## Install to /usr/local/bin
 	cp $(BUILD_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
 
-run: build ## Build and run with args (usage: make run ARGS="run -- echo hi")
-	$(BUILD_DIR)/$(BINARY) $(ARGS)
-
 deps: ## Download dependencies
 	go mod download
 	go mod tidy
@@ -63,6 +60,14 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 
 deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Deploying packs..."
+	@# Remove legacy nested layouts from historical deploys. Earlier versions
+	@# of this target copied into ~/.agentshield/packs/community/ and
+	@# ~/.agentshield/packs/premium/; the pack loader walks subdirectories,
+	@# so stale copies there would be loaded alongside the fresh flat layout
+	@# and resurrect rules we thought we retired (see issue #1153 dogfooding
+	@# incident). Nuke them before copying so only the current layout exists.
+	@rm -rf ~/.agentshield/packs/community ~/.agentshield/packs/premium
+	@rm -f ~/.agentshield/packs/packs.go ~/.agentshield/packs/packs_premium.go
 	@mkdir -p ~/.agentshield/packs ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
 	@cp packs/community/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
 	@cp packs/premium/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
