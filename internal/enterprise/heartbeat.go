@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,37 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// RevocationReason is the value the server sends in the response body
+// when it genuinely wants this agent to shut down and delete its credentials.
+// Any 403 response without this marker is treated as a transient failure
+// (bad token, middlebox, server hiccup) rather than an intentional revocation.
+const RevocationReason = "agent_revoked"
+
+// revocationResponse is the expected shape of a 403 body when the server
+// wants to revoke an agent. Extra fields are ignored.
+type revocationResponse struct {
+	Reason string `json:"reason"`
+}
+
+// isRevocationResponse returns true only when the 403 response body contains
+// an explicit {"reason": "agent_revoked"} marker. Any other 403 — including
+// empty body, malformed JSON, or different reason — is treated as transient
+// and the agent continues running so the next heartbeat can retry.
+//
+// This is a fail-safe default: we only self-destruct on positive confirmation,
+// never on ambiguity. Silent auth failures at a middlebox must not cause
+// AgentShield to delete its own credentials.
+func isRevocationResponse(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var r revocationResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return false
+	}
+	return r.Reason == RevocationReason
+}
 
 // heartbeatPayload matches the server's heartbeat.Heartbeat struct.
 type heartbeatPayload struct {
@@ -120,12 +152,20 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) bo
 			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: send failed: %v\n", err)
 			return false
 		}
+		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
-		// 403 with agent_revoked means admin deleted this agent from dashboard
+		// 403: only treat as revocation when the body carries the
+		// explicit agent_revoked marker. A bare 403 (expired token,
+		// middlebox, server misconfig) is treated as a transient
+		// failure to avoid self-DoS on intermittent networks.
 		if resp.StatusCode == http.StatusForbidden {
-			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: agent revoked by server — shutting down\n")
-			return true
+			if isRevocationResponse(body) {
+				fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: agent revoked by server — shutting down\n")
+				return true
+			}
+			fmt.Fprintf(os.Stderr, "[AgentShield] heartbeat: 403 without revocation marker — treating as transient, will retry next interval\n")
+			return false
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return false
