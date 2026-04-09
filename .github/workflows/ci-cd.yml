@@ -29,7 +29,7 @@ jobs:
     name: "Test"
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
@@ -67,7 +67,7 @@ jobs:
       version: ${{ steps.tag.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.CROSS_REPO_TOKEN }}
@@ -140,7 +140,7 @@ jobs:
     needs: release
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
@@ -292,7 +292,7 @@ jobs:
     needs: [release, package-upload]  # Must wait for S3 upload so brew URLs work
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Restore dist from staging
         run: |
