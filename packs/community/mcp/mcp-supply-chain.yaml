@@ -953,9 +953,15 @@ structural_rules:
             # npm global prefix (~/.npm-global): configured with `npm config set prefix ~/.npm-global`
             - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm-global/lib/node_modules/.+"
             - "^~/\\.npm-global/lib/node_modules/.+"
+            # npm lib/node_modules: when prefix is set to ~/.npm (npm config set prefix ~/.npm)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm/lib/node_modules/.+"
+            - "^~/\\.npm/lib/node_modules/.+"
+            # npm v9+ XDG global store: ~/.config/npm/node_modules
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/npm/node_modules/.+"
+            - "^~/\\.config/npm/node_modules/.+"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, and ~/.npm-global prefix. MITRE T1195.001, T1565.001."
+    reason: "MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, ~/.npm-global prefix, ~/.npm/lib (custom prefix), and ~/.config/npm (npm v9+ XDG store). MITRE T1195.001, T1565.001."
     tests:
       tp:
         - tool: "write_file"
@@ -966,11 +972,17 @@ structural_rules:
           args: {"path": "/home/user/.nvm/versions/node/v18.0.0/lib/node_modules/axios/index.js"}
         - tool: "str_replace_editor"
           args: {"path": "/home/user/.npm-global/lib/node_modules/lodash/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.npm/lib/node_modules/react/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/npm/node_modules/lodash/index.js"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/node_modules/react/index.js"}
         - tool: "write_file"
           args: {"path": "/project/src/npm_cache_utils.js"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/npm-lib-config.md"}
 
   # === BLOCK: Go module cache writes ===
   # ~/go/pkg/mod/ is the Go module download cache. Cargo and Go treat their caches
