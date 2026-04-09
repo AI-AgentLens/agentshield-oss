@@ -13,9 +13,6 @@
 #   - packs/premium/             (premium rule packs)
 #   - packs/packs_premium.go     (premium MCP pack embed)
 #   - packs/_*.yaml              (disabled legacy pack files)
-#   - scripts/baby-kai-*         (internal agent prompts)
-#   - scripts/supervisor-kai.md  (internal agent prompt)
-#   - scripts/logs/              (internal agent logs)
 #   - RULE_REVIEW.md             (internal review notes)
 #   - FAILING_TESTS.md           (internal tracking)
 
@@ -38,11 +35,6 @@ EXCLUDES=(
     "packs/premium/"
     "packs/packs_premium.go"
     "packs/_*.yaml"
-    "scripts/baby-kai-*.md"
-    "scripts/supervisor-kai.md"
-    "scripts/baby-kai-opus-deepdive-*.md"
-    "scripts/logs/"
-    "scripts/prompt-backups/"
     "RULE_REVIEW.md"
     "FAILING_TESTS.md"
 )
