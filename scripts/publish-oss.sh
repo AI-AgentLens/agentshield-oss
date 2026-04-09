@@ -37,6 +37,14 @@ EXCLUDES=(
     "packs/_*.yaml"
     "RULE_REVIEW.md"
     "FAILING_TESTS.md"
+    "pitch.html"
+    "static_rules/"
+    ".claude/"
+    ".github/"
+    "CLAUDE.md"
+    "COMPLIANCE_GAPS.md"
+    "COVERAGE.md"
+    "PROGRESS.md"
 )
 
 echo "=== AgentShield OSS Publish ==="
