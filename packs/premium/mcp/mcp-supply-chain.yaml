@@ -1,0 +1,90 @@
+name: "MCP Supply Chain (Premium)"
+description: >
+  Premium supply chain rules covering package manager global stores
+  not included in the community pack. Blocks MCP tool writes to
+  pnpm and bun global package directories to prevent dependency
+  injection attacks that bypass shell evaluation.
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # === BLOCK: MCP write to pnpm / bun global package stores ===
+  #
+  # pnpm and bun are fast npm alternatives used widely in modern JS projects.
+  # Like npm, their global package stores are user-writable — an AI agent using
+  # MCP write tools can inject malicious code without any shell command trace.
+  #
+  # Attack scenarios:
+  #   - Overwrite ~/.local/share/pnpm/node_modules/react/index.js → backdoor all
+  #     projects using pnpm global react (server-side rendering, CLIs)
+  #   - Modify ~/.pnpm-store/v3/files/<hash> → poison pnpm's content-addressable
+  #     store; affects ALL projects on the machine using that package+version
+  #   - Write to ~/.bun/install/global/node_modules/<pkg> → backdoor bun globals
+  #
+  # The pnpm content-addressable store (CAS) attack is particularly dangerous:
+  # pnpm hard-links from the store to project node_modules, so one store write
+  # backdoors every project version that references that hash — past and future.
+  #
+  # Covered paths:
+  #   ~/.local/share/pnpm/node_modules/**  — pnpm global packages (Linux XDG default)
+  #   ~/.pnpm-global/**                    — pnpm global prefix (Windows / custom)
+  #   ~/.pnpm-store/**                     — pnpm content-addressable store (all OS)
+  #   ~/AppData/Local/pnpm/**              — pnpm on Windows via WSL paths
+  #   ~/.bun/install/global/**             — bun global packages (all OS)
+  #
+  # TN: Writing to a project's node_modules is a normal dev workflow and must
+  # not trigger this rule. Only user-level global stores are blocked.
+  #
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  # MITRE T1565.001 — Data Manipulation: Stored Data Manipulation
+  - id: mcp-sc-block-pnpm-bun-global-write
+    taxonomy: "supply-chain/dependency-confusion/package-manifest-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # pnpm global packages on Linux (XDG base dir default)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.local/share/pnpm/node_modules/.+"
+            - "^~/\\.local/share/pnpm/node_modules/.+"
+            # pnpm global prefix: ~/.pnpm-global (custom prefix or Windows)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.pnpm-global/.+"
+            - "^~/\\.pnpm-global/.+"
+            # pnpm content-addressable store: poisoning one hash backdoors ALL projects sharing it
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.pnpm-store/.+"
+            - "^~/\\.pnpm-store/.+"
+            # bun global packages
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.bun/install/global/.+"
+            - "^~/\\.bun/install/global/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to pnpm or bun global package store — modifying globally-installed package source code injects malicious code that executes on every import, enabling persistent code execution without any shell trace. The pnpm content-addressable store attack is especially severe: one write backdoors all projects sharing that package hash. MITRE T1195.001, T1565.001."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.local/share/pnpm/node_modules/react/index.js"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.pnpm-global/5/node_modules/express/lib/router/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.pnpm-store/v3/files/ab/cdef1234567890"}
+        - tool: "edit_file"
+          args: {"path": "/home/user/.bun/install/global/node_modules/typescript/lib/typescript.js"}
+        - tool: "write_file"
+          args: {"path": "/root/.local/share/pnpm/node_modules/lodash/lodash.js"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/node_modules/react/index.js"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/pnpm-store-architecture.md"}
+        - tool: "write_file"
+          args: {"path": "/home/user/projects/myapp/node_modules/express/index.js"}
