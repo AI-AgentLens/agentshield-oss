@@ -1,13 +1,11 @@
 name: "MCP Supply Chain (Premium)"
 description: >
-  Premium supply chain rules covering package manager global stores
-  not included in the community pack. Blocks MCP tool writes to
-  pnpm and bun global package directories to prevent dependency
-  injection attacks that bypass shell evaluation.
+  Premium supply chain rules covering package manager global stores and
+  CODEOWNERS deletion — threats not included in the community pack.
 version: "1.0.0"
 author: "AgentShield Security Research"
 
-rules:
+structural_rules:
   # === BLOCK: MCP write to pnpm / bun global package stores ===
   #
   # pnpm and bun are fast npm alternatives used widely in modern JS projects.
@@ -29,7 +27,6 @@ rules:
   #   ~/.local/share/pnpm/node_modules/**  — pnpm global packages (Linux XDG default)
   #   ~/.pnpm-global/**                    — pnpm global prefix (Windows / custom)
   #   ~/.pnpm-store/**                     — pnpm content-addressable store (all OS)
-  #   ~/AppData/Local/pnpm/**              — pnpm on Windows via WSL paths
   #   ~/.bun/install/global/**             — bun global packages (all OS)
   #
   # TN: Writing to a project's node_modules is a normal dev workflow and must
