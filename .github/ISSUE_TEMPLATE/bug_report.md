@@ -29,8 +29,9 @@ What actually happened instead.
 
 **Command executed**
 ```bash
-# Paste the exact command that failed
-agentshield run -- echo "test"
+# Paste the exact command that triggered the bug (e.g. the command the
+# IDE hook was evaluating, or the CLI invocation that failed).
+echo "test"
 ```
 
 **Full error output**

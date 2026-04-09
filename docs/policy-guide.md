@@ -574,12 +574,14 @@ EOF
 
 2. Restart your IDE — the pack is loaded automatically on next command.
 
-3. Verify it's active:
+3. Verify it's active — ask the AI agent in Claude Code / Cursor to run:
 
-```bash
-agentshield run -- psql -h prod-db.internal
-# Should output: 🛑 BLOCKED by AgentShield
-```
+   ```
+   psql -h prod-db.internal
+   ```
+
+   The PreToolUse hook should intercept it and block before execution.
+   Check the audit log with `agentshield log --decision BLOCK` to confirm.
 
 ## Built-in Policy Packs
 
@@ -669,10 +671,12 @@ rules:
 - **Test rules before deploying:**
 
 ```bash
-# Test a rule by running the command through AgentShield
-agentshield run -- <command-you-want-to-test>
+# 1. Unit / inline YAML tests for the rules you're touching
+go test -v -run TestRuleYAMLTests ./internal/policy/
+go test -v -run TestAccuracy      ./internal/analyzer/
 
-# Check the audit log for the decision
+# 2. Live: ask the AI agent in Claude Code / Cursor to run the command
+#    you want to test — the PreToolUse hook will fire and log the decision.
 agentshield log --decision BLOCK
 ```
 

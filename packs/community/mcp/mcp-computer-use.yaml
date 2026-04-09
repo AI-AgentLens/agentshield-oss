@@ -274,9 +274,11 @@ rules:
           args: {"action": "move_mouse"}
 
   # === AUDIT: Keyboard injection via type_text / keyboard_type ===
-  # Typing into a terminal window via MCP bypasses AgentShield's shell evaluation hooks
-  # entirely — the command never passes through `agentshield run`. This is a hook-bypass
-  # vector: any command blocked at the shell level can be executed by typing it.
+  # Typing into a terminal window via MCP bypasses AgentShield's PreToolUse
+  # hook entirely — the command is delivered as keystrokes to an already-open
+  # terminal process, so it never reaches the IDE's Bash tool (which is where
+  # the hook fires). This is a hook-bypass vector: any command blocked at the
+  # shell level can still be executed by typing it into a terminal window.
   # MITRE T1059 (Command and Scripting Interpreter).
   - id: mcp-computer-use-audit-keyboard-injection
     taxonomy: "unauthorized-execution/agentic-attacks/computer-use-abuse"

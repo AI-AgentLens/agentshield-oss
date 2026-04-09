@@ -18,8 +18,11 @@ var mcpEvalCmd = &cobra.Command{
 	Long: `Evaluate a simulated MCP tool call against the deployed MCP policy packs.
 Returns the decision (BLOCK/AUDIT/ALLOW), triggered rules, and reasons.
 
-This is the MCP equivalent of "agentshield run" for shell commands — use it
-to validate MCP rules without needing a running MCP server.
+Use this to validate MCP rules without needing a running MCP server.
+There is no shell-command equivalent by design — AgentShield evaluates
+shell commands inside the IDE's PreToolUse hook, not via a standalone
+CLI, so that the evaluator can never accidentally execute what it is
+evaluating.
 
 Examples:
   agentshield mcp-eval --tool read_file --arg path=/home/user/.ssh/id_rsa

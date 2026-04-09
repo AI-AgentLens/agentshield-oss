@@ -10,7 +10,6 @@ make test         # Run all tests (go test -v ./...)
 make lint         # Run golangci-lint
 make lint-fix     # Run linter with auto-fix
 make check        # Full pre-commit check: lint-fix + test + build
-make run ARGS="run -- echo hi"  # Build and run with arguments
 make install      # Install to /usr/local/bin
 make mcp-gen      # Generate MCP rules from shell rules
 make deploy       # Build + deploy packs + binary to ~/.agentshield
@@ -19,6 +18,15 @@ make deploy       # Build + deploy packs + binary to ~/.agentshield
 agentshield mcp-eval --tool read_file --arg path=/home/user/.vault-token
 agentshield mcp-eval --tool write_file --arg path=/etc/resolv.conf --arg content="evil"
 agentshield mcp-eval --tool read_file --arg path=/workspace/project/README.md  # should AUDIT (benign)
+
+# Shell rule validation
+# The `agentshield run` subcommand was removed after an incident where
+# `agentshield run -- rm -rf /` actually executed and wiped user data.
+# AgentShield now only EVALUATES commands (via IDE hooks and MCP proxy),
+# it never executes them. To validate shell rules:
+#   1. Unit tests: `go test -v -run TestAccuracy ./internal/analyzer/`
+#   2. YAML inline tests: `go test -v -run TestRuleYAMLTests ./internal/policy/`
+#   3. Live: trigger the IDE hook by running the command in Claude Code / Cursor.
 
 # Run a single package's tests
 go test -v ./internal/analyzer/...
@@ -144,7 +152,7 @@ data_labels:
 
 **Shell-to-MCP generator** (`cmd/mcp-gen/`): Converts shell rules with file path or URL patterns into MCP rules. Run `make mcp-gen` to regenerate `packs/mcp/mcp-generated.yaml` + TP scenarios + TN pool.
 
-**MCP eval command** (`agentshield mcp-eval`): Evaluates a simulated MCP tool call against deployed policy — the MCP equivalent of `agentshield run` for shell commands. Use this for MCP rule validation and dogfooding:
+**MCP eval command** (`agentshield mcp-eval`): Evaluates a simulated MCP tool call against deployed policy. The shell-rule equivalent is now the hook itself (live evaluation in Claude Code / Cursor) plus the Go unit tests — there is no shell-command CLI evaluator, by design (see safety note above). Use `mcp-eval` for MCP rule validation and dogfooding:
 
 ```bash
 # TP: should BLOCK
