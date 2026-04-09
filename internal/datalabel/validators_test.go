@@ -31,9 +31,22 @@ func TestLuhnCheck(t *testing.T) {
 }
 
 func TestValidate_UnknownValidator(t *testing.T) {
-	// Unknown validators should return true (fail-open)
-	if !Validate("unknown-validator", "any text") {
-		t.Error("unknown validator should return true (fail-open)")
+	// BUG-DL-005: unknown validator names fail closed at runtime. Init
+	// should prevent this state; runtime fallback is defense in depth.
+	if Validate("unknown-validator", "any text") {
+		t.Error("unknown validator should return false (fail closed)")
+	}
+}
+
+func TestIsKnownValidator(t *testing.T) {
+	if !IsKnownValidator("") {
+		t.Error("empty validator name should be treated as 'no validator'")
+	}
+	if !IsKnownValidator("luhn") {
+		t.Error("luhn should be recognized")
+	}
+	if IsKnownValidator("lhun") { // typo
+		t.Error("typo should not be recognized")
 	}
 }
 

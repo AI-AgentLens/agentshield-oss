@@ -9,14 +9,27 @@ var validators = map[string]func(string) bool{
 	"luhn": luhnCheck,
 }
 
+// IsKnownValidator reports whether the given validator name is recognized.
+// Empty name is considered "no validator required" and returns true.
+// Used at engine init time to reject configs with typos (see BUG-DL-005).
+func IsKnownValidator(name string) bool {
+	if name == "" {
+		return true
+	}
+	_, ok := validators[name]
+	return ok
+}
+
 // Validate runs the named validator against text.
-// Returns true if the validator confirms the match, or if the
-// validator name is unknown (fail-open: don't discard matches
-// for unrecognized validators).
+// Returns true if the validator confirms the match. Unknown validator
+// names cause Validate to return false — this should never happen in
+// practice because NewEngine rejects unknown names at startup (BUG-DL-005).
+// The fail-closed runtime behavior is defense in depth against a corrupted
+// engine state, not a replacement for startup validation.
 func Validate(name, text string) bool {
 	fn, ok := validators[name]
 	if !ok {
-		return true // unknown validator — don't discard
+		return false // unknown validator — fail closed (init should prevent this)
 	}
 	return fn(text)
 }

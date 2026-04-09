@@ -166,10 +166,17 @@ type DataLabelPattern struct {
 }
 
 // DataLabelScope controls which tool calls are scanned by a data label.
+//
+// Shell is a tri-state (pointer) for opting shell commands in/out of scoped
+// labels (BUG-DL-004). When nil, a label with any Tools or Directions filter
+// set is treated as MCP-scoped and does NOT match shell commands. Set
+// shell: true to explicitly include shell commands alongside MCP tool calls,
+// or shell: false to exclude shell regardless of other filters.
 type DataLabelScope struct {
 	Tools        []string `yaml:"tools,omitempty"`
 	Directions   []string `yaml:"directions,omitempty"`
 	MaxScanBytes int      `yaml:"max_scan_bytes,omitempty"`
+	Shell        *bool    `yaml:"shell,omitempty"`
 }
 
 type EvalResult struct {

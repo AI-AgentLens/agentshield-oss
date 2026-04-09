@@ -1,6 +1,22 @@
 package datalabel
 
-import "strings"
+// asciiLower returns s with ASCII A–Z mapped to a–z and all other bytes
+// left unchanged. Unlike strings.ToLower, this preserves the byte layout
+// of the input, so byte offsets produced by searching a lowered copy are
+// valid indices back into the original string (BUG-DL-003). This limits
+// case-insensitive matching to ASCII, which is sufficient for the engine's
+// stated use cases (SSN, credit cards, project codenames).
+func asciiLower(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
+}
 
 // ACPattern is an input pattern for the Aho-Corasick automaton.
 type ACPattern struct {
@@ -57,7 +73,7 @@ func NewACAutomaton(patterns []ACPattern) *ACAutomaton {
 			sp.text = p.Text
 			sensPatterns = append(sensPatterns, sp)
 		} else {
-			sp.text = strings.ToLower(p.Text)
+			sp.text = asciiLower(p.Text)
 			insensPatterns = append(insensPatterns, sp)
 		}
 	}
@@ -87,7 +103,9 @@ func (a *ACAutomaton) Search(text string) []ACMatch {
 		matches = a.sensitive.search(text, matches)
 	}
 	if a.insensitive != nil {
-		matches = a.insensitive.search(strings.ToLower(text), matches)
+		// asciiLower preserves byte offsets (BUG-DL-003) — match positions
+		// are valid indices back into the original `text`.
+		matches = a.insensitive.search(asciiLower(text), matches)
 	}
 	return matches
 }

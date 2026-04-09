@@ -988,6 +988,64 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		return nil
 	}
 
+	// Data label scan on response content (inbound direction) — BUG-DL-006.
+	// Runs before the poisoning scanner so that customer-defined PII labels
+	// can BLOCK sensitive downstream responses even when the content is not
+	// classified as "poisoned" injection. AUDIT-level findings are logged
+	// but do not replace the response.
+	if h.DataLabelScanner != nil {
+		for _, item := range callResult.Content {
+			if item.Type != "text" || item.Text == "" {
+				continue
+			}
+			dlResult := h.DataLabelScanner.ScanToolResponseContent(item.Text)
+			if len(dlResult.Findings) == 0 {
+				continue
+			}
+
+			reasons := make([]string, 0, len(dlResult.Findings))
+			rules := make([]string, 0, len(dlResult.Findings)+1)
+			rules = append(rules, "data-label-response-scan")
+			for _, f := range dlResult.Findings {
+				rules = append(rules, "datalabel:"+f.LabelID)
+				reasons = append(reasons, f.LabelName+": "+f.Detail)
+			}
+
+			decision := "AUDIT"
+			if dlResult.Blocked {
+				decision = "BLOCK"
+			}
+
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response by data label scan (%d matches)\n",
+				decision, len(dlResult.Findings))
+			for _, f := range dlResult.Findings {
+				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.LabelID, f.Detail)
+			}
+
+			if h.OnAudit != nil {
+				h.OnAudit(AuditEntry{
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					ToolName:       "tools/call-response",
+					Decision:       decision,
+					Flagged:        true,
+					TriggeredRules: rules,
+					Reasons:        reasons,
+					Source:         "mcp-proxy-response-datalabel",
+					ServerName:     h.ServerName,
+				})
+			}
+
+			if dlResult.Blocked {
+				replacement, err := NewBlockResponse(msg.ID, reasons[0])
+				if err != nil {
+					return nil
+				}
+				return replacement
+			}
+			// AUDIT findings only — fall through to poisoning scan.
+		}
+	}
+
 	scanResult := ScanToolCallResponse(callResult.Content)
 	if !scanResult.Poisoned {
 		return nil
