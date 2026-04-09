@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/security-researcher-ca/agentshield/internal/mcp/scenarios"
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/mcp/scenarios"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // MCPSelfTestResults holds the aggregate outcome of an MCP self-test run.

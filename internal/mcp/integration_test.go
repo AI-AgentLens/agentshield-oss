@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // buildEchoServer compiles the test echo server and returns the path to the binary.

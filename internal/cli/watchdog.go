@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/spf13/cobra"
 )
 

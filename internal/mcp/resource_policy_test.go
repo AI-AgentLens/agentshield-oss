@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 func testResourcePolicy() *MCPPolicy {

@@ -1,6 +1,6 @@
 package analyzer
 
-import "github.com/security-researcher-ca/agentshield/internal/datalabel"
+import "github.com/AI-AgentLens/agentshield/internal/datalabel"
 
 // DataLabelAnalyzer is the 7th pipeline layer. It scans commands for
 // customer-defined sensitive data patterns (PII, project codenames, etc.).

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // MCPToolIntent represents a classified intent for an MCP tool call.

@@ -1,6 +1,6 @@
 package normalize
 
-import "github.com/security-researcher-ca/agentshield/internal/shellparse"
+import "github.com/AI-AgentLens/agentshield/internal/shellparse"
 
 // ArgRole classifies the role of a command argument for path extraction.
 type ArgRole int

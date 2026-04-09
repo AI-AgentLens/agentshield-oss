@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/logger"
 )
 
 // WatchdogCheck represents a single watchdog health check result.

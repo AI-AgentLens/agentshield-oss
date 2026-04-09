@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/analyzer/testdata"
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer/testdata"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // ---------------------------------------------------------------------------

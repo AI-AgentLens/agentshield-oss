@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/mcp"
-	"github.com/security-researcher-ca/agentshield/packs"
+	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/mcp"
+	"github.com/AI-AgentLens/agentshield/packs"
 	"github.com/spf13/cobra"
 )
 

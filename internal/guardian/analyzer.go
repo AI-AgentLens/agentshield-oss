@@ -1,7 +1,7 @@
 package guardian
 
 import (
-	"github.com/security-researcher-ca/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 )
 
 // GuardianAnalyzer adapts a GuardianProvider to the analyzer.Analyzer interface

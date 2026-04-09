@@ -1,6 +1,6 @@
 package analyzer
 
-import "github.com/security-researcher-ca/agentshield/internal/shellparse"
+import "github.com/AI-AgentLens/agentshield/internal/shellparse"
 
 // Analyzer is the interface every analysis layer implements.
 // Each analyzer receives the full AnalysisContext (original input + accumulated

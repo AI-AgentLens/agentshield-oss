@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/spf13/cobra"
 )
 

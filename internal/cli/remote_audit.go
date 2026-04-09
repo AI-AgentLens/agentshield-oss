@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/auth"
-	"github.com/security-researcher-ca/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/auth"
+	"github.com/AI-AgentLens/agentshield/internal/logger"
 )
 
 // sendRemoteAudit sends an audit event to the SaaS synchronously.

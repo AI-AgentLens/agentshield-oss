@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"gopkg.in/yaml.v3"
 )
 

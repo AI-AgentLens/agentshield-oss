@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/mcp/scenarios"
+	"github.com/AI-AgentLens/agentshield/internal/mcp/scenarios"
 )
 
 // newTestMCPHandler creates a MessageHandler with all MCP packs loaded,

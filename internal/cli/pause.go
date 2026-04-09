@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/spf13/cobra"
 )
 

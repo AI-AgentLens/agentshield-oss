@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/security-researcher-ca/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
 )
 
 // DataLabelScanner scans MCP tool call arguments for customer-defined

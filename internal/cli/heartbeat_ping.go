@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/auth"
-	"github.com/security-researcher-ca/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/auth"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 )
 
 const heartbeatCooldown = 10 * time.Minute

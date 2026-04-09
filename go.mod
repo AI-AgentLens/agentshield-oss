@@ -1,4 +1,4 @@
-module github.com/security-researcher-ca/agentshield
+module github.com/AI-AgentLens/agentshield
 
 go 1.25.0
 

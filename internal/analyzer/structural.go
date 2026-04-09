@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/shellparse"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 // StructuralAnalyzer parses shell commands into an AST using mvdan.cc/sh/v3

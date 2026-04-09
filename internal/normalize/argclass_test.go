@@ -3,7 +3,7 @@ package normalize
 import (
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/shellparse"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 func TestClassifyArgs_Echo(t *testing.T) {

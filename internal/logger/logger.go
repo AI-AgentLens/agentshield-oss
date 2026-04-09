@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/security-researcher-ca/agentshield/internal/redact"
+	"github.com/AI-AgentLens/agentshield/internal/redact"
 )
 
 // defaultMaxLogBytes is the file size at which the log is rotated (10 MB).

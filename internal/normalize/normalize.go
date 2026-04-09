@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/shellparse"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 type NormalizedCommand struct {

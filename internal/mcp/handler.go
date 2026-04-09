@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // MessageHandler encapsulates the shared MCP message evaluation logic

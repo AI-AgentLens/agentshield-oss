@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/auth"
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/mcp"
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/auth"
+	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/mcp"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
 )
 

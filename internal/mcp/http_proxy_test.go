@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // testHTTPProxyPolicy returns a policy for HTTP proxy tests.

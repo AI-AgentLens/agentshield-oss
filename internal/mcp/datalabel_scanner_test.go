@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
 )
 
 func newTestDataLabelScanner(t *testing.T) *DataLabelScanner {

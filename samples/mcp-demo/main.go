@@ -30,8 +30,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/mcp"
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/mcp"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // ─── ANSI colours ────────────────────────────────────────────────────────────

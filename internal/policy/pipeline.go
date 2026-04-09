@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/analyzer"
-	"github.com/security-researcher-ca/agentshield/internal/datalabel"
-	"github.com/security-researcher-ca/agentshield/internal/guardian"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/guardian"
 )
 
 // expandExcludePattern replaces {{DOC_CONTEXT}} with the shared doc-context

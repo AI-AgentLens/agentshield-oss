@@ -3,9 +3,9 @@
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS := -X 'github.com/security-researcher-ca/agentshield/internal/cli.Version=$(VERSION)' \
-           -X 'github.com/security-researcher-ca/agentshield/internal/cli.GitCommit=$(GIT_COMMIT)' \
-           -X 'github.com/security-researcher-ca/agentshield/internal/cli.BuildDate=$(BUILD_DATE)'
+LDFLAGS := -X 'github.com/AI-AgentLens/agentshield/internal/cli.Version=$(VERSION)' \
+           -X 'github.com/AI-AgentLens/agentshield/internal/cli.GitCommit=$(GIT_COMMIT)' \
+           -X 'github.com/AI-AgentLens/agentshield/internal/cli.BuildDate=$(BUILD_DATE)'
 
 BINARY := agentshield
 BUILD_DIR := ./build

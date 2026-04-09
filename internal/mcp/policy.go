@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // MCPPolicy defines MCP-specific security policy loaded from YAML.

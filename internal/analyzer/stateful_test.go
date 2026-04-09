@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 )
 
 func TestStateful_CompoundDownloadExecute(t *testing.T) {

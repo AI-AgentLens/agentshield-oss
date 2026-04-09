@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/config"
-	"github.com/security-researcher-ca/agentshield/internal/enterprise"
-	"github.com/security-researcher-ca/agentshield/internal/logger"
-	"github.com/security-researcher-ca/agentshield/internal/mcp"
-	"github.com/security-researcher-ca/agentshield/internal/normalize"
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/mcp"
+	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
 )
 

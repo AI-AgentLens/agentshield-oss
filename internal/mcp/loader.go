@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
-	"github.com/security-researcher-ca/agentshield/packs"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/packs"
 	"gopkg.in/yaml.v3"
 )
 

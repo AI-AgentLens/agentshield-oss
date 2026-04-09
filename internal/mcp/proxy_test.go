@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // nopWriteCloser wraps an io.Writer with a no-op Close method.

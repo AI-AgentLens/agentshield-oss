@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/security-researcher-ca/agentshield/internal/auth"
+	"github.com/AI-AgentLens/agentshield/internal/auth"
 )
 
 // Mode represents where compliance processing happens.

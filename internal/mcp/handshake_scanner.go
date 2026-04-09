@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/security-researcher-ca/agentshield/internal/unicode"
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // MinAcceptedProtocolVersion is the earliest MCP protocol version that

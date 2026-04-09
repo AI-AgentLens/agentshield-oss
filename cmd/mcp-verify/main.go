@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/security-researcher-ca/agentshield/internal/mcp"
+	"github.com/AI-AgentLens/agentshield/internal/mcp"
 )
 
 func main() {

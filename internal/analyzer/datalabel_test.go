@@ -3,7 +3,7 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/security-researcher-ca/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
 )
 
 func TestDataLabelAnalyzer_Name(t *testing.T) {
