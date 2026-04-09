@@ -95,14 +95,26 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+      # FP-MCP-005 fix #1154: anchor to real home-directory paths so workspace-relative
+      # test fixtures (e.g. /workspace/nushell-plugin/.config/nushell/) don't trigger.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.xonshrc$"
-            - "(?:^|/)\\.config/nushell/"
-            - "(?:^|/)\\.nushell/"
-            - "(?:^|/)\\.elvish/rc\\.elv$"
-            - "(?:^|/)\\.config/elvish/"
+            # xonshrc — always a dotfile directly under home
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.xonshrc$"
+            - "^~/\\.xonshrc$"
+            # nushell — XDG config path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/nushell/"
+            - "^~/\\.config/nushell/"
+            # nushell — legacy non-XDG path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.nushell/"
+            - "^~/\\.nushell/"
+            # elvish — legacy path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.elvish/rc\\.elv$"
+            - "^~/\\.elvish/rc\\.elv$"
+            # elvish — XDG config path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/elvish/"
+            - "^~/\\.config/elvish/"
     decision: "BLOCK"
     reason: "MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
@@ -114,9 +126,18 @@ structural_rules:
           args: {"path": "/home/user/.config/nushell/config.nu"}
         - tool: "write_file"
           args: {"path": "/home/user/.nushell/env.nu"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.config/elvish/rc.elv"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/build.sh"}
+        # FP-MCP-005 regression: workspace-relative plugin fixtures must not fire
+        - tool: "write_file"
+          args: {"path": "/workspace/nushell-plugin/.config/nushell/config.nu"}
+        - tool: "write_file"
+          args: {"path": "/workspace/elvish-plugin/.config/elvish/rc.elv"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/tests/fixtures/.xonshrc"}
 
   # === BLOCK: Fish shell startup file writes via MCP (issue #148) ===
   #
@@ -149,11 +170,15 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+      # FP-MCP-005 fix #1154: anchor to real home-directory paths so workspace-relative
+      # fixtures or plugin projects containing `.config/fish/` don't trigger.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.config/fish/config\\.fish$"
-            - "(?:^|/)\\.config/fish/conf\\.d/"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/config\\.fish$"
+            - "^~/\\.config/fish/config\\.fish$"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/conf\\.d/"
+            - "^~/\\.config/fish/conf\\.d/"
     decision: "BLOCK"
     reason: "MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
@@ -163,9 +188,16 @@ structural_rules:
           args: {"path": "/home/user/.config/fish/config.fish"}
         - tool: "create_file"
           args: {"path": "/home/user/.config/fish/conf.d/evil.fish"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.config/fish/config.fish"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/deploy.fish"}
+        # FP-MCP-005 regression: workspace-relative fish config must not fire
+        - tool: "write_file"
+          args: {"path": "/workspace/fish-plugin/.config/fish/config.fish"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/tests/fixtures/.config/fish/conf.d/test.fish"}
 
   - id: mcp-persist-audit-fish-functions-write
     taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
@@ -181,10 +213,12 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+      # FP-MCP-005 fix #1154: anchor to real home directories.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.config/fish/functions/"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/functions/"
+            - "^~/\\.config/fish/functions/"
     decision: "AUDIT"
     reason: "MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004."
     confidence: 0.75
@@ -197,6 +231,8 @@ structural_rules:
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/helper.sh"}
+        - tool: "write_file"
+          args: {"path": "/workspace/fish-plugin/.config/fish/functions/helper.fish"}
 
   # === BLOCK: Debugger init file writes via MCP (issue #921) ===
   #
