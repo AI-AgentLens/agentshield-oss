@@ -10299,15 +10299,18 @@ rules:
   taxonomy: governance-risk/ai-governance-gap/agent-code-review-bypass
   match:
     command_regex: gh\s+pr\s+review\b.*--approve\b
+    command_regex_exclude: '{{DOC_CONTEXT}}'
   decision: AUDIT
   confidence: 0.85
-  reason: gh pr review --approve — an AI agent approving a pull request removes the independent human review requirement. When agents author and self-approve PRs, no human verifies the changes before merge
-    (OWASP LLM06).
+  reason: "gh pr review --approve — fires on ANY PR approval from the terminal, not just self-approvals (the shell layer has no signal about whether the approver is the PR author). AI agents approving
+    pull requests removes independent human review of agent-authored changes (OWASP LLM06). Operators receiving audit noise from human developers can add targeted allow-list entries."
   tests:
     tp:
     - gh pr review 42 --approve
-    - gh pr review 100 --approve -b 'LGTM'
+    - gh pr review 100 --approve
     tn:
     - gh pr review 42 --comment --body 'please fix tests'
     - gh pr review 42 --request-changes --body 'needs work'
     - gh pr view 42
+    - gh issue create --body 'gh pr review --approve is a common developer action'
+    - echo "use gh pr review --approve to approve a PR"
