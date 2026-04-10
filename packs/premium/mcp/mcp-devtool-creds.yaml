@@ -126,3 +126,129 @@ rules:
           args: {"path": "/workspace/src/atlassian_client.go"}
         - tool: "write_file"
           args: {"path": "/workspace/config/atlassian-pipeline.yaml"}
+
+  # ------------------------------------------------------------------
+  # Jupyter XDG config path (~/.config/jupyter/) — issue #1194
+  # ------------------------------------------------------------------
+  # Jupyter Notebook ≥ 6 and JupyterLab follow the XDG Base Directory
+  # Specification and write their server config to ~/.config/jupyter/
+  # rather than the legacy ~/.jupyter/ location (already covered by
+  # mcp-sec-block-jupyter-config in the community pack).
+  #
+  # Files at risk:
+  #   ~/.config/jupyter/jupyter_server_config.py   — server token, password hash, auth settings
+  #   ~/.config/jupyter/jupyter_notebook_config.py — legacy but can appear in XDG path
+  #   ~/.config/jupyter/jupyter_lab_config.py      — JupyterLab-specific settings
+  #   ~/.config/jupyter/nbconvert_config.py        — nbconvert postprocessors (RCE via templates)
+  #
+  # Read threat: extracts c.ServerApp.token (auth token) or c.ServerApp.password
+  # (hashed password) that grants unauthenticated code execution via the notebook API.
+  #
+  # Write threat: setting c.ServerApp.password_required = False or c.ServerApp.token = ''
+  # disables all authentication, allowing any local or remote client to execute code.
+  #
+  # MITRE T1552.001 — Unsecured Credentials: Credentials In Files
+  # MITRE T1546     — Event Triggered Execution (write persistence)
+  - id: mcp-sec-block-jupyter-xdg-config
+    taxonomy: "credential-exposure/config-file-access/jupyter-config-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.config/jupyter/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.config/jupyter/ is blocked — Jupyter server config (XDG path) stores authentication tokens and passwords. Reading exposes credentials for notebook code execution; writing can disable authentication entirely. MITRE T1552.001, T1546."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/jupyter/jupyter_server_config.py"}
+        - tool: "read_file"
+          args: {"path": "/root/.config/jupyter/jupyter_lab_config.py"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.config/jupyter/jupyter_notebook_config.py"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/jupyter/jupyter_server_config.py"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.config/jupyter/jupyter_server_config.py", "new_str": "c.ServerApp.password_required = False"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/notebooks/analysis.ipynb"}
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/jupyter-setup-guide.md"}
+        - tool: "write_file"
+          args: {"path": "/workspace/notebooks/new_notebook.ipynb"}
+
+  # ------------------------------------------------------------------
+  # Alibaba Cloud CLI credentials (~/.aliyun/) — issue #1195
+  # ------------------------------------------------------------------
+  # The Alibaba Cloud CLI (aliyun) stores credentials in ~/.aliyun/config.json.
+  # This is the primary credential store for all Alibaba Cloud (Aliyun) services.
+  # Unlike the community rule mcp-sec-block-alibaba-tencent-imds which blocks
+  # IMDS HTTP access, this rule covers the on-disk credential file.
+  #
+  # Files at risk:
+  #   ~/.aliyun/config.json  — Access Key ID, Access Key Secret, STS tokens, region config
+  #
+  # These credentials enable full Alibaba Cloud control:
+  #   - ECS instance management (create/delete/access compute)
+  #   - OSS bucket access (cloud storage exfiltration)
+  #   - RDS database access
+  #   - RAM (Identity and Access Management) manipulation
+  #   - All Alibaba Cloud services accessible to the configured IAM entity
+  #
+  # MITRE T1552.001 — Unsecured Credentials: Credentials In Files
+  # MITRE T1552.005 — Cloud Instance Metadata API (complement, not overlap)
+  - id: mcp-sec-block-aliyun-credentials
+    taxonomy: "credential-exposure/cloud-credentials/alibaba-cloud-credential-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.aliyun/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.aliyun/ is blocked — contains Alibaba Cloud (Aliyun) CLI credentials including Access Key ID and Secret that grant full cloud control (ECS, OSS, RDS, RAM). MITRE T1552.001."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.aliyun/config.json"}
+        - tool: "read_file"
+          args: {"path": "/root/.aliyun/config.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.aliyun/credentials"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.aliyun/config.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/aliyun-setup-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/src/aliyun_client.go"}
+        - tool: "write_file"
+          args: {"path": "/workspace/config/aliyun-deployment.yaml"}
