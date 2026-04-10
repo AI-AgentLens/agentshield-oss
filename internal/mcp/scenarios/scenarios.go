@@ -190,12 +190,23 @@ func itoa(n int) string {
 }
 
 // AllScenarios returns all MCP self-test scenarios.
+//
+// Scenarios come from four sources:
+//   - TruePositiveScenarios / TrueNegativeScenarios: legacy hand-curated
+//     scenarios in this file (scenarios.go).
+//   - GeneratedTPScenarios / GeneratedTNScenarios: output of cmd/mcp-gen,
+//     owned entirely by the generator (generated_scenarios.go).
+//   - CuratedTPScenarios / CuratedTNScenarios: new hand-curated scenarios
+//     added after the issue #1174 split (curated_scenarios.go). The generator
+//     never touches this file; it is SAFE to edit.
 func AllScenarios() []Scenario {
 	var all []Scenario
 	all = append(all, TruePositiveScenarios...)
 	all = append(all, TrueNegativeScenarios...)
 	all = append(all, GeneratedTPScenarios...)
 	all = append(all, GeneratedTNScenarios...)
+	all = append(all, CuratedTPScenarios...)
+	all = append(all, CuratedTNScenarios...)
 	return all
 }
 
