@@ -511,6 +511,56 @@ rules:
         - tool: "read_file"
           args: {"path": "/workspace/src/mcp.json"}
 
+  # === BLOCK: MCP read of mcp_server_config.json (Windsurf MCP server config) ===
+  #
+  # Windsurf IDE stores its MCP server configuration at mcp_server_config.json
+  # (multiple locations depending on version and OS):
+  #   ~/.windsurf/mcp_server_config.json       — legacy location
+  #   ~/.config/windsurf/mcp_server_config.json — XDG path (lowercase)
+  #   ~/.config/Windsurf/mcp_server_config.json — XDG path (title-case, macOS/newer)
+  #
+  # This file contains:
+  #   - MCP server URLs (reveals connected external services)
+  #   - API key names and environment variable references
+  #   - Environment variable values that may include secrets passed to MCP servers
+  #
+  # Gap: writes to mcp_server_config.json are already blocked by mcp-sc-block-mcp-config-write,
+  # but reads were not covered. Cursor's mcp.json and Claude's desktop config are both
+  # blocked for reads — this rule closes the parity gap for Windsurf's server config.
+  #
+  # [auto-generated][mcp-gap] issue #1201
+  - id: mcp-recon-block-windsurf-mcp-server-config-read
+    taxonomy: "reconnaissance/osint/ai-ide-config-osint"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      args_match:
+        path:
+          pattern_any:
+            - "(?:^|/)mcp_server_config\\.json$"
+    decision: "BLOCK"
+    reason: "Read access to mcp_server_config.json is blocked — Windsurf IDE's MCP server configuration contains server URLs, API key references, and environment variables with secrets. Reading this file reveals connected services and enables targeted follow-up attacks. Mirrors cursor/mcp.json and claude_desktop_config.json protection. MITRE T1552, T1539."
+    confidence: 0.92
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/Windsurf/mcp_server_config.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.config/windsurf/mcp_server_config.json"}
+        - tool: "get_file_contents"
+          args: {"path": "/Users/alice/.windsurf/mcp_server_config.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/mcp_server_config.json"}
+        - tool: "read_file"
+          args: {"path": "/project/docs/mcp_server_config.json"}
+
   # === BLOCK: MCP read of AgentShield policy file ===
   #
   # Reading the deployed security policy exposes which commands are blocked/audited,
