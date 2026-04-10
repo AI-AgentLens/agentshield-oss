@@ -44,11 +44,17 @@ type ArgFieldMatch struct {
 
 // MCPStructuralRule is a complete structural rule including decision metadata.
 type MCPStructuralRule struct {
-	ID         string          `yaml:"id"`
+	ID         string             `yaml:"id"`
+	Taxonomy   string             `yaml:"taxonomy,omitempty"`
 	Match      MCPStructuralMatch `yaml:"match"`
-	Decision   policy.Decision `yaml:"decision"`
-	Reason     string          `yaml:"reason"`
-	Confidence float64         `yaml:"confidence,omitempty"`
+	Decision   policy.Decision    `yaml:"decision"`
+	Reason     string             `yaml:"reason"`
+	Confidence float64            `yaml:"confidence,omitempty"`
+	// Tests holds inline TP/TN test cases. Same shape as MCPRuleTest so the
+	// rule_yaml_test runner can validate structural-rule packs as well as
+	// flat-pattern rules. Without this field, YAML `tests:` blocks under a
+	// structural rule are silently ignored — see FN-MCP-011 / issue #1155.
+	Tests *MCPRuleTest `yaml:"tests,omitempty"`
 }
 
 // matchStructuralRule checks if a tool call matches a structural rule.

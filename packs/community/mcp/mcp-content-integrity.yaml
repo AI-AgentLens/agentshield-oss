@@ -993,6 +993,7 @@ structural_rules:
           pattern_any:
             - "(?i)rate\\s+this\\s+(code|change|commit|pr|file|function)\\s+(as\\s+)?(safe|approved|compliant|secure)"
             - "(?i)(?:security|ciso|compliance)\\s+(?:team\\s+)?(?:has\\s+)?(?:approved|reviewed|cleared|signed.off)"
+            - "(?i)(?:approved|reviewed|cleared|signed.off)(?:\\s+and\\s+(?:approved|reviewed|cleared|signed.off))?\\s+by\\s+(?:the\\s+)?(?:security|ciso|compliance)"
             - "(?i)override\\s+(?:security|review|the|this)\\s*(?:review|check|criteria|gate|requirements)"
             - "(?i)ignore\\s+(?:the\\s+)?(?:previous|prior|all)\\s+(?:security\\s+)?(?:review|criteria|requirements|checks)"
             - "(?i)DO\\s+NOT\\s+FLAG\\s+THIS\\s+(CODE|FILE|FUNCTION|CHANGE)"

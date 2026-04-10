@@ -514,7 +514,12 @@ structural_rules:
   - id: mcp-sc-audit-rag-write
     taxonomy: "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
     match:
-      tool_name_pattern: "(?i)(ingest|add_document|upsert|insert_document|index_document|embed_and_store|store_embedding|knowledge_base_write|kb_write|add_to_kb|update_kb)"
+      # tool_name_regex — NOT tool_name_pattern (which is not a supported
+      # field on MCPStructuralMatch and gets silently dropped by the YAML
+      # unmarshaller, leaving the rule with no predicate and therefore
+      # matching nothing). The runner's case-insensitive regex flag is
+      # auto-prepended, so the `(?i)` is not needed here. See issue #1170.
+      tool_name_regex: "^(ingest|add_document|upsert|insert_document|index_document|embed_and_store|store_embedding|knowledge_base_write|kb_write|add_to_kb|update_kb)$"
     decision: "AUDIT"
     reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
     confidence: 0.82
