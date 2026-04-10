@@ -6969,4 +6969,55 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-persistence-ide-keybindings",
 		Description:      "write_file to application source file named keybindings.ts — project source, not IDE config. (mcp-persist-block-ide-keybindings-write TN)",
 	},
+	// Rule: mcp-sc-audit-bun-shell-template-write (issue #1161)
+	// Semgrep cannot track taint through Bun's tagged template literal form Bun.$`${cmd}`.
+	// This rule provides write-time visibility when an AI agent writes .ts/.js files with
+	// Bun shell tagged templates containing variable interpolation.
+	{
+		ID:               "MCP-TP-1161a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/scripts/deploy.ts", "content": "import { $ } from 'bun';\nconst cmd = process.argv[2];\nawait Bun.$`${cmd}`;"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: TypeScript file with Bun.$`${cmd}` — tagged template literal with variable interpolation. Semgrep taint gap (todoruleid); AUDIT for write-time visibility. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	{
+		ID:               "MCP-TP-1161b",
+		ToolName:         "create_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/runner.mjs", "content": "export async function run(command) {\n  return await Bun.$`${command}`;\n}"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "create_file: .mjs file with Bun.$`${command}` — tagged template literal with dynamic variable. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	{
+		ID:               "MCP-TP-1161c",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/workspace/build.tsx", "content": "const result = await Bun.$`${buildCmd} --output dist`;\nconsole.log(result.stdout);"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "str_replace_editor: .tsx file with Bun.$`${buildCmd}` — multiple args in template. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	// TN: Bun shell with static (non-interpolated) templates — no variable interpolation, safe
+	{
+		ID:               "MCP-TN-1161a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/scripts/setup.ts", "content": "import { $ } from 'bun';\nawait Bun.$`npm install`;\nawait Bun.$`tsc --build`;"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: TypeScript file with Bun.$ static templates (no interpolation) — must NOT trigger the Bun shell template rule. (mcp-sc-audit-bun-shell-template-write TN)",
+	},
+	// TN: non-JS/TS file with Bun shell pattern in content — wrong extension
+	{
+		ID:               "MCP-TN-1161b",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/docs/bun-shell-guide.md", "content": "## Bun Shell\n\nBun.$`${cmd}` is the tagged template literal syntax.\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: markdown documentation file mentioning Bun.$`${cmd}` — .md extension, must NOT trigger the Bun shell template rule. (mcp-sc-audit-bun-shell-template-write TN)",
+	},
 }

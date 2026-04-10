@@ -307,3 +307,64 @@ structural_rules:
           args: {"path": "/project/.github/CODEOWNERS"}
         - tool: "delete_file"
           args: {"path": "/project/docs/codeowners-guide.md"}
+
+  # === AUDIT: Bun shell tagged template literal with variable interpolation (issue #1161) ===
+  #
+  # Bun's shell API supports two call forms:
+  #   Form 1: Bun.$(cmd)                     — caught by Comply static rule ai-llm-output-bun-shell
+  #   Form 2: Bun.$`${cmd}`                  — NOT caught by Semgrep (architectural limitation)
+  #
+  # Form 2 is the idiomatic syntax and is more widely used in real code. Semgrep's taint mode
+  # treats the tagged template as a single string literal and cannot track taint into the
+  # interpolated ${cmd} segment.
+  #
+  # This rule provides write-time visibility: when an AI agent writes a .ts/.js/.mjs file
+  # containing a Bun tagged template literal with variable interpolation, it creates an AUDIT
+  # event. This is defense-in-depth — the existing shell analyzer already catches the actual
+  # command when the Bun process spawns a subprocess. (Full analysis in issue #1161.)
+  #
+  # Decision is AUDIT not BLOCK because:
+  #   1. Bun.$`${var}` is idiomatic Bun usage — blocking would break all Bun shell scripts.
+  #   2. Runtime protection (shell analyzer layer) already catches the actual dangerous execution.
+  #   3. FP rate is non-trivial: any Bun script with dynamic paths/arguments would trigger.
+  #
+  # FP note: Process-controlled interpolations (Bun.$`echo ${process.env.HOME}`) also trigger.
+  # The AUDIT signal is still useful — it surfaces all Bun dynamic shell usage for review.
+  - id: mcp-sc-audit-bun-shell-template-write
+    taxonomy: "supply-chain/code-injection/bun-shell-tagged-template"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+      args_match:
+        path:
+          pattern_any:
+            - "\\.(?:ts|tsx|js|jsx|mjs)$"
+        content:
+          pattern_any:
+            - "Bun\\.\\$`[^`]*\\$\\{"
+    decision: "AUDIT"
+    confidence: 0.70
+    reason: "MCP file write contains a Bun shell tagged template literal with variable interpolation (Bun.$`${...}`). Semgrep cannot track taint through this syntax (todoruleid gap in ai-llm-output-bun-shell). When LLM output flows through the interpolated variable, the Bun subprocess executes attacker-controlled shell commands. Runtime shell layer provides primary protection at exec time; this rule provides write-time visibility. MITRE T1059."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/deploy.ts", "content": "import { $ } from 'bun';\nconst cmd = process.argv[2];\nawait Bun.$`${cmd}`;"}
+        - tool: "create_file"
+          args: {"path": "/workspace/src/runner.ts", "content": "export async function run(command: string) {\n  return await Bun.$`${command}`;\n}"}
+        - tool: "str_replace_editor"
+          args: {"path": "/workspace/scripts/build.mjs", "content": "const result = await Bun.$`${buildCmd} --output dist`;\nconsole.log(result.stdout);"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/project/scripts/deploy.ts", "content": "import { $ } from 'bun';\nawait Bun.$`npm install`;\nawait Bun.$`tsc --build`;"}
+        - tool: "write_file"
+          args: {"path": "/project/docs/bun-shell-guide.md", "content": "## Bun Shell\nBun.$`${cmd}` is the tagged template literal syntax for Bun shell."}
+        - tool: "write_file"
+          args: {"path": "/project/src/utils.go", "content": "// This Go file mentions Bun.$`${cmd}` in a comment but is not a JS/TS file"}
