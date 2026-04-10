@@ -1335,6 +1335,63 @@ rules:
     tn:
     - gem build my-gem.gemspec
     - gh issue create --body 'sc-block-gem-push blocks gem push commands'
+# Sudo-wrapped variants of the structural publish rules above (issue #1159).
+# Structural rules require the executable to be exactly `npm`/`cargo`/`gem`; when
+# prefixed with `sudo`, the parsed executable is `sudo` and the structural rule does
+# not fire.  Companion regex rules close this gap.  Practical severity is low
+# (these tools don't need root), but the fix is trivial and consistent with how
+# other structural+sudo pairs are handled (e.g. ts-block-kernel-module-load).
+- id: sc-block-npm-publish-sudo
+  taxonomy: supply-chain/package-publish/npm-autonomous-publish
+  match:
+    command_regex: ^sudo\s+npm\s+publish\b
+  decision: BLOCK
+  confidence: 0.98
+  reason: sudo npm publish uploads the package to the npm registry as root. An AI agent
+    must never autonomously publish a package — a single prompt-injected publish can
+    distribute backdoored code to millions of users. MITRE T1195.001.
+  tests:
+    tp:
+    - sudo npm publish
+    - sudo npm publish --access public
+    tn:
+    - npm publish
+    - sudo npm pack
+    - sudo npm install
+- id: sc-block-cargo-publish-sudo
+  taxonomy: supply-chain/package-publish/rust-crates-autonomous-publish
+  match:
+    command_regex: ^sudo\s+cargo\s+publish\b
+  decision: BLOCK
+  confidence: 0.98
+  reason: sudo cargo publish uploads a Rust crate to crates.io as root. AI agents must
+    not autonomously publish Rust packages — crates.io releases are permanent and immediately
+    available to all Cargo users worldwide. MITRE T1195.001.
+  tests:
+    tp:
+    - sudo cargo publish
+    - sudo cargo publish --allow-dirty
+    tn:
+    - cargo publish
+    - sudo cargo package
+    - sudo cargo build
+- id: sc-block-gem-push-sudo
+  taxonomy: supply-chain/package-publish/ruby-gem-autonomous-publish
+  match:
+    command_regex: ^sudo\s+gem\s+push\b
+  decision: BLOCK
+  confidence: 0.97
+  reason: sudo gem push publishes a Ruby gem to rubygems.org as root. Autonomous gem
+    publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise.
+    MITRE T1195.001.
+  tests:
+    tp:
+    - sudo gem push my-gem-1.0.0.gem
+    - sudo gem push pkg/evil-1.0.gem
+    tn:
+    - gem push my-gem-1.0.0.gem
+    - sudo gem build my-gem.gemspec
+    - sudo gem install rails
 - id: sc-block-nuget-push
   taxonomy: supply-chain/package-publish/nuget-autonomous-publish
   match:
