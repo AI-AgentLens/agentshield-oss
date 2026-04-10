@@ -368,3 +368,93 @@ structural_rules:
           args: {"path": "/project/docs/bun-shell-guide.md", "content": "## Bun Shell\nBun.$`${cmd}` is the tagged template literal syntax for Bun shell."}
         - tool: "write_file"
           args: {"path": "/project/src/utils.go", "content": "// This Go file mentions Bun.$`${cmd}` in a comment but is not a JS/TS file"}
+
+  # === BLOCK: MCP write to JS/Deno runtime binary directories ===
+  #
+  # Several modern JS runtimes and version managers place their own executable
+  # binaries in user-owned directories that are added to $PATH:
+  #
+  #   ~/.bun/bin/          — Bun installs its runtime + global CLI symlinks here
+  #   ~/.volta/bin/        — Volta shims for node/npm/yarn intercept ALL JS tool calls
+  #   ~/.volta/tools/      — Volta stores per-tool binaries and image data here
+  #   ~/.deno/bin/         — Deno installs its runtime here
+  #   ~/.fnm/node-versions/ — Fast Node Manager manages Node.js versions here
+  #
+  # Writing to these directories installs executable files that run when the user
+  # invokes ANY tool in their PATH. This is a severe, persistent supply chain attack:
+  #
+  #   - Write ~/.bun/bin/bun → backdoor the Bun runtime → all `bun run` scripts
+  #     execute attacker code. Also compromises any project using bun as a shim.
+  #   - Write ~/.volta/bin/node → backdoor ALL Node.js invocations on the machine.
+  #     Volta intercepts node/npm/yarn globally — one write = machine-wide compromise.
+  #   - Write ~/.deno/bin/deno → backdoor all Deno script execution.
+  #   - Write ~/.fnm/node-versions/v20.0.0/bin/node → silently backdoor a specific
+  #     Node.js version used by projects with .node-version or .nvmrc pinned to it.
+  #
+  # The community rule mcp-sc-block-user-bin-path-shadow restricts writes to
+  # ~/.local/bin/, ~/bin/, and ~/.cargo/bin/ to well-known tool names only.
+  # These runtime directories require broader protection: ANY binary write is
+  # dangerous because the runtimes themselves are the targets.
+  #
+  # TN: Writing source files in a project that has "bun" in its path (e.g.,
+  # /home/user/projects/bun-app/src/index.ts) must NOT trigger. Only writes
+  # directly inside runtime-owned binary/tool directories are blocked.
+  #
+  # MITRE T1574.007 — Hijack Execution Flow: Path Interception by PATH Environment Variable
+  # MITRE T1036.003 — Masquerading: Rename System Utilities
+  # MITRE T1554    — Compromise Host Software Binary
+  - id: mcp-sc-block-js-runtime-bin-write
+    taxonomy: "supply-chain/path-hijacking/runtime-binary-overwrite"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+      args_match:
+        path:
+          pattern_any:
+            # Bun runtime binary directory (~/.bun/bin/)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.bun/bin/.+"
+            - "^~/\\.bun/bin/.+"
+            # Volta shims and tool image storage (~/.volta/bin/, ~/.volta/tools/)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.volta/bin/.+"
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.volta/tools/.+"
+            - "^~/\\.volta/bin/.+"
+            - "^~/\\.volta/tools/.+"
+            # Deno runtime binary directory (~/.deno/bin/)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.deno/bin/.+"
+            - "^~/\\.deno/bin/.+"
+            # Fast Node Manager version storage (~/.fnm/node-versions/)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.fnm/node-versions/.+"
+            - "^~/\\.fnm/node-versions/.+"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "MCP write to JS/Deno runtime binary directory — these directories (~/.bun/bin/, ~/.volta/bin/, ~/.deno/bin/, ~/.fnm/node-versions/) are managed by the runtime and placed in $PATH. Writing here installs a trojaned binary that executes on every runtime invocation, achieving persistent code execution without elevated privileges. MITRE T1554, T1574.007."
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.bun/bin/bun"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.bun/bin/node"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.volta/bin/node"}
+        - tool: "str_replace_editor"
+          args: {"path": "/home/user/.volta/tools/image/packages/typescript/bin/tsc"}
+        - tool: "write_file"
+          args: {"path": "/root/.deno/bin/deno"}
+        - tool: "create_file"
+          args: {"path": "/home/user/.fnm/node-versions/v20.11.0/installation/bin/node"}
+      tn:
+        - tool: "write_file"
+          args: {"path": "/home/user/projects/bun-app/src/index.ts"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.bun/install/global/node_modules/react/index.js"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.bun/bin/bun"}
