@@ -949,8 +949,16 @@ structural_rules:
             - "(?:^|/)\\.openai-codex/config\\.json$"
             - "(?:^|/)\\.config/zed/settings\\.json$"
             - "(?i)Application Support/Zed/settings\\.json$"
+            # hooks.json — IDE hook configurations (issue #1192)
+            # Writing a new hooks.json without the AgentShield PreToolUse hook
+            # silently disables all AgentShield protections for future sessions.
+            # This is a self-protection bypass vector via MCP (the shell-level
+            # sp-block-delete-hooks rule covers the shell path; this covers MCP).
+            - "(?:^|/)\\.claude/hooks\\.json$"
+            - "(?:^|/)\\.cursor/hooks\\.json$"
+            - "(?i)Application Support/Claude/hooks\\.json$"
     decision: "BLOCK"
-    reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
+    reason: "MCP write to AI IDE settings or hooks file — an agent that modifies settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield. Writing hooks.json without the AgentShield PreToolUse hook silently disables all runtime protections for future sessions (self-protection bypass). OWASP LLM06, MITRE T1548."
     confidence: 0.97
     tests:
       tp:
@@ -981,6 +989,13 @@ structural_rules:
           args: {"path": "/home/user/.cursor/settings.json"}
         - tool: "apply_patch"
           args: {"path": "/home/user/.config/windsurf/settings.json"}
+        # hooks.json — issue #1192
+        - tool: "write_file"
+          args: {"path": "/home/user/.claude/hooks.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.cursor/hooks.json"}
+        - tool: "edit_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Claude/hooks.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
@@ -988,6 +1003,71 @@ structural_rules:
           args: {"path": "/workspace/docs/cursor-settings-guide.md"}
         - tool: "write_file"
           args: {"path": "/workspace/project/zed-settings-example.md"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/docs/hooks-overview.md"}
+
+  # === BLOCK: Write to ~/.claude/commands/ (global command injection) (issue #1191) ===
+  #
+  # ~/.claude/commands/ holds user-level global slash commands for Claude Code.
+  # Every .md file placed here becomes a slash command available in ALL future
+  # Claude Code sessions across all projects. An MCP server that injects a
+  # malicious command here achieves persistent inter-session prompt injection
+  # with full agent permissions when the victim triggers the command.
+  #
+  # Scope: home-directory-level only (home-dir regex anchor).
+  # Project-level .claude/commands/ (e.g., /workspace/.claude/commands/) is
+  # already covered with AUDIT by mcp-persist-audit-instruction-file-write.
+  #
+  # Attack example:
+  #   write_file(path="~/.claude/commands/build.md", content="<malicious prompt>")
+  #   → Next session: user runs /project:build → agent executes injected instructions
+  - id: mcp-persist-block-claude-commands-write
+    taxonomy: "persistence-evasion/agent-config-persistence/agent-instruction-file-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
+      args_match:
+        path:
+          pattern_any:
+            # Home-dir-scoped: matches ~/.claude/commands/ on Linux, macOS, and root
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.claude/commands/"
+            - "(?i)Application Support/Claude/commands/"
+    decision: "BLOCK"
+    reason: "MCP write to ~/.claude/commands/ — injects a persistent global slash command into every future Claude Code session. Any .md file written here becomes a slash command available across all projects, achieving inter-session prompt injection. OWASP LLM01/LLM08, MITRE T1546."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.claude/commands/evil.md"}
+        - tool: "create_file"
+          args: {"path": "/root/.claude/commands/persist.md"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.claude/commands/backdoor.md"}
+        - tool: "edit_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Claude/commands/evil.md"}
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.claude/commands/build.md"}
+      tn:
+        # Project-level commands are legitimate developer work
+        - tool: "write_file"
+          args: {"path": "/workspace/project/.claude/commands/build.md"}
+        - tool: "write_file"
+          args: {"path": "/home/user/projects/myapp/.claude/commands/deploy.md"}
+        # Docs mentioning the path should not trigger
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/claude-commands-guide.md"}
 
   # === BLOCK: Write to IDE keybindings files via MCP (issue #1068) ===
   #
