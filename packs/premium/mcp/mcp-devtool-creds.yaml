@@ -1,0 +1,128 @@
+name: "MCP Developer Tool Credentials (Premium)"
+description: >
+  Premium rules blocking MCP access to developer tool credential files not covered by
+  the community pack — XDG config paths, alternative credential locations, and
+  platform-specific config directories.
+version: "1.0.0"
+author: "AgentShield Security Research"
+
+rules:
+  # ------------------------------------------------------------------
+  # JFrog CLI XDG config path (~/.config/jfrog/) — issue #1188
+  # ------------------------------------------------------------------
+  # JFrog CLI v6+ follows the XDG Base Directory Specification and writes
+  # its config to ~/.config/jfrog/ rather than the legacy ~/.jfrog/ location.
+  # The existing community rule mcp-sec-block-jfrog-credentials covers
+  # **/.jfrog/** but does NOT cover **/.config/jfrog/**.
+  #
+  # Files at risk:
+  #   ~/.config/jfrog/jfrog-cli.conf.v6  — server URL, API key, access token (v6 format)
+  #   ~/.config/jfrog/jfrog-cli.conf.v7  — v7 format with OAuth/OIDC tokens
+  #   ~/.config/jfrog/jfrog-cli.conf.v8  — v8 format (future)
+  #   ~/.config/jfrog/security/           — access tokens, SSH keys for Artifactory
+  #
+  # These credentials enable:
+  #   - Publishing malicious artifacts to private registries (supply chain attack)
+  #   - Reading private build artifacts and source tarballs
+  #   - Accessing Xray vulnerability scan results for enumeration
+  #   - Authenticating to JFrog Distribution and Pipeline services
+  #
+  # MITRE T1552.001 — Unsecured Credentials: Credentials In Files
+  # MITRE T1195.001 — Supply Chain Compromise: Compromise Software Dependencies
+  - id: mcp-sec-block-jfrog-xdg-config
+    taxonomy: "credential-exposure/config-file-access/generic-config-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.config/jfrog/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.config/jfrog/ is blocked — JFrog CLI v6+ stores API keys, access tokens, and server credentials here following the XDG base directory convention. Exfiltration enables publishing malicious artifacts to private Artifactory registries and supply chain attacks. MITRE T1552.001, T1195.001."
+    confidence: 0.95
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/jfrog/jfrog-cli.conf.v6"}
+        - tool: "read_file"
+          args: {"path": "/root/.config/jfrog/jfrog-cli.conf.v7"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.config/jfrog/security/tokens/access-token"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/jfrog/jfrog-cli.conf.v6"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/jfrog-setup-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/src/jfrog_client.py"}
+        - tool: "write_file"
+          args: {"path": "/workspace/config/jfrog-pipeline.yaml"}
+
+  # ------------------------------------------------------------------
+  # Atlassian CLI config (~/.config/atlassian/) — issue #1189
+  # ------------------------------------------------------------------
+  # The Atlassian CLI (atlassian-plugin-sdk, forge CLI, Jira/Confluence CLI)
+  # stores OAuth tokens and API tokens under ~/.config/atlassian/.
+  # These tokens grant full Jira and Confluence API access.
+  #
+  # Files at risk:
+  #   ~/.config/atlassian/config.json    — OAuth access + refresh tokens
+  #   ~/.config/atlassian/credentials    — personal access tokens (PATs)
+  #
+  # Token exfiltration enables:
+  #   - Reading all Jira issues, project roadmaps, sprint plans
+  #   - Reading Confluence pages including internal docs and architecture
+  #   - Creating/modifying Jira issues to inject false information
+  #   - Accessing Atlassian admin APIs if the token has admin scope
+  #
+  # MITRE T1552.001 — Unsecured Credentials: Credentials In Files
+  - id: mcp-sec-block-atlassian-config
+    taxonomy: "credential-exposure/api-keys/atlassian-credential-access"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "write_to_file"
+      argument_patterns:
+        path: "**/.config/atlassian/**"
+    decision: "BLOCK"
+    reason: "Access to ~/.config/atlassian/ is blocked — contains Atlassian CLI OAuth tokens and personal access tokens granting full Jira and Confluence API access. MITRE T1552.001."
+    confidence: 0.90
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/atlassian/config.json"}
+        - tool: "read_file"
+          args: {"path": "/root/.config/atlassian/credentials"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.config/atlassian/token"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/docs/atlassian-integration-guide.md"}
+        - tool: "read_file"
+          args: {"path": "/workspace/src/atlassian_client.go"}
+        - tool: "write_file"
+          args: {"path": "/workspace/config/atlassian-pipeline.yaml"}
