@@ -53,19 +53,27 @@ func loadMCPRedTeamCases(t *testing.T) []RedTeamMCPCase {
 
 // redTeamPolicy returns the MCP policy used for red-team tests.
 // It mirrors the real proxy startup: DefaultMCPPolicy() as the base,
-// merged with the built-in packs from packs/community/mcp/ in the repo root.
+// merged with community + premium packs from packs/ in the repo root.
 // This ensures red-team tests validate the full deployed policy, not
 // just the minimal defaults.
 func redTeamPolicy() *MCPPolicy {
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
-	packsDir := filepath.Join(dir, "..", "..", "packs", "community", "mcp")
 
 	base := DefaultMCPPolicy()
-	merged, _, err := LoadMCPPacks(packsDir, base)
+
+	// Load community packs first
+	communityDir := filepath.Join(dir, "..", "..", "packs", "community", "mcp")
+	merged, _, err := LoadMCPPacks(communityDir, base)
 	if err != nil {
-		// Fall back to base if packs directory is unavailable.
-		return base
+		merged = base
+	}
+
+	// Layer premium packs on top
+	premiumDir := filepath.Join(dir, "..", "..", "packs", "premium", "mcp")
+	merged, _, err = LoadMCPPacks(premiumDir, merged)
+	if err != nil {
+		return merged
 	}
 	return merged
 }
