@@ -52,7 +52,7 @@ mcp-verify: ## Run MCP proxy self-test and output Markdown report
 test-mcp: ## Run MCP scenario tests
 	go test -v -run TestMCPScenarios ./internal/mcp/
 
-mcp-gen: ## Generate MCP rules from shell rules (packs/mcp/mcp-generated.yaml)
+mcp-gen: ## Generate MCP rules from shell rules (packs/community/mcp/mcp-generated.yaml)
 	go run ./cmd/mcp-gen
 
 compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy entries and standards

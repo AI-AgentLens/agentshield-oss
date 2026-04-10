@@ -12,18 +12,18 @@ Formal security rule reviews conducted by Gary + Kai to reduce FP/FN rates. Revi
 | `packs/supply-chain.yaml` | 120 | 2026-03-23 | 8 | 6 | #278, #281 | Filed |
 | `packs/network-egress.yaml` | 140 | 2026-03-23 | 6 | 6 | Pending | Filed |
 | `packs/terminal-safety.yaml` | 635 | 2026-03-23 | 30+ | 10+ | Pending | Filed |
-| `packs/mcp/mcp-secrets.yaml` | 144 | 2026-03-23 | 4 | 2 | #279 | Filed |
-| `packs/mcp/mcp-safety.yaml` | 42 | 2026-03-23 | 6 | 1 | Pending | Filed |
-| `packs/mcp/mcp-supply-chain.yaml` | 12 | 2026-03-23 | 5 | 1 | Pending | Filed |
-| `packs/mcp/mcp-persistence.yaml` | 12 | 2026-03-23 | 3 | 1 | Pending | Filed |
-| `packs/mcp/mcp-privilege-escalation.yaml` | 10 | 2026-03-23 | 3 | 1 | Pending | Filed |
-| `packs/mcp/mcp-financial.yaml` | 13 | 2026-03-23 | 0 | 2 | Pending | Filed |
-| `packs/mcp/mcp-governance.yaml` | 6 | 2026-03-23 | 1 | 0 | Pending | Filed |
-| `packs/mcp/mcp-reconnaissance.yaml` | 17 | 2026-03-23 | 4 | 1 | Pending | Filed |
-| `packs/mcp/mcp-llm-data-flow.yaml` | 23 | 2026-03-23 | 2 | 1 | Pending | Filed |
-| `packs/mcp/mcp-content-integrity.yaml` | 16 | 2026-03-23 | 2 | 1 | Pending | Filed |
-| `packs/mcp/mcp-response-integrity.yaml` | 8 | 2026-03-23 | 2 | 0 | Pending | Filed |
-| `packs/mcp/mcp-generated.yaml` | 0 | N/A | — | — | — | Empty |
+| `packs/community/mcp/mcp-secrets.yaml` | 144 | 2026-03-23 | 4 | 2 | #279 | Filed |
+| `packs/community/mcp/mcp-safety.yaml` | 42 | 2026-03-23 | 6 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-supply-chain.yaml` | 12 | 2026-03-23 | 5 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-persistence.yaml` | 12 | 2026-03-23 | 3 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-privilege-escalation.yaml` | 10 | 2026-03-23 | 3 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-financial.yaml` | 13 | 2026-03-23 | 0 | 2 | Pending | Filed |
+| `packs/community/mcp/mcp-governance.yaml` | 6 | 2026-03-23 | 1 | 0 | Pending | Filed |
+| `packs/community/mcp/mcp-reconnaissance.yaml` | 17 | 2026-03-23 | 4 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-llm-data-flow.yaml` | 23 | 2026-03-23 | 2 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-content-integrity.yaml` | 16 | 2026-03-23 | 2 | 1 | Pending | Filed |
+| `packs/community/mcp/mcp-response-integrity.yaml` | 8 | 2026-03-23 | 2 | 0 | Pending | Filed |
+| `packs/community/mcp/mcp-generated.yaml` | 0 | N/A | — | — | — | Empty |
 
 ## Comply — Static Analysis Rules (Semgrep)
 
@@ -100,7 +100,7 @@ While filing #1153, AgentShield blocked the `gh issue create` command because `s
 
 3. **Datalabel analyzer is not ready to ship**: Two correctness bugs produce observable incorrect behavior in basic customer scenarios. Context regex matches the full document (not a window), making the `context:` field effectively useless as a FP suppressor. Unknown validator names fail open, so a YAML typo silently disables Luhn check and every 15-16 digit number becomes a finding. Neither is a rule problem — this is code in `internal/datalabel/`, belongs to engineering not Baby Kai.
 
-4. **Legacy pack files on disk**: `packs/mcp/` (14 files) still exists alongside the live `packs/community/mcp/`. Only `community/mcp/*.yaml` is embedded via `go:embed`. The old directory is confusing for reviewers and should be deleted or underscored. Filing as follow-up cleanup task.
+4. **Legacy pack files on disk**: `packs/mcp/` (15 files) existed alongside the live `packs/community/mcp/`. Only `community/mcp/*.yaml` was embedded via `go:embed`, so the old directory was dead code confusing reviewers. Removed in chore/remove-legacy-packs-mcp — audit confirmed no rules needed porting (community/ was a strict superset except for one deliberately-removed rule, `mcp-sec-block-non-dotfile-env-read`, replaced in PR #1154).
 
 ### Deferred to Phase 2
 

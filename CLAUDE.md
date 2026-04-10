@@ -150,7 +150,7 @@ data_labels:
 
 ### MCP Rule Generation & Validation
 
-**Shell-to-MCP generator** (`cmd/mcp-gen/`): Converts shell rules with file path or URL patterns into MCP rules. Run `make mcp-gen` to regenerate `packs/mcp/mcp-generated.yaml` + TP scenarios + TN pool.
+**Shell-to-MCP generator** (`cmd/mcp-gen/`): Converts shell rules with file path or URL patterns into MCP rules. Run `make mcp-gen` to regenerate `packs/community/mcp/mcp-generated.yaml` + TP scenarios + TN pool.
 
 **MCP eval command** (`agentshield mcp-eval`): Evaluates a simulated MCP tool call against deployed policy. The shell-rule equivalent is now the hook itself (live evaluation in Claude Code / Cursor) plus the Go unit tests — there is no shell-command CLI evaluator, by design (see safety note above). Use `mcp-eval` for MCP rule validation and dogfooding:
 
@@ -185,7 +185,7 @@ When adding new test cases, mark known gaps with the `KnownGap` field rather tha
 
 ### Rule Test Coverage Requirement
 
-Every policy pack rule (in `packs/` and `packs/mcp/`) MUST have at least one:
+Every policy pack rule (in `packs/community/`, `packs/community/mcp/`, `packs/premium/`, and `packs/premium/mcp/`) MUST have at least one:
 - **True Positive (TP)** — malicious/risky command that the rule correctly flags (`BLOCK` or `AUDIT`). Use ID format `TP-<RULE-ID>-NNN`.
 - **True Negative (TN)** — benign command that the rule correctly allows (`ALLOW`). Use ID format `TN-<RULE-ID>-NNN`.
 

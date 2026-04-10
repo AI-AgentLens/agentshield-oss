@@ -399,8 +399,9 @@ func unwrapMCPConfig(loc mcpConfigLocation) error {
 
 // installDefaultMCPPacks copies the built-in MCP packs to ~/.agentshield/mcp-packs/.
 // Existing packs are not overwritten (user customizations are preserved).
-// Pack content is read from the embedded packs/mcp/*.yaml files via packs.MCPFiles(),
-// so there is a single source of truth and no rule duplication in source code.
+// Pack content is read from the embedded packs/community/mcp/*.yaml files via
+// packs.MCPFiles(), so there is a single source of truth and no rule
+// duplication in source code.
 func installDefaultMCPPacks() error {
 	cfg, err := config.Load("", "", "")
 	if err != nil {
@@ -448,7 +449,7 @@ func ensureDefaultMCPPolicy() error {
 	// Minimal policy: defaults only, no hardcoded rules.
 	// All security rules live in ~/.agentshield/mcp-packs/ (installed below by
 	// installDefaultMCPPacks). Keeping rules here would duplicate the YAML in
-	// packs/mcp/ and make them hard to maintain.
+	// packs/community/mcp/ and make them hard to maintain.
 	defaultPolicy := `# AgentShield MCP Policy
 # Controls which MCP tool calls are allowed, audited, or blocked.
 # Security rules are provided by the packs in ~/.agentshield/mcp-packs/

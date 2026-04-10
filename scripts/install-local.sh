@@ -181,7 +181,7 @@ echo ""
 info "Installing MCP packs"
 
 MCP_COUNT=0
-for pack in "${REPO_ROOT}"/packs/mcp/*.yaml; do
+for pack in "${REPO_ROOT}"/packs/community/mcp/*.yaml; do
   [[ -f "$pack" ]] || continue
   cp "$pack" "${CONFIG_DIR}/mcp-packs/"
   ok "$(basename "$pack")"
@@ -189,7 +189,7 @@ for pack in "${REPO_ROOT}"/packs/mcp/*.yaml; do
 done
 
 if [[ "$MCP_COUNT" -eq 0 ]]; then
-  warn "No MCP packs found in packs/mcp/"
+  warn "No MCP packs found in packs/community/mcp/"
 else
   ok "${MCP_COUNT} MCP pack(s) installed to ${CONFIG_DIR}/mcp-packs/"
 fi

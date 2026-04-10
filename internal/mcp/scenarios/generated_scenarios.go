@@ -909,10 +909,10 @@ var GeneratedTNScenarios = []Scenario{
 		ID:               "MCP-TP-265",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/workspace/project/.env.local"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "credential-access",
-		Description:      "MCP write to .env.local — could inject malicious env vars or overwrite secrets",
+		Description:      "MCP write to .env.local — flagged AUDIT (read is BLOCK; write was downgraded in PR #1154 to fix scaffolding FPs).",
 	},
 	{
 		ID:               "MCP-TP-266",
@@ -927,10 +927,10 @@ var GeneratedTNScenarios = []Scenario{
 		ID:               "MCP-TP-267",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/home/user/project/.envrc"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "credential-access",
-		Description:      "MCP write to .envrc — could inject malicious env var exports via direnv",
+		Description:      "MCP write to .envrc — flagged AUDIT (read is BLOCK; write was downgraded in PR #1154 to allow direnv project setup).",
 	},
 	{
 		ID:               "MCP-TN-141",
@@ -4604,33 +4604,38 @@ var GeneratedTNScenarios = []Scenario{
 		Category:         "safe-project-file",
 		Description:      "Developing a GNOME extension in project workspace — writes to workspace, not to the installed extension directory (issue #375)",
 	},
-	// Issue #383: Non-dotfile *.env suffix credential files (secrets.env, credentials.env)
+	// Issue #383: Non-dotfile *.env suffix credential files (secrets.env, credentials.env, app.env).
+	// FP fix #1154: the broad `**/*.env` BLOCK rule was replaced with two narrower
+	// AUDIT rules (mcp-sec-audit-non-dotfile-env-read and
+	// mcp-sec-audit-non-dotfile-credential-env-read) to avoid blocking legitimate
+	// non-secret files like staging.env, prod.env, docker-compose.dev.env. The
+	// scenarios below assert the post-fix AUDIT behaviour.
 	{
 		ID:               "MCP-TP-689",
 		ToolName:         "read_file",
 		Arguments:        map[string]interface{}{"path": "/workspace/project/secrets.env"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "credential-access",
-		Description:      "MCP read of secrets.env — Docker Compose env_file credential store, must be blocked (issue #383)",
+		Description:      "MCP read of secrets.env — Docker Compose env_file credential store, audited per FP fix #1154 (issue #383)",
 	},
 	{
 		ID:               "MCP-TP-698",
 		ToolName:         "read_file",
 		Arguments:        map[string]interface{}{"path": "/home/user/app/credentials.env"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "credential-access",
-		Description:      "MCP read of credentials.env — explicit credential file used in Kubernetes envFrom, must be blocked (issue #383)",
+		Description:      "MCP read of credentials.env — Kubernetes envFrom credential file, audited per FP fix #1154 (issue #383)",
 	},
 	{
 		ID:               "MCP-TP-699",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/workspace/project/app.env", "content": "DB_PASSWORD=evil"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "credential-access",
-		Description:      "MCP write to app.env — non-dotfile env file used in CI/CD pipelines, overwrite could inject malicious credentials (issue #383)",
+		Description:      "MCP write to app.env — CI/CD env file, audited per FP fix #1154 (issue #383)",
 	},
 	{
 		ID:               "MCP-TN-687",

@@ -621,7 +621,7 @@ structural_rules:
           args: {"path": "/k8s/daemonset.yaml", "content": "hostNetwork: true\nhostPID: true"}
       tn:
         - tool: "write_file"
-          args: {"path": "packs/mcp/example.yaml", "content": "privileged: true"}
+          args: {"path": "packs/community/mcp/example.yaml", "content": "privileged: true"}
         - tool: "write_file"
           args: {"path": "docs/security-guide.md", "content": "Never set privileged: true"}
         - tool: "write_file"

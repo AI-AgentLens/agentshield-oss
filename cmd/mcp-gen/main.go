@@ -4,9 +4,9 @@
 // equally to MCP tool calls (file path access, URL access), deduplicates against
 // existing MCP rules, and outputs:
 //
-//  1. packs/mcp/mcp-generated.yaml — new MCP rules
+//  1. packs/community/mcp/mcp-generated.yaml — new MCP rules
 //  2. internal/mcp/scenarios/generated_scenarios.go — TP scenarios
-//  3. packs/mcp/tn-pool.json — TN work queue for Baby Kai
+//  3. packs/community/mcp/tn-pool.json — TN work queue for Baby Kai
 //
 // Usage:
 //
@@ -29,7 +29,7 @@ func main() {
 	root := findProjectRoot()
 
 	packsDir := filepath.Join(root, "packs")
-	mcpPacksDir := filepath.Join(root, "packs", "mcp")
+	mcpPacksDir := filepath.Join(root, "packs", "community", "mcp")
 	scenariosDir := filepath.Join(root, "internal", "mcp", "scenarios")
 
 	// Step 1: Load shell packs.

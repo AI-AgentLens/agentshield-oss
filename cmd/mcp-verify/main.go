@@ -10,11 +10,11 @@ import (
 )
 
 func main() {
-	// Determine packs directory. When run from repo root, packs/mcp/ is
-	// the default. Allow override via environment variable.
+	// Determine packs directory. When run from repo root, packs/community/mcp/
+	// is the default. Allow override via environment variable.
 	packsDir := os.Getenv("MCP_PACKS_DIR")
 	if packsDir == "" {
-		packsDir = "packs/mcp"
+		packsDir = "packs/community/mcp"
 	}
 
 	results := mcp.RunMCPSelfTest(packsDir)

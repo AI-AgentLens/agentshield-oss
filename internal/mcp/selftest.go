@@ -69,7 +69,7 @@ func (r MCPSelfTestResults) FormatMarkdown() string {
 }
 
 // RunMCPSelfTest runs all scenarios and returns structured results.
-// packsDir should point to the packs/mcp/ directory containing YAML packs.
+// packsDir should point to the packs/community/mcp/ directory containing YAML packs.
 func RunMCPSelfTest(packsDir string) MCPSelfTestResults {
 	// Load policy
 	mcpPolicy := DefaultMCPPolicy()
