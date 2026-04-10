@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install run help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss
+.PHONY: build test lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -30,9 +30,6 @@ clean: ## Remove build artifacts
 install: build ## Install to /usr/local/bin
 	cp $(BUILD_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
 
-run: build ## Build and run with args (usage: make run ARGS="run -- echo hi")
-	$(BUILD_DIR)/$(BINARY) $(ARGS)
-
 deps: ## Download dependencies
 	go mod download
 	go mod tidy
@@ -55,7 +52,7 @@ mcp-verify: ## Run MCP proxy self-test and output Markdown report
 test-mcp: ## Run MCP scenario tests
 	go test -v -run TestMCPScenarios ./internal/mcp/
 
-mcp-gen: ## Generate MCP rules from shell rules (packs/mcp/mcp-generated.yaml)
+mcp-gen: ## Generate MCP rules from shell rules (packs/community/mcp/mcp-generated.yaml)
 	go run ./cmd/mcp-gen
 
 compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy entries and standards
@@ -63,9 +60,19 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 
 deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Deploying packs..."
-	@mkdir -p ~/.agentshield/packs ~/.agentshield/mcp-packs
+	@# Remove legacy nested layouts from historical deploys. Earlier versions
+	@# of this target copied into ~/.agentshield/packs/community/ and
+	@# ~/.agentshield/packs/premium/; the pack loader walks subdirectories,
+	@# so stale copies there would be loaded alongside the fresh flat layout
+	@# and resurrect rules we thought we retired (see issue #1153 dogfooding
+	@# incident). Nuke them before copying so only the current layout exists.
+	@rm -rf ~/.agentshield/packs/community ~/.agentshield/packs/premium
+	@rm -f ~/.agentshield/packs/packs.go ~/.agentshield/packs/packs_premium.go
+	@mkdir -p ~/.agentshield/packs ~/.agentshield/packs/mcp ~/.agentshield/mcp-packs
 	@cp packs/community/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
 	@cp packs/premium/*.yaml ~/.agentshield/packs/ 2>/dev/null || true
+	@cp packs/community/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
+	@cp packs/premium/mcp/*.yaml ~/.agentshield/packs/mcp/ 2>/dev/null || true
 	@echo "Deploying binary..."
 	@cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY) 2>/dev/null || sudo cp $(BUILD_DIR)/$(BINARY) /opt/homebrew/bin/$(BINARY)
 	@echo "Verifying..."
@@ -93,3 +100,23 @@ test-brew: ## Test brew tap + install + scan in Docker container
 		echo ""; \
 		echo "=== HOMEBREW INSTALL TEST PASSED ===" \
 	'
+
+test-premium: build ## Test premium pack update flow (requires agentshield login)
+	@echo "=== Premium Pack Update Test ==="
+	@if [ ! -f ~/.agentshield/credentials.json ]; then \
+		echo "❌ Not logged in. Run: agentshield login"; exit 1; \
+	fi
+	@echo "[1/4] Clearing existing premium packs..."
+	@rm -f ~/.agentshield/packs/terminal-safety.yaml ~/.agentshield/packs/secrets-pii.yaml
+	@echo "[2/4] Running agentshield update..."
+	@$(BUILD_DIR)/$(BINARY) update
+	@echo ""
+	@echo "[3/4] Verifying packs downloaded..."
+	@test -f ~/.agentshield/packs/terminal-safety.yaml || (echo "❌ terminal-safety.yaml not downloaded" && exit 1)
+	@test -f ~/.agentshield/packs/secrets-pii.yaml || (echo "❌ secrets-pii.yaml not downloaded" && exit 1)
+	@echo "  ✅ Premium packs present"
+	@echo ""
+	@echo "[4/4] Running scan with premium packs..."
+	@$(BUILD_DIR)/$(BINARY) scan 2>&1 | grep -A4 "Premium Status"
+	@echo ""
+	@echo "=== PREMIUM UPDATE TEST PASSED ==="

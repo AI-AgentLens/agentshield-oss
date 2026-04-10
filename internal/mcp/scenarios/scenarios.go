@@ -190,12 +190,23 @@ func itoa(n int) string {
 }
 
 // AllScenarios returns all MCP self-test scenarios.
+//
+// Scenarios come from four sources:
+//   - TruePositiveScenarios / TrueNegativeScenarios: legacy hand-curated
+//     scenarios in this file (scenarios.go).
+//   - GeneratedTPScenarios / GeneratedTNScenarios: output of cmd/mcp-gen,
+//     owned entirely by the generator (generated_scenarios.go).
+//   - CuratedTPScenarios / CuratedTNScenarios: new hand-curated scenarios
+//     added after the issue #1174 split (curated_scenarios.go). The generator
+//     never touches this file; it is SAFE to edit.
 func AllScenarios() []Scenario {
 	var all []Scenario
 	all = append(all, TruePositiveScenarios...)
 	all = append(all, TrueNegativeScenarios...)
 	all = append(all, GeneratedTPScenarios...)
 	all = append(all, GeneratedTNScenarios...)
+	all = append(all, CuratedTPScenarios...)
+	all = append(all, CuratedTNScenarios...)
 	return all
 }
 
@@ -4775,11 +4786,11 @@ var TrueNegativeScenarios = []Scenario{
 	{
 		ID:               "MCP-TN-387",
 		ToolName:         "write_file",
-		Arguments:        map[string]interface{}{"path": "packs/mcp/mcp-privilege-escalation.yaml", "content": "rules:\n  - id: mcp-privesc-block-privileged-container\n    match:\n      args_match:\n        content:\n          pattern_any:\n            - \"(?i)privileged:\\\\s*true\"\n    decision: BLOCK\n    reason: 'Privileged container flag detected.'\n"},
+		Arguments:        map[string]interface{}{"path": "packs/community/mcp/mcp-privilege-escalation.yaml", "content": "rules:\n  - id: mcp-privesc-block-privileged-container\n    match:\n      args_match:\n        content:\n          pattern_any:\n            - \"(?i)privileged:\\\\s*true\"\n    decision: BLOCK\n    reason: 'Privileged container flag detected.'\n"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		Category:         "safe-privesc-packs-policy",
-		Description:      "write_file to packs/mcp/ YAML containing 'privileged: true' as a detection pattern — AgentShield policy rule authoring, not a container manifest; must be AUDIT not BLOCK (issue #145)",
+		Description:      "write_file to packs/community/mcp/ YAML containing 'privileged: true' as a detection pattern — AgentShield policy rule authoring, not a container manifest; must be AUDIT not BLOCK (issue #145)",
 	},
 	{
 		ID:               "MCP-TN-388",
@@ -6957,5 +6968,56 @@ var TrueNegativeScenarios = []Scenario{
 		Classification:   "TN",
 		Category:         "mcp-persistence-ide-keybindings",
 		Description:      "write_file to application source file named keybindings.ts — project source, not IDE config. (mcp-persist-block-ide-keybindings-write TN)",
+	},
+	// Rule: mcp-sc-audit-bun-shell-template-write (issue #1161)
+	// Semgrep cannot track taint through Bun's tagged template literal form Bun.$`${cmd}`.
+	// This rule provides write-time visibility when an AI agent writes .ts/.js files with
+	// Bun shell tagged templates containing variable interpolation.
+	{
+		ID:               "MCP-TP-1161a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/scripts/deploy.ts", "content": "import { $ } from 'bun';\nconst cmd = process.argv[2];\nawait Bun.$`${cmd}`;"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: TypeScript file with Bun.$`${cmd}` — tagged template literal with variable interpolation. Semgrep taint gap (todoruleid); AUDIT for write-time visibility. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	{
+		ID:               "MCP-TP-1161b",
+		ToolName:         "create_file",
+		Arguments:        map[string]interface{}{"path": "/workspace/src/runner.mjs", "content": "export async function run(command) {\n  return await Bun.$`${command}`;\n}"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "create_file: .mjs file with Bun.$`${command}` — tagged template literal with dynamic variable. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	{
+		ID:               "MCP-TP-1161c",
+		ToolName:         "str_replace_editor",
+		Arguments:        map[string]interface{}{"path": "/workspace/build.tsx", "content": "const result = await Bun.$`${buildCmd} --output dist`;\nconsole.log(result.stdout);"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "str_replace_editor: .tsx file with Bun.$`${buildCmd}` — multiple args in template. (mcp-sc-audit-bun-shell-template-write)",
+	},
+	// TN: Bun shell with static (non-interpolated) templates — no variable interpolation, safe
+	{
+		ID:               "MCP-TN-1161a",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/scripts/setup.ts", "content": "import { $ } from 'bun';\nawait Bun.$`npm install`;\nawait Bun.$`tsc --build`;"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: TypeScript file with Bun.$ static templates (no interpolation) — must NOT trigger the Bun shell template rule. (mcp-sc-audit-bun-shell-template-write TN)",
+	},
+	// TN: non-JS/TS file with Bun shell pattern in content — wrong extension
+	{
+		ID:               "MCP-TN-1161b",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "/project/docs/bun-shell-guide.md", "content": "## Bun Shell\n\nBun.$`${cmd}` is the tagged template literal syntax.\n"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sc-audit-bun-shell-template-write",
+		Description:      "write_file: markdown documentation file mentioning Bun.$`${cmd}` — .md extension, must NOT trigger the Bun shell template rule. (mcp-sc-audit-bun-shell-template-write TN)",
 	},
 }

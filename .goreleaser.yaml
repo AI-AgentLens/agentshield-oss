@@ -31,7 +31,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - packs/*.yaml
-      - packs/mcp/*.yaml
+      - packs/community/mcp/*.yaml
       - scripts/agentshield-wrapper.sh
       - configs/default_policy.yaml
       - src: compliance-bin/agentcompliance_{{ .Os }}_{{ .Arch }}/agentcompliance

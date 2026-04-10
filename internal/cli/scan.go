@@ -3,8 +3,10 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
@@ -14,6 +16,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var scanCmd = &cobra.Command{
@@ -243,6 +246,12 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	printIntegrationHooks()
 	fmt.Println()
 
+	// ── Premium Status ──────────────────────────────────────────
+
+	fmt.Println("─── Premium Status ────────────────────────────────────")
+	printPremiumStatus(cfg)
+	fmt.Println()
+
 	// ── Tamper Protection ────────────────────────────────────────
 
 	tamperPass := printTamperProtection(cfg)
@@ -339,6 +348,85 @@ func printIntegrationHooks() {
 		fmt.Println("  ⚠️  No integration hooks detected")
 		fmt.Println("     Run: agentshield setup claude-code|windsurf|cursor")
 	}
+}
+
+// printPremiumStatus checks credentials and shows premium account status.
+func printPremiumStatus(cfg *config.Config) {
+	credsPath := filepath.Join(cfg.ConfigDir, "credentials.json")
+	data, err := os.ReadFile(credsPath)
+	if err != nil {
+		fmt.Println("  ℹ  Not logged in")
+		fmt.Println("     Run: agentshield login")
+		fmt.Println("     Premium rules: agentshield update")
+		return
+	}
+
+	var creds struct {
+		Server string `json:"server"`
+		Token  string `json:"token"`
+		User   struct {
+			Email string `json:"email"`
+			OrgID int    `json:"org_id"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(data, &creds); err != nil || creds.Token == "" {
+		fmt.Println("  ⚠  Invalid credentials — run: agentshield login")
+		return
+	}
+
+	// Count premium packs on disk
+	premiumCount := 0
+	premiumRules := 0
+	packsDir := filepath.Join(cfg.ConfigDir, "packs")
+	if entries, err := os.ReadDir(packsDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !isYAMLExt(e.Name()) {
+				continue
+			}
+			premiumCount++
+			if packData, err := os.ReadFile(filepath.Join(packsDir, e.Name())); err == nil {
+				var p struct {
+					Rules []interface{} `yaml:"rules"`
+				}
+				if yaml.Unmarshal(packData, &p) == nil {
+					premiumRules += len(p.Rules)
+				}
+			}
+		}
+	}
+
+	// Try to verify the token is still valid
+	serverStatus := "connected"
+	if creds.Server != "" {
+		req, err := http.NewRequest("GET", creds.Server+"/api/auth/me", nil)
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+creds.Token)
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				serverStatus = "unreachable"
+			} else {
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					serverStatus = "connected"
+				} else {
+					serverStatus = "token expired — run: agentshield login"
+				}
+			}
+		}
+	}
+
+	fmt.Printf("  ✅ Account:       %s\n", creds.User.Email)
+	fmt.Printf("  ✅ Server:        %s (%s)\n", creds.Server, serverStatus)
+	if premiumCount > 0 {
+		fmt.Printf("  ✅ Premium packs: %d installed (%d rules)\n", premiumCount, premiumRules)
+	} else {
+		fmt.Println("  ℹ  Premium packs: none — run: agentshield update")
+	}
+}
+
+func isYAMLExt(name string) bool {
+	return filepath.Ext(name) == ".yaml" || filepath.Ext(name) == ".yml"
 }
 
 // printTamperProtection displays the enterprise tamper protection status.

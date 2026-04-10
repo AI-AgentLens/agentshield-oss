@@ -29,7 +29,8 @@ type keywordOwner struct {
 
 // NewEngine creates a detection engine from the given configs.
 // Returns (nil, nil) if configs is empty — caller should skip registration.
-// Returns an error if any regex pattern fails to compile (fail at startup).
+// Returns an error if any regex pattern fails to compile, or if a pattern
+// references an unknown validator name (fail at startup per BUG-DL-005).
 func NewEngine(configs []DataLabelConfig) (*Engine, error) {
 	if len(configs) == 0 {
 		return nil, nil
@@ -68,6 +69,12 @@ func NewEngine(configs []DataLabelConfig) (*Engine, error) {
 				cl.contextRegexes[j] = re
 			}
 
+			// Validator name check — fail fast on typos so bad config can't
+			// silently fail-open at scan time (BUG-DL-005).
+			if !IsKnownValidator(pat.Validator) {
+				return nil, fmt.Errorf("data label %q pattern %d: unknown validator %q (supported: luhn)", cfg.ID, j, pat.Validator)
+			}
+
 			// Collect keywords for Aho-Corasick
 			for _, kw := range pat.Keywords {
 				acPatterns = append(acPatterns, ACPattern{
@@ -95,6 +102,11 @@ func NewEngine(configs []DataLabelConfig) (*Engine, error) {
 // ScanText scans text for all configured data labels and returns matches.
 // toolName and direction are used for scope filtering (MCP context).
 // For shell commands, pass toolName="" and direction="".
+//
+// BLOCK semantics (BUG-DL-002): as soon as any tier produces a BLOCK match,
+// ScanText returns a slice containing only that single BLOCK finding — prior
+// AUDIT findings are discarded. This prevents corrupted finding sets where
+// keyword-tier AUDITs leak into a regex-tier BLOCK return.
 func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 	if e == nil || len(e.labels) == 0 {
 		return nil
@@ -128,7 +140,7 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 		}
 
 		matchText := text[hit.Start:hit.End]
-		matches = append(matches, DataLabelMatch{
+		m := DataLabelMatch{
 			LabelID:    cl.config.ID,
 			LabelName:  cl.config.Name,
 			Decision:   cl.config.Decision,
@@ -136,12 +148,14 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 			Reason:     cl.config.Reason,
 			PatternIdx: owner.patternIdx,
 			MatchText:  truncateMatch(matchText),
-		})
-
-		// Early termination: if we found a BLOCK, stop scanning
-		if cl.config.Decision == "BLOCK" {
-			return matches
 		}
+
+		// Early termination on BLOCK — return only the BLOCK finding.
+		if cl.config.Decision == "BLOCK" {
+			return []DataLabelMatch{m}
+		}
+
+		matches = append(matches, m)
 	}
 
 	// Tier 2: Regex scan (per-label, only if scope matches)
@@ -165,9 +179,13 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 
 			matchText := text[loc[0]:loc[1]]
 
-			// Context check: if a context regex is defined, it must also match
+			// Context check: if a context regex is defined, match it against
+			// a window around the primary match (BUG-DL-001). Matching against
+			// the full text turns any context regex into a global "word is
+			// present anywhere" check, providing no FP discrimination.
 			if cl.contextRegexes[j] != nil {
-				if !cl.contextRegexes[j].MatchString(text) {
+				window := contextWindow(text, loc[0], loc[1])
+				if !cl.contextRegexes[j].MatchString(window) {
 					continue
 				}
 			}
@@ -180,7 +198,7 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 				}
 			}
 
-			matches = append(matches, DataLabelMatch{
+			m := DataLabelMatch{
 				LabelID:    cl.config.ID,
 				LabelName:  cl.config.Name,
 				Decision:   cl.config.Decision,
@@ -188,12 +206,15 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 				Reason:     cl.config.Reason,
 				PatternIdx: j,
 				MatchText:  truncateMatch(matchText),
-			})
-
-			// Early termination on BLOCK
-			if cl.config.Decision == "BLOCK" {
-				return matches
 			}
+
+			// Early termination on BLOCK — return only the BLOCK finding,
+			// pruning any prior AUDIT findings accumulated from tier 1.
+			if cl.config.Decision == "BLOCK" {
+				return []DataLabelMatch{m}
+			}
+
+			matches = append(matches, m)
 
 			// One match per label is sufficient — move to next label
 			break
@@ -203,11 +224,51 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 	return matches
 }
 
+// contextWindow returns a slice of text covering ±contextWindowBytes around
+// the given match range. Used by BUG-DL-001 fix so context regexes are
+// evaluated against the vicinity of a match, not the full document.
+func contextWindow(text string, start, end int) string {
+	s := start - contextWindowBytes
+	if s < 0 {
+		s = 0
+	}
+	e := end + contextWindowBytes
+	if e > len(text) {
+		e = len(text)
+	}
+	return text[s:e]
+}
+
 // matchesScope checks whether the given toolName and direction fall within
-// the label's scan scope. Empty scope fields mean "match everything".
+// the label's scan scope. Semantics (BUG-DL-004):
+//
+//   - Shell context = toolName == "" AND direction == "" (the convention
+//     established by the shell-command analyzer).
+//   - In shell context, scope.Shell is consulted: nil defaults to matching
+//     only when no MCP filters (Tools/Directions) are set; true always
+//     matches; false never matches.
+//   - In MCP context, Tools and Directions filters apply. If Tools is set
+//     but toolName is empty (e.g., response path with no correlation), the
+//     label does not match — use scope.Directions for inbound-only labels
+//     that don't depend on tool correlation.
 func matchesScope(scope ScanScopeConfig, toolName, direction string) bool {
-	// Direction check
-	if len(scope.Directions) > 0 && direction != "" {
+	isShell := toolName == "" && direction == ""
+
+	if isShell {
+		if scope.Shell != nil {
+			return *scope.Shell
+		}
+		// Legacy default: a label with any Tools/Directions filter is
+		// considered MCP-scoped; shell commands do not match unless
+		// scope.Shell=true is explicitly set.
+		if len(scope.Tools) > 0 || len(scope.Directions) > 0 {
+			return false
+		}
+		return true
+	}
+
+	// MCP context — apply direction filter
+	if len(scope.Directions) > 0 {
 		found := false
 		for _, d := range scope.Directions {
 			if d == direction {
@@ -220,8 +281,13 @@ func matchesScope(scope ScanScopeConfig, toolName, direction string) bool {
 		}
 	}
 
-	// Tool name glob check
-	if len(scope.Tools) > 0 && toolName != "" {
+	// MCP context — apply tool name filter
+	if len(scope.Tools) > 0 {
+		if toolName == "" {
+			// Response path without tool correlation — can't match a tools filter.
+			// Customers that want to scan responses should rely on Directions.
+			return false
+		}
 		found := false
 		for _, pattern := range scope.Tools {
 			if matched, _ := filepath.Match(pattern, toolName); matched {

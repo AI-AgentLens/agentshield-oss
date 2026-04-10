@@ -4,9 +4,9 @@
 // equally to MCP tool calls (file path access, URL access), deduplicates against
 // existing MCP rules, and outputs:
 //
-//  1. packs/mcp/mcp-generated.yaml — new MCP rules
+//  1. packs/community/mcp/mcp-generated.yaml — new MCP rules
 //  2. internal/mcp/scenarios/generated_scenarios.go — TP scenarios
-//  3. packs/mcp/tn-pool.json — TN work queue for Baby Kai
+//  3. packs/community/mcp/tn-pool.json — TN work queue for Baby Kai
 //
 // Usage:
 //
@@ -19,9 +19,16 @@ import (
 	"path/filepath"
 )
 
+// ID ranges reserved for generator output. These were bumped to 2000+ during
+// the issue #1174 split: prior to the split, the generator started at 173, but
+// hand-curated scenarios in the 173-194 range had been interleaved into the
+// same file. The split moved all existing scenarios into curated_scenarios.go
+// under their original IDs. Starting at 2000 ensures that future generator
+// runs cannot collide with any committed curated ID (max curated ID today is
+// ~1120).
 const (
-	startTPID = 173
-	startTNID = 86
+	startTPID = 2000
+	startTNID = 2000
 )
 
 func main() {
@@ -29,7 +36,7 @@ func main() {
 	root := findProjectRoot()
 
 	packsDir := filepath.Join(root, "packs")
-	mcpPacksDir := filepath.Join(root, "packs", "mcp")
+	mcpPacksDir := filepath.Join(root, "packs", "community", "mcp")
 	scenariosDir := filepath.Join(root, "internal", "mcp", "scenarios")
 
 	// Step 1: Load shell packs.

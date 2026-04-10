@@ -2,7 +2,6 @@ package policy
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
@@ -23,7 +22,11 @@ func expandExcludePattern(pattern string) string {
 // BuildAnalyzerPipeline creates a full analyzer registry from the engine's policy rules.
 // The pipeline runs: regex → structural → semantic, combined with most_restrictive strategy.
 // This is the standard pipeline for production use.
-func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
+//
+// Returns an error if the data label engine fails to initialize (e.g., invalid
+// customer regex or unknown validator name). Per BUG-DL-007, init errors are
+// surfaced to callers instead of silently disabling Layer 7.
+func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, error) {
 	if maxParseDepth <= 0 {
 		maxParseDepth = 2
 	}
@@ -90,9 +93,13 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
 	// Zero cost when DataLabels is empty — no analyzer instantiated.
 	if len(pol.DataLabels) > 0 {
 		dlConfigs := convertDataLabels(pol.DataLabels)
-		if engine, err := datalabel.NewEngine(dlConfigs); err != nil {
-			fmt.Fprintf(os.Stderr, "[AgentShield] warning: data label engine init failed: %v\n", err)
-		} else if engine != nil {
+		engine, err := datalabel.NewEngine(dlConfigs)
+		if err != nil {
+			// Surface the init failure — silent fail-open leaves the customer
+			// with zero Layer 7 protection and no actionable error (BUG-DL-007).
+			return nil, fmt.Errorf("data label engine init failed: %w", err)
+		}
+		if engine != nil {
 			analyzers = append(analyzers, analyzer.NewDataLabelAnalyzer(engine))
 		}
 	}
@@ -100,7 +107,7 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) *analyzer.Registry {
 	return analyzer.NewRegistry(
 		analyzers,
 		analyzer.NewCombiner(analyzer.StrategyMostRestrictive),
-	)
+	), nil
 }
 
 // convertStructuralRule converts a policy.Rule with a StructuralMatch into
@@ -225,6 +232,7 @@ func convertDataLabels(labels []DataLabel) []datalabel.DataLabelConfig {
 				Tools:        dl.ScanScope.Tools,
 				Directions:   dl.ScanScope.Directions,
 				MaxScanBytes: dl.ScanScope.MaxScanBytes,
+				Shell:        dl.ScanScope.Shell,
 			}
 		}
 		configs[i] = cfg
@@ -238,6 +246,10 @@ func NewEngineWithAnalyzers(p *Policy, maxParseDepth int) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	engine.SetRegistry(BuildAnalyzerPipeline(p, maxParseDepth))
+	registry, err := BuildAnalyzerPipeline(p, maxParseDepth)
+	if err != nil {
+		return nil, err
+	}
+	engine.SetRegistry(registry)
 	return engine, nil
 }

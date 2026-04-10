@@ -9,18 +9,34 @@ import (
 
 // newTestMCPHandler creates a MessageHandler with all MCP packs loaded,
 // matching how the real proxy evaluates tool calls.
+//
+// It loads packs/community/mcp/ first, then layers packs/premium/mcp/ on top
+// when present. This mirrors `make deploy`, which copies both into
+// ~/.agentshield/packs/mcp/. When premium/ is missing (OSS-only checkout) the
+// loader simply returns the community-only policy and tests for premium-only
+// rules will surface as failures — by design, so that scenario expectations
+// are kept honest about the deployed rule set.
 func newTestMCPHandler(t *testing.T) *MessageHandler {
 	t.Helper()
 
 	// Start with default policy (includes blocked tools)
 	mcpPolicy := DefaultMCPPolicy()
 
-	// Load MCP packs from the project root
-	packsDir := "../../packs/mcp"
-	merged, _, err := LoadMCPPacks(packsDir, mcpPolicy)
+	// Load community MCP packs from the project root
+	communityDir := "../../packs/community/mcp"
+	merged, _, err := LoadMCPPacks(communityDir, mcpPolicy)
 	if err != nil {
-		t.Logf("warning: could not load MCP packs from %s: %v", packsDir, err)
+		t.Logf("warning: could not load community MCP packs from %s: %v", communityDir, err)
 		merged = mcpPolicy
+	}
+
+	// Layer premium MCP packs on top when present (skipped in OSS-only checkouts).
+	premiumDir := "../../packs/premium/mcp"
+	premiumMerged, _, perr := LoadMCPPacks(premiumDir, merged)
+	if perr != nil {
+		t.Logf("warning: could not load premium MCP packs from %s: %v", premiumDir, perr)
+	} else {
+		merged = premiumMerged
 	}
 
 	evaluator := NewPolicyEvaluator(merged)

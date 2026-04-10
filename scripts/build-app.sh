@@ -75,7 +75,7 @@ fi
 if [[ -d "${PROJECT_DIR}/packs" ]]; then
     mkdir -p "${APP_BUNDLE}/Contents/Resources/packs/mcp"
     cp "${PROJECT_DIR}/packs/"*.yaml "${APP_BUNDLE}/Contents/Resources/packs/" 2>/dev/null || true
-    cp "${PROJECT_DIR}/packs/mcp/"*.yaml "${APP_BUNDLE}/Contents/Resources/packs/mcp/" 2>/dev/null || true
+    cp "${PROJECT_DIR}/packs/community/mcp/"*.yaml "${APP_BUNDLE}/Contents/Resources/packs/mcp/" 2>/dev/null || true
 fi
 
 # Copy default config

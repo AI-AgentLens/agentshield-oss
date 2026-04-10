@@ -514,7 +514,12 @@ structural_rules:
   - id: mcp-sc-audit-rag-write
     taxonomy: "supply-chain/model-poisoning/rag-knowledge-base-poisoning"
     match:
-      tool_name_pattern: "(?i)(ingest|add_document|upsert|insert_document|index_document|embed_and_store|store_embedding|knowledge_base_write|kb_write|add_to_kb|update_kb)"
+      # tool_name_regex — NOT tool_name_pattern (which is not a supported
+      # field on MCPStructuralMatch and gets silently dropped by the YAML
+      # unmarshaller, leaving the rule with no predicate and therefore
+      # matching nothing). The runner's case-insensitive regex flag is
+      # auto-prepended, so the `(?i)` is not needed here. See issue #1170.
+      tool_name_regex: "^(ingest|add_document|upsert|insert_document|index_document|embed_and_store|store_embedding|knowledge_base_write|kb_write|add_to_kb|update_kb)$"
     decision: "AUDIT"
     reason: "MCP tool call matching a RAG knowledge base write operation — injecting adversarial documents into a vector store poisons AI-grounded outputs without modifying the model. OWASP LLM08, MITRE AML.T0010."
     confidence: 0.82
@@ -585,6 +590,7 @@ structural_rules:
             - "(?:^|/)\\.cursor/mcp\\.json$"
             - "(?:^|/)\\.vscode/mcp\\.json$"
             - "(?:^|/)mcp\\.json$"
+            - "(?:^|/)mcp_server_config\\.json$"
     decision: "BLOCK"
     reason: "MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002."
     confidence: 0.97
@@ -594,9 +600,15 @@ structural_rules:
           args: {"path": ".cursor/mcp.json"}
         - tool: "edit_file"
           args: {"path": "claude_desktop_config.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
+        - tool: "create_file"
+          args: {"path": "/Users/alice/.windsurf/mcp_server_config.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/mcp_client.go"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
 
   # === BLOCK: MCP write to user PATH directories shadowing system tools (issue #529) ===
   #
@@ -953,9 +965,15 @@ structural_rules:
             # npm global prefix (~/.npm-global): configured with `npm config set prefix ~/.npm-global`
             - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm-global/lib/node_modules/.+"
             - "^~/\\.npm-global/lib/node_modules/.+"
+            # npm lib/node_modules: when prefix is set to ~/.npm (npm config set prefix ~/.npm)
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.npm/lib/node_modules/.+"
+            - "^~/\\.npm/lib/node_modules/.+"
+            # npm v9+ XDG global store: ~/.config/npm/node_modules
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/npm/node_modules/.+"
+            - "^~/\\.config/npm/node_modules/.+"
     decision: "BLOCK"
     confidence: 0.95
-    reason: "MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, and ~/.npm-global prefix. MITRE T1195.001, T1565.001."
+    reason: "MCP write to npm/npx global or nvm-managed node_modules — modifying installed package source code injects malicious code that executes on every require/import, enabling persistent code execution without any shell trace. Covers ~/.npm cache, nvm-managed installations, ~/.npm-global prefix, ~/.npm/lib (custom prefix), and ~/.config/npm (npm v9+ XDG store). MITRE T1195.001, T1565.001."
     tests:
       tp:
         - tool: "write_file"
@@ -966,11 +984,17 @@ structural_rules:
           args: {"path": "/home/user/.nvm/versions/node/v18.0.0/lib/node_modules/axios/index.js"}
         - tool: "str_replace_editor"
           args: {"path": "/home/user/.npm-global/lib/node_modules/lodash/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.npm/lib/node_modules/react/index.js"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/npm/node_modules/lodash/index.js"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/node_modules/react/index.js"}
         - tool: "write_file"
           args: {"path": "/project/src/npm_cache_utils.js"}
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/npm-lib-config.md"}
 
   # === BLOCK: Go module cache writes ===
   # ~/go/pkg/mod/ is the Go module download cache. Cargo and Go treat their caches
@@ -1151,11 +1175,20 @@ structural_rules:
           args: {"url": "https://registry.npmjs.org/my-package", "method": "PUT"}
         - tool: "http_post"
           args: {"url": "https://registry.npmjs.org/evil-package", "method": "POST"}
+        # Regression for #1152: typed tool without explicit method arg —
+        # must fire via HTTP method inference from the tool name.
+        - tool: "http_put"
+          args: {"url": "https://registry.npmjs.org/my-package"}
+        - tool: "http_post"
+          args: {"url": "https://registry.npmjs.org/evil-package"}
       tn:
         - tool: "http_request"
           args: {"url": "https://registry.npmjs.org/react", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://docs.npmjs.com/commands/publish", "method": "GET"}
+        # Typed GET tool — inferred method GET is filtered out.
+        - tool: "http_get"
+          args: {"url": "https://registry.npmjs.org/react"}
 
   - id: mcp-sc-block-pypi-upload-api
     taxonomy: "supply-chain/package-publish/pypi-autonomous-publish"
@@ -1242,6 +1275,15 @@ structural_rules:
         - "http_put"
         - "http_delete"
         - "http_patch"
+        # Generic `<verb>_request` variants — modern coding agents
+        # (Claude Code, Roo, Cline) use these tool names. Without them
+        # a TP like `post_request({url: rubygems.org/api/v1/gems})`
+        # silently slips past the tool-name filter. Issue #1171.
+        - "get_request"
+        - "post_request"
+        - "put_request"
+        - "delete_request"
+        - "patch_request"
       args_match:
         url:
           pattern_any:
@@ -1258,6 +1300,11 @@ structural_rules:
           args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
         - tool: "network_request"
           args: {"url": "https://rubygems.org/api/v1/gems", "method": "POST"}
+        # Regression for #1152: typed tool without method arg.
+        - tool: "http_post"
+          args: {"url": "https://rubygems.org/api/v1/gems"}
+        - tool: "post_request"
+          args: {"url": "https://rubygems.org/api/v1/gems"}
       tn:
         - tool: "http_request"
           args: {"url": "https://rubygems.org/api/v1/gems/rails.json", "method": "GET"}
@@ -1319,11 +1366,21 @@ structural_rules:
           args: {"url": "https://registry.example.com/v2/myimage/blobs/uploads/", "method": "POST"}
         - tool: "network_request"
           args: {"url": "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/myimage/manifests/latest", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_put"
+          args: {"url": "https://registry-1.docker.io/v2/myorg/myimage/manifests/latest"}
+        - tool: "http_post"
+          args: {"url": "https://registry.example.com/v2/myimage/blobs/uploads/"}
+        - tool: "put_request"
+          args: {"url": "https://ghcr.io/v2/org/image/manifests/v1.0.0"}
       tn:
         - tool: "http_request"
           args: {"url": "https://registry-1.docker.io/v2/library/nginx/manifests/latest", "method": "GET"}
         - tool: "http_request"
           args: {"url": "https://ghcr.io/v2/org/image/tags/list", "method": "GET"}
+        # Typed GET tool — inferred method GET does not match the PUT|POST filter.
+        - tool: "http_get"
+          args: {"url": "https://registry-1.docker.io/v2/library/nginx/manifests/latest"}
 
   # ===========================================================================
   # Maven/Gradle Autonomous Artifact Publish
@@ -1377,6 +1434,11 @@ structural_rules:
           args: {"url": "https://oss.sonatype.org/service/local/staging/deploy/maven2/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
         - tool: "network_request"
           args: {"url": "https://nexus.example.com/repository/releases/com/example/lib/1.0/lib-1.0.jar", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_post"
+          args: {"url": "https://central.sonatype.com/api/v1/publisher/upload"}
+        - tool: "http_put"
+          args: {"url": "https://oss.sonatype.org/service/local/staging/deploy/maven2/com/example/lib/1.0/lib-1.0.jar"}
       tn:
         - tool: "http_request"
           args: {"url": "https://central.sonatype.com/api/v1/publisher/status", "method": "GET"}
@@ -1434,7 +1496,12 @@ structural_rules:
           pattern_any:
             - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/actions/secrets"
             - "(?i)api\\.github\\.com/orgs/[^/]+/actions/secrets"
-            - "(?i)api\\.github\\.com/[^/]+/[^/]+/environments/[^/]+/secrets"
+            # Environment secrets live at /repos/{owner}/{repo}/environments/
+            # {env}/secrets — the original pattern dropped one path segment
+            # (only required `/[^/]+/[^/]+/environments/` after the host,
+            # no `repos/` prefix) and silently failed on every real URL.
+            # Issue #1171.
+            - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/environments/[^/]+/secrets"
             - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/codespaces/secrets"
     decision: "BLOCK"
     confidence: 0.97
@@ -1523,8 +1590,12 @@ structural_rules:
       args_match:
         url:
           pattern_any:
-            - "(?i)circleci\\.com/api/v\\d+/project/[^/]+/[^/]+/[^/]+/envvar"
-            - "(?i)circleci\\.com/api/v\\d+/project/[^?]*/envvar"
+            # CircleCI ships both v1.1 (legacy) and v2 API endpoints for
+            # environment variables — the original `\d+` stopped at the
+            # `.` in v1.1 and silently failed on legacy v1.1 TPs.
+            # Issue #1171.
+            - "(?i)circleci\\.com/api/v\\d+(?:\\.\\d+)?/project/[^/]+/[^/]+/[^/]+/envvar"
+            - "(?i)circleci\\.com/api/v\\d+(?:\\.\\d+)?/project/[^?]*/envvar"
     decision: "BLOCK"
     confidence: 0.95
     reason: "MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002."
@@ -1632,6 +1703,13 @@ structural_rules:
           args: {"url": "https://storage.googleapis.com/my-tf-bucket/env/prod.tfstate", "method": "PUT"}
         - tool: "http_request"
           args: {"url": "https://myaccount.blob.core.windows.net/tfstate/terraform.tfstate", "method": "PUT"}
+        # Regression for #1152: typed tools without method arg.
+        - tool: "http_put"
+          args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate"}
+        - tool: "http_delete"
+          args: {"url": "https://storage.googleapis.com/my-tf-bucket/env/prod.tfstate"}
+        - tool: "put_request"
+          args: {"url": "https://myaccount.blob.core.windows.net/tfstate/terraform.tfstate"}
       tn:
         - tool: "http_request"
           args: {"url": "https://my-bucket.s3.amazonaws.com/prod/terraform.tfstate", "method": "GET"}

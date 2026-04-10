@@ -44,11 +44,17 @@ type ArgFieldMatch struct {
 
 // MCPStructuralRule is a complete structural rule including decision metadata.
 type MCPStructuralRule struct {
-	ID         string          `yaml:"id"`
+	ID         string             `yaml:"id"`
+	Taxonomy   string             `yaml:"taxonomy,omitempty"`
 	Match      MCPStructuralMatch `yaml:"match"`
-	Decision   policy.Decision `yaml:"decision"`
-	Reason     string          `yaml:"reason"`
-	Confidence float64         `yaml:"confidence,omitempty"`
+	Decision   policy.Decision    `yaml:"decision"`
+	Reason     string             `yaml:"reason"`
+	Confidence float64            `yaml:"confidence,omitempty"`
+	// Tests holds inline TP/TN test cases. Same shape as MCPRuleTest so the
+	// rule_yaml_test runner can validate structural-rule packs as well as
+	// flat-pattern rules. Without this field, YAML `tests:` blocks under a
+	// structural rule are silently ignored — see FN-MCP-011 / issue #1155.
+	Tests *MCPRuleTest `yaml:"tests,omitempty"`
 }
 
 // matchStructuralRule checks if a tool call matches a structural rule.
@@ -86,6 +92,34 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 		return false
 	}
 
+	// HTTP-method inference (issue #1152 fix).
+	//
+	// Many MCP HTTP tools encode the method in the tool name (http_post,
+	// http_put, http_delete, http_patch, post_request, put_request, ...).
+	// When such a tool is called, callers do NOT pass a separate `method`
+	// argument — the method is implicit in the tool name. Rules that require
+	// both a URL match AND an `args_match.method` filter would silently
+	// fail-negative on these typed tools, because matchArgField returns
+	// false when a required field is missing.
+	//
+	// To close this attacker bypass, synthesize a `method` argument from
+	// the tool name when: (a) the rule has a method filter, (b) the call
+	// does not already carry a method, and (c) the tool name encodes a
+	// recognizable HTTP method. This is a read-only synthesis — the
+	// caller's arguments map is not mutated.
+	if _, hasMethodRule := m.ArgsMatch["method"]; hasMethodRule {
+		if _, hasMethodArg := arguments["method"]; !hasMethodArg {
+			if inferred := inferMethodFromToolName(toolName); inferred != "" {
+				newArgs := make(map[string]interface{}, len(arguments)+1)
+				for k, v := range arguments {
+					newArgs[k] = v
+				}
+				newArgs["method"] = inferred
+				arguments = newArgs
+			}
+		}
+	}
+
 	// Exclusion predicates — if the field exists and matches, the rule does NOT fire.
 	// Non-existent fields are skipped (exclusion only applies when the field is present).
 	for fieldName, fieldMatch := range m.ExcludeArgsMatch {
@@ -105,6 +139,42 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 
 	// Must have specified at least one predicate
 	return nameSpecified || len(m.ArgsMatch) > 0
+}
+
+// inferMethodFromToolName returns the HTTP method encoded in a tool name,
+// or empty if the tool name does not encode a recognizable method. The
+// tool name is split on underscores, hyphens, and dots, and each word is
+// checked against the set of HTTP methods. This catches conventions like
+// http_post, http_delete, post_request, put-request, do.patch, etc.
+//
+// Generic tool names (http_request, network_request, fetch_url, make_request,
+// send_request, api_request) return empty — for those, callers must pass
+// an explicit `method` argument and the rule's method filter applies as
+// configured.
+func inferMethodFromToolName(toolName string) string {
+	lower := strings.ToLower(toolName)
+	parts := strings.FieldsFunc(lower, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.'
+	})
+	for _, part := range parts {
+		switch part {
+		case "post":
+			return "POST"
+		case "put":
+			return "PUT"
+		case "delete":
+			return "DELETE"
+		case "patch":
+			return "PATCH"
+		case "get":
+			return "GET"
+		case "head":
+			return "HEAD"
+		case "options":
+			return "OPTIONS"
+		}
+	}
+	return ""
 }
 
 // matchToolNameCaseInsensitive matches a lowercase tool name against a lowercase pattern.

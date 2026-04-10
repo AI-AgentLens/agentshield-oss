@@ -13,10 +13,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// updateConfig holds the user's update configuration from ~/.agentshield/config.yaml.
-type updateConfig struct {
-	LicenseKey string `yaml:"license_key"`
-	Endpoint   string `yaml:"endpoint"`
+// credentials mirrors the structure of ~/.agentshield/credentials.json
+// written by `agentshield login`.
+type credentials struct {
+	Server string `json:"server"`
+	Token  string `json:"token"`
 }
 
 const defaultUpdateEndpoint = "https://app.aiagentlens.com/api/packs"
@@ -28,12 +29,9 @@ func init() {
 		Short: "Download premium rule packs from AI Agent Lens",
 		Long: `Pull the latest premium rule packs from the AI Agent Lens SaaS API.
 
-Requires a license key configured in ~/.agentshield/config.yaml:
+Requires authentication — run 'agentshield login' first.
 
-  license_key: "your-license-key"
-  endpoint: "https://app.aiagentlens.com/api/packs"  # optional, this is the default
-
-The endpoint can also be overridden with --endpoint for on-prem deployments.`,
+The endpoint can be overridden with --endpoint for on-prem deployments.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdate(endpoint)
 		},
@@ -51,40 +49,35 @@ func runUpdate(endpointOverride string) error {
 	configDir := filepath.Join(home, ".agentshield")
 	packsDir := filepath.Join(configDir, "packs")
 
-	// Load config
-	cfg := loadUpdateConfig(filepath.Join(configDir, "config.yaml"))
+	// Load credentials
+	creds, err := loadCredentials(filepath.Join(configDir, "credentials.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Not logged in. Run 'agentshield login' first.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Premium rules require an AI Agent Lens account.")
+		fmt.Fprintln(os.Stderr, "Sign up at https://aiagentlens.com")
+		return fmt.Errorf("not authenticated")
+	}
 
-	// Determine endpoint
+	// Determine endpoint: credentials.json server > default, --endpoint overrides all
 	endpoint := defaultUpdateEndpoint
-	if cfg.Endpoint != "" {
-		endpoint = cfg.Endpoint
+	if creds.Server != "" {
+		endpoint = creds.Server + "/api/packs"
 	}
 	if endpointOverride != "" {
 		endpoint = endpointOverride
 	}
 
-	// Check license key
-	if cfg.LicenseKey == "" {
-		fmt.Fprintln(os.Stderr, "No license key configured.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Add your license key to ~/.agentshield/config.yaml:")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  license_key: \"your-license-key\"")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Get a license key at https://aiagentlens.com")
-		return fmt.Errorf("missing license key")
-	}
-
-	fmt.Printf("Checking for premium packs from %s...\n", endpoint)
+	fmt.Printf("Checking for premium packs...\n")
 
 	// Fetch pack manifest
-	manifest, err := fetchManifest(endpoint, cfg.LicenseKey)
+	manifest, err := fetchManifest(endpoint, creds.Token)
 	if err != nil {
 		return fmt.Errorf("failed to fetch packs: %w", err)
 	}
 
 	if len(manifest.Packs) == 0 {
-		fmt.Println("No premium packs available for your license.")
+		fmt.Println("No premium packs available.")
 		return nil
 	}
 
@@ -98,12 +91,17 @@ func runUpdate(endpointOverride string) error {
 	for _, pack := range manifest.Packs {
 		destPath := filepath.Join(packsDir, pack.Filename)
 
-		// Check if update needed (compare etag/version)
+		// Check if update needed
 		if !needsUpdate(destPath, pack.Version) {
 			continue
 		}
 
-		data, err := downloadPack(endpoint, cfg.LicenseKey, pack.Filename)
+		isNew := true
+		if _, err := os.Stat(destPath); err == nil {
+			isNew = false
+		}
+
+		data, err := downloadPack(endpoint, creds.Token, pack.Filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: failed to download %s: %v\n", pack.Filename, err)
 			continue
@@ -114,10 +112,10 @@ func runUpdate(endpointOverride string) error {
 			continue
 		}
 
-		if _, err := os.Stat(destPath); err == nil {
-			updated++
-		} else {
+		if isNew {
 			installed++
+		} else {
+			updated++
 		}
 		fmt.Printf("  %s (%s) — %d rules\n", pack.Filename, pack.Version, pack.RuleCount)
 	}
@@ -142,22 +140,27 @@ type packEntry struct {
 	RuleCount int    `json:"rule_count"`
 }
 
-func loadUpdateConfig(path string) updateConfig {
-	var cfg updateConfig
+func loadCredentials(path string) (*credentials, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg
+		return nil, err
 	}
-	_ = yaml.Unmarshal(data, &cfg)
-	return cfg
+	var creds credentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return nil, err
+	}
+	if creds.Token == "" {
+		return nil, fmt.Errorf("no token in credentials")
+	}
+	return &creds, nil
 }
 
-func fetchManifest(endpoint, licenseKey string) (*packManifest, error) {
+func fetchManifest(endpoint, token string) (*packManifest, error) {
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+licenseKey)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "agentshield-update/1.0")
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -165,10 +168,10 @@ func fetchManifest(endpoint, licenseKey string) (*packManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("network error: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("invalid license key (HTTP 401)")
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("authentication failed (HTTP %d) — try 'agentshield login' again", resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
@@ -181,13 +184,13 @@ func fetchManifest(endpoint, licenseKey string) (*packManifest, error) {
 	return &manifest, nil
 }
 
-func downloadPack(endpoint, licenseKey, filename string) ([]byte, error) {
+func downloadPack(endpoint, token, filename string) ([]byte, error) {
 	url := endpoint + "/" + filename
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+licenseKey)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "agentshield-update/1.0")
 
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -195,7 +198,7 @@ func downloadPack(endpoint, licenseKey, filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %s", resp.Status)
@@ -209,7 +212,6 @@ func needsUpdate(path, newVersion string) bool {
 	if err != nil {
 		return true // file doesn't exist
 	}
-	// Quick check: parse version from existing pack
 	var pack struct {
 		Version string `yaml:"version"`
 	}

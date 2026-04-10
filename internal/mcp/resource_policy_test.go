@@ -227,7 +227,7 @@ func TestResourcePolicy_RedisSchemeBlock(t *testing.T) {
 
 // TestResourcePolicy_HTTPURIAudit validates that an HTTP/HTTPS resources/read URI is
 // flagged with AUDIT by the mcp-response-integrity-resource-audit-http rule.
-// This tests the behaviour codified in packs/mcp/mcp-response-integrity.yaml:resource_rules.
+// This tests the behaviour codified in packs/community/mcp/mcp-response-integrity.yaml:resource_rules.
 func TestResourcePolicy_HTTPURIAudit(t *testing.T) {
 	rule := ResourceRule{
 		ID:       "mcp-response-integrity-resource-audit-http",

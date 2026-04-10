@@ -23,7 +23,7 @@ class Agentshield < Formula
 
     # Install default policy packs
     (share/"agentshield/packs").install Dir["packs/*.yaml"]
-    (share/"agentshield/packs/mcp").install Dir["packs/mcp/*.yaml"]
+    (share/"agentshield/packs/mcp").install Dir["packs/community/mcp/*.yaml"]
 
     # Install default config
     (share/"agentshield").install "configs/default_policy.yaml"

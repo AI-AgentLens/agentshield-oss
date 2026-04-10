@@ -12,6 +12,10 @@
 # What gets excluded from the public repo:
 #   - packs/premium/             (premium rule packs)
 #   - packs/packs_premium.go     (premium MCP pack embed)
+#   - packs/mcp/                 (pre-OSS-split legacy dir; mix of stale community
+#                                 copies and premium-flavored files. Not embedded
+#                                 by packs.go and not loaded at runtime — keeping
+#                                 it would leak premium content to OSS releases.)
 #   - packs/_*.yaml              (disabled legacy pack files)
 #   - RULE_REVIEW.md             (internal review notes)
 #   - FAILING_TESTS.md           (internal tracking)
@@ -34,9 +38,18 @@ fi
 EXCLUDES=(
     "packs/premium/"
     "packs/packs_premium.go"
+    "packs/mcp/"
     "packs/_*.yaml"
     "RULE_REVIEW.md"
     "FAILING_TESTS.md"
+    "pitch.html"
+    "static_rules/"
+    ".claude/"
+    ".github/"
+    "CLAUDE.md"
+    "COMPLIANCE_GAPS.md"
+    "COVERAGE.md"
+    "PROGRESS.md"
 )
 
 echo "=== AgentShield OSS Publish ==="

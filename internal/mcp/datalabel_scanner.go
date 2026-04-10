@@ -33,9 +33,13 @@ type DataLabelFinding struct {
 	Decision  string
 }
 
-// ScanToolCallContent scans all arguments of an MCP tool call for data label matches.
+// ScanToolCallContent scans all arguments of an MCP tool call for data label
+// matches. Outbound direction (agent → tool).
 func (s *DataLabelScanner) ScanToolCallContent(toolName string, arguments map[string]interface{}) DataLabelScanResult {
 	var result DataLabelScanResult
+	if s == nil || s.engine == nil {
+		return result
+	}
 
 	for argName, argValue := range arguments {
 		text := argToString(argValue)
@@ -57,6 +61,42 @@ func (s *DataLabelScanner) ScanToolCallContent(toolName string, arguments map[st
 			if m.Decision == "BLOCK" {
 				result.Blocked = true
 			}
+		}
+	}
+
+	return result
+}
+
+// ScanToolResponseContent scans text content from an MCP tool response for
+// data label matches. Inbound direction (tool → agent). Used to catch
+// sensitive data flowing back from downstream servers (e.g. a database
+// query tool returning a row containing an SSN).
+//
+// Because the response path does not carry the originating tool name,
+// toolName is empty — scope.tools filters will not apply to response scans.
+// Customers that want to scan responses should use `directions: ["inbound"]`
+// (plus `shell: false` if the label should only fire in MCP contexts).
+// This is the BUG-DL-006 fix: previously the engine was hardcoded to
+// "outbound" and inbound labels were silently ineffective.
+func (s *DataLabelScanner) ScanToolResponseContent(textContent string) DataLabelScanResult {
+	var result DataLabelScanResult
+	if s == nil || s.engine == nil || textContent == "" {
+		return result
+	}
+
+	matches := s.engine.ScanText(textContent, "", "inbound")
+	for _, m := range matches {
+		finding := DataLabelFinding{
+			LabelID:   m.LabelID,
+			LabelName: m.LabelName,
+			Detail:    fmt.Sprintf("%s: matched %q", m.Reason, m.MatchText),
+			ArgName:   "response.content",
+			Decision:  m.Decision,
+		}
+		result.Findings = append(result.Findings, finding)
+
+		if m.Decision == "BLOCK" {
+			result.Blocked = true
 		}
 	}
 

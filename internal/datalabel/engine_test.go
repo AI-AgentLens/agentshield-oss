@@ -208,10 +208,66 @@ func TestEngine_ScopeFiltering_ToolName(t *testing.T) {
 		t.Fatalf("expected 0 matches for out-of-scope tool, got %d", len(matches))
 	}
 
-	// Empty tool name (shell command) — tool scope doesn't apply
+	// Shell command — BUG-DL-004 fix: labels with a Tools filter are
+	// MCP-scoped by default; shell commands do not match unless the
+	// customer sets scope.Shell=true explicitly.
 	matches = engine.ScanText("the secret", "", "")
-	if len(matches) != 1 {
-		t.Fatalf("expected 1 match for shell command (no tool scope filtering), got %d", len(matches))
+	if len(matches) != 0 {
+		t.Fatalf("expected 0 matches for shell (tools filter = MCP-scoped), got %d", len(matches))
+	}
+}
+
+func TestEngine_ScopeFiltering_ShellOptIn(t *testing.T) {
+	// Customer explicitly opts shell commands into an MCP-scoped label.
+	shellOn := true
+	engine, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "shell-and-write",
+			Decision: "BLOCK",
+			Patterns: []PatternConfig{{Regex: `secret`}},
+			ScanScope: ScanScopeConfig{
+				Tools: []string{"write_*"},
+				Shell: &shellOn,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Shell context matches because Shell=true
+	if matches := engine.ScanText("the secret", "", ""); len(matches) != 1 {
+		t.Fatalf("expected 1 match for shell (opt-in), got %d", len(matches))
+	}
+	// Non-matching MCP tool still filtered
+	if matches := engine.ScanText("the secret", "read_file", "outbound"); len(matches) != 0 {
+		t.Fatalf("expected 0 matches for out-of-scope MCP tool, got %d", len(matches))
+	}
+}
+
+func TestEngine_ScopeFiltering_ShellOptOut(t *testing.T) {
+	// Customer explicitly excludes shell commands even from an otherwise
+	// unscoped label.
+	shellOff := false
+	engine, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "no-shell",
+			Decision: "BLOCK",
+			Patterns: []PatternConfig{{Regex: `secret`}},
+			ScanScope: ScanScopeConfig{
+				Shell: &shellOff,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if matches := engine.ScanText("the secret", "", ""); len(matches) != 0 {
+		t.Fatalf("expected 0 matches for shell (opt-out), got %d", len(matches))
+	}
+	if matches := engine.ScanText("the secret", "any_tool", "outbound"); len(matches) != 1 {
+		t.Fatalf("expected 1 match for MCP context, got %d", len(matches))
 	}
 }
 
@@ -270,6 +326,118 @@ func TestEngine_MaxScanBytes(t *testing.T) {
 	matches = engine.ScanText(text, "", "")
 	if len(matches) != 1 {
 		t.Fatalf("expected 1 match within truncation, got %d", len(matches))
+	}
+}
+
+// BUG-DL-001 regression: context regex must match a window around the
+// primary match, not the full text. Context words far away must not confirm.
+func TestEngine_ContextWindow(t *testing.T) {
+	engine, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "pii-ssn",
+			Decision: "BLOCK",
+			Patterns: []PatternConfig{
+				{Regex: `\b\d{3}-\d{2}-\d{4}\b`, Context: "ssn|social.security"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Context within the window — should fire.
+	matches := engine.ScanText("SSN: 123-45-6789", "", "")
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match with nearby context, got %d", len(matches))
+	}
+
+	// Context far away (> contextWindowBytes bytes). The pre-fix behavior
+	// would falsely fire because MatchString scanned the full text.
+	padding := strings.Repeat(".", contextWindowBytes*2+50)
+	text := "social security office" + padding + "phone: 123-45-6789"
+	matches = engine.ScanText(text, "", "")
+	if len(matches) != 0 {
+		t.Fatalf("expected 0 matches with context outside window, got %d (BUG-DL-001 regression)", len(matches))
+	}
+}
+
+// BUG-DL-002 regression: when the regex tier triggers a BLOCK, prior
+// keyword-tier AUDIT findings must not leak into the returned slice.
+func TestEngine_BlockReplacesPriorAudits(t *testing.T) {
+	engine, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "codenames",
+			Decision: "AUDIT",
+			Patterns: []PatternConfig{
+				{Keywords: []string{"PHOENIX"}, CaseSensitive: true},
+			},
+		},
+		{
+			ID:       "pii-ssn",
+			Decision: "BLOCK",
+			Patterns: []PatternConfig{
+				{Regex: `\b\d{3}-\d{2}-\d{4}\b`},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	matches := engine.ScanText("project PHOENIX customer ssn 123-45-6789", "", "")
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match (BLOCK only), got %d", len(matches))
+	}
+	if matches[0].Decision != "BLOCK" || matches[0].LabelID != "pii-ssn" {
+		t.Errorf("expected BLOCK pii-ssn, got %s %s", matches[0].Decision, matches[0].LabelID)
+	}
+}
+
+// BUG-DL-003 regression: case-insensitive keyword search must preserve
+// byte offsets so MatchText slicing is valid for non-ASCII input.
+func TestEngine_KeywordCaseInsensitiveUnicodeOffsets(t *testing.T) {
+	engine, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "keyword-ci",
+			Decision: "AUDIT",
+			Patterns: []PatternConfig{
+				{Keywords: []string{"secret"}, CaseSensitive: false},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// "İ" is a multi-byte Unicode char; before the fix, strings.ToLower
+	// would rewrite this and invalidate byte offsets produced by AC.
+	// After the fix (asciiLower), offsets are valid — no panic, correct
+	// MatchText from the original string.
+	matches := engine.ScanText("İstanbul SECRET İzmir", "", "")
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	// MatchText is sliced from the original (non-lowered) text.
+	if matches[0].MatchText != "SECRET" {
+		t.Errorf("expected match text 'SECRET', got %q", matches[0].MatchText)
+	}
+}
+
+// BUG-DL-005 regression: unknown validator name must fail NewEngine rather
+// than silently disabling the check at scan time.
+func TestEngine_UnknownValidatorFailsInit(t *testing.T) {
+	_, err := NewEngine([]DataLabelConfig{
+		{
+			ID:       "pii-cc",
+			Decision: "BLOCK",
+			Patterns: []PatternConfig{{Regex: `\d{16}`, Validator: "lhun"}}, // typo
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown validator name (BUG-DL-005 regression)")
+	}
+	if !strings.Contains(err.Error(), "unknown validator") {
+		t.Errorf("expected 'unknown validator' in error, got: %v", err)
 	}
 }
 

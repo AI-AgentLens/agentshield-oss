@@ -1640,3 +1640,55 @@ structural_rules:
           args: {"path": "/home/user/.vscode/settings/"}
         - tool: "list_directory"
           args: {"path": "/workspace/project/extensions/"}
+
+  # === BLOCK: MCP read of mcp_server_config.json (Windsurf MCP server config) ===
+  #
+  # Windsurf IDE stores its MCP server configuration at mcp_server_config.json
+  # (multiple locations depending on version and OS):
+  #   ~/.windsurf/mcp_server_config.json       — legacy location
+  #   ~/.config/windsurf/mcp_server_config.json — XDG path (lowercase)
+  #   ~/.config/Windsurf/mcp_server_config.json — XDG path (title-case, macOS/newer)
+  #
+  # This file contains MCP server URLs, API key references, and environment
+  # variables with secrets. Reading it reveals connected services and enables
+  # targeted follow-up attacks. Writes are already blocked by mcp-sc-block-mcp-config-write;
+  # this rule closes the read gap for parity with cursor/mcp.json and claude_desktop_config.json.
+  #
+  # Patterns are home-dir anchored to avoid FPs on project-local files named
+  # mcp_server_config.json. [auto-generated][mcp-gap] issue #1201
+  - id: mcp-recon-block-windsurf-mcp-server-config-read
+    taxonomy: "reconnaissance/osint/ai-ide-config-osint"
+    match:
+      tool_name_any:
+        - "read_file"
+        - "cat_file"
+        - "get_file_contents"
+        - "open_file"
+        - "view_file"
+      args_match:
+        path:
+          pattern_any:
+            # Legacy location: ~/.windsurf/mcp_server_config.json
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.windsurf/mcp_server_config\\.json$"
+            # XDG path (lowercase): ~/.config/windsurf/mcp_server_config.json
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/windsurf/mcp_server_config\\.json$"
+            # XDG path (title-case, macOS/newer Windsurf): ~/.config/Windsurf/mcp_server_config.json
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/Windsurf/mcp_server_config\\.json$"
+    decision: "BLOCK"
+    reason: "Read access to mcp_server_config.json is blocked — Windsurf IDE's MCP server configuration contains server URLs, API key references, and environment variables with secrets. Reading this file reveals connected services and enables targeted follow-up attacks. Mirrors cursor/mcp.json and claude_desktop_config.json protection. MITRE T1552, T1539."
+    confidence: 0.92
+    tests:
+      tp:
+        - tool: "read_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.config/Windsurf/mcp_server_config.json"}
+        - tool: "cat_file"
+          args: {"path": "/home/user/.config/windsurf/mcp_server_config.json"}
+        - tool: "get_file_contents"
+          args: {"path": "/Users/alice/.windsurf/mcp_server_config.json"}
+      tn:
+        - tool: "read_file"
+          args: {"path": "/workspace/src/mcp_server_config.json"}
+        - tool: "read_file"
+          args: {"path": "/project/docs/mcp_server_config.json"}

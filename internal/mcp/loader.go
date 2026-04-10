@@ -71,9 +71,9 @@ func LoadMCPPolicy(path string) (*MCPPolicy, error) {
 //
 // It intentionally contains only structural defaults and the most critical
 // shell-execution blocked-tool names. All substantive security rules live in
-// packs/mcp/*.yaml (mcp-safety.yaml, mcp-secrets.yaml, mcp-financial.yaml)
-// which are installed to ~/.agentshield/mcp-packs/ by `agentshield setup mcp`
-// and merged on top of this policy at startup.
+// packs/community/mcp/*.yaml (mcp-safety.yaml, mcp-secrets.yaml, mcp-financial.yaml)
+// — embedded into the binary via packs.MCPFiles() — and are merged on top of
+// this policy at startup.
 //
 // Why no rules here?
 //   - Rules defined as Go structs are harder to audit, review, and update
@@ -84,9 +84,9 @@ func LoadMCPPolicy(path string) (*MCPPolicy, error) {
 //   - Keeping rules in one place (packs/) avoids silent drift between the
 //     Go defaults and the YAML definitions.
 //
-// TODO(debt): replace the defaultMCPPacks string literals in setup_mcp.go
-// with //go:embed once the packs are reachable from an embeddable package
-// path (Go embed cannot reference ../../packs/mcp/ across package roots).
+// MCP packs are embedded into the binary via packs.MCPFiles() (see
+// packs/packs.go, which uses //go:embed community/mcp/*.yaml) and exposed to
+// this package through setup_mcp.go.
 func DefaultMCPPolicy() *MCPPolicy {
 	return &MCPPolicy{
 		Defaults: MCPDefaults{Decision: policy.DecisionAudit},

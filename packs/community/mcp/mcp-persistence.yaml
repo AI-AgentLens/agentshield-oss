@@ -48,6 +48,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -61,6 +68,13 @@ structural_rules:
           args: {"path": "/home/user/.bashrc"}
         - tool: "edit_file"
           args: {"path": "/home/user/.zshrc"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.bashrc"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.zshrc"}
+        - tool: "apply_patch"
+          args: {"path": "/home/user/.profile"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/main.go"}
@@ -95,14 +109,33 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
+      # FP-MCP-005 fix #1154: anchor to real home-directory paths so workspace-relative
+      # test fixtures (e.g. /workspace/nushell-plugin/.config/nushell/) don't trigger.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.xonshrc$"
-            - "(?:^|/)\\.config/nushell/"
-            - "(?:^|/)\\.nushell/"
-            - "(?:^|/)\\.elvish/rc\\.elv$"
-            - "(?:^|/)\\.config/elvish/"
+            # xonshrc — always a dotfile directly under home
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.xonshrc$"
+            - "^~/\\.xonshrc$"
+            # nushell — XDG config path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/nushell/"
+            - "^~/\\.config/nushell/"
+            # nushell — legacy non-XDG path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.nushell/"
+            - "^~/\\.nushell/"
+            # elvish — legacy path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.elvish/rc\\.elv$"
+            - "^~/\\.elvish/rc\\.elv$"
+            # elvish — XDG config path
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/elvish/"
+            - "^~/\\.config/elvish/"
     decision: "BLOCK"
     reason: "MCP write to modern shell startup file (xonsh/nushell/elvish) — code injected here executes on every new shell session, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
@@ -114,9 +147,23 @@ structural_rules:
           args: {"path": "/home/user/.config/nushell/config.nu"}
         - tool: "write_file"
           args: {"path": "/home/user/.nushell/env.nu"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.config/elvish/rc.elv"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.xonshrc"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.config/nushell/config.nu"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/build.sh"}
+        # FP-MCP-005 regression: workspace-relative plugin fixtures must not fire
+        - tool: "write_file"
+          args: {"path": "/workspace/nushell-plugin/.config/nushell/config.nu"}
+        - tool: "write_file"
+          args: {"path": "/workspace/elvish-plugin/.config/elvish/rc.elv"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/tests/fixtures/.xonshrc"}
 
   # === BLOCK: Fish shell startup file writes via MCP (issue #148) ===
   #
@@ -149,11 +196,22 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
+      # FP-MCP-005 fix #1154: anchor to real home-directory paths so workspace-relative
+      # fixtures or plugin projects containing `.config/fish/` don't trigger.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.config/fish/config\\.fish$"
-            - "(?:^|/)\\.config/fish/conf\\.d/"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/config\\.fish$"
+            - "^~/\\.config/fish/config\\.fish$"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/conf\\.d/"
+            - "^~/\\.config/fish/conf\\.d/"
     decision: "BLOCK"
     reason: "MCP write to fish shell main config or conf.d/ drop-in directory — code injected here executes on every fish shell startup, achieving persistence identical to ~/.bashrc injection. MITRE T1546.004."
     confidence: 0.95
@@ -163,9 +221,21 @@ structural_rules:
           args: {"path": "/home/user/.config/fish/config.fish"}
         - tool: "create_file"
           args: {"path": "/home/user/.config/fish/conf.d/evil.fish"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.config/fish/config.fish"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/fish/config.fish"}
+        - tool: "patch_file"
+          args: {"path": "/Users/alice/.config/fish/conf.d/evil.fish"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/deploy.fish"}
+        # FP-MCP-005 regression: workspace-relative fish config must not fire
+        - tool: "write_file"
+          args: {"path": "/workspace/fish-plugin/.config/fish/config.fish"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/tests/fixtures/.config/fish/conf.d/test.fish"}
 
   - id: mcp-persist-audit-fish-functions-write
     taxonomy: "persistence-evasion/shell-startup/shell-profile-backdoor"
@@ -181,10 +251,19 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
+      # FP-MCP-005 fix #1154: anchor to real home directories.
       args_match:
         path:
           pattern_any:
-            - "(?:^|/)\\.config/fish/functions/"
+            - "^(?:/home/[^/]+|/root|/Users/[^/]+)/\\.config/fish/functions/"
+            - "^~/\\.config/fish/functions/"
     decision: "AUDIT"
     reason: "MCP write to fish shell functions/ directory — autoloaded function files are common in normal fish development. Downgraded to AUDIT: functions/ is frequently modified by developers, unlike conf.d/ persistence drop-ins. Human review warranted. MITRE T1546.004."
     confidence: 0.75
@@ -194,9 +273,16 @@ structural_rules:
           args: {"path": "/home/user/.config/fish/functions/my_func.fish"}
         - tool: "create_file"
           args: {"path": "/home/user/.config/fish/functions/util.fish"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/fish/functions/my_func.fish"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.config/fish/functions/util.fish"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/helper.sh"}
+        - tool: "write_file"
+          args: {"path": "/workspace/fish-plugin/.config/fish/functions/helper.fish"}
 
   # === BLOCK: Debugger init file writes via MCP (issue #921) ===
   #
@@ -233,6 +319,13 @@ structural_rules:
         - "append_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -253,6 +346,13 @@ structural_rules:
           args: {"path": "/home/user/.config/gdb/gdbinit"}
         - tool: "append_file"
           args: {"path": "/root/.gdbinit"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.gdbinit"}
+        - tool: "apply_patch"
+          args: {"path": "/home/user/.lldbinit"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.config/gdb/gdbinit"}
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/project/debug/gdb-pretty-printers.py"}
@@ -283,6 +383,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -296,6 +403,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/Library/LaunchAgents/com.evil.plist"}
         - tool: "create_file"
+          args: {"path": "/Library/LaunchDaemons/com.backdoor.plist"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/Library/LaunchAgents/com.evil.plist"}
+        - tool: "patch_file"
           args: {"path": "/Library/LaunchDaemons/com.backdoor.plist"}
       tn:
         - tool: "write_file"
@@ -339,6 +451,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -351,6 +470,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/.git/hooks/pre-commit"}
         - tool: "create_file"
+          args: {"path": "/project/.git/hooks/post-checkout"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/project/.git/hooks/pre-commit"}
+        - tool: "patch_file"
           args: {"path": "/project/.git/hooks/post-checkout"}
       tn:
         - tool: "write_file"
@@ -375,7 +499,15 @@ structural_rules:
         - "write_to_file"
         - "save_file"
         - "update_file"
+        - "append_file"
         - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -391,6 +523,13 @@ structural_rules:
           args: {"path": "/home/user/.config/systemd/user/evil.service"}
         - tool: "create_file"
           args: {"path": "/home/user/.config/autostart/backdoor.desktop"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/systemd/user/evil.service"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.config/autostart/backdoor.desktop"}
+        - tool: "apply_patch"
+          args: {"path": "/home/user/.local/share/systemd/user/backdoor.service"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/config/service.yaml"}
@@ -427,6 +566,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -440,6 +586,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/lib/systemd/system/evil.service"}
         - tool: "create_file"
+          args: {"path": "/run/systemd/system/backdoor.service"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/lib/systemd/system/evil.service"}
+        - tool: "patch_file"
           args: {"path": "/run/systemd/system/backdoor.service"}
       tn:
         - tool: "write_file"
@@ -481,6 +632,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -496,6 +654,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.ssh/authorized_keys"}
         - tool: "append_file"
+          args: {"path": "/home/user/.ssh/config"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.ssh/authorized_keys"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.ssh/config"}
       tn:
         - tool: "write_file"
@@ -542,6 +705,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -568,6 +738,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/project/CLAUDE.md"}
         - tool: "edit_file"
+          args: {"path": "/project/.cursorrules"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/project/CLAUDE.md"}
+        - tool: "patch_file"
           args: {"path": "/project/.cursorrules"}
       tn:
         - tool: "write_file"
@@ -605,6 +780,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -619,6 +801,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.gitconfig"}
         - tool: "edit_file"
+          args: {"path": "/home/user/.config/git/config"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.gitconfig"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.config/git/config"}
       tn:
         - tool: "write_file"
@@ -660,6 +847,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -675,6 +869,11 @@ structural_rules:
           args: {"path": "/home/user/repos/myapp/.git/config"}
         - tool: "str_replace_editor"
           args: {"path": ".git/config"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/workspace/project/.git/config"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/repos/myapp/.git/config"}
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/project/.git/HEAD"}
@@ -724,6 +923,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -736,12 +942,23 @@ structural_rules:
             - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
             - "(?:^|/)\\.config/windsurf/settings\\.json$"
             - "(?i)Code/User/settings\\.json$"
+            - "(?i)VSCodium/User/settings\\.json$"
+            - "(?i)code-server/User/settings\\.json$"
+            - "(?i)Windsurf/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
             - "(?:^|/)\\.config/zed/settings\\.json$"
             - "(?i)Application Support/Zed/settings\\.json$"
+            # hooks.json — IDE hook configurations (issue #1192)
+            # Writing a new hooks.json without the AgentShield PreToolUse hook
+            # silently disables all AgentShield protections for future sessions.
+            # This is a self-protection bypass vector via MCP (the shell-level
+            # sp-block-delete-hooks rule covers the shell path; this covers MCP).
+            - "(?:^|/)\\.claude/hooks\\.json$"
+            - "(?:^|/)\\.cursor/hooks\\.json$"
+            - "(?i)Application Support/Claude/hooks\\.json$"
     decision: "BLOCK"
-    reason: "MCP write to AI IDE settings file — an agent that modifies its own settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield hooks without human authorization. Capability escalation via config injection. OWASP LLM06, MITRE T1548."
+    reason: "MCP write to AI IDE settings or hooks file — an agent that modifies settings.json can self-grant Bash(*), add malicious MCP servers, or disable AgentShield. Writing hooks.json without the AgentShield PreToolUse hook silently disables all runtime protections for future sessions (self-protection bypass). OWASP LLM06, MITRE T1548."
     confidence: 0.97
     tests:
       tp:
@@ -759,6 +976,26 @@ structural_rules:
           args: {"path": "/home/user/.config/zed/settings.json"}
         - tool: "write_file"
           args: {"path": "/Users/garyzeng/Library/Application Support/Zed/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/VSCodium/User/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/code-server/User/settings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/Windsurf/User/settings.json"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.claude/settings.json"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.cursor/settings.json"}
+        - tool: "apply_patch"
+          args: {"path": "/home/user/.config/windsurf/settings.json"}
+        # hooks.json — issue #1192
+        - tool: "write_file"
+          args: {"path": "/home/user/.claude/hooks.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.cursor/hooks.json"}
+        - tool: "edit_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Claude/hooks.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/settings.go"}
@@ -766,6 +1003,71 @@ structural_rules:
           args: {"path": "/workspace/docs/cursor-settings-guide.md"}
         - tool: "write_file"
           args: {"path": "/workspace/project/zed-settings-example.md"}
+        - tool: "write_file"
+          args: {"path": "/workspace/project/docs/hooks-overview.md"}
+
+  # === BLOCK: Write to ~/.claude/commands/ (global command injection) (issue #1191) ===
+  #
+  # ~/.claude/commands/ holds user-level global slash commands for Claude Code.
+  # Every .md file placed here becomes a slash command available in ALL future
+  # Claude Code sessions across all projects. An MCP server that injects a
+  # malicious command here achieves persistent inter-session prompt injection
+  # with full agent permissions when the victim triggers the command.
+  #
+  # Scope: home-directory-level only (home-dir regex anchor).
+  # Project-level .claude/commands/ (e.g., /workspace/.claude/commands/) is
+  # already covered with AUDIT by mcp-persist-audit-instruction-file-write.
+  #
+  # Attack example:
+  #   write_file(path="~/.claude/commands/build.md", content="<malicious prompt>")
+  #   → Next session: user runs /project:build → agent executes injected instructions
+  - id: mcp-persist-block-claude-commands-write
+    taxonomy: "persistence-evasion/agent-config-persistence/agent-instruction-file-tampering"
+    match:
+      tool_name_any:
+        - "write_file"
+        - "create_file"
+        - "edit_file"
+        - "write_to_file"
+        - "save_file"
+        - "update_file"
+        - "append_file"
+        - "filesystem_write"
+        - "str_replace_editor"
+        - "str_replace_based_edit_tool"
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
+      args_match:
+        path:
+          pattern_any:
+            # Home-dir-scoped: matches ~/.claude/commands/ on Linux, macOS, and root
+            - "(?:/home/[^/]+|/root|/Users/[^/]+)/\\.claude/commands/"
+            - "(?i)Application Support/Claude/commands/"
+    decision: "BLOCK"
+    reason: "MCP write to ~/.claude/commands/ — injects a persistent global slash command into every future Claude Code session. Any .md file written here becomes a slash command available across all projects, achieving inter-session prompt injection. OWASP LLM01/LLM08, MITRE T1546."
+    confidence: 0.93
+    tests:
+      tp:
+        - tool: "write_file"
+          args: {"path": "/home/user/.claude/commands/evil.md"}
+        - tool: "create_file"
+          args: {"path": "/root/.claude/commands/persist.md"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.claude/commands/backdoor.md"}
+        - tool: "edit_file"
+          args: {"path": "/Users/garyzeng/Library/Application Support/Claude/commands/evil.md"}
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.claude/commands/build.md"}
+      tn:
+        # Project-level commands are legitimate developer work
+        - tool: "write_file"
+          args: {"path": "/workspace/project/.claude/commands/build.md"}
+        - tool: "write_file"
+          args: {"path": "/home/user/projects/myapp/.claude/commands/deploy.md"}
+        # Docs mentioning the path should not trigger
+        - tool: "write_file"
+          args: {"path": "/workspace/docs/claude-commands-guide.md"}
 
   # === BLOCK: Write to IDE keybindings files via MCP (issue #1068) ===
   #
@@ -799,10 +1101,19 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
             - "(?i)Code/User/keybindings\\.json$"
+            - "(?i)VSCodium/User/keybindings\\.json$"
+            - "(?i)code-server/User/keybindings\\.json$"
             - "(?:^|/)\\.cursor/keybindings\\.json$"
             - "(?i)Cursor/User/keybindings\\.json$"
             - "(?:^|/)\\.config/cursor/keybindings\\.json$"
@@ -828,6 +1139,15 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.config/windsurf/keybindings.json"}
         - tool: "str_replace_editor"
+          args: {"path": "/home/user/.config/zed/keymap.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/VSCodium/User/keybindings.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.config/code-server/User/keybindings.json"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/Code/User/keybindings.json"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.config/zed/keymap.json"}
       tn:
         - tool: "write_file"
@@ -868,6 +1188,9 @@ structural_rules:
             - "(?:^|/)\\.config/cursor/settings\\.json$"
             - "(?:^|/)\\.config/windsurf/mcp_config\\.json$"
             - "(?:^|/)\\.config/windsurf/settings\\.json$"
+            - "(?i)Windsurf/User/settings\\.json$"
+            - "(?i)VSCodium/User/settings\\.json$"
+            - "(?i)code-server/User/settings\\.json$"
             - "(?:^|/)\\.config/gemini/settings\\.json$"
             - "(?:^|/)\\.openai-codex/config\\.json$"
             - "(?:^|/)\\.agentshield/"
@@ -882,6 +1205,12 @@ structural_rules:
           args: {"path": "/home/user/.agentshield/policy.yaml"}
         - tool: "delete_file"
           args: {"path": "/home/user/.cursor/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/Windsurf/User/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/VSCodium/User/settings.json"}
+        - tool: "delete_file"
+          args: {"path": "/home/user/.config/code-server/User/settings.json"}
         - tool: "unlink"
           args: {"path": "/home/user/.config/windsurf/settings.json"}
       tn:
@@ -926,6 +1255,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -943,6 +1279,11 @@ structural_rules:
           args: {"path": "/home/user/.local/share/gnome-shell/extensions/evil@attacker/extension.js"}
         - tool: "create_file"
           args: {"path": "/home/user/.local/share/plasma/plasmoids/backdoor/main.qml"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.local/share/gnome-shell/extensions/evil@attacker/extension.js"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.local/share/cinnamon/extensions/spy/extension.js"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/extension.js"}
@@ -988,6 +1329,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1011,6 +1359,11 @@ structural_rules:
           args: {"path": "/home/user/.local/share/JetBrains/IntelliJIdea2024.1/plugins/evil/lib/evil.jar"}
         - tool: "str_replace_editor"
           args: {"path": "/Users/user/Library/Application Support/Code/User/extensions/backdoor/extension.js"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.vscode/extensions/backdoor/extension.js"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.cursor/extensions/evil/main.js"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/vscode-extension/extension.js"}
@@ -1060,6 +1413,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1082,6 +1442,11 @@ structural_rules:
           args: {"path": "/home/user/.config/environment.d/proxy.conf"}
         - tool: "write_file"
           args: {"path": "/home/user/.config/environment.d/path-override.conf"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.xinitrc"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.xprofile"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/config/x11-settings.conf"}
@@ -1123,6 +1488,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1137,6 +1509,11 @@ structural_rules:
           args: {"path": "/home/user/.config/cron.d/evil-job"}
         - tool: "create_file"
           args: {"path": "/var/spool/cron/crontabs/root"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/cron.d/evil-job"}
+        - tool: "patch_file"
+          args: {"path": "/var/spool/cron/crontabs/user"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/scripts/cron-helper.sh"}
@@ -1173,6 +1550,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1185,6 +1569,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.ipython/profile_default/startup/99-exfil.py"}
         - tool: "create_file"
+          args: {"path": "/home/user/.ipython/profile_prod/startup/00-init.py"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.ipython/profile_default/startup/99-exfil.py"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.ipython/profile_prod/startup/00-init.py"}
       tn:
         - tool: "write_file"
@@ -1235,6 +1624,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1252,6 +1648,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.local/lib/python3.11/site-packages/sitecustomize.py"}
         - tool: "write_file"
+          args: {"path": "/usr/lib/python3/dist-packages/usercustomize.py"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.local/lib/python3.11/site-packages/evil.pth"}
+        - tool: "patch_file"
           args: {"path": "/usr/lib/python3/dist-packages/usercustomize.py"}
       tn:
         - tool: "read_file"
@@ -1300,6 +1701,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1323,6 +1731,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.jupyter/custom/custom.js"}
         - tool: "edit_file"
+          args: {"path": "/home/user/.jupyter/jupyter_server_config.py"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.local/share/jupyter/kernels/python3/kernel.json"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.jupyter/jupyter_server_config.py"}
       tn:
         - tool: "read_file"
@@ -1367,6 +1780,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1379,6 +1799,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.local/share/applications/evil.desktop"}
         - tool: "create_file"
+          args: {"path": "/home/user/.local/share/applications/hijack-pdf.desktop"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.local/share/applications/evil.desktop"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.local/share/applications/hijack-pdf.desktop"}
       tn:
         - tool: "write_file"
@@ -1424,6 +1849,13 @@ structural_rules:
         - "filesystem_write"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
       args_match:
         path:
           pattern_any:
@@ -1446,6 +1878,11 @@ structural_rules:
           args: {"path": "/home/user/.git-templates/hooks/pre-push"}
         - tool: "edit_file"
           args: {"path": "/home/user/.config/git/hooks/pre-receive"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/git/hooks/pre-commit"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.git-templates/hooks/pre-push"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/repo/.git/hooks/pre-commit"}
@@ -1494,6 +1931,13 @@ structural_rules:
         - "write_to_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
         - "filesystem_write"
       args_match:
         path:
@@ -1511,6 +1955,11 @@ structural_rules:
           args: {"path": "/home/user/.vim/plugin/evil.vim"}
         - tool: "str_replace_editor"
           args: {"path": "/home/user/.vim/autoload/init.vim"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.vimrc"}
+        - tool: "patch_file"
+          args: {"path": "/home/user/.vim/plugin/evil.vim"}
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/project/vim-syntax/myapp.vim"}
@@ -1532,6 +1981,13 @@ structural_rules:
         - "write_to_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
         - "filesystem_write"
       args_match:
         path:
@@ -1548,6 +2004,11 @@ structural_rules:
         - tool: "edit_file"
           args: {"path": "/home/user/.config/nvim/lua/user/init.lua"}
         - tool: "create_file"
+          args: {"path": "/home/user/.config/nvim/plugin/evil.lua"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.config/nvim/init.lua"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.config/nvim/plugin/evil.lua"}
       tn:
         - tool: "write_file"
@@ -1570,6 +2031,13 @@ structural_rules:
         - "write_to_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
         - "filesystem_write"
       args_match:
         path:
@@ -1587,6 +2055,11 @@ structural_rules:
         - tool: "edit_file"
           args: {"path": "/home/user/.emacs.d/init.el"}
         - tool: "create_file"
+          args: {"path": "/home/user/.emacs.d/lisp/evil.el"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.emacs.d/init.el"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.emacs.d/lisp/evil.el"}
       tn:
         - tool: "write_file"
@@ -1609,6 +2082,13 @@ structural_rules:
         - "write_to_file"
         - "str_replace_editor"
         - "str_replace_based_edit_tool"
+        # FN-MCP-011: modern patch/diff tool names used by Claude Code, Roo,
+        # Cline, and similar agents. Writing a malicious payload via
+        # apply_diff({path: "~/.bashrc", ...}) bypasses any persistence rule
+        # that only lists classic file-write tool names.
+        - "patch_file"
+        - "apply_diff"
+        - "apply_patch"
         - "filesystem_write"
       args_match:
         path:
@@ -1623,6 +2103,11 @@ structural_rules:
         - tool: "write_file"
           args: {"path": "/home/user/.tmux.conf"}
         - tool: "edit_file"
+          args: {"path": "/home/user/.config/tmux/tmux.conf"}
+        # FN-MCP-011 regression: apply_diff / patch_file / apply_patch tool names
+        - tool: "apply_diff"
+          args: {"path": "/home/user/.tmux.conf"}
+        - tool: "patch_file"
           args: {"path": "/home/user/.config/tmux/tmux.conf"}
       tn:
         - tool: "write_file"
