@@ -70,12 +70,21 @@ func (r MCPSelfTestResults) FormatMarkdown() string {
 
 // RunMCPSelfTest runs all scenarios and returns structured results.
 // packsDir should point to the packs/community/mcp/ directory containing YAML packs.
-func RunMCPSelfTest(packsDir string) MCPSelfTestResults {
+// Additional directories (e.g. premium packs) can be supplied as extraDirs and are
+// layered on top in order — mirroring how newTestMCPHandler loads them in tests.
+func RunMCPSelfTest(packsDir string, extraDirs ...string) MCPSelfTestResults {
 	// Load policy
 	mcpPolicy := DefaultMCPPolicy()
 	merged, _, err := LoadMCPPacks(packsDir, mcpPolicy)
 	if err != nil {
 		merged = mcpPolicy
+	}
+
+	for _, dir := range extraDirs {
+		layered, _, lerr := LoadMCPPacks(dir, merged)
+		if lerr == nil {
+			merged = layered
+		}
 	}
 
 	evaluator := NewPolicyEvaluator(merged)

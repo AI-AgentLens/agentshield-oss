@@ -17,7 +17,14 @@ func main() {
 		packsDir = "packs/community/mcp"
 	}
 
-	results := mcp.RunMCPSelfTest(packsDir)
+	// Layer premium packs on top when present (skipped in OSS-only checkouts),
+	// mirroring how newTestMCPHandler loads them in unit tests.
+	premiumDir := os.Getenv("MCP_PREMIUM_PACKS_DIR")
+	if premiumDir == "" {
+		premiumDir = "packs/premium/mcp"
+	}
+
+	results := mcp.RunMCPSelfTest(packsDir, premiumDir)
 
 	fmt.Println(results.FormatMarkdown())
 
