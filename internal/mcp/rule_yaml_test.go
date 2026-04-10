@@ -134,14 +134,7 @@ func TestMCPRuleYAMLTests(t *testing.T) {
 // generated subtest name "<rule-id>/(TP|TN)-<n>".
 //
 // TODO: file follow-up issues to fix each gap and remove it from this list.
-var knownStructuralRuleTestGaps = map[string]string{
-	"mcp-struct-audit-msj-payload-write/TP-1":      "pre-existing FN: many-shot jailbreak content TP not wired through structural matcher",
-	"mcp-struct-audit-msj-payload-write/TP-2":      "pre-existing FN: many-shot jailbreak content TP not wired through structural matcher",
-	"mcp-sec-block-alibaba-tencent-imds/TN-2":      "pre-existing FP in TN: Alibaba/Tencent IMDS TN currently matches the rule",
-	"mcp-sc-block-rubygems-api-write/TP-4":         "pre-existing FN: post_request tool name not handled by url-only rule",
-	"mcp-sc-block-github-actions-secrets-api/TP-4": "pre-existing FN: post_request tool name not handled by url-only rule",
-	"mcp-sc-block-circleci-envvar-api/TP-3":        "pre-existing FN: post_request tool name not handled by url-only rule",
-}
+var knownStructuralRuleTestGaps = map[string]string{}
 
 // TestMCPStructuralRuleYAMLTests validates every structural MCP rule's inline
 // TP/TN test cases by calling matchStructuralRule directly. Without this test,

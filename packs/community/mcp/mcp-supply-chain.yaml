@@ -1268,6 +1268,15 @@ structural_rules:
         - "http_put"
         - "http_delete"
         - "http_patch"
+        # Generic `<verb>_request` variants — modern coding agents
+        # (Claude Code, Roo, Cline) use these tool names. Without them
+        # a TP like `post_request({url: rubygems.org/api/v1/gems})`
+        # silently slips past the tool-name filter. Issue #1171.
+        - "get_request"
+        - "post_request"
+        - "put_request"
+        - "delete_request"
+        - "patch_request"
       args_match:
         url:
           pattern_any:
@@ -1480,7 +1489,12 @@ structural_rules:
           pattern_any:
             - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/actions/secrets"
             - "(?i)api\\.github\\.com/orgs/[^/]+/actions/secrets"
-            - "(?i)api\\.github\\.com/[^/]+/[^/]+/environments/[^/]+/secrets"
+            # Environment secrets live at /repos/{owner}/{repo}/environments/
+            # {env}/secrets — the original pattern dropped one path segment
+            # (only required `/[^/]+/[^/]+/environments/` after the host,
+            # no `repos/` prefix) and silently failed on every real URL.
+            # Issue #1171.
+            - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/environments/[^/]+/secrets"
             - "(?i)api\\.github\\.com/repos/[^/]+/[^/]+/codespaces/secrets"
     decision: "BLOCK"
     confidence: 0.97
@@ -1569,8 +1583,12 @@ structural_rules:
       args_match:
         url:
           pattern_any:
-            - "(?i)circleci\\.com/api/v\\d+/project/[^/]+/[^/]+/[^/]+/envvar"
-            - "(?i)circleci\\.com/api/v\\d+/project/[^?]*/envvar"
+            # CircleCI ships both v1.1 (legacy) and v2 API endpoints for
+            # environment variables — the original `\d+` stopped at the
+            # `.` in v1.1 and silently failed on legacy v1.1 TPs.
+            # Issue #1171.
+            - "(?i)circleci\\.com/api/v\\d+(?:\\.\\d+)?/project/[^/]+/[^/]+/[^/]+/envvar"
+            - "(?i)circleci\\.com/api/v\\d+(?:\\.\\d+)?/project/[^?]*/envvar"
     decision: "BLOCK"
     confidence: 0.95
     reason: "MCP request to CircleCI environment variable API — CircleCI env vars store CI credentials, deployment keys, and service tokens. The API allows listing variable names and adding/overwriting values. Agents should never enumerate or modify CI/CD environment variables. MITRE T1552.001, T1195.002."

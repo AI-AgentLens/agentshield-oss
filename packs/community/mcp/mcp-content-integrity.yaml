@@ -936,8 +936,11 @@ structural_rules:
           pattern_all:
             - "(?i)(Human:|User:|Question:)"
             - "(?i)(Assistant:|Answer:|Response:)"
-            # Two or more Q headers = at least 2 demo pairs (MSJ threshold)
-            - "(?i)(Human:|User:|Question:).*?(Human:|User:|Question:)"
+            # Two or more Q headers = at least 2 demo pairs (MSJ threshold).
+            # `(?s)` (dotall) lets `.` span newlines, since real MSJ payloads
+            # put each Q/A pair on its own line. Without it, this TP regex
+            # silently fails on any multi-line payload (issue #1165).
+            - "(?is)(Human:|User:|Question:).*?(Human:|User:|Question:)"
     decision: "AUDIT"
     confidence: 0.78
     reason: "MCP write containing multiple instruction-response demonstration pairs — this Q&A repetition pattern is the primary construction method for many-shot jailbreak payloads that override LLM safety alignment when injected into agent context (OWASP LLM01)."
