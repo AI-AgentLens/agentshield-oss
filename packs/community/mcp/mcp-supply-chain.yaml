@@ -590,6 +590,7 @@ structural_rules:
             - "(?:^|/)\\.cursor/mcp\\.json$"
             - "(?:^|/)\\.vscode/mcp\\.json$"
             - "(?:^|/)mcp\\.json$"
+            - "(?:^|/)mcp_server_config\\.json$"
     decision: "BLOCK"
     reason: "MCP tool write to an MCP configuration file — modifying agent-to-tool trust roots via MCP tool call can register malicious servers, redirect existing servers to attacker-controlled endpoints, or inject env vars that exfiltrate credentials. This bypasses shell-level sc-block-mcp-config-injection detection. OWASP LLM03/LLM05, MITRE T1195.002."
     confidence: 0.97
@@ -599,9 +600,15 @@ structural_rules:
           args: {"path": ".cursor/mcp.json"}
         - tool: "edit_file"
           args: {"path": "claude_desktop_config.json"}
+        - tool: "write_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
+        - tool: "create_file"
+          args: {"path": "/Users/alice/.windsurf/mcp_server_config.json"}
       tn:
         - tool: "write_file"
           args: {"path": "/project/src/mcp_client.go"}
+        - tool: "read_file"
+          args: {"path": "/home/user/.windsurf/mcp_server_config.json"}
 
   # === BLOCK: MCP write to user PATH directories shadowing system tools (issue #529) ===
   #
