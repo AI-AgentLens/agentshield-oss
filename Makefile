@@ -80,6 +80,10 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 
 check: lint-fix test build ## Run full pre-commit check (lint, test, build)
 
+test-setup: ## Test IDE setup/hook/disable cycle in Docker container
+	@echo "=== Setup Integration Test ==="
+	@./scripts/integration-test-setup.sh
+
 test-install: ## Test homebrew install in Docker container (full build)
 	@echo "=== Installation Test (full) ==="
 	@./scripts/integration-test-oss.sh
