@@ -33,6 +33,7 @@ Requires Go 1.23+.
 agentshield setup claude-code   # Claude Code
 agentshield setup cursor        # Cursor
 agentshield setup windsurf      # Windsurf
+agentshield setup gemini-cli    # Gemini CLI
 
 # Verify it's working
 agentshield scan
@@ -57,6 +58,22 @@ AgentShield also mediates MCP (Model Context Protocol) tool calls — blocking d
 agentshield setup mcp
 ```
 
+## Supported IDEs
+
+| IDE | Shell Protection | MCP Protection | Hook Type | Block Signal |
+|-----|:---:|:---:|---|---|
+| **Claude Code** | Yes | Yes (native) | `PreToolUse` — intercepts all tool calls (Bash + MCP) | exit 2 |
+| **Gemini CLI** | Yes | — | `BeforeTool` — `run_shell_command` matcher | JSON `deny` |
+| **Cursor** | Yes | Yes (proxy) | `beforeShellExecution` + `setup mcp` rewrites `mcp.json` | exit 2 / JSON `deny` |
+| **Windsurf** | Yes | — | `pre_run_command` (Cascade Hooks) | exit 2 |
+| **Codex CLI** | Planned | — | `SessionStart` only (awaiting Codex `PreToolUse` support) | — |
+| **OpenClaw** | Yes | — | Native hook system (`hooks enable`) | exit 2 |
+
+**MCP protection details:**
+- **Claude Code**: The `PreToolUse` hook intercepts every tool call. Non-Bash calls (Read, Write, MCP tools) are routed to the MCP policy evaluator — no separate proxy needed.
+- **Cursor**: MCP servers are wrapped with `agentshield mcp-proxy` via config rewriting. Run `agentshield setup mcp` after installing the shell hook.
+- **Other IDEs**: MCP interception is not yet available. Shell command protection still applies.
+
 ## How It Works
 
 AgentShield integrates with IDE hooks to evaluate commands *before* execution. It **never executes commands itself** — defense in depth.
@@ -77,7 +94,7 @@ Agent requests: "cat ~/.ssh/id_rsa"
 
 ## What's Protected
 
-**Shell commands** — 1,096 community rules covering 9 threat kingdoms:
+**Shell commands** — 817 community rules covering 9 threat kingdoms:
 
 | Kingdom | Examples |
 |---------|----------|
@@ -91,7 +108,7 @@ Agent requests: "cat ~/.ssh/id_rsa"
 | Unauthorized Execution | Code injection, container escape, prompt injection |
 | Governance Risk | Shadow AI usage, audit trail circumvention |
 
-**MCP tool calls** — 565 rules across 13 policy packs:
+**MCP tool calls** — 513 rules across 3 policy packs:
 
 - Tool description poisoning detection (50+ test cases)
 - Argument content scanning — SSH keys, API tokens, credentials in tool arguments (30+ test cases)
@@ -131,11 +148,11 @@ See the [Policy Authoring Guide](docs/policy-guide.md) for full syntax.
 |---|:-:|:-:|
 | Regex + Structural analysis | Yes | Yes |
 | Guardian heuristics | Yes | Yes |
-| Community rules (1,096) | Yes | Yes |
+| Community rules (817 shell + 513 MCP) | Yes | Yes |
 | Semantic intent analysis | — | Yes |
 | Dataflow taint tracking | — | Yes |
 | Stateful attack chains | — | Yes |
-| Full rule library (1,300+) | — | Yes |
+| Full rule library (1,118 shell + 810 MCP) | — | Yes |
 | Advanced DLP / data labels | — | Yes |
 | Static analysis (Semgrep) | — | Yes |
 | Compliance reporting | — | Yes |

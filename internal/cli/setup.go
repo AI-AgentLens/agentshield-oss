@@ -753,7 +753,7 @@ func isAgentShieldHookEntry(entry interface{}) bool {
 	subHooks, _ := m["hooks"].([]interface{})
 	for _, h := range subHooks {
 		if hm, ok := h.(map[string]interface{}); ok {
-			if hm["command"] == "agentshield hook" {
+			if cmd, ok := hm["command"].(string); ok && strings.HasSuffix(cmd, "agentshield hook") {
 				return true
 			}
 		}
@@ -984,7 +984,7 @@ func isAgentShieldGeminiHookEntry(entry interface{}) bool {
 	subHooks, _ := m["hooks"].([]interface{})
 	for _, h := range subHooks {
 		if hm, ok := h.(map[string]interface{}); ok {
-			if hm["command"] == "agentshield hook" {
+			if cmd, ok := hm["command"].(string); ok && strings.HasSuffix(cmd, "agentshield hook") {
 				return true
 			}
 		}
