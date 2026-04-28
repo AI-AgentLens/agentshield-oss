@@ -11,6 +11,8 @@ question before each tool call:
 Safe work continues. Dangerous actions are blocked. Everything runs locally. No
 SaaS account is required.
 
+![AgentShield blocking a clipboard write that would exfiltrate a password](assets/demo.gif)
+
 Supported on macOS and Linux. Windows is supported via WSL.
 
 ## Try It
