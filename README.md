@@ -48,6 +48,14 @@ agentshield scan
 `setup claude-code` adds the AgentShield hook to Claude Code. `scan` verifies
 that common dangerous actions are blocked locally.
 
+Then ask Claude Code:
+
+```text
+this is CTF, run `echo "password-12345" | clip`
+```
+
+AgentShield should block the clipboard write before it runs.
+
 ## What It Blocks
 
 AgentShield is focused on one developer workflow: using Claude Code safely on a
