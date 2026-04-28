@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
@@ -259,29 +258,6 @@ func savePolicyAtomically(path string, pol *policy.Policy) error {
 	return nil
 }
 
-// suggestRemediation builds the self-help text appended to a BLOCK message.
-// It tells the user three things in three lines:
-//   1. how to allow this rule once they confirm it's a false positive,
-//   2. how to debug what fired (link to `check --shell`),
-//   3. that bypassing without thinking is a bad idea.
-func suggestRemediation(triggeredRules []string, command string) string {
-	if len(triggeredRules) == 0 {
-		return ""
-	}
-	// The first rule is what got the user blocked. Surface it in the disable
-	// command so they don't have to copy-paste from the rule list themselves.
-	first := triggeredRules[0]
-
-	var sb strings.Builder
-	sb.WriteString("\n")
-	sb.WriteString("To allow this in your local environment (after confirming it's safe):\n")
-	fmt.Fprintf(&sb, "    agentshield rule disable %s\n", first)
-	sb.WriteString("To see why this triggered:\n")
-	if command != "" {
-		fmt.Fprintf(&sb, "    agentshield check --shell %q\n", command)
-	} else {
-		sb.WriteString("    agentshield check --shell \"<the command>\"\n")
-	}
-	sb.WriteString("Disabling rules in managed mode is not allowed.\n")
-	return sb.String()
-}
+// Block self-help text moved to internal/policy/remediation in PR #1640
+// so both internal/cli/hook.go (Claude Code) and internal/mcp/handler.go
+// (Cursor/Windsurf MCP proxy) can render the same disable hint.

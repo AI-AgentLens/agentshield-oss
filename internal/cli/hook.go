@@ -15,6 +15,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy/remediation"
 	"github.com/spf13/cobra"
 )
 
@@ -383,7 +384,7 @@ func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
 			for _, reason := range evalResult.Reasons {
 				fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 			}
-			fmt.Fprint(os.Stderr, suggestRemediation(evalResult.TriggeredRules, cmdStr))
+			fmt.Fprint(os.Stderr, remediation.SuggestForShell(evalResult.TriggeredRules, cmdStr))
 			os.Exit(2)
 		}
 		return nil
@@ -420,9 +421,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage) erro
 		for _, reason := range result.Reasons {
 			fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 		}
-		// MCP tool calls don't have a meaningful "shell command" to suggest
-		// re-running through `check`, but the disable hint still applies.
-		fmt.Fprint(os.Stderr, suggestRemediation(result.TriggeredRules, ""))
+		fmt.Fprint(os.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
 		os.Exit(2)
 	}
 

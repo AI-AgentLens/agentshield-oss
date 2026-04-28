@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var verbose bool
+
 var mcpEvalCmd = &cobra.Command{
 	Use:   "mcp-eval --tool <tool_name> [--arg key=value]...",
 	Short: "Evaluate an MCP tool call against deployed policy",

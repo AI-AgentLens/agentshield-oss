@@ -1972,6 +1972,28 @@ var LLMCacheTimingOracleCases = []TestCase{
 		Description:      "time.time() without any LLM API call — pure Python timing of a print statement. recon-llm-cache-timing-probe does NOT fire (no LLM API in command). Gets default AUDIT (python3 is not pre-allowed by ts-allow-readonly).",
 		Tags:             []string{"tn", "safe", "timing-oracle"},
 	},
+	// TN-3: git commit message mentioning anthropic + perf_counter — DOC_CONTEXT exclude (issue #1669, biweekly review #1160)
+	{
+		ID:               "TN-RECON-CACHE-TIMING-003",
+		Command:          `git commit -m "anthropic sdk: add perf_counter logging for latency budgets"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Commit message referencing anthropic + perf_counter — DOC_CONTEXT excludes git -m bodies, AND the bare brand-name alternative was tightened to require messages.create / chat.completions.create. recon-llm-cache-timing-probe must NOT fire; git commit remains AUDIT by default (issue #1669).",
+		Tags:             []string{"tn", "safe", "timing-oracle", "doc-context", "1669"},
+	},
+	// TN-4: gh issue body mentioning openai + time.perf_counter — DOC_CONTEXT exclude (issue #1669)
+	{
+		ID:               "TN-RECON-CACHE-TIMING-004",
+		Command:          `gh issue create --body "openai client should expose time.perf_counter timing for messages.create calls"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Issue body discussing openai + time.perf_counter + messages.create — DOC_CONTEXT excludes gh --body. recon-llm-cache-timing-probe must NOT fire; gh remains AUDIT by default (issue #1669).",
+		Tags:             []string{"tn", "safe", "timing-oracle", "doc-context", "1669"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -2036,6 +2058,28 @@ var ThinkingTokenProbeCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Legitimate multi-turn conversation with extended thinking — budget_tokens used but result accessed via .text not .thinking. recon-thinking-token-probe does NOT fire. Gets default AUDIT.",
 		Tags:             []string{"tn", "safe", "thinking-token"},
+	},
+	// TN-3: grep over source for budget_tokens / .thinking — no python invocation, anchor required (issue #1669)
+	{
+		ID:               "TN-RECON-THINKING-TOKEN-003",
+		Command:          `grep -r budget_tokens src/ | grep thinking`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Developer grepping source for both fields — no python invocation, so the new lead-command anchor (python -c | python *.py) prevents the rule from firing. recon-thinking-token-probe must NOT fire (issue #1669).",
+		Tags:             []string{"tn", "safe", "thinking-token", "doc-context", "1669"},
+	},
+	// TN-4: gh issue body mentioning budget_tokens + .thinking — DOC_CONTEXT exclude (issue #1669)
+	{
+		ID:               "TN-RECON-THINKING-TOKEN-004",
+		Command:          `gh issue create --body "budget_tokens and .thinking fields not documented anywhere"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/llm-introspection/thinking-token-side-channel",
+		Analyzer:         "regex",
+		Description:      "Issue body referencing budget_tokens + .thinking — DOC_CONTEXT excludes gh --body, AND the new lead-command anchor blocks the bare-substring match. recon-thinking-token-probe must NOT fire; gh remains AUDIT by default (issue #1669).",
+		Tags:             []string{"tn", "safe", "thinking-token", "doc-context", "1669"},
 	},
 }
 

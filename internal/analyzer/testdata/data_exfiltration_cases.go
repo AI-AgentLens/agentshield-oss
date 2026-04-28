@@ -6276,6 +6276,37 @@ var NetworkEgressFixes285Cases = []TestCase{
 		Description:      "Pure timing of a print statement — no LLM API call and no network egress. Neither llm-cache-timing-exfil nor llm-cache-read-tokens-probe fires.",
 		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "334"},
 	},
+	// TN: grep / docs / issue bodies referencing cache_read_input_tokens — must NOT fire (issue #1669, biweekly review #1160)
+	{
+		ID:               "TN-LLMDF-CACHE-TOKENS-001",
+		Command:          `grep cache_read_input_tokens src/api.py`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Developer grepping source for cache_read_input_tokens — no python invocation, so the new lead-command anchor prevents llm-cache-read-tokens-probe from firing. ts-allow-readonly gives ALLOW (issue #1669).",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "doc-context", "1669"},
+	},
+	{
+		ID:               "TN-LLMDF-CACHE-TOKENS-002",
+		Command:          `gh issue create --body "cache_read_input_tokens field was unexpectedly zero in production"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Issue body discussing cache_read_input_tokens field — DOC_CONTEXT excludes gh --body, AND the python lead-command anchor blocks the bare-substring match. llm-cache-read-tokens-probe must NOT fire; gh remains AUDIT by default (issue #1669).",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "doc-context", "1669"},
+	},
+	{
+		ID:               "TN-LLMDF-CACHE-TOKENS-003",
+		Command:          `git commit -m "log resp.usage.cache_read_input_tokens for cache-hit metrics"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle",
+		Analyzer:         "regex",
+		Description:      "Commit message referencing cache_read_input_tokens — DOC_CONTEXT excludes git -m bodies. llm-cache-read-tokens-probe must NOT fire; git commit remains AUDIT by default (issue #1669).",
+		Tags:             []string{"tn", "llm-data-flow", "cache-timing", "doc-context", "1669"},
+	},
 
 	// -----------------------------------------------------------------------
 	// LLM API ENDPOINT HIJACKING — CONFIG FILE REDIRECT (issue #347)

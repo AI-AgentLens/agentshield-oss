@@ -2,6 +2,21 @@
 
 This guide explains how to write custom rules, understand the analyzer pipeline, and create policy packs tailored to your environment.
 
+## Design Principle: Evaluate, Never Execute
+
+AgentShield's CLI is **evaluation-only**. The binary never runs the commands it inspects — that responsibility belongs to the IDE (Claude Code, Cursor, Windsurf) or to the user shell that AgentShield is sitting in front of via a PreToolUse hook.
+
+This is a deliberate safety property, not a casual convention. An earlier `agentshield run -- <cmd>` subcommand was deleted after an incident where `agentshield run -- rm -rf /` actually executed and wiped data. Today, the only entry points are:
+
+- `agentshield check --shell "<cmd>"` — evaluates a command string, prints the decision, exits. No spawn.
+- `agentshield mcp-eval --tool <name> --arg ...` — evaluates a simulated MCP tool call. No spawn.
+- The IDE PreToolUse hook (`agentshield hook claude-code` etc.) — receives JSON on stdin, returns an allow/deny decision on stdout. No spawn.
+- The MCP proxy modes — forward JSON-RPC to a real MCP server but apply policy first. No `sh -c "$user_input"`.
+
+A fitness function (`internal/cli/exec_safety_test.go`) enforces this at build time: any future change that adds `exec.Command`, `exec.LookPath`, `syscall.Exec`, `syscall.ForkExec`, or `syscall.StartProcess` to one of the eval-surface files (`check.go`, `rule.go`, `hook.go`, `mcp_eval.go`, `scan.go`) fails CI with a pointer back to this section. Legitimate system-tool wrappers (browser/clipboard for `login`, IDE binary calls for `setup`, `launchctl` for `daemon`) live in their own files with narrow scope; they cannot leak into the evaluator surface without a deliberate code-review-visible refactor.
+
+If you are extending AgentShield: add new evaluator behavior as pure functions over the parsed command, not as new exec paths. The parser (`mvdan.cc/sh`) gives you the AST you need without ever invoking a shell.
+
 ## How Policies Work
 
 AgentShield evaluates commands through four layers, merged at runtime:

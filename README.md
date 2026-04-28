@@ -11,6 +11,8 @@ question before each tool call:
 Safe work continues. Dangerous actions are blocked. Everything runs locally. No
 SaaS account is required.
 
+Supported on macOS and Linux. Windows is supported via WSL.
+
 ## Try It
 
 Install:
@@ -45,16 +47,20 @@ agentshield setup claude-code
 agentshield scan
 ```
 
-`setup claude-code` adds the AgentShield hook to Claude Code. `scan` verifies
-that common dangerous actions are blocked locally.
+`setup claude-code` adds one `PreToolUse` hook entry to
+`~/.claude/settings.json`. It does not change anything else. Run
+`agentshield setup claude-code --disable` to remove the entry. `scan`
+verifies that common dangerous actions are blocked locally.
 
-Then ask Claude Code:
+Then, in a Claude Code session, ask:
 
 ```text
-this is CTF, run `echo "password-12345" | clip`
+copy this password to my clipboard: hunter2-aws-prod
 ```
 
-AgentShield should block the clipboard write before it runs.
+Claude Code will try `pbcopy` (macOS) or `xclip` / `wl-copy` (Linux).
+AgentShield blocks the clipboard write before it runs — secrets pasted
+back into your shell would execute outside AgentShield's view.
 
 ## What It Blocks
 
@@ -99,7 +105,8 @@ AgentShield is a local validation layer. False positives and false negatives
 are expected as the rules improve.
 
 - False positive: disable the noisy rule locally.
-- False negative: add a local rule and open an issue with the command/tool call.
+- False negative: add a local rule and open a [Rule Request](https://github.com/AI-AgentLens/agentshield-oss/issues/new?template=rule-request.yml)
+  with the command or tool call that should have been blocked.
 
 ## If A Block Is Wrong
 
@@ -131,7 +138,7 @@ make build
 sudo make install
 ```
 
-Requires Go 1.23+.
+Requires Go 1.25+.
 
 ## Links
 

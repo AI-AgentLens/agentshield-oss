@@ -6,6 +6,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Load reads a user policy file and layers it on top of DefaultPolicy.
+//
+// Layering (rather than replacement) is what fixes #1641: before this change,
+// the loader returned only the parsed user file when one existed, which meant
+// that the moment `agentshield rule disable` wrote a minimal `disable_rules:`
+// stanza, the hardcoded baseline rules (block-rm-root, block-pipe-to-shell,
+// audit-package-installs, audit-file-edits, allow-safe-readonly), the default
+// protected paths (~/.ssh/**, ~/.aws/**, ...), and the allow_domains list all
+// silently disappeared from the merged policy. Embedded community packs still
+// loaded on top so security wasn't compromised, but rule IDs drifted in a
+// confusing way (block-rm-root → ts-block-rm-root).
+//
+// The merge semantics here intentionally favor safety:
+//   - Defaults (decision, non_interactive): user value wins when set
+//   - Defaults.LogRedaction: cannot be silently turned off (true OR'd with user)
+//   - Defaults.ProtectedPaths: union (defense-in-depth — user can ADD but not REMOVE)
+//   - Network.AllowDomains: union (same reason)
+//   - Rules: appended after baseline (user rules run after, so user ALLOW/BLOCK
+//     overrides baseline AUDIT via most-restrictive-wins; user BLOCK over baseline
+//     ALLOW also wins)
+//   - DataLabels: appended
+//   - DisableRules: appended (user can opt out of any baseline rule by ID — the
+//     intended way to "remove" a default)
+//
+// Users who want to remove a baseline default protected path or allow domain
+// don't have a knob today; that's a deliberate floor. If a real customer asks
+// for it, we add an explicit `override:` block then.
 func Load(path string) (*Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -15,19 +42,60 @@ func Load(path string) (*Policy, error) {
 		return nil, err
 	}
 
-	var policy Policy
-	if err := yaml.Unmarshal(data, &policy); err != nil {
+	var user Policy
+	if err := yaml.Unmarshal(data, &user); err != nil {
 		return nil, err
 	}
 
-	if policy.Defaults.Decision == "" {
-		policy.Defaults.Decision = DecisionAudit
-	}
-	if policy.Defaults.NonInteractive == "" {
-		policy.Defaults.NonInteractive = DecisionBlock
+	return mergeUserOverDefaults(DefaultPolicy(), &user), nil
+}
+
+// mergeUserOverDefaults layers a user-authored policy on top of the hardcoded
+// baseline. See Load for the merge semantics rationale.
+func mergeUserOverDefaults(base, user *Policy) *Policy {
+	merged := clonePolicy(base)
+
+	if user.Version != "" {
+		merged.Version = user.Version
 	}
 
-	return &policy, nil
+	if user.Defaults.Decision != "" {
+		merged.Defaults.Decision = user.Defaults.Decision
+	}
+	if user.Defaults.NonInteractive != "" {
+		merged.Defaults.NonInteractive = user.Defaults.NonInteractive
+	}
+	// LogRedaction is OR'd: once a baseline says "redact logs," a user file
+	// cannot silently turn it off. To get verbose logs, set redaction back to
+	// false in the baseline policy (a privileged operation in managed mode).
+	merged.Defaults.LogRedaction = merged.Defaults.LogRedaction || user.Defaults.LogRedaction
+
+	merged.Defaults.ProtectedPaths = unionStrings(merged.Defaults.ProtectedPaths, user.Defaults.ProtectedPaths)
+	merged.Network.AllowDomains = unionStrings(merged.Network.AllowDomains, user.Network.AllowDomains)
+
+	merged.Rules = append(merged.Rules, user.Rules...)
+	merged.DataLabels = append(merged.DataLabels, user.DataLabels...)
+	merged.DisableRules = unionStrings(merged.DisableRules, user.DisableRules)
+
+	return merged
+}
+
+func unionStrings(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]bool, len(a))
+	for _, s := range a {
+		seen[s] = true
+	}
+	out := a
+	for _, s := range b {
+		if !seen[s] {
+			out = append(out, s)
+			seen[s] = true
+		}
+	}
+	return out
 }
 
 func DefaultPolicy() *Policy {

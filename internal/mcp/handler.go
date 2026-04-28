@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/policy/remediation"
 )
 
 // MessageHandler encapsulates the shared MCP message evaluation logic
@@ -205,6 +206,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED tool call: %s — %s\n", params.Name, reason)
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -253,6 +255,7 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resource read: %s — %s\n", params.URI, reason)
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -321,6 +324,7 @@ func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resource subscribe: %s — %s\n", params.URI, reason)
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {

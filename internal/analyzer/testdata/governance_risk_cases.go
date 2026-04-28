@@ -1607,6 +1607,46 @@ var AIComplianceArtifactFabricationCases = []TestCase{
 			ts-allow-readonly gives ALLOW.`,
 		Tags: []string{"tn", "safe", "compliance"},
 	},
+	// TN-3: commit message creating a soc2 handler file (no AI tool context) — issue #1669
+	{
+		ID:               "TN-TS-AUDIT-COMPFAB-003",
+		Command:          `git commit -m "create soc2_handler.go and soc2 audit-report scaffolding"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Commit message describing creation of compliance code (no LLM
+			tool context) — DOC_CONTEXT excludes git -m bodies, AND the first
+			alternative now requires \b(openai|claude|llm|anthropic)\b in the tail.
+			ts-audit-ai-compliance-artifact-fabrication must NOT fire; git commit remains AUDIT by default (issue #1669).`,
+		Tags: []string{"tn", "safe", "compliance", "doc-context", "1669"},
+	},
+	// TN-4: gh issue title for an audit-report endpoint (no AI tool context) — issue #1669
+	{
+		ID:               "TN-TS-AUDIT-COMPFAB-004",
+		Command:          `gh issue create --title "write audit-report endpoint" --body "needs handler in api/audit"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Issue title talking about an audit-report endpoint — DOC_CONTEXT
+			excludes gh --title/--body, AND the first alternative now requires an
+			AI-tool token (openai|claude|llm|anthropic). The rule must NOT fire; gh remains AUDIT by default (issue #1669).`,
+		Tags: []string{"tn", "safe", "compliance", "doc-context", "1669"},
+	},
+	// TN-5: cat docs/soc2.md — read-only documentation access, no generation
+	{
+		ID:               "TN-TS-AUDIT-COMPFAB-005",
+		Command:          `cat docs/soc2.md`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication",
+		Analyzer:         "regex",
+		Description: `Read-only access to SOC2 docs — no generation verb pairs with
+			the compliance term in a way that requires AI-tool context.
+			ts-audit-ai-compliance-artifact-fabrication must NOT fire; ts-allow-readonly gives ALLOW (issue #1669).`,
+		Tags: []string{"tn", "safe", "compliance", "1669"},
+	},
 
 	// ===========================================================================
 	// AI Agent Scope Creep — AWS Resource Over-Provisioning

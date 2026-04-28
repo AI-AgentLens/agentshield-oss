@@ -246,28 +246,6 @@ func TestRule_List_EmptyPrintsNotice(t *testing.T) {
 	}
 }
 
-// TestSuggestRemediation_IncludesRuleAndCommand — the BLOCK self-help text
-// shows the user the disable command for the FIRST triggered rule and quotes
-// the offending command for `check --shell`.
-func TestSuggestRemediation_IncludesRuleAndCommand(t *testing.T) {
-	got := suggestRemediation([]string{"cred-block-ssh-key-read", "second-rule"}, "cat ~/.ssh/id_rsa")
-
-	for _, want := range []string{
-		"agentshield rule disable cred-block-ssh-key-read",
-		`agentshield check --shell "cat ~/.ssh/id_rsa"`,
-		"managed mode",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("suggestRemediation output missing %q\noutput:\n%s", want, got)
-		}
-	}
-}
-
-// TestSuggestRemediation_NoRules_ReturnsEmpty — without a triggered rule
-// (shouldn't happen on BLOCK in practice, but defensive), return empty so
-// nothing weird gets printed.
-func TestSuggestRemediation_NoRules_ReturnsEmpty(t *testing.T) {
-	if got := suggestRemediation(nil, "anything"); got != "" {
-		t.Errorf("expected empty string, got: %q", got)
-	}
-}
+// Tests for the BLOCK self-help text moved to
+// internal/policy/remediation/remediation_test.go alongside the
+// SuggestForShell / SuggestForMCP helpers in PR #1640.

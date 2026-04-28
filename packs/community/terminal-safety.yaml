@@ -2357,7 +2357,8 @@ rules:
 - id: ts-audit-ai-compliance-artifact-fabrication
   taxonomy: governance-risk/ai-governance-gap/ai-compliance-artifact-fabrication
   match:
-    command_regex: (?i)\b(generate|create|produce|fabricate|write)\b.*\b(soc2|soc-2|soc_2|pentest|pen-test|pen_test|attestation|audit-report|compliance-report|compliance_report)\b|\b(openai-cli|claude|llm|llm-tool|llm_tool)\b.*\b(soc2|pentest|compliance|attestation|audit)\b.*[>|]
+    command_regex: (?i)\b(generate|create|produce|fabricate|write)\b.*\b(soc2|soc-2|soc_2|pentest|pen-test|pen_test|attestation|audit-report|compliance-report|compliance_report)\b.*\b(openai|claude|llm|anthropic)\b|\b(openai-cli|claude|llm|llm-tool|llm_tool)\b.*\b(soc2|pentest|compliance|attestation|audit)\b.*[>|]
+    command_regex_exclude: '{{DOC_CONTEXT}}'
   decision: AUDIT
   confidence: 0.8
   reason: AI agent generating a compliance artifact (SOC2 report, pentest summary, attestation, audit trail) — human review is mandatory before submission to auditors or regulators. AI-fabricated compliance documents can contain hallucinated evidence and incorrect risk ratings.
@@ -2367,6 +2368,8 @@ rules:
     - claude 'generate attestation letter for ISO 27001 audit' > attestation.pdf
     tn:
     - python3 draft_compliance_report.py --output draft.pdf
+    - git commit -m "create soc2_handler.go"
+    - gh issue create --title "write audit-report endpoint"
 - id: ts-audit-aws-run-instances-bulk
   taxonomy: destructive-ops/resource-commitment/unbounded-transfer
   match:
@@ -3889,7 +3892,8 @@ rules:
 - id: recon-llm-cache-timing-probe
   taxonomy: reconnaissance/llm-introspection/prompt-cache-timing-oracle
   match:
-    command_regex: (time\.time|time\.perf_counter|time\.monotonic|perf_counter|time\.clock).*(anthropic|openai|messages\.create|chat\.completions|completions\.create|client\.messages)|(anthropic|openai|messages\.create|chat\.completions|completions\.create|client\.messages).*(time\.time|time\.perf_counter|time\.monotonic|perf_counter|time\.clock)
+    command_regex: (time\.time|time\.perf_counter|time\.monotonic|perf_counter|time\.clock).*(messages\.create|chat\.completions\.create|completions\.create|client\.messages|chat\.completions)|(messages\.create|chat\.completions\.create|completions\.create|client\.messages|chat\.completions).*(time\.time|time\.perf_counter|time\.monotonic|perf_counter|time\.clock)
+    command_regex_exclude: '{{DOC_CONTEXT}}'
   decision: AUDIT
   confidence: 0.75
   reason: LLM API call co-occurring with timing measurement — may indicate prompt cache timing oracle probing. Measuring response latency across varying prefixes can reconstruct cached system prompts.
@@ -3899,19 +3903,24 @@ rules:
     - python3 -c 'from time import perf_counter; openai.chat.completions.create()'
     tn:
     - python3 -c 'import time; time.sleep(1)'
+    - 'git commit -m "anthropic sdk: add perf_counter logging"'
+    - 'gh issue create --body "openai client should expose time.perf_counter timing"'
 - id: llm-cache-read-tokens-probe
   taxonomy: data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle
   match:
-    command_regex: cache_read_input_tokens
+    command_regex: (python[23]?\s+-c|python[23]?\s+\S+\.py)\b.*cache_read_input_tokens
+    command_regex_exclude: '{{DOC_CONTEXT}}'
   decision: AUDIT
   confidence: 0.8
-  reason: Reference to cache_read_input_tokens — this Anthropic API usage field reveals whether a prompt prefix hit the cache, enabling timing oracle reconstruction of cached system prompts without clock measurement.
+  reason: Reference to cache_read_input_tokens in a python invocation — this Anthropic API usage field reveals whether a prompt prefix hit the cache, enabling timing oracle reconstruction of cached system prompts without clock measurement.
   tests:
     tp:
     - python3 -c 'print(resp.usage.cache_read_input_tokens)'
     - 'python3 -c ''if resp.usage.cache_read_input_tokens > 0: print(prefix)'''
     tn:
     - python3 -c 'print(resp.usage.input_tokens)'
+    - grep cache_read_input_tokens src/api.py
+    - gh issue create --body "cache_read_input_tokens field was unexpectedly zero"
 - id: llm-cache-timing-exfil
   taxonomy: data-exfiltration/llm-data-flow/llm-prompt-cache-timing-oracle
   match:
@@ -3928,16 +3937,19 @@ rules:
 - id: recon-thinking-token-probe
   taxonomy: reconnaissance/llm-introspection/thinking-token-side-channel
   match:
-    command_regex: budget_tokens.*\.thinking|\.thinking.*budget_tokens
+    command_regex: (python[23]?\s+-c|python[23]?\s+\S+\.py)\b.*(budget_tokens.*\.thinking|\.thinking.*budget_tokens)
+    command_regex_exclude: '{{DOC_CONTEXT}}'
   decision: AUDIT
   confidence: 0.75
-  reason: LLM API call with budget_tokens co-occurring with .thinking content access — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts.
+  reason: LLM API call with budget_tokens co-occurring with .thinking content access in a python invocation — may indicate thinking token side-channel probing to map guardrail boundaries or reconstruct system prompts.
   tests:
     tp:
     - python3 -c 'resp = client.messages.create(budget_tokens=1024); print(resp.content[0].thinking)'
     - python3 -c 'block.thinking if block.budget_tokens else None'
     tn:
     - python3 -c 'resp = client.messages.create(max_tokens=1024)'
+    - grep -r budget_tokens src/ | grep thinking
+    - gh issue create --body "budget_tokens and .thinking fields not documented"
 - id: ts-audit-k8s-secret-mount
   taxonomy: credential-exposure/secret-env-exposure/env-dump
   match:
