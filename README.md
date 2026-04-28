@@ -93,6 +93,14 @@ Test it before using it in Claude Code:
 agentshield check --shell "psql prod.db" --policy ~/.agentshield/policy.yaml
 ```
 
+## Help Improve Rules
+
+AgentShield is a local validation layer. False positives and false negatives
+are expected as the rules improve.
+
+- False positive: disable the noisy rule locally.
+- False negative: add a local rule and open an issue with the command/tool call.
+
 ## If A Block Is Wrong
 
 AgentShield shows the rule that fired and the command to test it. You can opt
