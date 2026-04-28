@@ -1,0 +1,105 @@
+# AgentShield Default Policy — v0.1
+# Copy this to ~/.agentshield/policy.yaml
+
+version: "0.1"
+
+defaults:
+  decision: "REQUIRE_APPROVAL"
+  non_interactive: "BLOCK"
+  log_redaction: true
+  protected_paths:
+    - "~/.ssh/**"
+    - "~/.aws/**"
+    - "~/.gnupg/**"
+    - "~/.config/gcloud/**"
+    - "~/.kube/**"
+    - "/etc/**"
+    - "/System/**"
+    - "/Library/**"
+
+network:
+  allow_domains:
+    - "github.com"
+    - "api.github.com"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+    - "registry.npmjs.org"
+    - "formulae.brew.sh"
+
+rules:
+  # === BLOCK: Never allow these ===
+  - id: "block-rm-root"
+    match:
+      command_regex: "^(rm|sudo rm)\\s+-rf\\s+/(\\s|$)"
+    decision: "BLOCK"
+    reason: "Destructive remove at filesystem root is never allowed."
+
+  - id: "block-pipe-to-shell"
+    match:
+      command_regex: "^(curl|wget).*(\\||\\s+\\|)\\s*(sh|bash|zsh)(\\s|$)"
+    decision: "BLOCK"
+    reason: "Pipe-to-shell is blocked. Download and inspect scripts first."
+
+  # === REQUIRE_APPROVAL: Ask before running ===
+  - id: "approve-package-installs"
+    match:
+      command_prefix:
+        - "npm install"
+        - "pnpm add"
+        - "yarn add"
+        - "pip install"
+        - "poetry add"
+        - "brew install"
+        - "brew tap"
+    decision: "REQUIRE_APPROVAL"
+    reason: "Package installs can introduce supply-chain risk."
+
+  - id: "approve-network"
+    match:
+      command_prefix:
+        - "curl "
+        - "wget "
+    decision: "REQUIRE_APPROVAL"
+    reason: "Network requests require approval."
+
+  # === SANDBOX: Preview changes first ===
+  - id: "sandbox-git-changes"
+    match:
+      command_prefix:
+        - "git checkout"
+        - "git switch"
+        - "git reset"
+        - "git rebase"
+        - "git merge"
+    decision: "SANDBOX"
+    reason: "Git state changes are sandboxed for preview."
+
+  - id: "sandbox-file-edits"
+    match:
+      command_prefix:
+        - "sed "
+        - "perl -pi"
+        - "python -c"
+    decision: "SANDBOX"
+    reason: "In-place edits are sandboxed so you can review diffs first."
+
+  # === ALLOW: Safe read-only commands ===
+  - id: "allow-readonly"
+    match:
+      command_prefix:
+        - "ls"
+        - "pwd"
+        - "whoami"
+        - "cat "
+        - "head "
+        - "tail "
+        - "grep "
+        - "find "
+        - "which "
+        - "echo "
+        - "git status"
+        - "git diff"
+        - "git log"
+        - "git branch"
+    decision: "ALLOW"
+    reason: "Read-only commands are safe."

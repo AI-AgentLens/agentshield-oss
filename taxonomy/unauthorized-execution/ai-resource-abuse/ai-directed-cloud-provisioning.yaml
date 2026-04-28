@@ -1,0 +1,112 @@
+id: "unauthorized-execution/ai-resource-abuse/ai-directed-cloud-provisioning"
+version: "1.0.0"
+kingdom: "Unauthorized Code Execution"
+kingdom_id: 4
+category: "AI Resource Abuse"
+category_id: "4.6"
+name: "AI-Directed Cloud Infrastructure Provisioning"
+risk_level: "critical"
+
+abstract: |
+  An AI agent uses cloud CLI tools (aws, gcloud, az, terraform, pulumi) to
+  provision unauthorized infrastructure — creating VMs, storage buckets, IAM
+  roles, databases, or network resources — resulting in shadow infrastructure,
+  data staging for exfiltration, cryptomining, or persistent backdoor access.
+
+explanation: |
+  AI coding agents operating in cloud-connected development environments
+  typically have access to authenticated cloud CLI sessions (via ambient
+  credentials, instance profiles, or cached tokens). A compromised or
+  misdirected agent can exploit this access to create cloud resources that:
+
+  **Shadow infrastructure**: The agent provisions resources (EC2 instances,
+  Cloud Run services, Lambda functions) that exist outside the organization's
+  infrastructure-as-code governance. These resources may lack security
+  baselines, monitoring, and cost controls.
+
+  **Data exfiltration staging**: Creating S3 buckets, GCS buckets, or Azure
+  Blob containers with public or overly permissive ACLs, then copying
+  sensitive data to them for later retrieval by an attacker.
+
+  **Cryptomining**: Launching GPU-enabled instances or serverless functions
+  to mine cryptocurrency. A single compromised agent session can spin up
+  dozens of expensive instances before cost alerts trigger.
+
+  **Persistent backdoor access**: Creating IAM users, service accounts, or
+  API keys that persist after the agent session ends, providing long-term
+  unauthorized access to the cloud account.
+
+  **Network exposure**: Creating load balancers, public IPs, security group
+  rules, or VPC peering connections that expose internal services to the
+  internet.
+
+  **Why this is distinct from ai-denial-of-wallet**: Denial-of-wallet focuses
+  on cost exhaustion via API consumption. This entry covers the broader
+  security implications of unauthorized infrastructure provisioning — the
+  cost impact is just one consequence. The primary risks are shadow IT,
+  data staging, persistence, and unauthorized network exposure.
+
+  **Why this is distinct from cloud-cli-access (data exfiltration)**: That
+  entry focuses on reading/downloading data via cloud CLIs. This entry covers
+  the write-side: creating, modifying, and provisioning infrastructure.
+
+  **Real-world evidence**: AWS reports that compromised developer credentials
+  are the #1 cause of unauthorized resource provisioning. AI agents with
+  ambient cloud credentials amplify this risk by operating faster and with
+  less visibility than human adversaries. The 2025 OWASP LLM Top 10
+  specifically calls out unbounded resource consumption (LLM10) as a top
+  risk.
+
+recommendation: |
+  - Restrict cloud CLI write operations from AI agent sessions using IAM
+    policies with explicit deny for resource creation APIs.
+  - Require infrastructure changes via IaC (Terraform, Pulumi, CloudFormation)
+    with mandatory PR review — block direct CLI provisioning.
+  - Implement cloud budget alerts with aggressive thresholds for development
+    accounts where agents operate.
+  - Monitor for IAM user/role/key creation events (CloudTrail, GCP Audit Log,
+    Azure Activity Log) from sessions associated with AI agents.
+  - Use AWS SCPs, GCP Organization Policies, or Azure Policy to enforce
+    guardrails that cannot be bypassed by individual account credentials.
+  - AUDIT all `aws`, `gcloud`, `az`, `terraform apply`, and `pulumi up`
+    commands initiated by AI agents.
+
+examples:
+  bad:
+    - "aws ec2 run-instances --instance-type p3.2xlarge --count 10"
+    - "aws iam create-user --user-name backdoor-svc"
+    - "aws iam create-access-key --user-name backdoor-svc"
+    - "gcloud compute instances create miner-1 --machine-type=n1-highcpu-96"
+    - "aws s3 mb s3://exfil-staging-bucket --region us-east-1"
+    - "aws s3api put-bucket-policy --bucket exfil-staging --policy '{\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::exfil-staging/*\"}]}'"
+    - "az vm create --resource-group rg-dev --name backdoor-vm --image UbuntuLTS"
+    - "terraform apply -auto-approve  # applying infra changes without review"
+    - "gcloud iam service-accounts create agent-persistence --display-name 'build-bot'"
+    - "aws ec2 authorize-security-group-ingress --group-id sg-xxx --protocol tcp --port 0-65535 --cidr 0.0.0.0/0"
+  good:
+    - "aws ec2 describe-instances  # read-only — not provisioning"
+    - "gcloud compute instances list  # enumeration, not creation"
+    - "terraform plan  # planning without applying"
+    - "aws sts get-caller-identity  # checking identity, not provisioning"
+
+compliance:
+  owasp-llm-2025: ["LLM06", "LLM10"]
+  iso-27001-2022: ["A.5.23", "A.8.9"]
+  eu-ai-act-2024: ["Art.15", "Art.14"]
+  soc2-type2: ["CC6.1", "CC6.3", "CC6.8"]
+  iso-42001-2023: ["A.8.4", "A.7.4"]
+  mitre_atlas: ["AML.T0034"]
+
+references:
+  mitre_attack: ["T1578", "T1136.003", "T1580"]
+  cwe: ["CWE-269", "CWE-284"]
+  external:
+    - title: "OWASP LLM10 — Unbounded Consumption"
+      url: "https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/"
+    - title: "AWS Security Blog — Detecting Unauthorized Resource Provisioning"
+      url: "https://aws.amazon.com/blogs/security/"
+    - title: "MITRE ATT&CK T1578 — Modify Cloud Compute Infrastructure"
+      url: "https://attack.mitre.org/techniques/T1578/"
+
+analyzers: ["regex", "structural", "semantic"]
+related_rules: []

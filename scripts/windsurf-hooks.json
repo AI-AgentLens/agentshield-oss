@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "pre_run_command": [
+      {
+        "command": "agentshield hook",
+        "show_output": true
+      }
+    ]
+  }
+}

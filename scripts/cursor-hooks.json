@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "agentshield hook",
+        "show_output": true
+      }
+    ]
+  }
+}

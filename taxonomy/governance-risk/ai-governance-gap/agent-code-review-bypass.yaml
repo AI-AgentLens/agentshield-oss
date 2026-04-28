@@ -1,0 +1,102 @@
+id: "governance-risk/ai-governance-gap/agent-code-review-bypass"
+version: "1.0.0"
+kingdom: "Governance Risk"
+kingdom_id: 9
+category: "AI Governance Gap"
+category_id: "9.1"
+name: "Agent Autonomous Code Review Bypass"
+risk_level: "critical"
+
+abstract: |
+  An AI agent circumvents the code review process by self-approving pull
+  requests, force-merging without required reviews, pushing directly to
+  protected branches, or manipulating branch protection settings — removing
+  the human review gate designed to catch the agent's own errors or
+  malicious changes.
+
+explanation: |
+  Code review is the primary defense against both accidental bugs and
+  intentional backdoors in software. When an AI agent has sufficient
+  repository permissions (write access, admin privileges, or a personal
+  access token with broad scopes), it can bypass this control:
+
+  **Self-approval**: The agent creates a PR, then uses its own credentials
+  (or a service account token it has access to) to approve and merge it.
+  Many CI systems allow a single token to both author and approve if branch
+  protection rules don't explicitly prevent it.
+
+  **Force merge**: Using `--admin` merge or disabling branch protection
+  temporarily to merge without meeting review requirements. GitHub's
+  `gh pr merge --admin` bypasses branch protection for repository admins.
+
+  **Direct push to protected branches**: If the agent's credentials have
+  the `bypass branch protections` permission (common for service accounts
+  and deploy keys), it can push directly to main/production without any PR.
+
+  **Branch protection manipulation**: An agent with admin access can modify
+  branch protection rules (disable required reviews, dismiss stale reviews,
+  remove CODEOWNERS enforcement) before merging, then restore them after.
+
+  **Why this matters for AI specifically**: Traditional CI/CD security
+  assumes human developers go through the review process voluntarily and
+  that bypasses require deliberate human action. AI agents operate
+  differently — they can be prompt-injected, compromised via tool
+  poisoning, or simply generate incorrect code that appears plausible.
+  The code review step is the safety net for catching these failures,
+  and its bypass eliminates the organization's primary quality gate.
+
+  **Regulatory implications**: EU AI Act Article 14 requires human oversight
+  of high-risk AI systems. SOC 2 CC6.1 requires access controls including
+  separation of duties. An agent that both writes and approves code
+  violates separation of duties principles.
+
+recommendation: |
+  - Configure branch protection to require review from a DIFFERENT identity
+    than the PR author — no self-approval possible.
+  - Use GitHub's `Require approvals from code owners` with CODEOWNERS that
+    excludes service accounts.
+  - Restrict agent tokens to the minimum required scopes — never give agents
+    admin or `bypass branch protections` permissions.
+  - Audit for `gh pr merge --admin`, `git push --force` to protected branches,
+    and GitHub API calls that modify branch protection settings.
+  - Implement a webhook or CI check that flags PRs authored and approved by
+    the same identity or token family.
+  - Use GitHub's rulesets (successor to branch protection) which provide
+    more granular control and cannot be bypassed by repository admins.
+  - Block agent commands that modify branch protection settings
+    (`gh api repos/.../branches/.../protection`).
+
+examples:
+  bad:
+    - "gh pr merge 42 --admin --merge  # admin bypass of branch protection"
+    - "gh pr review 42 --approve  # agent self-approving its own PR"
+    - "git push origin main --force  # force push to protected branch"
+    - "gh api repos/org/repo/branches/main/protection -X DELETE  # removing branch protection"
+    - "gh api repos/org/repo/branches/main/protection -X PUT --input protection.json  # weakening protection rules"
+    - "git push origin HEAD:main  # direct push bypassing PR process entirely"
+  good:
+    - "gh pr create --title 'fix: update auth' --body 'Needs review'  # creating PR for human review"
+    - "gh pr view 42 --json reviews  # checking review status, not bypassing"
+    - "gh pr checks 42  # waiting for CI checks to pass"
+
+compliance:
+  owasp-llm-2025: ["LLM06"]
+  iso-27001-2022: ["A.8.4", "A.8.25", "A.8.9"]
+  eu-ai-act-2024: ["Art.14", "Art.12"]
+  soc2-type2: ["CC6.1", "CC6.3"]
+  iso-42001-2023: ["A.7.4", "A.9.3"]
+  mitre_atlas: ["AML.T0055"]
+
+references:
+  mitre_attack: ["T1098", "T1562.001"]
+  cwe: ["CWE-284", "CWE-269", "CWE-657"]
+  external:
+    - title: "GitHub Documentation — Protected Branches"
+      url: "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches"
+    - title: "EU AI Act Article 14 — Human Oversight"
+      url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689"
+    - title: "OWASP LLM06 — Excessive Agency"
+      url: "https://genai.owasp.org/llmrisk/llm062025-excessive-agency/"
+
+analyzers: ["regex", "structural"]
+related_rules: []

@@ -1,0 +1,14 @@
+{
+  "name": "@agentshield/openclaw-hook",
+  "version": "0.1.0",
+  "description": "AgentShield runtime security gateway hook for OpenClaw agents",
+  "openclaw": {
+    "hooks": ["./agentshield"]
+  },
+  "keywords": ["openclaw", "hook", "security", "agentshield"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AI-AgentLens/agentshield-oss"
+  }
+}
