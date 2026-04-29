@@ -5,7 +5,7 @@ Thank you for your interest in contributing to AgentShield! This document provid
 ## Getting Started
 
 ### Prerequisites
-- Go 1.23 or later
+- Go 1.25 or later
 - Git
 - Make
 
@@ -158,6 +158,26 @@ Create a Pull Request using the provided template.
 - Ask questions before implementing
 - Share knowledge and experiences
 - Consider security implications
+
+## Troubleshooting
+
+### `git pull` fails with "refusing to merge unrelated histories"
+
+Rare, but possible if upstream had a one-time privacy reset (a private
+identifier was scrubbed by force-replacing public history). When that happens
+your local clone shares no commits with `origin/main`. Recovery:
+
+```bash
+# Discards local commits on main; safe if you have no in-flight branch work
+# rooted on the old history. Feature branches survive.
+git fetch origin
+git checkout main
+git reset --hard origin/main
+```
+
+If you have un-pushed work on `main`, cherry-pick or rebase it onto the new
+HEAD afterwards. We avoid history rewrites except for genuine privacy
+incidents — this should not be a regular occurrence.
 
 ## Getting Help
 
