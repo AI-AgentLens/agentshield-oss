@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask
+.PHONY: build test lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -95,6 +95,10 @@ test-install-oss: ## Test homebrew install in Docker container (OSS build, premi
 test-cask: ## E2E: brew install --cask path; verifies embedded packs protect a fresh install
 	@echo "=== Cask Install E2E (Linuxbrew container) ==="
 	@./scripts/integration-test-cask.sh
+
+test-oss-walkthrough: ## Run the README walkthrough end-to-end in a fresh linuxbrew container (12 steps, ~2 min)
+	@echo "=== OSS Walkthrough Test (homebrew/brew:latest) ==="
+	@docker run --rm -v $(PWD)/scripts/oss-walkthrough-test.sh:/walk.sh:ro homebrew/brew:latest bash /walk.sh
 
 test-e2e: ## Full friend-install E2E in Docker: cask + login + update + premium rule fires. Requires AGENTSHIELD_TEST_TOKEN
 	@echo "=== Friend-Install E2E (with premium pack delivery) ==="

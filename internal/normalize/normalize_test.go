@@ -388,3 +388,71 @@ func TestNormalize_HeredocCommandNilParsed(t *testing.T) {
 		t.Error("expected Parsed to be nil for heredoc command")
 	}
 }
+
+// TestNormalize_NestedShellCodeBodyIsNotPathExtracted verifies the issue #9
+// regression: a wrapper command (docker run, kubectl exec, env, ...) handing
+// a shell-code body to an inner interpreter (bash -c, python -c, node -e)
+// must NOT have paths extracted from the body. Otherwise the host hook's
+// protected_paths defaults check fires on inert string literals inside the
+// inner code.
+func TestNormalize_NestedShellCodeBodyIsNotPathExtracted(t *testing.T) {
+	const sshPath = ".ssh/id_rsa"
+
+	// Negative control: a real `cat ~/.ssh/id_rsa` outside any wrapper must
+	// still produce the path. Anchors the test against over-eager skipping.
+	nc := Normalize([]string{"cat", "~/.ssh/id_rsa"}, "/tmp")
+	if !pathsContain(nc.Paths, sshPath) {
+		t.Errorf("baseline: expected ~/.ssh/id_rsa in paths; got %v", nc.Paths)
+	}
+
+	// Repro cases: each wrapper hands the SSH path to an inner interpreter
+	// as part of an inline-code body. None should expose the path.
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "docker run wrapping bash -c with mcp-eval",
+			args: []string{"docker", "run", "--rm", "bash", "-c",
+				"agentshield mcp-eval --tool read_file --arg path=/home/user/.ssh/id_rsa"},
+		},
+		{
+			name: "python -c with open() of ssh path",
+			args: []string{"python3", "-c", "open('/home/user/.ssh/id_rsa')"},
+		},
+		{
+			name: "node -e with readFile of ssh path",
+			args: []string{"node", "-e", "require('fs').readFileSync('/home/user/.ssh/id_rsa')"},
+		},
+		{
+			name: "kubectl exec wrapping bash -c",
+			args: []string{"kubectl", "exec", "pod", "--", "bash", "-c", "cat /home/user/.ssh/id_rsa"},
+		},
+		{
+			name: "env wrapping bash -c",
+			args: []string{"env", "FOO=bar", "bash", "-c", "ls /home/user/.ssh/id_rsa"},
+		},
+		{
+			name: "absolute interpreter path (/usr/bin/bash -c)",
+			args: []string{"docker", "run", "/usr/bin/bash", "-c", "cat /home/user/.ssh/id_rsa"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := Normalize(tc.args, "/tmp")
+			if pathsContain(nc.Paths, sshPath) {
+				t.Errorf("nested-shell body path leaked into paths: %v", nc.Paths)
+			}
+		})
+	}
+}
+
+func pathsContain(paths []string, needle string) bool {
+	for _, p := range paths {
+		if strings.Contains(p, needle) {
+			return true
+		}
+	}
+	return false
+}

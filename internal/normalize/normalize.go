@@ -142,7 +142,31 @@ func astAwareExtract(args []string, parsed *shellparse.ParsedCommand, cwd, homeD
 	// Skip the executable (args[0]) and any subcommand tokens
 	startIdx := 1
 
+	// Detect nested-shell-code patterns where a wrapper command (docker run,
+	// kubectl exec, ssh host, su -c, env VAR=val, etc.) hands a string of code
+	// to an inner interpreter via `bash -c <body>` / `python -c <body>` /
+	// `node -e <body>`. Once we cross that body boundary, every remaining arg
+	// is INSIDE the inner code string — paths there are inert text payload,
+	// not the wrapper's own filesystem accesses.
+	//
+	// FP this guards against (issue #9): the host hook sees
+	//   docker run --rm bash -c '... agentshield mcp-eval --arg path=/home/user/.ssh/id_rsa'
+	// and the path extractor walks docker's args, finds `/home/user/.ssh/id_rsa`
+	// inside the bash -c body, and `protected_paths` blocks the docker call.
+	// Docker isn't reading the SSH key — it's launching a container that itself
+	// runs a dry-run mcp-eval against a path STRING.
+	nestedCodeStart := findNestedShellCodeStart(args, startIdx)
+
 	for i := startIdx; i < len(args); i++ {
+		// Once inside an inner shell interpreter's code body, treat the rest
+		// of the line as text (no path extraction). Domains are still extracted
+		// since they remain meaningful for network-egress rules.
+		if nestedCodeStart > 0 && i >= nestedCodeStart {
+			if d := extractDomains(args[i]); len(d) > 0 {
+				domains = append(domains, d...)
+			}
+			continue
+		}
 		arg := args[i]
 
 		// Flag handling
@@ -216,6 +240,81 @@ func astAwareExtract(args []string, parsed *shellparse.ParsedCommand, cwd, homeD
 	}
 
 	return paths, domains
+}
+
+// nestedShellInterpreters lists the executables whose `-c` / `-e` flag carries
+// inline source code. When one of these appears as a positional arg to a
+// wrapper command (docker run, kubectl exec, env, su, sudo, ssh, time, ...),
+// every arg after the body becomes inert text from the path-extractor's
+// perspective. Source-of-truth match with argclass.go's commandRegistry.
+var nestedShellInterpreters = map[string]string{
+	"bash":    "c",
+	"sh":      "c",
+	"zsh":     "c",
+	"dash":    "c",
+	"ksh":     "c",
+	"python":  "c",
+	"python2": "c",
+	"python3": "c",
+	"ruby":    "e",
+	"perl":    "e",
+	"node":    "e",
+}
+
+// findNestedShellCodeStart returns the args index at which the *body* of an
+// inner-shell-interpreter invocation begins, or -1 if no nested shell pattern
+// is present. The pattern is `<interp> -<codeFlag> <body>`, optionally
+// preceded by interpreter flags (e.g. `python3 -u -c <body>`). Args before the
+// interpreter belong to the outer wrapper (docker, kubectl, su, env, ...) and
+// must still be path-extracted normally.
+//
+// Returns the smallest such body index across all nested interpreters in args
+// — once we cross the *first* nested code boundary, all subsequent args are
+// inside that body, even if they happen to contain another interpreter name.
+func findNestedShellCodeStart(args []string, startIdx int) int {
+	earliest := -1
+	for i := startIdx; i < len(args); i++ {
+		// Strip path so `/usr/bin/bash` and `bash` both match.
+		exec := args[i]
+		if idx := strings.LastIndex(exec, "/"); idx >= 0 {
+			exec = exec[idx+1:]
+		}
+		codeFlag, isInterp := nestedShellInterpreters[exec]
+		if !isInterp {
+			continue
+		}
+		// Walk forward looking for `-<codeFlag>` (skip other flags like -u/-x).
+		for j := i + 1; j < len(args); j++ {
+			a := args[j]
+			if a == "-"+codeFlag {
+				if j+1 < len(args) {
+					if earliest < 0 || j+1 < earliest {
+						earliest = j + 1
+					}
+				}
+				break
+			}
+			// Concatenated short flags (e.g. -uc): consider matched if codeFlag
+			// is one of the chars and the body is the next arg.
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && len(a) > 2 {
+				if strings.ContainsRune(a[1:], rune(codeFlag[0])) {
+					if j+1 < len(args) {
+						if earliest < 0 || j+1 < earliest {
+							earliest = j + 1
+						}
+					}
+					break
+				}
+				continue // not the code flag, keep looking
+			}
+			// First non-flag positional arg without seeing -c: this interpreter
+			// invocation isn't the inline-code form. Stop scanning for it.
+			if !strings.HasPrefix(a, "-") {
+				break
+			}
+		}
+	}
+	return earliest
 }
 
 // fallbackExtract is the original tokenizer-based extraction with heredoc and
