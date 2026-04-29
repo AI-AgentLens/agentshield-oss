@@ -1251,11 +1251,14 @@ func disableCodexHook(hooksPath string) error {
 // ─── Generic Setup Instructions ─────────────────────────────────────────────
 
 func printSetupInstructions() {
-	wrapperPath := filepath.Join(getShareDir(), "agentshield-wrapper.sh")
-
-	wrapperExists := false
-	if _, err := os.Stat(wrapperPath); err == nil {
-		wrapperExists = true
+	// Check multiple Homebrew prefixes (linuxbrew, /opt/homebrew, /usr/local).
+	wrapperPath := findWrapperSource()
+	wrapperExists := wrapperPath != ""
+	if wrapperPath == "" {
+		// Fall back to default share path for the documented "shell override"
+		// example below — even when uninstalled, show the canonical path users
+		// should expect once they run `agentshield setup --install`.
+		wrapperPath = filepath.Join(getShareDir(), "agentshield-wrapper.sh")
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -1370,9 +1373,10 @@ func printStatus() {
 		fmt.Printf("  Binary:  ✅ %s\n", binPath)
 	}
 
-	// Check wrapper
-	wrapperPath := filepath.Join(getShareDir(), "agentshield-wrapper.sh")
-	if _, err := os.Stat(wrapperPath); err == nil {
+	// Check wrapper. findWrapperSource walks multiple candidates (linuxbrew,
+	// /opt/homebrew, /usr/local, binary-relative) so this works regardless
+	// of how Homebrew is configured on the host.
+	if wrapperPath := findWrapperSource(); wrapperPath != "" {
 		fmt.Printf("  Wrapper: ✅ %s\n", wrapperPath)
 	} else {
 		fmt.Println("  Wrapper: ⚠  not installed")
