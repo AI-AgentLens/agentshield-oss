@@ -62,11 +62,12 @@ agentshield mcp-eval --tool get_weather --arg location=NYC; rc=$?; [ $rc -eq 0 ]
 step "STEP 4 — Protect Claude Code: setup + scan"
 expect "hook written; scan all-pass; wrapper detected"
 mkdir -p "$HOME/.agentshield"
-agentshield setup claude-code 2>&1 | tail -5
+SETUP_OUT=$(agentshield setup claude-code 2>&1)
+echo "$SETUP_OUT" | tail -8
 [ -f "$HOME/.claude/settings.json" ] && pass "settings.json created" || fail "settings.json missing"
+echo "$SETUP_OUT" | grep -qE "Wrapper:[[:space:]]+✅" && pass "setup: wrapper detected"  || fail "setup: Wrapper line missing or warning"
 SCAN_OUT=$(agentshield scan 2>&1)
 echo "$SCAN_OUT" | grep -q "All 17 tests passed"     && pass "scan: 17/17 self-tests pass" || fail "scan self-tests did not all pass"
-echo "$SCAN_OUT" | grep -q "Wrapper:  ✅"            && pass "scan: wrapper detected"      || fail "scan: Wrapper line missing or warning"
 
 step "STEP 5 — Add A Local Rule"
 expect "BLOCK on psql prod.db with custom rule"
