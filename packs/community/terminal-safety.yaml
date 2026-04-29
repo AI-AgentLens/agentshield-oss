@@ -8847,9 +8847,7 @@ rules:
     command_regex_exclude: '{{DOC_CONTEXT}}|^(?:python3?|ruby|node|perl|php)\s+<<'
   decision: BLOCK
   confidence: 0.93
-  reason: 'setfacl -m o:: grants world-level ACL permissions (readable/writable/executable by all users), circumventing standard POSIX permission restrictions. Unlike chmod 777, this is less visible in
- ls output (+) making it a stealthier permission-weakening vector. No legitimate AI agent workflow requires granting world ACLs. Excludes commands where setfacl appears as documentation text in a gh/git
- text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl).'
+  reason: 'setfacl -m o:: grants world-level ACL permissions (read/write/execute by every user on the system), bypassing standard POSIX restrictions. Less visible than chmod 777 in `ls` output, making it a stealthier permission-weakening vector.'
   tests:
     tp:
     - setfacl -m o::rwx /etc/shadow
@@ -8863,7 +8861,7 @@ rules:
     command_regex_exclude: '{{DOC_CONTEXT}}|^(?:python3?|ruby|node|perl|php)\s+<<'
   decision: BLOCK
   confidence: 0.92
-  reason: setfacl modifying ACLs on sensitive system directories or credential stores (/etc, /root, ~/.ssh, ~/.aws) can grant unauthorized access to credentials, configuration, or privilege escalation paths. ACL changes on these paths are rarely necessary and should always require explicit human review. Excludes commands where setfacl appears as documentation text in a gh/git text-payload flag (--body, --body-file, --message, etc.) or inside heredoc payloads passed to non-shell interpreters (python3, ruby, node, perl).
+  reason: Modifying ACLs on system or credential paths (/etc, /root, ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube) can grant unauthorized access to secrets or open privilege-escalation paths.
   tests:
     tp:
     - setfacl -m u::rwx /etc/passwd

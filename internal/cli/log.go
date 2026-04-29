@@ -54,7 +54,12 @@ func logCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(events) == 0 {
-		fmt.Println("No audit log entries found.")
+		fmt.Println("No audit log entries yet.")
+		fmt.Println()
+		fmt.Println("Decisions are logged when an agent (Claude Code, Cursor, etc.) actually")
+		fmt.Println("invokes a tool that fires a rule. To test a rule without execution, use:")
+		fmt.Println("  agentshield check --shell \"<command>\"")
+		fmt.Println("  agentshield mcp-eval --tool <name> --arg key=value")
 		return nil
 	}
 
