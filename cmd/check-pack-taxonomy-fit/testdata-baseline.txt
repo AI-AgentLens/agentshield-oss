@@ -1,0 +1,29 @@
+# testdata-baseline.txt — (taxonomy node :: TestCase ID-group) pairs where the
+# node's prose does not describe the threat that internal/analyzer/testdata
+# TP case group asserts (#3336).
+#
+# Read by cmd/check-pack-taxonomy-fit -testdata. See that package's doc
+# comment for what the check measures. A line here is a known flag; any pair
+# NOT listed is new and fails CI. Only Classification == "TP" cases vote — a
+# TN case is deliberately unlike its node, so it is excluded rather than
+# scored.
+#
+# Format: <taxonomy node id> :: <ID-group>, where ID-group is a TestCase.ID
+# with its classification prefix and trailing sequence number stripped
+# (testdataGroupKey) — an approximation of "which declared *Cases variable
+# this case lives in" that does not require parsing Go source.
+#
+# Keyed on the PAIR, not the node, so a node that is already known-bad cannot
+# silently accrete more mismatched cases.
+#
+# BURN IT DOWN. Two ways to clear a line, both making the test corpus assert
+# the truth about what it validates:
+#   1. Point the case(s) at a node whose prose describes the technique.
+#   2. Broaden the node's prose so it covers the family it has accreted.
+# Adding a NEW line requires Gary + Kai sign-off. Removing one is MANDATORY
+# once the pair stops misfitting — the checker reports STALE entries and fails.
+#
+# Bootstrap:  go run ./cmd/check-pack-taxonomy-fit -testdata -taxonomy <dir> -write-baseline
+# NOTE: -write-baseline DISCARDS the hand-written verdicts below. It is a
+# bootstrap tool, not a maintenance one — to clear an entry, delete its line.
+#

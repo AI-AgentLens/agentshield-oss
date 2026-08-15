@@ -1,0 +1,23 @@
+# AgentShield runtime configuration.
+# Copy to ~/.agentshield/agentshield.yaml.
+#
+# This is the AgentShield-wide settings file. Per-rule configuration lives in
+# policy.yaml; this file is for cross-cutting knobs that don't belong on any
+# single rule.
+
+# Enforcement mode (issue #1952).
+#
+#   enforce     — Default. BLOCK rules block. REQUIRE_APPROVAL rules prompt.
+#                 Existing AgentShield users get this behavior by default; no
+#                 file needed.
+#
+#   audit-only  — BLOCK and REQUIRE_APPROVAL decisions are downgraded to
+#                 AUDIT. The original (pre-downgrade) decision is captured on
+#                 the audit-log entry as `original_decision`, so dashboards
+#                 can render "would have blocked." Use this for new-org
+#                 rollouts: collect telemetry for a week, watch the shadow-
+#                 block rate, then flip to enforce.
+#
+# Override at the command line with `agentshield --mode <value> ...`. The CLI
+# flag wins over this file — handy as a kill-switch.
+mode: enforce

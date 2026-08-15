@@ -1,0 +1,30 @@
+# agentshield-oss untaxed-BLOCK-rule baseline
+#
+# This file allowlists BLOCK-decision terminal pack rules that are
+# deliberately shipped without a `taxonomy:` field. A BLOCK rule with no
+# taxonomy ref cannot be attested to a compliance control once the SaaS
+# resolves controls from the taxonomy — see agentshield-oss#3118. Every
+# entry here must be a genuine architectural exception (documented inline
+# in the pack YAML too), not a shortcut to silence CI.
+#
+# The bar for an entry: "a mapping that cannot survive the auditor test is
+# worse than an acknowledged gap." Do NOT attach a vague catch-all taxonomy
+# node just to keep this file empty.
+#
+# Anything ADDED to this file requires Gary + Kai sign-off.
+#
+# Format: one rule ID per line, optional `# reason` trailing.
+# Lines starting with # are comments.
+
+# EXEMPT — issue #3118 option (c), decided 2026-07-28.
+# ts-sem-block-high-risk matches on `risk_min: critical` alone, with no intent
+# predicate. It is a fail-safe backstop for critical-risk intents in categories
+# that have no dedicated YAML rule yet, so the threat family it stops is by
+# construction unknown at authoring time — there is no taxonomy node that can
+# honestly describe it, and any node picked would fail the auditor test.
+# It is not the sole attestation source for any KNOWN threat family: all four
+# intent categories the built-in semantic analyzer currently emits at
+# risk=critical (disk-destroy, file-delete, resource-exhaust, persistence) carry
+# their own taxonomy-tagged twin rule in packs/premium/terminal-safety-advanced.yaml.
+# Revisit if a new critical-risk intent category ships without a twin.
+ts-sem-block-high-risk

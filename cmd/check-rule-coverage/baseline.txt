@@ -1,0 +1,39 @@
+# agentshield-oss rule coverage baseline
+#
+# This file lists taxonomy refs that lack TP+TN coverage as of the
+# guardrail's introduction. CI tolerates these specific gaps so the
+# guardrail can ship without writing dozens of test cases up-front.
+#
+# Anything ADDED to this file requires Gary + Kai sign-off.
+# Anything REMOVED from this file must come with a covering test case.
+# The squad chips this list down toward zero in follow-up PRs.
+#
+# Format: one taxonomy ref per line, optional `# reason` trailing.
+# Lines starting with # are comments.
+#
+# Total baselined: 7
+# - Missing TP: 0
+# - Missing TN: 0
+# - Orphan refs: 7
+
+# === Orphan TaxonomyRefs (7) — tests reference a taxonomy not used by any terminal rule ===
+# These are intentional in the current architecture:
+# - mcp-* refs are MCP-only taxonomies tested via internal/mcp/scenarios/
+#   Terminal-side TN/FN cases here document that the terminal layer
+#   correctly does not flag MCP-related commands.
+# - defense-evasion/* refs are guardian-analyzer regression tests
+#   (pattern detection, not pack-rule based).
+# - agent-driven-account-takeover-chain and agent-fake-ui-injection-computeruse
+#   are MCP-only threats (browser navigation attacks); no shell TP exists.
+#   Shell TN cases verify the terminal layer correctly allows benign commands.
+# - data-protection/pii/test-fixture-codename is the Layer-7 data-label stage
+#   fixture: the taxonomy is synthesized by DataLabelAnalyzer from the fixture
+#   label appended in loadTestPolicy — customer data_labels are configuration,
+#   not pack rules, so no terminal rule can ever declare it.
+persistence-evasion/defense-evasion/obfuscation  # orphan (TN=4)
+persistence-evasion/defense-evasion/security-bypass  # orphan (TN=2)
+unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning  # orphan (FN=2, TN=2)
+unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning  # orphan (FN=2, TN=2)
+unauthorized-execution/agentic-attacks/agent-driven-account-takeover-chain  # orphan (TN=1, MCP-only threat)
+unauthorized-execution/agentic-attacks/agent-fake-ui-injection-computeruse  # orphan (TN=1, MCP-only threat)
+data-protection/pii/test-fixture-codename  # orphan (TP=1, TN=1) — datalabel Layer-7 fixture, analyzer-synthesized

@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/AI-AgentLens/agentshield-oss/main/docs/schemas/agentshield-rule.schema.json",
+  "title": "AgentShield Policy",
+  "description": "Schema for AgentShield policy.yaml and pack YAML files. Backs editor intellisense (VS Code's yaml.schemas, JetBrains, neovim/coc.nvim) and is regression-tested against the Go types via internal/policy/schema_test.go.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version. Always \"0.1\" for now."
+    },
+    "defaults": { "$ref": "#/$defs/defaults" },
+    "network": { "$ref": "#/$defs/network" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "disable_rules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Rule IDs to skip at evaluation. Managed mode ignores user disables for community rules. Use `agentshield rule disable <id>` to add entries safely."
+    }
+  },
+
+  "$defs": {
+    "decision": {
+      "type": "string",
+      "enum": ["BLOCK", "AUDIT", "ALLOW"],
+      "description": "BLOCK rejects the command. AUDIT executes but logs as flagged. ALLOW executes normally."
+    },
+
+    "defaults": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "decision": { "$ref": "#/$defs/decision" },
+        "non_interactive": { "$ref": "#/$defs/decision" },
+        "log_redaction": { "type": "boolean" },
+        "protected_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for paths that any command attempting to read/write triggers a BLOCK. Tilde expands to $HOME."
+        }
+      }
+    },
+
+    "network": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "allow_domains": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "rule": {
+      "type": "object",
+      "required": ["id", "decision", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Unique rule ID. Convention: ts-/sc-/co-/cred- prefix by kingdom." },
+        "taxonomy": { "type": "string", "description": "Taxonomy reference (e.g., destructive-ops/system-management)." },
+        "match": { "$ref": "#/$defs/match" },
+        "decision": { "$ref": "#/$defs/decision" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "0–1 confidence. Default 0.85 if omitted." },
+        "reason": { "type": "string" },
+        "tests": { "$ref": "#/$defs/rule_tests" }
+      }
+    },
+
+    "rule_tests": {
+      "type": "object",
+      "description": "Inline TP/TN cases. TP commands MUST fire the rule; TN commands must NOT fire it. Validated by go test ./internal/policy -run TestRuleYAMLTests.",
+      "additionalProperties": false,
+      "properties": {
+        "tp": { "type": "array", "items": { "type": "string" } },
+        "tn": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Exactly one match shape per rule (regex/structural/dataflow/semantic/stateful). Combining is allowed but unusual.",
+      "properties": {
+        "command_exact":          { "type": "string" },
+        "command_prefix":         { "type": "array", "items": { "type": "string" } },
+        "command_regex":          { "type": "string" },
+        "command_regex_exclude":  { "type": "string", "description": "Regex that, if matched, suppresses this rule (FP escape hatch)." },
+        "command_intent_exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["is_bash_comment", "is_doc_text", "in_heredoc", "is_self_mgmt"]
+          },
+          "description": "Suppress this rule when the command carries any of these intent labels (set by IntentClassifier). Replaces {{DOC_CONTEXT}} for new rules; unknown label names are rejected at policy load."
+        },
+        "command_intent_downgrade": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["is_bash_comment", "is_doc_text", "in_heredoc", "is_self_mgmt"]
+          },
+          "description": "Downgrade this rule's BLOCK/REQUIRE_APPROVAL to AUDIT (instead of suppressing it) when the match sits only in statements carrying any of these intent labels — e.g. a sensitive literal inside a gh/git --body/--message argument (#2843). Same per-statement scoping as command_intent_exclude; the finding is still AUDITed, so there is no false negative."
+        },
+        "structural":             { "$ref": "#/$defs/structural_match" },
+        "dataflow":               { "$ref": "#/$defs/dataflow_match" },
+        "semantic":               { "$ref": "#/$defs/semantic_match" },
+        "stateful":               { "$ref": "#/$defs/stateful_match" },
+        "context":                { "$ref": "#/$defs/context_match" }
+      }
+    },
+
+    "context_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Gate a rule on the runtime execution context (issue #3291). A precondition, not a matcher: it decides whether the rule APPLIES, so it must accompany a command_regex/command_prefix/command_exact predicate (rejected on structural/dataflow/semantic/stateful rules at load). Used to tighten posture for CI-resident, attacker-facing agents.",
+      "properties": {
+        "ci": { "type": "boolean", "description": "true = rule applies only inside a detected CI/CD runner (execenv.Detect); false = only outside CI; omit for no CI gate." }
+      }
+    },
+
+    "structural_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shell-AST-aware match. Robust against flag reordering, sudo wrapping, long-form flags.",
+      "properties": {
+        "executable": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "subcommand":         { "type": "string" },
+        "flags_all":          { "type": "array", "items": { "type": "string" } },
+        "flags_any":          { "type": "array", "items": { "type": "string" } },
+        "flags_none":         { "type": "array", "items": { "type": "string" } },
+        "args_any":           { "type": "array", "items": { "type": "string" } },
+        "args_none":          { "type": "array", "items": { "type": "string" } },
+        "has_pipe":           { "type": "boolean" },
+        "pipe_to":            { "type": "array", "items": { "type": "string" } },
+        "pipe_to_flags_none": { "type": "array", "items": { "type": "string" } },
+        "pipe_from":          { "type": "array", "items": { "type": "string" } },
+        "negate":             { "type": "boolean" }
+      }
+    },
+
+    "dataflow_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sink"],
+      "description": "Source→sink taint tracking. e.g., credential file → curl/wget.",
+      "properties": {
+        "source": { "$ref": "#/$defs/dataflow_endpoint" },
+        "sink":   { "$ref": "#/$defs/dataflow_endpoint" },
+        "via":    { "type": "array", "items": { "type": "string" } },
+        "negate": { "type": "boolean" }
+      }
+    },
+
+    "dataflow_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type":     { "type": "string", "enum": ["credential", "sensitive", "zero", "network", "device", "cron"] },
+        "paths":    { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "semantic_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Match by classified intent rather than raw command shape.",
+      "properties": {
+        "intent":     { "type": "string" },
+        "intent_any": { "type": "array", "items": { "type": "string" } },
+        "risk_min":   { "type": "string", "enum": ["info", "low", "medium", "high", "critical"] },
+        "negate":     { "type": "boolean" }
+      }
+    },
+
+    "stateful_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chain"],
+      "description": "Multi-step chain match within a compound command (e.g., curl && bash).",
+      "properties": {
+        "chain":  { "type": "array", "items": { "$ref": "#/$defs/chain_step" } },
+        "negate": { "type": "boolean" }
+      }
+    },
+
+    "chain_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "executable_any": { "type": "array", "items": { "type": "string" } },
+        "flags_any":      { "type": "array", "items": { "type": "string" } },
+        "flags_none":     { "type": "array", "items": { "type": "string" } },
+        "args_any":       { "type": "array", "items": { "type": "string" } },
+        "operator":       { "type": "string", "enum": ["&&", "||", ";", "|"] }
+      }
+    }
+  }
+}

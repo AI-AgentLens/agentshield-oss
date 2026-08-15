@@ -1,0 +1,1077 @@
+# OSS distribution suite — known failures (#3130, #3136)
+#
+# What this is: the recorded failure set of `make test-install-oss`, the suite
+# that runs internal/policy + internal/analyzer against the tree we actually
+# publish (packs/premium/ stripped, per scripts/publish-oss.sh).
+#
+# Why it is not empty: every entry below is a corpus case that expects BLOCK and
+# gets AUDIT in the OSS build. That is a product question — how much of the
+# corpus the free tier should detect — tracked in #3136. It is NOT a bug to be
+# fixed by relabelling the cases.
+#
+# Two different things produce a line here, and they are NOT interchangeable:
+#
+#   1. Blind — no community rule covers the case at all, so the OSS build sees
+#      nothing and falls through to the default AUDIT. Most entries are this.
+#   2. Tier-split — a community rule DOES fire, at AUDIT, and premium escalates
+#      the same pattern to BLOCK plus the attestation receipt. The line is here
+#      only because the corpus records the premium-tier decision. These carry a
+#      trailing `# tier-split` marker.
+#
+# The distinction matters because a bare line reads as blindness, and for a
+# tier-split case that is the opposite of true. Do not add a tier-split line
+# without a test that proves the community rule fires — an unproven claim of
+# free-tier coverage is worse than an honest blind spot, since it makes the gap
+# invisible in both directions. See TestCommunityTierSeesAgenticRansomware in
+# internal/policy/community_tier_visibility_test.go for the pattern (#3161).
+#
+# Before #3130 this number was zero, because scripts/integration-test-oss.sh
+# piped `go test` into `tail` and reported tail's exit status. The gate printed
+# "Tests: OK" over all 914 of these for months.
+#
+# How it is used: scripts/check-oss-baseline.sh diffs a run against this file
+# and reports only the delta. A NEW entry means OSS coverage regressed (or a new
+# corpus case landed that only premium covers). A FIXED entry means a listed
+# case now passes and the line must come out — the file only ever shrinks.
+#
+# Adding a line is not free: each one is a detection the free tier does not have.
+# Removing lines in bulk is the goal (#3136), and when that lands this file is
+# expected to empty out and the nightly job becomes a plain gate.
+#
+# Format: one entry per line, # comments and blanks ignored.
+#   case:<subtest path>   a corpus case, deduped across its parent sweeps
+#   test:<TestName>       a top-level test with no failing subtests
+#
+# Measured 2026-07-28 on 0dad38ad. Identical set from three independent runs:
+# the #3130 container run, a native darwin/arm64 run, and a fresh
+# homebrew/brew:latest container run — 0 entries of drift between them.
+#
+# 2026-07-30 (#3161): +5, the first real exercise of this ratchet after #3160
+# made the gate able to run. 2 blind (git merge-marker / rerere cache), 3
+# tier-split (JADEPUFFER agentic ransomware — Gary's call: the free tier sees
+# it at AUDIT, premium blocks and attests).
+#
+# 2026-08-01 (#3184): +1 blind — TP-BUILD-DIAG-INJECT-004, the eval-stdin-pipe
+# guard case added alongside that PR's pipe_to_flags_none FP fix. Its only
+# coverage is the premium ts-block-llm-eval-stdin-pipe rule; no community
+# equivalent exists. Recorded in the same PR that added the case (#3185 is
+# about exactly this failure mode — six prior premium-only cases sat red for
+# three nights before anyone recorded them).
+#
+# 2026-08-01 (#3185): +6, all blind — TP-SHFSOVERSHARE-001 (#3174, Cowork
+# VirtioFS host-share overshare, CVE-2026-46331) and TP-VENVPOISON-001..005
+# (#3176, Cursor venv-interpreter poisoning, GHSA-p9g2-cr55-cw9c). Both are
+# premium-only sandbox-containment rules with no community equivalent; the
+# free tier falls through to a generic decision (mostly ALLOW) on these
+# specific commands. Sat unbaselined for three nights before this ratchet
+# caught it — the process gap #3185 is about.
+#
+# 2026-08-04 (#3207): +6, all blind — TP-SEC-VECTORDB-EXFIL-001/002 (#3195,
+# vector-store API key env exposure) and TP-XARGS-RM-EMPTY/ROOT-001/002 (#3197,
+# grep/find piped into `xargs rm`). Both rule sets landed in packs/premium/ only
+# and neither pattern has a community equivalent: the community xargs rules
+# cover .env bulk-export and AI-CLI parallel dispatch, not a destructive rm
+# sink, and no community rule reads PINECONE_/QDRANT_/WEAVIATE_ API keys. The
+# free tier falls through to the default AUDIT on all six.
+#
+# 2026-08-04 (#3207): -10, the first real ratchet-down since this file was
+# written. #3200 (ALLOW-prefix rules no longer launder compound commands)
+# reclaimed TN-SC-MCP-SCHEMA-WRITE-001, TN-TOOLCHAIN-001, TP-ADO-SETVARIABLE-002,
+# TP-ALPI-001..003, TP-SC-OSS-CORPUS-CLONE-001, TP-SSRPI-003; #3204 (sshd_config
+# BLOCK-payload / AUDIT-admin split) reclaimed TP-SSHD-CONF-007/008. All ten are
+# engine- and community-pack-level fixes, so the free tier detects them now.
+#
+# 2026-08-10 (#3253): +11, all blind — the #3232 carrier-decomposition wave
+# (landed 08-05 in 14ffc154/de73773d, one day AFTER this file was last
+# reconciled in #3216) plus one budget case. Triaged per case rather than
+# bulk-appended, because a blind append is how a community regression would
+# get laundered into a recorded "known gap":
+#
+#   TP-GTFO-001..005      -> ts-block-helper-program-shell-escape (premium)
+#                            sort --compress-program / fzf --preview / flock -c /
+#                            watch operand / wget --use-askpass pointed at a bare
+#                            shell. The community pack names --compress-program in
+#                            exactly one place: an EXCLUDE on ts-allow-readonly, so
+#                            it withholds an ALLOW and fires nothing. Blind, not
+#                            tier-split.
+#   TP-APTHOOK-001/002    -> ts-block-apt-hook-inline-override (premium). No
+#                            community rule reads APT::/Dpkg:: Pre-Invoke at all.
+#   TP-GITEXEC-001        -> ts-block-git-inline-sshcommand (premium)
+#   TP-GITEXEC-002        -> ts-block-git-inline-config-exec (premium)
+#   TP-GITEXEC-003        -> ts-block-git-inline-config-shell-value (premium)
+#                            All three are the `git -c key=value` INLINE form.
+#                            Community has ts-block-git-config-sshcommand, but its
+#                            regex requires the `git config` spelling and cannot
+#                            match `git -c`. Community covers core.pager, not
+#                            core.editor. Blind on all three.
+#   TP-STDINSRC-PROCSUB-NETWORK-001/002
+#                         -> ts-block-procsub-stdin-redirect-exec (premium). A
+#                            shell interpreter whose stdin is redirected from a
+#                            process substitution wrapping a network downloader:
+#                            download-then-execute with no literal pipe character
+#                            anywhere in the command. Landed with #3242, a measured
+#                            34.1% bypass class. No community rule fires at all --
+#                            blind, not tier-split.
+#   TP-GHA-OIDC-SHELL-HEREDOC-GUARD-001
+#                         -> ts-block-ci-oidc-token-access (premium), TIER-SPLIT.
+#                            Community DOES fire, at AUDIT, via sec-audit-env-dump
+#                            + sec-audit-env-grep-secret; premium escalates the
+#                            same read to BLOCK and attributes it to the specific
+#                            github-actions-oidc-token-theft node instead of the
+#                            generic env-dump one. Proven by
+#                            TestCommunityTierSeesGHAOIDCTokenRead -- per this
+#                            file's own rule, a tier-split line needs a test that
+#                            can fail, because a bare line reads as blindness.
+#   sudo-endopts          -> NOT a corpus case. It is a budget assertion in
+#                            TestWrapperValueFlagParity: the `sudo -u root --`
+#                            prefix may lower at most 27 of 1638 decisions, and the
+#                            OSS build leaks 28. The budget is calibrated against
+#                            the full tree, so premium absence shows up as a
+#                            single-command overrun rather than a named BLOCK->AUDIT.
+#                            Same root cause, different expression. If the budget is
+#                            ever made build-aware this line comes back out.
+#
+# Method (reproducible): clone main, `rm -rf packs/premium packs/packs_premium.go
+# cmd/gen-premium-manifest`, run `go test ./internal/policy ./internal/analyzer`.
+# Deduped failures = 933, matching the CI ratchet's observed count exactly, and the
+# delta against this file was exactly these 11. Control on the unstripped tree:
+# 20373 subtests graded, 0 failures, and each of the 11 confirmed PRESENT as a RUN
+# subtest — so "passes with premium" is a measurement, not an absence of evidence.
+#
+# Total: 933
+case:FN-NSREG-004
+case:FN-NSREG-005
+case:FN-NSREG-006
+case:TN-AIVULN-004
+case:TN-ENDPTHIJACK-004
+case:TN-MODELEXFIL-002
+case:TN-NE-ARPSPOOF-HEREDOC-2843
+case:TN-NE-BLOCK-ARP-DNS-TOOLS-001
+case:TN-NE-BLOCK-ARP-DNS-TOOLS-002
+case:TN-ORCHFAILOPEN-006
+case:TN-TS-AUDIT-AIMP-001
+case:TN-TS-AUDIT-TUNNEL-AI-PORT-001
+case:TP-ADO-ADDATTACHMENT-001
+case:TP-ADO-PREPENDPATH-001
+case:TP-ADO-PREPENDPATH-002
+case:TP-ADO-SETVARIABLE-001
+case:TP-ADO-UPLOADFILE-001
+case:TP-AGENT-OTP-001
+case:TP-AGENT-OTP-002
+case:TP-AGENT-OTP-003
+case:TP-AIGW-CENT-001
+case:TP-AIGW-CENT-002
+case:TP-AIGW-CENT-003
+case:TP-AIGW-CENT-004
+case:TP-AIVULN-001
+case:TP-AIVULN-002
+case:TP-AIVULN-003
+case:TP-AIVULN-004
+case:TP-AIVULN-005
+case:TP-AIVULN-006
+case:TP-ALLOWLISTBYPASS-001
+case:TP-ALLOWLISTBYPASS-002
+case:TP-ALLOWLISTBYPASS-003
+case:TP-APTHOOK-001
+case:TP-APTHOOK-002
+case:TP-ARPNEIGH-001
+case:TP-ARPNEIGH-002
+case:TP-ARPNEIGH-003
+case:TP-ARPNEIGH-004
+case:TP-ARPNEIGH-005
+case:TP-ARPNEIGH-006
+case:TP-ARPNEIGH-007
+case:TP-AUTHFRAME-001
+case:TP-AUTHFRAME-002
+case:TP-AUTHY-CRED-001
+case:TP-AUTHY-CRED-002
+case:TP-AWSCREDPROC-001
+case:TP-AWSCREDPROC-002
+case:TP-AWSCREDPROC-003
+case:TP-AWSCREDPROC-004
+case:TP-AWSSTATIC-001
+case:TP-AWSSTATIC-002
+case:TP-AZ-DEVICE-001
+case:TP-AZ-DEVICE-002
+case:TP-AZ-OAUTH-001
+case:TP-AZ-OAUTH-002
+case:TP-AZ-OAUTH-003
+case:TP-BASHFUNC-SHADOW-001
+case:TP-BASHFUNC-SHADOW-002
+case:TP-BASHFUNC-SHADOW-004
+case:TP-BON-002
+case:TP-BUILD-DIAG-INJECT-004
+case:TP-CAPTCHA-001
+case:TP-CAPTCHA-002
+case:TP-CAPTCHA-003
+case:TP-CAPTCHA-004
+case:TP-CDP-REMOTE-DEBUG-001
+case:TP-CDP-REMOTE-DEBUG-002
+case:TP-CDP-REMOTE-DEBUG-003
+case:TP-CDP-REMOTE-DEBUG-004
+case:TP-CDP-REMOTE-DEBUG-005
+case:TP-CDP-REMOTE-DEBUG-006
+case:TP-CDP-REMOTE-DEBUG-007
+case:TP-CE-GC-SCAN-001
+case:TP-CE-GC-SCAN-002
+case:TP-CE-GC-SCAN-003
+case:TP-CHFLAGS-LOCK-TMP-001
+case:TP-CHFLAGS-LOCK-TMP-002
+case:TP-CHFLAGS-LOCK-TMP-003
+case:TP-CHFLAGS-LOCK-TMP-004
+case:TP-CHFLAGS-LOCK-TMP-005
+case:TP-CHFLAGS-LOCK-TMP-006
+case:TP-CHFLAGS-LOCK-TMP-007
+case:TP-CHFLAGS-LOCK-TMP-008
+case:TP-CHFLAGS-UNLOCK-SYS-001
+case:TP-CHFLAGS-UNLOCK-SYS-002
+case:TP-CHFLAGS-UNLOCK-SYS-003
+case:TP-CHFLAGS-UNLOCK-SYS-004
+case:TP-CHFLAGS-UNLOCK-SYS-005
+case:TP-CHFLAGS-UNLOCK-SYS-006
+case:TP-CHFLAGS-UNLOCK-SYS-007
+case:TP-CLIPBOARD-OSASCRIPT-001
+case:TP-CLIPBOARD-OSASCRIPT-002
+case:TP-CLIPBOARD-XDOTOOL-001
+case:TP-CLIPBOARD-XDOTOOL-002
+case:TP-CLOUD-DNS-001
+case:TP-CLOUD-DNS-002
+case:TP-CLOUD-FN-001
+case:TP-CLOUD-FN-002
+case:TP-CLOUD-FN-003
+case:TP-CLOUD-FN-004
+case:TP-CLOUD-IAM-001
+case:TP-CLOUD-IAM-002
+case:TP-CLOUD-IAM-003
+case:TP-CLOUDCFG-ENV-001
+case:TP-CLOUDCFG-ENV-002
+case:TP-CLOUDCFG-ENV-003
+case:TP-CLOUDCFG-ENV-004
+case:TP-CLOUDCFG-ENV-005
+case:TP-CLOUDCFG-FLAG-001
+case:TP-CLOUDCFG-FLAG-002
+case:TP-CMDSUBST-EVASION-011
+case:TP-CONSUL-TOKEN-001
+case:TP-CONSUL-TOKEN-002
+case:TP-CRYPTODENY-001
+case:TP-CRYPTODENY-002
+case:TP-CRYPTODENY-003
+case:TP-CRYPTODENY-004
+case:TP-CRYPTODENY-006  # tier-split #3161: community AUDITs this (ts-audit-*), premium escalates to BLOCK
+case:TP-CURL-DEVICE-001
+case:TP-CURL-DEVICE-002
+case:TP-CURL-DEVICE-003
+case:TP-CURL-DICT-001
+case:TP-CURL-GOPHER-001
+case:TP-DASHLANE-001
+case:TP-DASHLANE-002
+case:TP-DB-DESTROY-021
+case:TP-DB-DESTROY-022
+case:TP-DB-DESTROY-023
+case:TP-DB-DESTROY-024
+case:TP-DB-SCHEMA-DROP-COL-001
+case:TP-DB-SCHEMA-DROP-COL-002
+case:TP-DB-SCHEMA-DROP-CONSTR-001
+case:TP-DB-SCHEMA-DROP-CONSTR-002
+case:TP-DEFEXFIL-002
+case:TP-DEFEXFIL-004
+case:TP-DEFEXFIL-005
+case:TP-DEFEXFIL-006
+case:TP-DEFEXFIL-008
+case:TP-DEFEXFIL-009
+case:TP-DEFEXFIL-010
+case:TP-DEFEXFIL-012
+case:TP-DEFEXFIL-013
+case:TP-DEFEXFIL-014
+case:TP-DFCHAIN-001
+case:TP-DFCHAIN-002
+case:TP-DFVC-001
+case:TP-DFVC-002
+case:TP-DFVC-003
+case:TP-DFVT-001
+case:TP-DFVT-002
+case:TP-DFVT-003
+case:TP-DLCHMX-001
+case:TP-DLCHMX-002
+case:TP-DLCHMX-003
+case:TP-DNS-STEG-002
+case:TP-DNS-STEG-003
+case:TP-DNSEXFIL-001
+case:TP-DNSEXFIL-003
+case:TP-DNSEXFIL-005
+case:TP-EMACS-EVAL-EXEC-001
+case:TP-EMACS-EVAL-EXEC-002
+case:TP-EMACS-EVAL-EXEC-003
+case:TP-EMACS-EVAL-EXEC-004
+case:TP-EMACS-EVAL-EXEC-005
+case:TP-EMACS-EVAL-EXEC-006
+case:TP-EMACS-EVAL-EXEC-007
+case:TP-EMACS-EVAL-EXEC-008
+case:TP-EMACS-EVAL-EXEC-009
+case:TP-ENDPTHIJACK-001
+case:TP-ENDPTHIJACK-003
+case:TP-ENDPTHIJACK-004
+case:TP-ENVENUM-001
+case:TP-ETBE-001
+case:TP-ETBE-002
+case:TP-EVPI-002
+case:TP-EXECIGNORE-001
+case:TP-EXECIGNORE-002
+case:TP-EXECIGNORE-003
+case:TP-EXECIGNORE-004
+case:TP-EXECIGNORE-005
+case:TP-FRIDA-NAME-001
+case:TP-FRIDA-NAME-002
+case:TP-FRIDA-PID-001
+case:TP-FRIDA-PID-002
+case:TP-FRIDA-SPAWN-001
+case:TP-FRIDA-SPAWN-002
+case:TP-FRIDA-TRACE-001
+case:TP-FRIDA-TRACE-002
+case:TP-GCLOUD-DEVICE-001
+case:TP-GCLOUD-DEVICE-002
+case:TP-GCLOUD-OAUTH-001
+case:TP-GCLOUD-OAUTH-002
+case:TP-GCLOUD-OAUTH-003
+case:TP-GCONVPATH-001
+case:TP-GCONVPATH-002
+case:TP-GCONVPATH-003
+case:TP-GCONVPATH-004
+case:TP-GCONVPATH-005
+case:TP-GDB-EX-SHELL-001
+case:TP-GDB-EX-SHELL-002
+case:TP-GDB-EX-SHELL-003
+case:TP-GDB-EX-SHELL-004
+case:TP-GDB-EX-SHELL-005
+case:TP-GDB-EX-SHELL-006
+case:TP-GDB-EX-SHELL-007
+case:TP-GETENT-DNS-001
+case:TP-GETENT-DNS-002
+case:TP-GETENT-DNS-003
+case:TP-GETENT-DNS-004
+case:TP-GETENT-SHADOW-001
+case:TP-GETENT-SHADOW-002
+case:TP-GETENT-SHADOW-003
+case:TP-GETENT-SHADOW-004
+case:TP-GH-OAUTH-TOKEN-001
+case:TP-GH-OAUTH-TOKEN-002
+case:TP-GH-OAUTH-TOKEN-QSPLICE-001
+case:TP-GH-VCS-WEAPONIZATION-001
+case:TP-GH-VCS-WEAPONIZATION-002
+case:TP-GH-VCS-WEAPONIZATION-003
+case:TP-GH-VCS-WEAPONIZATION-004
+case:TP-GHA-OIDC-001
+case:TP-GHA-OIDC-002
+case:TP-GHA-OIDC-003
+case:TP-GHA-OIDC-004
+case:TP-GHA-OIDC-DOWNGRADE-GUARD
+case:TP-GHA-OIDC-SHELL-HEREDOC-GUARD-001  # tier-split: community AUDITs via sec-audit-env-dump/-grep-secret, premium escalates to BLOCK (TestCommunityTierSeesGHAOIDCTokenRead)
+case:TP-GHENV-001
+case:TP-GHENV-002
+case:TP-GHPATH-001
+case:TP-GHPATH-002
+case:TP-GIST-CRED-EXFIL-002
+case:TP-GITCFG-001
+case:TP-GITCFGENV-001
+case:TP-GITCFGENV-002
+case:TP-GITCFGENV-003
+case:TP-GITCFGENV-004
+case:TP-GITEXEC-001
+case:TP-GITEXEC-002
+case:TP-GITEXEC-003
+case:TP-GITHISTINJ-001
+case:TP-GITHISTINJ-002
+case:TP-GITHISTINJ-003
+case:TP-GITHISTINJ-004
+case:TP-GOPASS-STORE-001
+case:TP-GOPASS-STORE-002
+case:TP-GR-AUTOPROD-KUBECTL-001
+case:TP-GR-AUTOPROD-KUBECTL-002
+case:TP-GR-AUTOPROD-PAAS-001
+case:TP-GR-AUTOPROD-PAAS-002
+case:TP-GR-AUTOPROD-PAAS-003
+case:TP-GR-AUTOPROD-PAAS-004
+case:TP-GR-AUTOPROD-PAAS-005
+case:TP-GR-AUTOPROD-PAAS-006
+case:TP-GTFO-001
+case:TP-GTFO-002
+case:TP-GTFO-003
+case:TP-GTFO-004
+case:TP-GTFO-005
+case:TP-HASH-REBIND-001
+case:TP-HASH-REBIND-002
+case:TP-HASH-REBIND-003
+case:TP-HASH-REBIND-004
+case:TP-HASH-REBIND-005
+case:TP-HISTFILE-WEAPON-001
+case:TP-HISTFILE-WEAPON-002
+case:TP-HISTFILE-WEAPON-003
+case:TP-HISTFILE-WEAPON-004
+case:TP-HISTFILE-WEAPON-005
+case:TP-HISTFILE-WEAPON-006
+case:TP-HISTFILE-WEAPON-008
+case:TP-HOSTSCAN-001
+case:TP-HOSTSCAN-002
+case:TP-HOSTSCAN-003
+case:TP-HOSTSCAN-006
+case:TP-HOSTSCAN-007
+case:TP-HOSTSCAN-008
+case:TP-HOSTSCAN-009
+case:TP-HOSTSCAN-010
+case:TP-HOSTSCAN-011
+case:TP-HOSTSCAN-012
+case:TP-HOSTSCAN-013
+case:TP-ICMP-EXFIL-003
+case:TP-IDXEXP-001
+case:TP-IMDS-RESOLVE-001
+case:TP-IMDS-RESOLVE-002
+case:TP-INSECURE-LLM-TRANSPORT-001
+case:TP-INSECURE-LLM-TRANSPORT-002
+case:TP-INSECURE-LLM-TRANSPORT-003
+case:TP-INSECURE-LLM-TRANSPORT-004
+case:TP-INSTALL-SGID-003
+case:TP-INSTALL-SUID-001
+case:TP-INSTALL-SUID-002
+case:TP-INSTALL-SUID-LEADING-ZERO-005
+case:TP-INSTALL-SUIDSGID-004
+case:TP-INSTALL-SYMBOLIC-SUID-006
+case:TP-INTERP-EXFIL-002
+case:TP-INTERP-EXFIL-003
+case:TP-INTERPPATH-WRAPPER-001
+case:TP-INTERPPATH-WRAPPER-002
+case:TP-IOT-AWS-PUBLISH-001
+case:TP-IOT-AWS-PUBLISH-002
+case:TP-IOT-AWS-SHADOW-001
+case:TP-IOT-AWS-SHADOW-002
+case:TP-IOT-AZ-METHOD-001
+case:TP-IOT-AZ-METHOD-002
+case:TP-IOT-MQTT-PUB-001
+case:TP-IOT-MQTT-PUB-002
+case:TP-IOT-MQTT-PUB-003
+case:TP-IOT-OTA-001
+case:TP-IOT-OTA-002
+case:TP-K8SAWH-001
+case:TP-K8SAWH-002
+case:TP-K8SAWH-003
+case:TP-K8SAWH-004
+case:TP-K8SAWH-005
+case:TP-K8SNETPOL-002
+case:TP-K8SNETPOL-004
+case:TP-K8SNETPOL-005
+case:TP-K8SNETPOL-006
+case:TP-KDE-WALLET-001
+case:TP-KDE-WALLET-002
+case:TP-KEYCHAIN-FILE-001
+case:TP-KEYCHAIN-FILE-002
+case:TP-KEYCHAIN-FILE-003
+case:TP-KEYCHAIN-FILE-004
+case:TP-KEYCHAIN-FILE-005
+case:TP-KEYCHAIN-FILE-006
+case:TP-KHELPER-001
+case:TP-KHELPER-002
+case:TP-KUBEEXEC-002
+case:TP-KUBEEXEC-003
+case:TP-KUBEEXEC-004
+case:TP-LAUNCHCTL-VOL-001
+case:TP-LAUNCHCTL-VOL-002
+case:TP-LAUNCHCTL-VOL-003
+case:TP-LAUNCHCTL-VOL-004
+case:TP-LAUNCHCTL-VOL-005
+case:TP-LAUNCHCTL-VOL-006
+case:TP-LAUNCHCTL-VOL-007
+case:TP-LDSOPRELOAD-001
+case:TP-LDSOPRELOAD-002
+case:TP-LDSOPRELOAD-003
+case:TP-LDSOPRELOAD-004
+case:TP-LDSOPRELOAD-005
+case:TP-LDSOPRELOAD-006
+case:TP-LETHAL-TRIFECTA-003
+case:TP-LETHAL-TRIFECTA-004
+case:TP-LLM-EVAL-001
+case:TP-LLM-EVAL-002
+case:TP-LLM-EVAL-003
+case:TP-LLM-EVAL-004
+case:TP-LLM-EVAL-005
+case:TP-LLMDF-REASONING-TRACE-002
+case:TP-LLMEXFIL-002
+case:TP-LLMEXFIL-NODE-XAI-001
+case:TP-LLMEXFIL-PYTHON-DEEPSEEK-001
+case:TP-LOGROTATE-INJECT-001
+case:TP-LOGROTATE-INJECT-002
+case:TP-LOGROTATE-INJECT-003
+case:TP-LOGROTATE-INJECT-004
+case:TP-LOGROTATE-INJECT-006
+case:TP-MALWARE-MSFVENOM-001
+case:TP-MALWARE-MSFVENOM-002
+case:TP-MALWARE-MSFVENOM-003
+case:TP-MAN-PAGER-001
+case:TP-MAN-PAGER-002
+case:TP-MAN-PAGER-003
+case:TP-MAN-PAGER-004
+case:TP-MAN-PAGER-006
+case:TP-MAN-PAGER-007
+case:TP-MAN-PAGER-008
+case:TP-MCPCFGINJ-001
+case:TP-MCPCFGINJ-002
+case:TP-MCPCFGINJ-003
+case:TP-MCPCFGINJ-004
+case:TP-MCTDP-001
+case:TP-MCTDP-002
+case:TP-MEMFORENSICS-001
+case:TP-MEMFORENSICS-002
+case:TP-MEMFORENSICS-003
+case:TP-MEMFORENSICS-006
+case:TP-MEMFORENSICS-007
+case:TP-MFA-SEED-REPL-001
+case:TP-MFA-SEED-REPL-002
+case:TP-MODELEXTRACT-001
+case:TP-MODELEXTRACT-002
+case:TP-MODELEXTRACT-006
+case:TP-NE-AUDIT-ADMIN-PATH-001
+case:TP-NE-AUDIT-SYSPROMPT-003
+case:TP-NE-AUDIT-TOKEN-BOUNDARY-002
+case:TP-NE-BLOCK-ADMIN-EP-001
+case:TP-NE-BLOCK-ADMIN-EP-002
+case:TP-NE-BLOCK-ADMIN-EP-003
+case:TP-NE-BLOCK-ADMIN-EP-004
+case:TP-NE-BLOCK-ADMIN-EP-005
+case:TP-NE-BLOCK-ARP-DNS-TOOLS-001
+case:TP-NE-BLOCK-ARP-DNS-TOOLS-002
+case:TP-NE-BLOCK-ARP-DNS-TOOLS-003
+case:TP-NE-BLOCK-BEEF-001
+case:TP-NE-BLOCK-BORE-001
+case:TP-NE-BLOCK-BORE-002
+case:TP-NE-BLOCK-CHISEL-CLIENT-001
+case:TP-NE-BLOCK-CHISEL-SERVER-001
+case:TP-NE-BLOCK-CLOUDFLARED-001
+case:TP-NE-BLOCK-CLOUDFLARED-002
+case:TP-NE-BLOCK-CLOUDFLARED-003
+case:TP-NE-BLOCK-CLOUDFLARED-004
+case:TP-NE-BLOCK-CUSTDATA-001
+case:TP-NE-BLOCK-CUSTDATA-002
+case:TP-NE-BLOCK-DEVTUNNEL-001
+case:TP-NE-BLOCK-DEVTUNNEL-002
+case:TP-NE-BLOCK-DIRBRUTE-001
+case:TP-NE-BLOCK-DIRBRUTE-002
+case:TP-NE-BLOCK-DIRBRUTE-003
+case:TP-NE-BLOCK-DNS-AXFR-001
+case:TP-NE-BLOCK-DNS-AXFR-002
+case:TP-NE-BLOCK-DNS-IXFR-001
+case:TP-NE-BLOCK-DNS-TOOLS-001
+case:TP-NE-BLOCK-DNS-TOOLS-002
+case:TP-NE-BLOCK-DNS-TOOLS-003
+case:TP-NE-BLOCK-DNS-TOOLS-004
+case:TP-NE-BLOCK-DNSX-001
+case:TP-NE-BLOCK-DNSX-002
+case:TP-NE-BLOCK-DOCKER-PROBE-001
+case:TP-NE-BLOCK-DOCKER-PROBE-002
+case:TP-NE-BLOCK-DOCKER-PROBE-003
+case:TP-NE-BLOCK-DUMPCAP-LIVE-001
+case:TP-NE-BLOCK-ETC-HOSTS-WRITE-001
+case:TP-NE-BLOCK-ETC-HOSTS-WRITE-002
+case:TP-NE-BLOCK-FRP-CLIENT-001
+case:TP-NE-BLOCK-FRP-SERVER-001
+case:TP-NE-BLOCK-GAU-002
+case:TP-NE-BLOCK-HARVESTER-002
+case:TP-NE-BLOCK-HTTPX-001
+case:TP-NE-BLOCK-HTTPX-002
+case:TP-NE-BLOCK-HYDRA-001
+case:TP-NE-BLOCK-KERBRUTE-001
+case:TP-NE-BLOCK-KERBRUTE-002
+case:TP-NE-BLOCK-LOCALTUNNEL-001
+case:TP-NE-BLOCK-LOCALTUNNEL-002
+case:TP-NE-BLOCK-MEDUSA-001
+case:TP-NE-BLOCK-METASPLOIT-001
+case:TP-NE-BLOCK-METASPLOIT-002
+case:TP-NE-BLOCK-ML-CACHE-EXFIL-001
+case:TP-NE-BLOCK-ML-CACHE-EXFIL-002
+case:TP-NE-BLOCK-NGROK-START-001
+case:TP-NE-BLOCK-NGROK-TCP-001
+case:TP-NE-BLOCK-NGROK-TCP-002
+case:TP-NE-BLOCK-NIKTO-001
+case:TP-NE-BLOCK-NIKTO-002
+case:TP-NE-BLOCK-NMAP-AGG-001
+case:TP-NE-BLOCK-NMAP-AGG-002
+case:TP-NE-BLOCK-NUCLEI-001
+case:TP-NE-BLOCK-NUCLEI-002
+case:TP-NE-BLOCK-PATATOR-001
+case:TP-NE-BLOCK-PHOTON-002
+case:TP-NE-BLOCK-PORT-SCANNER-001
+case:TP-NE-BLOCK-PORT-SCANNER-002
+case:TP-NE-BLOCK-RESOLV-CONF-WRITE-001
+case:TP-NE-BLOCK-RESOLV-CONF-WRITE-002
+case:TP-NE-BLOCK-SEARCHSPLOIT-001
+case:TP-NE-BLOCK-SEARCHSPLOIT-002
+case:TP-NE-BLOCK-SPIDERFOOT-002
+case:TP-NE-BLOCK-SQLMAP-001
+case:TP-NE-BLOCK-SQLMAP-002
+case:TP-NE-BLOCK-SSH-RTUNNEL-001
+case:TP-NE-BLOCK-SSH-RTUNNEL-002
+case:TP-NE-BLOCK-SSH-SOCKS-001
+case:TP-NE-BLOCK-SSH-SOCKS-002
+case:TP-NE-BLOCK-SSHUTTLE-001
+case:TP-NE-BLOCK-SSHUTTLE-002
+case:TP-NE-BLOCK-SYSPROMPT-001
+case:TP-NE-BLOCK-SYSPROMPT-002
+case:TP-NE-BLOCK-SYSPROMPT-003
+case:TP-NE-BLOCK-TCPDUMP-LIVE-001
+case:TP-NE-BLOCK-TCPDUMP-LIVE-002
+case:TP-NE-BLOCK-TRAINING-EXFIL-001
+case:TP-NE-BLOCK-TRAINING-EXFIL-002
+case:TP-NE-BLOCK-TSHARK-LIVE-001
+case:TP-NE-BLOCK-TSHARK-LIVE-002
+case:TP-NE-BLOCK-UNAUTH-LLM-ENDPOINT-001
+case:TP-NE-BLOCK-UNAUTH-LLM-ENDPOINT-002
+case:TP-NE-BLOCK-UNAUTH-LLM-ENDPOINT-003
+case:TP-NE-BLOCK-UNAUTH-LLM-ENDPOINT-004
+case:TP-NE-BLOCK-WEBFUZZ-001
+case:TP-NE-BLOCK-WEBFUZZ-002
+case:TP-NE-BLOCK-WHATWEB-001
+case:TP-NE-BLOCK-WHATWEB-002
+case:TP-NE-BLOCK-ZROK-001
+case:TP-NE-BLOCK-ZROK-002
+case:TP-NE-BRACEEXFIL-001
+case:TP-NE-BRACEEXFIL-002
+case:TP-NE-DNS-VARIND-001
+case:TP-NE-DNS-VARIND-002
+case:TP-NE-ENV-DUMP-NET-001
+case:TP-NE-ENV-DUMP-NET-002
+case:TP-NE-ENV-DUMP-NET-003
+case:TP-NE-ENV-DUMP-NET-004
+case:TP-NE-GIST-PASTE-002
+case:TP-NE-GIST-PASTE-007
+case:TP-NE-GIST-PASTE-008
+case:TP-NE-LLM-EXFIL-VERTEX-001
+case:TP-NE-LLMEXFIL-NODE-001
+case:TP-NE-LLMEXFIL-NODE-002
+case:TP-NE-LLMEXFIL-PYTHON-001
+case:TP-NE-LLMEXFIL-PYTHON-002
+case:TP-NE-LLMHIJACK-001
+case:TP-NE-LLMHIJACK-002
+case:TP-NE-LLMHIJACK-003
+case:TP-NE-LLMHIJACK-004
+case:TP-NE-NUMERIC-IPV4-001
+case:TP-NE-NUMERIC-IPV4-002
+case:TP-NE-WEBHOOK-001
+case:TP-NE-WEBHOOK-002
+case:TP-NE-WEBHOOK-003
+case:TP-NE-WEBHOOK-004
+case:TP-NE-WEBHOOK-007
+case:TP-NETSETUP-001
+case:TP-NETSETUP-002
+case:TP-NETSETUP-003
+case:TP-NETSETUP-004
+case:TP-NETSETUP-005
+case:TP-NETSETUP-006
+case:TP-NOMAD-TOKEN-001
+case:TP-NOMAD-TOKEN-002
+case:TP-NUGETPUB-001
+case:TP-OAUTH-TUNNEL-004
+case:TP-ORCHFAILOPEN-001
+case:TP-ORCHFAILOPEN-002
+case:TP-ORCHFAILOPEN-003
+case:TP-OSC52-CLIP-001
+case:TP-OSC52-CLIP-002
+case:TP-OSC52-CLIP-003
+case:TP-OSC52-CLIP-004
+case:TP-OVERSUB-001
+case:TP-OVERSUB-002
+case:TP-OVERSUB-004
+case:TP-OVERSUB-005
+case:TP-OVERSUB-006
+case:TP-PAM-EXEC-INJECT-003
+case:TP-PAM-EXEC-INJECT-006
+case:TP-PASTE-EXFIL-001
+case:TP-PASTE-EXFIL-002
+case:TP-PASTE-EXFIL-003
+case:TP-PASTE-EXFIL-004
+case:TP-PASTE-EXFIL-005
+case:TP-PASTE-EXFIL-006
+case:TP-PATHEVASION-DD-002
+case:TP-PATHHIJACK-INLINE-001
+case:TP-PATHHIJACK-INLINE-002
+case:TP-PE-OBSERVABILITY-TRACE-001
+case:TP-PE-OBSERVABILITY-TRACE-002
+case:TP-PE-OBSERVABILITY-TRACE-003
+case:TP-PE-OBSERVABILITY-TRACE-004
+case:TP-PKGINST-006
+case:TP-PKGINST-008
+case:TP-PKGPUB-001
+case:TP-PKGPUB-002
+case:TP-PKGPUB-003
+case:TP-PKGPUB-004
+case:TP-PKGPUB-005
+case:TP-PKGPUB-006
+case:TP-PKGPUB-007
+case:TP-PKGPUB-008
+case:TP-PKGPUB-009
+case:TP-PKGPUB-SUDO-001
+case:TP-PKGPUB-SUDO-002
+case:TP-PKGPUB-SUDO-003
+case:TP-PPJ-001
+case:TP-PPJ-002
+case:TP-PPJ-003
+case:TP-PRDI-001
+case:TP-PRDI-002
+case:TP-PRDI-003
+case:TP-PRDI-004
+case:TP-PROXY-HIJACK-001
+case:TP-PROXY-HIJACK-002
+case:TP-PROXY-HIJACK-003
+case:TP-PROXY-HIJACK-004
+case:TP-PS4-INJECT-001
+case:TP-PS4-INJECT-002
+case:TP-PS4-INJECT-003
+case:TP-PS4-INJECT-004
+case:TP-PS4-INJECT-005
+case:TP-PS4-INJECT-006
+case:TP-PXPROMPT-001
+case:TP-PY-CHR-OBF-001
+case:TP-PY-CHR-OBF-002
+case:TP-PY-CHR-OBF-003
+case:TP-PY-CHR-OBF-004
+case:TP-PY-GETATTR-IMPORT-002
+case:TP-PY-GETATTR-IMPORT-004
+case:TP-PYPIPUB-001
+case:TP-PYWARN-IMPORT-001
+case:TP-PYWARN-IMPORT-002
+case:TP-PYWARN-IMPORT-003
+case:TP-PYWARN-IMPORT-004
+case:TP-RANSOMNOTE-001  # tier-split #3161: community AUDITs this (ts-audit-*), premium escalates to BLOCK
+case:TP-RANSOMNOTE-002  # tier-split #3161: community AUDITs this (ts-audit-*), premium escalates to BLOCK
+case:TP-RCFILE-INIT-OVERRIDE-001
+case:TP-RCFILE-OVERRIDE-001
+case:TP-RCFILE-OVERRIDE-002
+case:TP-RCFILE-OVERRIDE-003
+case:TP-RCFILE-OVERRIDE-004
+case:TP-READ-ENCODE-EXFIL-PIPE-001
+case:TP-READ-ENCODE-EXFIL-PIPE-002
+case:TP-RECON-AI-INFERENCE-ENUM-002
+case:TP-REVSH-005
+case:TP-RPA-AUTOMATION-ANYWHERE-001
+case:TP-RPA-INTEGROMAT-001
+case:TP-RPA-MAKE-001
+case:TP-RPA-POWER-AUTOMATE-001
+case:TP-RPA-POWER-AUTOMATE-002
+case:TP-RPA-UIPATH-001
+case:TP-RPA-UIPATH-002
+case:TP-RPA-ZAPIER-001
+case:TP-RPJB-002
+case:TP-RPJB-003
+case:TP-RPJB-005
+case:TP-RPJB-006
+case:TP-RRTS-001
+case:TP-RRTS-002
+case:TP-RRTS-003
+case:TP-RUNNER-HOOK-001
+case:TP-RUNNER-HOOK-002
+case:TP-RUNNER-HOOK-003
+case:TP-RUNNER-HOOK-004
+case:TP-RUNNER-HOOK-006
+case:TP-SC-AUDIT-COPYLEFT-SPDX-001
+case:TP-SC-AUDIT-COPYLEFT-SPDX-003
+case:TP-SC-AUDIT-GITHUB-OUTPUT-001
+case:TP-SC-AUDIT-GITHUB-OUTPUT-002
+case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-001
+case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-002
+case:TP-SC-BLOCK-GITURLS-001
+case:TP-SC-BLOCK-GITURLS-002
+case:TP-SC-BLOCK-GOMODREPLACE-001
+case:TP-SC-BLOCK-GOMODREPLACE-003
+case:TP-SC-BLOCK-GOPROXY-001
+case:TP-SC-BLOCK-GOPROXY-002
+case:TP-SC-BLOCK-GOPROXY-003
+case:TP-SC-BLOCK-GOPROXY-004
+case:TP-SC-BLOCK-GOPROXY-005
+case:TP-SC-BLOCK-GOPROXY-006
+case:TP-SC-BLOCK-HF-CLI-001
+case:TP-SC-BLOCK-HF-CLI-002
+case:TP-SC-BLOCK-IDE-AI-TYPOSQUAT-001
+case:TP-SC-BLOCK-IDE-AI-TYPOSQUAT-002
+case:TP-SC-BLOCK-IDE-AI-TYPOSQUAT-003
+case:TP-SC-BLOCK-LOCKFILE-001
+case:TP-SC-BLOCK-LOCKFILE-002
+case:TP-SC-BLOCK-LOCKFILE-003
+case:TP-SC-BLOCK-LOCKFILE-004
+case:TP-SC-BLOCK-MLPOISON-001
+case:TP-SC-BLOCK-MLPOISON-002
+case:TP-SC-BLOCK-MLPOISON-004
+case:TP-SC-BLOCK-NPM-URL-INSTALL-pnpm
+case:TP-SC-BLOCK-NPM-URL-INSTALL-yarn
+case:TP-SC-BLOCK-NPMRC-001
+case:TP-SC-BLOCK-NPMRC-002
+case:TP-SC-BLOCK-NPMRC-003
+case:TP-SC-BLOCK-PIP-TRUSTED-HOST-001
+case:TP-SC-BLOCK-PIP-TRUSTED-HOST-002
+case:TP-SC-BLOCK-PIP-TRUSTED-HOST-003
+case:TP-SC-BLOCK-PIP-URL-INSTALL-pip3
+case:TP-SC-BLOCK-PIP-URL-INSTALL-python-m-pip
+case:TP-SC-BLOCK-PIP-URL-INSTALL-uv
+case:TP-SC-BREW-TAP-001
+case:TP-SC-BREW-TAP-002
+case:TP-SC-BREW-TAP-003
+case:TP-SC-CARGO-CONFIG-001
+case:TP-SC-CARGO-CONFIG-002
+case:TP-SC-CTB-001
+case:TP-SC-CTB-002
+case:TP-SC-CTB-003
+case:TP-SC-CTB-004
+case:TP-SC-CTB-005
+case:TP-SC-DATASETS-RCE-001
+case:TP-SC-DATASETS-RCE-002
+case:TP-SC-DATASETS-RCE-003
+case:TP-SC-DEVCONTAINER-001
+case:TP-SC-DEVCONTAINER-002
+case:TP-SC-DEVCONTAINER-003
+case:TP-SC-DEVCONTAINER-004
+case:TP-SC-DEVCONTAINER-005
+case:TP-SC-DISTILLATION-BACKDOOR-006
+case:TP-SC-DISTILLATION-BACKDOOR-007
+case:TP-SC-DOCKERFILE-001
+case:TP-SC-DOCKERFILE-002
+case:TP-SC-DOCKERFILE-003
+case:TP-SC-DOCKERFILE-004
+case:TP-SC-DOTNET-SOURCE-001
+case:TP-SC-DOTNET-SOURCE-002
+case:TP-SC-DOWNLOAD-THEN-DESER-001
+case:TP-SC-DOWNLOAD-THEN-DESER-002
+case:TP-SC-DS-TRAIN-001
+case:TP-SC-DS-TRAIN-002
+case:TP-SC-EXEC-PICKLE-DECODE-001
+case:TP-SC-GEM-SOURCES-001
+case:TP-SC-GEM-SOURCES-002
+case:TP-SC-GEMRC-WRITE-001
+case:TP-SC-GEMRC-WRITE-002
+case:TP-SC-GH-RELEASE-UNTRUSTED-001
+case:TP-SC-GRAPHRAG-PARQUET-001
+case:TP-SC-GRAPHRAG-PARQUET-002
+case:TP-SC-GRAPHRAG-PARQUET-003
+case:TP-SC-IDE-001
+case:TP-SC-IDE-002
+case:TP-SC-IDE-004
+case:TP-SC-INSTR-EXFIL-001
+case:TP-SC-INSTR-EXFIL-002
+case:TP-SC-INSTR-EXFIL-004
+case:TP-SC-KEYLOGGER-LIB-001
+case:TP-SC-KEYLOGGER-LIB-002
+case:TP-SC-KEYLOGGER-LIB-003
+case:TP-SC-MAVEN-DEPLOY-002
+case:TP-SC-MAVEN-DEPLOY-004
+case:TP-SC-MAVEN-LOCAL-001
+case:TP-SC-MAVEN-REPO-001
+case:TP-SC-MAVEN-REPO-002
+case:TP-SC-MCP-TYPOSQUAT-001
+case:TP-SC-MCP-TYPOSQUAT-002
+case:TP-SC-ML-CLEARML-001
+case:TP-SC-ML-CLEARML-002
+case:TP-SC-ML-CLEARML-003
+case:TP-SC-ML-DEL-001
+case:TP-SC-ML-DEL-002
+case:TP-SC-ML-DEL-003
+case:TP-SC-ML-METRIC-001
+case:TP-SC-ML-METRIC-002
+case:TP-SC-ML-METRIC-003
+case:TP-SC-ML-MINE-002
+case:TP-SC-ML-STAGE-001
+case:TP-SC-ML-STAGE-002
+case:TP-SC-ML-STAGE-003
+case:TP-SC-MLFLOW-EXTRACT-001
+case:TP-SC-MODEL-HTTP-PULL-001
+case:TP-SC-MODEL-HTTP-PULL-002
+case:TP-SC-MODEL-HTTP-PULL-003
+case:TP-SC-MODEL-QUANT-BACKDOOR-001
+case:TP-SC-MODEL-QUANT-BACKDOOR-002
+case:TP-SC-MODEL-REGISTRY-TYPO-001
+case:TP-SC-MODEL-REGISTRY-TYPO-002
+case:TP-SC-MODEL-REGISTRY-TYPO-003
+case:TP-SC-NPM-CONFIG-REGISTRY-001
+case:TP-SC-NPM-CONFIG-REGISTRY-002
+case:TP-SC-NUGET-SOURCE-001
+case:TP-SC-NUGET-SOURCE-002
+case:TP-SC-OLLAMA-MODEL-REPLACE-001
+case:TP-SC-PICKLE-LOAD-URL-001
+case:TP-SC-PIP-CONF-001
+case:TP-SC-PIP-CONF-002
+case:TP-SC-PIP-CONF-003
+case:TP-SC-PIPESH-FIX-001
+case:TP-SC-PYPI-OIDC-001
+case:TP-SC-PYPI-OIDC-002
+case:TP-SC-PYPI-OIDC-003
+case:TP-SC-REDTEAM-INSTALL-001
+case:TP-SC-REDTEAM-INSTALL-002
+case:TP-SC-REDTEAM-INSTALL-003
+case:TP-SC-SKILL-CONCEAL-001
+case:TP-SC-SKILL-CONCEAL-002
+case:TP-SC-SKILL-CONCEAL-003
+case:TP-SC-SKILL-CONCEAL-004
+case:TP-SC-SKILL-MARKET-001
+case:TP-SC-SKILL-MARKET-002
+case:TP-SC-SKILL-MARKET-003
+case:TP-SC-SKILL-SEMANTIC-001
+case:TP-SC-SKILL-SEMANTIC-002
+case:TP-SC-SUBLIMINAL-006
+case:TP-SC-TEST-TRIVIAL-OVERWRITE-001
+case:TP-SC-TEST-TRIVIAL-OVERWRITE-002
+case:TP-SC-TORCH-LOAD-URL-001
+case:TP-SC-TORCH-LOAD-URL-002
+case:TP-SC-TRITON-REPO-MUTATION-001
+case:TP-SC-TRITON-REPO-MUTATION-002
+case:TP-SC-UNSAFE-MODEL-CLOUDPICKLE-001
+case:TP-SC-UNSAFE-MODEL-CLOUDPICKLE-002
+case:TP-SC-UNSAFE-MODEL-TRUST-001
+case:TP-SC-UNSAFE-MODEL-TRUST-002
+case:TP-SC-VLLM-LORA-LOAD-001
+case:TP-SC-VLLM-LORA-LOAD-002
+case:TP-SEC-VECTORDB-EXFIL-001
+case:TP-SEC-VECTORDB-EXFIL-002
+case:TP-SED-EXEC-FLAG-001
+case:TP-SED-EXEC-FLAG-002
+case:TP-SED-EXEC-FLAG-004
+case:TP-SED-EXEC-FLAG-005
+case:TP-SED-EXEC-FLAG-006
+case:TP-SHELLOPTS-XTRACE-001
+case:TP-SHELLOPTS-XTRACE-002
+case:TP-SHELLOPTS-XTRACE-003
+case:TP-SHELLOPTS-XTRACE-004
+case:TP-SHFSOVERSHARE-001
+case:TP-SODOS-001
+case:TP-SODOS-002
+case:TP-SODOS-003
+case:TP-SSHD-CONF-001
+case:TP-SSHD-CONF-002
+case:TP-SSHD-CONF-003
+case:TP-SSHD-CONF-004
+case:TP-SSHD-CONF-005
+case:TP-SSHD-CONF-006
+case:TP-SSHD-CONF-009
+case:TP-SSLKEYLOG-001
+case:TP-SSLKEYLOG-002
+case:TP-SSLKEYLOG-003
+case:TP-SSLKEYLOG-004
+case:TP-SSLKEYLOG-005
+case:TP-STDINSRC-PROCSUB-NETWORK-001
+case:TP-STDINSRC-PROCSUB-NETWORK-002
+case:TP-SUBAGENT-CHAIN-001
+case:TP-SUBAGENT-CHAIN-002
+case:TP-TAR-CHECKPOINT-EXEC-001
+case:TP-TAR-CHECKPOINT-EXEC-002
+case:TP-TAR-CHECKPOINT-EXEC-003
+case:TP-TCCUTIL-001
+case:TP-TCCUTIL-002
+case:TP-TCCUTIL-003
+case:TP-TCCUTIL-004
+case:TP-TCCUTIL-005
+case:TP-TCCUTIL-006
+case:TP-TCCUTIL-007
+case:TP-TCPDUMP-Z-EXEC-001
+case:TP-TCPDUMP-Z-EXEC-002
+case:TP-TCPDUMP-Z-EXEC-003
+case:TP-TCPDUMP-Z-EXEC-005
+case:TP-TCPDUMP-Z-EXEC-006
+case:TP-TCPDUMP-Z-EXEC-007
+case:TP-TCPDUMP-Z-EXEC-008
+case:TP-TOTP-SEED-001
+case:TP-TOTP-SEED-002
+case:TP-TPHIJ-001
+case:TP-TRANSCRIPT-UPLOAD-001
+case:TP-TRANSCRIPT-UPLOAD-002
+case:TP-TRANSCRIPT-UPLOAD-003
+case:TP-TRANSCRIPT-UPLOAD-004
+case:TP-TS-AUDIT-FIND-FWRITE-001
+case:TP-TS-AUDIT-FIND-FWRITE-002
+case:TP-TS-AUDIT-NULL-BYTE-PATH-001
+case:TP-TS-AUDIT-TUNNEL-AI-PORT-001
+case:TP-TS-AUDIT-TUNNEL-AI-PORT-002
+case:TP-TS-AUDIT-XLANG-001
+case:TP-TS-AUDIT-XLANG-003
+case:TP-TS-BLOCK-CLOUDTRAIL-001
+case:TP-TS-BLOCK-CLOUDTRAIL-002
+case:TP-TS-BLOCK-CLOUDTRAIL-003
+case:TP-TS-BLOCK-EXT-AI-CHAT-DOMAIN-001
+case:TP-TS-BLOCK-EXT-AI-CHAT-DOMAIN-002
+case:TP-TS-BLOCK-EXT-POLICY-TAMPER-001
+case:TP-TS-BLOCK-EXT-POLICY-TAMPER-002
+case:TP-TS-BLOCK-FIND-FWRITE-001
+case:TP-TS-BLOCK-FIND-FWRITE-003
+case:TP-TS-BLOCK-FIND-FWRITE-004
+case:TP-TS-BLOCK-FIND-FWRITE-005
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-001
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-002
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-003
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-004
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-005
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-006
+case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-007
+case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-001
+case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-002
+case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-003
+case:TP-TS-BLOCK-GIT-RR-CACHE-WRITE-001
+case:TP-TS-BLOCK-GITATTRIBUTES-MERGE-BYPASS-001
+case:TP-TS-BLOCK-GITHUB-WEBHOOK-001
+case:TP-TS-BLOCK-GITHUB-WEBHOOK-002
+case:TP-TS-BLOCK-PROMPT-HUB-001
+case:TP-TS-BLOCK-PROMPT-HUB-002
+case:TP-TS-BLOCK-PROMPT-HUB-003
+case:TP-TS-BLOCK-RSYNC-SHELL-RSH-001
+case:TP-TS-BLOCK-RSYNC-SHELL-RSH-002
+case:TP-TS-BLOCK-RSYNC-SHELL-RSH-004
+case:TP-TS-BLOCK-RSYNC-SHELL-RSH-005
+case:TP-TS-BLOCK-SNS-WEBHOOK-001
+case:TP-TS-BLOCK-SSH-LOCALCOMMAND-001
+case:TP-TS-BLOCK-SSH-PROXYCOMMAND-001
+case:TP-TS-BLOCK-SSH-PROXYCOMMAND-002
+case:TP-TS-BLOCK-SSH-PROXYCOMMAND-003
+case:TP-TS-BLOCK-STRIPE-WEBHOOK-001
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-001
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-002
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-003
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-004
+case:TP-TS-BLOCK-UFW-DELETE-001
+case:TP-TS-BLOCK-UFW-DELETE-002
+case:TP-TS-BLOCK-UFW-DELETE-003
+case:TP-TS-BLOCK-VECTOR-STORE-SQLITE3-001
+case:TP-TS-BLOCK-VECTOR-STORE-SQLITE3-002
+case:TP-TS-CACHE-POISON-001
+case:TP-TS-CACHE-POISON-002
+case:TP-TS-REDTEAM-EXEC-001
+case:TP-TS-REDTEAM-EXEC-002
+case:TP-UARPI-002
+case:TP-UARPI-004
+case:TP-VCSRSHENV-001
+case:TP-VCSRSHENV-002
+case:TP-VCSRSHENV-003
+case:TP-VCSRSHENV-004
+case:TP-VENVPOISON-001
+case:TP-VENVPOISON-002
+case:TP-VENVPOISON-003
+case:TP-VENVPOISON-004
+case:TP-VENVPOISON-005
+case:TP-VIM-SHELL-ESCAPE-001
+case:TP-VIM-SHELL-ESCAPE-005
+case:TP-VIM-SHELL-ESCAPE-007
+case:TP-VIM-SHELL-ESCAPE-008
+case:TP-VISH-001
+case:TP-VISH-002
+case:TP-VISH-003
+case:TP-VSCDB-SHELL-001
+case:TP-VSCDB-SHELL-002
+case:TP-VSCDB-SHELL-003
+case:TP-VSCDB-SHELL-004
+case:TP-XARGS-RM-EMPTY-001
+case:TP-XARGS-RM-EMPTY-002
+case:TP-XARGS-RM-ROOT-001
+case:TP-XARGS-RM-ROOT-002
+case:TP-XATTR-QUAR-001
+case:TP-XATTR-QUAR-002
+case:TP-XATTR-QUAR-003
+case:TP-XATTR-QUAR-004
+case:TP-XATTR-QUAR-005
+case:TP-XATTR-QUAR-006
+case:TP-ZDOTDIR-001
+case:TP-ZDOTDIR-002
+case:TP-ZIP-UNZIP-CMD-001
+case:TP-ZIP-UNZIP-CMD-002
+case:TP-ZIP-UNZIP-CMD-003
+case:TP-ZIP-UNZIP-CMD-005
+case:TP-ZSHGLOB-001
+case:sudo-endopts

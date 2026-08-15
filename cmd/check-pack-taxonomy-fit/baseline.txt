@@ -1,0 +1,124 @@
+# baseline.txt — (taxonomy node :: pack file) pairs where the node's prose does
+# not describe the threat that pack rule detects.
+#
+# Read by cmd/check-pack-taxonomy-fit. See that package's doc comment for what
+# the check measures and where it deliberately diverges from the comply-side
+# gate. A line here is a known flag; any pair NOT listed is new and fails CI.
+#
+# Format: <taxonomy node id> :: <pack file basename>. Comments after '#'.
+#
+# Keyed on the PAIR, not the node, so a node that is already known-bad cannot
+# silently accrete more mismatched rules.
+#
+# BURN IT DOWN. Two ways to clear a line, both improving the attestation text a
+# customer reads:
+#   1. Point the rule at a node whose prose describes what it detects.
+#   2. Broaden the node's prose so it covers the family it has accreted.
+# Adding a NEW line requires Gary + Kai sign-off. Removing one is MANDATORY
+# once the pair stops misfitting — the checker reports STALE entries and fails.
+#
+# Bootstrap:  go run ./cmd/check-pack-taxonomy-fit -taxonomy <dir> -write-baseline
+# NOTE: -write-baseline DISCARDS the hand-written verdicts below. It is a
+# bootstrap tool, not a maintenance one — to clear an entry, delete its line.
+#
+# ---------------------------------------------------------------------------
+# SEED TRIAGE (2026-08-13, #3333). The gate flagged SIX nodes on its first run.
+# FIVE were fixed before it landed rather than baselined, so this file starts
+# at one line instead of six. What each of them was is recorded here, because
+# the pattern is more reusable than the fixes:
+#
+#   cicd-credential-access        REAL. Prose named CircleCI, Travis and GitHub
+#     (54 rules)                  Actions; the rules also covered 20+ other
+#                                 platforms, so a blocked read of a Fly.io
+#                                 token rendered a paragraph about CircleCI.
+#                                 Fixed by broadening (comply#3654).
+#   ml-platform-credential-access REAL, and the sharpest kind: the node's prose
+#     (16 rules)                  said its credentials were "distinct from
+#                                 general AI API keys (OpenAI, Anthropic)"
+#                                 while 16 Mistral/Cohere/Groq/Together/
+#                                 Fireworks/Perplexity rules pointed at it —
+#                                 and the Mistral rule's own comment said
+#                                 "Analogous to existing rules for Anthropic
+#                                 and OpenAI credentials". Re-homed to
+#                                 api-key-exposure (#3333, comply#3654).
+#   rpath-runpath-poisoning       REAL. The node's NAME was "...via chrpath or
+#     (4 rules)                   LD_LIBRARY_PATH" while four rules detected
+#                                 /etc/ld.so.conf writes — the widest of the
+#                                 injection points. Fixed by broadening.
+#   cicd-config-injection         REAL. Five signing/registry-trust rules had
+#     (5 rules)                   no pipeline-config content at all. A new node
+#                                 (artifact-verification-bypass) was needed —
+#                                 the obvious destination, signing-trust-root-
+#                                 tamper, covers the mirror-image threat.
+#                                 Re-homed here + comply#3655.
+#   suid-bit-set                  Scored as a pure vocabulary artifact
+#     (1 rule)                    ("setuid" does not prefix-match "suid") and
+#                                 would normally be dismissed as a false
+#                                 positive. Reading it anyway found the node's
+#                                 RECOMMENDATION said "block all chmod
+#                                 invocations" — the incomplete defense that
+#                                 the `install -m 4755` rule pointing at it
+#                                 exists to close. Fixed in comply#3655.
+#
+# Worth keeping from that last one: a flag being an FP on the metric's own
+# terms does not mean the node is fine. Two of the five defects were in the
+# RECOMMENDATION or the NAME, neither of which the score reads.
+#
+# ---------------------------------------------------------------------------
+# CI/CD Pipeline Configuration Injection — CLEARED 2026-08-13 (#3335).
+#   THE ONLY SEED ENTRY. This file is now empty of pairs.
+#
+#   Verdict was REAL, baselined rather than guessed at because the remedy was a
+#   judgement call. The nine rules were two families and took two answers, and
+#   in both cases the destination node had ALREADY declared ownership in prose —
+#   the rules simply never moved. Worth remembering: the fix for a misfit is
+#   more often a node that already exists than a node that needs writing.
+#
+#   - Azure DevOps logging commands (ado-prependpath, ado-setvariable,
+#     ado-uploadfile) -> github-actions-env-injection, broadened to the
+#     mechanism (comply#3657). They ARE pipeline injection but not the KIND the
+#     old node described: it says an agent "writes to CI/CD pipeline
+#     configuration files", and an ADO logging command writes no file — it is
+#     emitted on stdout and interpreted by the running agent. The GitHub node
+#     already covered the identical channel: prependpath IS $GITHUB_PATH,
+#     setvariable IS $GITHUB_ENV, and GitHub shipped the env-file form only
+#     because it disabled its own stdout form in CVE-2020-15228. One mechanism,
+#     two vendors — not two threats.
+#   - Dockerfile / docker-compose / devcontainer writes -> build-script-injection.
+#     Its abstract already enumerated "Dockerfile RUN layers" and "dev container
+#     lifecycle hooks (devcontainer.json)", and already stated the boundary
+#     these rules sat on the wrong side of: "without touching CI/CD pipeline
+#     configuration files that have dedicated security monitoring". Compose was
+#     the only open call and was added explicitly (comply#3657), split into the
+#     executing keys (command/entrypoint/build — this node) and the isolation
+#     keys (privileged/security_opt/host binds — cross-referenced to
+#     container-escape).
+#
+#   The MCP twin `mcp-sc-block-dockerfile-write` moved with group 2. It had read
+#   as a FIT purely because it shares the word "filesystem" (an MCP tool name)
+#   with the node's prose — the coincidence-rescue the majority-zero rule exists
+#   to prevent, surviving only because sibling rules in that file matched
+#   honestly. If a pair in this file ever clears, check its MCP twin by hand;
+#   the score will not flag it.
+#
+#   The "also in" hint on this pair (agent-orchestration-hijacking, sharing
+#   echo/json/printf/python/sed) was noise — shell verbs from the command
+#   regexes, and it pointed at neither correct destination. Read "also in" as
+#   evidence the terms are real taxonomy vocabulary, never as a routing
+#   recommendation.
+
+# ---------------------------------------------------------------------------
+# EXAMINED, BELOW THRESHOLD. Not baselined (they do not reach -misfit-frac),
+# recorded so the next person does not re-derive them if the threshold moves:
+#
+#   data-exfiltration/network-egress/network-http-request :: secrets-pii-
+#     advanced.yaml (0.20) — FALSE POSITIVE. The rule is a DATAFLOW rule
+#     (sec-df-block-cred-to-network), so its match block harvests "dataflow",
+#     "sink" and "type" — analyzer vocabulary, not threat vocabulary. Nothing
+#     to fix; the node is the right home for credential-to-network flow.
+#
+#   credential-exposure/config-file-access/generic-config-access ::
+#     mcp-devtool-creds.yaml (0.17) — FALSE POSITIVE, broad-family shape. The
+#     node is by design the catch-all for "config file holding a credential",
+#     so vendor-named members (aider, and friends) share nothing with it. Same
+#     class as the comply gate's llm-output-injection family.

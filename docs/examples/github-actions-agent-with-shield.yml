@@ -1,0 +1,70 @@
+# Example: a CI-resident coding agent guarded by AgentShield.
+#
+# This is a COPY-PASTE TEMPLATE for your own repository — it is intentionally
+# placed under docs/examples/ (not .github/workflows/) so it does not run in the
+# AgentShield repo's own CI. Copy it to .github/workflows/ in your project and
+# adapt the "Run coding agent" step to your agent of choice.
+#
+# What it demonstrates (issue #3291):
+#   - Installing AgentShield in a GitHub Actions runner.
+#   - Arming the PreToolUse shell hook for a coding agent.
+#   - A scripted smoke test that asserts AgentShield's CI-context tightening is
+#     live (a full environment dump BLOCKs in CI but only AUDITs on a laptop).
+#   - Running the agent with every shell command mediated by the hook.
+#
+# GitHub Actions sets GITHUB_ACTIONS=true and CI=true automatically, so the
+# CI-context rules (packs/community/ci-context.yaml) activate with no config.
+name: agent-pr-review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# A CI agent is attacker-facing: PR titles/bodies/comments are untrusted input.
+# Keep the token minimal; AgentShield is defense-in-depth on top of least-privilege.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  agent-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Install AgentShield.
+      - name: Install AgentShield
+        run: |
+          brew tap AI-AgentLens/oss
+          brew install agentshield
+          agentshield version
+
+      # 2. Arm the PreToolUse shell hook for the coding agent (Claude Code shown;
+      #    swap for `cursor` / `windsurf` / `gemini-cli` / `codex` as needed).
+      - name: Enable AgentShield hook
+        run: agentshield setup claude-code
+
+      # 3. Scripted smoke test: prove the CI-context tightening is live on THIS
+      #    runner before the agent runs. `agentshield check --shell` applies the
+      #    same CI detection as the hook and exits 2 on BLOCK.
+      #
+      #    A full environment dump must BLOCK in CI (the runner env is the union
+      #    of every pipeline secret). If `check` exits 0 the tightening is not in
+      #    effect — fail the job loudly rather than run the agent unprotected.
+      - name: AgentShield CI-context smoke test
+        run: |
+          set -euo pipefail
+          if agentshield check --shell "env"; then
+            echo "::error::AgentShield did not BLOCK an environment dump in CI context"
+            exit 1
+          fi
+          echo "OK: environment dump correctly blocked in CI context"
+
+      # 4. Run the coding agent. Every shell command it emits is evaluated by the
+      #    AgentShield hook first; CI-context rules tighten posture automatically.
+      #    Replace this with your agent invocation.
+      - name: Run coding agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Review the pull-request diff and post suggested fixes."

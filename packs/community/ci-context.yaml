@@ -1,0 +1,88 @@
+name: CI Context Tightening
+description: >-
+  Tighten credential and reconnaissance posture for CI-resident coding agents.
+  A CI agent ingests input from external contributors it has no reason to trust
+  (PR titles, issue bodies, comments), so controls calibrated for the
+  trusted-developer case do not transfer. These rules apply ONLY when the Shield
+  hook detects a CI/CD execution context (match.context.ci: true) — outside CI
+  the same commands keep their trusted-developer baseline decision. See
+  docs/ci-agents.md and OWASP State of Agentic AI Security & Governance v2.01
+  p.65. Issue #3291.
+version: 1.0.0
+author: AgentShield Security Research
+defaults:
+  protected_paths: []
+rules:
+# ---------------------------------------------------------------------------
+# CI environment dump — AUDIT (trusted dev) → BLOCK (attacker-facing CI agent)
+# ---------------------------------------------------------------------------
+# On a workstation a full environment dump is routine debugging, audited but
+# allowed (sec-audit-env-dump). Inside a CI runner the environment is the union
+# of every pipeline secret at once — GITHUB_TOKEN, OIDC request tokens, deploy
+# keys, cloud credentials injected by earlier steps — so a bulk dump by a
+# prompt-injected, attacker-facing CI agent is exfiltration-grade. Matches a
+# WHOLE-command dump (bare `env`/`printenv`/`set`/`export -p`, or one piped
+# onward); deliberately NOT `env FOO=bar cmd` (prefix use) or `set -euo
+# pipefail`/`printenv PATH` (targeted, common in CI scripts).
+- id: ci-block-env-dump
+  taxonomy: credential-exposure/secret-env-exposure/env-dump
+  match:
+    context:
+      ci: true
+    command_regex: '^\s*(env|printenv|set|export\s+-p)\s*($|\|)'
+  decision: BLOCK
+  confidence: 0.9
+  reason: >-
+    Full environment dump inside a CI/CD runner. In CI the process environment
+    holds the union of all pipeline secrets (GITHUB_TOKEN, OIDC request tokens,
+    deploy keys, cloud credentials from earlier steps); a bulk dump by an
+    attacker-facing CI agent is exfiltration-grade, so the trusted-developer
+    AUDIT is tightened to BLOCK here. Targeted reads (printenv PATH), option
+    setting (set -euo pipefail) and prefix use (env FOO=bar cmd) are not
+    matched.
+  tests:
+    tp:
+    - env
+    - printenv
+    - set
+    - "export -p"
+    - "env | grep -i token"
+    tn:
+    - "env FOO=bar make build"
+    - "set -euo pipefail"
+    - "printenv PATH"
+    - echo hello
+# ---------------------------------------------------------------------------
+# CI/CD secrets enumeration — AUDIT (trusted dev) → BLOCK (attacker-facing CI)
+# ---------------------------------------------------------------------------
+# Listing the NAMES of configured secrets/variables is normal pipeline
+# housekeeping for a developer, and audited (ts-audit-cicd-secrets-enumeration).
+# For an attacker-facing CI agent it is reconnaissance: a credential footprint
+# map of which cloud accounts, registries and services are wired into the
+# pipeline, enabling a targeted follow-up. Tightened to BLOCK in CI.
+- id: ci-block-cicd-secrets-enumeration
+  taxonomy: reconnaissance/credential-discovery/cicd-secrets-enumeration
+  match:
+    context:
+      ci: true
+    command_regex: '\b(gh\s+(secret|variable)\s+list|glab\s+variable\s+list|circleci\s+context\s+list-environment-variables)\b'
+  decision: BLOCK
+  confidence: 0.9
+  reason: >-
+    CI/CD platform secret/variable NAME enumeration inside a CI runner (gh
+    secret list, gh variable list, glab variable list, circleci context
+    list-environment-variables). A prompt-injected CI agent building a
+    credential footprint map of the organization's integrated services is doing
+    reconnaissance for a targeted follow-up attack; the trusted-developer AUDIT
+    is tightened to BLOCK when the agent is attacker-facing. Mutation (gh secret
+    set) and unrelated listings (gh pr list) are not matched.
+  tests:
+    tp:
+    - "gh secret list -R org/repo"
+    - "gh variable list --repo org/prod-api"
+    - "glab variable list --project org/prod-api"
+    - "circleci context list-environment-variables myorg production"
+    tn:
+    - "gh pr list -R org/repo"
+    - "gh secret set NEW_API_KEY --repo org/my-service"
+    - echo hello
