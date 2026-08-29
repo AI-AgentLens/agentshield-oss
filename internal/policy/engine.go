@@ -380,7 +380,28 @@ func (e *Engine) matchRule(command string, rule Rule) bool {
 	if !e.matchRulePattern(command, rule) {
 		return false
 	}
-	return !e.intentExcluded(command, rule)
+	if e.intentExcluded(command, rule) {
+		return false
+	}
+	return !e.positionExcluded(command, rule)
+}
+
+// positionExcluded is the regex-fallback half of command_position_exclude
+// (#3376) — the analyzer-pipeline half lives in RegexAnalyzer.Analyze. Both
+// call the same analyzer.PositionExcluded with the same raw-pattern predicate
+// (matchRulePattern here, matchRegexRule there, both exclude-label-free), so
+// the two paths cannot drift the way #3232/#3234 found command_regex_exclude
+// and command_intent_exclude had.
+//
+// Costs an AST parse, so it runs last: only a rule that already matched and
+// survived its intent labels pays for it.
+func (e *Engine) positionExcluded(command string, rule Rule) bool {
+	if len(rule.Match.CommandPositionExclude) == 0 {
+		return false
+	}
+	return analyzer.PositionExcluded(command, rule.Match.CommandPositionExclude, func(s string) bool {
+		return e.matchRulePattern(s, rule)
+	})
 }
 
 // intentExcluded reports whether command_intent_exclude suppresses a match
@@ -408,8 +429,8 @@ func (e *Engine) intentExcluded(command string, rule Rule) bool {
 	if len(rule.Match.CommandIntentExclude) == 0 || e.intentClassifier == nil {
 		return false
 	}
-	statements := shellparse.SplitTopLevelStatements(command)
-	return analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, rule.Match.CommandIntentExclude, func(stmt string) bool {
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(command)
+	return analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, rule.Match.CommandIntentExclude, func(stmt string) bool {
 		return e.matchRulePattern(stmt, rule)
 	})
 }
@@ -457,8 +478,8 @@ func (e *Engine) effectiveDecision(command string, rule Rule) Decision {
 	if rule.Decision != DecisionBlock && rule.Decision != DecisionRequireApproval {
 		return rule.Decision
 	}
-	statements := shellparse.SplitTopLevelStatements(command)
-	if analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, rule.Match.CommandIntentDowngrade, func(stmt string) bool {
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(command)
+	if analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, rule.Match.CommandIntentDowngrade, func(stmt string) bool {
 		return e.matchRulePattern(stmt, rule)
 	}) {
 		return DecisionAudit
@@ -466,7 +487,19 @@ func (e *Engine) effectiveDecision(command string, rule Rule) Decision {
 	return rule.Decision
 }
 
-// compiledRegex returns a pre-compiled regex from cache, or compiles on demand.
+// compiledRegex returns the pre-compiled matcher for a pattern, compiling on
+// demand for the (unreachable) miss.
+//
+// The miss path does not store its result — see the twin comment on
+// RegexAnalyzer.cachedRegex. NewEngine pre-compiles every rule's CommandRegex
+// and CommandRegexExclude, and those are the only patterns reaching here
+// (matchRulePattern passes CommandRegex; regexExcluded passes
+// CommandRegexExclude). Writing to regexCache here would make Engine.Evaluate
+// unsafe to call from two goroutines, and the failure mode is
+// `fatal error: concurrent map writes` — an unrecoverable process abort in the
+// one component that must never die.
+//
+// TestEngineRegexCacheIsReadOnlyAfterConstruction holds the line.
 func (e *Engine) compiledRegex(pattern string) *regexlit.Matcher {
 	if m, ok := e.regexCache[pattern]; ok {
 		return m
@@ -475,7 +508,6 @@ func (e *Engine) compiledRegex(pattern string) *regexlit.Matcher {
 	if err != nil {
 		return nil
 	}
-	e.regexCache[pattern] = m
 	return m
 }
 

@@ -54,8 +54,24 @@ var selfProtectRules = []struct {
 	Pattern *regexp.Regexp
 }{
 	{
-		ID:      "sp-block-bypass-env",
-		Pattern: regexp.MustCompile(`(?i)export\s+AGENTSHIELD_BYPASS\s*=`),
+		ID: "sp-block-bypass-env",
+		// Anchored on the ASSIGNMENT, not on the `export` keyword (#3212).
+		// `export` is one of five ways to set this variable and the least
+		// likely to be typed: measured against SelfProtect, `declare -x`,
+		// `typeset -x`, `AGENTSHIELD_BYPASS=1 claude` and
+		// `env AGENTSHIELD_BYPASS=1 claude` all went unblocked, and the bare
+		// inline prefix is the form anyone would actually reach for.
+		//
+		// A pure READ still passes — `printenv AGENTSHIELD_BYPASS` and
+		// `echo $AGENTSHIELD_BYPASS` carry no `=`. What this does newly catch
+		// is prose that contains the assignment (a commit message, a doc). In
+		// managed mode that is the correct direction: this rule exists to
+		// block and audit the ATTEMPT, on the layer that backs the claim that
+		// AgentShield cannot be turned off by an AI agent, and nothing benign
+		// assigns this variable. BypassGuard independently ignores the
+		// variable, so the bypass never worked — but a tamper layer that does
+		// not record four of the five attempts is not a tamper layer.
+		Pattern: regexp.MustCompile(`(?i)AGENTSHIELD_BYPASS\s*=`),
 	},
 	{
 		ID:      "sp-block-setup-disable",

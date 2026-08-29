@@ -25,8 +25,8 @@ func matchRegexRuleWithIntent(c *IntentClassifier, command string, rule RegexRul
 	if len(rule.IntentExclude) == 0 {
 		return true
 	}
-	statements := shellparse.SplitTopLevelStatements(command)
-	excluded := IntentExcludedForStatements(c, command, statements, rule.IntentExclude, func(stmt string) bool {
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(command)
+	excluded := IntentExcludedForStatements(c, command, statements, parsed, rule.IntentExclude, func(stmt string) bool {
 		return matchRegexRule(stmt, rule)
 	})
 	return !excluded

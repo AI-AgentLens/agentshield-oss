@@ -11,10 +11,10 @@
 # Format: one taxonomy ref per line, optional `# reason` trailing.
 # Lines starting with # are comments.
 #
-# Total baselined: 7
+# Total baselined: 6
 # - Missing TP: 0
 # - Missing TN: 0
-# - Orphan refs: 7
+# - Orphan refs: 6
 
 # === Orphan TaxonomyRefs (7) — tests reference a taxonomy not used by any terminal rule ===
 # These are intentional in the current architecture:
@@ -26,14 +26,14 @@
 # - agent-driven-account-takeover-chain and agent-fake-ui-injection-computeruse
 #   are MCP-only threats (browser navigation attacks); no shell TP exists.
 #   Shell TN cases verify the terminal layer correctly allows benign commands.
-# - data-protection/pii/test-fixture-codename is the Layer-7 data-label stage
-#   fixture: the taxonomy is synthesized by DataLabelAnalyzer from the fixture
-#   label appended in loadTestPolicy — customer data_labels are configuration,
-#   not pack rules, so no terminal rule can ever declare it.
-persistence-evasion/defense-evasion/obfuscation  # orphan (TN=4)
-persistence-evasion/defense-evasion/security-bypass  # orphan (TN=2)
+# - data-exfiltration/ai-data-flows/labeled-sensitive-data-disclosure is the
+#   Layer-7 data-label stage's fixed mechanism node (Shield#3509): every
+#   customer data_labels match attributes here regardless of label ID, since
+#   customer data_labels are configuration, not pack rules, so no terminal
+#   rule can ever declare it.
+persistence-evasion/defense-evasion/security-tool-tampering  # orphan (TN=2) — guardian-disable_security regression tests, not pack-rule based
 unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning  # orphan (FN=2, TN=2)
 unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning  # orphan (FN=2, TN=2)
 unauthorized-execution/agentic-attacks/agent-driven-account-takeover-chain  # orphan (TN=1, MCP-only threat)
 unauthorized-execution/agentic-attacks/agent-fake-ui-injection-computeruse  # orphan (TN=1, MCP-only threat)
-data-protection/pii/test-fixture-codename  # orphan (TP=1, TN=1) — datalabel Layer-7 fixture, analyzer-synthesized
+data-exfiltration/ai-data-flows/labeled-sensitive-data-disclosure  # orphan (TP=1, TN=1) — datalabel Layer-7 fixture, analyzer-synthesized

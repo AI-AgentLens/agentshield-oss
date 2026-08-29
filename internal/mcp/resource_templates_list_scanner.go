@@ -230,7 +230,7 @@ func scanTemplateMetadataField(field, value string) *ResourceTemplatesListFindin
 	if value == "" {
 		return nil
 	}
-	lower := strings.ToLower(value)
+	forms := newProseForms(value)
 	allGroups := [][]signalPattern{
 		hiddenInstructionPatterns,
 		credentialHarvestPatterns,
@@ -240,10 +240,10 @@ func scanTemplateMetadataField(field, value string) *ResourceTemplatesListFindin
 	}
 	for _, group := range allGroups {
 		for _, p := range group {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				return &ResourceTemplatesListFinding{
 					Signal: SignalResourceTemplatesListMetadataInjection,
-					Detail: "resource template " + field + " contains injection pattern: " + p.description,
+					Detail: "resource template " + field + " contains injection pattern: " + p.description + note,
 					Field:  field,
 				}
 			}

@@ -1,7 +1,5 @@
 package mcp
 
-import "strings"
-
 // ScanErrorMessage checks a JSON-RPC error message string for prompt injection
 // directives, credential harvesting instructions, or behavioural manipulation patterns.
 // MCP servers can embed adversarial payloads in error.message text that agents
@@ -14,33 +12,33 @@ func ScanErrorMessage(text string) (signal PoisonSignal, detail string) {
 	if text == "" {
 		return "", ""
 	}
-	lower := strings.ToLower(text)
+	forms := newProseForms(text)
 
 	// Check pattern groups in priority order (highest-confidence first).
 	// Reuses the same groups as description_scanner.go for consistent detection.
 	for _, p := range hiddenInstructionPatterns {
-		if p.re.MatchString(lower) {
-			return SignalHiddenInstructions, p.description
+		if note, ok := proseMatchNote(p.re, forms); ok {
+			return SignalHiddenInstructions, p.description + note
 		}
 	}
 	for _, p := range credentialHarvestPatterns {
-		if p.re.MatchString(lower) {
-			return SignalCredentialHarvest, p.description
+		if note, ok := proseMatchNote(p.re, forms); ok {
+			return SignalCredentialHarvest, p.description + note
 		}
 	}
 	for _, p := range exfiltrationPatterns {
-		if p.re.MatchString(lower) {
-			return SignalExfiltrationIntent, p.description
+		if note, ok := proseMatchNote(p.re, forms); ok {
+			return SignalExfiltrationIntent, p.description + note
 		}
 	}
 	for _, p := range stealthPatterns {
-		if p.re.MatchString(lower) {
-			return SignalStealthInstruction, p.description
+		if note, ok := proseMatchNote(p.re, forms); ok {
+			return SignalStealthInstruction, p.description + note
 		}
 	}
 	for _, p := range behavioralManipulationPatterns {
-		if p.re.MatchString(lower) {
-			return SignalBehavioralManipulation, p.description
+		if note, ok := proseMatchNote(p.re, forms); ok {
+			return SignalBehavioralManipulation, p.description + note
 		}
 	}
 	return "", ""

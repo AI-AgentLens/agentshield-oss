@@ -249,6 +249,51 @@ func TestMatchGlob_SingleStar(t *testing.T) {
 	}
 }
 
+// TestSplitPath_NoSpuriousLeadingDot pins #3423: a value with no leading "/"
+// (a URL, hostname, or scheme:value) must not pick up a spurious leading "."
+// component from splitPath's walk-to-root loop.
+func TestSplitPath_NoSpuriousLeadingDot(t *testing.T) {
+	got := splitPath("https://example.com/test-page")
+	want := []string{"https:", "example.com", "test-page"}
+	if len(got) != len(want) {
+		t.Fatalf("splitPath(%q) = %v, want %v", "https://example.com/test-page", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("splitPath(%q) = %v, want %v", "https://example.com/test-page", got, want)
+		}
+	}
+
+	// Absolute paths must be unaffected — the root case (dir == p at "/")
+	// must still terminate the walk before dir == "." ever applies.
+	gotAbs := splitPath("/home/user/.ssh/id_rsa")
+	wantAbs := []string{"home", "user", ".ssh", "id_rsa"}
+	if len(gotAbs) != len(wantAbs) {
+		t.Fatalf("splitPath(%q) = %v, want %v", "/home/user/.ssh/id_rsa", gotAbs, wantAbs)
+	}
+	for i := range wantAbs {
+		if gotAbs[i] != wantAbs[i] {
+			t.Fatalf("splitPath(%q) = %v, want %v", "/home/user/.ssh/id_rsa", gotAbs, wantAbs)
+		}
+	}
+}
+
+// TestMatchGlob_SchemeValue pins #3423: a "**" glob pattern must match
+// scheme-shaped values (URLs) that don't start with "/", both with a
+// double-slash pattern and a single-slash pattern, and must still reject a
+// value under a different scheme.
+func TestMatchGlob_SchemeValue(t *testing.T) {
+	if !matchGlob("https://example.com/page", "https://**") {
+		t.Error("expected https://example.com/page to match https://**")
+	}
+	if !matchGlob("https://example.com/page", "https:/**") {
+		t.Error("expected https://example.com/page to match https:/**")
+	}
+	if matchGlob("ftp://example.com/file", "https://**") {
+		t.Error("expected ftp://example.com/file to NOT match https://**")
+	}
+}
+
 func TestArgumentPatternsAny(t *testing.T) {
 	rule := MCPRule{
 		ID: "test-patterns-any",

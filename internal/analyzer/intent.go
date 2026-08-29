@@ -124,6 +124,14 @@ type IntentClassifier struct {
 	// memo caches Classify results. nil on the shared classifier; non-nil
 	// only on the short-lived per-evaluation copies handed out by Memo.
 	memo map[string]CommandFacts
+
+	// wrapperFuncs / wrapperFuncsSet cache shellparse.SelfMgmtWrapperFunctionNames
+	// for the current evaluation (#3314) — same Memo-scoped lifetime and
+	// rationale as memo above. wrapperFuncsSet distinguishes "not computed
+	// yet" from "computed, found none" so a nil result isn't recomputed on
+	// every rule that requests the is_self_mgmt label.
+	wrapperFuncs    map[string]bool
+	wrapperFuncsSet bool
 }
 
 // Memo returns a copy of c that caches Classify results.
@@ -146,6 +154,32 @@ func (c *IntentClassifier) Memo() *IntentClassifier {
 	cp := *c
 	cp.memo = make(map[string]CommandFacts, 8)
 	return &cp
+}
+
+// selfMgmtWrapperFuncs lazily computes and caches
+// shellparse.SelfMgmtWrapperFunctionNames(command) — see #3314.
+//
+// Gated on c.memo != nil, the same signal Classify uses to decide whether it
+// is safe to cache at all: memo is only non-nil on a Memo()-scoped copy,
+// where every call within the copy's lifetime passes the same command (one
+// evaluation). On the shared, un-Memo'd classifier (memo == nil) — reachable
+// from concurrent evaluations, and reused across DIFFERENT commands by
+// callers like the *IntentClassifier-sharing test loops in this package —
+// caching by this same rule would go stale the moment a second command
+// reused the instance, since unlike memo (keyed by statement text) this
+// result has no command-keyed cache, just one slot. Recomputing on every
+// call is the safe fallback for that case, exactly mirroring what happens to
+// Classify when memo is nil.
+func (c *IntentClassifier) selfMgmtWrapperFuncs(command string) map[string]bool {
+	if c.memo == nil {
+		return shellparse.SelfMgmtWrapperFunctionNames(command)
+	}
+	if c.wrapperFuncsSet {
+		return c.wrapperFuncs
+	}
+	c.wrapperFuncs = shellparse.SelfMgmtWrapperFunctionNames(command)
+	c.wrapperFuncsSet = true
+	return c.wrapperFuncs
 }
 
 // docTextAlternations are the per-shape regexes that together define the
@@ -228,12 +262,14 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 // Name implements Analyzer.
 func (c *IntentClassifier) Name() string { return "intent-classifier" }
 
-// Analyze populates ctx.CommandFacts and ctx.RawStatements, and returns no
-// findings.
+// Analyze populates ctx.CommandFacts, ctx.RawStatements and
+// ctx.RawStatementsParsed, and returns no findings.
 func (c *IntentClassifier) Analyze(ctx *AnalysisContext) []Finding {
 	ctx.CommandFacts = c.Classify(ctx.RawCommand)
+	topLevel, parsed := shellparse.SplitTopLevelStatementsChecked(ctx.RawCommand)
+	ctx.RawStatementsParsed = parsed
 	ctx.RawStatements = append(
-		shellparse.SplitTopLevelStatements(ctx.RawCommand),
+		topLevel,
 		carrierResolvedStatements(ctx.RawCommand)...,
 	)
 	return nil
@@ -321,13 +357,14 @@ func carrierResolvedStatements(command string) []string {
 // The trailing `git commit -m` makes the WHOLE command read as doc-text,
 // silently suppressing the credential-read BLOCK on the first statement.
 //
-// statements must be shellparse.SplitTopLevelStatements(command) (typically
-// ctx.RawStatements, computed once by Analyze and reused across rules).
-// matchesStatement reports whether the rule's own predicate (regex/exact/
-// prefix, plus any command_regex_exclude) fires against a single statement's
-// text in isolation — the caller supplies this since RegexRule's match shape
-// lives in this package but the fallback engine's Rule shape lives in
-// internal/policy.
+// statements and parsed must come from
+// shellparse.SplitTopLevelStatementsChecked(command) (typically
+// ctx.RawStatements / ctx.RawStatementsParsed, computed once by Analyze and
+// reused across rules). matchesStatement reports whether the rule's own
+// predicate (regex/exact/prefix, plus any command_regex_exclude) fires
+// against a single statement's text in isolation — the caller supplies this
+// since RegexRule's match shape lives in this package but the fallback
+// engine's Rule shape lives in internal/policy.
 //
 // Only statements the rule itself would match need to satisfy the exclude
 // label — an innocuous statement chained before/after a legitimately-excused
@@ -348,12 +385,69 @@ func carrierResolvedStatements(command string) []string {
 // per-statement case, reopened by construction for the spanning case. We
 // cannot attribute the match to a single statement, so — matching this
 // function's fail-safe posture everywhere else — we do not exclude.
-func IntentExcludedForStatements(classifier *IntentClassifier, command string, statements []string, exclude []string, matchesStatement func(string) bool) bool {
+//
+// parsed=false means statements is the SplitTopLevelStatementsChecked
+// single-element parse-failure fallback, not a genuine one-statement command
+// — byte-for-byte the same shape, but with no guarantee the text is even
+// syntactically valid shell (#3467: a lossy textual mutation can glue two
+// real statements into one unparseable blob, e.g. a dropped newline
+// terminator). Trusting labelMatches(command) there would classify an
+// attacker-controlled, possibly-multi-statement blob as if it were one
+// statement — the same whole-command-HasAny() bypass this function exists to
+// close, just reached through the parse-failure door instead of a genuine
+// compound command. Fail closed instead, matching the spanning-match posture
+// above.
+func IntentExcludedForStatements(classifier *IntentClassifier, command string, statements []string, parsed bool, exclude []string, matchesStatement func(string) bool) bool {
 	if len(exclude) == 0 {
 		return false
 	}
+
+	// #3314: a credential-shaped literal handed to a locally-defined shell
+	// function that does nothing but relay it into `agentshield mcp-eval` is
+	// exactly as inert as passing it to mcp-eval directly — the marker just
+	// lives in a SIBLING statement (the function's own definition), which
+	// SplitTopLevelStatements produces as its own top-level statement
+	// (#3045) rather than merging into the call site. wrapperFuncs is nil
+	// unless the rule actually requests is_self_mgmt, so this costs an AST
+	// parse only on that path — see selfMgmtWrapperFuncs.
+	var wrapperFuncs map[string]bool
+	for _, label := range exclude {
+		if label == LabelIsSelfMgmt {
+			wrapperFuncs = classifier.selfMgmtWrapperFuncs(command)
+			break
+		}
+	}
+	labelMatches := func(stmt string) bool {
+		facts := classifier.Classify(stmt)
+		for _, label := range exclude {
+			if label == LabelIsSelfMgmt {
+				// #3548: is_self_mgmt's fact is "an agentshield mcp-eval/
+				// scan/... invocation appears in this text" — true
+				// regardless of which flag a sensitive-looking literal
+				// reaches. --mcp-policy is the one mcp-eval flag that loads
+				// a real file (unlike --arg/--json, which only ever
+				// string-match), so a DYNAMIC --mcp-policy value (e.g. a
+				// for-loop binding) must not be excused by that fact alone
+				// — a static --mcp-policy literal is unaffected, since it's
+				// caught independently by the structural protected-path
+				// check.
+				if facts.IsSelfMgmt && !shellparse.MCPEvalDynamicPolicyFlag(stmt) {
+					return true
+				}
+				continue
+			}
+			if facts.HasAny([]string{label}) {
+				return true
+			}
+		}
+		return wrapperFuncs != nil && wrapperFuncs[shellparse.StatementLeadingCommandName(stmt)]
+	}
+
 	if len(statements) <= 1 {
-		return classifier.Classify(command).HasAny(exclude)
+		if !parsed {
+			return false
+		}
+		return labelMatches(command)
 	}
 
 	matchedAny := false
@@ -362,7 +456,7 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 			continue
 		}
 		matchedAny = true
-		if !classifier.Classify(stmt).HasAny(exclude) {
+		if !labelMatches(stmt) {
 			return false
 		}
 	}

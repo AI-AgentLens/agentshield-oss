@@ -83,7 +83,7 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 		if text == "" {
 			continue
 		}
-		lower := strings.ToLower(text)
+		forms := newProseForms(text)
 		snip := text
 		if len(snip) > 80 {
 			snip = snip[:80] + "..."
@@ -92,10 +92,10 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 		// Check for instruction override / prompt injection patterns
 		// (reuses the same pattern sets as description_scanner.go)
 		for _, p := range hiddenInstructionPatterns {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				result.Findings = append(result.Findings, SamplingFinding{
 					Signal:   SignalSamplingInjection,
-					Detail:   p.description,
+					Detail:   p.description + note,
 					Role:     msg.Role,
 					TextSnip: snip,
 				})
@@ -105,10 +105,10 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 
 		// Check for behavioral manipulation / jailbreak patterns
 		for _, p := range behavioralManipulationPatterns {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				result.Findings = append(result.Findings, SamplingFinding{
 					Signal:   SignalSamplingInjection,
-					Detail:   p.description,
+					Detail:   p.description + note,
 					Role:     msg.Role,
 					TextSnip: snip,
 				})
@@ -118,10 +118,10 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 
 		// Check for credential harvesting patterns
 		for _, p := range credentialHarvestPatterns {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				result.Findings = append(result.Findings, SamplingFinding{
 					Signal:   SignalSamplingCredential,
-					Detail:   p.description,
+					Detail:   p.description + note,
 					Role:     msg.Role,
 					TextSnip: snip,
 				})
@@ -131,10 +131,10 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 
 		// Check for exfiltration instruction patterns
 		for _, p := range exfiltrationPatterns {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				result.Findings = append(result.Findings, SamplingFinding{
 					Signal:   SignalSamplingExfil,
-					Detail:   p.description,
+					Detail:   p.description + note,
 					Role:     msg.Role,
 					TextSnip: snip,
 				})
@@ -148,7 +148,7 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 
 	// Also scan the systemPrompt field if present
 	if params.SystemPrompt != "" {
-		lower := strings.ToLower(params.SystemPrompt)
+		forms := newProseForms(params.SystemPrompt)
 		snip := params.SystemPrompt
 		if len(snip) > 80 {
 			snip = snip[:80] + "..."
@@ -156,10 +156,10 @@ func ScanSamplingMessages(params *SamplingCreateMessageParams) SamplingScanResul
 
 		for _, patterns := range [][]signalPattern{hiddenInstructionPatterns, behavioralManipulationPatterns} {
 			for _, p := range patterns {
-				if p.re.MatchString(lower) {
+				if note, ok := proseMatchNote(p.re, forms); ok {
 					result.Findings = append(result.Findings, SamplingFinding{
 						Signal:   SignalSamplingInjection,
-						Detail:   "systemPrompt: " + p.description,
+						Detail:   "systemPrompt: " + p.description + note,
 						Role:     "system",
 						TextSnip: snip,
 					})

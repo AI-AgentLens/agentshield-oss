@@ -152,7 +152,7 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 	// this field to inject session-scoped override directives, credential-harvest
 	// instructions, or exfiltration commands without requiring any tool call.
 	if result.Instructions != "" {
-		lower := strings.ToLower(result.Instructions)
+		forms := newProseForms(result.Instructions)
 
 		// BLOCK-level signals: hidden instructions, credential harvest, exfiltration,
 		// cross-tool override, stealth/concealment directives.
@@ -168,10 +168,10 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 		}
 		for _, g := range blockGroups {
 			for _, p := range g.patterns {
-				if p.re.FindStringIndex(lower) != nil {
+				if note, ok := proseMatchNote(p.re, forms); ok {
 					return HandshakeScanResult{
 						Decision: "BLOCK",
-						Reason:   fmt.Sprintf("initialize instructions contain %s — session-scoped behavioral override injected at handshake time: %q", g.label, truncateInstruction(result.Instructions, 120)),
+						Reason:   fmt.Sprintf("initialize instructions contain %s%s — session-scoped behavioral override injected at handshake time: %q", g.label, note, truncateInstruction(result.Instructions, 120)),
 						Rule:     "mcp-initialize-instructions-injection",
 					}
 				}
@@ -202,10 +202,10 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 
 		// AUDIT-level signals: behavioral manipulation patterns (lower confidence).
 		for _, p := range behavioralManipulationPatterns {
-			if p.re.FindStringIndex(lower) != nil {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				return HandshakeScanResult{
 					Decision: "AUDIT",
-					Reason:   fmt.Sprintf("initialize instructions contain behavioral manipulation pattern — review server instructions before trusting: %q", truncateInstruction(result.Instructions, 120)),
+					Reason:   fmt.Sprintf("initialize instructions contain behavioral manipulation pattern%s — review server instructions before trusting: %q", note, truncateInstruction(result.Instructions, 120)),
 					Rule:     "mcp-initialize-instructions-injection-audit",
 				}
 			}

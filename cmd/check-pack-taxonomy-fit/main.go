@@ -117,6 +117,28 @@
 // (testdata-baseline.txt), separate bootstrap:
 //
 //	go run ./cmd/check-pack-taxonomy-fit -testdata -taxonomy <dir> -write-baseline
+//
+// -per-rule mode (#3396) — calibration only, never wired into CI
+// -----------------------------------------------------------
+// The default aggregation unit is the pack FILE: a file "fits" if any rule in
+// it fits, so a misfitting rule is silently rescued by its file's majority.
+// #3396 re-scored the same heuristic per RULE against a real corpus and found
+// ~186 rules sharing zero distinctive terms with their own node while sharing
+// >= alt-min-overlap with some other node — a blind spot invisible to the
+// per-file baseline, which reports "0 baselined, 0 new, 0 stale" regardless.
+//
+// `-per-rule` re-groups referents by (pack file, rule ID) instead of by pack
+// file alone, reusing every scoring function unchanged — only loadRefs's
+// grouping key differs. Hand-verification in #3396 measured ~5/9 precision at
+// this granularity (real mis-attachments mixed with vocabulary false
+// positives from nodes whose prose just doesn't enumerate every synonym), well
+// below what a 3,450-rule baseline file could carry without becoming a
+// dumping ground. So this mode is structurally incapable of gating CI: it
+// forces calibration output (-dump/-explain/-dump-terms) and refuses
+// -write-baseline outright. It exists so the blind spot is inspectable, not
+// so it can be silently promoted to enforcement by someone flipping one flag.
+//
+//	go run ./cmd/check-pack-taxonomy-fit -per-rule -taxonomy <dir> -dump
 package main
 
 import (
@@ -242,6 +264,7 @@ func main() {
 	taxDir := flag.String("taxonomy", "", "Directory containing the AI_risk_compliance taxonomy YAML tree (required)")
 	packsDir := flag.String("packs", "packs", "Directory containing AgentShield policy packs")
 	testdataMode := flag.Bool("testdata", false, "Score internal/analyzer/testdata TestCase.TaxonomyRef instead of pack rules (#3336)")
+	perRule := flag.Bool("per-rule", false, "Calibration: score per RULE instead of per pack FILE (#3396). ~5/9 precision at this granularity — forces -dump/-explain/-dump-terms output, never wired into CI")
 	baselinePath := flag.String("baseline", "", "Baseline file of known, tracked flags (default depends on -testdata)")
 	minRefs := flag.Int("min-refs", defaultMinRefs, "Minimum referring pack files before a node is eligible")
 	misfitFrac := flag.Float64("misfit-frac", defaultMisfitFrac, "Flag when this fraction of referents share zero distinctive terms")
@@ -271,7 +294,21 @@ func main() {
 		}
 	}
 
-	an, err := analyze(*taxDir, *packsDir, *genericDF, *ruleGenericDF, *altMinOverlap, *testdataMode)
+	if *perRule {
+		if *writeBaseline {
+			fmt.Fprintln(os.Stderr, "FAIL: -per-rule is calibration-only (#3396) — -write-baseline is not supported with it")
+			os.Exit(2)
+		}
+		// No baseline can carry this granularity's ~5/9 precision without
+		// becoming a dumping ground (see package doc). Default to -dump so the
+		// mode can never fall through to the exit-1/exit-0 enforcement path
+		// below on a corpus it was never meant to gate.
+		if !*dump && *explain == "" && *dumpTerms == 0 {
+			*dump = true
+		}
+	}
+
+	an, err := analyze(*taxDir, *packsDir, *genericDF, *ruleGenericDF, *altMinOverlap, *testdataMode, *perRule)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FAIL: %v\n", err)
 		os.Exit(2)
@@ -373,7 +410,7 @@ type analysis struct {
 	Scored           []finding
 }
 
-func analyze(taxDir, packsDir string, genericDF, ruleGenericDF float64, altMinOverlap int, useTestdata bool) (*analysis, error) {
+func analyze(taxDir, packsDir string, genericDF, ruleGenericDF float64, altMinOverlap int, useTestdata, perRule bool) (*analysis, error) {
 	nodes, err := loadNodes(taxDir)
 	if err != nil {
 		return nil, fmt.Errorf("loading taxonomy: %w", err)
@@ -386,7 +423,7 @@ func analyze(taxDir, packsDir string, genericDF, ruleGenericDF float64, altMinOv
 		source = "internal/analyzer/testdata"
 		refs, nRules, err = loadTestdataRefs()
 	} else {
-		refs, nRules, err = loadRefs(packsDir)
+		refs, nRules, err = loadRefs(packsDir, perRule)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", source, err)
@@ -820,7 +857,13 @@ func harvestMatch(v any, out *[]string) {
 // loadRefs walks the pack tree and returns, per taxonomy id, the pack files
 // referencing it. Files whose basename starts with "_" are disabled legacy
 // packs and are skipped, matching the loader's own behaviour.
-func loadRefs(dir string) (map[string][]referent, int, error) {
+//
+// When perRule is true (#3396, calibration only — see package doc), each
+// referent groups exactly one rule instead of every rule in its file, so the
+// existing per-referent scoring (majority-zero, best-match) degenerates to
+// scoring that one rule alone. The group key stays (file, rule ID) rather
+// than rule ID alone so two files that happen to reuse an ID never collide.
+func loadRefs(dir string, perRule bool) (map[string][]referent, int, error) {
 	byNodeFile := map[string]map[string]*referent{}
 	nRules := 0
 
@@ -890,13 +933,19 @@ func loadRefs(dir string) (map[string][]referent, int, error) {
 					uniq = append(uniq, t)
 				}
 
+				groupKey, label := base, base
+				if perRule {
+					groupKey = base + "::" + id
+					label = base + " :: " + id
+				}
+
 				if byNodeFile[tax] == nil {
 					byNodeFile[tax] = map[string]*referent{}
 				}
-				r := byNodeFile[tax][base]
+				r := byNodeFile[tax][groupKey]
 				if r == nil {
-					r = &referent{File: base}
-					byNodeFile[tax][base] = r
+					r = &referent{File: label}
+					byNodeFile[tax][groupKey] = r
 				}
 				r.Rules = append(r.Rules, packRule{ID: id, Terms: uniq})
 			}

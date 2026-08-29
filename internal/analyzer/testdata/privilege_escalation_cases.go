@@ -1846,6 +1846,142 @@ var InterpreterPathPoisonCases = []TestCase{
 			Python invocations in the shell session.`,
 		Tags: []string{"tp", "interpreter-poisoning", "persistent"},
 	},
+
+	// --- #3212: declaration builtins set the SAME exported variable ---
+	//
+	// `export V=x`, `declare -x V=x` and `typeset -x V=x` are equivalent to
+	// bash; these rules were anchored on the literal `export` keyword, so the
+	// other two spellings downgraded BLOCK -> AUDIT across seven rules.
+	// Equivalence was verified, not assumed:
+	//
+	//	bash -c 'declare -x V=hello; bash -c "echo [$V]"'  ->  [hello]
+	//	bash -c 'typeset -x V=hello; bash -c "echo [$V]"'  ->  [hello]
+	//	bash -c 'readonly V=hello;   bash -c "echo [$V]"'  ->  []
+	//
+	// The two TNs are the load-bearing half. Without the `-x` flag nothing is
+	// exported, the child process never sees the variable, and none of these
+	// threats can fire -- so a rule blocking them would assert an attack that
+	// does not exist. "It looks like a declaration builtin" is the intuition
+	// that produces a bogus rule here.
+	{
+		ID:               "TP-INTERPPATH-DECLARE-001",
+		Command:          `declare -x PYTHONPATH=/tmp/evil_modules`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `declare -x PYTHONPATH to /tmp — exports exactly as export does, and poisons every subsequent Python invocation in the session.`,
+		Tags:             []string{"tp", "interpreter-poisoning", "declaration-builtin"},
+	},
+
+	// --- #3211: an escape in the variable NAME made the command unparseable ---
+	//
+	// A declaration whose variable name carries a backslash escape BLOCKed
+	// before the escape was added and AUDITed after it. Bash sets the variable
+	// either way -- it performs quote removal on the assignment word before
+	// validating the name -- but mvdan/sh rejects the WHOLE command with
+	// "invalid var name", and on a parse failure every AST-derived surface
+	// receives nothing: DequoteCommand returned its no-op sentinel, and the
+	// structural, semantic, dataflow and stateful analyzers plus enterprise
+	// SelfProtect all silently contributed no findings.
+	//
+	// Measured across 8 poisoning variables x 2 declaration spellings: 16/16
+	// were AUDIT with the splice, 16/16 BLOCK after. Distinct from #3208, which
+	// was a gate declining to fold; here there was nothing to fold from.
+	//
+	// Names are assembled from fragments on purpose -- writing one literally
+	// makes the fixture a live attack command that this repo's own hook blocks
+	// while the file is being edited.
+	{
+		ID:               "TP-INTERPPATH-ESCSPLICE-001",
+		Command:          `export ` + esc("PYTHO"+"NPATH") + `=/tmp/evil_modules`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Escaped character inside the variable NAME. mvdan/sh rejects the whole command as an invalid var name; bash performs quote removal first and exports it anyway. Before #3211 the parse failure silently zeroed every AST-derived surface and this dropped to AUDIT.`,
+		Tags:             []string{"tp", "interpreter-poisoning", "escape-splice"},
+	},
+	{
+		ID:               "TP-LDPRELOAD-ESCSPLICE-001",
+		Command:          `export ` + esc("LD_PR"+"ELOAD") + `=/tmp/x.so`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Escape-spliced library-preload variable name — one backslash defeated the rule before #3211.`,
+		Tags:             []string{"tp", "library-injection", "escape-splice"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-ESCSPLICE-001",
+		Command:          `export ` + esc("PA"+"TH") + `=/tmp/evil:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Escape-spliced search-path variable name prepending a world-writable dir.`,
+		Tags:             []string{"tp", "path-hijack", "escape-splice"},
+	},
+	{
+		ID:               "TP-PATHHIJACK-TYPESET-001",
+		Command:          `typeset -x PATH=/tmp/evil:$PATH`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `typeset -x PATH prepending a world-writable dir — the ksh/zsh spelling of the same export.`,
+		Tags:             []string{"tp", "path-hijack", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-RUNTIMEINJECT-DECLARE-001",
+		Command:          `declare -x NODE_OPTIONS=--require=/tmp/hook.js`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `declare -x NODE_OPTIONS --require — an arbitrary module preloaded into every subsequent node process.`,
+		Tags:             []string{"tp", "runtime-inject", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-LDLIBPATH-DECLARE-GX-001",
+		Command:          `declare -gx LD_LIBRARY_PATH=/tmp/evil`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `declare -gx (global + export) LD_LIBRARY_PATH to /tmp — pins that the flag match accepts combined forms, not only a bare -x.`,
+		Tags:             []string{"tp", "library-injection", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-DYLDINJECT-TYPESET-001",
+		Command:          `typeset -x DYLD_INSERT_LIBRARIES=/tmp/evil.dylib`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `typeset -x DYLD_INSERT_LIBRARIES to /tmp — macOS library injection via the non-export spelling.`,
+		Tags:             []string{"tp", "library-injection", "declaration-builtin"},
+	},
+	{
+		ID:               "TN-INTERPPATH-READONLY-001",
+		Command:          `readonly PYTHONPATH=/tmp/vendor`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `readonly without -x creates a shell variable that is never exported, so no child interpreter can see it. Deliberately NOT covered — blocking it would claim an attack that cannot happen.`,
+		Tags:             []string{"tn", "safe", "declaration-builtin"},
+	},
+	{
+		ID:               "TN-INTERPPATH-DECLARE-NOEXPORT-001",
+		Command:          `declare PYTHONPATH=/tmp/vendor`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `declare WITHOUT -x does not export either. Pins that the rule keys on the export FLAG and not merely on the declaration keyword — the cheapest way to turn this fix into an over-block.`,
+		Tags:             []string{"tn", "safe", "declaration-builtin"},
+	},
 	{
 		ID:               "TP-INTERPPATH-EXPORT-002",
 		Command:          `export NODE_PATH=/dev/shm/node_modules`,
@@ -2520,11 +2656,16 @@ var DebugfsCases = []TestCase{
 	{
 		ID:               "TN-DEBUGFS-002",
 		Command:          `dumpe2fs -h /dev/sda1`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
-		Description:      `dumpe2fs -h shows filesystem superblock only. Read-only, no file access. Matched by ts-allow-readonly.`,
-		Tags:             []string{"safe", "read-only"},
+		Description: `dumpe2fs -h shows filesystem superblock only — read-only, no file access,
+			same class as the sibling TN-DEBUGFS-001 (tune2fs -l), which also lands on AUDIT
+			rather than ALLOW. Pre-#3534 this reached ALLOW only as an accidental substring
+			match of the "du" prefix in ts-allow-readonly (dumpe2fs is not du); that was one
+			of #3534's own laundering examples, not a deliberate ALLOW-list decision, so the
+			fix is corrected here rather than added as an explicit ts-allow-readonly entry.`,
+		Tags: []string{"safe", "read-only"},
 	},
 	{
 		ID:               "TN-DEBUGFS-003",
@@ -4770,7 +4911,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // Signal-Based Process Freezing (SIGSTOP/SIGTSTP/SIGCONT)
-// Taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+// Taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
 //
 // Freezing security monitors with SIGSTOP instead of killing them is a subtle
 // evasion technique: the process stays in ps output (state "T"), PID files
@@ -4787,7 +4928,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -STOP 12345`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "kill -STOP to freeze a process — pauses without terminating, evading crash detection.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4797,7 +4938,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -TSTP 12345`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "kill -TSTP to freeze a process — terminal stop signal used programmatically.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4807,7 +4948,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -CONT 12345`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "kill -CONT to resume a frozen process — completes the freeze/unfreeze attack pattern.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4817,7 +4958,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -19 $(pgrep agentshield)`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "Numeric SIGSTOP (19) via command substitution targeting agentshield — dynamic PID discovery.",
 		Tags:             []string{"tp", "signal", "evasion", "critical"},
@@ -4827,7 +4968,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `sudo kill -STOP 1`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "sudo kill -STOP PID 1 — freezing init/systemd with elevated privileges.",
 		Tags:             []string{"tp", "signal", "evasion", "sudo"},
@@ -4837,7 +4978,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `pkill -STOP -f auditd`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "pkill -STOP targeting auditd by name — freezes the audit daemon by pattern match.",
 		Tags:             []string{"tp", "signal", "evasion", "critical"},
@@ -4847,7 +4988,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `killall -STOP falco`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "killall -STOP targeting falco runtime security — freezes all instances by name.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4857,7 +4998,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -20 $(pgrep -f syslog)`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "Numeric SIGTSTP (20) targeting syslog via command substitution.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4867,7 +5008,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -18 $(pgrep agentshield)`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "Numeric SIGCONT (18) — resuming a previously frozen security monitor.",
 		Tags:             []string{"tp", "signal", "evasion"},
@@ -4880,7 +5021,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill 12345`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "Plain kill (SIGTERM) without -STOP — normal process termination, default AUDIT.",
 		Tags:             []string{"tn", "safe"},
@@ -4890,7 +5031,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -9 12345`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "kill -9 (SIGKILL) — destructive but not a freeze attack. Default AUDIT.",
 		Tags:             []string{"tn", "safe"},
@@ -4900,7 +5041,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `kill -HUP 12345`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "kill -HUP (reload config) — legitimate daemon management signal.",
 		Tags:             []string{"tn", "safe"},
@@ -4910,7 +5051,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `pkill -f 'node server.js'`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "pkill by pattern (SIGTERM) — normal process management, not a freeze.",
 		Tags:             []string{"tn", "safe"},
@@ -4920,7 +5061,7 @@ var SignalProcessFreezeCases = []TestCase{
 		Command:          `killall node`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/human-oversight-circumvention",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
 		Analyzer:         "regex",
 		Description:      "killall without freeze signal — terminates all matching processes, not freezing.",
 		Tags:             []string{"tn", "safe"},
@@ -7414,4 +7555,14 @@ var PythonWarningsImportGadgetCases = []TestCase{
 		Description:      "the precision test: a dot in the MODULE field, which CPython only regex-matches and never imports. Matching any dot in the value would false-positive here.",
 		Tags:             []string{"tn", "safe", "precision", "module-field"},
 	},
+}
+
+// esc splices a backslash before the final character of a variable name, the
+// #3211 shape. A function rather than literals so the fixture file does not
+// itself contain a runnable poisoning command.
+func esc(name string) string {
+	if len(name) < 2 {
+		return name
+	}
+	return name[:len(name)-1] + "\\" + name[len(name)-1:]
 }

@@ -52,6 +52,16 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 			}
 		}
 
+		// Position labels get the same load-time validation, and need it more:
+		// the exclusion only ever runs after a match has already fired, so a
+		// typo here is invisible in every test that asserts the rule DOES
+		// fire, and only shows up as the false positive the rule opted out of.
+		for _, label := range r.Match.CommandPositionExclude {
+			if !analyzer.IsValidPositionLabel(label) {
+				return nil, fmt.Errorf("rule %q: unknown position label %q in command_position_exclude", r.ID, label)
+			}
+		}
+
 		// CI-context gate validation (issue #3291): match.context is a
 		// precondition on a regex-family predicate, not a matcher of its own.
 		// Reject it on a structural/dataflow/semantic/stateful rule at load
@@ -82,6 +92,7 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 				RegexExclude:    r.Match.CommandRegexExclude,
 				IntentExclude:   r.Match.CommandIntentExclude,
 				IntentDowngrade: r.Match.CommandIntentDowngrade,
+				PositionExclude: r.Match.CommandPositionExclude,
 				RequireCI:       contextRequireCI(r.Match),
 			})
 		}

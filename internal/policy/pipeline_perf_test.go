@@ -8,9 +8,29 @@
 //
 // Two surfaces:
 //
-//   - TestPipelinePerfBudget enforces a P95 latency ceiling. CI fails if
-//     a PR adds rules or pipeline logic that pushes evaluation past the
-//     budget. Pin the regression at PR time, not at customer time.
+//   - TestPipelinePerfBudget enforces a P95 latency ceiling.
+//
+//     QUARANTINED from the PR/main path as of 2026-08-28 (#3505). It runs
+//     only when SHIELD_PERF_BUDGET is set — which the nightly
+//     .github/workflows/perf-budget.yml does, on the self-hosted runner at a
+//     time nothing else is scheduled.
+//
+//     Why: across #2268, #2763, #3261, #3404 and #3505 this assertion
+//     produced five tracked red `main` runs and zero true positives. Every
+//     one was traced to co-tenancy — two runner homes share one 4-core VM,
+//     and an identical commit measured 48.2s busy vs 32.9s quiet. The
+//     5-round re-measure added by #2268/#2763 rejects TRANSIENT spikes;
+//     sustained co-tenant load breaches all five rounds and the guard then
+//     reported it as definitely a regression. That is worse than a plain
+//     flake: it trains everyone to skim past this signal, so the first real
+//     regression arrives into a culture that has learned to ignore it.
+//
+//     The measurement is worth keeping; blocking merges on it is not. This is
+//     a deliberate coverage reduction (Gary, 2026-08-28): a nightly red is
+//     triaged, it does not stop delivery. Run it locally with
+//     `make test-perf`, and expect a quiet machine — the local co-tenancy
+//     rule ("never run Shield `make check` and Comply `make test-all`
+//     concurrently") is the same defect wearing a different hat.
 //
 //   - BenchmarkPipelinePerCommand reports per-case timings for use with
 //     `go test -bench=BenchmarkPipelinePerCommand` + benchstat to compare
@@ -50,6 +70,7 @@
 package policy
 
 import (
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -182,13 +203,35 @@ var pipelinePerfCorpus = []struct {
 //
 // Fixed at the algorithm rather than the threshold (internal/regexlit
 // required-literal prescan + IntentClassifier.Memo), which bought 6-13x on
-// this corpus. The budgets below are deliberately LEFT ALONE in that
-// change: they are calibrated against CI, the fix was measured locally,
+// this corpus. The budgets below were deliberately LEFT ALONE in that
+// change: they were calibrated against CI, the fix was measured locally,
 // and re-pinning them to a local number would swap a phantom failure for a
 // phantom pass. Recalibrate from green CI runs, in its own commit.
+//
+// 2026-08-15 (#3266) — that recalibration. Post-#3264 the 15ms/250ms
+// budgets sat at ~10-20x actual cost: not a safety margin but a disabled
+// fitness function, since only an order-of-magnitude regression could trip
+// it. Re-pinned from 5 green CI runs (self-hosted runner — same
+// environment as the 2026-05-03 baseline), collected via a temporary -v
+// CI step since t.Logf only surfaces on failure or under -v and the normal
+// CI invocation runs neither (measured in CI per this file's own rule —
+// never re-pin from a local number):
+//
+//	typical P95:     1.372527ms, 1.692086ms, 1.186647ms, 1.642965ms, 1.124137ms
+//	                  (mean 1.404ms, max 1.692ms)
+//	adversarial P95:  30.274745ms, 27.772113ms, 26.925301ms, 26.036285ms, 25.265838ms
+//	                  (mean 27.255ms, max 30.275ms)
+//
+// Budgets re-pinned at ~2x the mean observed CI P95 per tier, matching the
+// 2026-05-03 method (mean chosen over max as the "single observed
+// baseline" the 2x margin is meant to sit on top of — using max would
+// stack noise-absorption on noise-absorption):
+//
+//	typical:     3 ms  (~2.1x mean, ~1.8x the highest of the 5 runs)
+//	adversarial: 55 ms (~2.0x mean, ~1.8x the highest of the 5 runs)
 const (
-	pipelinePerfBudgetTypicalP95     = 15 * time.Millisecond
-	pipelinePerfBudgetAdversarialP95 = 250 * time.Millisecond
+	pipelinePerfBudgetTypicalP95     = 3 * time.Millisecond
+	pipelinePerfBudgetAdversarialP95 = 55 * time.Millisecond
 )
 
 // pipelinePerfSamplesPerCase is the per-case sample count. Larger values
@@ -300,9 +343,16 @@ func measurePipelineRound(eng *Engine) map[perfTier]tierP95 {
 // hosted-CI load spikes — without loosening the budget (which would dull
 // its sensitivity to real regressions). A real regression raises the
 // floor, so even the best round breaches and the test still fails loud.
+// perfBudgetEnv opts a run in to the latency budget assertion. See the
+// quarantine note in the file header (#3505).
+const perfBudgetEnv = "SHIELD_PERF_BUDGET"
+
 func TestPipelinePerfBudget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("perf fitness skipped in -short mode")
+	}
+	if os.Getenv(perfBudgetEnv) == "" {
+		t.Skipf("perf budget assertion is quarantined to the nightly job (#3505); set %s=1 to run it here", perfBudgetEnv)
 	}
 
 	eng := loadEmbeddedEngineForPerf(t)
@@ -334,7 +384,7 @@ func TestPipelinePerfBudget(t *testing.T) {
 
 	// A tier breached. Re-measure and decide on the best (min) P95 to reject
 	// sustained CI load spikes (#2268, #2763).
-	t.Logf("budget breached on first round — re-measuring (%d rounds total) to reject CI load (see #2268, #2763)",
+	t.Logf("budget breached on first round — re-measuring (%d rounds total) to reject TRANSIENT load spikes (see #2268, #2763)",
 		pipelinePerfRobustRounds)
 
 	p95sByTier := map[perfTier][]time.Duration{}
@@ -360,9 +410,11 @@ func TestPipelinePerfBudget(t *testing.T) {
 			r := lastRound[tier]
 			t.Errorf(
 				"%s best (min) P95 %v across %d rounds exceeds budget %v (slowest case %q at %v) — "+
-					"every round breached, so this is a real regression, not CI load; "+
-					"investigate recent rule additions / pipeline changes; "+
-					"run BenchmarkPipelinePerCommand for per-case breakdown",
+					"either a real regression or sustained load on this host; the re-measure "+
+					"rejects TRANSIENT spikes only and cannot tell the two apart (#3505). "+
+					"Check for concurrent jobs on the runner, then investigate recent rule "+
+					"additions / pipeline changes; run BenchmarkPipelinePerCommand for a "+
+					"per-case breakdown",
 				labels[tier], best, len(samples), budget, r.slowestName, r.slowestDur,
 			)
 		} else {

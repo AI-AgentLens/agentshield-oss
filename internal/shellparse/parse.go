@@ -1624,18 +1624,36 @@ func fallbackParse(command string) *ParsedCommand {
 // the shell syntax can't be parsed — callers degrade to "treat it as one
 // statement", matching pre-existing whole-command behavior exactly.
 func SplitTopLevelStatements(command string) []string {
+	stmts, _ := SplitTopLevelStatementsChecked(command)
+	return stmts
+}
+
+// SplitTopLevelStatementsChecked is SplitTopLevelStatements, plus a second
+// return value reporting whether command actually parsed as shell syntax.
+//
+// A parse failure's fallback is a single-element slice holding the whole
+// original command — which is byte-for-byte indistinguishable from what a
+// genuine one-statement command produces. A caller that treats "exactly one
+// statement" as license to classify the whole text (IntentExcludedForStatements's
+// len(statements) <= 1 branch) cannot tell those two cases apart from the
+// slice alone, and trusting the fallback lets a parser-breaking mutation
+// glue an unrelated marker onto a real access and launder it (#3467: a
+// newline-joined `f() { real-access; }` + `f arg` collapsed by a lossy
+// textual mutation into one opaque, syntactically-invalid blob). Callers
+// that need to fail closed on parse failure use this instead.
+func SplitTopLevelStatementsChecked(command string) (stmts []string, parsed bool) {
 	reader := strings.NewReader(command)
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	file, err := parser.Parse(reader, "")
 	if err != nil {
-		return []string{command}
+		return []string{command}, false
 	}
 
 	var leaves []*syntax.Stmt
 	for _, stmt := range file.Stmts {
 		collectStmts(stmt, &leaves, true)
 	}
-	return stmtsToSource(command, leaves)
+	return stmtsToSource(command, leaves), true
 }
 
 // stmtsToSource maps each collected statement back to its literal source text.
@@ -1951,28 +1969,60 @@ var ExecWrappers = map[string]bool{
 	// macOS: `caffeinate -i CMD` and `arch -x86_64 CMD` are the local
 	// equivalents of nohup/setsid and are just as transparent.
 	"caffeinate": true, "arch": true,
+	// #3227. Every wrapper missing from this table leaked the SAME ~22% of the
+	// BLOCKing corpus (against a 1.1% floor for wrappers already listed), so
+	// membership — not per-wrapper rule coverage — is what decides whether a
+	// command reaches a layer that can classify it. Two shapes were missing:
+	//
+	// Bare multiplexers and privilege/confinement switchers, which the
+	// flag-only operand model already described correctly and which were simply
+	// never listed. busybox and toybox matter most: in an Alpine or embedded
+	// container `rm`, `wget` and `sh` ARE busybox applets, so `busybox rm -rf /`
+	// is not evasion, it is how that image spells the command.
+	"busybox": true, "toybox": true,
+	"pkexec": true, "setpriv": true, "aa-exec": true,
+	"valgrind": true, "linux32": true, "linux64": true,
+	// Wrappers with a bare positional operand before the command. These needed
+	// wrapperPositionalOperands to describe; flock's entry below used to say so.
+	"flock": true, "chroot": true, "setarch": true,
+	// runuser is BOTH a wrapper and a PrivilegeShellCarrier, and which one
+	// applies is decided per invocation by carriesInlineCodeFlag: `-c 'CMD'`
+	// stays with the carrier path (#3223), `-u USER -- CMD` unwraps here.
+	"runuser": true,
 	// Deliberately NOT wrappers:
-	//   bwrap    — `--dev-bind / /` takes bare path operands after a flag, so
-	//              the flag-only operand model would mis-target the first path
-	//              as the command.
-	//   flock    — takes a lockfile operand before the command, same problem.
+	//   bwrap    — `--dev-bind SRC DST` takes TWO bare path operands after one
+	//              flag. wrapperPositionalOperands counts operands per WRAPPER,
+	//              not per flag, so it cannot express this; listing bwrap would
+	//              mis-target a bind path as the command.
 	//   xargs    — builds its command line from stdin; not a static prefix.
-	//   su       — `su -c 'CMD'` carries inline code, a different shape.
-	//              This line claimed ExtractInlineCode handled it; for four
-	//              months nothing did, and `su -c 'rm -rf /'` reached no layer
-	//              that could decompose it (34.3% of the BLOCKing corpus,
-	//              #3223). It is true now — see PrivilegeShellCarriers — but
-	//              the lesson is that a comment delegating to another component
-	//              is a claim, and claims need a test. TestSuInlineCodeParity
-	//              is the one that would have caught it.
-	//   runuser  — `runuser -u USER -- CMD`. isWrapperOption cannot know that
-	//              `-u` consumes the NEXT token, so USER would be taken as the
-	//              target command. Listing it would unwrap to the username
-	//              instead of the command: no worse than today, but no better,
-	//              and it would look covered when it is not. It stays covered
-	//              by the dedicated pkexec/doas/runuser regex rules. Supporting
-	//              it properly needs a per-wrapper value-taking-flag table or
-	//              honouring the `--` end-of-options marker; tracked in #3057.
+	//   gdb,     — value-taking options that are ambiguous or numerous enough
+	//   perf,      that a wrong entry would re-target analysis onto an argument
+	//   lldb,      (`gdb -ex CMD --args PROG`, `script -c CMD FILE`). Omission
+	//   script     is the status quo; a wrong entry is a new miss. Same trade
+	//              that keeps sudo's `-h` out of wrapperValueFlags.
+	//   su       — the one privilege carrier still left out. Unlike runuser it
+	//              has no spelling that runs a bare command word: `su USER` is
+	//              an interactive login and `su USER -c 'CMD'` is inline code,
+	//              already decomposed by PrivilegeShellCarriers (#3223). So a
+	//              table entry would buy no detection and would need the
+	//              positional-username form modelled to break nothing.
+	//
+	//              This entry, and runuser's, USED to say `su -c` was handled
+	//              by ExtractInlineCode and that runuser could not be supported
+	//              because "isWrapperOption cannot know that -u consumes the
+	//              NEXT token". The first was false for four months (#3223); the
+	//              second stopped being true when wrapperValueFlags landed
+	//              (#3221) and nobody noticed, because a comment that explains
+	//              an absence reads as a decision rather than a claim. If you
+	//              are here to add a wrapper, re-verify the line telling you not
+	//              to before believing it.
+	//
+	//   watch,   — carry shell source as a POSITIONAL argument rather than
+	//   parallel   behind -c, so neither table fits: `watch -n1 'CMD'` and
+	//              `parallel ::: 'CMD'` both run CMD through sh -c. Measured at
+	//              34.3% each, the largest remaining carrier gap, and it needs
+	//              the evalCode-style "an argument IS the source" shape rather
+	//              than an entry here. Still open on #3227.
 }
 
 // isExecWrapper reports whether a command word names a transparent execution

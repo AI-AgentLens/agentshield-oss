@@ -93,7 +93,7 @@ func TestLoadTestdataRefsDeterminism(t *testing.T) {
 // to fail", #3130): an empty taxonomy tree is a broken invocation, not a
 // clean corpus.
 func TestTestdataModeEmptyTaxonomyIsAnError(t *testing.T) {
-	if _, err := analyze(t.TempDir(), "unused", testGenericDF, testRuleGenericDF, testAltMinOverlap, true); err == nil {
+	if _, err := analyze(t.TempDir(), "unused", testGenericDF, testRuleGenericDF, testAltMinOverlap, true, false); err == nil {
 		t.Error("empty taxonomy dir returned no error in -testdata mode")
 	} else if !strings.Contains(err.Error(), "cannot vouch") {
 		t.Errorf("unhelpful error for empty taxonomy: %v", err)

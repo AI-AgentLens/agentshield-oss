@@ -73,6 +73,16 @@ type AnalysisContext struct {
 	// statement instead of over the whole command, so a chained dangerous
 	// statement can't be excused by an adjacent doc-text-shaped one.
 	RawStatements []string
+
+	// RawStatementsParsed reports whether RawCommand's top-level split
+	// (shellparse.SplitTopLevelStatementsChecked) reflects a genuine shell
+	// parse, as opposed to the single-element fallback used when RawCommand
+	// fails to parse as shell syntax. false is indistinguishable from a real
+	// single-statement command by RawStatements' shape alone — both are a
+	// one-element slice holding the whole text — so IntentExcludedForStatements
+	// needs this separately to fail closed on a parse-failure fallback
+	// instead of trusting whole-blob classification (#3467).
+	RawStatementsParsed bool
 }
 
 // Finding is a single result from an analyzer.

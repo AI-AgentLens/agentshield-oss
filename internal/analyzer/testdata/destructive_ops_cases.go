@@ -196,6 +196,50 @@ var RecursiveRootDeleteCases = []TestCase{
 			as a regression guard per the issue's suggested test list.`,
 		Tags: []string{"regression", "issue-3054"},
 	},
+	{
+		ID: "TN-FSDESTR-005",
+		Command: `python3 - <<'PY'
+from pathlib import Path
+p = Path("app.py")
+text = p.read_text()
+old = "        shutil.rmtree(backup, ignore_errors=True)"
+new = "        pass"
+p.write_text(text.replace(old, new))
+PY`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/recursive-root-delete",
+		Analyzer:         "semantic",
+		Description: `FP fix (issue #3466). This python3 heredoc script edits a
+			DIFFERENT file's text: "shutil.rmtree(...)" appears only as a quoted
+			string being searched for and replaced, never as a call the script
+			itself executes. matchesIndirectPattern's old raw-substring search
+			could not tell the two apart from the heredoc body containing the
+			literal text; the fix extracts the heredoc body and scans it with a
+			Python-quote-aware check (pythonCodeContainsAny) for the pattern
+			appearing as live code, not inside a string literal. No rule fires,
+			so the policy engine's default AUDIT decision applies (verified
+			against the live engine, not assumed).`,
+		Tags: []string{"regression", "issue-3466", "heredoc", "string-literal"},
+	},
+	{
+		ID: "TP-FSDESTR-005",
+		Command: `python3 - <<'PY'
+import shutil
+shutil.rmtree('/')
+PY`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/recursive-root-delete",
+		Analyzer:         "semantic",
+		Description: `Regression guard for issue #3466's fix: a heredoc fed
+			directly to python3 runs its body exactly like a "-c" payload. Locks
+			in the new heredoc-carrier extraction path in matchesIndirectPattern
+			(previously only "-c" payloads were inspected) so a real
+			shutil.rmtree(...) call delivered via stdin instead of argv still
+			BLOCKs.`,
+		Tags: []string{"regression", "issue-3466", "heredoc"},
+	},
 }
 
 // SystemDirectoryDeleteCases tests detection of recursive delete on critical system dirs.
@@ -2312,6 +2356,16 @@ var UnboundedAgentConsumptionCases = []TestCase{
 		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
 		Analyzer:         "regex",
 		Description:      "bounded for-loop over local files with go vet — normal development pattern. Gets AUDIT (default) but must NOT be BLOCK.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-DO-UNBOUNDED-AGENT-LOOP-002",
+		Command:          `while true; do if grep -q ok "/private/tmp/claude-501/tasks/x.output"; then break; fi; sleep 15; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/unbounded-agent-consumption",
+		Analyzer:         "regex",
+		Description:      "bounded polling loop whose path happens to contain 'claude-501' (Claude Code's own per-session tmp dir naming) — must NOT be BLOCK (#3514).",
 		Tags:             []string{"tn", "safe"},
 	},
 

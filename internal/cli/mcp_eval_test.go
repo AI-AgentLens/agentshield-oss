@@ -18,7 +18,7 @@ func TestPrintMCPEvalResultJSON_RoundTrip(t *testing.T) {
 		Decision:       policy.DecisionBlock,
 		TriggeredRules: []string{"mcp-sec-block-ssh-private-key-read"},
 		Reasons:        []string{"Read access to SSH private key blocked."},
-		TaxonomyRef:    "credential-exposure/credential-files/ssh-private-key",
+		TaxonomyRef:    "credential-exposure/private-key-access/ssh-private-key-read",
 	}
 	var buf bytes.Buffer
 	if err := printMCPEvalResultJSON(&buf, in); err != nil {

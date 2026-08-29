@@ -80,6 +80,14 @@ func Scan(input string) ScanResult {
 		vsRunBuf.Reset()
 	}
 
+	// lastVisibleRune tracks the most recently accepted base character -- the
+	// rune preceding a candidate ZWJ that a real renderer would actually join
+	// against. It is deliberately left untouched by variation-selector runs
+	// (the base glyph they modify already set it) and by ZWJ itself (chained
+	// joins like the family emoji must keep judging against the pictograph,
+	// not the joiner), so it only ever advances on a clean, non-threat write.
+	var lastVisibleRune rune
+
 	i := 0
 	for i < len(input) {
 		r, size := utf8.DecodeRuneInString(input[i:])
@@ -99,6 +107,21 @@ func Scan(input string) ScanResult {
 		}
 		// Any non-selector rune terminates a pending run.
 		flushVSRun()
+
+		// U+200D ZERO WIDTH JOINER is load-bearing inside emoji ZWJ sequences
+		// (family/profession/gender/flag compositions) -- it is what makes two
+		// adjacent pictographs render as one glyph, not steganography. Judge it
+		// by its neighbours before falling through to the presence-alone
+		// isZeroWidth path, mirroring the run-vs-single distinction
+		// variationSelectorRunThreshold already applies to VS16 runs.
+		if r == '\u200D' && isEmojiPictograph(lastVisibleRune) && isEmojiPictograph(peekRune(input, i+size)) {
+			if r > 127 {
+				hexParts = append(hexParts, fmt.Sprintf("U+%04X", r))
+			}
+			sanitized.WriteRune(r)
+			i += size
+			continue
+		}
 
 		if r == utf8.RuneError && size == 1 {
 			result.Clean = false
@@ -136,6 +159,7 @@ func Scan(input string) ScanResult {
 		}
 
 		sanitized.WriteRune(r)
+		lastVisibleRune = r
 		i += size
 	}
 	// Flush a variation-selector run that extends to the end of the input.
@@ -248,6 +272,41 @@ func classifyRune(r rune, pos int) (Threat, bool) {
 	return Threat{}, false
 }
 
+// isZeroWidth reports whether r is an invisible character whose presence in a
+// name or a description is itself the finding -- no folding, no re-match, no
+// corroborating pattern required.
+//
+// That "presence alone is the verdict" contract is what bounds this list, and
+// it is why the list is NOT simply General_Category Cf. Every Cf renders as
+// nothing, but not every Cf is illegitimate: U+00AD SOFT HYPHEN is a
+// hyphenation hint that arrives with any justified text out of a CMS, and
+// U+0600-U+0605 / U+06DD prefix numbers in ordinary Arabic. Flagging those on
+// sight would fire on real prose. They are covered instead by
+// RecoverRenderedText, whose folded-but-not-raw contract makes it structurally
+// false-positive-free. The split between the two mechanisms is exactly "does
+// this character have a legitimate use in prose".
+//
+// The additions below (2026-08-19) close a measured enumeration drift. An
+// exhaustive sweep of the codepoints that render as nothing-or-blank found 67
+// that defeated both MCP text surfaces; these are the ones from that set with
+// no legitimate use anywhere, so they belong on the presence side:
+//
+//   - U+061C ARABIC LETTER MARK is the direct sibling of U+200E/U+200F, which
+//     this list already carries. Its absence was an oversight, not a decision.
+//   - U+2061-U+2064 are the invisible math operators that internal/guardian
+//     already treats as steganography on the SHELL surface -- a lesson learned
+//     in one place and never propagated to the other.
+//   - U+206A-U+206F are deprecated by Unicode itself.
+//   - U+FFF9-U+FFFB delimit interlinear annotation, a channel whose entire
+//     purpose is carrying text that renders out-of-band.
+//   - U+034F COMBINING GRAPHEME JOINER is invisible and purely a collation
+//     hint; it has no reason to sit between the letters of an English word.
+//
+// U+200D ZERO WIDTH JOINER stays in this presence-alone list -- Scan special-
+// cases it BEFORE reaching classifyRune/isZeroWidth, via isEmojiPictograph,
+// so a ZWJ that joins two emoji pictographs (family/profession/gender/flag
+// compositions) never reaches this function at all. What lands here is any
+// other use, which has no legitimate reading (#3433).
 func isZeroWidth(r rune) bool {
 	switch r {
 	case '\u200B', // ZERO WIDTH SPACE
@@ -257,10 +316,22 @@ func isZeroWidth(r rune) bool {
 		'\u2060', // WORD JOINER
 		'\u180E', // MONGOLIAN VOWEL SEPARATOR
 		'\u200E', // LEFT-TO-RIGHT MARK
-		'\u200F': // RIGHT-TO-LEFT MARK
+		'\u200F', // RIGHT-TO-LEFT MARK
+		'\u061C', // ARABIC LETTER MARK -- invisible bidi control, LRM/RLM sibling
+		'\u034F', // COMBINING GRAPHEME JOINER -- invisible collation hint
+		'\u2061', // FUNCTION APPLICATION
+		'\u2062', // INVISIBLE TIMES
+		'\u2063', // INVISIBLE SEPARATOR
+		'\u2064', // INVISIBLE PLUS
+		'\uFFF9', // INTERLINEAR ANNOTATION ANCHOR
+		'\uFFFA', // INTERLINEAR ANNOTATION SEPARATOR
+		'\uFFFB': // INTERLINEAR ANNOTATION TERMINATOR
 		return true
 	}
-	return false
+	// U+206A-U+206F: INHIBIT/ACTIVATE SYMMETRIC SWAPPING, INHIBIT/ACTIVATE
+	// ARABIC FORM SHAPING, NATIONAL DIGIT SHAPES, NOMINAL DIGIT SHAPES --
+	// deprecated by Unicode itself; no conforming producer emits them.
+	return r >= '\u206A' && r <= '\u206F'
 }
 
 func isBidiOverride(r rune) bool {
@@ -303,6 +374,45 @@ func isVariationSelector(r rune) bool {
 	case r >= 0xE0100 && r <= 0xE01EF:
 		return true
 	case r >= 0x180B && r <= 0x180D:
+		return true
+	}
+	return false
+}
+
+// peekRune decodes the rune starting at byte offset pos in input, returning
+// utf8.RuneError (which no emoji pictograph range contains) if pos is past
+// the end. Used to look ahead one rune past a candidate ZWJ without disturbing
+// the main decode loop's own position.
+func peekRune(input string, pos int) rune {
+	if pos >= len(input) {
+		return utf8.RuneError
+	}
+	r, _ := utf8.DecodeRuneInString(input[pos:])
+	return r
+}
+
+// isEmojiPictograph reports whether r falls in one of the Unicode blocks that
+// RGI emoji ZWJ sequences (family, profession, gender, flag, skin-tone
+// compositions -- see Unicode's emoji-zwj-sequences.txt) draw their component
+// glyphs from. Go's standard library has no Extended_Pictographic property
+// table, and this repo avoids third-party dependencies for a single check
+// (see CLAUDE.md: minimal deps, net/http, YAML only), so this is a deliberately
+// narrower, hand-verified stand-in: every block a standard ZWJ sequence
+// actually uses, nothing more. Under-covering here just means U+200D keeps
+// being flagged as before -- the safe direction to be wrong in.
+func isEmojiPictograph(r rune) bool {
+	switch {
+	case r >= 0x2600 && r <= 0x27BF: // Misc Symbols & Dingbats (❤ ♂ ♀ ✂ ☠ …)
+		return true
+	case r >= 0x1F300 && r <= 0x1F5FF: // Misc Symbols and Pictographs (💻 🏳 🏴 people, skin tones …)
+		return true
+	case r >= 0x1F600 && r <= 0x1F64F: // Emoticons
+		return true
+	case r >= 0x1F680 && r <= 0x1F6FF: // Transport and Map
+		return true
+	case r >= 0x1F900 && r <= 0x1F9FF: // Supplemental Symbols and Pictographs (🧑 🦰 …)
+		return true
+	case r >= 0x1FA00 && r <= 0x1FAFF: // Symbols and Pictographs Extended-A
 		return true
 	}
 	return false
@@ -391,6 +501,24 @@ var cyrillicHomoglyphs = map[rune]rune{
 	'Х': 'X', // CYRILLIC CAPITAL LETTER HA
 	'у': 'y', // CYRILLIC SMALL LETTER U
 	'У': 'Y', // CYRILLIC CAPITAL LETTER U
+
+	// Added 2026-08-19. Measured gap: a directive spelled with confusables for
+	// s / i / j folded only partially, because this table carried the
+	// Russian-alphabet confusables and stopped there. All eight below are in
+	// Unicode's own confusables.txt, and every one is a letter of a MINORITY
+	// Cyrillic alphabet (Macedonian, Serbian, Komi, Kurdish, Caucasian) --
+	// which is what makes them safe to add here. Unlike 'в' or 'т' they are
+	// vanishingly rare in ordinary Russian prose, so the presence-based
+	// mixed-script signal that shares this table gains no false-positive
+	// surface.
+	'ѕ': 's', // CYRILLIC SMALL LETTER DZE
+	'Ѕ': 'S', // CYRILLIC CAPITAL LETTER DZE
+	'ј': 'j', // CYRILLIC SMALL LETTER JE
+	'Ј': 'J', // CYRILLIC CAPITAL LETTER JE
+	'ӏ': 'l', // CYRILLIC SMALL LETTER PALOCHKA
+	'ԁ': 'd', // CYRILLIC SMALL LETTER KOMI DE
+	'ԛ': 'q', // CYRILLIC SMALL LETTER QA
+	'ԝ': 'w', // CYRILLIC SMALL LETTER WE
 }
 
 // Greek characters that are visually confusable with Latin characters

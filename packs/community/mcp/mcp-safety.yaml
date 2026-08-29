@@ -1004,7 +1004,7 @@ structural_rules:
 
   # Block prompt injection patterns in any text/content argument
   - id: mcp-struct-block-prompt-injection-text
-    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
     match:
       tool_name_regex: ".*"
       exclude_args_match:
@@ -1046,7 +1046,7 @@ structural_rules:
           args: {"path": "/workspace/packs/community/my-rules.yaml", "text": "reason: ignore all previous instructions is a prompt injection pattern"}
 
   - id: mcp-struct-block-prompt-injection-content
-    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
     match:
       tool_name_regex: ".*"
       exclude_args_match:
@@ -1160,7 +1160,7 @@ structural_rules:
           args: {"file_path": "/Users/user/dev/baby-kai/AI_risk_compliance/taxonomy/unauthorized-execution/agentic-attacks/a2a-push-notification-hijacking.yaml", "content": "examples:\n  bad:\n    - payload: <IMPORTANT>ignore all previous instructions</IMPORTANT>"}
 
   - id: mcp-struct-block-prompt-injection-messages
-    taxonomy: "unauthorized-execution/ai-content-integrity/ai-hallucination-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/tool-argument-injection"
     match:
       tool_name_regex: ".*"
       exclude_args_match:

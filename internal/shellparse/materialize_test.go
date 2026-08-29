@@ -73,6 +73,68 @@ func TestMaterializeAssignments_ConstantParamOp(t *testing.T) {
 	}
 }
 
+// TestMaterializeAssignments_WellKnownVarLeadingSlash covers issue #3378: a
+// ${VAR:0:1} substring read of PATH/HOME with no in-script assignment at all
+// — a shape TestMaterializeAssignments_ConstantParamOp does not exercise,
+// since that one requires the variable to be bound locally.
+func TestMaterializeAssignments_WellKnownVarLeadingSlash(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			"path-no-local-assignment",
+			"cat ${PATH:0:1}etc${PATH:0:1}shadow",
+			"cat /etc/shadow",
+		},
+		{
+			"home-no-local-assignment",
+			"cat ${HOME:0:1}etc${HOME:0:1}shadow",
+			"cat /etc/shadow",
+		},
+		{
+			// A local assignment must win over the well-known fallback —
+			// PATH=xyz means ${PATH:0:1} is "x", not "/", proving the bound
+			// symbol table is checked first.
+			"local-assignment-overrides-wellknown",
+			"PATH=xyz; cat ${PATH:0:1}etc${PATH:0:1}shadow",
+			"PATH=xyz\ncat xetcxshadow",
+		},
+		{
+			// Non-zero offset: PATH's second character is machine-specific
+			// and not knowable statically — must not fold.
+			"non-zero-offset-not-folded",
+			"cat ${PATH:1:1}etc${PATH:1:1}shadow",
+			"",
+		},
+		{
+			// Length other than 1: everything past the first character of
+			// PATH is unpredictable — must not fold.
+			"length-other-than-one-not-folded",
+			"cat ${PATH:0:2}etc${PATH:0:2}shadow",
+			"",
+		},
+		{
+			// USER is well-known-SET (unset_paramexp.go's wellKnownEnvVars)
+			// but not well-known-ABSOLUTE-PATH — its first character is
+			// unpredictable, so it must stay in the narrower set here and
+			// not fold.
+			"non-path-wellknown-var-not-folded",
+			"cat ${USER:0:1}etc${USER:0:1}shadow",
+			"",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MaterializeAssignments(tc.in)
+			if got != tc.want {
+				t.Errorf("MaterializeAssignments(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestMaterializeAssignments_DeclClause covers export/declare/local —
 // parsed as *syntax.DeclClause, a distinct node from *syntax.CallExpr,
 // mirroring the same gap DequoteCommand and buildExecSymbols each closed for

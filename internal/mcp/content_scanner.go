@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // ContentSignal identifies a type of sensitive data found in tool call arguments.
@@ -101,10 +103,52 @@ func ScanToolCallContent(toolName string, arguments map[string]interface{}) Cont
 		}
 
 		scanArgumentValue(&result, argName, text)
+		scanArgumentValueSeparatorFolded(&result, argName, text)
 	}
 
 	result.Blocked = len(result.Findings) > 0
 	return result
+}
+
+// scanArgumentValueSeparatorFolded re-runs scanArgumentValue against a
+// separator-normalized rendering of the argument value, appending only
+// findings the raw pass did not already produce.
+//
+// Several of the patterns scanArgumentValue matches are spelled with `\s`
+// around a required delimiter — bearerTokenRe requires `\s+` between
+// "Bearer" and the token, and awsSecretRe/genericSecretRe tolerate `\s*`
+// around `=`/`:` — and Go's RE2 `\s` class is ASCII-only. An argument value
+// carrying a credential with a Unicode separator (e.g. "Bearer" + U+00A0 +
+// token, or "api_key" + U+00A0 + "=" + U+00A0 + secret) therefore matches
+// neither pattern while rendering and tokenizing identically to the ASCII
+// form. See unicode.FoldUnicodeSeparators and scanResponseSeparatorFolded
+// (response_scanner.go) for the fold rationale and false-positive-safety
+// argument this mirrors.
+func scanArgumentValueSeparatorFolded(result *ContentScanResult, argName, text string) {
+	folded, changed := unicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.ArgName+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult ContentScanResult
+	scanArgumentValue(&foldedResult, argName, folded)
+
+	for _, f := range foldedResult.Findings {
+		key := string(f.Signal) + "\x00" + f.ArgName + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by folding non-ASCII Unicode separator characters " +
+			"(NBSP / thin / ideographic space and siblings) to ASCII; RE2's `\\s` class is ASCII-only, " +
+			"so the value as sent matched no pattern while rendering and tokenizing identically"
+		result.Findings = append(result.Findings, f)
+	}
 }
 
 // filesystemToolNames is the set of MCP filesystem tool names whose path

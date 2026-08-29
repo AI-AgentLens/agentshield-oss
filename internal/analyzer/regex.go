@@ -30,6 +30,12 @@ type RegexRule struct {
 	// access in a non-doc-text statement still fires at full severity, and the
 	// downgraded finding is still AUDITed (logged) rather than dropped — no FN.
 	IntentDowngrade []string
+	// PositionExclude lists syntactic POSITIONS at which this rule's own match
+	// is not evidence — see PositionExcluded and internal/shellparse. Distinct
+	// from IntentExclude, which classifies the whole command's text: this asks
+	// where the match landed in the parsed command. Checked only after a match
+	// has fired, because it costs an AST parse.
+	PositionExclude []string
 	// RequireCI gates the rule on the runtime CI/CD execution context (issue
 	// #3291). nil = no gate (rule always applies). *true = rule applies ONLY
 	// when ctx.ExecContext.CI is true (tighten posture for attacker-facing CI
@@ -652,7 +658,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// dangerous statement can't be excused by an adjacent doc-text/
 		// heredoc/self-mgmt-shaped one within the same compound command.
 		if len(rule.IntentExclude) > 0 {
-			excluded := IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, rule.IntentExclude, func(stmt string) bool {
+			excluded := IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentExclude, func(stmt string) bool {
 				return a.matchRegexRule(stmt, rule)
 			})
 			if excluded {
@@ -700,6 +706,16 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 				}
 			}
 		}
+		// Positional exclusion (#3376). Applied after matching rather than
+		// before, because it needs the rule's own predicate to attribute the
+		// match to a position and it costs an AST parse — a rule that did not
+		// fire must not pay for it.
+		if matched && len(rule.PositionExclude) > 0 &&
+			PositionExcluded(ctx.RawCommand, rule.PositionExclude, func(s string) bool {
+				return a.matchRegexRule(s, rule)
+			}) {
+			matched = false
+		}
 		if matched {
 			decision := rule.Decision
 			reason := rule.Reason
@@ -711,7 +727,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			// chained real access in a non-doc-text statement keeps its BLOCK.
 			if len(rule.IntentDowngrade) > 0 &&
 				(decision == "BLOCK" || decision == "REQUIRE_APPROVAL") &&
-				IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, rule.IntentDowngrade, func(stmt string) bool {
+				IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentDowngrade, func(stmt string) bool {
 					return a.matchRegexRule(stmt, rule)
 				}) {
 				reason = reason + " [downgraded BLOCK→AUDIT: the sensitive pattern appears inside a documentation/message argument (gh/git --body/--message), not an executed access]"
@@ -775,6 +791,24 @@ func (a *RegexAnalyzer) matchRegexRule(command string, rule RegexRule) bool {
 	return false
 }
 
+// cachedRegex returns the pre-compiled matcher for a pattern.
+//
+// The miss path compiles WITHOUT storing, which reads like a wasted
+// opportunity and is not. NewRegexAnalyzer compiles every rule's Regex and
+// RegexExclude up front, and those two fields are the only patterns any caller
+// passes (matchRegexRule, the sole caller, reads exactly them). So a miss means
+// the pattern already failed to compile at construction and is about to fail
+// again, returning nil.
+//
+// The store was therefore dead code — and dead code that writes to a shared map
+// is not harmless. cmd/shield-server shares ONE engine across HTTP requests and
+// says so in its own type comment ("that path is read-only after construction").
+// A concurrent Go map write is `fatal error: concurrent map writes`, which the
+// runtime cannot recover from — not a panic that a fail-safe AUDIT default can
+// absorb, an unrecoverable abort of the process that is meant to be enforcing.
+//
+// Keeping the map read-only after construction is what makes that documented
+// contract true. TestRegexCacheIsReadOnlyAfterConstruction holds the line.
 func (a *RegexAnalyzer) cachedRegex(pattern string) *regexlit.Matcher {
 	if m, ok := a.regexCache[pattern]; ok {
 		return m
@@ -783,7 +817,6 @@ func (a *RegexAnalyzer) cachedRegex(pattern string) *regexlit.Matcher {
 	if err != nil {
 		return nil
 	}
-	a.regexCache[pattern] = m
 	return m
 }
 

@@ -789,6 +789,61 @@ func TestSplitTopLevelStatements(t *testing.T) {
 	}
 }
 
+// TestSplitTopLevelStatementsChecked is the regression test for #3467: the
+// parsed-fallback distinction IntentExcludedForStatements needs to fail
+// closed instead of trusting a parse-failure's single-element fallback as if
+// it were a genuine one-statement command — the two are byte-for-byte
+// identical in shape (both a one-element slice holding the whole text), so
+// only the second return value tells them apart.
+func TestSplitTopLevelStatementsChecked(t *testing.T) {
+	tests := []struct {
+		name       string
+		cmd        string
+		wantParsed bool
+	}{
+		{
+			name:       "genuine single statement parses",
+			cmd:        "cat ~/.ssh/id_rsa",
+			wantParsed: true,
+		},
+		{
+			name:       "genuine multi-statement command parses",
+			cmd:        `cat ~/.ssh/id_rsa; git commit -m "notes"`,
+			wantParsed: true,
+		},
+		{
+			name:       "unparseable input reports parsed=false",
+			cmd:        "echo 'unterminated",
+			wantParsed: false,
+		},
+		{
+			name: "newline-collapsed function-def+call is a syntax error, reports parsed=false",
+			// Same command TestIntentExcludedForStatements_SelfMgmtWrapperFunction's
+			// "mixed body" case uses, but with the statement-separating
+			// newline collapsed into a space — the exact shape a lossy
+			// textual mutation (TestEscapeSpliceParity's punct-escape-slash)
+			// produces by joining fields with a single space.
+			cmd:        `evil() { cat "$1"; agentshield mcp-eval --tool read_file --arg path=/dev/null; } evil ~/.ssh/id_rsa`,
+			wantParsed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, parsed := SplitTopLevelStatementsChecked(tt.cmd)
+			if parsed != tt.wantParsed {
+				t.Errorf("SplitTopLevelStatementsChecked(%q) parsed = %v, want %v (stmts=%q)", tt.cmd, parsed, tt.wantParsed, stmts)
+			}
+			// SplitTopLevelStatements must always agree with the first
+			// return value here — it's a thin wrapper, not a second
+			// implementation that could drift.
+			if want := SplitTopLevelStatements(tt.cmd); len(want) != len(stmts) {
+				t.Errorf("SplitTopLevelStatements/Checked disagree on stmt count: %d vs %d", len(want), len(stmts))
+			}
+		})
+	}
+}
+
 // TestParamOpConstantFoldResolution covers #3220: a parameter-expansion
 // OPERATOR (replace, slice, prefix/suffix removal, case change) applied to a
 // scalar already bound to a constant is itself statically computable, the

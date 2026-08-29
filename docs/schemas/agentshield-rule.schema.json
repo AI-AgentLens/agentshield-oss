@@ -106,6 +106,14 @@
           },
           "description": "Downgrade this rule's BLOCK/REQUIRE_APPROVAL to AUDIT (instead of suppressing it) when the match sits only in statements carrying any of these intent labels — e.g. a sensitive literal inside a gh/git --body/--message argument (#2843). Same per-statement scoping as command_intent_exclude; the finding is still AUDITed, so there is no false negative."
         },
+        "command_position_exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["loop_wordlist", "search_needle", "heredoc_body"]
+          },
+          "description": "Suppress this rule when its match exists ONLY at one of these syntactic positions. Different question from command_intent_exclude: an intent label classifies the whole command's text, a position label asks where the match landed in the parsed command. loop_wordlist = an item of a `for NAME in …` word list whose loop variable is only printed or used as a search pattern — the value is data being iterated, not an operand (#3376). search_needle = the PATTERN operand of a grep-family invocation (grep/egrep/fgrep/rg/ag) — a search term compared against file content, never a target being opened, executed, or attached to (#3382). heredoc_body = the BODY text of a `cat`/`tee <<DELIM … DELIM` heredoc — data being written or printed, never a command-line token; never applies to a heredoc fed to an interpreter (bash/sh/python3/…), whose body is code (#3397). Position alone is not the exemption: `for p in /etc/shadow; do cat \"$p\"; done` still fires, and a genuine invocation appearing anywhere else in the command still fires. Unknown labels are rejected at policy load."
+        },
         "structural":             { "$ref": "#/$defs/structural_match" },
         "dataflow":               { "$ref": "#/$defs/dataflow_match" },
         "semantic":               { "$ref": "#/$defs/semantic_match" },

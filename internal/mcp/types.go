@@ -3,7 +3,10 @@
 // mediate tool calls between AI agents and MCP servers.
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // --- JSON-RPC base types (MCP uses JSON-RPC 2.0) ---
 
@@ -78,6 +81,73 @@ type ContentItem struct {
 	MIMEType    string               `json:"mimeType,omitempty"`
 	Data        string               `json:"data,omitempty"`
 	Resource    *ResourceContentItem `json:"resource,omitempty"`
+	// Annotations carries the MCP `Annotations` object that every content
+	// block may attach. Until it was added here json.Unmarshal dropped it
+	// silently, so `audience` — the field by which a server declares a block
+	// is for the model and NOT for the user — was invisible to every scanner
+	// in this package. See content_audience_scanner.go.
+	Annotations *ContentAnnotations  `json:"annotations,omitempty"`
+}
+
+// ContentAnnotations is the MCP `Annotations` object attachable to any content
+// block (TextContent, ImageContent, AudioContent, EmbeddedResource,
+// ResourceLink) and to a Resource in a listing.
+//
+// The JSON field names MUST match the MCP wire schema exactly — the same
+// silent-catastrophe shape documented on ToolAnnotations below: a typo leaves
+// every field zero, and the audience-channel detection never fires against a
+// real server. TestContentAnnotationsParseFromSpecCompliantJSON is the
+// fitness function that locks the wire contract.
+type ContentAnnotations struct {
+	// Audience declares who the content is intended for. Per the spec Role is
+	// exactly "user" | "assistant"; an audience that includes "assistant" but
+	// omits "user" is the server telling the host to route this block to the
+	// model while withholding it from the human.
+	Audience []string `json:"audience,omitempty"`
+	// Priority is the spec's 0..1 importance hint (1 = most important).
+	Priority *float64 `json:"priority,omitempty"`
+	// LastModified is the spec's ISO 8601 timestamp hint. Parsed for
+	// completeness so a round-trip of a real block is lossless.
+	LastModified string `json:"lastModified,omitempty"`
+}
+
+// HiddenFromUser reports whether these annotations declare the block
+// model-visible but user-hidden: the audience list is present, names
+// "assistant", and does NOT name "user".
+//
+// Deliberately conservative in three ways. Absent annotations mean "no
+// restriction" (visible to both) and never trigger. An empty audience list is
+// degenerate rather than adversarial and never triggers. An audience naming
+// only roles outside the spec ("system", "tool") never triggers on its own —
+// that is a separate parser-divergence question, not this one.
+func (a *ContentAnnotations) HiddenFromUser() bool {
+	if a == nil || len(a.Audience) == 0 {
+		return false
+	}
+	var hasAssistant, hasUser bool
+	for _, role := range a.Audience {
+		switch strings.ToLower(strings.TrimSpace(role)) {
+		case "assistant":
+			hasAssistant = true
+		case "user":
+			hasUser = true
+		}
+	}
+	return hasAssistant && !hasUser
+}
+
+// VisibleToUser reports whether the block reaches the human reviewer: either it
+// carries no audience restriction at all, or its audience names "user".
+func (a *ContentAnnotations) VisibleToUser() bool {
+	if a == nil || len(a.Audience) == 0 {
+		return true
+	}
+	for _, role := range a.Audience {
+		if strings.EqualFold(strings.TrimSpace(role), "user") {
+			return true
+		}
+	}
+	return false
 }
 
 // --- MCP tool listing types ---
@@ -253,6 +323,15 @@ type ReadResourceParams struct {
 
 // ResourceContentItem is one content entry in a resources/read response.
 // Per the MCP spec, a resource can return text or blob content.
+//
+// Deliberately has NO Annotations field. TextResourceContents and
+// BlobResourceContents — the two schema types this struct represents — do not
+// declare an `annotations` property in either the 2025-06-18 spec or the
+// current draft schema (verified against schema/2025-06-18/schema.json and
+// schema/draft/schema.json, 2026-08-24). Only `Resource` (the resources/list
+// entry type, see ResourceEntry.Annotations) carries it. Adding the field here
+// would parse a wire property that no compliant server ever sends — see
+// issue #3485, which proposed exactly this and was corrected during review.
 type ResourceContentItem struct {
 	URI      string `json:"uri"`
 	MIMEType string `json:"mimeType,omitempty"`
@@ -277,6 +356,15 @@ type ResourceEntry struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty"`
+	// Annotations carries the MCP `Annotations` object. Per the 2025-06-18 and
+	// draft schemas, `Resource` (what a resources/list entry is) declares
+	// `annotations` directly — unlike `TextResourceContents`/
+	// `BlobResourceContents` (what a resources/read `contents[]` item is),
+	// which have NO `annotations` field in either spec version. Do not add an
+	// Annotations field to ResourceContentItem from a re-read of an issue that
+	// asks for it without first checking the schema — see issue #3500, which
+	// found the resources/read premise unsupported by the wire protocol.
+	Annotations *ContentAnnotations `json:"annotations,omitempty"`
 }
 
 // ResourcesListResult is the JSON-RPC result for a resources/list response.
@@ -561,6 +649,15 @@ type PromptMessageContent struct {
 	Type     string               `json:"type"`              // "text", "image", or "resource"
 	Text     string               `json:"text,omitempty"`    // for type=="text"
 	Resource *ResourceContentItem `json:"resource,omitempty"` // for type=="resource"
+	// Annotations carries the MCP `Annotations` object. Per spec, TextContent
+	// and EmbeddedResource — the two schema types a "text" and a "resource"
+	// PromptMessageContent block represent — both declare `annotations`
+	// directly on the block, the same place ContentItem parses it for
+	// tools/call results. Until this field existed, `audience: ["assistant"]`
+	// on a prompt message was silently dropped by json.Unmarshal and the
+	// content-audience-channel scan never saw it — see
+	// content_audience_scanner.go and issue #3485.
+	Annotations *ContentAnnotations `json:"annotations,omitempty"`
 }
 
 // GetPromptResult is the JSON-RPC result for a prompts/get response.

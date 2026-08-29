@@ -59,11 +59,24 @@ brew tap "$TAP" 2>&1 | tail -3
 # Homebrew 5.1.15+ (Tap Trust) refuses to load casks from non-official taps
 # without explicit trust. Mirrors the step real users now run (see install
 # docs / GettingStartedWizard). `|| true` = harmless no-op on older Homebrew.
-brew trust "$TAP" 2>&1 | tail -3 || true
-brew install --cask agentshield 2>&1 | tail -5 || {
-    info "cask install failed (Linuxbrew often rejects casks); falling back to formula"
-    brew install agentshield 2>&1 | tail -5 || { fail "install failed"; exit 1; }
-}
+brew trust "$TAP" >/dev/null 2>&1 || \
+    info "brew trust unavailable on this Homebrew - skipping (install is the real gate)"
+# Capture, do not pipe: a pipeline exits with tail's status (always 0), so the
+# old `brew install ... | tail -5 || {fallback}` form threw brew's status away
+# and the fallback it guarded was unreachable dead code.
+#
+# brew's exit code is NOT the gate here, deliberately. It intermittently exits
+# non-zero with "Error: ai-agentlens/tap/agentshield: Broken pipe" *after*
+# linking both binaries successfully (seen in the 8/19 nightly, reproduced
+# once in three container runs). The gate is the PATH + behavior checks below.
+# The old formula fallback is gone rather than fixed: the tap disabled the
+# `agentshield` formula on 2026-03-21 in favor of the cask, so it can only fail.
+if cask_out=$(brew install --cask agentshield 2>&1); then
+    printf '%s\n' "$cask_out" | tail -5
+else
+    printf '%s\n' "$cask_out" | tail -15
+    info "brew install --cask exited non-zero; continuing - the PATH check below is the real gate"
+fi
 command -v agentshield >/dev/null && pass "agentshield on PATH" || { fail "agentshield not on PATH"; exit 1; }
 echo ""
 

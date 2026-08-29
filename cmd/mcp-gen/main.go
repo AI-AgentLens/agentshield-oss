@@ -13,8 +13,16 @@
 //	go run ./cmd/mcp-gen            # generate
 //	go run ./cmd/mcp-gen -dry-run   # discover + classify + dedup, write nothing
 //
-// Shell-pack discovery is floor-checked (see discovery.go): a scan that finds
-// no packs exits non-zero rather than printing "No new rules to generate."
+// Two properties are load-bearing, and both exist because the tool's default
+// output was quietly wrong once already:
+//
+//   - Shell-pack discovery is floor-checked (discovery.go): a scan that finds
+//     no packs exits non-zero rather than printing "No new rules to generate."
+//     (#3359)
+//   - Emission into mcp-generated.yaml MERGES rather than overwrites
+//     (emit.go): an id already shipped there stays shipped even if this run's
+//     dedup no longer proposes it. Rule removal from that file is a human
+//     editing the YAML, never a side effect of running the generator. (#3367)
 package main
 
 import (
@@ -72,8 +80,14 @@ func main() {
 	fmt.Printf("  Existing MCP rule IDs: %d\n", len(existingIDs))
 	fmt.Printf("  Existing path patterns: %d\n", len(existingPatterns))
 
+	existingPolicy, err := LoadExistingMCPPolicy(mcpPacksDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load existing MCP policy for coverage dedup: %v\n", err)
+	}
+	coverage := NewCoverageChecker(existingPolicy)
+
 	// Step 4: Deduplicate.
-	candidates = DeduplicateCandidates(candidates, existingIDs, existingPatterns)
+	candidates = DeduplicateCandidates(candidates, existingIDs, existingPatterns, coverage)
 	fmt.Printf("  After dedup: %d net new candidates\n", len(candidates))
 
 	if *dryRun {

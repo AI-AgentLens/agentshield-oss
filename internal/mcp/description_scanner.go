@@ -254,6 +254,87 @@ const (
 	// ("flags: a b c d e f") and ordinary prose never fire.
 	SignalSeparatorObfuscation PoisonSignal = "separator_obfuscation"
 
+	// SignalUnicodeSeparatorEvasion flags a tool description or title in which an
+	// injection directive is spelled with VISIBLE-WIDTH Unicode separator
+	// characters — U+00A0 NO-BREAK SPACE, U+2000–U+200A, U+202F, U+205F, U+3000
+	// IDEOGRAPHIC SPACE, U+1680, U+2028/U+2029, U+0085 — in place of the ASCII
+	// space between words.
+	//
+	// Go's regexp is RE2, in which `\s` is ASCII-only (`[\t\n\f\r ]`). The
+	// inter-word poison patterns here are spelled with `\s+` (158 `\s`-quantifier
+	// sites in this file alone), so this single substitution defeats them
+	// simultaneously. Measured: an override directive, an exfiltration directive
+	// and a stealth directive each produce exactly one finding in ASCII and ZERO
+	// findings when the inter-word spaces are U+00A0. End-to-end, three of the
+	// four MCP-TP-3391-* scenarios fall from BLOCK to AUDIT without this pass.
+	//
+	// It is the seam between two defences that already exist:
+	//   - detectSeparatorObfuscation (Signal 27) collapses ASCII interstitial
+	//     separators; its class `[ \t.,\-_*|/~·•‣⋅]` is ASCII-only, so the
+	//     NBSP-spaced letter form evades it as well.
+	//   - detectInvisibleControls (Signal 15) catches ZERO-WIDTH characters.
+	// These runes are neither ASCII nor zero-width — visible on screen, invisible
+	// to `\s`. Covering both neighbours left this class fully open.
+	//
+	// Detection (detectUnicodeSeparatorEvasion): fold the separators to ASCII
+	// space, compose the compatibility-homoglyph fold, re-run the plaintext
+	// poison groups plus the curated letter-spacing signatures, and report only
+	// matches that fire on the folded form and NOT the raw form — the same
+	// structurally FP-free shape as Signal 16b.
+	SignalUnicodeSeparatorEvasion PoisonSignal = "unicode_separator_evasion"
+
+	// SignalRenderedTextEvasion flags a description or title whose injection
+	// directive is only readable once the text is recovered to what a human
+	// actually sees on screen — every codepoint-level disguise undone at once
+	// rather than one axis at a time.
+	//
+	// It exists because the shipped folds are organised one-axis-per-pass, and
+	// an attacker is not obliged to pick one axis. Measured 2026-08-19 against
+	// this scanner (28 signals) and the tool-response scanner, spelling one
+	// override directive several ways:
+	//
+	//	spelling                     description          response
+	//	ASCII                        hidden_instructions  1 finding
+	//	U+00A0 separators            Signal 29            1 finding
+	//	fullwidth letters            Signal 29            0
+	//	Cyrillic confusables x6      Signal 16            0
+	//	U+00AD soft hyphen in words  0                    0
+	//	NBSP + soft hyphen           0                    0
+	//	fullwidth + soft hyphen      0                    0
+	//	all four axes at once        0                    0
+	//
+	// Two failures are visible there and this signal answers both.
+	//
+	// The first is a missing character class. U+00AD SOFT HYPHEN renders as
+	// nothing, is not in RE2's ASCII-only `\s`, and is not in the eight-entry
+	// isZeroWidth list, so on its own it defeats every plaintext matcher on both
+	// surfaces. An exhaustive sweep of the 181 codepoints that render as
+	// nothing-or-blank found 67 with that property.
+	//
+	// The second is compositional, and is the part no additional single-axis
+	// pass fixes: fullwidth alone and Cyrillic alone are each caught, yet
+	// combining either with a soft hyphen is clean, because each pass folds its
+	// own axis and then matches — any residue from another axis leaves the
+	// pattern unmatched. unicode.RecoverRenderedText undoes all axes in one pass,
+	// which covers their combinations for free.
+	//
+	// Detection (detectRenderedTextEvasion): the baseline is the composition the
+	// shipped passes ALREADY perform (separator fold + compatibility-homoglyph
+	// fold), so this signal fires only where the additional axes — invisible
+	// formatters, blank-advance-width fillers, Cyrillic/Greek confusables — were
+	// what recovered the directive. That makes it self-deduplicating against
+	// Signals 16b and 29 rather than a second opinion on the same evidence.
+	//
+	// FP safety is the folded-but-not-raw contract every fold pass here shares,
+	// and it is also why this pass may fold Cyrillic with no "mostly Latin?"
+	// ratio guard: Signal 16 needs that guard because presence-of-confusables is
+	// a weak signal, and the guard is why a directive with 8 of 10 letter classes
+	// substituted scans clean while the same directive with 7 is caught — more
+	// attack buying more exemption. A finding here requires the recovered text to
+	// match a specific malicious directive, which ordinary Russian prose does not
+	// become.
+	SignalRenderedTextEvasion PoisonSignal = "rendered_text_evasion"
+
 	// SignalToolNameConfusable flags an MCP tool whose NAME contains Unicode
 	// confusables (Cyrillic/Greek homoglyphs of Latin letters), invisible
 	// characters (zero-width, bidi overrides), Unicode tag characters, or control
@@ -978,6 +1059,25 @@ func ScanToolDescription(tool ToolDefinition) DescriptionScanResult {
 	// letter-spacing run that benign prose does not contain.
 	result.Findings = append(result.Findings, detectSeparatorObfuscation(text)...)
 
+	// Signal 29: Visible-width Unicode separator evasion. RE2's `\s` is ASCII-only,
+	// so swapping the spaces of a directive for U+00A0/U+2009/U+3000 defeats every
+	// `\s+` pattern above at once — while rendering identically and reading as
+	// ordinary English to the tokenizer. Sits in the seam between Signal 27
+	// (ASCII separators) and Signal 15 (zero-width chars); neither covers it.
+	// Additive and FP-safe: folded-but-not-raw matches only.
+	result.Findings = append(result.Findings, detectUnicodeSeparatorEvasion(text)...)
+
+	// Signal 30: Rendered-text recovery. Signals 15/16/16b/27/29 each fold ONE
+	// axis and then match, so any residue from another axis leaves the pattern
+	// unmatched — fullwidth alone is caught, fullwidth plus a U+00AD soft hyphen
+	// between every letter is not. This pass recovers what the human actually
+	// reads (invisible formatters removed, blank fillers and Unicode spaces
+	// folded to ASCII space, compatibility and Cyrillic/Greek confusables folded
+	// to Latin) in one pass, which also closes the 67 nothing-or-blank codepoints
+	// absent from the isZeroWidth list. Baselined against the shipped folds, so
+	// it reports strictly the remainder; folded-but-not-raw, so it is additive.
+	result.Findings = append(result.Findings, detectRenderedTextEvasion(text)...)
+
 	// Signal 17: Markdown / HTML egress in description. MCP hosts that render tool
 	// descriptions as Markdown auto-fetch image URLs and execute embedded HTML on
 	// display, leaking context tokens via the URL query string.
@@ -1548,6 +1648,31 @@ func detectTitleInjection(title string) []PoisonFinding {
 	}
 	// Compatibility-homoglyph (NFKC-foldable) evasion on the title surface.
 	for _, f := range detectCompatHomoglyphEvasion(title) {
+		findings = append(findings, PoisonFinding{
+			Signal:  SignalTitleInjection,
+			Detail:  "tool title: " + f.Detail,
+			Snippet: f.Snippet,
+		})
+	}
+	// Visible-width Unicode separator evasion on the title surface. The title is
+	// the string a host renders in its consent dialog, so a directive hidden
+	// behind NBSP here is read by both the model and the human approving the
+	// call. Applied to every surface the description pass covers — a mitigation
+	// wired to one of two surfaces reads, in review, exactly like one wired to
+	// both.
+	for _, f := range detectUnicodeSeparatorEvasion(title) {
+		findings = append(findings, PoisonFinding{
+			Signal:  SignalTitleInjection,
+			Detail:  "tool title: " + f.Detail,
+			Snippet: f.Snippet,
+		})
+	}
+	// Rendered-text recovery on the title surface, for the same reason the
+	// separator fold is applied here: the title is what the host renders in its
+	// consent dialog, so a directive disguised at the codepoint level is read by
+	// both the model and the human approving the call. Wiring a mitigation to
+	// one of two surfaces reads, in review, exactly like wiring it to both.
+	for _, f := range detectRenderedTextEvasion(title) {
 		findings = append(findings, PoisonFinding{
 			Signal:  SignalTitleInjection,
 			Detail:  "tool title: " + f.Detail,
@@ -2174,6 +2299,93 @@ var poisonGroupsForFold = []struct {
 	{shadowToolPatterns, "shadow-tool claim"},
 	{evalAwarenessPatterns, "eval-awareness trigger"},
 	{conditionalTriggerPatterns, "conditional-trigger directive"},
+	{approvalGateManipulationPatterns, "approval-gate manipulation directive"},
+}
+
+// proseDetectorsForFold are the description prose detectors that are NOT
+// expressible as a []signalPattern group — they correlate two regexes inside a
+// sliding co-occurrence window — and therefore cannot live in
+// poisonGroupsForFold. Both fold passes re-run them on the folded text.
+//
+// This list exists because the fold coverage set is hand-maintained, and a
+// detector omitted from it is silently exempt from EVERY fold-based evasion
+// check. That is not hypothetical: measured on 2026-08-16, before this list
+// existed, the shipped compatibility-homoglyph pass (Signal 16b) was blind to
+// all three of the signals below — a fullwidth-spelled chain-of-thought
+// exfiltration directive scanned completely clean:
+//
+//	                            ASCII  NBSP  fullwidth
+//	reasoning_exfiltration        ok    MISS   MISS
+//	approval_gate_manipulation    ok     ok    MISS
+//	audit_log_evasion             ok    MISS   MISS
+//
+// These are among the highest-severity prose signals in the scanner, so the
+// omission inverted the usual severity gradient: the obfuscated form of the
+// worst directive was the one that got through.
+//
+// TestFoldEvasionParityAcrossProseSignals is the fitness function that keeps
+// this list complete — adding a prose signal without adding it here (or to
+// poisonGroupsForFold) turns that test red.
+var proseDetectorsForFold = []struct {
+	fn    func(string) []PoisonFinding
+	label string
+}{
+	{detectReasoningExfiltration, "chain-of-thought / system-prompt exfiltration directive"},
+	{detectAuditLogEvasion, "audit-log / telemetry evasion directive"},
+}
+
+// foldedOnlyFindings re-runs the plaintext prose detectors against a normalized
+// (folded) rendering of a description and returns findings for directives that
+// are present in the FOLDED text but absent from the RAW text, attributed to the
+// caller's signal.
+//
+// Shared by both fold passes on purpose. They previously carried independent
+// copies of this loop, which is how the compat-homoglyph pass came to cover nine
+// pattern groups and zero window detectors without anyone noticing — the same
+// "lesson learned in one walker, never propagated to its sibling" shape this
+// codebase has hit repeatedly on the bash AST and JSON Schema walkers. One
+// implementation means a group added here is covered by every fold at once.
+//
+// The folded-but-not-raw condition is what makes every fold pass structurally
+// false-positive-free: text whose raw form already matches is reported by the
+// plaintext signal that owns it, and benign text that merely contains a foldable
+// character folds to benign prose matching nothing.
+func foldedOnlyFindings(raw, folded string, signal PoisonSignal, detailPrefix string) []PoisonFinding {
+	rawLower := strings.ToLower(raw)
+	foldedLower := strings.ToLower(folded)
+
+	var findings []PoisonFinding
+	seen := make(map[string]bool, len(poisonGroupsForFold)+len(proseDetectorsForFold))
+	for _, g := range poisonGroupsForFold {
+		if seen[g.label] {
+			continue
+		}
+		for _, p := range g.patterns {
+			if p.re.MatchString(foldedLower) && !p.re.MatchString(rawLower) {
+				seen[g.label] = true
+				findings = append(findings, PoisonFinding{
+					Signal:  signal,
+					Detail:  detailPrefix + " conceals a " + g.label + "; folds to: " + p.description,
+					Snippet: truncateForSnippet(raw, 80),
+				})
+				break
+			}
+		}
+	}
+	for _, d := range proseDetectorsForFold {
+		if seen[d.label] {
+			continue
+		}
+		if len(d.fn(folded)) > 0 && len(d.fn(raw)) == 0 {
+			seen[d.label] = true
+			findings = append(findings, PoisonFinding{
+				Signal:  signal,
+				Detail:  detailPrefix + " conceals a " + d.label,
+				Snippet: truncateForSnippet(raw, 80),
+			})
+		}
+	}
+	return findings
 }
 
 // detectCompatHomoglyphEvasion folds Unicode compatibility-homoglyph blocks
@@ -2196,29 +2408,8 @@ func detectCompatHomoglyphEvasion(text string) []PoisonFinding {
 	if !changed {
 		return nil
 	}
-	rawLower := strings.ToLower(text)
-	foldedLower := strings.ToLower(folded)
-
-	var findings []PoisonFinding
-	seen := make(map[string]bool, len(poisonGroupsForFold))
-	for _, g := range poisonGroupsForFold {
-		if seen[g.label] {
-			continue
-		}
-		for _, p := range g.patterns {
-			if p.re.MatchString(foldedLower) && !p.re.MatchString(rawLower) {
-				seen[g.label] = true
-				findings = append(findings, PoisonFinding{
-					Signal: SignalCompatHomoglyphEvasion,
-					Detail: "compatibility-homoglyph text (NFKC-foldable to ASCII) conceals a " +
-						g.label + " that evades plaintext and Cyrillic/Greek matchers; folds to: " + p.description,
-					Snippet: truncateForSnippet(text, 80),
-				})
-				break
-			}
-		}
-	}
-	return findings
+	return foldedOnlyFindings(text, folded, SignalCompatHomoglyphEvasion,
+		"compatibility-homoglyph text (NFKC-foldable to ASCII), which evades plaintext and Cyrillic/Greek matchers,")
 }
 
 // separatorRunRE detects a deliberate letter-spacing run: at least 5 single
@@ -2291,6 +2482,179 @@ func detectSeparatorObfuscation(text string) []PoisonFinding {
 				Snippet: truncateForSnippet(text, 80),
 			})
 		}
+	}
+	return findings
+}
+
+// detectUnicodeSeparatorEvasion closes the visible-width Unicode separator
+// evasion against the plaintext poison matchers (Signals 1–11).
+//
+// Go's regexp is RE2, where `\s` is ASCII-only and expands to `[\t\n\f\r ]`.
+// Every inter-word poison pattern in this scanner is spelled with `\s+`, so an
+// attacker who swaps the ASCII spaces of an injection directive for U+00A0
+// NO-BREAK SPACE (or U+2009 THIN SPACE, U+3000 IDEOGRAPHIC SPACE, …) breaks all
+// of them at once while the phrase renders identically and the LLM tokenizer
+// reads it as ordinary word-separated English.
+//
+// This class sits in the seam between the two defences that already exist:
+// detectSeparatorObfuscation collapses ASCII interstitial separators (its
+// character class `[ \t.,\-_*|/~·•‣⋅]` is ASCII-only, so NBSP letter-spacing
+// evades it too), and detectInvisibleControls catches ZERO-WIDTH characters. The
+// runes folded here are neither ASCII nor zero-width — they are the only
+// whitespace class that is simultaneously invisible to `\s` and visible on
+// screen, which is exactly why covering the neighbours did not cover this.
+//
+// Two passes run on the folded text, because the fold restores the input each
+// pass was designed for:
+//
+//  1. the plaintext poison groups (shared with the compat-homoglyph pass), and
+//  2. the curated letter-spacing signatures, which recover the NBSP-spaced form
+//     of "i g n o r e …" that separatorRunRE's ASCII class cannot see.
+//
+// The compatibility-homoglyph fold is composed on top before matching, because
+// the combined attack — fullwidth letters AND Unicode spaces — defeats Signal
+// 16b and this pass individually: folding only the letters leaves the `\s+`
+// gaps unmatched, and folding only the separators leaves the letters non-ASCII.
+//
+// False-positive safety is structural and identical to Signal 16b: the function
+// returns early when folding changes nothing, and reports only patterns that
+// match the FOLDED form and not the RAW form. Unicode spaces are common in
+// benign prose (French typography's U+202F before `: ; ! ?`, U+2007 figure
+// grouping, NBSP from any web copy-paste) — such text folds to benign prose that
+// matches no injection pattern, so it yields no finding. The finding exists only
+// when folding a separator is what turned the text into a known-malicious
+// directive, which benign typography does not do.
+func detectUnicodeSeparatorEvasion(text string) []PoisonFinding {
+	if text == "" {
+		return nil
+	}
+	folded, changed := pkgunicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return nil
+	}
+	// Compose the compatibility-homoglyph fold so the combined
+	// fullwidth-letters + Unicode-spaces attack is caught. Composition order is
+	// irrelevant here (the two folds touch disjoint codepoint sets), unlike the
+	// shell-side NormalizeUnsetParamExp/DequoteCommand pair.
+	if compatFolded, compatChanged := pkgunicode.FoldCompatibilityHomoglyphs(folded); compatChanged {
+		folded = compatFolded
+	}
+
+	findings := foldedOnlyFindings(text, folded, SignalUnicodeSeparatorEvasion,
+		"Unicode separator characters (NBSP / thin / ideographic space — not matched by RE2's ASCII-only \\s), which evade every plaintext keyword matcher,")
+
+	// Second pass: the letter-spacing form spelled with Unicode separators. The
+	// folded text now carries ASCII spaces, so the existing curated signatures
+	// apply. Findings are re-labelled under this signal because the Unicode
+	// separator, not the letter spacing, is what defeated every other pass.
+	for _, f := range detectSeparatorObfuscation(folded) {
+		findings = append(findings, PoisonFinding{
+			Signal: SignalUnicodeSeparatorEvasion,
+			Detail: "Unicode separator characters conceal an interstitial letter-spacing evasion that also " +
+				"bypasses the ASCII-only separator check: " + f.Detail,
+			Snippet: truncateForSnippet(text, 80),
+		})
+	}
+
+	return findings
+}
+
+// detectRenderedTextEvasion recovers the text a human actually reads — undoing
+// invisible formatters, Unicode separators, compatibility homoglyphs and
+// Cyrillic/Greek confusables in a single pass — and re-runs the plaintext prose
+// matchers against it.
+//
+// # Why a composed recovery rather than a sixth single-axis pass
+//
+// Signals 15, 16, 16b, 27 and 29 each fold one axis and then match, which means
+// a residue from any OTHER axis leaves the pattern unmatched. Measured on
+// 2026-08-19 with one override directive: fullwidth spelling alone is caught by
+// Signal 29, six Cyrillic confusables alone are caught by Signal 16 — and
+// fullwidth + a U+00AD soft hyphen between every letter is caught by nothing,
+// as is the combination of all four axes. Undoing every axis at once covers the
+// 2^n combinations that per-axis passes structurally cannot.
+//
+// It also closes a plain enumeration gap. U+00AD renders as nothing, is absent
+// from RE2's ASCII-only `\s`, and is absent from the eight-entry isZeroWidth
+// list, so it defeats every plaintext matcher on this surface by itself; an
+// exhaustive sweep found 67 codepoints that render as nothing-or-blank with the
+// same property.
+//
+// # The baseline is the shipped composition, not the raw text
+//
+// foldedOnlyFindings is called with the separator+compat-folded text as its
+// "raw" side, so a finding here exists only where the axes those passes do NOT
+// cover are what recovered the directive. Signals 16b and 29 keep reporting
+// what they always reported, this signal reports strictly the remainder, and
+// the same evidence is never counted twice.
+//
+// # False-positive safety
+//
+// The folded-but-not-raw contract, as with every fold pass in this file: the
+// function returns early when recovery changes nothing, and a finding requires
+// the RECOVERED text to match a known-malicious directive that the baseline
+// text does not. Benign Unicode is abundant here — emoji ZWJ sequences,
+// Indic/Arabic joiners, CMS soft hyphens, Japanese ideographic spaces — and all
+// of it recovers to benign prose that matches no injection pattern.
+//
+// That contract is also why this pass folds Cyrillic and Greek with no
+// "predominantly Latin?" guard, and doing so fixes a real inversion. Signal 16
+// needs its 80%-ASCII guard because presence-of-confusables is a weak signal
+// that would otherwise fire on Russian prose — but the guard is attacker
+// controlled, so substituting MORE confusables buys MORE exemption: a directive
+// with 8 of 10 letter classes substituted scans completely clean while the same
+// directive with 7 substituted is caught. A fold-and-rematch finding needs no
+// such guard, because ordinary Russian prose does not recover into an English
+// injection directive — only a letter-for-letter homoglyph transliteration of
+// one does, and that is precisely the attack.
+func detectRenderedTextEvasion(text string) []PoisonFinding {
+	if text == "" {
+		return nil
+	}
+	recovered, changed := pkgunicode.RecoverRenderedText(text)
+	if !changed {
+		return nil
+	}
+
+	// Baseline: everything the shipped passes already undo. Anything this
+	// function reports is therefore attributable to the axes they do not cover.
+	baseline := text
+	if sepFolded, ok := pkgunicode.FoldUnicodeSeparators(baseline); ok {
+		baseline = sepFolded
+	}
+	if compatFolded, ok := pkgunicode.FoldCompatibilityHomoglyphs(baseline); ok {
+		baseline = compatFolded
+	}
+	if recovered == baseline {
+		return nil
+	}
+
+	findings := foldedOnlyFindings(baseline, recovered, SignalRenderedTextEvasion,
+		"Codepoint-level disguises (invisible formatters such as U+00AD SOFT HYPHEN, "+
+			"blank-rendering fillers, and Cyrillic/Greek confusables) that survive every "+
+			"single-axis fold,")
+
+	// Second pass: the letter-spacing form, now that blank-advance-width
+	// fillers have folded to ASCII spaces. A directive spelled
+	// "i<U+3164>g<U+3164>n<U+3164>o…" is invisible to the ASCII-only separator
+	// class in Signal 27 and is not a space to Signal 29, but recovers here.
+	for _, f := range detectSeparatorObfuscation(recovered) {
+		if len(detectSeparatorObfuscation(baseline)) > 0 {
+			break
+		}
+		findings = append(findings, PoisonFinding{
+			Signal: SignalRenderedTextEvasion,
+			Detail: "Codepoint-level disguises conceal an interstitial letter-spacing evasion " +
+				"that the ASCII-only separator check cannot see: " + f.Detail,
+			Snippet: truncateForSnippet(text, 80),
+		})
+	}
+
+	// Snippets come from the ORIGINAL text so the audit entry shows the bytes as
+	// they arrived; the Detail already says the directive was recovered, so this
+	// never implies the text was sent in the clear.
+	for i := range findings {
+		findings[i].Snippet = truncateForSnippet(text, 80)
 	}
 	return findings
 }

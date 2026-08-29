@@ -32,14 +32,59 @@ func DequoteCommand(command string) string {
 		return ""
 	}
 
-	reader := strings.NewReader(command)
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := parser.Parse(strings.NewReader(command), "")
+
+	// Parse-failure retry (#3211). mvdan/sh validates an assignment NAME at
+	// parse time and rejects the WHOLE command when it is malformed:
+	//
+	//	export AGENTSHIELD_BYPA\SS=1   1:8:  invalid var name
+	//	declare -x LD_PRELOA\D=/tmp/x  1:12: invalid var name
+	//
+	// bash disagrees. It performs quote removal on the assignment word first,
+	// so the name is AGENTSHIELD_BYPASS and the variable IS set. Verified on
+	// bash 3.2: `bash -c 'export FO\O=1; env | grep ^FOO='` prints FOO=1.
+	//
+	// The consequence is worse than one missed rule. On a parse failure every
+	// AST-derived surface receives nothing: DequoteCommand returned its ""
+	// sentinel, and the structural, semantic, dataflow and stateful analyzers
+	// plus enterprise SelfProtect all silently contribute no findings. One
+	// backslash in a variable name downgraded 7 of 8 flagged declarations from
+	// BLOCK to AUDIT, sp-block-bypass-env among them. And the failure is silent
+	// by construction: a parse error is indistinguishable here from "nothing to
+	// normalize".
+	//
+	// So: fold the obfuscating escapes and try once more. Three properties keep
+	// the blast radius at zero for well-formed input.
+	//
+	//  1. The gate is "the parser already gave up". A command that parses never
+	//     reaches this path, so nothing that works today can change.
+	//  2. The fold is quote-aware (FoldObfuscatingBackslashesUnquoted). A
+	//     backslash before an alphanumeric is LITERAL inside both quote forms,
+	//     so folding one would invent a command the shell would never run.
+	//  3. The retry must itself parse. If it does not, we return the same ""
+	//     as before and nothing downstream sees a difference.
+	//
+	// DequoteCommand's result is only ever an ADDITIONAL match candidate
+	// (addForm / the fallback match), never a replacement for the text that
+	// executes, so even a wrong reconstruction cannot create a bypass.
+	foldedRetry := false
 	if err != nil {
-		return ""
+		folded, changedByFold := pathnorm.FoldObfuscatingBackslashesUnquoted(command)
+		if !changedByFold {
+			return ""
+		}
+		file, err = parser.Parse(strings.NewReader(folded), "")
+		if err != nil {
+			return ""
+		}
+		foldedRetry = true
 	}
 
-	changed := false
+	// A successful retry IS the rewrite, even if no individual word then needs
+	// dequoting: `export FO\O=1` has nothing spliced, and returning "" for it
+	// would throw away the reconstruction that made it analyzable.
+	changed := foldedRetry
 	syntax.Walk(file, func(node syntax.Node) bool {
 		switch n := node.(type) {
 		case *syntax.CallExpr:

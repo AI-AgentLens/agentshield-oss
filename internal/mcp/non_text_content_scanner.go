@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // NonTextContentSignal identifies a class of abuse in non-text MCP content
@@ -102,15 +104,8 @@ func scanOneNonTextBlock(result *NonTextContentScanResult, idx int, item Content
 		if fieldVal == "" {
 			continue
 		}
-		if loc := nonTextInjectionRe.FindStringIndex(strings.ToLower(fieldVal)); loc != nil {
-			result.Findings = append(result.Findings, NonTextContentFinding{
-				Signal:       SignalNonTextNameInjection,
-				Detail:       fmt.Sprintf("Prompt-injection marker in non-text content %s field", fieldName),
-				ContentType:  item.Type,
-				ContentIndex: idx,
-				Snippet:      safeSnippet(fieldVal, loc[0], 80),
-			})
-		}
+		scanNonTextInjectionField(result, idx, item.Type, fieldName, fieldVal)
+		scanNonTextInjectionFieldSeparatorFolded(result, idx, item.Type, fieldName, fieldVal)
 	}
 
 	// MIME mismatch: image/audio block claiming text/html/script MIME is a
@@ -140,6 +135,61 @@ func scanOneNonTextBlock(result *NonTextContentScanResult, idx int, item Content
 				})
 			}
 		}
+	}
+}
+
+// scanNonTextInjectionField checks one name/description field of a non-text
+// content block for prompt-injection markers.
+func scanNonTextInjectionField(result *NonTextContentScanResult, idx int, itemType, fieldName, fieldVal string) {
+	if loc := nonTextInjectionRe.FindStringIndex(strings.ToLower(fieldVal)); loc != nil {
+		result.Findings = append(result.Findings, NonTextContentFinding{
+			Signal:       SignalNonTextNameInjection,
+			Detail:       fmt.Sprintf("Prompt-injection marker in non-text content %s field", fieldName),
+			ContentType:  itemType,
+			ContentIndex: idx,
+			Snippet:      safeSnippet(fieldVal, loc[0], 80),
+		})
+	}
+}
+
+// scanNonTextInjectionFieldSeparatorFolded re-runs scanNonTextInjectionField
+// against a separator-normalized rendering of the field value, appending
+// only a finding when the raw pass did not already produce one.
+//
+// nonTextInjectionRe's override-directive alternatives are spelled with
+// `\s+`/`\s*` ("ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions"), and
+// Go's RE2 `\s` class is ASCII-only. A resource_link or resource block's
+// `name`/`description` is shown to the user in a consent dialog AND to the
+// LLM during tool-result listing, so a server that separates the directive's
+// words with a Unicode space bypasses the one check this dual-surface field
+// gets — text scanners never see it, because ScanToolCallResponse only
+// processes ContentItems of type "text". See unicode.FoldUnicodeSeparators
+// and scanResponseSeparatorFolded (response_scanner.go) for the fold
+// rationale and false-positive-safety argument this mirrors.
+func scanNonTextInjectionFieldSeparatorFolded(result *NonTextContentScanResult, idx int, itemType, fieldName, fieldVal string) {
+	folded, changed := unicode.FoldUnicodeSeparators(fieldVal)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult NonTextContentScanResult
+	scanNonTextInjectionField(&foldedResult, idx, itemType, fieldName, folded)
+
+	for _, f := range foldedResult.Findings {
+		key := string(f.Signal) + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by folding non-ASCII Unicode separator characters " +
+			"(NBSP / thin / ideographic space and siblings) to ASCII; RE2's `\\s` class is ASCII-only, " +
+			"so the value as sent matched no pattern while rendering and tokenizing identically"
+		result.Findings = append(result.Findings, f)
 	}
 }
 

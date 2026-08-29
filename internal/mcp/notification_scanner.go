@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"encoding/json"
-	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // NotificationSignal identifies a type of threat found in an MCP notification.
@@ -121,8 +122,53 @@ func ScanNotificationMessage(rawParams json.RawMessage) NotificationScanResult {
 }
 
 // scanNotificationField checks one field of the notification for injection patterns.
+// scanNotificationField scans one notification field, then re-scans a
+// separator-normalized rendering of it and keeps whatever the raw pass missed.
+//
+// Notifications are the purest form of this problem: they are server-initiated
+// push events that arrive with no prior tool call, so the text goes into the
+// model's context without any argument-level scanning in front of it. The
+// patterns reused here (hiddenInstructionPatterns, behavioralManipulationPatterns,
+// …) are the same `\s+`-spelled groups the description scanner uses, and RE2's
+// `\s` is ASCII-only — so before this wrapper, an override directive fired on
+// `notifications/message` in ASCII and produced ZERO findings when its spaces
+// were U+00A0. Same for `notifications/progress`, which shares this function.
+//
+// Wrapping here rather than at the two call sites is deliberate: it is the one
+// chokepoint both entry points already funnel through, so a third notification
+// surface added later inherits the coverage instead of quietly missing it.
+//
+// Additive by construction — only findings absent from the raw pass are kept,
+// so benign text carrying a Unicode space folds to benign text and yields
+// nothing. See scanResponseSeparatorFolded for the full rationale.
 func scanNotificationField(result *NotificationScanResult, text, field string) {
-	lower := strings.ToLower(text)
+	before := len(result.Findings)
+	scanNotificationFieldRaw(result, text, field)
+
+	folded, changed := unicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings)-before)
+	for _, f := range result.Findings[before:] {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult NotificationScanResult
+	scanNotificationFieldRaw(&foldedResult, folded, field)
+	for _, f := range foldedResult.Findings {
+		if seen[string(f.Signal)+"\x00"+f.Detail] {
+			continue
+		}
+		f.Detail += " — recovered by folding non-ASCII Unicode separator characters to ASCII" +
+			" (RE2's `\\s` class is ASCII-only, so the text as sent matched no pattern)"
+		result.Findings = append(result.Findings, f)
+	}
+}
+
+func scanNotificationFieldRaw(result *NotificationScanResult, text, field string) {
+	forms := newProseForms(text)
 	snip := text
 	if len(snip) > 80 {
 		snip = snip[:80] + "..."
@@ -130,10 +176,10 @@ func scanNotificationField(result *NotificationScanResult, text, field string) {
 
 	// Injection / instruction override patterns (highest priority)
 	for _, p := range hiddenInstructionPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, NotificationFinding{
 				Signal:  SignalNotificationInjection,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -143,10 +189,10 @@ func scanNotificationField(result *NotificationScanResult, text, field string) {
 
 	// Behavioral manipulation / jailbreak patterns
 	for _, p := range behavioralManipulationPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, NotificationFinding{
 				Signal:  SignalNotificationInjection,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -156,10 +202,10 @@ func scanNotificationField(result *NotificationScanResult, text, field string) {
 
 	// Credential harvesting references
 	for _, p := range credentialHarvestPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, NotificationFinding{
 				Signal:  SignalNotificationCredential,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -169,10 +215,10 @@ func scanNotificationField(result *NotificationScanResult, text, field string) {
 
 	// Exfiltration instruction patterns
 	for _, p := range exfiltrationPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, NotificationFinding{
 				Signal:  SignalNotificationExfil,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})

@@ -329,6 +329,174 @@ var SSHPrivateKeyReadCases = []TestCase{
 		Tags: []string{"fp-fix", "mcp-eval", "issue-630"},
 	},
 
+	{
+		ID: "TN-SSHKEY-016",
+		Command: "run() { printf '  %-56s -> %s\\n' \"$1\" \"$(agentshield mcp-eval --tool read_files --json \"$2\" 2>/dev/null | grep -oiE 'BLOCK|AUDIT|ALLOW' | head -1)\"; }\n" +
+			"run 'paths: ARRAY'  '{\"paths\":[\"/home/user/.ssh/id_ed25519\"]}'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `SSH key path passed through a locally-defined shell helper function that only
+			relays it into agentshield mcp-eval, rather than being passed to mcp-eval directly (as in
+			TN-SSHKEY-011/012). SplitTopLevelStatements flattens the function's body into its own
+			top-level statement (#3045), separate from the call-site statement carrying the literal
+			path, so the same-statement IsSelfMgmt check alone never sees them together. Was a false
+			positive discovered inside Shield's own dogfooding loop (#3314) — reproducing an MCP
+			credential-path issue with a matrix of argument shapes necessarily means writing a helper
+			exactly like this one. Fixed by shellparse.SelfMgmtWrapperFunctionNames.`,
+		Tags: []string{"fp-fix", "mcp-eval", "issue-3314"},
+	},
+
+	{
+		// Newline between the function definition and the call — same shape
+		// as the reported #3314 command and as TN-SSHKEY-016 above. This
+		// keeps the case OUT of TestWrapperValueFlagParity's baseline (it
+		// filters out any command containing "\n" — a wrapper prefix only
+		// ever reaches the first statement, so it deliberately doesn't sweep
+		// multi-statement commands at all) and puts it in
+		// TestEscapeSpliceParity's punct-escape-slash budget instead (see
+		// that test's own "+2" bump for why: multi-line commands routed
+		// through strings.Fields/strings.Join lose their newline as a
+		// statement terminator, which is a distinct, already-tracked
+		// residue, not a defect in SelfMgmtWrapperFunctionNames itself).
+		ID: "TP-SSHKEY-WRAPPERFUNC-GUARD",
+		Command: "evil() { cat \"$1\"; agentshield mcp-eval --tool read_file --arg path=/dev/null; }\n" +
+			"evil ~/.ssh/id_rsa",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `#3314 wrapper-function guard: a helper function that genuinely reads the
+			credential (cat "$1") ALONGSIDE an unrelated agentshield mcp-eval call in the same body
+			must still BLOCK when called with the real path. SelfMgmtWrapperFunctionNames only
+			excuses a function whose body's non-agentshield commands are all drawn from a small
+			output-shaping allowlist (printf/echo/grep/head/tail/cut/wc/sed) — "cat" is not on it, so
+			the whole function is disqualified regardless of what it does with $1, and the call
+			statement's own text is judged on its own, unexcused.`,
+		Tags: []string{"tp", "downgrade-guard", "regression", "issue-3314"},
+	},
+
+	{
+		// See TP-SSHKEY-WRAPPERFUNC-GUARD's comment for why this keeps the
+		// original newline separator.
+		ID: "TP-SSHKEY-WRAPPERFUNC-OVERLAP-GUARD",
+		Command: "overlap() { agentshield mcp-eval --json \"$1\"; grep foo \"$1\"; }\n" +
+			"overlap ~/.ssh/id_rsa",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `Second #3314 guard, distinct from TP-SSHKEY-WRAPPERFUNC-GUARD: every
+			non-agentshield command here (grep) IS on the benign allowlist, so this pins the OTHER
+			half of SelfMgmtWrapperFunctionNames — the positional-overlap check. "$1" reaches both the
+			agentshield call and grep's own argument, so if $1 is a real credential path, grep would
+			read it as a real file too. Requiring the positional sets to be disjoint is what refuses
+			this function even though its executables alone look identical to a safe wrapper.`,
+		Tags: []string{"tp", "downgrade-guard", "regression", "issue-3314"},
+	},
+
+	// --- LOOP WORD-LIST POSITION, agentshield mcp-eval (issue #3547) ---
+	//
+	// TN-SSHKEY-011/012/016 above already excuse a same-statement or
+	// wrapper-relayed mcp-eval call. This is a different indirection: the
+	// SSH path sits in a `for … in` word list (never part of any top-level
+	// statement — collectStmts only walks the loop BODY, #3045), and the
+	// body has a SECOND statement (echo) ahead of the mcp-eval call. That
+	// combination defeats the same-statement is_self_mgmt check the same way
+	// #3376 found for sec-block-etc-shadow: no single body statement's own
+	// text ever matches the rule, so IntentExcludedForStatements cannot
+	// attribute the match and fails closed (#3255). Fixed the same way
+	// #3376 was: command_position_exclude: [loop_wordlist], plus teaching
+	// shellparse.InertLoopWordLists that `agentshield mcp-eval --arg/--json`
+	// is as inert a consumer of the loop variable as echo/grep.
+	{
+		ID: "TN-SSHKEY-LOOPDATA-001",
+		Command: `for p in "/home/user/.vault-token" "/home/user/.ssh/id_rsa" "/home/user/.aws/credentials"; do
+  echo "-- $p"
+  agentshield mcp-eval --tool read_file --arg "path=$p"
+done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `The command from issue #3547, found while dogfooding the Step 3 MCP
+			validation matrix. The SSH path is a loop word-list item consumed only by an
+			echo label and an agentshield mcp-eval simulator call — never opened as a real
+			file. A single-statement body (just the mcp-eval call) already excused correctly
+			before this fix; adding the echo label statement pushed the body to two
+			statements, which took the per-statement matchedAny path instead of the
+			whole-command is_self_mgmt shortcut and lost the exclusion. Fixed by
+			command_position_exclude: [loop_wordlist] plus
+			shellparse.InertLoopWordLists recognizing agentshield mcp-eval.`,
+		Tags: []string{"tn", "fp-fix", "loop-wordlist", "mcp-eval", "dogfooding", "issue-3547"},
+	},
+	{
+		ID:               "TP-SSHKEY-LOOPLIVE-001",
+		Command:          `for p in "/home/user/.ssh/id_rsa"; do cat "$p"; agentshield mcp-eval --tool read_file --arg path=/dev/null; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `The bypass the #3547 fix must not create: cat "$p" is a REAL read of
+			the loop variable sitting right alongside an unrelated agentshield mcp-eval call.
+			cat is not on shellparse.InertLoopWordLists' allowlist (echo/printf/grep only),
+			so the loop variable stays live and the word-list position exclusion must not
+			apply — this must still BLOCK.`,
+		Tags: []string{"tp", "loop-wordlist", "downgrade-guard", "issue-3547"},
+	},
+
+	// --- is_self_mgmt FLAG ATTRIBUTION, agentshield mcp-eval --mcp-policy (#3548) ---
+	//
+	// #3547 taught InertLoopWordLists that a loop variable landing in
+	// mcp-eval's --arg/--json is inert — those flags are only ever
+	// string-matched. --mcp-policy is different in kind: mcp_eval.go loads
+	// that path as a real YAML file. The loop_wordlist position-exclude
+	// already refuses to treat a variable reaching --mcp-policy as inert
+	// (agentshieldMCPEvalSafeArgs never lists it), but is_self_mgmt's
+	// single-statement shortcut ran independently and BEFORE
+	// PositionExcluded ever got a chance: it excused any statement whose
+	// text contains "agentshield mcp-eval" ANYWHERE, regardless of which
+	// flag the sensitive literal actually reaches. Fixed by teaching
+	// labelMatches (IntentExcludedForStatements) to veto the is_self_mgmt
+	// fact when shellparse.MCPEvalDynamicPolicyFlag reports a --mcp-policy
+	// value that is not a static literal.
+	{
+		ID: "TP-SSHKEY-MCPPOLICY-DYNAMIC-001",
+		Command: `for p in "/home/user/.ssh/id_rsa"; do
+  agentshield mcp-eval --tool read_file --arg path=/dev/null --mcp-policy "$p"
+done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `The #3548 gap: a loop-bound path reaches --mcp-policy, which
+			genuinely loads the file as a policy YAML — not the inert --arg/--json
+			test-input flags #3547 covers. Neither the structural protected-path check
+			(the value is a variable, not a materializable literal) nor the old
+			whole-command is_self_mgmt shortcut (it only checked "does agentshield
+			mcp-eval appear", never which flag) caught this. Must BLOCK via the regex
+			rule now that MCPEvalDynamicPolicyFlag vetoes the is_self_mgmt exclusion.`,
+		Tags: []string{"tp", "self-mgmt", "mcp-eval", "flag-attribution", "issue-3548"},
+	},
+	{
+		ID:               "TN-SSHKEY-MCPPOLICY-STATIC-001",
+		Command:          `agentshield mcp-eval --tool read_file --arg path=/dev/null --mcp-policy /home/user/.ssh/id_rsa`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/private-key-access/ssh-private-key-read",
+		Analyzer:         "regex",
+		Description: `Boundary for the #3548 fix: a STATIC --mcp-policy literal (no loop,
+			no variable) must keep this rule's existing is_self_mgmt exclusion — the veto in
+			MCPEvalDynamicPolicyFlag only fires on a non-literal value. A static literal here
+			is a real file load and is caught independently by the structural protected-path
+			check against defaults.protected_paths (confirmed manually — accuracy tests pass
+			nil for paths per this repo's documented caveat, so that check isn't exercised
+			here); this case exists to pin the regex layer's own boundary, not the combined
+			decision.`,
+		Tags: []string{"tn", "self-mgmt", "mcp-eval", "flag-attribution", "issue-3548"},
+	},
+
 	// FP regression: gh --body with pipe chars should not block (issue #180)
 	{
 		ID:               "TN-SSHKEY-013",
@@ -1788,6 +1956,46 @@ var IMDSTheftCases = []TestCase{
 		Description:      "GCP IMDS hostname inside a note/message dict value in a python3 -c remediation-tracking script is documentation text, not a network access. is_doc_text/in_heredoc deliberately don't cover interpreter -c script bodies (python3 -c is a real execution vector — see TestIntentClassifier_DocContextCorpus), so this is a dedicated command_regex_exclude scoped to note-like dict keys, mirroring TN-IMDS-006.",
 		Tags:             []string{"tn", "gcp", "fp-fix", "python"},
 	},
+	{
+		ID:               "TN-IMDS-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ steals the IAM role credentials')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the AWS IMDS URL is a Python string literal written to disk, never fetched. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-aws-imds: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-IMDS-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncurl http://169.254.169.254/latest/meta-data/iam/security-credentials/\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/aws-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real AWS IMDS fetch inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TN-IMDS-GCP-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'curl -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/ steals the GCP service-account token')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the GCP IMDS URL is a Python string literal written to disk, never fetched. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-gcp-imds: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-IMDS-GCP-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncurl -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/gcp-imds-token-theft",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real GCP IMDS fetch inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
+	},
 }
 
 // AIAPIKeyCases tests detection of AI provider API key exposure.
@@ -1914,6 +2122,33 @@ var AIAPIKeyCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Branch name containing 'disk-' — the substring 'sk-' appears inside the word 'disk-' which is NOT an API key. Must NOT block (FP fix #1327). Gets AUDIT (default) not BLOCK.",
 		Tags:             []string{"tn", "ai-credentials", "fp-fix"},
+	},
+	{
+		ID:               "TN-AIKEY-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'a leaked key looks like sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 in the request header')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		// The "sk-proj-" hyphenated-segment shape (allowed by sec-block-ai-apikey-inline's
+		// own `sk-(?:[a-z0-9]+-){0,2}...` pattern) is deliberate: a bare "sk-" immediately
+		// followed by 20+ alnum chars ALSO trips Guardian's independent, context-blind
+		// secretsHighConfidencePattern (`\bsk-[A-Za-z0-9]{20,}`) regardless of heredoc
+		// context, which would BLOCK via TestPipeline_AllKingdoms even after this
+		// downgrade — the hyphen right after "sk-proj-" breaks that 20-char run so only
+		// this rule's own (downgradable) match fires.
+		Description: "python3 heredoc that rewrites a taxonomy YAML rationale; the example API key is a Python string literal written to disk, never executed or sent anywhere. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-ai-apikey-inline: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:        []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-AIKEY-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncurl -H 'Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz123456' https://api.openai.com\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/ai-api-credentials/api-key-exposure",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real inline API key send inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
 	},
 }
 
@@ -2085,6 +2320,26 @@ var HistoryMiningCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "gh issue --body text describing the FP pattern itself, incidentally matching the underlying regex. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843", "issue-3021"},
+	},
+	{
+		ID:               "TN-HISTGRP-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'history | grep password mines shell history for credentials typed in prior sessions')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/history-mining/history-credential-grep",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the history-mining command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-history-grep-password: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-HISTGRP-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\nhistory | grep password\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/history-mining/history-credential-grep",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real history-mining pipe inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
 	},
 }
 
@@ -2481,6 +2736,193 @@ var ShadowReadCases = []TestCase{
 			^gh... exclude pattern didn't match. Fixed in issue #573 by extending the gh exclude
 			to match after '&&' and ';' separators: (?:^|&&\\s*|;\\s*)gh\\s+...`,
 		Tags: []string{"fp-fix", "gh-cli", "compound-cmd", "issue-573"},
+	},
+
+	// --- LOOP WORD-LIST POSITION (issue #3376) ---
+	//
+	// Fourth instance of the class TN-SHADOW-003..010 already cover: the path
+	// is a string VALUE, not a filesystem target. Here it is an item of a
+	// `for … in` word list consumed as a grep NEEDLE, which no text-shaped
+	// exclusion could reach — the literal belongs to the loop header, and
+	// SplitTopLevelStatements yields only the BODY statements, so the
+	// per-statement intent scoping cannot attribute the match to anything and
+	// (correctly, per #3255) refuses to excuse it. Fixed by
+	// command_position_exclude: [loop_wordlist].
+	//
+	// The four TPs below are the reason the fix is not "exempt the position":
+	// each one puts the same literal in the same position and is a real
+	// access. They are the guard against the exclusion widening into a
+	// one-line bypass of the only rule covering shadow reads.
+	{
+		ID:               "TN-SHADOW-LOOPDATA-001",
+		Command:          `for p in ".ssh/" ".aws/" ".config/gcloud" "/etc/shadow"; do n=$(grep -c -- "$p" "$F"); echo "$n  <= $p"; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `The command from issue #3376, found while dogfooding. Sensitive path
+			strings are iterated as grep NEEDLES against an unrelated local file — the only
+			file opened is "$F", and the path never reaches the haystack side. The loop
+			variable is used solely as a grep pattern operand and an echo argument, so
+			shellparse.InertLoopWordLists rules the word list inert and the match, which
+			exists only inside it, is suppressed.`,
+		Tags: []string{"tn", "fp-fix", "loop-wordlist", "dogfooding", "issue-3376"},
+	},
+	{
+		ID:               "TN-SHADOW-011",
+		Command:          "python3 <<'EOF'\ns = open('entry.md').read()\ns = s.replace('OLD_PATH', '/etc/shadow is the Linux hashed-password database')\nopen('entry.md', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `python3 heredoc that rewrites a documentation file; /etc/shadow is a Python string
+			literal written to disk, never opened as a file. Since #3379, in_interpreter_heredoc is a
+			command_intent_downgrade label on sec-block-etc-shadow, matching its siblings
+			sec-block-ssh-private and sec-block-keychain (#3042/#3081): the rule FIRES then downgrades
+			BLOCK->AUDIT (attested, not suppressed). Same shape as TN-KEYCHAIN-007.`,
+		Tags: []string{"fp-fix", "python-heredoc", "issue-3379"},
+	},
+	{
+		ID:               "TN-SHADOW-LOOPDATA-002",
+		Command:          `for p in /etc/shadow /etc/master.passwd; do echo "checking $p"; done`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Unquoted word list, both sensitive paths, loop variable only printed.
+			Twin of TN-SHADOW-LOOPDATA-001 without the grep, proving the exclusion keys on
+			the loop variable's USES and not on the presence of a search command.`,
+		Tags: []string{"tn", "fp-fix", "loop-wordlist", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-001",
+		Command:          `for p in /etc/shadow; do cat "$p"; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `The bypass the #3376 fix must not create, and the reason its suggested
+			fix ("exempt a token between 'in' and the loop's do") was rejected: identical
+			word-list position, but the loop variable is read by cat. The body decides, not
+			the position — the loop variable reaching a non-allowlisted command keeps the BLOCK.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-002",
+		Command:          `for p in /etc/shadow; do target="$p"; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Retention rather than use: the loop variable is copied into another name,
+			whose later uses this analysis does not follow. An assignment is therefore live,
+			not inert — the conservative direction, since the alternative is a two-line bypass.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-003",
+		Command:          `for p in /etc/shadow; do echo "$(cat $p)"; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `The reference is lexically inside an argument of an allowlisted command
+			(echo), but the command that actually consumes it is the cat in the nested command
+			substitution. Attribution is to the SMALLEST enclosing simple command, which is what
+			stops "wrap it in echo" from laundering any read.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-004",
+		Command:          `for p in /etc/shadow; do echo "$p"; done; cat /etc/sha'dow'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `An inert loop chained with a real read, where the second occurrence is only
+			visible after quote-splice removal. The exclusion requires the pattern to stop matching
+			the REDACTED command in the same alternative renderings the matcher uses, so a benign
+			first half cannot vouch for the command — the #2843 chained-statement lesson, applied
+			to positional exclusion.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "quote-splice", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-005",
+		Command:          `for p in /etc/shadow; do echo "$p" | xargs cat; done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Printing the value is inert only because nothing consumes the print. Piped
+			into xargs it is a read, spelled differently. The first version of this fix excused it —
+			found by probing the fix's own blast radius, not by an existing test.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-LOOPLIVE-006",
+		Command:          `for p in /etc/shadow; do echo "$p"; done | xargs cat`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Twin of TP-SHADOW-LOOPLIVE-005 with the consumer OUTSIDE the loop. The
+			reason the output-escape analysis is computed over the whole command and not the loop
+			body: a body-scoped walk sees no pipe here at all.`,
+		Tags: []string{"tp", "critical", "loop-wordlist", "bypass-guard", "issue-3376"},
+	},
+	{
+		ID:               "TP-SHADOW-HEREDOC-GUARD",
+		Command:          "bash <<'EOF'\ncat /etc/shadow\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#3379 downgrade guard: a shell (bash) heredoc body IS shell — it executes 'cat
+			/etc/shadow' for real. bash is not a recognized interpreter for in_interpreter_heredoc
+			(guarded corpus-wide by TestInterpreterHeredocNeverExcusesShellHeredoc) and is not cat/tee
+			for in_heredoc, so neither downgrade label applies and the rule must STILL BLOCK.`,
+		Tags: []string{"tp", "downgrade-guard", "regression", "issue-3379"},
+	},
+	{
+		ID:               "TP-SHADOW-SUBSTR-ASSEMBLY-001",
+		Command:          `P=/x; cat ${P:0:1}etc${P:0:1}shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Issue #3378's acceptance shape, source 1: a locally-assigned variable's
+			single-character ${P:0:1} substrings assemble the literal path "/etc/shadow" from
+			pieces, never spelled out in the raw command text. Already worked before #3378 via
+			FoldConstantParamOp (#3220) — kept here as a regression lock for the shape #3378
+			restores the second half of.`,
+		Tags: []string{"tp", "substr-evasion", "issue-3378"},
+	},
+	{
+		ID:               "TP-SHADOW-SUBSTR-ASSEMBLY-002",
+		Command:          `cat ${PATH:0:1}etc${PATH:0:1}shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Issue #3378's acceptance shape, source 2: PATH is never assigned anywhere in
+			this command, only read via ${PATH:0:1} — so no local symbol table entry exists, and
+			before #3378 MaterializeAssignments left this command completely unfolded (verified:
+			it returned the no-op sentinel). Every real bash/sh gives PATH a non-empty absolute-path
+			value, so its first character is always '/' — MaterializeAssignments now folds this
+			narrow, provably-safe shape via foldWellKnownVarLeadingSlash, and sec-block-etc-shadow
+			fires on its own evidence rather than a shape-counting rule guessing at intent.`,
+		Tags: []string{"tp", "substr-evasion", "issue-3378"},
+	},
+	{
+		ID:               "TP-SHADOW-SUBSTR-ASSEMBLY-003",
+		Command:          `cat ${HOME:0:1}etc${HOME:0:1}shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `Twin of TP-SHADOW-SUBSTR-ASSEMBLY-002 using HOME instead of PATH — the other
+			half of the two-name wellKnownAbsolutePathVars set #3378 introduced.`,
+		Tags: []string{"tp", "substr-evasion", "issue-3378"},
 	},
 }
 
@@ -5226,6 +5668,46 @@ var VaultSecretReadCases = []TestCase{
 		Description:      "git commit message documenting vault kv get usage. Since #2843/#2983, is_doc_text is a command_intent_downgrade label on sec-block-vault-kv-get: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "vault", "issue-2843"},
 	},
+	{
+		ID:               "TN-VAULTREAD-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'vault read secret/api-keys extracts a KV v1 secret from HashiCorp Vault to stdout')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the vault read command is a Python string literal written to disk, never executed. Since #3402, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-vault-read: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-GCLOUD-TOKEN-HEREDOC-001 (#2983). This is the exact FP reported in #3402 while authoring a compliance rationale describing the detection.",
+		Tags:             []string{"fp-fix", "python-heredoc", "vault", "issue-3402"},
+	},
+	{
+		ID:               "TP-VAULTREAD-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\nvault read secret/api-keys\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3402 downgrade: a SHELL (bash) heredoc body executes as shell, so a real vault read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters (python/node/...), never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this. Ensures the FP fix did not open a bypass.",
+		Tags:             []string{"guard", "shell-heredoc", "vault", "issue-3402"},
+	},
+	{
+		ID:               "TN-VAULTKV-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'vault kv get secret/foo reads a KV v2 secret from HashiCorp Vault to stdout')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the vault kv get command is a Python string literal written to disk, never executed. Since #3402, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-vault-kv-get: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-GCLOUD-TOKEN-HEREDOC-001 (#2983). This is the exact FP reported in #3402 (shapes 2/3 of the probe — python3 - <<'PY').",
+		Tags:             []string{"fp-fix", "python-heredoc", "vault", "issue-3402"},
+	},
+	{
+		ID:               "TP-VAULTKV-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\nvault kv get secret/foo\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/config-file-access/vault-secret-read",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3402 downgrade: a SHELL (bash) heredoc body executes as shell, so a real vault kv get inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters (python/node/...), never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this. Ensures the FP fix did not open a bypass.",
+		Tags:             []string{"guard", "shell-heredoc", "vault", "issue-3402"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -6297,6 +6779,26 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Description:      "git commit message documenting the package-manager-credential read pattern. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843"},
 	},
+	{
+		ID:               "TN-PKGMGRCRED-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'cat ~/.cargo/credentials.toml reads the Cargo publish token from disk')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/package-registry/package-manager-credential-access",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the cargo credential read command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-package-manager-credentials: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-PKGMGRCRED-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncat ~/.cargo/credentials.toml\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/package-registry/package-manager-credential-access",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real cargo credential read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
+	},
 
 	// === Helm registry credential file access (issue #65) ===
 
@@ -6349,6 +6851,26 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "git commit message documenting the Helm credential read pattern. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843"},
+	},
+	{
+		ID:               "TN-HELMCRED-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'cat ~/.config/helm/registry/config.json reads OCI registry auth tokens from disk')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/helm-registry-credential-access",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the Helm registry read command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-helm-registry-creds: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-HELMCRED-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncat ~/.config/helm/registry/config.json\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/helm-registry-credential-access",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real Helm registry read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
 	},
 
 	// === CI/CD credential file access (issue #65) ===
@@ -6403,6 +6925,26 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Description:      "git commit message documenting the CI/CD credential read pattern. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843"},
 	},
+	{
+		ID:               "TN-CICDCRED-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'cat ~/.circleci/cli.yml reads the CircleCI API token from disk')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cicd-credential-access",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the CircleCI credential read command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-cicd-credential-read: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-CICDCRED-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncat ~/.circleci/cli.yml\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cicd-credential-access",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real CircleCI credential read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
+	},
 
 	// === Cloud storage credential access (issue #65) ===
 
@@ -6456,6 +6998,26 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Description:      "git commit message documenting the cloud-storage credential read pattern. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843"},
 	},
+	{
+		ID:               "TN-CLOUDSTORAGECRED-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'cat ~/.s3cfg reads the S3-compatible access key from disk')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-storage-credential-access",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the s3cfg credential read command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-cloud-storage-creds: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-CLOUDSTORAGECRED-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncat ~/.s3cfg\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/cloud-storage-credential-access",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real s3cfg credential read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
+	},
 
 	// === Terraform credential access (issue #65) ===
 
@@ -6508,6 +7070,26 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "git commit message documenting the Terraform credential read pattern. Since #2843/#2983, is_doc_text is a command_intent_downgrade label: the rule fires then downgrades BLOCK→AUDIT, attesting the doc-text match rather than silently suppressing it. Not a BLOCK — no interruption, no FN.",
 		Tags:             []string{"tn", "doc-text", "issue-2843"},
+	},
+	{
+		ID:               "TN-TFCRED-INTERPHEREDOC-001",
+		Command:          "python3 <<'EOF'\ns = open('entry.yaml').read()\ns = s.replace('OLD_RATIONALE', 'cat ~/.terraform.d/credentials.tfrc.json reads the Terraform Cloud API token from disk')\nopen('entry.yaml', 'w').write(s)\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/terraform-credential-access",
+		Analyzer:         "regex",
+		Description:      "python3 heredoc that rewrites a taxonomy YAML rationale; the Terraform credential read command is a Python string literal written to disk, never executed. Since #3406, in_interpreter_heredoc is a command_intent_downgrade label on sec-block-terraform-credentials: the rule FIRES then downgrades BLOCK->AUDIT (attested, not suppressed). Same shape as TN-VAULTREAD-INTERPHEREDOC-001 (#3402).",
+		Tags:             []string{"fp-fix", "python-heredoc", "issue-3406"},
+	},
+	{
+		ID:               "TP-TFCRED-SHELL-HEREDOC-GUARD-001",
+		Command:          "bash <<'EOF'\ncat ~/.terraform.d/credentials.tfrc.json\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-credentials/terraform-credential-access",
+		Analyzer:         "regex",
+		Description:      "Guard for the #3406 downgrade: a SHELL (bash) heredoc body executes as shell, so a real Terraform credential read inside it must still BLOCK. in_interpreter_heredoc is set only for non-shell interpreters, never bash/sh — TestInterpreterHeredocNeverExcusesShellHeredoc protects this.",
+		Tags:             []string{"guard", "shell-heredoc", "issue-3406"},
 	},
 
 	// === Docker daemon config read (issue #65) ===
@@ -8419,6 +9001,50 @@ var FridaProcessAttachCoverageCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "frida-compile compiles a Frida JS agent to a bundle — no process attach, no -p/-n flags; ts-block-frida-pid-attach/name-attach/trace-attach must NOT fire. AUDIT is the expected result (supply-chain rule may fire on the frida-compile binary itself).",
 		Tags:             []string{"tn", "frida", "safe"},
+	},
+
+	// --- SEARCH-NEEDLE POSITION (issue #3382) ---
+	//
+	// Third instance of the "count without position" class #3376/#3363 also
+	// hit: the trigger phrase "frida -n <process>" appears as the PATTERN
+	// operand of a grep search — data being compared against file content,
+	// not an attach target. Nothing is instrumented and nothing is opened;
+	// the command's only effect is printing matching doc lines. Fixed by
+	// command_position_exclude: [search_needle], which redacts the grep
+	// pattern operand via shellparse.SearchToolNeedles before re-checking the
+	// rule's own pattern (the mechanism #3377 introduced for loop_wordlist).
+	//
+	// The TP below is the reason the fix is not "exempt the position": the
+	// same phrase reappearing as a genuine invocation elsewhere in the
+	// command must still BLOCK — that is the subtraction half of the check.
+	{
+		ID:               "TN-FRIDA-SEARCHNEEDLE-001",
+		Command:          `grep -i "frida -n <process>" -r docs/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "regex",
+		Description: `The command from issue #3382, found while dogfooding (repairing broken
+			documented dev commands, #3677). "frida -n <process>" is the grep PATTERN
+			operand — a search for occurrences of the phrase in doc files, not an attach.
+			shellparse.SearchToolNeedles identifies the grep needle span and redacts it;
+			the rule's own pattern no longer matches the redacted command, so the match
+			is attributed entirely to the inert position and suppressed.`,
+		Tags: []string{"tn", "fp-fix", "search-needle", "dogfooding", "issue-3382"},
+	},
+	{
+		ID:               "TP-FRIDA-SEARCHNEEDLE-001",
+		Command:          `grep -i "frida -n <process>" -r docs/ && frida -n chrome`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "regex",
+		Description: `Same inert search as TN-FRIDA-SEARCHNEEDLE-001, chained with a genuine
+			attach. Subtraction must keep the block: after the grep pattern operand is
+			redacted, "frida -n chrome" still matches the rule on its own, so the
+			exclusion never applies. Guards against the exclusion widening into a
+			one-line bypass of the only rule covering name-based Frida attach.`,
+		Tags: []string{"tp", "frida", "search-needle", "issue-3382"},
 	},
 }
 

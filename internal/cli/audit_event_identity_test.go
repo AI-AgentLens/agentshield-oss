@@ -150,7 +150,7 @@ func TestAuditMCPCall_EventCarriesTaxonomyAndIdentity(t *testing.T) {
 		Reasons:        []string{"SSH private key read via MCP filesystem tool"},
 		// A composite MCP decision can populate either field; both must reach
 		// the audit event via AllTaxonomyRefs.
-		TaxonomyRef:  "credential-exposure/secret-material/ssh-private-key-read",
+		TaxonomyRef:  "credential-exposure/private-key-access/ssh-private-key-read",
 		TaxonomyRefs: []string{testTaxonomyRef},
 	}
 
@@ -164,7 +164,7 @@ func TestAuditMCPCall_EventCarriesTaxonomyAndIdentity(t *testing.T) {
 	e := logged[0]
 
 	for _, want := range []string{
-		"credential-exposure/secret-material/ssh-private-key-read",
+		"credential-exposure/private-key-access/ssh-private-key-read",
 		testTaxonomyRef,
 	} {
 		if !containsStr(e.TaxonomyRefs, want) {

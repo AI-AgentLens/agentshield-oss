@@ -71,6 +71,56 @@ func TestDataflow_WriteToCronSpool(t *testing.T) {
 	assertHasFinding(t, findings, "df-block-write-cron-spool", "BLOCK")
 }
 
+func TestDataflow_WriteToCronDotD(t *testing.T) {
+	structural := analyzer.NewStructuralAnalyzer(2)
+	df := analyzer.NewDataflowAnalyzer()
+
+	ctx := &analyzer.AnalysisContext{
+		RawCommand: `echo "* * * * * root /tmp/backdoor" > /etc/cron.d/persist`,
+	}
+	structural.Analyze(ctx)
+	findings := df.Analyze(ctx)
+
+	assertHasFinding(t, findings, "df-block-write-cron-spool", "BLOCK")
+}
+
+func TestDataflow_WriteToEtcCrontab(t *testing.T) {
+	structural := analyzer.NewStructuralAnalyzer(2)
+	df := analyzer.NewDataflowAnalyzer()
+
+	ctx := &analyzer.AnalysisContext{
+		RawCommand: `echo "* * * * * root /tmp/backdoor" >> /etc/crontab`,
+	}
+	structural.Analyze(ctx)
+	findings := df.Analyze(ctx)
+
+	assertHasFinding(t, findings, "df-block-write-cron-spool", "BLOCK")
+}
+
+// #3523: a scratch path that merely contains the substring "cron" is not a
+// cron spool file and must not be blocked as persistence.
+func TestDataflow_WriteToPathContainingCronSubstringIsNotSpool(t *testing.T) {
+	structural := analyzer.NewStructuralAnalyzer(2)
+	df := analyzer.NewDataflowAnalyzer()
+
+	cases := []string{
+		`cat > /tmp/cron-drain-check/pre_fix.py << 'EOF'
+print("hi")
+EOF`,
+		`echo "package cron" > internal/cron/scheduler.go`,
+	}
+	for _, cmd := range cases {
+		ctx := &analyzer.AnalysisContext{RawCommand: cmd}
+		structural.Analyze(ctx)
+		findings := df.Analyze(ctx)
+		for _, f := range findings {
+			if f.RuleID == "df-block-write-cron-spool" {
+				t.Errorf("command %q: expected no cron-spool finding, got one (path merely contains \"cron\")", cmd)
+			}
+		}
+	}
+}
+
 func TestDataflow_PipeSensitiveToNetwork(t *testing.T) {
 	structural := analyzer.NewStructuralAnalyzer(2)
 	df := analyzer.NewDataflowAnalyzer()

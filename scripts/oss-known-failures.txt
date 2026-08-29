@@ -130,6 +130,10 @@
 #                            single-command overrun rather than a named BLOCK->AUDIT.
 #                            Same root cause, different expression. If the budget is
 #                            ever made build-aware this line comes back out.
+#                            RECLAIMED 2026-08-24 -- see the #3467 entry below.
+#                            Note kept, not deleted: the line is expected back if
+#                            the leak count rises again, and re-deriving this
+#                            explanation from the test name alone is expensive.
 #
 # Method (reproducible): clone main, `rm -rf packs/premium packs/packs_premium.go
 # cmd/gen-premium-manifest`, run `go test ./internal/policy ./internal/analyzer`.
@@ -138,7 +142,103 @@
 # 20373 subtests graded, 0 failures, and each of the 11 confirmed PRESENT as a RUN
 # subtest — so "passes with premium" is a measurement, not an absence of evidence.
 #
-# Total: 933
+#
+# 2026-08-21 (#3432): +3 -- TP-TS-BLOCK-GIT-REMOTE-HELPER-001..003, the git
+# remote-helper flag class (CVE-2026-54316). Their only covering rule is the
+# premium ts-block-git-remote-helper-exec. Triaged per case rather than
+# bulk-appended, and the three do NOT share a verdict:
+#
+#   TP-TS-BLOCK-GIT-REMOTE-HELPER-001/002
+#                         -> BLIND. The --receive-pack= / --upload-pack= forms
+#                            name the peer-side program git launches. No
+#                            community rule reads either flag anywhere (grep
+#                            over packs/community/ returns nothing), and the
+#                            OSS build reports AUDIT with an EMPTY rule list --
+#                            the default fall-through, i.e. real blindness.
+#   TP-TS-BLOCK-GIT-REMOTE-HELPER-003
+#                         -> TIER-SPLIT. Community DOES fire, at AUDIT, via
+#                            ts-audit-git-archive; premium escalates the same
+#                            command to BLOCK and attributes it to
+#                            unauthorized-execution/lolbin/git-remote-helper-exec
+#                            rather than the generic git-data-exfil node.
+#                            Read that claim NARROWLY: the community rule
+#                            matches a bare `git archive` and is not
+#                            --exec-aware, so the free tier sees the COMMAND,
+#                            not the RCE mechanism. Same shape as the
+#                            TP-GHA-OIDC tier-split above. Proven by
+#                            TestCommunityTierSeesGitArchiveExec, which also
+#                            asserts the narrowness so the line cannot quietly
+#                            grow into a broader coverage claim.
+#
+# Measured on the OSS-stripped tree (`git archive HEAD` + premium removed per
+# scripts/publish-oss.sh, the same strip integration-test-oss.sh performs):
+# all three report Expected: BLOCK / Got: AUDIT. Sat red for one night (CI run
+# 32380394209 on 08-20) after #3432 landed on 08-19 -- the #3274 green->red
+# notification gap, not a new failure mode.
+# 2026-08-24: +4 blind, -1 ratchet-down. Net 940 -> 943.
+#
+# +4 -- TP-ADB-AM-START-INJECT-001..004, the Android Debug Bridge
+# `am start` host-shell-injection class added by #3470 (landed 08-22 02:31 EDT).
+# Their only covering rule is the premium ts-block-adb-am-start-shell-injection.
+# Sat red for two nights (CI runs 32578140652 on 08-22, 32644942418 on 08-23)
+# -- the same green->red notification gap as the #3432 entry above.
+#
+# Triaged per case rather than bulk-appended, and the four do NOT share a
+# verdict:
+#
+#   TP-ADB-AM-START-INJECT-001/002/004
+#                         -> BLIND. The unsanitized -d value carries a shell
+#                            metacharacter (command separator, command
+#                            substitution, or backticks). The OSS build reports
+#                            Expected: BLOCK / Got: AUDIT with an EMPTY rule
+#                            list in BOTH sweeps -- the default fall-through,
+#                            i.e. real blindness. No community rule reads `adb`
+#                            at all: every `adb` hit in packs/community/ is a
+#                            substring of `mariadb` or `chromadb`.
+#   TP-ADB-AM-START-INJECT-003
+#                         -> BLIND ON THE ADB PATTERN, but NOT undetected.
+#                            Read this one narrowly. Its payload chains a
+#                            download-and-execute onto the -d value, and the
+#                            community structural rule ts-struct-block-pipe-to-
+#                            shell decomposes and BLOCKs that tail. So it FAILS
+#                            the regex sweep (TestAccuracy_AllKingdoms, empty
+#                            rule list) and PASSES the full-pipeline sweep
+#                            (TestPipeline_AllKingdoms) in the OSS build --
+#                            measured both ways, not inferred.
+#                            It is NOT tier-split: community fires on a
+#                            DIFFERENT, co-occurring pattern, not on the adb
+#                            shape at AUDIT. Calling it tier-split would claim
+#                            free-tier adb awareness that does not exist. The
+#                            entry is deduped across parent sweeps, so it is one
+#                            line -- which is exactly why the split needs saying
+#                            here rather than being read off the line.
+#
+# -1 -- case:sudo-endopts, reclaimed. Bisected to 322aa387,
+# "fix(intent-exclude): fail closed on parse-failure fallback, not open"
+# (#3467): the parse-failure fallback was excluding on error, so the
+# `sudo -u root --` prefix laundered one extra decision downward. Measured on
+# the OSS-stripped tree at 322aa387^ (12ff5f10): 45/1682 leaked, budget 44,
+# FAIL. At 322aa387: PASS. Not a budget change -- maxLeaks has been 44 since
+# #3378 on 08-16, and the other five wrapper positions are unmoved at 41.
+#
+# FRAGILE GREEN, say it out loud: the OSS build now sits at 44/1682 against a
+# budget of 44. Zero headroom. The next OSS-visible leak on this position
+# re-reds the gate and this line comes straight back -- that is the ratchet
+# working, not a regression in this change.
+#
+# Measured on the OSS-stripped tree (`git archive origin/main` + premium removed
+# per scripts/publish-oss.sh, the same strip integration-test-oss.sh performs),
+# then confirmed by running scripts/check-oss-baseline.sh over that log: it
+# reproduced the CI delta exactly -- 943 observed, 4 NEW, 1 FIXED. Control on
+# the unstripped tree: all four ADB cases PASS both sweeps, so "passes with
+# premium" is a measurement, not an absence of evidence.
+#
+# Total: 943 -- re-derive, do not hand-maintain. This read `933` while the
+# file actually held 937 entries, so it had silently drifted by 4 before
+# #3432 touched it; a stale count in a file whose whole job is counting is
+# the same shape as the gates this file exists to distrust. Re-derive with:
+#   sed -E 's/[[:space:]]*#.*$//' scripts/oss-known-failures.txt \
+#     | grep -v '^[[:space:]]*$' | sort -u | wc -l
 case:FN-NSREG-004
 case:FN-NSREG-005
 case:FN-NSREG-006
@@ -151,6 +251,14 @@ case:TN-NE-BLOCK-ARP-DNS-TOOLS-002
 case:TN-ORCHFAILOPEN-006
 case:TN-TS-AUDIT-AIMP-001
 case:TN-TS-AUDIT-TUNNEL-AI-PORT-001
+case:TP-AAEXEC-UNCONFINED-001
+case:TP-AAEXEC-UNCONFINED-002
+case:TP-AAEXEC-UNCONFINED-003
+case:TP-AAEXEC-UNCONFINED-004
+case:TP-ADB-AM-START-INJECT-001
+case:TP-ADB-AM-START-INJECT-002
+case:TP-ADB-AM-START-INJECT-003
+case:TP-ADB-AM-START-INJECT-004
 case:TP-ADO-ADDATTACHMENT-001
 case:TP-ADO-PREPENDPATH-001
 case:TP-ADO-PREPENDPATH-002
@@ -324,6 +432,7 @@ case:TP-FRIDA-NAME-001
 case:TP-FRIDA-NAME-002
 case:TP-FRIDA-PID-001
 case:TP-FRIDA-PID-002
+case:TP-FRIDA-SEARCHNEEDLE-001
 case:TP-FRIDA-SPAWN-001
 case:TP-FRIDA-SPAWN-002
 case:TP-FRIDA-TRACE-001
@@ -929,6 +1038,10 @@ case:TP-SED-EXEC-FLAG-002
 case:TP-SED-EXEC-FLAG-004
 case:TP-SED-EXEC-FLAG-005
 case:TP-SED-EXEC-FLAG-006
+case:TP-SETPRIV-CAPS-001
+case:TP-SETPRIV-CAPS-002
+case:TP-SETPRIV-CAPS-003
+case:TP-SETPRIV-CAPS-004
 case:TP-SHELLOPTS-XTRACE-001
 case:TP-SHELLOPTS-XTRACE-002
 case:TP-SHELLOPTS-XTRACE-003
@@ -980,6 +1093,7 @@ case:TP-TRANSCRIPT-UPLOAD-004
 case:TP-TS-AUDIT-FIND-FWRITE-001
 case:TP-TS-AUDIT-FIND-FWRITE-002
 case:TP-TS-AUDIT-NULL-BYTE-PATH-001
+case:TP-TS-AUDIT-OLLAMA-SERVE-003  # tier-split #3520/#3521: community AUDITs the shadow-AI command (ts-audit-ollama-serve), premium escalates the all-interfaces exposure to BLOCK. Proven by TestCommunityTierSeesOllamaServe.
 case:TP-TS-AUDIT-TUNNEL-AI-PORT-001
 case:TP-TS-AUDIT-TUNNEL-AI-PORT-002
 case:TP-TS-AUDIT-XLANG-001
@@ -1005,6 +1119,9 @@ case:TP-TS-BLOCK-GIT-INLINE-CFG-EXEC-007
 case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-001
 case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-002
 case:TP-TS-BLOCK-GIT-INLINE-CFG-SHELL-003
+case:TP-TS-BLOCK-GIT-REMOTE-HELPER-001
+case:TP-TS-BLOCK-GIT-REMOTE-HELPER-002
+case:TP-TS-BLOCK-GIT-REMOTE-HELPER-003  # tier-split #3432: community AUDITs via ts-audit-git-archive (generic `git archive`, not --exec-aware), premium escalates to BLOCK (TestCommunityTierSeesGitArchiveExec)
 case:TP-TS-BLOCK-GIT-RR-CACHE-WRITE-001
 case:TP-TS-BLOCK-GITATTRIBUTES-MERGE-BYPASS-001
 case:TP-TS-BLOCK-GITHUB-WEBHOOK-001
@@ -1074,4 +1191,3 @@ case:TP-ZIP-UNZIP-CMD-002
 case:TP-ZIP-UNZIP-CMD-003
 case:TP-ZIP-UNZIP-CMD-005
 case:TP-ZSHGLOB-001
-case:sudo-endopts

@@ -85,11 +85,16 @@ export HOMEBREW_DOWNLOAD_CONCURRENCY=1
 # extends to formulae at 5.2.0/6.0.0. Trusting the OSS tap here is a no-op on
 # current Homebrew and keeps this walkthrough green when the formula gate lands.
 brew tap AI-AgentLens/oss 2>&1 | tail -3
-brew trust AI-AgentLens/oss 2>&1 | tail -2 || true
+brew trust AI-AgentLens/oss >/dev/null 2>&1 || \
+    echo "  note: brew trust unavailable on this Homebrew - skipping (install is the real gate)"
+# Capture, do not pipe: `brew install | tail` exits with tail's status (0), so
+# the retry below used to break on attempt 1 whether or not the install worked.
 for attempt in 1 2 3; do
-    if brew install AI-AgentLens/oss/agentshield 2>&1 | tail -5; then
+    if install_out=$(brew install AI-AgentLens/oss/agentshield 2>&1); then
+        printf '%s\n' "$install_out" | tail -5
         break
     fi
+    printf '%s\n' "$install_out" | tail -15 >&2
     if [ $attempt -eq 3 ]; then
         echo "  brew install failed after 3 attempts (likely ghcr.io bottle download issue)" >&2
         break
@@ -161,11 +166,27 @@ echo "$SETTINGS" | grep -q "agentshield hook" && fail "hook still present after 
 agentshield setup claude-code >/dev/null 2>&1   # re-enable for steps 9-12
 
 step "STEP 8 — README links"
-expect "policy-guide.md returns 200; rule-request issue link reachable"
+expect "policy-guide.md returns 200; rule-request TEMPLATE FILE returns 200"
 curl -fsI https://raw.githubusercontent.com/AI-AgentLens/agentshield-oss/main/docs/policy-guide.md \
     >/dev/null 2>&1 && pass "policy-guide.md is reachable" || fail "policy-guide.md unreachable"
-curl -fsI -o /dev/null -w "%{http_code}" "https://github.com/AI-AgentLens/agentshield-oss/issues/new?template=rule-request.yml" 2>/dev/null \
-    | grep -qE "^(200|302)$" && pass "rule-request issue link reachable" || fail "rule-request issue link broken"
+# The README's Rule Request link is only useful if the template it names is
+# actually in the published repo. Do NOT go back to probing issues/new: GitHub
+# answers an anonymous request there with a 302 to login BEFORE resolving the
+# template, so that probe returns the same bytes whether the template exists or
+# not. It asserted 302 and reported the link healthy the whole time the
+# template was being stripped from the publish tree by the `.github/` exclude.
+# Fetch the template file itself — the one thing that distinguishes the two.
+TEMPLATE_URL="https://raw.githubusercontent.com/AI-AgentLens/agentshield-oss/main/.github/ISSUE_TEMPLATE/rule-request.yml"
+TEMPLATE_CODE=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 20 "$TEMPLATE_URL" 2>/dev/null)
+if [ "$TEMPLATE_CODE" = "200" ]; then
+    pass "rule-request template resolves in the published repo"
+elif [ "$TEMPLATE_CODE" = "000" ] || [ -z "$TEMPLATE_CODE" ]; then
+    # No answer at all is a network problem, not a product defect. Calling it a
+    # FAIL sends someone hunting a publish bug that isn't there.
+    skip "rule-request template check — no response from raw.githubusercontent.com"
+else
+    fail "rule-request template missing from published repo (HTTP $TEMPLATE_CODE) — run scripts/publish-oss.sh --publish"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────
 # STEPS 9-12: Behaviors that previously required manual verification.

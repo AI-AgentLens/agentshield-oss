@@ -1,6 +1,10 @@
 package mcp
 
-import "regexp"
+import (
+	"regexp"
+
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
+)
 
 // VerificationLoopSignal identifies a fabricated multi-turn "verification
 // protocol" status token in an MCP tool call response.
@@ -73,9 +77,49 @@ func ScanToolCallResponseForVerificationLoop(items []ContentItem) VerificationLo
 			continue
 		}
 		scanVerificationLoopText(&result, item.Text)
+		scanVerificationLoopSeparatorFolded(&result, item.Text)
 	}
 	result.Found = len(result.Findings) > 0
 	return result
+}
+
+// scanVerificationLoopSeparatorFolded re-runs the verification-loop scan
+// against a separator-normalized rendering of the text, appending only
+// findings the raw pass did not already produce.
+//
+// Both verificationStatusTokenRE and verificationContinueDirectiveRE are
+// spelled with `\s`/`\s+`/`\s*`, and Go's RE2 `\s` class is ASCII-only — a
+// skill's helper script can render its status-drain payload with a Unicode
+// separator (e.g. "segmented" + U+00A0 + "verification" + U+00A0 +
+// "protocol") and the whole-word tokens still read as ordinary English to
+// the model while matching neither regex. See unicode.FoldUnicodeSeparators
+// and scanResponseSeparatorFolded (response_scanner.go) for the fold
+// rationale and false-positive-safety argument this mirrors.
+func scanVerificationLoopSeparatorFolded(result *VerificationLoopScanResult, text string) {
+	folded, changed := unicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult VerificationLoopScanResult
+	scanVerificationLoopText(&foldedResult, folded)
+
+	for _, f := range foldedResult.Findings {
+		key := string(f.Signal) + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by folding non-ASCII Unicode separator characters " +
+			"(NBSP / thin / ideographic space and siblings) to ASCII; RE2's `\\s` class is ASCII-only, " +
+			"so the text as sent matched no pattern while rendering and tokenizing identically"
+		result.Findings = append(result.Findings, f)
+	}
 }
 
 func scanVerificationLoopText(result *VerificationLoopScanResult, text string) {

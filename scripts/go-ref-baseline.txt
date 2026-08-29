@@ -1,0 +1,28 @@
+# Go-source TaxonomyRef literals with no backing taxonomy YAML — the
+# Go-source half of check-taxonomy-refs.sh (#3508).
+#
+# Same ratchet contract as scripts/oss-known-failures.txt:
+#   NEW    a ref not listed here fails to resolve      -> FAIL, fix or list it
+#   FIXED  a listed ref now DOES resolve (a taxonomy    -> FAIL, remove the line
+#          node landed, or the code was corrected)
+#
+# The baseline can only shrink. It exists so introducing this check does not
+# immediately break CI on pre-existing debt, not to permanently excuse it.
+#
+# Format: one ref per line. Blank lines and '#' comments ignored.
+
+# Deliberately arbitrary placeholder values in a unit test of struct-field
+# plumbing (TestMCPEvalResult taxonomy dedup) — not a threat classification,
+# any distinct string would do. internal/mcp/policy_taxonomy_test.go
+a/b/c
+
+# Shield#3516 (fixed): the two guardian TN-regression category-label
+# placeholders that used to live here — "persistence-evasion/defense-evasion/
+# obfuscation" and "…/security-bypass" — are gone. internal/guardian/
+# analyzer.go's signalToTaxonomy now maps every built-in guardian signal to a
+# real node (unauthorized-execution/obfuscation/interpreter-encoding-evasion
+# for guardian-obfuscated_base64, persistence-evasion/defense-evasion/
+# security-tool-tampering for guardian-disable_security), and the
+# corresponding TestCase.TaxonomyRef values in
+# internal/analyzer/testdata/persistence_evasion_cases.go were repointed to
+# match.

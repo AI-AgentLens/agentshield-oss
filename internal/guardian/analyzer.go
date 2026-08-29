@@ -163,25 +163,88 @@ func signalToDecision(sig Signal) string {
 	}
 }
 
-// signalToTaxonomy maps guardian signal categories to taxonomy references.
-// This allows the combiner to correlate guardian findings with other analyzers.
+// signalToTaxonomy returns the taxonomy ref that specifically describes the
+// given guardian signal, so callers building an AuditEntry/attestation record
+// attribute a finding to the real attack pattern that fired. Mirrors
+// internal/mcp/response_scanner.go's signalTaxonomyRef.
+//
+// This used to build a path by string-concatenating sig.Category and sig.ID
+// (e.g. "unauthorized-execution/prompt-injection/" + sig.ID), which produced
+// a taxonomy-shaped string for every signal without checking any of them
+// against a real node. None of the 18 resolved (Shield#3516): the category
+// names guardian uses ("prompt-injection", "security-bypass", ...) are not
+// taxonomy category slugs, and sig.ID uses underscores where taxonomy ids use
+// hyphens. Worse, because the string was built by concatenation rather than
+// literal per-case returns, check-taxonomy-refs.sh's Go-source scanner
+// structurally excludes it ("concatenation-built, excluded") — so every
+// Guardian finding shipped a dangling ref into the audit log and attestation
+// pipeline with no gate able to see it. The switch below returns a literal
+// per case specifically so that scanner can check these refs going forward.
+//
+// secrets_in_command deliberately returns "" — no taxonomy node describes an
+// inline credential-shaped value typed directly into a command (as opposed to
+// one read from a file or secret store, which is what every credential-exposure
+// node documents). internal/mcp/content_scanner.go's TaxonomyRef field carries
+// the same documented gap for the identical MCP-side detection; leaving this
+// one signal unmapped follows that precedent rather than stretching it onto an
+// ill-fitting node.
 func signalToTaxonomy(sig Signal) string {
-	switch sig.Category {
-	case "prompt-injection":
-		return "unauthorized-execution/prompt-injection/" + sig.ID
-	case "security-bypass":
-		return "unauthorized-execution/security-bypass/" + sig.ID
-	case "obfuscation":
-		return "unauthorized-execution/obfuscation/" + sig.ID
-	case "code-execution":
-		return "unauthorized-execution/code-execution/" + sig.ID
-	case "data-exfiltration":
-		return "data-exfiltration/bulk-transfer/" + sig.ID
-	case "steganography":
-		return "data-exfiltration/steganography/" + sig.ID
-	case "credential-exposure":
-		return "credential-exposure/inline-secret/" + sig.ID
+	switch sig.ID {
+	case "instruction_override":
+		// Fires on override language IN the text of a tool-invocation argument
+		// (the shell command itself) — the shell-execution-tool instance of
+		// tool-argument-injection's "AI agents invoke tools (file read/write,
+		// SHELL EXECUTION, API calls)... when the LLM includes [untrusted]
+		// content in tool arguments" mechanism.
+		return "unauthorized-execution/agentic-attacks/tool-argument-injection"
+	case "prompt_exfiltration":
+		return "reconnaissance/llm-introspection/system-prompt-recovery-via-jailbreak"
+	case "disable_security":
+		return "persistence-evasion/defense-evasion/security-tool-tampering"
+	case "obfuscated_base64", "obfuscated_hex", "obfuscated_decoder_eval":
+		// Closest real node for "encoded payload shape that hides intent from
+		// static/regex detection" (its own worked examples are pack('H*')/
+		// bytes.fromhex() reconstruction, not literal base64 — an approximation,
+		// not an exact fit; no node covers the bare encoding-presence signal).
+		return "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
+	case "eval_risk":
+		// matchesEvalRisk fires specifically on eval(/exec( inside an
+		// interpreter's inline-script flag (python3 -c "...eval(...)...") or
+		// heredoc body — exactly indirect-code-exec's "routing through an
+		// interpreter's inline-script flag" mechanism.
+		return "unauthorized-execution/remote-code-exec/indirect-code-exec"
+	case "bulk_exfiltration":
+		// matchesBulkExfil fires on tar/zip of ~/, $HOME, .git, or /repo piped
+		// to curl/wget/scp/rsync. The home-directory case necessarily sweeps up
+		// the credential files this node documents (~/.ssh, ~/.aws, ~/.kube);
+		// the .git/repo case is source-code exfiltration, a narrower fit.
+		return "data-exfiltration/file-exfiltration/archive-credential-bypass"
+	case "secrets_in_command":
+		return ""
+	case "indirect_injection", "html_comment_injection":
+		// html_comment_injection is the HTML-comment channel of indirect
+		// injection; indirect-prompt-injection's own explanation lists "Hidden
+		// instructions in HTML comments" as a worked example of this node.
+		return "unauthorized-execution/agentic-attacks/indirect-prompt-injection"
+	case "unicode_steganography":
+		return "unauthorized-execution/agentic-attacks/invisible-unicode-prompt-injection"
+	case "code_steganography":
+		return "data-exfiltration/steganography/ai-code-steganography"
+	case "roleplay_persona_jailbreak", "jailbreak_response_signature":
+		// jailbreak_response_signature detects the AI's own DAN/Developer-Mode
+		// compliance OUTPUT; roleplay_persona_jailbreak detects the activation
+		// INPUT. Same family — heuristic.go groups both under one "Roleplay/
+		// persona jailbreak" section heading.
+		return "unauthorized-execution/agentic-attacks/roleplay-persona-jailbreak"
+	case "authority_claim_bypass":
+		return "unauthorized-execution/agentic-attacks/authority-framed-verification-bypass"
+	case "policy_puppetry_jailbreak":
+		return "unauthorized-execution/agentic-attacks/policy-puppetry-jailbreak"
+	case "best_of_n_jailbreak_meta":
+		return "unauthorized-execution/agentic-attacks/best-of-n-jailbreak"
 	default:
-		return "guardian/" + sig.Category + "/" + sig.ID
+		// Unrecognized signal ID (e.g. a new rule added without updating this
+		// switch): no taxonomy claim rather than a fabricated one.
+		return ""
 	}
 }

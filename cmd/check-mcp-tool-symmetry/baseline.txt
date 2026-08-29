@@ -1,0 +1,96 @@
+# baseline.txt — MCP credential-exposure rules that are path-based, list a
+# read-family tool_name_any entry, and list zero write-family entries.
+#
+# Read by cmd/check-mcp-tool-symmetry. A line here is a rule someone
+# reviewed and judged genuinely read-only-by-design (no realistic write
+# threat) — see that package's doc comment for what this gate checks and
+# why it cannot make that call itself. Any rule NOT listed here is new and
+# fails CI.
+#
+# Format: <rule id>. One rule per line. Comments after '#'.
+#
+# Adding a NEW line requires the same review #3525 asked for: read the rule,
+# decide the write path is not a realistic threat, and say why in the PR
+# description (not on this line — -write-baseline discards comments here on
+# rewrite). The default fix is to broaden tool_name_any to the write family
+# (see #3524), NOT to baseline the finding.
+#
+# Bootstrap: go run ./cmd/check-mcp-tool-symmetry -write-baseline
+#
+mcp-apc-block-multiagent-framework-api-creds
+mcp-db-block-mongorc-read
+mcp-db-block-mongosh-history
+mcp-db-block-mongoshrc-read
+mcp-db-block-mysql-system-config-read
+mcp-db-block-redis-conf-root-read
+mcp-db-block-redis-server-config-read
+mcp-gen-sec-audit-ai-cred-files
+mcp-gen-sec-block-etc-shadow
+mcp-gen-sec-block-firefox-login-db
+mcp-gen-ts-block-symlink-credential-files
+mcp-recon-block-proc-environ
+mcp-recon-block-proc-fd-read
+mcp-sec-audit-containers-registries-conf
+mcp-sec-audit-jupyter-notebook-read
+mcp-sec-block-atuin-config-read
+mcp-sec-block-authy-config-read
+mcp-sec-block-bitwarden-session-token
+mcp-sec-block-bitwarden-snap-data
+mcp-sec-block-bundler-config-read
+mcp-sec-block-cocoapods-credentials
+mcp-sec-block-code-server-config-read
+mcp-sec-block-codeium-xdg-config-read
+mcp-sec-block-comet-config-read
+mcp-sec-block-container-secrets-mount
+mcp-sec-block-convox-credentials
+mcp-sec-block-curlrc-read
+mcp-sec-block-dashlane-credentials
+mcp-sec-block-databricks-config-read
+mcp-sec-block-datagrip-datasources
+mcp-sec-block-datagrip-jetbrains
+mcp-sec-block-db-cli-history
+mcp-sec-block-dbeaver-datasources
+mcp-sec-block-dify-config-read
+mcp-sec-block-discord-creds
+mcp-sec-block-discord-macos-creds
+mcp-sec-block-dotenv-read
+mcp-sec-block-dotenv-variants-read
+mcp-sec-block-dvc-config-read
+mcp-sec-block-envrc-read
+mcp-sec-block-fastlane-credentials
+mcp-sec-block-fish-history
+mcp-sec-block-fish-variables
+mcp-sec-block-flowise-config-read
+mcp-sec-block-gitconfig-read
+mcp-sec-block-gradle-credential-access
+mcp-sec-block-jupyter-kernel-runtime
+mcp-sec-block-jupyter-server-token
+mcp-sec-block-jupyterlab-server-token
+mcp-sec-block-keepass-classic-config
+mcp-sec-block-keepass-kdb-read
+mcp-sec-block-keepass-kdbx-read
+mcp-sec-block-langflow-config-read
+mcp-sec-block-lastpass-config-dir
+mcp-sec-block-lastpass-config-dir-lowercase
+mcp-sec-block-lastpass-local-vault-read
+mcp-sec-block-mise-env-config
+mcp-sec-block-mysql-mylogin-cnf
+mcp-sec-block-n8n-config-read
+mcp-sec-block-n8n-database-read
+mcp-sec-block-netskope-token
+mcp-sec-block-powershell-history
+mcp-sec-block-psql-history
+mcp-sec-block-rediscli-auth
+mcp-sec-block-rediscli-history
+mcp-sec-block-replicate-legacy-token-read
+mcp-sec-block-replicate-token-read
+mcp-sec-block-sequel-pro-connections
+mcp-sec-block-shell-history
+mcp-sec-block-slack-cli-creds
+mcp-sec-block-snowflake-connector-config-read
+mcp-sec-block-snyk-config
+mcp-sec-block-supermaven-xdg-config-read
+mcp-sec-block-tableplus-connections
+mcp-sec-block-wandb-settings-read
+mcp-sec-block-wgetrc-read
+mcp-sec-block-windmill-config-read

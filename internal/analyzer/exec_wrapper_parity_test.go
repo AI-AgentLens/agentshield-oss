@@ -86,7 +86,18 @@ func TestExecWrapperParity(t *testing.T) {
 	// only, and the bare read in a later statement is unaffected by it. -002
 	// (`P1=/root/.ssh; P2=id_rsa; cat $P1/$P2`) does not leak under "exec",
 	// hence +1 rather than +2 there — same shape as -003's exception above.
-	const maxLeaks = 43
+	//
+	// 2026-08-16 (#3378), +1 for "/usr/bin/env" (+0 for "exec"):
+	// TP-SHADOW-SUBSTR-ASSEMBLY-001 (`P=/x; cat ${P:0:1}etc${P:0:1}shadow`) —
+	// a regression lock for the already-working half of #3378
+	// (FoldConstantParamOp's constant-substring fold, #3220), added alongside
+	// the two NEW single-statement cases #3378 closes
+	// (TP-SHADOW-SUBSTR-ASSEMBLY-002/003, which do NOT leak here — no
+	// assignment statement to strand a prefix on). Same multi-statement
+	// residue as every entry above: the assignment sits before the read, so a
+	// wrapper prefix only reaches the first statement. Does not leak here
+	// under "exec", hence +0 there — same shape as -002's exception above.
+	const maxLeaks = 44
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

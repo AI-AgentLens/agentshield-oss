@@ -32,6 +32,10 @@ type MessageHandler struct {
 	BrowserGameJailbreak *BrowserGameJailbreakTracker // optional; nil disables gamified context-reframing jailbreak detection (#2792)
 	TaskAmplification    *TaskAmplificationTracker    // optional; nil disables SEP-1686 task-amplification burst detection (#2795)
 	LateralWrite         *LateralWriteTracker         // optional; nil disables cross-call lateral-write-after-ingest session accumulation (#3275)
+	GhostSplice          *GhostSpliceTracker          // optional; nil disables MCP cross-channel instruction fragmentation detection (#3385)
+	FetchDiversity       *FetchDiversityTracker       // optional; nil disables public-metadata side-channel exfiltration detection (#3453)
+	CompoSkill           *CompoSkillTracker           // optional; nil disables cross-skill composition-chain detection (#3499)
+	StagedTrust          *StagedTrustTracker          // optional; nil disables TrustShift staged trust attack detection (#3519, arXiv 2608.23763)
 }
 
 // newMessageHandler builds a fully wired MessageHandler with fresh per-session
@@ -60,6 +64,10 @@ func newMessageHandler(evaluator *PolicyEvaluator, onAudit AuditFunc, stderr io.
 		BrowserGameJailbreak: NewBrowserGameJailbreakTracker(),
 		TaskAmplification:    NewTaskAmplificationTracker(),
 		LateralWrite:         NewLateralWriteTracker(),
+		GhostSplice:          NewGhostSpliceTracker(),
+		FetchDiversity:       NewFetchDiversityTracker(),
+		CompoSkill:           NewCompoSkillTracker(),
+		StagedTrust:          NewStagedTrustTracker(),
 	}
 }
 
@@ -262,6 +270,29 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 		}
 	}
 
+	// Cross-skill composition-chain detection (#3499, CompoSkill,
+	// arXiv:2608.16246): fires once when a session has one named skill
+	// exercise a read/ingest capability and a DIFFERENT named skill exercise
+	// an egress capability — the composite is invisible to any per-skill
+	// scanner because neither skill is individually malicious. AUDIT-only.
+	if h.CompoSkill != nil {
+		if sig := h.CompoSkill.Scan(params.Name, params.Arguments); sig != "" {
+			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticCompoSkillChain, params.Arguments)
+			if syntheticResult.Decision == "BLOCK" {
+				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by cross-skill composition-chain composite: %s\n", params.Name)
+				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
+				if err != nil {
+					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] error creating block response: %v\n", err)
+					return false, nil
+				}
+				return true, blockResp
+			}
+			if syntheticResult.Decision == "AUDIT" {
+				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT cross-skill composition-chain composite (a data-extract-capable skill and a DIFFERENT remote-publish-capable skill both exercised this session): %s\n", params.Name)
+			}
+		}
+	}
+
 	// Lateral-write-after-untrusted-ingest session composition (#3275, "living
 	// off the MCP" — DEF CON 34 Tenet Security): fires once when a session has
 	// called a low-trust content-ingest tool (logs/analytics/issues/tickets)
@@ -306,6 +337,41 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT browser game jailbreak composite (engage → credential read → cross-origin navigate → disclosure): %s\n", params.Name)
 			}
 		}
+	}
+
+	// Public-metadata side-channel exfiltration detection (#3453,
+	// CVE-2026-54316 / GHSA-fg94-h982-f3mm): fires when a session fetches
+	// many distinct resources under one namespace on a single host -- no
+	// individual fetch is abnormal (the host is necessarily allowlisted, or
+	// the fetch would not have reached here), the signal is the cardinality
+	// and enumerable-naming shape of the *set* of resources touched.
+	if h.FetchDiversity != nil {
+		if sig := h.FetchDiversity.Scan(params.Name, params.Arguments); sig != "" {
+			var syntheticTool string
+			switch sig {
+			case SignalFetchEnumerablePattern:
+				syntheticTool = syntheticFetchEnumerablePattern
+			case SignalFetchDiversityBurst:
+				syntheticTool = syntheticFetchDiversityBurst
+			}
+			if syntheticTool != "" {
+				syntheticResult := h.Evaluator.EvaluateToolCall(syntheticTool, params.Arguments)
+				if syntheticResult.Decision == "BLOCK" {
+					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by fetch-diversity composite (%s): %s\n", sig, params.Name)
+					blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
+					if err != nil {
+						_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] error creating block response: %v\n", err)
+						return false, nil
+					}
+					h.FetchDiversity.Record(params.Name, params.Arguments)
+					return true, blockResp
+				}
+				if syntheticResult.Decision == "AUDIT" {
+					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT fetch-diversity composite (%s): %s\n", sig, params.Name)
+				}
+			}
+		}
+		h.FetchDiversity.Record(params.Name, params.Arguments)
 	}
 
 	// Record this call in per-session history and evaluate with history so
@@ -593,6 +659,9 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			for _, f := range dlResult.Findings {
 				result.TriggeredRules = append(result.TriggeredRules, "datalabel:"+f.LabelID)
 				result.Reasons = append(result.Reasons, f.LabelName+": "+f.Detail+" (arg: "+f.ArgName+")")
+				if result.TaxonomyRef == "" && f.TaxonomyRef != "" {
+					result.TaxonomyRef = f.TaxonomyRef
+				}
 			}
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by data label scan: %s (%d matches)\n",
 				params.Name, len(dlResult.Findings))
@@ -604,6 +673,9 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			for _, f := range dlResult.Findings {
 				result.TriggeredRules = append(result.TriggeredRules, "datalabel:"+f.LabelID)
 				result.Reasons = append(result.Reasons, f.LabelName+": "+f.Detail+" (arg: "+f.ArgName+")")
+				if result.TaxonomyRef == "" && f.TaxonomyRef != "" {
+					result.TaxonomyRef = f.TaxonomyRef
+				}
 			}
 		}
 	}
@@ -1487,6 +1559,57 @@ func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
 		return repl
 	}
 
+	// Content-block audience-channel scan — same `annotations.audience` routing
+	// field ScanContentAudienceChannel reads on tools/call results, extended to
+	// prompts/get message content (issue #3485). A message the host is told to
+	// route to the model but withhold from the human is at least as dangerous
+	// here as on a tool response: template content is spliced into the agent's
+	// context wholesale rather than returned as one tool's output among many.
+	// Mixed tier, same as the tools/call path: concealment directives,
+	// escalated agent-directed directives and audience-partitioned divergence
+	// BLOCK; latent (third-person) directives AUDIT. See
+	// ScanPromptsGetAudienceChannel in content_audience_scanner.go.
+	if caResult := ScanPromptsGetAudienceChannel(result); caResult.Found {
+		decision := "AUDIT"
+		if caResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s prompts/get response carries %d audience-channel signal(s)\n",
+			decision, len(caResult.Findings))
+		reasons := make([]string, 0, len(caResult.Findings))
+		triggeredRules := []string{"mcp-prompts-get-content-audience-channel"}
+		for _, f := range caResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(promptsAudienceSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       MethodPromptsGet,
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-prompts-content-audience-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
+			})
+		}
+		if caResult.Blocked {
+			reason := "prompts/get response content-block audience channel abuse detected"
+			if len(caResult.Findings) > 0 {
+				reason = string(caResult.Findings[0].Signal) + ": " + caResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — a latent directive is AUDIT.
+	}
+
 	scanResult := ScanPromptsGetResponse(result)
 	if !scanResult.Poisoned {
 		return nil
@@ -1653,6 +1776,14 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	// only name + arguments; annotations come from the tools/list response).
 	if h.AnnotationCache != nil {
 		h.AnnotationCache.Update(listResult.Tools)
+	}
+
+	// Record generically-named parameters for cross-channel fragmentation
+	// detection (GhostSplice, #3385) — a silent recorder, not a scan; see
+	// GhostSpliceTracker.RecordToolSchemas for why this must not feed into the
+	// tools/list poisoning-removal pipeline below.
+	if h.GhostSplice != nil {
+		h.GhostSplice.RecordToolSchemas(listResult.Tools)
 	}
 
 	// Check for manifest flooding (tool count and size limits).
@@ -2066,6 +2197,16 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 					}
 					if f.Signal == SignalSeparatorObfuscation {
 						if sent := h.Evaluator.LookupSentinel("mcp-desc-separator-obfuscation"); sent != nil {
+							triggeredRules = append(triggeredRules, sent.ID)
+						}
+					}
+					if f.Signal == SignalUnicodeSeparatorEvasion {
+						if sent := h.Evaluator.LookupSentinel("mcp-desc-unicode-separator-evasion"); sent != nil {
+							triggeredRules = append(triggeredRules, sent.ID)
+						}
+					}
+					if f.Signal == SignalRenderedTextEvasion {
+						if sent := h.Evaluator.LookupSentinel("mcp-desc-rendered-text-evasion"); sent != nil {
 							triggeredRules = append(triggeredRules, sent.ID)
 						}
 					}
@@ -2504,6 +2645,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 					Reasons:        reasons,
 					Source:         "mcp-proxy-response-datalabel",
 					ServerName:     h.ServerName,
+					TaxonomyRef:    dlResult.Findings[0].TaxonomyRef,
 				})
 			}
 
@@ -2576,6 +2718,89 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 			})
 		}
 		// Fall through — verification-loop signal alone is AUDIT, not a block.
+	}
+
+	// Indirect-directive detection (AUDIT only) — the same five prose attack
+	// classes ScanToolDescription already flags on tool descriptions
+	// (exfiltration directive, conditional trigger, approval-gate
+	// manipulation, reasoning/system-prompt exfiltration, audit-log evasion),
+	// gated for the response surface by whether the directive is addressed to
+	// the agent and not merely quoted or discussed. See issue #3435 and
+	// response_indirect_directive_scanner.go for the discourse-gate rationale.
+	if idResult := ScanToolCallResponseForIndirectDirectives(callResult.Content); idResult.Found {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response contains %d indirect-directive signal(s)\n",
+			len(idResult.Findings))
+		reasons := make([]string, 0, len(idResult.Findings))
+		triggeredRules := []string{"mcp-response-indirect-directive-audit"}
+		for _, f := range idResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(indirectDirectiveSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-response-indirect-directive-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    indirectDirectiveTaxonomyRef(idResult.Findings[0].Signal),
+			})
+		}
+		// Fall through — indirect-directive signals are AUDIT, not a block.
+	}
+
+	// Content-block audience-channel scan — reads `annotations.audience`, the
+	// MCP routing field by which a server declares a content block is for the
+	// model and NOT for the user. A block the human is not shown is both an
+	// oversight-evasion channel and, for the response surface, the strong
+	// "addressed to the agent" discriminator the discourse gates above can
+	// only approximate. Mixed tier: concealment directives, escalated
+	// agent-directed directives and audience-partitioned divergence BLOCK;
+	// latent (third-person) directives AUDIT. See content_audience_scanner.go.
+	if caResult := ScanContentAudienceChannel(callResult.Content); caResult.Found {
+		decision := "AUDIT"
+		if caResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response carries %d audience-channel signal(s)\n",
+			decision, len(caResult.Findings))
+		reasons := make([]string, 0, len(caResult.Findings))
+		triggeredRules := []string{"mcp-response-content-audience-channel"}
+		for _, f := range caResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(contentAudienceSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-content-audience-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+			})
+		}
+		if caResult.Blocked {
+			reason := "tool response content-block audience channel abuse detected"
+			if len(caResult.Findings) > 0 {
+				reason = string(caResult.Findings[0].Signal) + ": " + caResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — a latent directive is AUDIT.
 	}
 
 	// Non-text content block scan — covers MCP 2025-06-18 content block
@@ -2762,7 +2987,46 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		return repl
 	}
 
+	// Staged trust (TrustShift) defection check — AUDIT-only session-level
+	// heuristic, so it is logged directly rather than folded into scanResult
+	// below (which always BLOCKs the response on any finding). Observe must
+	// run unconditionally, before the poisoned-response early return, so the
+	// trust-window call count keeps advancing even on responses this handler
+	// later blocks for an unrelated reason.
+	if h.StagedTrust != nil {
+		if trustFindings := h.StagedTrust.Observe(callResult.Content); len(trustFindings) > 0 && h.OnAudit != nil {
+			f := trustFindings[0]
+			ruleID := "mcp-response-staged-trust-defection-sentinel"
+			reason := f.Detail
+			taxonomyRef := signalTaxonomyRef(SignalResponseStagedTrustDefection)
+			if sent := h.Evaluator.LookupSentinel("mcp-response-staged-trust-defection"); sent != nil {
+				ruleID = sent.ID
+				if sent.Taxonomy != "" {
+					taxonomyRef = sent.Taxonomy
+				}
+			}
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT staged-trust-defection: %s\n", f.Detail)
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "unknown", // response path doesn't carry tool name
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: []string{ruleID},
+				Reasons:        []string{reason},
+				Source:         "mcp-proxy-staged-trust-defection",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    taxonomyRef,
+			})
+		}
+	}
+
 	scanResult := ScanToolCallResponse(callResult.Content)
+	if h.GhostSplice != nil {
+		if fragFindings := h.GhostSplice.Scan(callResult.Content); len(fragFindings) > 0 {
+			scanResult.Findings = append(scanResult.Findings, fragFindings...)
+			scanResult.Poisoned = true
+		}
+	}
 	if !scanResult.Poisoned {
 		return nil
 	}
@@ -2998,6 +3262,37 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 		// Fall through — verification-loop signal alone is AUDIT, not a block.
 	}
 
+	// Indirect-directive detection on resource content (AUDIT only) — same
+	// five prose attack classes and discourse gate as the tools/call response
+	// path above; a fetched web page, wiki, or issue can arrive via
+	// resources/read as well as tools/call.
+	if idResult := ScanToolCallResponseForIndirectDirectives(items); idResult.Found {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT resources/read response contains %d indirect-directive signal(s)\n",
+			len(idResult.Findings))
+		reasons := make([]string, 0, len(idResult.Findings))
+		triggeredRules := []string{"mcp-response-indirect-directive-audit"}
+		for _, f := range idResult.Findings {
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(indirectDirectiveSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "resources/read",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-resource-indirect-directive-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    indirectDirectiveTaxonomyRef(idResult.Findings[0].Signal),
+			})
+		}
+		// Fall through — indirect-directive signals are AUDIT, not a block.
+	}
+
 	// Forged control-token scan on resource content (same model as the tool-call
 	// response path): BLOCK a corroborated chat-template / tool-invocation token,
 	// AUDIT a bare one and fall through.
@@ -3177,10 +3472,75 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 	}
 
 	scanResult := ScanResourcesListResponse(&listResult)
-	if !scanResult.Blocked {
-		return nil
+	if scanResult.Blocked {
+		if repl := h.blockResourcesListStructuralFinding(msg.ID, scanResult); repl != nil {
+			return repl
+		}
 	}
 
+	// Content-block audience channel (MCP `annotations.audience`) applied to
+	// resources/list entries — see ScanResourceListAudienceChannel and issue
+	// #3500. Distinct from the structural scan above: that one inspects the
+	// URI/scheme/MIME-type/prose-injection shape of every entry regardless of
+	// annotation; this one only looks at entries the server itself has routed
+	// away from the human via `annotations.audience`, and mixes BLOCK/AUDIT
+	// tiers the same way the tools/call and prompts/get surfaces do.
+	if caResult := ScanResourceListAudienceChannel(listResult.Resources); caResult.Found {
+		decision := "AUDIT"
+		if caResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s resources/list response carries %d audience-channel signal(s)\n",
+			decision, len(caResult.Findings))
+		reasons := make([]string, 0, len(caResult.Findings))
+		for _, f := range caResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				ToolName:  MethodResourcesList,
+				Decision:  decision,
+				Flagged:   true,
+				// mcp-resource-metadata-injection has no backing taxonomy node
+				// today — a pre-existing gap also hit by the generic
+				// metadata-injection finding in ScanResourcesListResponse above
+				// and by FilterResourceTemplatesListResponse below, neither of
+				// which this PR introduced. This reuses that same un-sentineled
+				// taxonomy string rather than inventing a fresh orphan ref
+				// through mcp-sentinel.yaml; see the follow-up Comply issue
+				// filed alongside #3500 to formalize the node for all three
+				// call sites at once.
+				TriggeredRules: []string{"mcp-resource-list-content-audience-channel"},
+				Reasons:        reasons,
+				Source:         "mcp-proxy-resource-list-content-audience-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-metadata-injection",
+			})
+		}
+		if caResult.Blocked {
+			reason := "resources/list entry content-block audience channel abuse detected"
+			if len(caResult.Findings) > 0 {
+				reason = string(caResult.Findings[0].Signal) + ": " + caResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — a latent directive is AUDIT.
+	}
+
+	return nil
+}
+
+// blockResourcesListStructuralFinding builds and returns the BLOCK
+// replacement for a resources/list response flagged by ScanResourcesListResponse
+// (URI template, dangerous scheme, MIME mismatch, authority spoofing, internal
+// network, scheme evasion, metadata smuggling, or prose metadata injection).
+// Split out of FilterResourceListResponse so the audience-channel scan below
+// can still run when this structural scan found nothing.
+func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage, scanResult ResourceListScanResult) []byte {
 	reason := "resources/list contains injection in URI template or resource metadata"
 	if len(scanResult.Findings) > 0 {
 		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
@@ -3302,7 +3662,7 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 		})
 	}
 
-	replacement, err := NewBlockResponse(msg.ID, reason)
+	replacement, err := NewBlockResponse(id, reason)
 	if err != nil {
 		return nil
 	}

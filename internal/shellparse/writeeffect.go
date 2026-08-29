@@ -27,6 +27,46 @@ import (
 // Fails closed: an unparseable command returns true, so a caller gating an
 // ALLOW on this falls through to the AUDIT default rather than granting an
 // affirmative "this was safe" it could not verify.
+// isPrefixWordByte reports whether b is a character a shell treats as part of
+// an unquoted token — the classic \b word-character class (alnum + '_').
+// Hyphens, dots, slashes and whitespace are all boundaries.
+func isPrefixWordByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// hasPrefixWithBoundary reports whether s starts with prefix AND the prefix
+// ends on a token boundary — either prefix already ends on a non-word
+// character (e.g. the trailing space in "grep "), or s ends exactly there, or
+// the character in s immediately following prefix is not a word character.
+//
+// This exists for #3534: bare strings.HasPrefix lets an allowlisted token
+// match as a substring of an unrelated program name. `ls` is a prefix of
+// `lsyncd`; an attacker only has to name a script `lsyncd-payload.sh` to
+// launder it past ts-allow-readonly's command_prefix ALLOW. Empirically:
+// `lsyncd /etc/lsyncd.conf` (unrelated daemon), `pwdx 1234`, `idmapd -f`,
+// `dfu-util -D firmware.bin`, `freeradius -X`, `dumpe2fs /dev/disk1` all
+// resolved ALLOW via bare prefixes ls/pwd/id/df/free/du before this fix.
+//
+// Prefixes that already end in a space ("grep ", "cat ") are unaffected —
+// their trailing space already supplies the boundary, which is why the
+// original 35-entry ts-allow-readonly list only leaked on its 19 bare
+// entries (the space-terminated half's boundary was supplied by hand).
+func hasPrefixWithBoundary(s, prefix string) bool {
+	if !strings.HasPrefix(s, prefix) {
+		return false
+	}
+	if prefix == "" {
+		return false
+	}
+	if !isPrefixWordByte(prefix[len(prefix)-1]) {
+		return true
+	}
+	if len(s) == len(prefix) {
+		return true
+	}
+	return !isPrefixWordByte(s[len(prefix)])
+}
+
 func HasIndirectExecution(command string) bool {
 	if strings.TrimSpace(command) == "" {
 		return false
@@ -99,6 +139,13 @@ func HasIndirectExecution(command string) bool {
 //  2. every top-level statement starts with a listed prefix;
 //  3. nothing runs through a command or process substitution.
 //
+// #3534 sharpened (1) and (2): "starts with" is boundary-aware on the ALLOW
+// path, not a bare strings.HasPrefix. `ls` is a substring-prefix of `lsyncd`,
+// `pwd` of `pwdx`, `id` of `idmapd`, `df` of `dfu-util` — every one of the 19
+// bare (non-space-terminated) entries in ts-allow-readonly had this gap, and
+// the attacker only needs to name a script accordingly. hasPrefixWithBoundary
+// requires the match to end on a non-word character or end-of-string.
+//
 // The conjunction is strictly narrower than the original behaviour on every
 // input — the only safe direction for a predicate that grants ALLOW. Anything
 // failing it falls through to the normal pipeline and lands on AUDIT, never
@@ -119,9 +166,20 @@ func PrefixRuleMatches(command string, prefixes []string, allowRule bool) bool {
 		return false
 	}
 
+	// #3534: the whole-command check is boundary-aware ONLY on the ALLOW path.
+	// BLOCK/AUDIT prefix rules deliberately keep the historical bare substring
+	// match here — narrowing them is a separate, separately-measured change
+	// (see the issue's scoping decision); a dangerous head token should still
+	// trip its rule even when boundary-matching would (correctly, for ALLOW)
+	// refuse it, e.g. `sec-audit-env-dump`'s `set` prefix firing on `setpriv`.
+	matchPrefix := strings.HasPrefix
+	if allowRule {
+		matchPrefix = hasPrefixWithBoundary
+	}
+
 	wholeCommandMatches := false
 	for _, prefix := range prefixes {
-		if strings.HasPrefix(command, prefix) {
+		if matchPrefix(command, prefix) {
 			wholeCommandMatches = true
 			break
 		}
@@ -159,6 +217,14 @@ func PrefixRuleMatches(command string, prefixes []string, allowRule bool) bool {
 // Fails closed on an empty statement list, an empty statement, or an empty
 // prefix list (which would otherwise make the "every statement matches"
 // quantifier vacuously true).
+//
+// Per-statement matching is boundary-aware (#3534) for the same reason the
+// whole-command check in PrefixRuleMatches is: this function is only ever
+// reached on the ALLOW path (PrefixRuleMatches calls it after allowRule is
+// already established), so there is no BLOCK/AUDIT semantics to preserve
+// here. Without it, `ls -la && lsyncd /etc/lsyncd.conf` would pass — every
+// "statement" starts with `ls` as a bare substring even though the second
+// statement runs an unrelated daemon.
 func AllStatementsHavePrefix(command string, prefixes []string) bool {
 	if len(prefixes) == 0 {
 		return false
@@ -176,7 +242,7 @@ func AllStatementsHavePrefix(command string, prefixes []string) bool {
 		}
 		matched := false
 		for _, prefix := range prefixes {
-			if strings.HasPrefix(stmt, prefix) {
+			if hasPrefixWithBoundary(stmt, prefix) {
 				matched = true
 				break
 			}

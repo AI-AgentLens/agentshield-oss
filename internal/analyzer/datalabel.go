@@ -72,7 +72,14 @@ func (a *DataLabelAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			Decision:     m.Decision,
 			Confidence:   confidence,
 			Reason:       m.Reason,
-			TaxonomyRef:  "data-protection/pii/" + m.LabelID,
+			// A per-label taxonomy node is impossible by construction — m.LabelID
+			// is customer-invented at policy-config time, not something this repo
+			// can ship a node for in advance (AI_risk_compliance#3883 / Shield#3509:
+			// the prior "data-protection/"+LabelID scheme resolved to no kingdom at
+			// all). Every data-label match instead attributes to the one mechanism
+			// node that describes "organization-defined sensitive content surfaced
+			// in an agent action" — the label's own name/reason stays on RuleID/Reason.
+			TaxonomyRef: "data-exfiltration/ai-data-flows/labeled-sensitive-data-disclosure",
 		}
 	}
 

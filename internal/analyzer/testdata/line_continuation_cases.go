@@ -154,4 +154,16 @@ var LineContinuationCases = []TestCase{
 		Description:      "Same quoted-literal boundary against an anchored rule — a help string describing dd is text being written, not a disk being overwritten.",
 		Tags:             []string{"tn", "safe", "line-continuation", "doc-text"},
 	},
+
+	// --- TN: a continuation in ONE statement must not bridge OTHER statements ---
+	{
+		ID:               "TN-LINECONT-007",
+		Command:          "echo hi | cat\nprintf foo \\\n  bar\nls something.mcp.json",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "supply-chain/config-tampering/mcp-config-injection",
+		Analyzer:         "pipeline",
+		Description:      "Issue #3472: the fix for TP-001..006 used to reprint the WHOLE command with the AST's single-line printer, which collapses every statement-separating newline into \"; \" — not just the real continuation. That let sc-block-mcp-config-injection's unanchored `(echo|cat|printf|tee)\\s+.*[>|].*mcp\\.json` bridge from this command's FIRST statement's pipe, through an unrelated continuation-wrapped SECOND statement, into a THIRD statement's unrelated .mcp.json path — three statements that share nothing but proximity, none of which writes anything.",
+		Tags:             []string{"tn", "safe", "line-continuation", "cross-statement"},
+	},
 }

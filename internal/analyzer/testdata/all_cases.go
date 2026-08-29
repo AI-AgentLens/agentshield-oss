@@ -222,6 +222,16 @@ func AllTestCases() []TestCase {
 	// analyzer that value as the executable. 21.3% of BLOCKing commands,
 	// against a 1.1% floor for the same wrappers with no value flag.
 	all = append(all, WrapperValueFlagCases...)
+	// Issue #3227: the last operand shape — a wrapper with a bare POSITIONAL
+	// operand before its command ("flock LOCKFILE cmd", "chroot NEWROOT cmd"),
+	// plus a dozen wrappers simply never listed in the table. Every wrapper
+	// absent from ExecWrappers leaked the same ~22% of BLOCKing commands
+	// against the same 1.1% floor, which is one shared defect, not fifteen.
+	all = append(all, WrapperPositionalCases...)
+	// Issue #3227 (rules): aa-exec dropping AppArmor confinement per-process,
+	// setpriv granting ambient capabilities across a uid "drop", and the
+	// setarch family's optional-arch / linux32-linux64-alias evasion.
+	all = append(all, WrapperConfinementCases...)
 	// Issue #3223: `su -c 'CMD'` / `runuser -u USER -c 'CMD'` were never treated
 	// as inline-code carriers, so the oldest privilege-escalation idiom on Unix
 	// reached no layer that could decompose its payload — 34.3% of BLOCKing

@@ -36,6 +36,12 @@ agentshield check --shell "cat ~/.ssh/id_rsa" # BLOCK, exit 2
 agentshield check --shell "ls -la"            # ALLOW, exit 0
 ```
 
+If the hook blocks that check itself, the command text is what matched — `--shell` puts it in argv where the hook sees it. Save the command to a file and read it from there instead:
+
+```bash
+agentshield check --shell-file ./blocked.txt
+```
+
 Check MCP policy without starting an MCP server:
 
 ```bash

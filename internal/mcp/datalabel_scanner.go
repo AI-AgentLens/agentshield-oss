@@ -67,12 +67,20 @@ type DataLabelScanResult struct {
 
 // DataLabelFinding describes a single data label match in a tool argument.
 type DataLabelFinding struct {
-	LabelID   string
-	LabelName string
-	Detail    string
-	ArgName   string
-	Decision  string
+	LabelID     string
+	LabelName   string
+	Detail      string
+	ArgName     string
+	Decision    string
+	TaxonomyRef string
 }
+
+// dataLabelTaxonomyRef is the fixed mechanism node every data-label match
+// attributes to, regardless of LabelID — see the mirrored comment on
+// internal/analyzer/datalabel.go's Finding construction (Shield#3509 /
+// AI_risk_compliance#3883). A per-label node is impossible by construction:
+// LabelID is customer-invented at policy-config time.
+const dataLabelTaxonomyRef = "data-exfiltration/ai-data-flows/labeled-sensitive-data-disclosure"
 
 // ScanToolCallContent scans all arguments of an MCP tool call for data label
 // matches. Outbound direction (agent → tool).
@@ -91,11 +99,12 @@ func (s *DataLabelScanner) ScanToolCallContent(toolName string, arguments map[st
 		matches := s.engine.ScanText(text, toolName, "outbound")
 		for _, m := range matches {
 			finding := DataLabelFinding{
-				LabelID:   m.LabelID,
-				LabelName: m.LabelName,
-				Detail:    fmt.Sprintf("%s: matched %q", m.Reason, m.MatchText),
-				ArgName:   argName,
-				Decision:  m.Decision,
+				LabelID:     m.LabelID,
+				LabelName:   m.LabelName,
+				Detail:      fmt.Sprintf("%s: matched %q", m.Reason, m.MatchText),
+				ArgName:     argName,
+				Decision:    m.Decision,
+				TaxonomyRef: dataLabelTaxonomyRef,
 			}
 			result.Findings = append(result.Findings, finding)
 
@@ -128,11 +137,12 @@ func (s *DataLabelScanner) ScanToolResponseContent(textContent string) DataLabel
 	matches := s.engine.ScanText(textContent, "", "inbound")
 	for _, m := range matches {
 		finding := DataLabelFinding{
-			LabelID:   m.LabelID,
-			LabelName: m.LabelName,
-			Detail:    fmt.Sprintf("%s: matched %q", m.Reason, m.MatchText),
-			ArgName:   "response.content",
-			Decision:  m.Decision,
+			LabelID:     m.LabelID,
+			LabelName:   m.LabelName,
+			Detail:      fmt.Sprintf("%s: matched %q", m.Reason, m.MatchText),
+			ArgName:     "response.content",
+			Decision:    m.Decision,
+			TaxonomyRef: dataLabelTaxonomyRef,
 		}
 		result.Findings = append(result.Findings, finding)
 

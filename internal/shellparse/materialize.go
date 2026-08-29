@@ -62,7 +62,13 @@ func MaterializeAssignments(command string) string {
 	}
 
 	syms := buildMaterializeSymbols(file)
-	if len(syms) == 0 {
+	// The walk below can also resolve a ${VAR:0:1} read of a well-known
+	// absolute-path variable with no local assignment at all (#3378), so an
+	// empty symbol table alone no longer proves there's nothing to fold —
+	// only the absence of BOTH sources does. The substring pre-check keeps
+	// the original guard's intent (skip the walk when it provably can't
+	// change anything) without hardcoding the fold's own matching logic here.
+	if len(syms) == 0 && !mayContainWellKnownAbsolutePathVar(command) {
 		return ""
 	}
 
@@ -228,6 +234,13 @@ func appendConstPart(sb *strings.Builder, p syntax.WordPart, syms map[string]str
 			part.Index != nil || part.NestedParam != nil ||
 			part.Length || part.Width || part.Excl {
 			if !bound {
+				// Not locally assigned — the value is still knowable for a
+				// small set of environment variables whose leading character
+				// every real shell fixes (issue #3378).
+				if folded, ok := foldWellKnownVarLeadingSlash(part); ok {
+					sb.WriteString(folded)
+					return true
+				}
 				return false
 			}
 			folded, ok := FoldConstantParamOp(val, part)

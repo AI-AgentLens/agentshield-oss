@@ -344,3 +344,92 @@ func TestAllowPrefixRejectsCompoundConstructs(t *testing.T) {
 		t.Fatal("precondition failed: bare `echo tick` should match the ALLOW rule")
 	}
 }
+
+// TestAllowPrefixRequiresTokenBoundary is the regression test for #3534: a
+// bare (non-space-terminated) command_prefix entry like "ls" matched as a
+// substring of an unrelated program's name, so an attacker only had to name
+// a script `lsyncd-payload.sh`, `pwdx`, `idmapd`, etc. to launder it to
+// ALLOW. #3199's fix (this file's other tests) never touched this — it
+// addressed compound commands (`&&`, `|`, `;`), not simple ones.
+//
+// bareReadOnlyPrefixes mirrors the 19 bare entries in the live
+// ts-allow-readonly rule (packs/community/terminal-safety.yaml) — the ones
+// with no trailing space, which is exactly the half that had no boundary.
+func TestAllowPrefixRequiresTokenBoundary(t *testing.T) {
+	bareReadOnlyPrefixes := []string{
+		"ls", "pwd", "whoami", "id", "uname", "date", "uptime", "df", "du", "free", "top -l",
+		"git log", "git branch", "git show", "git remote", "git tag", "git stash list", "git diff", "git status",
+	}
+	if len(bareReadOnlyPrefixes) != 19 {
+		t.Fatalf("fixture drift: expected 19 bare prefixes mirroring ts-allow-readonly, got %d", len(bareReadOnlyPrefixes))
+	}
+	rule := Rule{
+		ID:       "test-allow-bare-readonly",
+		Match:    Match{CommandPrefix: bareReadOnlyPrefixes},
+		Decision: DecisionAllow,
+	}
+
+	// Empirical cases from #3534, verified against the deployed binary before
+	// the fix — every one of these resolved ALLOW via a bare prefix substring.
+	launderedByProgramName := []struct {
+		command string
+		prefix  string
+	}{
+		{"lsyncd /etc/lsyncd.conf", "ls"},
+		{"lsyncd-with-a-payload.sh", "ls"},
+		{"idevicebackup2 backup /tmp/dump", "id"},
+		{"dumpe2fs /dev/disk1", "du"},
+		{"freeradius -X", "free"},
+		{"dateutils.dconv x", "date"},
+		{"pwdx 1234", "pwd"},
+		{"dfu-util -D firmware.bin", "df"},
+		{"idmapd -f", "id"},
+	}
+	for _, tc := range launderedByProgramName {
+		if matchCommandPrefix(tc.command, rule) {
+			t.Errorf("%q earned ALLOW via bare prefix %q — attacker-controlled program name laundered past the token boundary", tc.command, tc.prefix)
+		}
+	}
+
+	// Each bare prefix must still ALLOW its own genuine invocation, both bare
+	// and with a following argument — the fix must not cost real coverage.
+	genuine := []string{
+		"ls", "ls -la", "pwd", "pwd -P", "whoami", "id", "id -u", "uname", "uname -a",
+		"date", "date +%s", "uptime", "df", "df -h", "du", "du -sh .", "free", "free -m",
+		"top -l", "top -l 1",
+		"git log", "git log --oneline", "git branch", "git branch -a", "git show", "git show HEAD",
+		"git remote", "git remote -v", "git tag", "git tag -l", "git stash list", "git stash list --oneline",
+		"git diff", "git diff HEAD", "git status", "git status -s",
+	}
+	for _, cmd := range genuine {
+		if !matchCommandPrefix(cmd, rule) {
+			t.Errorf("%q: genuine invocation of a bare read-only prefix must keep ALLOW", cmd)
+		}
+	}
+
+	// Negative control: a command with none of the bare prefixes must not be
+	// affected by this change either way.
+	if matchCommandPrefix("touch /tmp/probe_marker", rule) {
+		t.Error("unrelated command matched the bare-prefix ALLOW rule")
+	}
+}
+
+// TestNonAllowPrefixKeepsBareSubstringMatch guards the issue's explicit
+// scoping decision: the token-boundary fix applies to the ALLOW path only.
+// BLOCK/AUDIT prefix rules keep the historical bare-substring behaviour,
+// because narrowing them risks false negatives and is a separate,
+// separately-measured change (#3534's "Proposed fix" section).
+func TestNonAllowPrefixKeepsBareSubstringMatch(t *testing.T) {
+	rule := Rule{
+		ID:       "test-audit-set",
+		Match:    Match{CommandPrefix: []string{"set"}},
+		Decision: DecisionAudit,
+	}
+	// setpriv is not "set" on a token boundary, but this rule is AUDIT, not
+	// ALLOW — it must keep firing (this is the sec-audit-env-dump mis-fire
+	// noted in the issue's Provenance section, and deliberately out of scope
+	// here).
+	if !matchCommandPrefix("setpriv --reuid 1000 bash", rule) {
+		t.Error("AUDIT prefix rule must keep bare-substring semantics — boundary narrowing is ALLOW-only")
+	}
+}

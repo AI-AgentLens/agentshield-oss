@@ -13,6 +13,96 @@ func TestSelfProtect_BlockBypassEnv(t *testing.T) {
 	}
 }
 
+// TestSelfProtect_BypassEnv_AllSettingForms pins #3212: sp-block-bypass-env was
+// anchored on the literal `export` keyword, which is one of five ways to set
+// this variable and the least likely to be typed. Measured before the fix,
+// four of the five went unblocked -- including `AGENTSHIELD_BYPASS=1 claude`, the bare inline
+// prefix, which is the form anyone would actually reach for and the form a
+// bypass instruction would be written in.
+//
+// BypassGuard independently ignores the variable in managed mode, so the
+// bypass never *worked*. This rule exists to block and audit the ATTEMPT, on
+// the layer that backs the claim that AgentShield cannot be turned off by an
+// AI agent -- and a tamper layer that misses four attempts in five is not one.
+func TestSelfProtect_BypassEnv_AllSettingForms(t *testing.T) {
+	V := "AGENTSHIELD_BYPASS"
+	for _, cmd := range []string{
+		"export " + V + "=1",
+		"declare -x " + V + "=1",
+		"typeset -x " + V + "=1",
+		"declare -gx " + V + "=1",
+		V + "=1 claude",
+		"env " + V + "=1 claude",
+		V + " = 1",
+	} {
+		t.Run(cmd, func(t *testing.T) {
+			mw := SelfProtect()
+			ctx := &EvalContext{Command: cmd}
+			mw(ctx, func() { t.Error("next() should not be called when blocked") })
+			if !ctx.Blocked {
+				t.Errorf("expected %q to be blocked", cmd)
+			}
+		})
+	}
+}
+
+// TestSelfProtect_BypassEnv_ReadsStillPass is the other half of the trade.
+// Anchoring on the assignment rather than the keyword widens the rule, so the
+// boundary has to be pinned: a pure READ carries no `=` and must keep passing.
+// Without this, a later "tighten it further" edit that starts matching the
+// bare variable name would sail through -- and reading an env var is not an
+// attempt to disable anything.
+func TestSelfProtect_BypassEnv_ReadsStillPass(t *testing.T) {
+	V := "AGENTSHIELD_BYPASS"
+	for _, cmd := range []string{
+		"printenv " + V,
+		"echo $" + V,
+		"grep -r " + V + " docs/",
+		"env | grep " + V,
+	} {
+		t.Run(cmd, func(t *testing.T) {
+			mw := SelfProtect()
+			called := false
+			ctx := &EvalContext{Command: cmd}
+			mw(ctx, func() { called = true })
+			if ctx.Blocked {
+				t.Errorf("expected %q to pass (read, not an assignment)", cmd)
+			}
+			if !called {
+				t.Errorf("expected next() to run for %q", cmd)
+			}
+		})
+	}
+}
+
+// TestSelfProtect_EscapeSpliceBypass_BypassEnv is the #3211 regression, and it
+// is deliberately a re-add: #3210 wrote this test, found it failed for a reason
+// outside that PR's scope, and removed it rather than weaken it. The reason was
+// this — mvdan/sh rejects the whole command as an invalid var name, so
+// DequoteCommand returned its no-op sentinel and the self-protection layer saw
+// nothing to match against. One backslash in the variable name.
+//
+// That is the layer behind "AgentShield cannot be turned off by an AI agent",
+// so a silent hole in it is worth a named test rather than a table row.
+func TestSelfProtect_EscapeSpliceBypass_BypassEnv(t *testing.T) {
+	V := "AGENTSHIE" + "LD_BYPASS"
+	spliced := V[:len(V)-1] + "\\" + V[len(V)-1:]
+	for _, cmd := range []string{
+		"export " + spliced + "=1",
+		"declare -x " + spliced + "=1",
+		"typeset -x " + spliced + "=1",
+	} {
+		t.Run(cmd, func(t *testing.T) {
+			mw := SelfProtect()
+			ctx := &EvalContext{Command: cmd}
+			mw(ctx, func() { t.Error("next() should not be called when blocked") })
+			if !ctx.Blocked {
+				t.Errorf("escape-spliced variable name evaded self-protection: %q", cmd)
+			}
+		})
+	}
+}
+
 func TestSelfProtect_BlockSetupDisable(t *testing.T) {
 	mw := SelfProtect()
 	ctx := &EvalContext{Command: "agentshield setup claude-code --disable"}

@@ -94,7 +94,7 @@ func unescapeDblQuoteBody(s string) string {
 // alphanumerics, `-`, `/`, `.`, `:`, `,`, `_`, `+`, or `@` ever carries that
 // syntactic weight in any shell grammar — none is a word separator,
 // operator, quote, or expansion marker. Deliberately still excluded, because
-// each IS load-bearing: whitespace, `| & ; ( ) < > " ' `` \ $ * ? [ ] { } # ~
+// each IS load-bearing: whitespace, `| & ; ( ) < > " ' “ \ $ * ? [ ] { } # ~
 // = ^ !`. So this function — unlike StripShellQuotes's unconditional strip,
 // which is only ever applied to already-isolated name-like tokens (an
 // executable name, a subcommand, a flag) — is safe to run on a whole
@@ -138,4 +138,98 @@ func isFoldableEscapeTarget(c byte) bool {
 		return true
 	}
 	return false
+}
+
+// FoldObfuscatingBackslashesUnquoted is FoldObfuscatingBackslashes restricted
+// to escapes that sit in UNQUOTED context, tracked by a lexical scan rather
+// than an AST walk.
+//
+// It exists for one caller: shellparse.DequoteCommand's parse-failure retry
+// (#3211). Everywhere else the tree is available and the fold can be applied
+// per-Lit, where quoting has already been resolved. On a command that does not
+// parse there is no tree, so the quote state has to be recovered by hand — and
+// getting it wrong is not cosmetic. A backslash before an alphanumeric is
+// literal inside BOTH quote forms:
+//
+//	bash -c "printf 'a\nb'"     -> a\nb   (single: everything literal)
+//	bash -c 'printf "a\nb"'     -> a\nb   (double: \ is special only before
+//	                                       $ ` " \ and newline)
+//
+// so folding one would rewrite the command into something the shell never
+// would, and the result is fed to command_regex as an extra match candidate.
+// A wrong candidate cannot create a bypass — candidates only ever ADD matches
+// — but it can create a false BLOCK, which is the failure mode users switch
+// the tool off over.
+//
+// The scan therefore folds only while unquoted, and consumes both bytes of any
+// escape it does not fold, so `\'` and `\"` cannot flip the quote state.
+// Reports whether anything changed.
+func FoldObfuscatingBackslashesUnquoted(s string) (string, bool) {
+	if !strings.Contains(s, `\`) {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	changed := false
+
+	const (
+		unquoted = iota
+		inSingle
+		inDouble
+	)
+	state := unquoted
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch state {
+		case inSingle:
+			// Nothing is special inside single quotes, not even a backslash.
+			if c == '\'' {
+				state = unquoted
+			}
+			b.WriteByte(c)
+		case inDouble:
+			// Backslash is special here only before $ ` " \ and newline. It is
+			// never folded: `"a\nb"` is literally a-backslash-n-b to bash.
+			// Both bytes are still consumed so an escaped quote does not close
+			// the span.
+			if c == '\\' && i+1 < len(s) {
+				b.WriteByte(c)
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			}
+			if c == '"' {
+				state = unquoted
+			}
+			b.WriteByte(c)
+		default:
+			if c == '\\' && i+1 < len(s) {
+				if isFoldableEscapeTarget(s[i+1]) {
+					b.WriteByte(s[i+1])
+					i++
+					changed = true
+					continue
+				}
+				// Not foldable — emit both bytes verbatim. Critically this
+				// covers `\'` and `\"`, where dropping through to the quote
+				// handling below would open a span that the shell never opened.
+				b.WriteByte(c)
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			}
+			switch c {
+			case '\'':
+				state = inSingle
+			case '"':
+				state = inDouble
+			}
+			b.WriteByte(c)
+		}
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
 }

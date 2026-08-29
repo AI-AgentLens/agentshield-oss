@@ -45,6 +45,16 @@ func scanStructuredNode(result *StructuredContentScanResult, v interface{}) {
 	case string:
 		var sub ResponseScanResult
 		scanResponseText(&sub, val)
+		// structuredContent leaves are prose the model reads exactly like a text
+		// content item, so they inherit the response scanner's ASCII-only `\s`
+		// exposure and need the same separator fold. Without this, a directive
+		// whose spaces are U+00A0 fires nowhere: not here, and not in
+		// ScanToolCallResponse, which never sees structured results at all.
+		scanResponseSeparatorFolded(&sub, val)
+		// Same reasoning one axis further: a structuredContent leaf disguised
+		// with soft hyphens, blank fillers or Cyrillic confusables is invisible
+		// to every other pass over this surface.
+		scanResponseRenderRecovered(&sub, val)
 		result.Findings = append(result.Findings, sub.Findings...)
 	case map[string]interface{}:
 		for _, child := range val {

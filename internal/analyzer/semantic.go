@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
@@ -473,30 +474,178 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 }
 
 // matchesIndirectPattern checks if a command uses an interpreter to execute
-// code containing dangerous patterns. Works at depth 0 (raw string check)
-// and depth 1+ (parsed subcommand check).
+// code containing dangerous patterns.
+//
+// Before issue #3466, this matched via a bare raw-substring search: "does the
+// command text contain an interpreter name AND a dangerous pattern, anywhere,
+// in any context." That cannot distinguish a live call from the same text
+// appearing as inert data — a Python string literal being searched for and
+// replaced, a grep pattern, or (measured live during this fix) a rule-ID
+// substring like "sem-block-python-rmtree" combined with a search string
+// containing "shutil.rmtree". Both false-positived a BLOCK.
+//
+// The fix inspects the actual code the interpreter runs, extracted from its
+// two known carriers — a `-c` payload (via shellparse.ExtractInlineCode,
+// which already dequotes it correctly) and a heredoc body fed directly to it
+// — and checks whether the pattern appears there as live code rather than
+// inside a Python string literal or "#" comment (pythonCodeContainsAny).
+// `parsed.Subcommands` is never populated for these interpreters in the first
+// place: shellparse.CarriesShellSource deliberately excludes CodeInterpreters
+// (python/node/...) so their inline code is never re-parsed as shell source —
+// the old subcommand-scanning branch here was dead code.
+//
+// No interpreter invocation at all (no matching segment, no heredoc) now
+// means no match — never falling back to the bare substring scan, which is
+// exactly the mechanism that produced the false positives above.
 func matchesIndirectPattern(parsed *ParsedCommand, raw string, interpreters []string, patterns []string) bool {
-	// Check raw command for simple cases like: python3 -c "shutil.rmtree('/')"
-	for _, interp := range interpreters {
-		if strings.Contains(raw, interp) {
-			for _, pat := range patterns {
-				if strings.Contains(raw, pat) {
-					return true
-				}
+	interpSet := make(map[string]bool, len(interpreters))
+	for _, in := range interpreters {
+		interpSet[in] = true
+	}
+
+	for _, seg := range allSegments(parsed) {
+		if !interpSet[seg.Executable] {
+			continue
+		}
+		if code := shellparse.ExtractInlineCode(seg); code != "" && pythonCodeContainsAny(code, patterns) {
+			return true
+		}
+	}
+
+	// A heredoc fed directly to the interpreter runs its body exactly like a
+	// `-c` payload, but shellparse's AST-based seg.HeredocBody is populated
+	// only for shell interpreters (bash/sh/zsh) — deliberately, so a
+	// python/node heredoc body is never mistaken for shell source (see
+	// shellparse.CarriesShellSource's doc comment). Scan the raw text for the
+	// same shape instead, cheaply gated on "<<" being present at all so the
+	// common (heredoc-free) command pays nothing extra.
+	if strings.Contains(raw, "<<") {
+		for _, body := range interpreterHeredocBodies(raw, interpreters) {
+			if pythonCodeContainsAny(body, patterns) {
+				return true
 			}
 		}
 	}
 
-	// Check subcommands (parsed at depth > 0)
-	if parsed != nil {
-		for _, sub := range parsed.Subcommands {
-			for _, seg := range allSegments(sub) {
-				raw := seg.Raw
-				for _, pat := range patterns {
-					if strings.Contains(raw, pat) {
-						return true
-					}
+	return false
+}
+
+// interpreterHeredocIntroPattern builds a regex matching one of interpreters
+// introducing a heredoc: "python3 - <<'PY'". Anchored on both sides with \b
+// so "ipython3 <<EOF" does not count as a "python3" invocation. Compiled
+// fresh per call, but only reached when raw already contains "<<" — see the
+// gate in matchesIndirectPattern.
+func interpreterHeredocIntroPattern(interpreters []string) *regexp.Regexp {
+	quoted := make([]string, len(interpreters))
+	for i, in := range interpreters {
+		quoted[i] = regexp.QuoteMeta(in)
+	}
+	return regexp.MustCompile(`\b(?:` + strings.Join(quoted, "|") + `)\b[^\n<]*<<-?\s*(['"]?)(\w+)`)
+}
+
+// interpreterHeredocBodies extracts the literal body text of every heredoc
+// fed directly to one of interpreters in raw (e.g. "python3 - <<'PY'\n...\nPY").
+// Best-effort regex extraction scoped to this rule family; RE2 (Go's regexp)
+// has no backreferences, so the closing delimiter is located with a second,
+// separately-compiled pattern rather than in one expression.
+func interpreterHeredocBodies(raw string, interpreters []string) []string {
+	intro := interpreterHeredocIntroPattern(interpreters)
+	var bodies []string
+	for _, m := range intro.FindAllStringSubmatchIndex(raw, -1) {
+		delim := raw[m[4]:m[5]]
+		if delim == "" {
+			continue
+		}
+		matchEnd := m[1]
+		nl := strings.IndexByte(raw[matchEnd:], '\n')
+		if nl < 0 {
+			continue
+		}
+		bodyStart := matchEnd + nl + 1
+		rest := raw[bodyStart:]
+		closeRe := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(delim) + `\s*$`)
+		loc := closeRe.FindStringIndex(rest)
+		if loc == nil {
+			continue
+		}
+		bodies = append(bodies, rest[:loc[0]])
+	}
+	return bodies
+}
+
+// pythonCodeContainsAny reports whether any of patterns appears in source as
+// live Python code — outside a string literal (single/double/triple-quoted)
+// or a "#" comment. A best-effort character scan, not a full tokenizer: it
+// tracks Python's quoting rules (including triple-quoted strings and
+// backslash escapes) well enough to tell "shutil.rmtree(" as code apart from
+// the identical text sitting inside `old = "...shutil.rmtree(...)..."`
+// (issue #3466's reported false positive).
+func pythonCodeContainsAny(source string, patterns []string) bool {
+	const (
+		stateNone = iota
+		stateSingle
+		stateDouble
+		stateTripleSingle
+		stateTripleDouble
+	)
+	state := stateNone
+	n := len(source)
+	for i := 0; i < n; i++ {
+		c := source[i]
+		switch state {
+		case stateNone:
+			switch {
+			case c == '#':
+				nl := strings.IndexByte(source[i:], '\n')
+				if nl < 0 {
+					return false
 				}
+				i += nl
+				continue
+			case strings.HasPrefix(source[i:], `'''`):
+				state = stateTripleSingle
+				i += 2
+				continue
+			case strings.HasPrefix(source[i:], `"""`):
+				state = stateTripleDouble
+				i += 2
+				continue
+			case c == '\'':
+				state = stateSingle
+				continue
+			case c == '"':
+				state = stateDouble
+				continue
+			}
+			for _, pat := range patterns {
+				if strings.HasPrefix(source[i:], pat) {
+					return true
+				}
+			}
+		case stateSingle, stateDouble:
+			if c == '\\' && i+1 < n {
+				i++
+				continue
+			}
+			quote := byte('\'')
+			if state == stateDouble {
+				quote = '"'
+			}
+			if c == quote {
+				state = stateNone
+			}
+		case stateTripleSingle, stateTripleDouble:
+			delim := `'''`
+			if state == stateTripleDouble {
+				delim = `"""`
+			}
+			if c == '\\' && i+1 < n {
+				i++
+				continue
+			}
+			if strings.HasPrefix(source[i:], delim) {
+				state = stateNone
+				i += 2
 			}
 		}
 	}

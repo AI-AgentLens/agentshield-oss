@@ -250,6 +250,9 @@ func AllScenarios() []Scenario {
 	all = append(all, IDEWorkspaceTrustScenarios1608...)
 	all = append(all, VCSecretWeaponizationScenarios1606...)
 	all = append(all, GlitchTokenScenarios1615...)
+	all = append(all, UnicodeSeparatorEvasionScenarios3391...)
+	all = append(all, RenderedTextEvasionScenarios3434...)
+	all = append(all, ResponseSeparatorFoldScenarios3393...)
 	all = append(all, ConditionalTriggerScenarios1614...)
 	all = append(all, BrowserSessionTokenScenarios1653...)
 	all = append(all, AgenticAttackScenarios1658...)
@@ -3978,10 +3981,10 @@ var TrueNegativeScenarios = []Scenario{
 		ID:               "MCP-TN-116",
 		ToolName:         "read_file",
 		Arguments:        map[string]interface{}{"path": "/home/user/.curlrc"},
-		ExpectedDecision: "AUDIT",
-		Classification:   "TN",
-		Category:         "mcp-network-config-tampering",
-		Description:      "read_file of ~/.curlrc — reading curl config is allowed (only writes blocked); mcp-sec-block-curlrc-write must not fire",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-credential-exposure",
+		Description:      "read_file of ~/.curlrc — curl's documented -u/--user name:password line makes this a plaintext-credential read, now blocked by mcp-sec-block-curlrc-read (issue #3357); superseded the old network-config-tampering-only assumption that reads were reconnaissance-only",
 	},
 	{
 		ID:               "MCP-TN-117",

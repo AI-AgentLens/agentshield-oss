@@ -681,10 +681,19 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 // Supports exact match and simple glob (* suffix).
 func matchToolName(name, pattern string) bool {
 	if strings.Contains(pattern, "*") {
-		matched, _ := filepath.Match(pattern, name)
+		if matched, _ := filepath.Match(pattern, name); matched {
+			return true
+		}
+		// Naming-convention fallback (issue #3443): a rule's tool_name_any
+		// glob is authored against one MCP server's spelling convention
+		// (git_*) — a hyphenated server (git-checkout) is otherwise invisible.
+		matched, _ := filepath.Match(normalizeSeparators(pattern), normalizeSeparators(name))
 		return matched
 	}
-	return name == pattern
+	if name == pattern {
+		return true
+	}
+	return normalizeSeparators(name) == normalizeSeparators(pattern)
 }
 
 // matchGlob matches a value against a glob pattern.
@@ -757,7 +766,13 @@ func splitPath(p string) []string {
 			parts = append([]string{file}, parts...)
 		}
 		dir = filepath.Clean(dir)
-		if dir == p { // no more progress (reached root or .)
+		// dir == p: no more progress (reached root, e.g. "/").
+		// dir == ".": the walk exhausted every separator in a value that
+		// never had a leading "/" (a relative path, URL, or scheme:value
+		// like "https://example.com"). "." here is Split's "no directory
+		// left" sentinel, not a real path component — stop before the next
+		// iteration turns it into a spurious leading "." part (#3423).
+		if dir == p || dir == "." {
 			break
 		}
 		p = dir
@@ -767,8 +782,13 @@ func splitPath(p string) []string {
 
 // splitPathPattern splits a glob pattern into components, preserving "**".
 func splitPathPattern(pattern string) []string {
+	// Clean collapses "//" (e.g. the double slash in "https://**") into a
+	// single separator so component indices line up with splitPath's output
+	// for the same value. It leaves "**" untouched — Clean only special-cases
+	// ".", "..", and repeated separators, never an ordinary path segment.
+	pattern = filepath.Clean(pattern)
 	pattern = strings.TrimPrefix(pattern, "/")
-	if pattern == "" {
+	if pattern == "" || pattern == "." {
 		return nil
 	}
 	return strings.Split(pattern, "/")

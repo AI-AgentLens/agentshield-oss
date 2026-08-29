@@ -113,6 +113,27 @@ func TestEscapeSpliceParity(t *testing.T) {
 		// regex/structural analyzers that already saw CallExpr/DeclClause/Redirect
 		// words correctly), so the remainder is a distinct, smaller residue, not yet
 		// root-caused. Ratcheted down with the fix; do not raise without recording why.
+		//
+		// 2026-08-22 (#3314), punct-escape-slash +2: TP-SSHKEY-WRAPPERFUNC-GUARD/
+		// -OVERLAP-GUARD are multi-statement (a function definition, newline, then
+		// the call) for the same underlying reason as this file's mutation always
+		// costs a multi-statement command here — this position's fields.Join
+		// reconstruction has no notion of a statement boundary, so it collapses the
+		// newline separator into a single space with no terminator ("} evil"), a
+		// real bash syntax error. shellparse.Parse then falls back to treating the
+		// whole mutated command as ONE opaque statement, and
+		// IntentExcludedForStatements' single-statement branch reverted to
+		// classifying that whole blob — which finds "agentshield mcp-eval" anywhere
+		// in it and wrongly excused the real `cat "$1"` these two cases exist to
+		// guard against.
+		//
+		// Fixed by #3467: shellparse.SplitTopLevelStatementsChecked now reports
+		// whether a split reflects a genuine parse or the single-element
+		// parse-failure fallback (the two are byte-for-byte indistinguishable by
+		// shape alone), and IntentExcludedForStatements' single-statement branch
+		// fails closed — refuses to exclude — when it's the fallback, matching the
+		// fail-safe posture the spanning-match case above already has. Ratcheted
+		// back down to 13/1218 (1.1%), the #3322 baseline this +2 was layered onto.
 		{"punct-escape-flag", 6, 280, 170, func(f []string) (string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
@@ -124,7 +145,7 @@ func TestEscapeSpliceParity(t *testing.T) {
 			}
 			return "", false
 		}},
-		{"punct-escape-slash", 16, 900, 550, func(f []string) (string, bool) {
+		{"punct-escape-slash", 13, 900, 550, func(f []string) (string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
 				idx := strings.Index(w, "/")

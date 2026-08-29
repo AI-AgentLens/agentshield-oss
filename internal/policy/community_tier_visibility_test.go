@@ -134,6 +134,14 @@ func guardCommunityOnly(t *testing.T, pol *Policy) {
 	premiumOnly := []string{
 		"ts-block-sql-aes-encrypt-drop-original",
 		"ts-block-ransom-note-artifact-creation",
+		// #3432. Not strictly load-bearing for the git-archive assertion
+		// below (a leak would flip that case to BLOCK and fail it anyway),
+		// but every tier claim in this file should name the premium rule it
+		// is claiming absence of, or the guard silently stops covering the
+		// tests added after it.
+		"ts-block-git-remote-helper-exec",
+		// #3520/#3521, claimed absent by TestCommunityTierSeesOllamaServe.
+		"ne-block-unauthenticated-llm-endpoint",
 	}
 	for _, r := range pol.Rules {
 		for _, p := range premiumOnly {
@@ -208,4 +216,153 @@ func TestCommunityTierSeesGHAOIDCTokenRead(t *testing.T) {
 			"so the `# tier-split` marker in scripts/oss-known-failures.txt would be false", res.Decision)
 	}
 	t.Logf("community tier sees it at %s via %v", res.Decision, res.TriggeredRules)
+}
+
+// TestCommunityTierSeesGitArchiveExec is the proof required by
+// scripts/oss-known-failures.txt before a `# tier-split` line may be added.
+//
+// #3432 added the git remote-helper flag class (CVE-2026-54316) as three
+// corpus cases, all premium-only, so all three needed baseline entries. They
+// do not share a verdict, and that is the whole reason this test exists:
+//
+//	-001 (--receive-pack=) and -002 (--upload-pack=) are BLIND. No community
+//	rule reads either flag; the OSS build returns AUDIT with an empty rule
+//	list. They are recorded as bare lines, which is what a bare line means.
+//
+//	-003 (git archive --exec=) is a TIER-SPLIT: ts-audit-git-archive does
+//	fire, at AUDIT. A bare line there would understate free-tier coverage.
+//
+// Read the tier-split claim narrowly. The community rule matches a bare
+// `git archive` and knows nothing about --exec=, so the free tier sees the
+// COMMAND, not the remote-helper RCE mechanism; premium adds the BLOCK and
+// the specific unauthorized-execution/lolbin/git-remote-helper-exec node in
+// place of the generic data-exfil one. The second half of this test pins that
+// narrowness, so the line cannot quietly be read as "community covers the
+// remote-helper class" later.
+//
+// Community-only on purpose, same as the cases above: this asserts what an OSS
+// build does, so guardCommunityOnly fires first if a premium pack ever leaks
+// into the community embed and makes the assertion pass for a false reason.
+func TestCommunityTierSeesGitArchiveExec(t *testing.T) {
+	pol, infos, err := LoadEmbeddedShellPacks(DefaultPolicy())
+	if err != nil {
+		t.Fatalf("LoadEmbeddedShellPacks: %v", err)
+	}
+	if len(infos) == 0 {
+		t.Fatal("no embedded community packs loaded")
+	}
+	guardCommunityOnly(t, pol)
+
+	engine, err := NewEngineWithAnalyzers(pol, 0)
+	if err != nil {
+		t.Fatalf("NewEngineWithAnalyzers: %v", err)
+	}
+
+	const wantRule = "ts-audit-git-archive"
+
+	// Verbatim from corpus case TP-TS-BLOCK-GIT-REMOTE-HELPER-003 in
+	// internal/analyzer/testdata/unauthorized_execution_cases.go.
+	command := `git archive --remote=host:repo --exec='bash -c "id > /tmp/pwn"' HEAD`
+
+	res := engine.Evaluate(command, nil)
+	if res.Decision != DecisionAudit {
+		t.Errorf("community tier: got %s, want %s for the git-archive --exec read (corpus TP-TS-BLOCK-GIT-REMOTE-HELPER-003)",
+			res.Decision, DecisionAudit)
+	}
+	// A decision with no named rule is indistinguishable from the default
+	// fall-through, which would make the tier-split claim unfalsifiable.
+	if len(res.TriggeredRules) == 0 {
+		t.Fatalf("community tier produced %s with NO named rule -- that is the default fall-through, i.e. blindness, "+
+			"so the `# tier-split` marker in scripts/oss-known-failures.txt would be false", res.Decision)
+	}
+	if !hasExactRule(res.TriggeredRules, wantRule) {
+		t.Errorf("rule %q did not fire (corpus TP-TS-BLOCK-GIT-REMOTE-HELPER-003); triggered: %v",
+			wantRule, res.TriggeredRules)
+	}
+
+	// The narrowness pin. The same community rule fires identically on a
+	// benign archive with no --exec= anywhere, which is precisely what "sees
+	// the command, not the mechanism" means. If a community rule ever becomes
+	// --exec-aware this stays green, but the sibling assertion above would
+	// then be understating free-tier coverage -- so the pair is what tells a
+	// future reader to re-triage rather than trust the marker.
+	benign := `git archive HEAD -o release.tar.gz`
+	bres := engine.Evaluate(benign, nil)
+	if !hasExactRule(bres.TriggeredRules, wantRule) {
+		t.Errorf("%q did not fire on a benign `git archive` (%s); the tier-split note claims this rule is generic "+
+			"rather than --exec-aware, and that claim no longer holds -- re-triage the baseline line",
+			wantRule, benign)
+	}
+
+	t.Logf("community tier sees corpus -003 at %s via %v; siblings -001/-002 are blind (bare baseline lines)",
+		res.Decision, res.TriggeredRules)
+}
+
+// TestCommunityTierSeesOllamaServe is the proof required by
+// scripts/oss-known-failures.txt before a `# tier-split` line may be added.
+//
+// #3520/#3521 added TP-TS-AUDIT-OLLAMA-SERVE-003 (`OLLAMA_HOST=0.0.0.0 ollama
+// serve`), whose BLOCK comes from the premium ne-block-unauthenticated-llm-
+// endpoint. In the OSS build it returns AUDIT, so it needs a baseline entry —
+// but a BARE line would read as blindness, and the community tier is not blind
+// here: ts-audit-ollama-serve fires by name.
+//
+// Read the tier-split claim NARROWLY, exactly as with git archive --exec=
+// above. ts-audit-ollama-serve matches `\bollama\s+(serve|run|start)\b` and
+// reads nothing about OLLAMA_HOST, so what the free tier sees is the shadow-AI
+// COMMAND (taxonomy unauthorized-execution/ai-model-usage/shadow-ai-usage),
+// not the all-interfaces NETWORK EXPOSURE (data-exfiltration/llm-data-flow/
+// unauthenticated-llm-endpoint) that premium blocks on. The second half of
+// this test pins that narrowness by showing the same rule fires identically on
+// a loopback-bound server, so the line cannot later be misread as "community
+// detects unauthenticated LLM endpoints."
+//
+// Community-only on purpose, same as the cases above: this asserts what an OSS
+// build does, so guardCommunityOnly fires first if a premium pack ever leaks
+// into the community embed and makes the assertion pass for a false reason.
+func TestCommunityTierSeesOllamaServe(t *testing.T) {
+	pol, infos, err := LoadEmbeddedShellPacks(DefaultPolicy())
+	if err != nil {
+		t.Fatalf("LoadEmbeddedShellPacks: %v", err)
+	}
+	if len(infos) == 0 {
+		t.Fatal("no embedded community packs loaded")
+	}
+	guardCommunityOnly(t, pol)
+
+	engine, err := NewEngineWithAnalyzers(pol, 0)
+	if err != nil {
+		t.Fatalf("NewEngineWithAnalyzers: %v", err)
+	}
+
+	const wantRule = "ts-audit-ollama-serve"
+
+	// The corpus case, verbatim (internal/analyzer/testdata,
+	// TP-TS-AUDIT-OLLAMA-SERVE-003).
+	exposed := "OLLAMA_HOST=0.0.0.0 ollama serve"
+	res := engine.Evaluate(exposed, nil)
+	if res.Decision != DecisionAudit {
+		t.Errorf("community tier: got %s, want %s for the exposed ollama server (corpus TP-TS-AUDIT-OLLAMA-SERVE-003)\n  rules: %v",
+			res.Decision, DecisionAudit, res.TriggeredRules)
+	}
+	if !hasExactRule(res.TriggeredRules, wantRule) {
+		t.Errorf("rule %q did not fire, so the `# tier-split` marker in scripts/oss-known-failures.txt would be false; triggered: %v",
+			wantRule, res.TriggeredRules)
+	}
+
+	// The narrowness pin. A loopback-bound server is not a network exposure at
+	// all, yet the community rule fires on it exactly the same way — which is
+	// the proof that what the free tier detects is "an ollama server was
+	// started", not "it was exposed on all interfaces". If a future community
+	// rule ever DOES read the bind address, this assertion is the one that
+	// should be revisited, and the baseline line rewritten to match.
+	loopback := "OLLAMA_HOST=127.0.0.1 ollama serve"
+	res = engine.Evaluate(loopback, nil)
+	if !hasExactRule(res.TriggeredRules, wantRule) {
+		t.Errorf("narrowness pin: %q did not fire on the loopback-bound server %q; triggered: %v",
+			wantRule, loopback, res.TriggeredRules)
+	}
+	if res.Decision == DecisionBlock {
+		t.Errorf("narrowness pin: community tier BLOCKed a loopback-bound ollama server: %v", res.TriggeredRules)
+	}
 }

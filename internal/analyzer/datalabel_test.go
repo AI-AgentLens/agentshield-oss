@@ -54,7 +54,7 @@ func TestDataLabelAnalyzer_Match(t *testing.T) {
 	if f.Confidence != 0.90 {
 		t.Errorf("Confidence = %f", f.Confidence)
 	}
-	if f.TaxonomyRef != "data-protection/pii/pii-ssn" {
+	if f.TaxonomyRef != "data-exfiltration/ai-data-flows/labeled-sensitive-data-disclosure" {
 		t.Errorf("TaxonomyRef = %q", f.TaxonomyRef)
 	}
 }

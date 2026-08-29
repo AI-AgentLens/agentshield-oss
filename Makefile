@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest
+.PHONY: build test test-perf lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-mcp-tool-symmetry check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -32,6 +32,15 @@ build-server: ## Build the experimental shield-server binary (agentless /v1/eval
 
 test: ## Run tests
 	go test -v -timeout 40m ./...
+
+# The pipeline latency fitness function, quarantined out of `test` by #3505 —
+# it measured the runner's co-tenancy, not the code, and produced five red
+# `main` runs with zero true positives. Kept as a measurement, run by the
+# nightly perf-budget workflow and by hand here. Needs a QUIET machine: do not
+# run it alongside Comply's `make test-all`.
+test-perf: ## Run the pipeline P95 latency budget (quarantined; needs a quiet machine)
+	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
+		-run 'TestPipelinePerfBudget' ./internal/policy/
 
 lint: ## Run linter (requires golangci-lint)
 	golangci-lint run ./...
@@ -142,6 +151,9 @@ check: lint-fix test build check-rule-coverage ## Run full pre-commit check (lin
 check-rule-coverage: ## Enforce TP+TN test coverage on every terminal pack rule
 	go run ./cmd/check-rule-coverage -v
 
+check-mcp-tool-symmetry: ## Flag MCP credential-exposure rules with read-only tool_name_any (write-tool bypass, #3525)
+	go run ./cmd/check-mcp-tool-symmetry -v
+
 # Semantic-fit of pack taxonomy refs (#3333). Needs the AI_risk_compliance
 # taxonomy tree, which this repo does not vendor — pass its path, the same
 # contract as scripts/check-taxonomy-refs.sh, which CI already satisfies.
@@ -200,6 +212,11 @@ test-brew: ## Test brew tap + install + scan in Docker container
 	@# guard against ghcr.io bottle-download SSL EOFs at nightly hours
 	@# (~9PM EDT). Two consecutive nightly failures (5/20 + 5/21) were
 	@# ghcr.io load on the go-bottle download, not formula breakage.
+	@#
+	@# The retry MUST capture output instead of piping to tail: a pipeline
+	@# exits with tail's status (always 0), so `if brew install | tail` broke
+	@# on attempt 1 every time and the loop never retried. That is exactly
+	@# how a transient git fetch EOF failed the 8/19 nightly (Shield #3437).
 	@docker run --rm \
 		-e HOMEBREW_NO_AUTO_UPDATE=1 \
 		-e HOMEBREW_NO_ANALYTICS=1 \
@@ -207,14 +224,18 @@ test-brew: ## Test brew tap + install + scan in Docker container
 		-e HOMEBREW_DOWNLOAD_CONCURRENCY=1 \
 		homebrew/brew:latest bash -c ' \
 		set -e; \
+		brew --version | head -1; \
 		brew tap AI-AgentLens/oss 2>&1 | tail -2; \
-		brew trust AI-AgentLens/oss 2>&1 | tail -2 || true; \
+		brew trust AI-AgentLens/oss >/dev/null 2>&1 || \
+			echo "note: brew trust unavailable on this Homebrew - skipping (install is the real gate)"; \
 		for attempt in 1 2 3; do \
-			if brew install AI-AgentLens/oss/agentshield 2>&1 | tail -5; then \
+			if out=$$(brew install AI-AgentLens/oss/agentshield 2>&1); then \
+				printf "%s\n" "$$out" | tail -5; \
 				break; \
 			fi; \
+			printf "%s\n" "$$out" | tail -15 >&2; \
 			if [ $$attempt -eq 3 ]; then \
-				echo "brew install failed after 3 attempts (likely ghcr.io bottle download issue)"; \
+				echo "brew install failed after 3 attempts (likely ghcr.io bottle download issue)" >&2; \
 				exit 1; \
 			fi; \
 			echo "brew install attempt $$attempt failed; sleeping 30s before retry..." >&2; \

@@ -365,13 +365,13 @@ func TestEvaluateShellCommand_HookParityFitnessFunction(t *testing.T) {
 	//   - regex rules (raw-string match — should work even on broken path)
 	//   - benign command (must still ALLOW)
 	commands := []string{
-		"cat ~/.config/op/config",       // protected-path: tokenization-sensitive
-		"cat ~/.age/key.txt",            // protected-path
-		"rm -rf /",                      // regex/structural
+		"cat ~/.config/op/config",          // protected-path: tokenization-sensitive
+		"cat ~/.age/key.txt",               // protected-path
+		"rm -rf /",                         // regex/structural
 		"sudo dd if=/dev/zero of=/dev/sda", // structural
-		"ls -la",                        // benign baseline
-		"echo hello world",              // benign baseline
-		"git status",                    // benign baseline
+		"ls -la",                           // benign baseline
+		"echo hello world",                 // benign baseline
+		"git status",                       // benign baseline
 	}
 
 	for _, cmd := range commands {
@@ -706,5 +706,167 @@ func TestPrintShellResultJSON_RoundTrip(t *testing.T) {
 		if !strings.Contains(buf.String(), key) {
 			t.Errorf("output missing JSON field %s\n%s", key, buf.String())
 		}
+	}
+}
+
+// --- #3302: --shell-file, the diagnosis path the hook cannot block ---
+
+// resetCheckFlags clears the check command's flag globals. They are package
+// vars bound by cobra, so a test that sets one leaks into every later test in
+// this package unless it is put back.
+func resetCheckFlags(t *testing.T) {
+	t.Helper()
+	prevShell, prevFile, prevFixture := checkShell, checkShellFile, checkFixture
+	checkShell, checkShellFile, checkFixture = "", "", ""
+	t.Cleanup(func() { checkShell, checkShellFile, checkFixture = prevShell, prevFile, prevFixture })
+}
+
+func TestResolveShellFile_ReadsCommandFromFile(t *testing.T) {
+	resetCheckFlags(t)
+	path := filepath.Join(t.TempDir(), "blocked.txt")
+	if err := os.WriteFile(path, []byte("rm -rf /"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checkShellFile = path
+	if err := resolveShellFile(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if checkShell != "rm -rf /" {
+		t.Errorf("expected checkShell to be filled from the file, got %q", checkShell)
+	}
+}
+
+// A single trailing newline is what every editor adds; stripping it is the
+// difference between "works" and "why does my file behave differently from
+// --shell". Exactly one is stripped, and nothing else is touched.
+func TestResolveShellFile_StripsOneTrailingNewlineOnly(t *testing.T) {
+	for name, tc := range map[string]struct{ content, want string }{
+		"lf":              {"rm -rf /\n", "rm -rf /"},
+		"crlf":            {"rm -rf /\r\n", "rm -rf /"},
+		"none":            {"rm -rf /", "rm -rf /"},
+		"two lf":          {"rm -rf /\n\n", "rm -rf /\n"},
+		"leading spaces":  {"   rm -rf /", "   rm -rf /"},
+		"interior spaces": {"rm  -rf   /", "rm  -rf   /"},
+		"multiline":       {"cd /tmp\nrm -rf /\n", "cd /tmp\nrm -rf /"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetCheckFlags(t)
+			path := filepath.Join(t.TempDir(), "c.txt")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checkShellFile = path
+			if err := resolveShellFile(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if checkShell != tc.want {
+				t.Errorf("content %q -> got %q, want %q", tc.content, checkShell, tc.want)
+			}
+		})
+	}
+}
+
+// Leading whitespace and interior spacing survive on purpose, and the case
+// above pins it: command_position_exclude and the per-statement anchored-regex
+// retry both key on where text sits in the command, so a --shell-file that
+// quietly reformatted its input would be a less faithful predictor of the hook
+// than --shell. That would defeat the reason this flag exists.
+func TestResolveShellFile_MutualExclusion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.txt")
+	if err := os.WriteFile(path, []byte("rm -rf /"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("with --shell", func(t *testing.T) {
+		resetCheckFlags(t)
+		checkShellFile, checkShell = path, "ls"
+		err := resolveShellFile()
+		if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("expected a mutual-exclusion error, got %v", err)
+		}
+	})
+	t.Run("with --fixture", func(t *testing.T) {
+		resetCheckFlags(t)
+		checkShellFile, checkFixture = path, "f.yaml"
+		err := resolveShellFile()
+		if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("expected a mutual-exclusion error, got %v", err)
+		}
+	})
+}
+
+func TestResolveShellFile_ErrorCases(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		resetCheckFlags(t)
+		checkShellFile = filepath.Join(t.TempDir(), "nope.txt")
+		if err := resolveShellFile(); err == nil {
+			t.Error("expected an error for a nonexistent file")
+		}
+	})
+	// An empty or whitespace-only file must be an error, not an empty command.
+	// Evaluating "" returns the default decision, which reads as "AgentShield
+	// says this is fine" — a wrong answer delivered confidently.
+	for name, content := range map[string]string{"empty": "", "whitespace": "  \n\t\n"} {
+		t.Run(name, func(t *testing.T) {
+			resetCheckFlags(t)
+			path := filepath.Join(t.TempDir(), "c.txt")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checkShellFile = path
+			err := resolveShellFile()
+			if err == nil || !strings.Contains(err.Error(), "no command") {
+				t.Errorf("expected a 'no command' error, got %v", err)
+			}
+		})
+	}
+	t.Run("unset is a no-op", func(t *testing.T) {
+		resetCheckFlags(t)
+		checkShell = "ls"
+		if err := resolveShellFile(); err != nil {
+			t.Errorf("unset --shell-file should do nothing, got %v", err)
+		}
+		if checkShell != "ls" {
+			t.Errorf("--shell must survive untouched, got %q", checkShell)
+		}
+	})
+}
+
+// TestResolveShellFile_ParityWithShellFlag is the claim that matters: a command
+// read from a file must evaluate identically to the same command passed inline.
+// If the two paths ever diverge, --shell-file becomes a diagnostic that lies
+// about the thing it was built to diagnose.
+func TestResolveShellFile_ParityWithShellFlag(t *testing.T) {
+	withFakeHomeForCheck(t)
+	for _, cmdStr := range []string{
+		"rm -rf /",
+		"cd /tmp && rm -rf /",
+		"  rm -rf /",
+		"echo ok",
+	} {
+		t.Run(cmdStr, func(t *testing.T) {
+			inline, err := evaluateShellCommand(cmdStr, "")
+			if err != nil {
+				t.Fatalf("inline: %v", err)
+			}
+			resetCheckFlags(t)
+			path := filepath.Join(t.TempDir(), "c.txt")
+			if err := os.WriteFile(path, []byte(cmdStr+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checkShellFile = path
+			if err := resolveShellFile(); err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			fromFile, err := evaluateShellCommand(checkShell, "")
+			if err != nil {
+				t.Fatalf("from file: %v", err)
+			}
+			if inline.Decision != fromFile.Decision {
+				t.Errorf("decision diverged: inline=%s file=%s", inline.Decision, fromFile.Decision)
+			}
+			if !slices.Equal(inline.TriggeredRules, fromFile.TriggeredRules) {
+				t.Errorf("rules diverged:\n  inline=%v\n  file  =%v", inline.TriggeredRules, fromFile.TriggeredRules)
+			}
+		})
 	}
 }

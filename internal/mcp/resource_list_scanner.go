@@ -271,7 +271,7 @@ func scanMetadataField(field, value string) *ResourceListFinding {
 	if value == "" {
 		return nil
 	}
-	lower := strings.ToLower(value)
+	forms := newProseForms(value)
 
 	// Use the same signal groups as description_scanner.go for consistency.
 	// Order matters: hidden-instruction markers first (highest confidence), then
@@ -286,10 +286,10 @@ func scanMetadataField(field, value string) *ResourceListFinding {
 	}
 	for _, group := range allGroups {
 		for _, p := range group {
-			if p.re.MatchString(lower) {
+			if note, ok := proseMatchNote(p.re, forms); ok {
 				return &ResourceListFinding{
 					Signal: SignalResourceListMetadataInjection,
-					Detail: "resource " + field + " contains injection pattern: " + p.description,
+					Detail: "resource " + field + " contains injection pattern: " + p.description + note,
 					Field:  field,
 				}
 			}

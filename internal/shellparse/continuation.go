@@ -6,13 +6,14 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// JoinLineContinuations returns the command re-rendered on a single line, with
-// backslash-newline continuations removed the way the shell removes them.
-// Returns "" when there is nothing to join, when the command does not parse, or
-// when the result is identical to the input.
+// JoinLineContinuations returns the command with backslash-newline
+// continuations removed the way the shell removes them, leaving every other
+// byte — crucially, every statement-separating newline — untouched. Returns
+// "" when there is nothing to join, when the command does not parse, or when
+// the result is identical to the input.
 //
 //	"dd \\\nif=/dev/zero of=/dev/sda"  ->  "dd if=/dev/zero of=/dev/sda"
-//	"rm \\\n  -rf /"                   ->  "rm -rf /"
+//	"rm \\\n  -rf /"                   ->  "rm   -rf /"  (whitespace-equivalent)
 //	"echo 'a\\\nb'"                    ->  ""   (inside quotes: not a continuation)
 //
 // Why this exists: a backslash-newline is pure lexical whitespace. The shell
@@ -32,10 +33,30 @@ import (
 // The naive fix — strings.ReplaceAll(cmd, "\\\n", "") — is wrong, and wrong in
 // the direction that creates false positives: inside single quotes and quoted
 // heredocs a backslash-newline is ordinary literal text, so collapsing it
-// fabricates content the shell would never produce. Printing the parsed AST
-// gets this right for free: the printer emits each word as the parser understood
-// it, so a continuation that was really whitespace disappears and one that was
-// really data survives.
+// fabricates content the shell would never produce.
+//
+// An earlier version fixed that by reprinting the WHOLE parsed file with
+// syntax.SingleLine(true) — correct for the AST, wrong for the regex layer
+// that consumes the result: the SingleLine printer also collapses every
+// statement-separating newline into "; ", not just the true continuations, so
+// a completely unrelated pair of statements elsewhere in the same command
+// ends up textually adjacent with only a "; " between them. An unanchored
+// `.*`-based rule can then bridge across what were two separate statements —
+// `.` does not match `\n`, so it could never do that against the original
+// text (issue #3472: a read-only two-statement script got BLOCKed by
+// sc-block-mcp-config-injection purely because ONE of its statements happened
+// to wrap with a "\<NL>" continuation, which single-lined the entire script
+// and let the rule's redirect-then-path pattern span from one statement's
+// pipe into an unrelated later statement's path literal).
+//
+// This version never reformats anything. It deletes only the exact
+// backslash-newline BYTE SEQUENCES that the AST confirms are real
+// continuations (i.e. not inside a single-quoted string or a heredoc body,
+// where the same two bytes are literal data) and leaves every other byte —
+// including every other newline in the command, whatever separates it —
+// exactly where it was. A statement-separating newline is never preceded by
+// a backslash, so it can never be mistaken for a continuation by
+// construction; no statement-boundary tracking is needed to protect it.
 func JoinLineContinuations(command string) string {
 	// Fast path: the overwhelming majority of commands have no continuation at
 	// all, and this runs on every command through the regex analyzer. Parsing
@@ -50,15 +71,68 @@ func JoinLineContinuations(command string) string {
 		return ""
 	}
 
+	protected := literalContinuationSpans(file)
+
 	var sb strings.Builder
-	printer := syntax.NewPrinter(syntax.SingleLine(true))
-	if err := printer.Print(&sb, file); err != nil {
-		return ""
+	changed := false
+	i := 0
+	for i < len(command) {
+		if command[i] == '\\' && i+1 < len(command) {
+			nlLen := 0
+			switch {
+			case command[i+1] == '\n':
+				nlLen = 2
+			case command[i+1] == '\r' && i+2 < len(command) && command[i+2] == '\n':
+				nlLen = 3
+			}
+			if nlLen > 0 && !withinProtectedSpan(protected, i) {
+				i += nlLen
+				changed = true
+				continue
+			}
+		}
+		sb.WriteByte(command[i])
+		i++
 	}
 
-	joined := strings.TrimRight(sb.String(), " \t\n")
+	if !changed {
+		return ""
+	}
+	joined := sb.String()
 	if joined == "" || joined == command {
 		return ""
 	}
 	return joined
+}
+
+// literalContinuationSpans returns the byte ranges in which a
+// backslash-newline is literal data, not a continuation: single-quoted
+// string bodies and heredoc bodies (quoted or not — a heredoc reads its body
+// verbatim line-by-line; it is never subject to continuation removal,
+// matching real shell behavior).
+func literalContinuationSpans(file *syntax.File) []byteSpan {
+	var spans []byteSpan
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.SglQuoted:
+			spans = append(spans, byteSpan{int(n.Pos().Offset()), int(n.End().Offset())})
+		case *syntax.Stmt:
+			for _, redir := range n.Redirs {
+				if redir.Hdoc != nil {
+					spans = append(spans, byteSpan{int(redir.Hdoc.Pos().Offset()), int(redir.Hdoc.End().Offset())})
+				}
+			}
+		}
+		return true
+	})
+	return spans
+}
+
+func withinProtectedSpan(spans []byteSpan, offset int) bool {
+	for _, s := range spans {
+		if offset >= s.start && offset < s.end {
+			return true
+		}
+	}
+	return false
 }

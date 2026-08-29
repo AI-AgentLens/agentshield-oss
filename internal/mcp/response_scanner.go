@@ -204,6 +204,54 @@ const (
 	// third-party API responses) than any definition-time surface.
 	// (taxonomy: unauthorized-execution/agentic-attacks/unicode-tag-block-response-smuggling)
 	SignalResponseUnicodeTagSmuggling ResponsePoisonSignal = "response_unicode_tag_smuggling"
+
+	// SignalResponseFragmentInjection fires when a tool response maps a generic,
+	// semantically-empty parameter name — recorded from an earlier tools/list
+	// response in the SAME session — to a value shaped like a credential or
+	// sensitive-file reference (e.g. "populate alpha=~/.ssh/id_rsa"). Neither the
+	// tool description (vague field names, no stated purpose) nor the result (an
+	// assignment-shaped mapping to some value) is suspicious in isolation; the
+	// signal exists only as the union of the two, split across message TYPES
+	// within one session — "GhostSplice" cross-channel instruction fragmentation
+	// (asset-group/ghostsplice, disclosed August 2026). See ghostsplice.go.
+	// (taxonomy: unauthorized-execution/agentic-attacks/mcp-cross-channel-fragment-injection)
+	SignalResponseFragmentInjection ResponsePoisonSignal = "response_fragment_injection"
+
+	// SignalResponseSkillAuthoringBanner fires when tool response content — a
+	// retrieved skill/tool file, or a newly-authored one the agent re-reads —
+	// contains BOTH halves of the EvoMal "banner" (arXiv:2608.25776,
+	// 2026-08-26): (1) an imperative comment framing a code block as mandatory
+	// build/CI infrastructure that must be copied verbatim ("REQUIRED: copy
+	// verbatim", "keep the helpers below or CI fails"), AND (2) a hidden
+	// auto-execution hook — a bare module-level call to an underscore-prefixed
+	// function, or an underscore-prefixed decorator — of the kind that fires
+	// at import time regardless of whether the skill is ever invoked. Either
+	// half alone is unremarkable (real scaffolding warnings exist; so do
+	// private module-level setup calls); the paper's finding is that this
+	// specific combination is what induces a self-evolving coding agent to
+	// reproduce the whole structure — including the hook — when it authors a
+	// new skill by imitating one it retrieved, carrying forward whatever
+	// payload the hook wires up regardless of payload class. Deliberately
+	// does NOT require an explicit AI-addressing marker like
+	// SignalResponseCodeCommentInjection's bracket format: the banner is
+	// designed to look like ordinary developer boilerplate, and the paper
+	// found stronger imperative wording does not help reproduction and can
+	// even hurt it.
+	// (taxonomy: supply-chain/config-tampering/agent-skill-authoring-self-poisoning)
+	SignalResponseSkillAuthoringBanner ResponsePoisonSignal = "response_skill_authoring_banner"
+
+	// SignalResponseStagedTrustDefection fires when a tool-call response
+	// introduces embedded-resource content (type "resource"/"resource_link")
+	// for the first time in a session, but only after the session has already
+	// exchanged several prior text-only responses — the observable proxy for a
+	// "TrustShift" staged trust attack (arXiv 2608.23763): a compromised MCP
+	// server behaves consistently during a conditioning phase, then defects to
+	// a new content channel once the agent has built operational reliance. The
+	// evasion is temporal, not syntactic — the switched payload need not match
+	// any injection-language pattern, so this exists alongside (not instead of)
+	// the content-pattern scanners above. See staged_trust.go.
+	// (taxonomy: unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning)
+	SignalResponseStagedTrustDefection ResponsePoisonSignal = "response_staged_trust_defection"
 )
 
 // ResponsePoisonFinding records one detected poisoning signal in a tool response.
@@ -265,6 +313,12 @@ func signalTaxonomyRef(signal ResponsePoisonSignal) string {
 		return "unauthorized-execution/agentic-attacks/seo-poisoned-payment-injection"
 	case SignalResponseUnicodeTagSmuggling:
 		return "unauthorized-execution/agentic-attacks/invisible-unicode-prompt-injection"
+	case SignalResponseFragmentInjection:
+		return "unauthorized-execution/agentic-attacks/mcp-cross-channel-fragment-injection"
+	case SignalResponseStagedTrustDefection:
+		return "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
+	case SignalResponseSkillAuthoringBanner:
+		return "supply-chain/config-tampering/agent-skill-authoring-self-poisoning"
 	default:
 		return "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
 	}
@@ -287,10 +341,174 @@ func ScanToolCallResponse(items []ContentItem) ResponseScanResult {
 		// head-position signals AND the tail-position signal will surface
 		// both findings, giving the audit log richer context.
 		scanResponseTailForSmuggling(&result, item.Text)
+
+		scanResponseSeparatorFolded(&result, item.Text)
+		scanResponseRenderRecovered(&result, item.Text)
 	}
 
 	result.Poisoned = len(result.Findings) > 0
 	return result
+}
+
+// scanResponseSeparatorFolded re-runs the whole response scan against a
+// separator-normalized rendering of the text, and appends only the findings that
+// the raw pass did not already produce.
+//
+// # The gap
+//
+// Go's regexp is RE2, where `\s` is ASCII-only (`[\t\n\f\r ]`). The response
+// patterns are spelled with `\s+` — e.g. the canonical
+// `ignore\s+(all\s+)?previous\s+instructions` — so an attacker who separates the
+// words with U+00A0, U+2009, U+202F, U+3000 or any sibling defeats them. Measured
+// on this surface before this pass existed, that directive fired in ASCII and
+// scanned clean under ALL SIX Unicode separators tried: a 100% bypass.
+//
+// # Why this surface matters more than tool descriptions
+//
+// A tool description is attacker-controlled at REGISTRATION time and a human may
+// review it once. A tool RESPONSE is attacker-controlled at RUNTIME and nobody
+// reviews it — it is the web page, issue comment, ticket body or file the agent
+// just fetched. This is where indirect prompt injection actually lands, and the
+// text arrives verbatim in the model's context.
+//
+// # Why the whole scan is re-run rather than a curated list
+//
+// The alternative — enumerate which response signals deserve fold coverage —
+// creates exactly the hand-maintained coverage list whose drift left three
+// high-severity description signals uncovered for months (see
+// proseDetectorsForFold in description_scanner.go). Re-running the entire scan
+// means every response signal, present and future, gets separator coverage with
+// nothing to keep in sync.
+//
+// # False-positive safety
+//
+// Response text is arbitrary tool output, so legitimate Unicode spacing is far
+// MORE common here than in a tool description — U+3000 is the ordinary word
+// separator in Japanese, and NBSP arrives with any scraped HTML. Two properties
+// keep this additive:
+//
+//  1. The fold is gated on `changed`, so pure-ASCII responses (the overwhelming
+//     majority) take a single byte scan and return.
+//  2. Only findings ABSENT from the raw pass are appended, and a finding exists
+//     only when the folded text matches a known-malicious response pattern.
+//     Benign Japanese prose folds to benign prose and matches nothing.
+//
+// Snippets on folded findings are taken from the folded text on purpose: the
+// operator needs to read the directive that was recovered, and a raw-offset
+// snippet would render as the visually-identical string that did not match.
+// The Detail says so, so the audit entry never implies the bytes arrived as ASCII.
+func scanResponseSeparatorFolded(result *ResponseScanResult, text string) {
+	folded, changed := unicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult ResponseScanResult
+	scanResponseText(&foldedResult, folded)
+	scanResponseTailForSmuggling(&foldedResult, folded)
+
+	for _, f := range foldedResult.Findings {
+		key := string(f.Signal) + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by folding non-ASCII Unicode separator characters " +
+			"(NBSP / thin / ideographic space and siblings) to ASCII; RE2's `\\s` class is ASCII-only, " +
+			"so the text as sent matched no pattern while rendering and tokenizing identically"
+		result.Findings = append(result.Findings, f)
+	}
+}
+
+// scanResponseRenderRecovered re-runs the whole response scan against the text
+// a human actually reads on screen — every codepoint-level disguise undone in
+// one pass — and appends only findings that the raw and separator-folded scans
+// did not already produce.
+//
+// # Why the response surface needed this most
+//
+// scanResponseSeparatorFolded closed ONE axis here (Unicode spaces). The
+// description scanner had by then accumulated five: invisible controls,
+// Cyrillic/Greek mixed script, compatibility homoglyphs, ASCII letter-spacing
+// and Unicode separators. The response surface — which the comment above calls
+// "where indirect prompt injection actually lands", and which is the only one
+// of the two carrying text the model reads as trusted tool output — had exactly
+// one of the five. Measured on 2026-08-19 with one override directive:
+//
+//	spelling                     description          response
+//	ASCII                        hidden_instructions  1 finding
+//	U+00A0 separators            Signal 29            1 finding
+//	fullwidth letters            Signal 29            0
+//	Cyrillic confusables x6      Signal 16            0
+//	U+00AD soft hyphen in words  0                    0
+//	all four axes at once        0                    0
+//
+// This is the "lesson learned in one walker and never propagated to its
+// siblings" shape the bash AST and JSON Schema walkers hit repeatedly, and the
+// fix is the same: recover the rendered text once, here, and let the existing
+// whole-scan re-run pick up every present and future response signal.
+//
+// The soft-hyphen row is a plain enumeration gap rather than a composition one:
+// U+00AD renders as nothing, is not in RE2's ASCII-only `\s`, and is not in the
+// eight-entry isZeroWidth list, so it defeats every plaintext matcher on its
+// own. An exhaustive sweep found 84 codepoints that render as nothing-or-blank
+// and clear this surface that way.
+//
+// # False-positive safety
+//
+// Identical in shape to the separator pass, and it needs to be: tool responses
+// are arbitrary fetched content, so legitimate Unicode is far more common here
+// than in a tool description. Three properties keep it additive:
+//
+//  1. Gated on `changed`, so pure-ASCII responses — the overwhelming majority —
+//     cost one byte scan and return.
+//  2. Only findings ABSENT from the earlier passes are appended, and a finding
+//     exists only when the RECOVERED text matches a known-malicious response
+//     pattern. Emoji ZWJ sequences, Arabic and Indic joiners, CMS soft hyphens
+//     and Japanese ideographic spaces all recover to benign prose that matches
+//     nothing.
+//  3. Recovery is a text transform, never a verdict. The presence of an
+//     invisible character is not reported here — that would fire on any scraped
+//     HTML. Only a directive that recovery made readable is.
+//
+// Snippets come from the recovered text on purpose, for the same reason the
+// separator pass does it: the operator needs to read the directive that was
+// recovered, and a raw-offset snippet renders as the visually-identical string
+// that did not match. The Detail says so, so the audit entry never implies the
+// bytes arrived in the clear.
+func scanResponseRenderRecovered(result *ResponseScanResult, text string) {
+	recovered, changed := unicode.RecoverRenderedText(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+
+	var recoveredResult ResponseScanResult
+	scanResponseText(&recoveredResult, recovered)
+	scanResponseTailForSmuggling(&recoveredResult, recovered)
+
+	for _, f := range recoveredResult.Findings {
+		key := string(f.Signal) + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by undoing codepoint-level disguises " +
+			"(invisible formatters such as U+00AD SOFT HYPHEN removed; blank-rendering fillers " +
+			"and Unicode separators folded to ASCII space; fullwidth/mathematical and " +
+			"Cyrillic/Greek confusables folded to Latin). The text as sent matched no pattern " +
+			"while rendering and tokenizing as ordinary English"
+		result.Findings = append(result.Findings, f)
+	}
 }
 
 func scanResponseText(result *ResponseScanResult, text string) {
@@ -476,7 +694,24 @@ func scanResponseText(result *ResponseScanResult, text string) {
 		}
 	}
 
-	// Signal 18: Unicode Tag-block smuggling (arXiv:2607.05744, July 2026) —
+	// Signal 18: EvoMal skill-authoring banner (arXiv:2608.25776, 2026-08-26) —
+	// a copy-verbatim imperative comment AND a hidden import-time/decorator
+	// auto-execution hook present in the SAME response text. Either half alone
+	// is common in legitimate code (scaffolding warnings; private module-level
+	// setup calls); the conjunction is the banner shape that induces a
+	// self-evolving coding agent to reproduce a retrieved skill's structure —
+	// hook included — when it authors a new skill of its own.
+	if banner := firstSignalMatch(skillAuthoringBannerMimicryPatterns, lower); banner != nil {
+		if hook := firstSignalMatch(skillAuthoringHiddenHookPatterns, lower); hook != nil {
+			result.Findings = append(result.Findings, ResponsePoisonFinding{
+				Signal:  SignalResponseSkillAuthoringBanner,
+				Detail:  fmt.Sprintf("%s + %s", banner.description, hook.description),
+				Snippet: safeSnippet(text, banner.loc[0], 100),
+			})
+		}
+	}
+
+	// Signal 19: Unicode Tag-block smuggling (arXiv:2607.05744, July 2026) —
 	// scanned on the original (non-lowercased) text since this is codepoint
 	// classification, not keyword matching.
 	scanResponseUnicodeTagSmuggling(result, text)
@@ -1290,10 +1525,38 @@ var seoPaymentFeeFramingPatterns = []responseSignalPattern{
 		"'complete payment' directive"},
 }
 
+// skillAuthoringBannerMimicryPatterns detects the copy-verbatim imperative-comment
+// half of the EvoMal banner AND-combination (see SignalResponseSkillAuthoringBanner).
+// Deliberately scoped to comment lines (# or //) so it targets code content rather
+// than arbitrary prose, and deliberately does NOT require an explicit AI-addressing
+// marker — EvoMal's banner is designed to read as ordinary build/CI scaffolding
+// language, not as a directive to an AI.
+var skillAuthoringBannerMimicryPatterns = []responseSignalPattern{
+	{regexp.MustCompile(`(?:#|//)[^\n]{0,80}\b(?:required|mandatory|must)\b[^\n]{0,60}\bcopy\b[^\n]{0,40}\bverbatim\b`),
+		"copy-verbatim comment framing a code block as required/mandatory infrastructure"},
+	{regexp.MustCompile(`(?:#|//)[^\n]{0,80}\bverbatim\b[^\n]{0,60}\b(?:required|mandatory|must)\b`),
+		"copy-verbatim comment framing a code block as required/mandatory infrastructure"},
+	{regexp.MustCompile(`(?:#|//)[^\n]{0,100}\b(?:keep|preserve|retain)\b[^\n]{0,50}\bhelpers?\b[^\n]{0,50}\b(?:or|otherwise)\b[^\n]{0,40}\b(?:ci|build|pipeline|tests?)\b[^\n]{0,30}\bfails?\b`),
+		"comment threatening CI/build failure if a helper block is not preserved"},
+}
+
+// skillAuthoringHiddenHookPatterns detects the hidden import-time/decorator
+// auto-execution half of the EvoMal banner AND-combination. A bare module-level
+// call to an underscore-prefixed ("private") function, or a decorator whose own
+// name is underscore-prefixed, fires regardless of whether the authored skill's
+// public functions are ever invoked — the paper's "import-time registration" and
+// "decorator on a task-shaped host" banner layers.
+var skillAuthoringHiddenHookPatterns = []responseSignalPattern{
+	{regexp.MustCompile(`(?m)^_[a-z][a-z0-9_]*\([^)\n]*\)\s*(?:#[^\n]*)?$`),
+		"bare module-level call to an underscore-prefixed function (fires at import time)"},
+	{regexp.MustCompile(`(?m)^@_[a-z][a-z0-9_]*\b`),
+		"underscore-prefixed decorator wrapping a function"},
+}
+
 // responseSignalPatternMatch records the description and match location of whichever
 // pattern in a list first matched — used to combine two independent pattern lists with
-// AND semantics (SignalResponseSEOPaymentInjection) while still surfacing a descriptive
-// detail message for the audit log.
+// AND semantics (SignalResponseSEOPaymentInjection, SignalResponseSkillAuthoringBanner)
+// while still surfacing a descriptive detail message for the audit log.
 type responseSignalPatternMatch struct {
 	description string
 	loc         []int

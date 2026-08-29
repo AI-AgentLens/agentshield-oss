@@ -212,6 +212,19 @@ func isShellOnly(regex string) bool {
 		"npm\\s", "pip", "mvn", "dotnet",
 		"dig\\s", "nslookup",
 		"curl", "wget", "nc\\b", "ncat",
+
+		// Environment-variable assignment rules shaped "ENVVAR=<path>" — the
+		// shell threat requires a LATER command to consume the env var (the
+		// dynamic linker for LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT, a cloud CLI
+		// for AWS_CONFIG_FILE/KUBECONFIG/etc). MCP tool calls have no
+		// "export"/env-redirect concept, so the path literals extractPaths
+		// finds here have no faithful MCP translation. Left unexcluded,
+		// classifyPathCategory's write/read-verb heuristic finds neither verb
+		// in these regexes and silently defaults to "path-read" — which would
+		// emit an MCP BLOCK on *reading* /var/tmp or /var/folders (macOS's
+		// live system temp root). See #3465.
+		"LD_(PRELOAD|LIBRARY_PATH)", "LD_AUDIT=",
+		"AWS_CONFIG_FILE|AWS_SHARED_CREDENTIALS_FILE|KUBECONFIG",
 	}
 	for _, tool := range shellOnlyTools {
 		if strings.Contains(regex, tool) {
@@ -240,7 +253,13 @@ func extractPaths(regex string) []string {
 	// real home-directory roots (see anchorToHomeDirs), not a bare **/<path>
 	// glob, which also matches the same relative path inside any project
 	// directory (#3354).
-	dotPathRe := regexp.MustCompile(`(\.\w+(?:/[a-zA-Z0-9_.*-]+)*)`)
+	//
+	// Each path segment allows the two-char `\.` escape sequence alongside
+	// the plain character class, not just a bare literal dot — otherwise a
+	// segment boundary the source regex spells as an escaped dot (e.g.
+	// `\.m2/settings\.xml`) truncates at the backslash and silently drops
+	// the file extension (#3375 Group C: mcp-gen-protected-path-m2-settingsxml).
+	dotPathRe := regexp.MustCompile(`(\.\w+(?:/(?:[a-zA-Z0-9_.*-]|\\\.)+)*)`)
 	for _, m := range dotPathRe.FindAllStringSubmatch(regex, -1) {
 		raw := m[1]
 		// Must start with a known sensitive dot-dir/file.
@@ -281,6 +300,16 @@ func cleanRegexPath(s string) string {
 	// Remove character classes and alternations.
 	s = regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(s, "")
 	s = regexp.MustCompile(`\[[^\]]*\]`).ReplaceAllString(s, "*")
+	// Expand a single optional character (`X?`) into a glob wildcard instead
+	// of dropping only the `?` — `authorized_keys2?` means "authorized_keys"
+	// OR "authorized_keys2"; the blanket quantifier strip below left
+	// "authorized_keys2" as the ONLY match, narrowing the glob to the rarely
+	// used spelling (#3375 Group C, related extraction defect). This must run
+	// before the group-removal step's leftovers are stripped, and only
+	// touches a `?` directly after an alphanumeric char — a `?` left behind
+	// by a removed `(group)` has no preceding literal to expand and is
+	// correctly dropped by the blanket strip below.
+	s = regexp.MustCompile(`([a-zA-Z0-9])\?`).ReplaceAllString(s, "$1*")
 	// Remove quantifiers.
 	s = regexp.MustCompile(`[+?{}]`).ReplaceAllString(s, "")
 	// Clean up double slashes.
@@ -298,28 +327,93 @@ func isSensitiveDotPath(p string) bool {
 		".ssh", ".aws", ".gnupg", ".kube", ".docker",
 		".npmrc", ".pypirc", ".netrc", ".git-credentials",
 		".config/gcloud", ".config/gh", ".vault-token",
-		".terraform.d", ".azure", ".env", ".yarnrc",
+		".terraform.d", ".azure", ".env", ".envrc", ".yarnrc",
 		".cargo/config", ".m2/settings", ".pip",
 		".config/pip", ".config/openai", ".config/anthropic",
 		".openai", ".anthropic",
 		".mozilla/firefox", ".config/chromium",
 	}
 	for _, s := range sensitive {
-		if strings.HasPrefix(p, s) {
+		if p == s {
 			return true
+		}
+		// A prefix match alone is not enough — ".env" is a prefix of
+		// ".environ" (Python's os.environ, matched by an unrelated rule's
+		// `os\.environ\.get\(` text), which is not a file at all. Require a
+		// path-segment or extension boundary right after the prefix so
+		// "environ"/"dockerignore"-shaped words don't false-match their
+		// sensitive stem (#3375 Group C).
+		if strings.HasPrefix(p, s) {
+			rest := p[len(s):]
+			// The candidate is the RAW regex-source capture, not yet run
+			// through cleanRegexPath — an extension boundary the source
+			// spelled as an escaped dot (`\.xml`) still carries its leading
+			// backslash here. dotPathRe's segment grammar only ever admits
+			// a bare backslash as the first half of that `\.` atom, so
+			// seeing one guarantees an escaped-dot boundary follows.
+			if rest[0] == '/' || rest[0] == '.' || rest[0] == '\\' {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// classifyPathCategory determines what MCP operations are relevant.
-func classifyPathCategory(regex string) string {
-	// If regex contains write-indicating commands (cp, mv, tee, >), it's a write path.
-	writeRe := regexp.MustCompile(`\b(cp|mv|tee|scp|rsync|write|edit|save|install)\b|>>?`)
-	readRe := regexp.MustCompile(`\b(cat|less|more|head|tail|bat|strings|xxd|hexdump|od)\b`)
+// redirectOperatorRe matches an unambiguous shell write-TARGET signal: a
+// literal redirect (`>`, `>>`) or `tee`. Unlike the write-word list below,
+// these are positional — the path immediately following one is being
+// written to, full stop.
+var redirectOperatorRe = regexp.MustCompile(`>>?|\btee\b`)
 
-	hasWrite := writeRe.MatchString(regex)
-	hasRead := readRe.MatchString(regex)
+// writeWordRe matches ambiguous write-ish verbs that can name the path as
+// either source or destination (`cp X Y`, `mv X Y`) — presence alone still
+// counts toward "this rule cares about writes", but never overrides a read
+// verb's own attribution the way a redirect operator does. `chflags` is
+// included as an unambiguous write signal: clearing an immutable/append-only
+// flag is a file-attribute modification, never a read (#3465).
+var writeWordRe = regexp.MustCompile(`\b(cp|mv|scp|rsync|write|edit|save|install|chflags)\b`)
+
+// findFWriteFlag is the literal regex-SOURCE substring shared by both
+// find-fwrite shell rules (`-f(print[f0]?|ls)` — find's -fprintf/-fprint/
+// -fprint0/-fls flags). These write directly to the operand path without any
+// shell redirect operator, so neither redirectOperatorRe nor writeWordRe see
+// them — classifyPathCategory silently defaulted such rules to "path-read",
+// which would emit an MCP BLOCK on *reading* /var/root and /usr/lib rather
+// than the write these flags actually perform (#3465).
+const findFWriteFlag = "-f(print"
+
+// readVerbRe matches verbs that view file contents in place.
+var readVerbRe = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|strings|xxd|hexdump|od)\b`)
+
+// classifyPathCategory determines what MCP operations are relevant.
+//
+// Classification is done per top-level regex alternation branch, not over
+// the whole pattern text. A rule shaped like "(echo|printf|cat)\b.*(>>|>)\s*
+// /etc/hosts" contains the read verb `cat` only as the redirect's data
+// SOURCE — the branch as a whole targets the path for a WRITE, and the read
+// verb must not count as a read of that path. Whole-pattern keyword
+// presence conflated the two and produced "path-readwrite" for a rule whose
+// own TN case (`cat /etc/hosts`) proves reading is meant to stay ALLOWed
+// (#3375 Group C: ne-block-etc-hosts-write).
+func classifyPathCategory(regex string) string {
+	hasWrite := false
+	hasRead := false
+
+	for _, branch := range splitTopLevelAlternation(regex) {
+		if redirectOperatorRe.MatchString(branch) {
+			// A redirect operator is present: the branch writes to the
+			// path, and any read verb in this branch is upstream of the
+			// redirect (its data source), not an operation on the path.
+			hasWrite = true
+			continue
+		}
+		if writeWordRe.MatchString(branch) || strings.Contains(branch, findFWriteFlag) {
+			hasWrite = true
+		}
+		if readVerbRe.MatchString(branch) {
+			hasRead = true
+		}
+	}
 
 	if hasWrite && hasRead {
 		return "path-readwrite"
@@ -328,6 +422,53 @@ func classifyPathCategory(regex string) string {
 		return "config-write"
 	}
 	return "path-read"
+}
+
+// splitTopLevelAlternation splits a regex on `|` alternation operators that
+// are not nested inside a parenthesized group, so a group-internal
+// alternation like `(echo|printf|cat)` stays a single branch while the
+// top-level `A|B` in `A\.\S+|B\.\S+` splits into two. Escaped parens (`\(`,
+// `\)`) are literal characters and do not affect nesting depth.
+//
+// A `|` inside a bracket character class (`[;&|]`) is a literal alternative
+// character, not an alternation operator, and must not split or count
+// toward paren depth either — `[^;&|\n\r]*` closing at that `|` produced a
+// garbled first branch that only classified correctly by coincidence.
+func splitTopLevelAlternation(regex string) []string {
+	var branches []string
+	depth := 0
+	inClass := false
+	start := 0
+	escaped := false
+	for i, r := range regex {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch r {
+		case '\\':
+			escaped = true
+		case '[':
+			inClass = true
+		case ']':
+			inClass = false
+		case '(':
+			if !inClass {
+				depth++
+			}
+		case ')':
+			if !inClass && depth > 0 {
+				depth--
+			}
+		case '|':
+			if !inClass && depth == 0 {
+				branches = append(branches, regex[start:i])
+				start = i + 1
+			}
+		}
+	}
+	branches = append(branches, regex[start:])
+	return branches
 }
 
 // toolsForCategory returns the appropriate MCP tool names for a category.

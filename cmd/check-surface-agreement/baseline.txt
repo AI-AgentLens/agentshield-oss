@@ -1,0 +1,68 @@
+# baseline.txt — detections implemented on BOTH interception surfaces whose
+# two implementations resolve to DIFFERENT taxonomy nodes.
+#
+# Read by cmd/check-surface-agreement. See that package's doc comment for what
+# the check measures and why fit cannot answer it. A line here is a known,
+# evidenced divergence; any stem NOT listed is new and fails CI.
+#
+# Format: <rule stem> :: <shell node> :: <mcp node>. Comments after '#'.
+#
+# BURN IT DOWN. Two ways to clear a line:
+#   1. Point one surface at the node the other already uses (when one is
+#      plainly right — usually because a node exists named for the mechanism).
+#   2. Resolve the two nodes upstream in AI_risk_compliance, when the real
+#      defect is that the taxonomy carries two nodes for one threat. That is a
+#      deprecation decision and needs Gary + Kai; this gate must not make it.
+# Adding a NEW line requires Gary + Kai sign-off and a note saying why neither
+# fix could ship with the change that introduced it. Removing a line is
+# MANDATORY once the surfaces agree — the checker reports STALE and fails.
+#
+# Bootstrap:  go run ./cmd/check-surface-agreement -write-baseline
+# NOTE: -write-baseline DISCARDS the hand-written verdicts below. It is a
+# bootstrap tool, not a maintenance one — to clear an entry, delete its line.
+#
+# ---------------------------------------------------------------------------
+# SEED TRIAGE (2026-08-16). The check found EIGHT divergences on introduction.
+# Three were fixed in the same PR and are therefore not listed. Of the
+# remaining five, package-registry-redirect (cargo-config-write, gemrc-write,
+# pip-conf-write) resolved via #3411 once AI_risk_compliance#3762 narrowed the
+# taxonomy — so one entry (vector-db-write) remains below, and the verdict is
+# recorded per stem so the next person does not redo the reading.
+#
+# The three that were fixed share a shape worth recognising, because it is the
+# cheap case: a taxonomy node already existed NAMED for the mechanism, and the
+# shell surface was already using it, so "which node is right" needed no
+# judgement at all — only someone to notice the two surfaces disagreed.
+#   - dev-kmem-access    mcp recon/memory-credential-dump -> privesc/kernel-memory/dev-kmem-access
+#   - git-hook-write     mcp cicd-tampering/pipeline-config-write -> cicd-tampering/git-hook-injection
+#   - python-pth-write   mcp shell-startup/shell-profile-backdoor -> shell-init/python-pth-persistence
+#
+# The remaining entries are all the other shape: BOTH nodes are defensible,
+# which is exactly why nothing caught them, and picking one is an upstream
+# taxonomy decision. Tracked in AI_risk_compliance#3658 (which filed the
+# git-hook half of this class before the class had a name) and the issue this
+# PR files.
+#
+# ---------------------------------------------------------------------------
+
+# Package registry redirect — RESOLVED (#3411). AI_risk_compliance#3762 (Baby
+#   Taxonomy) narrowed `package-config-edit` to mechanisms that are NOT a
+#   registry-URL redirect (git remote insteadOf, go mod edit -replace, apt hook
+#   injection) and confirmed `package-registry-redirect` for any registry-URL
+#   redirect. The twelve shell/MCP rules that were the "shell side" blast
+#   radius above have been repointed to package-registry-redirect, so both
+#   surfaces now agree — no line needed here.
+
+# RAG vector-store write — RESOLVED (AI_risk_compliance#3725 decision 3). The two
+#   node-level mappings stayed genuinely distinct (content poisoning vs.
+#   control-token injection) and neither was deprecated. What moved is the
+#   undifferentiated AUDIT-level rule (mcp-ci-audit-vector-db-write): it has no
+#   content inspection, cannot tell the two threats apart, and its own `reason`
+#   text already argued the content-poisoning framing without mentioning control
+#   tokens. Repointed to rag-knowledge-base-poisoning, matching the shell-side
+#   undifferentiated rules and the MCP supply-chain rule (mcp-sc-audit-rag-write),
+#   which were already there. The two content-inspecting BLOCK rules
+#   (mcp-ci-block-vector-db-control-tokens-*) stay correctly homed on
+#   rag-vector-db-poisoning — their match set genuinely keys on control tokens,
+#   so they are the specific case rag-knowledge-base-poisoning's generic default
+#   yields to when the stronger signal is present. Both surfaces now agree.

@@ -29,6 +29,7 @@ import (
 
 var (
 	checkShell      string
+	checkShellFile  string
 	checkPolicyPath string
 	checkFixture    string
 	checkFormat     string
@@ -52,12 +53,18 @@ Examples:
   agentshield check --shell "psql prod.db" --policy ./my-rule.yaml
 
   # Run a fixture of TP/TN cases (for CI and local iteration)
-  agentshield check --fixture ./packs/destructive_ops.test.yaml`,
+  agentshield check --fixture ./packs/destructive_ops.test.yaml
+
+  # Diagnose a command the IDE hook just blocked. --shell puts the command in
+  # argv, where the hook sees it and blocks the diagnosis too (#3302); reading
+  # it from a file keeps the flagged text out of argv entirely.
+  agentshield check --shell-file ./blocked.txt`,
 	RunE: checkRun,
 }
 
 func init() {
 	checkCmd.Flags().StringVar(&checkShell, "shell", "", "Shell command string to evaluate (NOT executed)")
+	checkCmd.Flags().StringVar(&checkShellFile, "shell-file", "", "File containing the shell command to evaluate (NOT executed); keeps the command text out of argv so the IDE hook cannot block the diagnosis itself")
 	checkCmd.Flags().StringVar(&checkPolicyPath, "policy", "", "Policy YAML to use instead of ~/.agentshield/policy.yaml (also skips deployed ~/.agentshield/packs, so the named file is not shadowed)")
 	checkCmd.Flags().StringVar(&checkFixture, "fixture", "", "Fixture YAML file containing test cases")
 	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "Output format: text or json (only with --shell)")
@@ -65,6 +72,9 @@ func init() {
 }
 
 func checkRun(cmd *cobra.Command, args []string) error {
+	if err := resolveShellFile(); err != nil {
+		return err
+	}
 	switch {
 	case checkShell != "" && checkFixture != "":
 		return fmt.Errorf("--shell and --fixture are mutually exclusive")
@@ -106,6 +116,43 @@ func checkRun(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("must provide --shell or --fixture")
 	}
+}
+
+// resolveShellFile folds --shell-file into checkShell so the rest of the
+// command sees exactly one input path.
+//
+// It exists because `--shell` cannot diagnose the blocks that most need
+// diagnosing (#3302). The hook evaluates the whole outer command string, so
+// `agentshield check --shell "<blocked>"` carries the flagged text in argv and
+// gets blocked in turn — the "to see why this triggered" hint was the one
+// command you could not run. A file keeps the text out of argv.
+//
+// Only the trailing newline is stripped, and only one: editors add it, and
+// nothing about a shell command changes when it is removed. Leading and
+// interior whitespace is preserved verbatim, because `command_position_exclude`
+// and the per-statement anchored-regex retry both key on where text sits in the
+// command — silently trimming would make this path a less faithful predictor of
+// the hook than --shell, which would defeat the point of having it.
+func resolveShellFile() error {
+	if checkShellFile == "" {
+		return nil
+	}
+	if checkShell != "" {
+		return fmt.Errorf("--shell and --shell-file are mutually exclusive")
+	}
+	if checkFixture != "" {
+		return fmt.Errorf("--shell-file and --fixture are mutually exclusive")
+	}
+	data, err := os.ReadFile(checkShellFile)
+	if err != nil {
+		return fmt.Errorf("reading --shell-file %s: %w", checkShellFile, err)
+	}
+	cmdStr := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+	if strings.TrimSpace(cmdStr) == "" {
+		return fmt.Errorf("--shell-file %s contains no command", checkShellFile)
+	}
+	checkShell = cmdStr
+	return nil
 }
 
 // evaluateShellCommand loads the policy and evaluates a single command. Pure

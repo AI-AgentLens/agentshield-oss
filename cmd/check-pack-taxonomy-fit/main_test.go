@@ -225,7 +225,16 @@ rules:
 
 func analyzeFixture(t *testing.T, tax, packs string) *analysis {
 	t.Helper()
-	a, err := analyze(tax, packs, testGenericDF, testRuleGenericDF, testAltMinOverlap, false)
+	a, err := analyze(tax, packs, testGenericDF, testRuleGenericDF, testAltMinOverlap, false, false)
+	if err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	return a
+}
+
+func analyzeFixturePerRule(t *testing.T, tax, packs string) *analysis {
+	t.Helper()
+	a, err := analyze(tax, packs, testGenericDF, testRuleGenericDF, testAltMinOverlap, false, true)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
@@ -308,6 +317,61 @@ func TestFlagsGenuineMisfit(t *testing.T) {
 	}
 }
 
+// TestPerRuleModeCatchesFileLevelMajorityRescue pins the #3396 finding: the
+// default per-FILE aggregation lets a genuine misfit hide behind two fitting
+// siblings in the same pack file, because scoreReferent's best-match logic
+// makes the whole file "fit" once ANY rule in it matches. -per-rule regroups
+// referents by (file, rule ID) so each rule is scored alone, and must catch
+// what per-file scoring structurally cannot.
+func TestPerRuleModeCatchesFileLevelMajorityRescue(t *testing.T) {
+	tax := taxonomyFixture(t)
+	const node = "cred/private-key/ssh-key-read"
+	const file = "mixed-fit.yaml"
+	const misfitRule = "mcp-sec-block-tool-dispatch-getattr-lookup"
+
+	packs := packsFixture(t, true)
+	writeFile(t, packs, "premium/mcp/mixed-fit.yaml", `
+name: "Mixed Fit"
+rules:
+  - id: mcp-sec-block-ssh-id-rsa-copy
+    taxonomy: "cred/private-key/ssh-key-read"
+    decision: BLOCK
+    reason: "Copies an SSH private key."
+    match:
+      command_regex: "cp .*id_rsa"
+  - id: mcp-sec-block-ssh-id-ed25519-copy
+    taxonomy: "cred/private-key/ssh-key-read"
+    decision: BLOCK
+    reason: "Copies an SSH private key."
+    match:
+      command_regex: "cp .*id_ed25519"
+  - id: mcp-sec-block-tool-dispatch-getattr-lookup
+    taxonomy: "cred/private-key/ssh-key-read"
+    decision: BLOCK
+    reason: "Dynamic tool dispatch resolves an arbitrary registry lookup — nothing about SSH."
+    match:
+      command_regex: "getattr\\(tools, name\\)"
+`)
+
+	perFile := analyzeFixture(t, tax, packs)
+	if got := misfitFiles(perFile, node); contains(got, file) {
+		t.Fatalf("control case broken: per-file scoring should rescue this file via its "+
+			"two fitting siblings, so this test can fail. misfits=%v", got)
+	}
+
+	perRule := analyzeFixturePerRule(t, tax, packs)
+	got := misfitFiles(perRule, node)
+	wantPair := file + " :: " + misfitRule
+	if !contains(got, wantPair) {
+		t.Errorf("per-rule scoring did not catch the file-majority-rescued misfit; misfits=%v, want %q", got, wantPair)
+	}
+	for _, m := range got {
+		if strings.Contains(m, "ssh-id-rsa-copy") || strings.Contains(m, "ssh-id-ed25519-copy") {
+			t.Errorf("per-rule scoring flagged a genuinely fitting sibling rule: %v", got)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Harvesting rules
 // ---------------------------------------------------------------------------
@@ -370,7 +434,7 @@ some_future_rules:
     match:
       command_regex: "id_rsa"
 `)
-	_, n, err := loadRefs(packs)
+	_, n, err := loadRefs(packs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +458,7 @@ rules:
     decision: BLOCK
     reason: "x"
 `)
-	_, n, err := loadRefs(packs)
+	_, n, err := loadRefs(packs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +479,7 @@ rules:
     decision: BLOCK
     reason: "x"
 `)
-	_, n, err := loadRefs(packs)
+	_, n, err := loadRefs(packs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,13 +562,13 @@ func TestMissingBaselineIsEmptyNotAnError(t *testing.T) {
 func TestEmptyCorpusIsAnError(t *testing.T) {
 	tax, packs := taxonomyFixture(t), packsFixture(t, true)
 
-	if _, err := analyze(t.TempDir(), packs, testGenericDF, testRuleGenericDF, testAltMinOverlap, false); err == nil {
+	if _, err := analyze(t.TempDir(), packs, testGenericDF, testRuleGenericDF, testAltMinOverlap, false, false); err == nil {
 		t.Error("empty taxonomy dir returned no error")
 	} else if !strings.Contains(err.Error(), "cannot vouch") {
 		t.Errorf("unhelpful error for empty taxonomy: %v", err)
 	}
 
-	if _, err := analyze(tax, t.TempDir(), testGenericDF, testRuleGenericDF, testAltMinOverlap, false); err == nil {
+	if _, err := analyze(tax, t.TempDir(), testGenericDF, testRuleGenericDF, testAltMinOverlap, false, false); err == nil {
 		t.Error("empty packs dir returned no error")
 	} else if !strings.Contains(err.Error(), "cannot vouch") {
 		t.Errorf("unhelpful error for empty packs: %v", err)

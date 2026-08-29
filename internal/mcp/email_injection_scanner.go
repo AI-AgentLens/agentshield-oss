@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // EmailInjectionSignal identifies an injection marker found in an email write operation.
@@ -72,41 +74,88 @@ func ScanEmailWriteInjection(toolName string, arguments map[string]interface{}) 
 			continue
 		}
 
-		// Check for role-override injection markers.
-		if m := emailInjectionMarkerRE.FindString(text); m != "" {
-			idx := strings.Index(text, m)
-			snippet := safeSnippet(text, idx, 120)
-			result.Findings = append(result.Findings, EmailInjectionFinding{
-				Signal: SignalEmailInjectionMarker,
-				Detail: fmt.Sprintf(
-					"email write tool %q has role-override injection marker in %q — "+
-						"outgoing email body may carry adversarial agent instructions from a read email "+
-						"(email prompt injection: zero-barrier indirect injection via inbox content)",
-					toolName, argName),
-				ArgName: argName,
-				Snippet: snippet,
-			})
-		}
-
-		// Check for inline shell payloads carried through from inbox content.
-		if m := emailShellPayloadRE.FindString(text); m != "" {
-			idx := strings.Index(text, m)
-			snippet := safeSnippet(text, idx, 120)
-			result.Findings = append(result.Findings, EmailInjectionFinding{
-				Signal: SignalEmailShellPayload,
-				Detail: fmt.Sprintf(
-					"email write tool %q has shell payload in %q — inline command pattern carried through from inbox content",
-					toolName, argName),
-				ArgName: argName,
-				Snippet: snippet,
-			})
-		}
+		scanEmailBodyText(&result, toolName, argName, text)
+		scanEmailBodySeparatorFolded(&result, toolName, argName, text)
 	}
 
 	if len(result.Findings) > 0 {
 		result.Audited = true
 	}
 	return result
+}
+
+// scanEmailBodyText runs both email-injection checks (role-override marker,
+// inline shell payload) against one body/content argument value.
+func scanEmailBodyText(result *EmailInjectionScanResult, toolName, argName, text string) {
+	// Check for role-override injection markers.
+	if m := emailInjectionMarkerRE.FindString(text); m != "" {
+		idx := strings.Index(text, m)
+		snippet := safeSnippet(text, idx, 120)
+		result.Findings = append(result.Findings, EmailInjectionFinding{
+			Signal: SignalEmailInjectionMarker,
+			Detail: fmt.Sprintf(
+				"email write tool %q has role-override injection marker in %q — "+
+					"outgoing email body may carry adversarial agent instructions from a read email "+
+					"(email prompt injection: zero-barrier indirect injection via inbox content)",
+				toolName, argName),
+			ArgName: argName,
+			Snippet: snippet,
+		})
+	}
+
+	// Check for inline shell payloads carried through from inbox content.
+	if m := emailShellPayloadRE.FindString(text); m != "" {
+		idx := strings.Index(text, m)
+		snippet := safeSnippet(text, idx, 120)
+		result.Findings = append(result.Findings, EmailInjectionFinding{
+			Signal: SignalEmailShellPayload,
+			Detail: fmt.Sprintf(
+				"email write tool %q has shell payload in %q — inline command pattern carried through from inbox content",
+				toolName, argName),
+			ArgName: argName,
+			Snippet: snippet,
+		})
+	}
+}
+
+// scanEmailBodySeparatorFolded re-runs scanEmailBodyText against a
+// separator-normalized rendering of the body text, appending only findings
+// the raw pass did not already produce.
+//
+// emailInjectionMarkerRE is built almost entirely from `\s+`/`\s*`-spelled
+// fragments (the override directive alone needs two `\s+` gaps), and Go's
+// RE2 `\s` class is ASCII-only. An attacker-controlled inbox message that
+// separates the override directive's words with a Unicode space (e.g.
+// "IGNORE" + U+00A0 + "PREVIOUS" + U+00A0 + "INSTRUCTIONS") reads as
+// ordinary English to the model while matching nothing here — the same gap
+// closed for the response scanner in scanResponseSeparatorFolded
+// (response_scanner.go), on the surface where the injected text is most
+// likely to originate from an untrusted third party with no prior review.
+func scanEmailBodySeparatorFolded(result *EmailInjectionScanResult, toolName, argName, text string) {
+	folded, changed := unicode.FoldUnicodeSeparators(text)
+	if !changed {
+		return
+	}
+
+	seen := make(map[string]bool, len(result.Findings))
+	for _, f := range result.Findings {
+		seen[string(f.Signal)+"\x00"+f.ArgName+"\x00"+f.Detail] = true
+	}
+
+	var foldedResult EmailInjectionScanResult
+	scanEmailBodyText(&foldedResult, toolName, argName, folded)
+
+	for _, f := range foldedResult.Findings {
+		key := string(f.Signal) + "\x00" + f.ArgName + "\x00" + f.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Detail = f.Detail + " — recovered by folding non-ASCII Unicode separator characters " +
+			"(NBSP / thin / ideographic space and siblings) to ASCII; RE2's `\\s` class is ASCII-only, " +
+			"so the text as sent matched no pattern while rendering and tokenizing identically"
+		result.Findings = append(result.Findings, f)
+	}
 }
 
 // isEmailWriteTool returns true when the tool name belongs to the email write family

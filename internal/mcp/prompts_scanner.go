@@ -193,7 +193,7 @@ func scanPromptIdentifier(result *PromptsScanResult, name, field string) {
 
 // scanPromptsField checks one text field of a prompts response for injection patterns.
 func scanPromptsField(result *PromptsScanResult, text, field string) {
-	lower := strings.ToLower(text)
+	forms := newProseForms(text)
 	snip := text
 	if len(snip) > 80 {
 		snip = snip[:80] + "..."
@@ -201,10 +201,10 @@ func scanPromptsField(result *PromptsScanResult, text, field string) {
 
 	// Injection / instruction override patterns
 	for _, p := range hiddenInstructionPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, PromptFinding{
 				Signal:  SignalNotificationInjection,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -214,10 +214,10 @@ func scanPromptsField(result *PromptsScanResult, text, field string) {
 
 	// Behavioral manipulation / jailbreak patterns
 	for _, p := range behavioralManipulationPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, PromptFinding{
 				Signal:  SignalNotificationInjection,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -227,10 +227,10 @@ func scanPromptsField(result *PromptsScanResult, text, field string) {
 
 	// Credential harvesting references
 	for _, p := range credentialHarvestPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, PromptFinding{
 				Signal:  SignalNotificationCredential,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})
@@ -240,10 +240,10 @@ func scanPromptsField(result *PromptsScanResult, text, field string) {
 
 	// Exfiltration instruction patterns
 	for _, p := range exfiltrationPatterns {
-		if p.re.MatchString(lower) {
+		if note, ok := proseMatchNote(p.re, forms); ok {
 			result.Findings = append(result.Findings, PromptFinding{
 				Signal:  SignalNotificationExfil,
-				Detail:  p.description,
+				Detail:  p.description + note,
 				Field:   field,
 				Snippet: snip,
 			})

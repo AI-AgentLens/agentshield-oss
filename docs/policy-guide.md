@@ -9,6 +9,7 @@ AgentShield's CLI is **evaluation-only**. The binary never runs the commands it 
 This is a deliberate safety property, not a casual convention. An earlier `agentshield run -- <cmd>` subcommand was deleted after an incident where `agentshield run -- rm -rf /` actually executed and wiped data. Today, the only entry points are:
 
 - `agentshield check --shell "<cmd>"` — evaluates a command string, prints the decision, exits. No spawn.
+- `agentshield check --shell-file <path>` — same, but reads the command from a file. Use it when the command you are diagnosing is itself blocked by the IDE hook: `--shell` puts the command in argv, where the hook sees it and blocks the diagnosis too (#3302). No spawn.
 - `agentshield mcp-eval --tool <name> --arg ...` — evaluates a simulated MCP tool call. No spawn.
 - The IDE PreToolUse hook (`agentshield hook claude-code` etc.) — receives JSON on stdin, returns an allow/deny decision on stdout. No spawn.
 - The MCP proxy modes — forward JSON-RPC to a real MCP server but apply policy first. No `sh -c "$user_input"`.
@@ -756,6 +757,10 @@ rules:
 # Fastest loop — single command, no Go required
 agentshield check --shell "rm -rf /"
 agentshield check --shell "psql prod.db" --policy ./my-rule.yaml
+
+# When the hook blocks the diagnosis itself, the command TEXT is what matched,
+# so keep it out of argv. Save it to a file with your editor, then:
+agentshield check --shell-file ./blocked.txt
 
 # Fixture file (TP/TN cases, can sit next to the rule YAML)
 agentshield check --fixture ./packs/community/destructive_ops.test.yaml

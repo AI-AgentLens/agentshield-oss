@@ -18,7 +18,9 @@ package testdata
 //     ollama push — the model member of the autonomous-publish family)
 //   - shadow-ai-deployment (public endpoint access grants)
 //   - ai-incident-response-gap (cloud AI logging disable, AI monitoring disable)
-//   - ai-output-accountability-gap (AI audit log deletion/truncation)
+//   (AI audit log deletion/truncation lives under
+//    persistence-evasion/anti-forensics/ai-audit-trail-circumvention — destroying
+//    a log that exists is not the same threat as never having built one.)
 
 // ---------------------------------------------------------------------------
 // AI Safety Control Bypass
@@ -915,8 +917,8 @@ var AIMonitoringDisablePersistCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
-// AI Audit Log Deletion (AI Output Accountability Gap)
-// Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+// AI Audit Log Deletion
+// Taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
 // Rule: ts-audit-ai-audit-log-delete
 // ---------------------------------------------------------------------------
 
@@ -926,7 +928,7 @@ var AIAuditLogDeleteCases = []TestCase{
 		Command:          `rm -f ai_audit.log`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Deleting AI audit log — erases forensic trail of AI-generated outputs.",
 		Tags:             []string{"tp", "governance", "log-delete"},
@@ -936,7 +938,7 @@ var AIAuditLogDeleteCases = []TestCase{
 		Command:          `rm -rf /var/log/ai_audit/`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Recursively deleting AI audit log directory — blocked by ts-block-rm-force-recursive (most restrictive wins).",
 		Tags:             []string{"tp", "governance", "log-delete"},
@@ -946,7 +948,7 @@ var AIAuditLogDeleteCases = []TestCase{
 		Command:          `rm ai_attribution.log ai_output.jsonl`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Deleting AI attribution and output log files.",
 		Tags:             []string{"tp", "governance", "log-delete"},
@@ -956,7 +958,7 @@ var AIAuditLogDeleteCases = []TestCase{
 		Command:          `cat ai_audit.log`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Reading AI audit log — read-only access, no deletion.",
 		Tags:             []string{"tn", "safe"},
@@ -966,7 +968,7 @@ var AIAuditLogDeleteCases = []TestCase{
 		Command:          `grep "error" ai_output.log`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Searching AI output log for errors — read-only, no accountability impact.",
 		Tags:             []string{"tn", "safe"},
@@ -974,8 +976,8 @@ var AIAuditLogDeleteCases = []TestCase{
 }
 
 // ---------------------------------------------------------------------------
-// AI Audit Log Truncation (AI Output Accountability Gap)
-// Taxonomy: governance-risk/ai-governance-gap/ai-output-accountability-gap
+// AI Audit Log Truncation
+// Taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
 // Rule: ts-audit-ai-log-truncate
 // ---------------------------------------------------------------------------
 
@@ -985,7 +987,7 @@ var AIAuditLogTruncateCases = []TestCase{
 		Command:          `truncate -s 0 ai_attribution.log`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Truncating AI attribution log to zero bytes — silent erasure of AI output accountability.",
 		Tags:             []string{"tp", "governance", "log-truncate"},
@@ -995,7 +997,7 @@ var AIAuditLogTruncateCases = []TestCase{
 		Command:          `truncate --size=0 /var/log/ai_output.log`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Truncating AI output log — destroys record of AI-generated content.",
 		Tags:             []string{"tp", "governance", "log-truncate"},
@@ -1005,7 +1007,7 @@ var AIAuditLogTruncateCases = []TestCase{
 		Command:          `truncate -s 0 /tmp/app_cache.dat`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Truncating a non-AI cache file — not caught by ai-log-truncate rule (no ai_audit/output pattern). Gets default AUDIT, not BLOCK.",
 		Tags:             []string{"tn", "safe"},
@@ -1015,7 +1017,7 @@ var AIAuditLogTruncateCases = []TestCase{
 		Command:          `ls -la ai_audit.log`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-output-accountability-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention",
 		Analyzer:         "regex",
 		Description:      "Listing AI audit log details — read-only, no truncation.",
 		Tags:             []string{"tn", "safe"},
@@ -2815,5 +2817,41 @@ var AgentLLMHumanProxyCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Banning (not unbanning) an IP — adding protection, not removing it; ts-audit-vuln-hallucination-fail2ban-unban must not fire. Default AUDIT applies.",
 		Tags:             []string{"tn", "safe", "ids"},
+	},
+
+	// ts-audit-agent-wildcard-tools — TRUE POSITIVES
+	// (#3490 per-rule fit sweep repoint: was privilege-escalation/agent-delegation-escalation,
+	// now governance-risk/ai-governance-gap/unvalidated-agent-delegation — this taxonomy id
+	// had no prior Shield-side TP/TN coverage.)
+	{
+		ID:               "TP-TS-AUDIT-AGENT-WILDCARD-TOOLS-001",
+		Command:          "claude --allowed-tools '*' -p 'do it'",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
+		Analyzer:         "regex",
+		Description:      "claude --allowed-tools '*' grants a delegated sub-agent every tool with no subsetting — the node's own 'no subsetting enforcement' governance-gap pattern.",
+		Tags:             []string{"tp", "governance-risk", "agent-delegation"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AGENT-WILDCARD-TOOLS-002",
+		Command:          `claude --allowed-tools "*" --print "test"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
+		Analyzer:         "regex",
+		Description:      "Double-quoted wildcard form of --allowed-tools — same unbounded delegation grant.",
+		Tags:             []string{"tp", "governance-risk", "agent-delegation"},
+	},
+	// ts-audit-agent-wildcard-tools — TRUE NEGATIVES
+	{
+		ID:               "TN-TS-AUDIT-AGENT-WILDCARD-TOOLS-001",
+		Command:          `claude --allowed-tools "Bash(./src/*)" -p "test"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
+		Analyzer:         "regex",
+		Description:      "Scoped --allowed-tools grant (a specific Bash glob, not '*') — delegation is subset, ts-audit-agent-wildcard-tools must not fire. Default AUDIT applies.",
+		Tags:             []string{"tn", "safe", "agent-delegation"},
 	},
 }

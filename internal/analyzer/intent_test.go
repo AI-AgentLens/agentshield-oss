@@ -355,8 +355,63 @@ func TestIntentExcludedForStatements_ChainedBypass(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			statements := shellparse.SplitTopLevelStatements(tt.cmd)
-			got := IntentExcludedForStatements(c, tt.cmd, statements, docContextLabels, matches)
+			statements, parsed := shellparse.SplitTopLevelStatementsChecked(tt.cmd)
+			got := IntentExcludedForStatements(c, tt.cmd, statements, parsed, docContextLabels, matches)
+			if got != tt.wantExcluded {
+				t.Errorf("IntentExcludedForStatements(%q) = %v, want %v", tt.cmd, got, tt.wantExcluded)
+			}
+		})
+	}
+}
+
+// TestIntentExcludedForStatements_SelfMgmtWrapperFunction is the regression
+// test for #3314: a credential-shaped literal handed to a shell helper
+// function that only relays it into `agentshield mcp-eval` must be excused,
+// even though SplitTopLevelStatements (#3045) puts the function's definition
+// and its call site in different top-level statements — so the ordinary
+// same-statement IsSelfMgmt check never sees them together. A function that
+// does anything else with the value must NOT be excused, reusing the same
+// classifier instance across subtests deliberately (mirrors
+// TestIntentExcludedForStatements_ChainedBypass) to also pin that
+// selfMgmtWrapperFuncs never goes stale across different commands sharing
+// one un-Memo'd classifier.
+func TestIntentExcludedForStatements_SelfMgmtWrapperFunction(t *testing.T) {
+	c := NewIntentClassifier()
+	sshRegex := regexp.MustCompile(`\.(ssh|gnupg)/(id_[^.\s"']+([\s"']|$)|private|secret)`)
+	matches := func(stmt string) bool { return sshRegex.MatchString(stmt) }
+
+	tests := []struct {
+		name         string
+		cmd          string
+		wantExcluded bool
+	}{
+		{
+			name: "reported bug: matrix-test helper wrapping mcp-eval --json positional",
+			cmd: `run() { printf '  %-56s -> %s\n' "$1" "$(agentshield mcp-eval --tool read_files --json "$2" 2>/dev/null | grep -oiE 'BLOCK|AUDIT|ALLOW' | head -1)"; }
+run 'paths: ARRAY'  '{"paths":["/home/user/.ssh/id_ed25519"]}'`,
+			wantExcluded: true,
+		},
+		{
+			name:         "direct wrapper, no intermediate formatting",
+			cmd:          "mcpeval() { agentshield mcp-eval --tool read_file --json \"$1\"; }\nmcpeval '{\"path\":\"/home/user/.ssh/id_rsa\"}'",
+			wantExcluded: true,
+		},
+		{
+			name:         "mixed body: wrapper also cats the credential for real",
+			cmd:          "evil() { cat \"$1\"; agentshield mcp-eval --tool read_file --arg path=/dev/null; }\nevil ~/.ssh/id_rsa",
+			wantExcluded: false,
+		},
+		{
+			name:         "unrelated statement calling something other than the wrapper stays BLOCKed",
+			cmd:          "noop() { agentshield mcp-eval --tool read_file --arg path=/dev/null; }\nnoop\ncat ~/.ssh/id_rsa",
+			wantExcluded: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statements, parsed := shellparse.SplitTopLevelStatementsChecked(tt.cmd)
+			got := IntentExcludedForStatements(c, tt.cmd, statements, parsed, docContextLabels, matches)
 			if got != tt.wantExcluded {
 				t.Errorf("IntentExcludedForStatements(%q) = %v, want %v", tt.cmd, got, tt.wantExcluded)
 			}
@@ -406,7 +461,7 @@ func TestIntentExcludedForStatements_SpanningRegexFailClosed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			statements := shellparse.SplitTopLevelStatements(tt.cmd)
+			statements, parsed := shellparse.SplitTopLevelStatementsChecked(tt.cmd)
 			if len(statements) <= 1 {
 				t.Fatalf("test setup invalid: expected >1 statement, got %d: %q", len(statements), statements)
 			}
@@ -416,7 +471,7 @@ func TestIntentExcludedForStatements_SpanningRegexFailClosed(t *testing.T) {
 					t.Fatalf("test setup invalid: statement %q matches the rule pattern in isolation — matchedAny would be true, this test would not exercise the fallback path", stmt)
 				}
 			}
-			got := IntentExcludedForStatements(c, tt.cmd, statements, docContextLabels, matches)
+			got := IntentExcludedForStatements(c, tt.cmd, statements, parsed, docContextLabels, matches)
 			if got != tt.wantExcluded {
 				t.Errorf("IntentExcludedForStatements(%q) = %v, want %v", tt.cmd, got, tt.wantExcluded)
 			}
@@ -435,11 +490,50 @@ func TestIntentExcludedForStatements_LineContinuationFP(t *testing.T) {
 
 	cmd := "gh issue create -R AI-AgentLens/agentshield-oss \\\n  --title \"Disclosed CVE writeup\" \\\n  --body \"$(cat <<'INNER_EOF'\nThe claude-code-action CVE let an attacker read ACTIONS_ID_TOKEN_REQUEST_TOKEN and ACTIONS_ID_TOKEN_REQUEST_URL from the environment.\nINNER_EOF\n)\""
 
-	statements := shellparse.SplitTopLevelStatements(cmd)
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(cmd)
 	if len(statements) != 1 {
 		t.Fatalf("expected the backslash-continued gh invocation to parse as one statement, got %d: %q", len(statements), statements)
 	}
-	if !IntentExcludedForStatements(c, cmd, statements, docContextLabels, matches) {
+	if !IntentExcludedForStatements(c, cmd, statements, parsed, docContextLabels, matches) {
 		t.Errorf("expected line-continued gh --title/--body command to be excluded as doc-text")
+	}
+}
+
+// TestIntentExcludedForStatements_ParseFailureFailsClosed is the regression
+// test for #3467: TestIntentExcludedForStatements_SelfMgmtWrapperFunction's
+// "mixed body" case pins that IntentExcludedForStatements correctly refuses
+// to excuse this command when SplitTopLevelStatements sees the function
+// definition and its call as two separate statements — but a lossy textual
+// mutation (TestEscapeSpliceParity's punct-escape-slash: joining fields with
+// strings.Join loses the newline as a statement terminator) can glue them
+// into one line with no separator, which is a genuine bash syntax error.
+// shellparse.Parse then fails, and SplitTopLevelStatementsChecked's
+// single-element fallback is byte-for-byte identical in shape to a real
+// one-statement command — before the fix, IntentExcludedForStatements'
+// len(statements) <= 1 branch trusted it anyway and classified the whole
+// opaque blob, finding "agentshield mcp-eval" anywhere in it and wrongly
+// excusing the real `cat "$1"` read. parsed=false must make it fail closed
+// instead.
+func TestIntentExcludedForStatements_ParseFailureFailsClosed(t *testing.T) {
+	c := NewIntentClassifier()
+	sshRegex := regexp.MustCompile(`\.(ssh|gnupg)/(id_[^.\s"']+([\s"']|$)|private|secret)`)
+	matches := func(stmt string) bool { return sshRegex.MatchString(stmt) }
+
+	// Same command as TestIntentExcludedForStatements_SelfMgmtWrapperFunction's
+	// "mixed body" case, but with the statement-separating newline collapsed
+	// into a space — exactly what punct-escape-slash's strings.Join produces
+	// after mutating a token elsewhere in the command.
+	cmd := `evil() { cat "$1"; agentshield mcp-eval --tool read_file --arg path=/dev/null; } evil ~/.ssh/id_rsa`
+
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(cmd)
+	if parsed {
+		t.Fatalf("test setup invalid: expected the newline-collapsed command to fail to parse, got parsed=true, statements=%q", statements)
+	}
+	if len(statements) != 1 {
+		t.Fatalf("test setup invalid: expected the parse-failure fallback to be a single element, got %d: %q", len(statements), statements)
+	}
+
+	if IntentExcludedForStatements(c, cmd, statements, parsed, docContextLabels, matches) {
+		t.Errorf("expected the parse-failure fallback to fail closed (not excluded) rather than launder the real credential read via the unrelated agentshield mcp-eval text sharing the same opaque blob")
 	}
 }

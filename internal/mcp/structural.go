@@ -181,9 +181,16 @@ func inferMethodFromToolName(toolName string) string {
 // Supports exact match and glob matching (*, ?).
 func matchToolNameCaseInsensitive(lowerName, lowerPattern string) bool {
 	if strings.ContainsAny(lowerPattern, "*?") {
-		return globMatchSimple(lowerName, lowerPattern)
+		if globMatchSimple(lowerName, lowerPattern) {
+			return true
+		}
+		// Naming-convention fallback (issue #3443): see normalizeSeparators.
+		return globMatchSimple(normalizeSeparators(lowerName), normalizeSeparators(lowerPattern))
 	}
-	return lowerName == lowerPattern
+	if lowerName == lowerPattern {
+		return true
+	}
+	return normalizeSeparators(lowerName) == normalizeSeparators(lowerPattern)
 }
 
 // globMatchSimple implements basic glob matching for tool names.
@@ -339,6 +346,21 @@ func resolveField(arguments map[string]interface{}, fieldName string) (interface
 				// on collision; this only fires when the exact key is absent.
 				for k, v := range m {
 					if strings.EqualFold(k, part) {
+						val, ok = v, true
+						break
+					}
+				}
+			}
+			if !ok {
+				// Naming-convention fallback (issue #3443): a rule field name
+				// is authored against one MCP server's convention
+				// (branch_name) — a camelCase server (branchName) is
+				// otherwise invisible even though it is the same field.
+				// Only reached once both the exact and case-insensitive
+				// lookups above have failed.
+				normPart := normalizeFieldName(part)
+				for k, v := range m {
+					if normalizeFieldName(k) == normPart {
 						val, ok = v, true
 						break
 					}

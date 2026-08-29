@@ -101,7 +101,22 @@ type Match struct {
 	// documents a pattern rather than executing an access (#2843). Same
 	// per-statement scoping and label validation as CommandIntentExclude; the
 	// downgraded finding is still AUDITed (logged), so there is no false negative.
-	CommandIntentDowngrade []string         `yaml:"command_intent_downgrade,omitempty"`
+	CommandIntentDowngrade []string `yaml:"command_intent_downgrade,omitempty"`
+	// CommandPositionExclude lists syntactic POSITIONS at which this rule's
+	// match is not evidence: `loop_wordlist`, the word list of a
+	// `for NAME in …` clause whose loop variable never reaches a position
+	// that could open, run, or retain it (#3376); or `search_needle`, the
+	// PATTERN operand of a grep-family invocation — a search term compared
+	// against file content, never a target (#3382).
+	//
+	// It is a different question from CommandIntentExclude, not a variant of
+	// it. An intent label classifies the whole command's TEXT ("these
+	// arguments are a commit message"); a position label asks where the rule's
+	// own match landed in the parsed command, which is the only thing that can
+	// answer "is this path a filesystem target or a string being searched
+	// for?". Valid labels are defined in internal/analyzer/position.go;
+	// unknown labels fail policy load.
+	CommandPositionExclude []string         `yaml:"command_position_exclude,omitempty"`
 	Structural             *StructuralMatch `yaml:"structural,omitempty"`
 	Dataflow               *DataflowMatch   `yaml:"dataflow,omitempty"`
 	Semantic               *SemanticMatch   `yaml:"semantic,omitempty"`
