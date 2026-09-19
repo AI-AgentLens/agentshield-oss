@@ -58,6 +58,30 @@ func TestEscapeSpliceParity(t *testing.T) {
 	// pathnorm.FoldObfuscatingBackslashes's doc comment) — #3209 tracks
 	// closing that separately. Ratchet DOWN as either residue shrinks; never
 	// up without recording why here.
+	//
+	// exec-backslash 60 → 62 (2026-09-15, #3830/#3823, tracked as #3848): the
+	// two new BLOCK corpus cases TP-DEFEXFIL-017/-020 are `sleep`-first and
+	// leak under `s\leep`. Not a new gap — `s\leep 600; curl X` reaches no
+	// sleep-anchored rule at all, the pre-existing ne-audit-sleep-chain
+	// included, because DequoteCommand's fold runs only when the parser has
+	// failed and a cross-statement regex has no joined candidate to match.
+	// Main measured 59/2550 before the branch; the +2 are these two cases.
+	//
+	// exec-backslash 62 → 55 (2026-09-17, #3848 class A): measured 61 → 54. The
+	// builtin recognisers in shellparse (set, shift, read, mapfile, readarray)
+	// compared literalWordValue's raw output — backslash included — to the
+	// builtin name, so a spliced `r\ead` dropped the stdin binding and all 13
+	// TP-READ-* cases fell to AUDIT. They now go through literalExecName. The
+	// harness shows 7 closed, not 13: the other 6 are heredoc-bound, and this
+	// position's strings.Fields/Join mutation flattens their newlines, so they
+	// read as leaks whether or not the engine handles them. Of the remaining 54,
+	// 18 are that artifact (12 that already were, plus those 6), 1 is
+	// whitespace-sensitive, and 35 leak under an in-place splice too:
+	// 35 + 18 + 1 = 54. TestExecNameSpliceBindingParity pins the heredoc
+	// spelling with its newlines intact. The 35 are classified on #3848; two of
+	// them (TP-DECLBIND-001/-002) are ALSO a builtin-name miss, of a different
+	// kind — a spliced `export`/`readonly` parses as a plain call rather than a
+	// DeclClause — and are not closed here.
 	positions := []struct {
 		name     string
 		maxLeaks int
@@ -65,7 +89,7 @@ func TestEscapeSpliceParity(t *testing.T) {
 		ossFloor int
 		fn       func([]string) (string, bool)
 	}{
-		{"exec-backslash", 60, 1900, 1200, func(f []string) (string, bool) {
+		{"exec-backslash", 55, 1900, 1200, func(f []string) (string, bool) {
 			if !usable(f[0]) {
 				return "", false
 			}
@@ -134,6 +158,18 @@ func TestEscapeSpliceParity(t *testing.T) {
 		// fails closed — refuses to exclude — when it's the fallback, matching the
 		// fail-safe posture the spanning-match case above already has. Ratcheted
 		// back down to 13/1218 (1.1%), the #3322 baseline this +2 was layered onto.
+		//
+		// 2026-09-14 (#3829), punct-escape-slash +1: TP-READ-HEREDOC-SCALAR-EXEC-002
+		// is a heredoc (`read -r c <<"EOF"`, a curl line, `EOF`, `$c | bash`), and
+		// this position's fields.Join reconstruction collapses its newlines into
+		// one line, so the mutant is not a heredoc at all: `EOF` becomes an
+		// argument and `$c` is never bound. Measured 13/1295 -> 14/1296 against
+		// origin/main 1b1c3ca2 (the one new BLOCK case with a `/` inside a later
+		// word). Verified on the built binary: the UNMUTATED flattened form
+		// already AUDITs, so the leak is the reconstruction, not the `\/` splice,
+		// the same artifact unset_paramexp_parity_test.go records for its heredoc
+		// rows. Ratchets back to 13 if this position ever learns to skip
+		// multi-line commands the way continueAtSpace / ifsAtSpace do.
 		{"punct-escape-flag", 6, 280, 170, func(f []string) (string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
@@ -145,7 +181,7 @@ func TestEscapeSpliceParity(t *testing.T) {
 			}
 			return "", false
 		}},
-		{"punct-escape-slash", 13, 900, 550, func(f []string) (string, bool) {
+		{"punct-escape-slash", 14, 900, 550, func(f []string) (string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
 				idx := strings.Index(w, "/")

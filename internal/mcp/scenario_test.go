@@ -7,7 +7,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/mcp/scenarios"
 )
 
-// newTestMCPHandler creates a MessageHandler with all MCP packs loaded,
+// newTestMCPEvaluator builds a PolicyEvaluator with all MCP packs loaded,
 // matching how the real proxy evaluates tool calls.
 //
 // It loads packs/community/mcp/ first, then layers packs/premium/mcp/ on top
@@ -16,7 +16,13 @@ import (
 // loader simply returns the community-only policy and tests for premium-only
 // rules will surface as failures — by design, so that scenario expectations
 // are kept honest about the deployed rule set.
-func newTestMCPHandler(t *testing.T) *MessageHandler {
+//
+// Pack loading costs ~110ms, which is why the scenario harness shares one
+// instance across the corpus rather than rebuilding per scenario. That sharing
+// is only safe because a PolicyEvaluator holds no per-session state; see
+// evaluateScenarioFromDef's comment and
+// TestMCPScenarioVerdictsAreOrderIndependent (#3392).
+func newTestMCPEvaluator(t *testing.T) *PolicyEvaluator {
 	t.Helper()
 
 	// Start with default policy (includes blocked tools)
@@ -39,10 +45,19 @@ func newTestMCPHandler(t *testing.T) *MessageHandler {
 		merged = premiumMerged
 	}
 
-	evaluator := NewPolicyEvaluator(merged)
+	return NewPolicyEvaluator(merged)
+}
+
+// newTestMCPHandler wraps newTestMCPEvaluator in a MessageHandler for the tests
+// that genuinely exercise handler-level behaviour (batching, long-context
+// accumulation, session history). The scenario corpus does NOT use this — it
+// evaluates against the evaluator directly so that no session state can reach a
+// verdict.
+func newTestMCPHandler(t *testing.T) *MessageHandler {
+	t.Helper()
 
 	return &MessageHandler{
-		Evaluator: evaluator,
+		Evaluator: newTestMCPEvaluator(t),
 		Stderr:    io.Discard,
 	}
 }
@@ -50,15 +65,21 @@ func newTestMCPHandler(t *testing.T) *MessageHandler {
 // TestMCPScenarios runs all labeled MCP test scenarios through the policy
 // engine and reports accuracy metrics (TP, TN, FP, FN, precision, recall).
 func TestMCPScenarios(t *testing.T) {
-	handler := newTestMCPHandler(t)
+	evaluator := newTestMCPEvaluator(t)
 	allScenarios := scenarios.AllScenarios()
 
 	tp, tn, fp, fn := 0, 0, 0, 0
 
 	for _, sc := range allScenarios {
-		t.Run(sc.ID, func(t *testing.T) {
-			actual := evaluateScenarioFromDef(handler, sc)
+		// Evaluated ONCE per scenario. Until #3392 this ran the whole corpus
+		// twice — once inside the subtest, once again outside it for the
+		// confusion matrix — which doubled the runtime and, more to the point,
+		// meant the aggregate numbers came from a different pass than the
+		// per-scenario failures reported above them. Nothing guaranteed the two
+		// passes agreed.
+		actual := evaluateScenarioFromDef(evaluator, sc)
 
+		t.Run(sc.ID, func(t *testing.T) {
 			if actual != sc.ExpectedDecision {
 				if sc.Classification == "TP" {
 					t.Errorf("[FALSE NEGATIVE] %s\n"+
@@ -80,8 +101,7 @@ func TestMCPScenarios(t *testing.T) {
 			}
 		})
 
-		// Compute confusion matrix (outside subtest for aggregate stats)
-		actual := evaluateScenarioFromDef(handler, sc)
+		// Confusion matrix, from the same evaluation the subtest graded.
 		match := actual == sc.ExpectedDecision
 
 		switch {

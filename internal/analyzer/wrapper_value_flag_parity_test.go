@@ -96,7 +96,41 @@ func TestWrapperValueFlagParity(t *testing.T) {
 	// assignment sits before the read, so a wrapper prefix only reaches the
 	// first statement. Does not leak under "sudo -u root --", hence +0 there —
 	// same shape as -002's exception in the #3249 entry above.
-	const maxLeaks = 44
+	//
+	// Raised 44 -> 46 by the four compound-word-position corpus cases
+	// (TP-SHADOW-FORLIST-SPLICE-001, TP-SHADOW-ARRAY-SPLICE-001,
+	// TP-SSHKEY-DECLARRAY-SPLICE-001, TP-SHADOW-SELECT-ANSIC-001). All four are
+	// the documented residue class, not new leakage: a prefix wraps only the
+	// FIRST statement, and `nohup for p in X; do ...; done` is not even valid
+	// shell — `for` after a command word is an ordinary argument, so the `do`
+	// that follows is a syntax error. The already-present TP-COMPOUND-EVASION-*
+	// rows leak for exactly this reason.
+	maxLeaks := 46
+
+	// 2026-08-31 (#3592): build-aware, the twin of the block in
+	// TestWrapperPositionalParity — read the long version there. Short form:
+	// the number above is calibrated on the FULL tree, the OSS-stripped tree
+	// (packs/premium/ removed per scripts/publish-oss.sh) enforces a smaller
+	// rule set, and the same invariant lands on a different number there. See
+	// premium_pack_test.go: pick the constant, never widen the shared one.
+	//
+	// Measured on 4ffdcee4, per position, control = unstripped tree:
+	//
+	//   position group        OSS          full
+	//   value-flag, no `--`   44/1717      46/2606
+	//   sudo -u root --       47/1717      45/2606
+	//
+	// Computed case by case, not from counts: the OSS build leaks exactly
+	// TP-DEFEXFIL-008 and TP-DEFEXFIL-014 more than the full build, on every
+	// position including control-sudo. Both BLOCK bare in the OSS build (via
+	// community ts-block-netcat) and stop doing so once ANY wrapper prefix is
+	// added; only the premium ne-block-deferred-exfil-sleep / -subshell rules
+	// match the raw text and so survive a prefix. Both are already recorded in
+	// scripts/oss-known-failures.txt, so this is blindness already measured
+	// re-expressed as a budget number — not new blindness.
+	if !premiumPacksPresent() {
+		maxLeaks = 47
+	}
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 
@@ -147,7 +181,8 @@ func TestWrapperValueFlagParity(t *testing.T) {
 					"as the executable — see #3221.\n%s",
 					p.prefix, len(leaks), len(baseline), maxLeaks, joinLines(leaks))
 			}
-			t.Logf("%s: %d/%d leaked (budget %d)", p.prefix, len(leaks), len(baseline), maxLeaks)
+			t.Logf("%s: %d/%d leaked (budget %d, premium packs present: %v)",
+				p.prefix, len(leaks), len(baseline), maxLeaks, premiumPacksPresent())
 		})
 	}
 }

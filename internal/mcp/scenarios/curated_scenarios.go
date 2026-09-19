@@ -4229,24 +4229,36 @@ var CuratedTPScenarios = []Scenario{
 		Category:         "mcp-sc-block-rubygems-cache-write",
 		Description:      "Edit legacy ~/.gem/ Ruby gem source — modifies installed bundler (issue #703).",
 	},
-	// TP: OpenTofu XDG config credentials (issue #732)
+	// TP: OpenTofu XDG config credentials (issue #732; path corrected #3715 —
+	// the real directory segment is "opentofu", never "tofu")
 	{
 		ID:               "MCP-TP-929",
 		ToolName:         "read_file",
-		Arguments:        map[string]interface{}{"path": "/home/user/.config/tofu/credentials.tfrc.json"},
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/opentofu/credentials.tfrc.json"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "mcp-sec-block-opentofu-credentials",
-		Description:      "MCP read of ~/.config/tofu/credentials.tfrc.json — OpenTofu API tokens, must be blocked (issue #732).",
+		Description:      "MCP read of ~/.config/opentofu/credentials.tfrc.json — OpenTofu API tokens, must be blocked (issue #732, #3715).",
 	},
 	{
 		ID:               "MCP-TP-930",
 		ToolName:         "write_file",
-		Arguments:        map[string]interface{}{"path": "/root/.config/tofu/credentials.tfrc.json", "content": "malicious"},
+		Arguments:        map[string]interface{}{"path": "/root/.config/opentofu/credentials.tfrc.json", "content": "malicious"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "mcp-sec-block-opentofu-credentials",
-		Description:      "MCP write to ~/.config/tofu/credentials.tfrc.json — hijack OpenTofu auth, must be blocked (issue #732).",
+		Description:      "MCP write to ~/.config/opentofu/credentials.tfrc.json — hijack OpenTofu auth, must be blocked (issue #732, #3715).",
+	},
+	// TN: the fictitious ~/.config/tofu/ path this rule used to (wrongly)
+	// target — OpenTofu never writes here, so this must AUDIT, not BLOCK (#3715)
+	{
+		ID:               "MCP-TN-FN3715-001",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/tofu/credentials.tfrc.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-opentofu-credentials",
+		Description:      "MCP read of ~/.config/tofu/credentials.tfrc.json — nonexistent path, no OpenTofu version ever wrote here (#3715).",
 	},
 	// TP: OpenTofu XDG data dir (issue #732)
 	{
@@ -6171,6 +6183,46 @@ var CuratedTPScenarios = []Scenario{
 		Classification:   "TP",
 		Category:         "mcp-gen-protected-path-terraformd",
 		Description:      "Real terraform.d credentials under /root/ — must still BLOCK after anchoring (issue #3354).",
+	},
+
+	// TP: homeDirRoots gained a Windows-anchored root (C:/Users/*/) alongside
+	// the 4 POSIX roots — a literal, fully-expanded Windows path must BLOCK
+	// the same as its POSIX equivalent, with no env var involved (issue #3607).
+	{
+		ID:               "MCP-TP-3607-001",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "C:/Users/bob/.docker/config.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-gen-protected-path-docker-configjson",
+		Description:      "Literal Windows-spelled docker config.json under C:/Users/*/ — no %USERPROFILE% involved (issue #3607).",
+	},
+	{
+		ID:               "MCP-TP-3607-002",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "C:/Users/alice/.netrc"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-gen-protected-path-netrc",
+		Description:      "Literal Windows-spelled .netrc under C:/Users/*/ (issue #3607).",
+	},
+	{
+		ID:               "MCP-TP-3607-003",
+		ToolName:         "write_file",
+		Arguments:        map[string]interface{}{"path": "c:/users/carol/.vault-token"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-gen-protected-path-vault-token",
+		Description:      "Lowercase drive letter + lowercase Users segment — Windows paths are case-insensitive, must still BLOCK via matchGlob's existing case-fold (issue #3607).",
+	},
+	{
+		ID:               "MCP-TP-3607-004",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": `C:\Users\dave\.cargo\config.toml`},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-gen-protected-path-cargo-configtoml",
+		Description:      "Backslash-separated Windows path composes with the existing separator normalization (#3606/#3610) on top of the new Windows anchor (issue #3607).",
 	},
 }
 
@@ -18534,6 +18586,28 @@ var CuratedTNScenarios = []Scenario{
 		Classification:   "TN",
 		Category:         "mcp-gen-protected-path-cargo-configtoml",
 		Description:      "Rust workspace vendoring a project-local .cargo/config.toml — must NOT trigger the anchored cargo config rule (issue #3354).",
+	},
+
+	// TN: the #3354 FP class re-probed on the new Windows-anchored root —
+	// a Windows-shaped project-relative path (no C:/Users/*/ segment) must
+	// stay AUDIT, the same guarantee the 4 POSIX roots already carry (issue #3607).
+	{
+		ID:               "MCP-TN-3607-001",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "C:/workspace/project/.docker/config.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-gen-protected-path-docker-configjson",
+		Description:      "Windows-drive project checkout (CI runner at C:/workspace) vendoring a docker config.json — not under C:/Users/*/, must NOT trigger the anchored rule (issue #3607).",
+	},
+	{
+		ID:               "MCP-TN-3607-002",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "C:/Users/bob/project/.cargo/config.toml"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-gen-protected-path-cargo-configtoml",
+		Description:      "Project subdirectory under a real Windows home (C:/Users/bob/project/...) — the anchor requires .cargo/config.toml immediately under C:/Users/*/, not an extra path segment away; must NOT trigger (issue #3607).",
 	},
 
 	// MCP CLI-wrapper inline reference-syntax injection (CVE-2026-0755,

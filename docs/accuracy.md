@@ -1,72 +1,33 @@
-# Accuracy Baseline
+# Accuracy
 
-Measured across 123 test cases covering 8 threat kingdoms (destructive ops, credential exposure, data exfiltration, unauthorized execution, privilege escalation, persistence/evasion, supply chain, reconnaissance).
+Accuracy is measured, never maintained by hand. The numbers that used to live on
+this page (a 123-case baseline from 2026-03-01, "6-layer pipeline") went stale
+within weeks and stayed here for six months. Regenerate rather than read.
 
-| Metric | Regex Only | Pipeline (6-layer) | Improvement |
-|--------|-----------|--------------------------------------|-------------|
-| **Precision** | 79.3% | **100.0%** | +20.7pp |
-| **Recall** | 59.0% | **100.0%** | +41.0pp |
-| True Positives | 46 | 106 | +60 |
-| True Negatives | 17 | 17 | 0 |
-| False Positives | 12 | 0 | −12 |
-| False Negatives | 32 | 0 | −32 |
-
-> Run `go test -v -run TestAccuracyMetrics ./internal/analyzer/` for regex-only metrics.
-> Run `go test -v -run TestPipelineAccuracyMetrics ./internal/analyzer/` for pipeline metrics.
-
-Regenerate the full failing test list anytime:
-
-```bash
-go test -v -run TestGenerateFailingTestsReport ./internal/analyzer/
-```
-
-## Red-Team Regression (21 commands)
-
-The guardian + pipeline is tested against prompt injection scenarios. All 21 commands pass minimum decision checks.
-
-Regenerate the full report:
-
-```bash
-go test -v -run TestRedTeamPipelineReport ./internal/analyzer/
-```
-
-## MCP Security Test Results
-
-### MCP Policy Red-Team (24 cases)
-
-| Category | Cases | Pass Rate |
+| What | Command | Output |
 |---|---|---|
-| Blocked tools (execute_command, run_shell, etc.) | 6 | 100% |
-| Credential access (SSH, AWS, GnuPG paths) | 6 | 100% |
-| System directory writes (/etc, /usr, cron) | 4 | 100% |
-| Safe operations (read project files, weather) | 5 | 100% |
-| Evasion attempts (path traversal, empty names) | 3 | 100% |
-| **Total** | **24** | **100%** |
+| Regex-only vs full-pipeline precision/recall over the whole corpus | `go test -run 'TestAccuracyMetrics\|TestPipelineAccuracyMetrics' ./internal/analyzer/ -timeout 40m` | stdout |
+| Known false negatives | `go test -run TestGenerateFailingTestsReport ./internal/analyzer/ -timeout 40m` | `FAILING_TESTS.md` (gitignored) |
+| Red-team regression: shell pipeline, guardian, MCP | `go test -run TestRedTeam ./internal/analyzer/ ./internal/guardian/ ./internal/mcp/ -timeout 40m` | `internal/*/testdata/*_REDTEAM_REPORT.md` (gitignored) |
+| MCP scenario coverage (TP + TN per rule) | `make mcp-verify` | stdout |
+| Rule counts (terminal / MCP / total) | `make coverage` | `COVERAGE.md` |
+| Latency budget (typical / adversarial P95) | `make test-perf` | stdout |
+
+Two things to know before running these:
+
+- The analyzer suite takes 20+ minutes. Under the default `go test` timeout
+  (10m) it dies in a way that looks like a performance regression (#3236) —
+  always pass `-timeout`.
+- `TestAccuracyMetrics` is static (regex only); `TestPipelineAccuracyMetrics`
+  is the live metric and the one that responds to pipeline changes. The
+  2026-07-01 stage ablation was measured against the latter.
+
+The case corpus lives in `internal/analyzer/testdata/*.go`, one file per threat
+kingdom. Never quote a corpus size or recall figure from a doc — quote the test
+output and the commit it ran on.
+
+Self-test of an installed binary:
 
 ```bash
-go test -v -run TestRedTeamMCP ./internal/mcp/
-```
-
-### Tool Description Poisoning Scanner (11 test cases)
-
-Detects 5 signal categories: hidden_instructions, credential_harvest, exfiltration_intent, cross_tool_override, stealth_instruction.
-
-```bash
-go test -v -run TestDescriptionScan ./internal/mcp/
-```
-
-### Argument Content Scanner (18 test cases)
-
-Detects 11 signal types: private_key, aws_credential, github_token, bearer_token, generic_secret, stripe_key, slack_token, basic_auth, env_file_content, base64_blob, high_entropy.
-
-```bash
-go test -v -run TestContentScan ./internal/mcp/
-```
-
-### Self-Test
-
-Run all checks at once:
-
-```bash
-agentshield scan   # 14 tests: shell + MCP + description + content
+agentshield scan
 ```

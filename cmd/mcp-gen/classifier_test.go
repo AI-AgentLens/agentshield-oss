@@ -33,6 +33,13 @@ func TestIsShellOnly(t *testing.T) {
 		{"ld_preload_export", `export\s+LD_(PRELOAD|LIBRARY_PATH)=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)`, true},
 		{"ld_audit_export", `export\s+LD_AUDIT=(/tmp|/dev/shm|/var/tmp|/proc|/run/user)`, true},
 		{"cloud_config_env_redirect", `(?:^|[\s;&|])(AWS_CONFIG_FILE|AWS_SHARED_CREDENTIALS_FILE|KUBECONFIG|GOOGLE_APPLICATION_CREDENTIALS|AZURE_CONFIG_DIR|GCLOUD_CONFIG_PATH|CLOUDSDK_CONFIG)\s*=\s*['"]?(?:/tmp/|/var/tmp/|/dev/shm/|/dev/fd/|/proc/self/fd/|\./|\.\./|~/?\.cache/|\$HOME/\.cache/|/var/folders/)\S*\s+\S`, true},
+		// #3566: `ln` (symlink/hardlink creation) has no MCP tool
+		// equivalent — every MCP tool operates on file content, not
+		// filesystem links, so a conversion produces a rule that matches
+		// the wrong thing (a read_file call against the bare credential
+		// directory) instead of detecting the link-creation threat.
+		{"symlink_credential_files", `ln\s+(-[a-zA-Z]*s[a-zA-Z]*\s+|--symbolic\s+)(~|\$HOME|/home/|/root/|/etc/)\S*(\.ssh|\.aws|\.gnupg|\.kube|shadow|passwd|credentials|id_rsa|id_ed25519|known_hosts|authorized_keys|token|secret)`, true},
+		{"hardlink_credential_files", `\bln\s+(-[^s\s]*\s+)?(~|\$HOME|/home/|/root/|/etc/)\S*(\.ssh|\.aws|\.gnupg|\.kube|shadow|passwd|credentials|id_rsa|id_ed25519|id_ecdsa|known_hosts|authorized_keys|\.pem|\.key|token|secret|\.vault-token|\.netrc|\.npmrc|\.pypirc)`, true},
 		// These should NOT be flagged as shell-only.
 		{"simple_path", "(/etc/shadow|/etc/master\\.passwd)", false},
 		{"dotfile_path", ".ssh/id_rsa", false},
@@ -96,6 +103,151 @@ func TestExtractPathsPreservesEscapedExtension(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("extractPaths(%q) = %v, want it to include %q", regex, paths, want)
+	}
+}
+
+// TestExtractPathsRecoversMultiAlternationBranches is #3817 finding #1: a
+// shared prefix wrapping a parenthesized "(a|b|c)" alternation broke the
+// char-class-based extraction patterns at the first "(", so only branches
+// that happened to carry zero embedded regex syntax survived — an accident
+// of which words were chosen, not a real distinction. All three regexes here
+// are the exact source text of real, cited shell rules (see the
+// hazardousConversion comment above); before expandAlternations, extraction
+// on find-fwrite kept only "/var/root" and "/usr/lib" out of ~9 named
+// targets, and on pkgmgr kept only ".m2/settings.xml" out of 4.
+func TestExtractPathsRecoversMultiAlternationBranches(t *testing.T) {
+	tests := []struct {
+		name  string
+		regex string
+		want  []string
+	}{
+		{
+			name:  "find_fwrite_etc_alternation",
+			regex: `\bfind\b.*\s-f(print[f0]?|ls)\s+(/etc/(cron|sudoers|profile|ld\.so)|/root/|/var/root/|/home/[^/\s]+/\.(ssh|aws|gnupg|kube)|~/\.(ssh|aws|gnupg|kube)|/Library/Launch(Daemons|Agents)|/usr/lib/|/proc/sys/)`,
+			want: []string{
+				"/etc/cron", "/etc/sudoers", "/etc/profile", "/etc/ld.so",
+				"/Library/LaunchDaemons", "/Library/LaunchAgents",
+				"/proc/sys",
+				"/home/*/.ssh", "/home/*/.aws", "/home/*/.gnupg", "/home/*/.kube",
+			},
+		},
+		{
+			name:  "pkgmgr_no_leading_dot_branches",
+			regex: `(cat|less|more|head|tail|bat|vi?|nano|cp|mv)\s+.*(cargo/credentials|\.gem/credentials|\.m2/settings\.xml|gradle\.properties)`,
+			want: []string{
+				"/home/*/.cargo/credentials",
+				"/home/*/.gem/credentials",
+				"/home/*/.m2/settings.xml",
+				"/home/*/.gradle/gradle.properties",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			paths := extractPaths(tt.regex)
+			for _, w := range tt.want {
+				found := false
+				for _, p := range paths {
+					if p == w {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("extractPaths(%q) = %v, missing branch %q", tt.regex, paths, w)
+				}
+			}
+		})
+	}
+}
+
+// TestExtractPathsDoesNotEmitGroupTruncatedMatch pins matchTruncatedByGroup:
+// expandAlternations always retries the fully-unexpanded original regex
+// alongside its flattened variants, so a match can still land right next to
+// an unexpanded "(" (e.g. "/Library/Launch" stopping dead at
+// "(Daemons|Agents)"). That fragment is not a real path — it must not appear
+// in the output — while the two REAL targets the group expands to must still
+// be present.
+func TestExtractPathsDoesNotEmitGroupTruncatedMatch(t *testing.T) {
+	regex := `/Library/Launch(Daemons|Agents)`
+	paths := extractPaths(regex)
+
+	for _, p := range paths {
+		if p == "/Library/Launch" {
+			t.Errorf("extractPaths(%q) = %v, contains truncated fragment %q", regex, paths, p)
+		}
+	}
+	for _, want := range []string{"/Library/LaunchDaemons", "/Library/LaunchAgents"} {
+		found := false
+		for _, p := range paths {
+			if p == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("extractPaths(%q) = %v, missing %q", regex, paths, want)
+		}
+	}
+}
+
+func TestExpandAlternations(t *testing.T) {
+	tests := []struct {
+		name  string
+		regex string
+		want  []string // exact set, order-independent
+	}{
+		{
+			name:  "no_groups_returns_original_only",
+			regex: `/etc/shadow`,
+			want:  []string{`/etc/shadow`},
+		},
+		{
+			name:  "single_group_expands_to_one_variant_per_branch",
+			regex: `/etc/(cron|sudoers)`,
+			want:  []string{`/etc/(cron|sudoers)`, `/etc/cron`, `/etc/sudoers`},
+		},
+		{
+			name:  "non_capturing_prefix_stripped",
+			regex: `/etc/(?:cron|sudoers)`,
+			want:  []string{`/etc/(?:cron|sudoers)`, `/etc/cron`, `/etc/sudoers`},
+		},
+		{
+			name: "sibling_groups_expand_independently_not_cartesian",
+			// Two 2-branch groups: a full cartesian product would be 4
+			// combined variants; one-group-at-a-time produces 2+2=4 partial
+			// variants plus the original — 5 total, each with only ONE
+			// group flattened.
+			regex: `(a|b)-(c|d)`,
+			want:  []string{`(a|b)-(c|d)`, `a-(c|d)`, `b-(c|d)`, `(a|b)-c`, `(a|b)-d`},
+		},
+		{
+			name:  "bracket_class_pipe_not_a_group_split",
+			regex: `(?:^|[;&|])cmd`,
+			want:  []string{`(?:^|[;&|])cmd`, `^cmd`, `[;&|]cmd`},
+		},
+		{
+			name:  "group_with_no_pipe_is_left_untouched",
+			regex: `/etc/(shadow)`,
+			want:  []string{`/etc/(shadow)`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expandAlternations(tt.regex)
+			gotSet := map[string]bool{}
+			for _, g := range got {
+				gotSet[g] = true
+			}
+			wantSet := map[string]bool{}
+			for _, w := range tt.want {
+				wantSet[w] = true
+			}
+			if !reflect.DeepEqual(gotSet, wantSet) {
+				t.Errorf("expandAlternations(%q) = %v, want set %v", tt.regex, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -189,8 +341,8 @@ func TestTildeToGlob(t *testing.T) {
 		input string
 		want  []string
 	}{
-		{"~/.ssh/**", []string{"/home/*/.ssh/**", "/root/.ssh/**", "/var/root/.ssh/**", "/Users/*/.ssh/**"}},
-		{"~/.npmrc", []string{"/home/*/.npmrc", "/root/.npmrc", "/var/root/.npmrc", "/Users/*/.npmrc"}},
+		{"~/.ssh/**", []string{"/home/*/.ssh/**", "/root/.ssh/**", "/var/root/.ssh/**", "/Users/*/.ssh/**", "C:/Users/*/.ssh/**"}},
+		{"~/.npmrc", []string{"/home/*/.npmrc", "/root/.npmrc", "/var/root/.npmrc", "/Users/*/.npmrc", "C:/Users/*/.npmrc"}},
 		{"/etc/shadow", []string{"/etc/shadow"}},
 	}
 
@@ -274,6 +426,48 @@ func TestClassifyPathCategory(t *testing.T) {
 			// path-read default as chflags above.
 			name:  "find_fwrite_flags_are_write",
 			regex: `\bfind\b.*\s-f(print[f0]?|ls)\s+(/etc/(cron|sudoers|profile|ld\.so)|/root/|/var/root/|/home/[^/\s]+/\.(ssh|aws|gnupg|kube)|~/\.(ssh|aws|gnupg|kube)|/Library/Launch(Daemons|Agents)|/usr/lib/|/proc/sys/)`,
+			want:  "config-write",
+		},
+		{
+			// #3589: the live regex from sec-audit-ai-cred-files. An
+			// interactive editor opens the path for BOTH directions, but
+			// `vi?`/`nano` were in neither verb list, so this defaulted to
+			// "path-read" and shipped an MCP rule with read tools only.
+			name:  "editor_verb_is_read_and_write",
+			regex: `(cat|less|more|head|tail|bat|vi?|nano)\s+.*(\.config/(openai|anthropic|google|gemini|cohere|mistral)|\.openai|\.anthropic)`,
+			want:  "path-readwrite",
+		},
+		{
+			// An editor alone, with no read verb anywhere, must still reach
+			// readwrite — the write half is the point.
+			name:  "editor_alone_is_read_and_write",
+			regex: `\b(vim|nvim|nano|emacs)\b\s+.*/home/[^/\s]+/\.aws/credentials`,
+			want:  "path-readwrite",
+		},
+		{
+			// NEGATIVE CONTROL. `view` is vim's read-only mode and is
+			// deliberately absent from editVerbRe: treating it as a write
+			// would hand write-family tools to a rule whose source regex
+			// cannot write. If editVerbRe is ever loosened to `vi\w*`, this
+			// is the test that catches it.
+			name:  "vim_readonly_view_mode_is_not_a_write",
+			regex: `\b(view|rview)\b\s+/etc/shadow\b`,
+			want:  "path-read",
+		},
+		{
+			// NEGATIVE CONTROL. A read verb that merely CONTAINS an editor
+			// name as a substring must not trip the word-boundary match.
+			name:  "editor_name_as_substring_is_not_an_editor",
+			regex: `\b(cat|editor_log|nanosecond_dump|vimrc_dump)\b\s+/etc/shadow\b`,
+			want:  "path-read",
+		},
+		{
+			// An editor inside a redirect branch is the redirect's data
+			// source, exactly like a read verb — the branch is still a
+			// write to the path and nothing more. Pins that the editor
+			// check sits AFTER the redirect short-circuit.
+			name:  "editor_in_redirect_branch_stays_write_only",
+			regex: `(echo|vi)\b.*(>>|>)\s*/etc/hosts\b`,
 			want:  "config-write",
 		},
 	}
@@ -370,4 +564,80 @@ func TestClassifyRuleConvertsPathRules(t *testing.T) {
 	if c.Decision != "BLOCK" {
 		t.Errorf("expected BLOCK decision, got %s", c.Decision)
 	}
+}
+
+// TestClassifyProtectedPathsExcludesWriteWhenCoveredElsewhere pins #3735's
+// fix: a protected_paths entry listed in writeCoveredElsewhere must be
+// classified with ReadDeleteTools (no write-family tools), because a
+// dedicated write-taxonomy rule already covers writes to that path
+// elsewhere. An ordinary protected path not in the map must still get the
+// full AllFileTools set — this must not become a blanket narrowing.
+func TestClassifyProtectedPathsExcludesWriteWhenCoveredElsewhere(t *testing.T) {
+	pack := &ShellPack{
+		Defaults: Defaults{
+			ProtectedPaths: []string{
+				"~/.m2/settings.xml",  // covered elsewhere — must exclude write
+				"~/.some-other-thing", // not covered — must keep full coverage
+			},
+		},
+	}
+
+	candidates := classifyProtectedPaths(pack)
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+
+	byPath := map[string]Candidate{}
+	for _, c := range candidates {
+		byPath[c.SourceRule.ID] = c
+	}
+
+	m2, ok := byPath["protected-path-m2-settingsxml"]
+	if !ok {
+		t.Fatalf("expected a candidate for ~/.m2/settings.xml, got IDs: %v", keysOf(byPath))
+	}
+	for _, wt := range WriteTools {
+		if containsStr(m2.ToolNames, wt) {
+			t.Errorf("~/.m2/settings.xml candidate must not include write tool %q (write is covered by mcp-sc-block-pkgmgr-config-write), got %v", wt, m2.ToolNames)
+		}
+	}
+	for _, rt := range append(append([]string{}, ReadTools...), DeleteTools...) {
+		if !containsStr(m2.ToolNames, rt) {
+			t.Errorf("~/.m2/settings.xml candidate must still include %q, got %v", rt, m2.ToolNames)
+		}
+	}
+
+	var other Candidate
+	found := false
+	for _, c := range candidates {
+		if len(c.Paths) > 0 && strings.Contains(c.Paths[0], "some-other-thing") {
+			other = c
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a candidate for ~/.some-other-thing")
+	}
+	for _, wt := range WriteTools {
+		if !containsStr(other.ToolNames, wt) {
+			t.Errorf("an ordinary protected path not in writeCoveredElsewhere must keep write tool %q, got %v", wt, other.ToolNames)
+		}
+	}
+}
+
+func containsStr(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func keysOf(m map[string]Candidate) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

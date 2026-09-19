@@ -146,7 +146,7 @@ func stepMatches(s MCPSequenceStep, call RecordedCall) bool {
 	}
 	if s.ToolNameRegex != "" {
 		re, err := regexp.Compile(s.ToolNameRegex)
-		if err != nil || !re.MatchString(call.ToolName) {
+		if err != nil || !toolNameRegexMatches(re, call.ToolName) {
 			return false
 		}
 	}
@@ -166,7 +166,7 @@ func stepMatches(s MCPSequenceStep, call RecordedCall) bool {
 	// Argument regex predicates — all must hold against the (stringified) arg.
 	for arg, pat := range s.ArgumentRegexPatterns {
 		re, err := regexp.Compile(pat)
-		if err != nil || !re.MatchString(argString(call.Args, arg)) {
+		if err != nil || !argRegexMatches(re, call.Args, arg) {
 			return false
 		}
 	}
@@ -175,6 +175,12 @@ func stepMatches(s MCPSequenceStep, call RecordedCall) bool {
 	// (case-insensitive). An absent arg is satisfied. Mirrors MCPMatch's
 	// ArgumentNotContains semantics.
 	for arg, subs := range s.ArgumentNotContains {
+		// argmaplookup:allow NEGATIVE predicate — folding an exclusion widens
+		// it. Resolving a respelled key here would make the "must contain
+		// none of" test match more often, which switches the RULE off; the
+		// raw index can only leave the predicate satisfied, i.e. leave the
+		// rule live. Same inversion toolNameForms documents for
+		// ToolNameRegexExclude / ToolNameNotPrefixAny.
 		v, ok := call.Args[arg]
 		if !ok {
 			continue
@@ -189,13 +195,51 @@ func stepMatches(s MCPSequenceStep, call RecordedCall) bool {
 	return true
 }
 
-// argString returns the stringified value of args[key], or "" if absent.
+// argString returns the stringified value of the rule-supplied key in args,
+// or "" if absent.
+//
+// Resolution goes through argFieldRecovered (exact-then-render-recovery), NOT a
+// raw map index and NOT the full resolveField ladder (#3691/#3712/#3720/#3727).
+// This is the fail-OPEN direction of the class and the reason it matters most
+// here: an argument name carrying a Unicode separator makes an exact-key lookup
+// return "", the step's argument regex then fails to match, and the whole
+// cross-call chain rule never fires — a composite/session-level BLOCK degraded
+// to AUDIT by one invisible byte in a key the attacker both declares and
+// resolves. Measured on mcp-sc-block-archive-download-extract-execute-cwd-shadow:
+// `url` + U+00A0 flipped BLOCK to AUDIT end to end.
+//
+// It deliberately does NOT inherit resolveField's case-insensitive / camelCase
+// / dot-notation fallbacks: those would let an ASCII `URL` / `workingDirectory`
+// / nested `config.url` newly activate a sequence step that flat exact-match
+// never did (#3727 finding 1). When a normalized-name collision resolves to
+// several values, argString returns the first in the resolver's stable order;
+// the step-level predicate (argRegexMatches) tests EVERY candidate, so the
+// decision does not depend on which one argString hands back.
 func argString(args map[string]interface{}, key string) string {
-	if args == nil {
+	cands := argFieldRecovered(args, key)
+	if len(cands) == 0 {
 		return ""
 	}
-	if v, ok := args[key]; ok {
-		return fmt.Sprintf("%v", v)
+	return fmt.Sprintf("%v", cands[0])
+}
+
+// argRegexMatches reports whether re matches the stringified value of ANY value
+// the rule-supplied key resolves to (exact, else render-recovery). With no
+// candidate it tests re against "" — the absent-arg behaviour argString had, so
+// a pattern authored to match on an empty/absent argument still does. Testing
+// every candidate rather than only the first is what makes a normalized-name
+// collision deterministic: if any Unicode spelling of the key carries a value
+// the pattern matches, the step matches, regardless of map-iteration order
+// (#3727 finding 3).
+func argRegexMatches(re *regexp.Regexp, args map[string]interface{}, key string) bool {
+	cands := argFieldRecovered(args, key)
+	if len(cands) == 0 {
+		return re.MatchString("")
 	}
-	return ""
+	for _, v := range cands {
+		if re.MatchString(fmt.Sprintf("%v", v)) {
+			return true
+		}
+	}
+	return false
 }

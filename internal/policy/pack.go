@@ -229,6 +229,9 @@ func mergePackInto(target *Policy, pack *Pack) {
 	for _, p := range target.Defaults.ProtectedPaths {
 		existingPaths[p] = true
 	}
+	// A pack may declare additional designated consumers (additive, like
+	// protected paths); it cannot remove a shipped one.
+	target.Defaults.ProtectedPathConsumers = append(target.Defaults.ProtectedPathConsumers, pack.Defaults.ProtectedPathConsumers...)
 	for _, p := range pack.Defaults.ProtectedPaths {
 		if !existingPaths[p] {
 			target.Defaults.ProtectedPaths = append(target.Defaults.ProtectedPaths, p)
@@ -259,6 +262,12 @@ func clonePolicy(p *Policy) *Policy {
 
 	clone.Defaults.ProtectedPaths = make([]string, len(p.Defaults.ProtectedPaths))
 	copy(clone.Defaults.ProtectedPaths, p.Defaults.ProtectedPaths)
+	// Every Defaults field must be carried through the clone. Missing this one
+	// dropped the shipped consumer table on the way through LoadEmbeddedShellPacks,
+	// so the engine tests passed while the hook still blocked `ssh -i` — the
+	// clone is a second definition of "what a policy is" and it drifts silently.
+	clone.Defaults.ProtectedPathConsumers = make([]ProtectedPathConsumer, len(p.Defaults.ProtectedPathConsumers))
+	copy(clone.Defaults.ProtectedPathConsumers, p.Defaults.ProtectedPathConsumers)
 
 	clone.Network.AllowDomains = make([]string, len(p.Network.AllowDomains))
 	copy(clone.Network.AllowDomains, p.Network.AllowDomains)

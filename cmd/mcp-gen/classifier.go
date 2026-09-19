@@ -93,6 +93,22 @@ var projectSafeConfigFiles = map[string]bool{
 	"~/.yarnrc": true,
 }
 
+// writeCoveredElsewhere lists protected_paths entries whose WRITE access is
+// already BLOCKed by a dedicated, more-specifically-taxonomized MCP rule
+// elsewhere in the corpus. Without this, classifyProtectedPaths always emits
+// AllFileTools (read+write+delete) under the generic
+// credential-exposure/config-file-access/protected-path taxonomy, which
+// double-fires alongside the dedicated rule on every write — the two-way
+// taxonomy disagreement #3735 found for ~/.m2/settings.xml (dedicated rule:
+// mcp-sc-block-pkgmgr-config-write, supply-chain/config-tampering/
+// package-registry-redirect). Listing a path here scopes the generated rule
+// to ReadDeleteTools instead: the write is still BLOCKed, just attributed to
+// the rule that actually describes the write threat. This is NOT a coverage
+// reduction — read and delete stay covered by the generic rule as before.
+var writeCoveredElsewhere = map[string]bool{
+	"~/.m2/settings.xml": true,
+}
+
 // classifyProtectedPaths creates candidates from a pack's protected_paths list.
 func classifyProtectedPaths(pack *ShellPack) []Candidate {
 	var candidates []Candidate
@@ -106,6 +122,10 @@ func classifyProtectedPaths(pack *ShellPack) []Candidate {
 		if len(globPaths) == 0 {
 			continue
 		}
+		tools := AllFileTools
+		if writeCoveredElsewhere[p] {
+			tools = ReadDeleteTools
+		}
 		candidates = append(candidates, Candidate{
 			SourceRule: ShellRule{
 				ID:       fmt.Sprintf("protected-path-%s", pathSlug(p)),
@@ -115,7 +135,7 @@ func classifyProtectedPaths(pack *ShellPack) []Candidate {
 			},
 			Category:  "path-readwrite",
 			Paths:     globPaths,
-			ToolNames: AllFileTools,
+			ToolNames: tools,
 			Decision:  "BLOCK",
 			Reason:    fmt.Sprintf("Access to protected path %s is blocked.", p),
 		})
@@ -123,8 +143,73 @@ func classifyProtectedPaths(pack *ShellPack) []Candidate {
 	return candidates
 }
 
+// hazardousConversion lists shell rule IDs the generic path/URL extraction
+// converts into an MCP candidate that is either already fully covered by a
+// dedicated hand-authored rule, or would carry unacceptable FP risk once the
+// shell rule's real gate (a specific verb, or specific keyword content) is
+// discarded in favor of a bare path match. This is the classifyRule-side
+// counterpart to writeCoveredElsewhere above; that map narrows tool coverage
+// on a still-emitted protected-path candidate, this one refuses emission
+// entirely. Coverage-based dedup (#3464) does not catch these because it
+// compares each candidate's paths against the existing policy independently —
+// it never sees that ALL of a multi-path candidate's targets are covered, or
+// that the sensitivity here comes from CONTENT the path-only conversion drops.
+// Found reviewing #3778's net-new batch:
+//   - ts-block-find-fwrite-sensitive-path: extraction keeps only 2 of ~9
+//     protected targets from the source regex (/var/root, /usr/lib) — both
+//     already BLOCKed by mcp-persist-block-var-root-write and
+//     mcp-safety-block-usr-write. Zero net-new coverage.
+//   - ts-block-chflags-immutable-writable-tmp: extracted targets /var/tmp and
+//     /var/folders — the latter is macOS's live $TMPDIR root, used by
+//     essentially every legitimate temp-file operation. The shell rule's
+//     precision comes from requiring the chflags lock verb; a bare "any write
+//     to this path" MCP conversion loses that gate and would BLOCK ordinary
+//     temp-file writes.
+//   - sc-block-ai-endpoint-dotenv-write: the shell regex requires specific
+//     AI-endpoint env-var names (OPENAI_BASE_URL etc.) in the written content
+//     — the sensitivity is the CONTENT, not the .env path. extractPaths keeps
+//     only the destination path, producing a candidate that would BLOCK any
+//     write to a home-dir .env file regardless of content.
+//   - ts-block-chflags-clear-immutable-system: extracted targets /var/db,
+//     /var/log, /var/root — the first and third are already BLOCKed
+//     (mcp-persist-block-var-db-write, mcp-persist-block-var-root-write); only
+//     /var/log is genuinely new. Shipped by hand instead as
+//     mcp-persist-block-var-log-write, a sibling of the two existing rules,
+//     rather than teaching the classifier to split a multi-path candidate.
+//   - ts-block-mfa-seed-replacement: extracted target /root/.google_authenticator
+//     is already BLOCKed by mcp-sec-block-google-authenticator-write
+//     (packs/premium/mcp/mcp-devtool-creds.yaml, same taxonomy
+//     credential-exposure/mfa-bypass/mfa-seed-replacement), whose pattern is
+//     "**/.google_authenticator" — broader than anything this conversion would
+//     produce. CoverageChecker.Covers() should have caught this and didn't;
+//     see the follow-up issue on `**/...`-prefixed glob coverage checks.
+//   - sec-block-package-manager-credentials: extracted target .m2/settings.xml
+//     (the only one of the source rule's 4 credential files this conversion
+//     manages to extract — cargo/credentials, .gem/credentials and
+//     gradle.properties all have their own dedicated rules in
+//     packs/community/mcp/mcp-secrets.yaml already) is itself fully covered
+//     by the combination of mcp-gen-protected-path-m2-settingsxml (read/delete,
+//     from this same file's protected_paths handling) and
+//     mcp-sc-block-pkgmgr-config-write (write, packs/premium/mcp/
+//     mcp-supply-chain.yaml) — see that pack's own comment: "Note:
+//     ~/.m2/settings.xml is already blocked via
+//     mcp-gen-protected-path-m2-settingsxml." Third confirmed instance of
+//     CoverageChecker.Covers() missing a real overlap; see #3817.
+var hazardousConversion = map[string]bool{
+	"ts-block-find-fwrite-sensitive-path":     true,
+	"ts-block-chflags-immutable-writable-tmp": true,
+	"sc-block-ai-endpoint-dotenv-write":       true,
+	"ts-block-chflags-clear-immutable-system": true,
+	"ts-block-mfa-seed-replacement":           true,
+	"sec-block-package-manager-credentials":   true,
+}
+
 // classifyRule attempts to classify a single shell rule as convertible.
 func classifyRule(rule ShellRule) (Candidate, bool) {
+	if hazardousConversion[rule.ID] {
+		return Candidate{}, false
+	}
+
 	regex := rule.Match.CommandRegex
 	if regex == "" {
 		return Candidate{}, false
@@ -225,6 +310,19 @@ func isShellOnly(regex string) bool {
 		// live system temp root). See #3465.
 		"LD_(PRELOAD|LIBRARY_PATH)", "LD_AUDIT=",
 		"AWS_CONFIG_FILE|AWS_SHARED_CREDENTIALS_FILE|KUBECONFIG",
+
+		// `ln` (symlink/hardlink creation) has no MCP tool equivalent: every
+		// MCP tool family (read_file/write_file/...) operates on file
+		// CONTENT, not filesystem links, so there is no faithful conversion
+		// of "create a link pointing at <credential path>". Left unexcluded,
+		// extractPaths still finds the credential-path literals in the
+		// regex and classifyPathCategory defaults such rules to
+		// "path-read" — producing an MCP rule that matches read_file calls
+		// against the bare containing directory (no `/**` suffix, since the
+		// path text after `ln -s ... ` never appears as a real extractable
+		// path) and does not detect the symlink-creation threat the rule's
+		// own `reason` field describes. See #3566.
+		"ln\\s",
 	}
 	for _, tool := range shellOnlyTools {
 		if strings.Contains(regex, tool) {
@@ -237,13 +335,54 @@ func isShellOnly(regex string) bool {
 
 // extractPaths pulls file paths from a regex pattern.
 // It looks for common path indicators: /etc/, ~/., **/.
+//
+// A source rule frequently protects several sibling targets behind a shared
+// prefix and a parenthesized alternation — "/etc/(cron|sudoers|profile)",
+// "/home/[^/]+/\.(ssh|aws)" — rather than one flat regex per target. The
+// extraction patterns below are string/char-class based, so a "(" sitting
+// directly where they need a path character to continue stops the match
+// dead; expandAlternations flattens each such group into one variant per
+// branch first, so every alternative gets its own clean run of text to
+// extract from (#3817 finding #1 — 3/3 multi-alternative shell regexes
+// audited lost real branches this way).
 func extractPaths(regex string) []string {
 	var paths []string
 
+	for _, variant := range expandAlternations(regex) {
+		paths = append(paths, extractPathsFromFlatText(variant)...)
+	}
+
+	// Pattern 4: known credential-file locations whose source regex spells
+	// the target as a bare relative fragment with no leading dot at all
+	// (e.g. "cargo/credentials", relying on a preceding ".*" to match the
+	// real "~/.cargo/credentials" path at runtime). No amount of alternation
+	// flattening recovers these — Pattern 2 below requires the captured text
+	// to itself begin with a literal "." — so they need their own explicit,
+	// narrowly curated lookup rather than a broadened Pattern 2. Substring
+	// matched against the original (unexpanded) text: these are plain
+	// literals, so surrounding "(" / "|" noise doesn't affect the check.
+	for fragment, real := range bareCredentialFragments {
+		if strings.Contains(regex, fragment) {
+			paths = append(paths, anchorToHomeDirs(real)...)
+		}
+	}
+
+	return dedup(paths)
+}
+
+// extractPathsFromFlatText runs the three literal/char-class extraction
+// patterns against a single candidate string (either the original regex, or
+// one branch of an alternation group flattened into place by
+// expandAlternations).
+func extractPathsFromFlatText(text string) []string {
+	var paths []string
+
 	// Pattern 1: Explicit absolute paths like /etc/shadow, /etc/wireguard/
-	absPathRe := regexp.MustCompile(`(/(?:etc|var|opt|usr|root|home)/[a-zA-Z0-9_./\\-]+)`)
-	for _, m := range absPathRe.FindAllStringSubmatch(regex, -1) {
-		path := cleanRegexPath(m[1])
+	for _, idx := range absPathRe.FindAllStringSubmatchIndex(text, -1) {
+		if matchTruncatedByGroup(text, idx[3]) {
+			continue
+		}
+		path := cleanRegexPath(text[idx[2]:idx[3]])
 		if path != "" {
 			paths = append(paths, path)
 		}
@@ -259,9 +398,11 @@ func extractPaths(regex string) []string {
 	// segment boundary the source regex spells as an escaped dot (e.g.
 	// `\.m2/settings\.xml`) truncates at the backslash and silently drops
 	// the file extension (#3375 Group C: mcp-gen-protected-path-m2-settingsxml).
-	dotPathRe := regexp.MustCompile(`(\.\w+(?:/(?:[a-zA-Z0-9_.*-]|\\\.)+)*)`)
-	for _, m := range dotPathRe.FindAllStringSubmatch(regex, -1) {
-		raw := m[1]
+	for _, idx := range dotPathRe.FindAllStringSubmatchIndex(text, -1) {
+		if matchTruncatedByGroup(text, idx[3]) {
+			continue
+		}
+		raw := text[idx[2]:idx[3]]
 		// Must start with a known sensitive dot-dir/file.
 		if isSensitiveDotPath(raw) {
 			if cleaned := cleanRegexPath(raw); cleaned != "" {
@@ -271,12 +412,135 @@ func extractPaths(regex string) []string {
 	}
 
 	// Pattern 3: Cloud metadata URLs (treated as paths for MCP network rules).
-	metadataRe := regexp.MustCompile(`(169\.254\.169\.254|metadata\.google\.internal)`)
-	if metadataRe.MatchString(regex) {
-		paths = append(paths, metadataRe.FindAllString(regex, -1)...)
+	if metadataRe.MatchString(text) {
+		paths = append(paths, metadataRe.FindAllString(text, -1)...)
 	}
 
-	return dedup(paths)
+	return paths
+}
+
+// matchTruncatedByGroup reports whether a Pattern 1/2 match stopped exactly
+// where it did only because the next byte is an unexpanded "(" — i.e. the
+// match is a truncated fragment of a larger alternation group
+// (expandAlternations always retries the fully-unexpanded original regex
+// alongside its flattened variants, so a group adjacent to the matched text
+// can still be present unexpanded in that pass). A real path never has a
+// regex group appended directly with no separator, so this can only ever
+// suppress a truncation artifact, never a genuine path (#3817).
+func matchTruncatedByGroup(text string, matchEnd int) bool {
+	return matchEnd < len(text) && text[matchEnd] == '('
+}
+
+var (
+	absPathRe  = regexp.MustCompile(`(/(?:etc|var|opt|usr|root|home|Library|proc)/[a-zA-Z0-9_./\\-]+)`)
+	dotPathRe  = regexp.MustCompile(`(\.\w+(?:/(?:[a-zA-Z0-9_.*-]|\\\.)+)*)`)
+	metadataRe = regexp.MustCompile(`(169\.254\.169\.254|metadata\.google\.internal)`)
+)
+
+// bareCredentialFragments maps a known package-manager credential location,
+// spelled in shell-rule source text as a bare relative fragment with no
+// leading dot, to its real dotted path. See the Pattern 4 comment in
+// extractPaths (#3817, sec-block-package-manager-credentials).
+//
+// The key is matched with strings.Contains against the raw regex SOURCE, so
+// it must carry the same escaping the source rule actually uses — the dot in
+// "gradle.properties" is spelled `gradle\.properties` in
+// sec-block-package-manager-credentials, and a key without the backslash
+// silently never matches (caught by
+// TestExtractPathsRecoversMultiAlternationBranches/pkgmgr_no_leading_dot_branches).
+var bareCredentialFragments = map[string]string{
+	"cargo/credentials":  ".cargo/credentials",
+	`gradle\.properties`: ".gradle/gradle.properties",
+}
+
+// maxAlternationVariants bounds the number of flattened strings a single
+// extractPaths call will generate. Expansion is one-group-at-a-time (see
+// expandAlternations), so the count grows as the SUM of each group's branch
+// count, not their product — a rule with six alternation groups of sizes
+// 2,4,3,2,2,3 (the densest one measured in this corpus,
+// ts-block-mfa-seed-replacement) produces 16 variants, comfortably inside
+// this cap. The cap exists only to keep a future pathological regex from
+// stalling `go run ./cmd/mcp-gen`; hitting it degrades to a partial result
+// rather than an error.
+const maxAlternationVariants = 512
+
+// expandAlternations returns, for every parenthesized alternation group
+// found anywhere in regex (at any nesting depth), one variant of the whole
+// string per branch of that group with ONLY that group's text replaced by
+// its branch — every other group in the string is left exactly as written.
+// The original, fully-unexpanded regex is always included too, so text
+// outside any group is still covered.
+//
+// This is deliberately one-group-at-a-time, not a full cartesian product
+// across every group in the string. A cartesian product multiplies (2 * 4 *
+// 3 * 2 * 2 * 3 = 288 variants for the densest rule measured here); the
+// patterns extractPaths runs per-variant only look at a local run of
+// characters around a path, so an unrelated sibling group elsewhere in the
+// string is inert syntax noise whether or not it has also been expanded —
+// there is nothing to gain from expanding it in the same pass.
+func expandAlternations(regex string) []string {
+	variants := []string{regex}
+	for _, g := range findAlternationGroups(regex) {
+		branches := splitTopLevelAlternation(strings.TrimPrefix(g.inner, "?:"))
+		if len(branches) < 2 {
+			continue
+		}
+		for _, b := range branches {
+			if len(variants) >= maxAlternationVariants {
+				break
+			}
+			variants = append(variants, regex[:g.start]+b+regex[g.end+1:])
+		}
+	}
+	return dedup(variants)
+}
+
+// alternationGroup is a parenthesized group of the original regex string
+// (byte range [start,end], both inclusive of the parens) whose contents
+// contain at least one top-level "|".
+type alternationGroup struct {
+	start, end int
+	inner      string // regex[start+1 : end], i.e. without the enclosing parens
+}
+
+// findAlternationGroups scans regex for every "(...)" / "(?:...)" group,
+// locating each one's byte-offset boundaries by paren-depth tracking (a job
+// splitTopLevelAlternation doesn't do — it only ever answers "where are the
+// top-level splits of THIS string", never "where do nested groups start and
+// end"), and keeps the ones whose contents contain a top-level "|" (checked
+// via splitTopLevelAlternation itself, rather than a second hand-rolled
+// pipe/bracket-class tracker). Escaped characters (`\(`, `\)`, `\[`) are
+// skipped rather than treated as structural.
+func findAlternationGroups(regex string) []alternationGroup {
+	var stack []int
+	var groups []alternationGroup
+	inClass := false
+	for i := 0; i < len(regex); i++ {
+		c := regex[i]
+		switch {
+		case c == '\\':
+			i++ // skip the escaped character, whatever it is
+		case inClass:
+			if c == ']' {
+				inClass = false
+			}
+		case c == '[':
+			inClass = true
+		case c == '(':
+			stack = append(stack, i)
+		case c == ')':
+			if len(stack) == 0 {
+				continue // unbalanced input — defensive, not expected in practice
+			}
+			start := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			inner := regex[start+1 : i]
+			if len(splitTopLevelAlternation(strings.TrimPrefix(inner, "?:"))) >= 2 {
+				groups = append(groups, alternationGroup{start: start, end: i, inner: inner})
+			}
+		}
+	}
+	return groups
 }
 
 // extractURLs pulls URL patterns from a regex.
@@ -332,6 +596,7 @@ func isSensitiveDotPath(p string) bool {
 		".config/pip", ".config/openai", ".config/anthropic",
 		".openai", ".anthropic",
 		".mozilla/firefox", ".config/chromium",
+		".gem",
 	}
 	for _, s := range sensitive {
 		if p == s {
@@ -385,6 +650,30 @@ const findFWriteFlag = "-f(print"
 // readVerbRe matches verbs that view file contents in place.
 var readVerbRe = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|strings|xxd|hexdump|od)\b`)
 
+// editVerbRe matches interactive editors, which open the operand path for
+// BOTH reading and writing. Neither readVerbRe nor writeWordRe recognised
+// them, so a branch shaped `(cat|less|vi?|nano)\s+.*<credential path>` set
+// neither hasRead nor hasWrite, and classifyPathCategory fell through to its
+// default "path-read" — emitting an MCP rule with only ReadTools. The
+// write-family tools the shell source plainly intends to cover (an agent
+// *editing* the credential file through write_file/str_replace_editor) were
+// silently dropped (#3589).
+//
+// Matching is against the regex SOURCE text, so the sloppy-but-common `vi?`
+// spelling (regex for "v" or "vi") must match too: `vim?` tries "vim",
+// backtracks to "vi", and the trailing `\b` succeeds because `?` is not a
+// word character.
+//
+// Deliberately NOT included:
+//   - `view` / `rview` — vim's read-only mode; a write signal there would be
+//     wrong in exactly the direction this fix must not overreach.
+//   - `ex` — two letters with no editor-specific shape; too easy to collide
+//     with an unrelated regex fragment for a signal that flips tool families.
+//   - `sed` — a stream editor that writes to stdout; only `sed -i` writes in
+//     place, which is a different (positional) signal than a verb list can
+//     express. Out of scope for #3589, which is about interactive editors.
+var editVerbRe = regexp.MustCompile(`\b([gmrn]?vim|vi|nano|pico|emacsclient|emacs|ed)\b`)
+
 // classifyPathCategory determines what MCP operations are relevant.
 //
 // Classification is done per top-level regex alternation branch, not over
@@ -405,6 +694,12 @@ func classifyPathCategory(regex string) string {
 			// path, and any read verb in this branch is upstream of the
 			// redirect (its data source), not an operation on the path.
 			hasWrite = true
+			continue
+		}
+		if editVerbRe.MatchString(branch) {
+			// An interactive editor opens the path for both directions.
+			hasWrite = true
+			hasRead = true
 			continue
 		}
 		if writeWordRe.MatchString(branch) || strings.Contains(branch, findFWriteFlag) {
@@ -492,7 +787,15 @@ func toolsForCategory(cat string) []string {
 // convention (CLAUDE.md "Anti-patterns": /home/*/X, /root/X, /var/root/X,
 // /Users/*/X) instead of an unanchored **/X glob, which also matches the
 // same relative path inside any project directory (#3354).
-var homeDirRoots = []string{"/home/*/", "/root/", "/var/root/", "/Users/*/"}
+//
+// "C:/Users/*/" covers the Windows dotfile-under-home layout (#3607) — every
+// tool these rules protect (Docker, curl/.netrc, GitHub CLI, Vault,
+// Terraform, pip, Cargo, Maven) ships a native Windows build that stores its
+// config the same way. Forward-slash spelled per the existing convention
+// (#3605's investigation: MCP argument values in this corpus are
+// consistently forward-slash); matchGlob's case-fold and separator
+// normalisation (#3606/#3610) handle the rest at match time.
+var homeDirRoots = []string{"/home/*/", "/root/", "/var/root/", "/Users/*/", "C:/Users/*/"}
 
 // anchorToHomeDirs converts a home-relative path fragment (no leading "~/" or
 // "/", e.g. ".ssh/**" or ".docker/config.json") into globs anchored to the

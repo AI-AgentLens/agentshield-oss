@@ -1,6 +1,6 @@
 ---
 name: agentshield
-description: "Runtime security gateway — evaluate every exec through AgentShield's 7-layer pipeline"
+description: "Runtime security gateway — evaluate every exec through AgentShield's analyzer pipeline"
 homepage: https://github.com/AI-AgentLens/agentshield-oss
 metadata:
   {
@@ -15,7 +15,7 @@ metadata:
 
 # AgentShield Hook
 
-Runtime security gateway for OpenClaw agents. Evaluates every shell command through AgentShield's 7-layer analyzer pipeline before the host executes it.
+Runtime security gateway for OpenClaw agents. Evaluates every shell command through AgentShield's staged analyzer pipeline before the host executes it.
 
 ## What It Does
 

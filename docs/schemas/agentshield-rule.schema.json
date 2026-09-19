@@ -26,8 +26,8 @@
   "$defs": {
     "decision": {
       "type": "string",
-      "enum": ["BLOCK", "AUDIT", "ALLOW"],
-      "description": "BLOCK rejects the command. AUDIT executes but logs as flagged. ALLOW executes normally."
+      "enum": ["BLOCK", "AUDIT", "ALLOW", "REQUIRE_APPROVAL"],
+      "description": "BLOCK rejects the command. AUDIT executes but logs as flagged. ALLOW executes normally. REQUIRE_APPROVAL pauses and asks for confirmation before running (internal/policy/types.go DecisionRequireApproval); #3298 tracks it still resolving to allow on harnesses with no native approval channel. This is the exhaustive list the engine acts on — internal/policy/schema_test.go pins it against the Decision constants."
     },
 
     "defaults": {
@@ -40,7 +40,22 @@
         "protected_paths": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Glob patterns for paths that any command attempting to read/write triggers a BLOCK. Tilde expands to $HOME."
+          "description": "Glob patterns for paths that any command attempting to read/write triggers a BLOCK. Tilde expands to $HOME. A path used only in a designated consumer's credential slot (see protected_path_consumers) is recorded as AUDIT instead."
+        },
+        "protected_path_consumers": {
+          "type": "array",
+          "description": "Executables that may take a protected path as a credential. A protected path that appears ONLY as one of these consumers' flag values (or as a positional operand when positional is true) yields AUDIT with rule id protected-path-consumer instead of BLOCK. An assignment of a protected path to one of the consumer's env names is recorded the same way, and never blocked. Additive on merge.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["executable"],
+            "properties": {
+              "executable": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "flags": { "type": "array", "items": { "type": "string" }, "description": "Flags whose value is the credential: next word, or --flag=value. A short flag matches as the last letter of a cluster (-vi)." },
+              "positional": { "type": "boolean", "description": "Allow the credential as a bare operand (ssh-add ~/.ssh/id). Never set for tools that can copy the file out (scp, rsync)." },
+              "env": { "type": "array", "items": { "type": "string" }, "description": "Environment variables that ARE this consumer's credential slot (KUBECONFIG, AWS_SHARED_CREDENTIALS_FILE). Assigning a protected path to one is recorded as protected-path-consumer AUDIT, never blocked; matched case-sensitively. Unlike flags this is not tied to executable — the assignment and the use are routinely separate commands." }
+            }
+          }
         }
       }
     },

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/mountspec"
 	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
@@ -216,6 +217,22 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 	// Docker isn't reading the SSH key — it's launching a container that itself
 	// runs a dry-run mcp-eval against a path STRING.
 	nestedCodeStart := findNestedShellCodeStart(words)
+
+	// A container bind mount reads its SOURCE (#3630). The spec is one argv
+	// token — `~/.creds:/mnt` — so the trailing `:` defeats every
+	// protected-path glob unless the source is extracted separately. Only
+	// words before any nested interpreter body count: paths inside
+	// `docker run … bash -c '<body>'` are the inner script's text, not
+	// docker's own filesystem access (agentshield-oss#9).
+	if mountspec.IsContainerRuntime(seg.Executable) {
+		limit := len(words)
+		if nestedCodeStart >= 0 {
+			limit = nestedCodeStart
+		}
+		for _, src := range mountspec.Sources(words[:limit]) {
+			paths = append(paths, expandPath(src, cwd, homeDir))
+		}
+	}
 
 	for i := 0; i < len(words); i++ {
 		// Once inside an inner shell interpreter's code body, treat the rest

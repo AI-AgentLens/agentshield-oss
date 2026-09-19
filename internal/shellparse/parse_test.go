@@ -590,6 +590,120 @@ func TestBindingBuiltinHereStringResolution(t *testing.T) {
 	}
 }
 
+// TestBindingBuiltinHeredocResolution covers #3829: the here-string
+// recognizers above gated on syntax.WordHdoc (`<<<`) only, so the heredoc
+// spelling of the same binding — `read zc <<'EOF'` / `rm -rf /` / `EOF` /
+// `$zc`, which bash executes identically — left $zc an unknown command.
+// Same constant-only discipline as the here-string path: a live expansion
+// under an unquoted delimiter bails, `<<-` strips leading tabs, `read` binds
+// only the first line, mapfile/readarray bind one element per line.
+func TestBindingBuiltinHeredocResolution(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{
+			name: "quoted delimiter scalar read then bare exec resolves (the issue's case)",
+			cmd:  "read zc <<'EOF'\nrm -rf /\nEOF\n$zc",
+			want: "read zc <<'EOF'\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "double-quoted delimiter with read -r resolves",
+			cmd:  "read -r zc <<\"EOF\"\nrm -rf /\nEOF\n$zc",
+			want: "read -r zc <<\"EOF\"\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "unquoted delimiter with NO expansion in the body resolves (bash treats it as literal)",
+			cmd:  "read zc <<EOF\nrm -rf /\nEOF\n$zc",
+			want: "read zc <<EOF\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "<<- strips leading tabs from the body line",
+			cmd:  "read zc <<-EOF\n\trm -rf /\n\tEOF\n$zc",
+			want: "read zc <<-EOF\n\trm -rf /\n\tEOF\nrm -rf /",
+		},
+		{
+			name: "<<- strips several leading tabs, quoted delimiter",
+			cmd:  "read zc <<-'EOF'\n\t\trm -rf /\n\tEOF\n$zc",
+			want: "read zc <<-'EOF'\n\t\trm -rf /\n\tEOF\nrm -rf /",
+		},
+		{
+			name: "unquoted delimiter with a positional expansion bails (dynamic source)",
+			cmd:  "read zc <<EOF\n$1\nEOF\n$zc",
+			want: "",
+		},
+		{
+			name: "unquoted delimiter with a parameter expansion mid-line bails",
+			cmd:  "read zc <<EOF\nrm -rf $HOME\nEOF\n$zc",
+			want: "",
+		},
+		{
+			name: "unquoted delimiter with a command substitution bails",
+			cmd:  "read zc <<EOF\n$(echo rm) -rf /\nEOF\n$zc",
+			want: "",
+		},
+		{
+			name: "scalar read binds only the FIRST body line",
+			cmd:  "read zc <<'EOF'\nls -la\nrm -rf /\nEOF\n$zc",
+			want: "read zc <<'EOF'\nls -la\nrm -rf /\nEOF\nls -la",
+		},
+		{
+			name: "read -ra then splat exec resolves from the first body line",
+			cmd:  "read -ra parts <<'EOF'\nrm -rf /\nEOF\n\"${parts[@]}\"",
+			want: "read -ra parts <<'EOF'\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "mapfile -t binds one element per line; splat resolves",
+			cmd:  "mapfile -t a <<'EOF'\nrm\n-rf\n/\nEOF\n\"${a[@]}\"",
+			want: "mapfile -t a <<'EOF'\nrm\n-rf\n/\nEOF\nrm -rf /",
+		},
+		{
+			name: "mapfile WITHOUT -t on a multi-line body bails (quoted splat keeps the newlines and does not run)",
+			cmd:  "mapfile a <<'EOF'\nrm\n-rf\n/\nEOF\n\"${a[@]}\"",
+			want: "",
+		},
+		{
+			name: "readarray (no -t) single-line body then index exec resolves, as the here-string form does",
+			cmd:  "readarray za <<'EOF'\nrm -rf /\nEOF\n${za[0]}",
+			want: "readarray za <<'EOF'\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "readarray -t constant index into a multi-line body resolves that line",
+			cmd:  "readarray -t za <<'EOF'\nls\nrm -rf /\nEOF\n${za[1]}",
+			want: "readarray -t za <<'EOF'\nls\nrm -rf /\nEOF\nrm -rf /",
+		},
+		{
+			name: "a backslash anywhere in the body bails (read without -r rewrites it)",
+			cmd:  "read zc <<'EOF'\nr\\m -rf /\nEOF\n$zc",
+			want: "",
+		},
+		{
+			name: "IFS override prefix still bails on the heredoc spelling",
+			cmd:  "IFS=, read zc <<'EOF'\nrm,-rf,/\nEOF\n$zc",
+			want: "",
+		},
+		{
+			name: "value only echoed, never in executable position, splices nothing",
+			cmd:  "read zc <<'EOF'\nrm -rf /\nEOF\necho \"$zc\"",
+			want: "",
+		},
+		{
+			name: "here-string AND heredoc on the same statement bails",
+			cmd:  "read zc <<< \"ls\" <<'EOF'\nrm -rf /\nEOF\n$zc",
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveIndirectExecutables(tc.cmd)
+			if got != tc.want {
+				t.Errorf("ResolveIndirectExecutables(%q) = %q, want %q", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSetPositionalResolution covers #3237: `set -- <words>` binding bash's
 // positional parameters ($1, $@, $*), resolved the same way #3089's scalar
 // variables and #3091's array literals are.

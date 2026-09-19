@@ -70,6 +70,9 @@ func mergeUserOverDefaults(base, user *Policy) *Policy {
 	merged.Defaults.LogRedaction = merged.Defaults.LogRedaction || user.Defaults.LogRedaction
 
 	merged.Defaults.ProtectedPaths = unionStrings(merged.Defaults.ProtectedPaths, user.Defaults.ProtectedPaths)
+	// Consumers are additive too: a user may declare another tool that
+	// legitimately takes a credential, never un-declare a shipped one.
+	merged.Defaults.ProtectedPathConsumers = append(merged.Defaults.ProtectedPathConsumers, user.Defaults.ProtectedPathConsumers...)
 	merged.Network.AllowDomains = unionStrings(merged.Network.AllowDomains, user.Network.AllowDomains)
 
 	merged.Rules = append(merged.Rules, user.Rules...)
@@ -119,6 +122,7 @@ func DefaultPolicy() *Policy {
 				"~/.config/gcloud/**",
 				"~/.kube/**",
 			},
+			ProtectedPathConsumers: defaultProtectedPathConsumers(),
 		},
 		Network: Network{
 			AllowDomains: []string{

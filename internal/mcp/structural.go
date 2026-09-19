@@ -17,6 +17,34 @@ type MCPStructuralMatch struct {
 	ToolNameAny   []string `yaml:"tool_name_any,omitempty"`   // any of these tool names (exact or glob)
 	ToolNameRegex string   `yaml:"tool_name_regex,omitempty"` // regex on tool name
 
+	// ExcludeWhen carves this rule out only when a CONJUNCTION of conditions
+	// holds — every condition it specifies must match for the rule to be
+	// skipped. It is the path-aware sibling of semantic.go's
+	// MCPSemanticMatch.ToolNameRegexExclude (#2912), and the shape it exists to
+	// AVOID is a tool-name-only exclude on a broad-path rule.
+	//
+	// #3735 first shipped exactly that tool-name-only exclude on
+	// mcp-struct-block-credential-path-access, a `.*` rule matching ~65
+	// credential-path patterns. Review found it FAIL-OPEN: the catch-all's
+	// `\.pypirc$` also matches `release.pypirc`, and its unanchored
+	// `\.gradle/gradle\.properties` also matches `.bak`/`~` backups — variants
+	// the dedicated read rules (`**/.pypirc`, `**/.gradle/gradle.properties`
+	// globs) do NOT cover. A bare tool-name exclude removed the catch-all's
+	// unconditional BLOCK on those variants for the six read tool names,
+	// dropping a credential-file read to AUDIT with no rule on a COMMUNITY
+	// pack. That is worse than the double-fire it was closing.
+	//
+	// The conjunction fixes it: exclude only when the tool name matches AND the
+	// path is one the dedicated rule actually owns. Every other path the
+	// catch-all matches — the variants included — keeps its unconditional
+	// fallback. See #3735 and the regression table in that PR.
+	//
+	// Tool name is matched on the WIRE form, never the render-evasion recovered
+	// form: recovering a confusable here would WIDEN the carve-out and switch
+	// the rule OFF (CLAUDE.md, "Only POSITIVE predicates get the recovered
+	// form"). An empty clause never excludes.
+	ExcludeWhen *StructuralExcludeClause `yaml:"exclude_when,omitempty"`
+
 	// Argument field predicates — keyed by argument name (supports dot notation for nesting)
 	ArgsMatch map[string]ArgFieldMatch `yaml:"args_match,omitempty"`
 
@@ -25,6 +53,16 @@ type MCPStructuralMatch struct {
 	// Used to carve out known-safe contexts, e.g. exclude writes to taxonomy/ documentation files
 	// from content-pattern rules that detect K8s/Docker security misconfigs.
 	ExcludeArgsMatch map[string]ArgFieldMatch `yaml:"exclude_args_match,omitempty"`
+
+	// ArgumentValueRegexAny matches if ANY argument value anywhere in the call
+	// (scanned recursively across every key, not just a named one) matches ANY
+	// listed regex pattern. Structural-rule sibling of MCPMatch's identically
+	// named field (issue #3576) — args_match is keyed by argument name, so it
+	// has the same "only the names the author guessed" gap as
+	// argument_regex_patterns. Both evaluation paths share the same
+	// implementation (matchAnyArgumentValueRegex) so a rule authored either
+	// way gets identical coverage.
+	ArgumentValueRegexAny []string `yaml:"argument_value_regex_any,omitempty"`
 }
 
 // ArgFieldMatch defines match criteria for a single argument field.
@@ -40,6 +78,59 @@ type ArgFieldMatch struct {
 	// Numeric comparison
 	ValueGT *float64 `yaml:"value_gt,omitempty"` // value > threshold
 	ValueLT *float64 `yaml:"value_lt,omitempty"` // value < threshold
+}
+
+// StructuralExcludeClause is a CONJUNCTION carve-out for MCPStructuralMatch.
+// The rule is skipped only when EVERY condition the clause specifies matches —
+// so an author cannot express a tool-name-only exclude on a broad-path rule and
+// accidentally drop the paths a sibling rule does not cover (the #3735
+// fail-open). An empty clause (no conditions) never excludes.
+type StructuralExcludeClause struct {
+	// ToolNameRegex: if set, the WIRE tool name must match this pattern for the
+	// exclusion to apply. Deliberately the wire name, not the render-evasion
+	// recovered form — recovering here would widen the carve-out and switch the
+	// rule OFF on a confusable name (CLAUDE.md, "Only POSITIVE predicates get
+	// the recovered form").
+	ToolNameRegex string `yaml:"tool_name_regex,omitempty"`
+
+	// ArgsMatch: if set, EVERY named argument predicate must match (the same
+	// resolution matchArgField uses for positive predicates). The path
+	// predicate is what makes the exclusion path-aware — anchor it to exactly
+	// what the sibling rule covers so variant paths keep the catch-all's
+	// fallback.
+	ArgsMatch map[string]ArgFieldMatch `yaml:"args_match,omitempty"`
+}
+
+// matches reports whether every condition in the clause holds. A clause with no
+// conditions never matches, so it can never turn a rule into a no-op.
+func (c *StructuralExcludeClause) matches(toolName string, arguments map[string]interface{}) bool {
+	hasCondition := false
+
+	if c.ToolNameRegex != "" {
+		hasCondition = true
+		// A non-ASCII wire name never satisfies a carve-out: `(?i)` is a
+		// Unicode fold, so U+017F/U+212A would reconstruct an excluded name the
+		// POSITIVE matchers cannot match, switching this rule off with nothing
+		// to take over (#3771). See asciiOnlyWireName.
+		if !asciiOnlyWireName(toolName) {
+			return false
+		}
+		re, err := cachedRegexp(c.ToolNameRegex)
+		if err != nil || !re.MatchString(toolName) {
+			return false
+		}
+	}
+
+	if len(c.ArgsMatch) > 0 {
+		hasCondition = true
+		for fieldName, fieldMatch := range c.ArgsMatch {
+			if !matchArgField(arguments, fieldName, fieldMatch) {
+				return false
+			}
+		}
+	}
+
+	return hasCondition
 }
 
 // MCPStructuralRule is a complete structural rule including decision metadata.
@@ -65,6 +156,15 @@ func matchStructuralRule(toolName string, arguments map[string]interface{}, rule
 
 // matchStructural checks if a tool call matches a structural match definition.
 func matchStructural(toolName string, arguments map[string]interface{}, m MCPStructuralMatch) bool {
+	// exclude_when: conjunction carve-out checked first — if EVERY condition
+	// (tool name AND the path/arg predicates) holds, this rule never fires,
+	// regardless of the positive predicates below. Path-aware by construction:
+	// a variant path the sibling rule does not cover fails the ArgsMatch and so
+	// keeps this rule's fallback. Tool name matched on the WIRE form.
+	if m.ExcludeWhen != nil && m.ExcludeWhen.matches(toolName, arguments) {
+		return false
+	}
+
 	// Tool name matching (case-insensitive)
 	nameMatched := false
 	nameSpecified := false
@@ -83,7 +183,7 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 	if m.ToolNameRegex != "" {
 		nameSpecified = true
 		re, err := regexp.Compile("(?i)" + m.ToolNameRegex)
-		if err == nil && re.MatchString(toolName) {
+		if err == nil && toolNameRegexMatches(re, toolName) {
 			nameMatched = true
 		}
 	}
@@ -108,6 +208,12 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 	// recognizable HTTP method. This is a read-only synthesis — the
 	// caller's arguments map is not mutated.
 	if _, hasMethodRule := m.ArgsMatch["method"]; hasMethodRule {
+		// argmaplookup:allow presence probe, not a resolution — resolving a
+		// respelled `method<NBSP>` here would suppress the synthesis below and
+		// let an attacker's own value win over the method the TOOL NAME
+		// implies (http_post + `method<NBSP>: "GET"` would stop matching a
+		// POST rule). The raw index is the fail-safe direction; the value that
+		// is finally compared still goes through matchArgField/resolveField.
 		if _, hasMethodArg := arguments["method"]; !hasMethodArg {
 			if inferred := inferMethodFromToolName(toolName); inferred != "" {
 				newArgs := make(map[string]interface{}, len(arguments)+1)
@@ -137,8 +243,17 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 		}
 	}
 
+	// Any-argument-value regex matching — see MCPMatch.ArgumentValueRegexAny
+	// doc comment (issue #3576). Shared implementation with matchRule so both
+	// evaluation paths give identical coverage.
+	if len(m.ArgumentValueRegexAny) > 0 {
+		if !matchAnyArgumentValueRegex(arguments, m.ArgumentValueRegexAny) {
+			return false
+		}
+	}
+
 	// Must have specified at least one predicate
-	return nameSpecified || len(m.ArgsMatch) > 0
+	return nameSpecified || len(m.ArgsMatch) > 0 || len(m.ArgumentValueRegexAny) > 0
 }
 
 // inferMethodFromToolName returns the HTTP method encoded in a tool name,
@@ -644,6 +759,88 @@ func flattenArgValue(val interface{}) []string {
 	}
 	out = append(out, fmt.Sprintf("%v", arr))
 	return out
+}
+
+// maxAnyArgumentValueWalkDepth bounds the recursion in collectAllArgValues.
+// MCP tool call arguments are attacker-influenced JSON of unbounded nesting
+// depth (nothing requires a well-behaved client to keep to the shape a tool's
+// schema suggests); the walk is depth-first, so an adversarial deeply nested
+// argument value would otherwise exhaust the goroutine stack inside the
+// proxy on every call, not just a malicious one. 32 mirrors
+// maxSchemaWalkDepth (schema_walk.go) — real MCP tool arguments never
+// approach this, and the truncation is fail-safe: values already collected
+// above the cut are still scanned.
+const maxAnyArgumentValueWalkDepth = 32
+
+// maxAnyArgumentValueScanBytes bounds the length of any single value
+// collectAllArgValues hands to a regex match. Mirrors datalabel's
+// defaultMaxScanBytes (internal/datalabel/types.go) for the same reason: an
+// unbounded regex pass over an attacker-shaped multi-megabyte argument value
+// is a ReDoS surface on every MCP tool call that carries one, whether or not
+// it is the malicious call a rule is looking for.
+const maxAnyArgumentValueScanBytes = 256 * 1024
+
+// collectAllArgValues flattens every value reachable from arguments into its
+// string form, descending into nested maps and arrays (bounded by
+// maxAnyArgumentValueWalkDepth) so a batch/envelope-wrapped call is covered
+// the same way resolveFieldValues already covers named-field lookups — the
+// difference is this walk has no field name to look for, it returns
+// everything. Each value is truncated to maxAnyArgumentValueScanBytes.
+func collectAllArgValues(arguments map[string]interface{}) []string {
+	var out []string
+	var walk func(v interface{}, depth int)
+	walk = func(v interface{}, depth int) {
+		if depth > maxAnyArgumentValueWalkDepth {
+			return
+		}
+		switch t := v.(type) {
+		case map[string]interface{}:
+			for _, vv := range t {
+				walk(vv, depth+1)
+			}
+		case []interface{}:
+			for _, vv := range t {
+				walk(vv, depth+1)
+			}
+		default:
+			s := valueToString(t)
+			if len(s) > maxAnyArgumentValueScanBytes {
+				s = s[:maxAnyArgumentValueScanBytes]
+			}
+			out = append(out, s)
+		}
+	}
+	for _, v := range arguments {
+		walk(v, 0)
+	}
+	return out
+}
+
+// matchAnyArgumentValueRegex reports whether any value reachable from
+// arguments matches any of the given regex patterns. This is the shared
+// implementation behind MCPMatch.ArgumentValueRegexAny (matchRule, used by
+// flat `rules:` entries) and MCPStructuralMatch.ArgumentValueRegexAny
+// (matchStructural, used by `structural_rules:` entries) — issue #3576 calls
+// out wiring a new match field to only one of the two evaluation paths as
+// this repo's most-repeated latent trap, so both call the same function
+// rather than each carrying its own copy that could drift.
+func matchAnyArgumentValueRegex(arguments map[string]interface{}, patterns []string) bool {
+	values := collectAllArgValues(arguments)
+	if len(values) == 0 {
+		return false
+	}
+	for _, pattern := range patterns {
+		re, err := cachedRegexp(pattern)
+		if err != nil {
+			continue
+		}
+		for _, v := range values {
+			if re.MatchString(v) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // extractNumericVal extracts a float64 from an argument value.

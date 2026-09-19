@@ -182,9 +182,11 @@ type MCPMatch struct {
 	ArgumentPatterns        map[string]string   `yaml:"argument_patterns,omitempty"`         // key=arg name, value=glob pattern on arg value
 	ArgumentPatternsAny     map[string][]string `yaml:"argument_patterns_any,omitempty"`     // key=arg name, value=list of glob patterns; rule matches if ANY pattern matches (OR logic)
 	ArgumentRegexPatterns   map[string]string   `yaml:"argument_regex_patterns,omitempty"`   // key=arg name, value=regex pattern on arg value (use for non-path text matching)
+	ArgumentValueRegexAny   []string            `yaml:"argument_value_regex_any,omitempty"`  // matches if ANY argument value anywhere in the call (scanned recursively across every key, not just a named one) matches ANY listed regex pattern. Use for "the value is dangerous regardless of which parameter carries it" detections (issue #3576) — argument_regex_patterns can only be authored against parameter names the rule author guessed (url, repo_url, endpoint, href, ...); this predicate needs no key at all.
 	ExcludeArgumentPatterns map[string][]string `yaml:"exclude_argument_patterns,omitempty"` // key=arg name, value=list of glob patterns to exclude (if any match, rule does NOT fire)
 	ArgumentNotContains     map[string][]string `yaml:"argument_not_contains,omitempty"`     // key=arg name, value=literal substrings (case-insensitive). Negative/absence predicate: rule fires only if the arg value contains NONE of them. Absent arg ⇒ satisfied. Use for "argument does NOT contain marker X" (e.g. AI-disclosure footers) where regexp negative-lookahead and filepath.Match bracket-globs both fail.
 	ToolNameNotPrefixAny    []string            `yaml:"tool_name_not_prefix_any,omitempty"`  // negative tool-name predicate: rule fires only if the tool name starts with NONE of these prefixes. Go's regexp has no negative lookahead, so this is the tool-name equivalent of ArgumentNotContains — prefix (not regex) semantics, cheap and immune to RE2 bounded-repetition perf issues. Use to scope a rule to a namespace (e.g. tool_name_regex: "^mcp__") and then exclude a known-good allowlist within it (issue #2816, declared-baseline / capability-drift enforcement).
+	IdentifierRenderEvasion bool                `yaml:"identifier_render_evasion,omitempty"` // call-time render-evasion presence check (#3578): fires if the tool NAME or any argument KEY shows a Unicode confusable/invisible/fullwidth render-evasion signature (identifierRenderEvasion in namematch.go) — regardless of whether the recovered form matches any other rule. The call-time counterpart of mcp-desc-tool-name-confusable-sentinel for surfaces that never observe a tools/list response (mcp-eval, shield-server /v1/evaluate).
 	Structural              *MCPStructuralMatch `yaml:"structural,omitempty"`                // structural match predicates
 	Semantic                *MCPSemanticMatch   `yaml:"semantic,omitempty"`                  // semantic intent match predicates
 	Sequence                *MCPSequenceMatch   `yaml:"sequence,omitempty"`                  // cross-call chain match — evaluated against per-session call history (#2493). When set, the rule is a sequence rule and fires iff the history satisfies the chain.
@@ -364,6 +366,31 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 		}
 	}
 
+	// Go-based alternative-form IPv4 SSRF check (#3675) — reuses the decoder
+	// and range tables the resources/list authority scanner already has
+	// (resource_uri_authority_network_scanner.go's ipv4FromAltForm), rather
+	// than enumerating literal address spellings per YAML rule. Folded into
+	// the same severity comparison as the rule loop below so it can be
+	// outranked by (or tie with) an equal/higher-severity YAML match.
+	if argName, rawHost, canonical, hit := checkToolCallArgsAltFormSSRF(arguments); hit {
+		const altFormSSRFRuleID = "mcp-agentic-block-ssrf-alt-ip-encoding-structural"
+		const altFormSSRFTaxonomy = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+		reason := fmt.Sprintf(
+			"SSRF via '%s' argument targeting an alternative-form IPv4 encoding — host %q decodes to %s, a private, loopback, link-local, or cloud-IMDS address. Covers octal, decimal, and hex encodings (dotted-per-octet or single-integer) generically rather than an enumerated list of literal spellings.",
+			argName, rawHost, canonical,
+		)
+		if decisionSeverity(policy.DecisionBlock) > decisionSeverity(result.Decision) {
+			result.Decision = policy.DecisionBlock
+			result.TriggeredRules = []string{altFormSSRFRuleID}
+			result.Reasons = []string{reason}
+			result.TaxonomyRefs = firstTaxonomy(altFormSSRFTaxonomy)
+		} else if decisionSeverity(policy.DecisionBlock) == decisionSeverity(result.Decision) {
+			result.TriggeredRules = append(result.TriggeredRules, altFormSSRFRuleID)
+			result.Reasons = append(result.Reasons, reason)
+			result.TaxonomyRefs = appendTaxonomy(result.TaxonomyRefs, altFormSSRFTaxonomy)
+		}
+	}
+
 	// Evaluate rules — collect all matches, pick highest severity. A rule with
 	// a Sequence block is a cross-call sequence rule: it fires iff the session
 	// history satisfies the chain (matchSequence is false for nil history, so
@@ -508,7 +535,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 	if m.ToolNameRegex != "" {
 		nameSpecified = true
 		re, err := cachedRegexp(m.ToolNameRegex)
-		if err == nil && re.MatchString(toolName) {
+		if err == nil && toolNameRegexMatches(re, toolName) {
 			nameMatched = true
 		}
 	}
@@ -532,11 +559,38 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 	// name starts with NONE of the listed prefixes. Typically composed with
 	// tool_name_regex to scope the namespace (e.g. "^mcp__") and then carve
 	// out a known-good allowlist within it.
+	//
+	// AUDITED CLEAN for the #3771 Unicode-fold hazard, and clean by
+	// CONSTRUCTION rather than by luck: strings.HasPrefix compares raw bytes
+	// with no case folding, so no U+017F/U+212A spelling can reconstruct a
+	// listed prefix the way `(?i)` lets one reconstruct an excluded regex.
+	// A non-ASCII name simply fails the prefix test and the rule still fires —
+	// the fail-safe direction. It therefore needs no asciiOnlyWireName gate;
+	// adding case-insensitivity here later WOULD need one.
 	if len(m.ToolNameNotPrefixAny) > 0 {
 		for _, prefix := range m.ToolNameNotPrefixAny {
 			if prefix != "" && strings.HasPrefix(toolName, prefix) {
 				return false
 			}
+		}
+	}
+
+	// Identifier render evasion — see IdentifierRenderEvasion doc comment.
+	// Checks the tool name first (cheap, no allocation for the common case),
+	// then every argument key — both are attacker-declared, attacker-resolved
+	// identifiers for the same reason (namematch.go).
+	if m.IdentifierRenderEvasion {
+		evading := identifierRenderEvasion(toolName)
+		if !evading {
+			for argKey := range arguments {
+				if identifierRenderEvasion(argKey) {
+					evading = true
+					break
+				}
+			}
+		}
+		if !evading {
+			return false
 		}
 	}
 
@@ -618,6 +672,19 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 		}
 	}
 
+	// Any-argument-value regex matching (issue #3576) — for detections where
+	// the sensitive value can appear under an unpredictable/unenumerable
+	// argument key (a tool author might call it url, repo_url, endpoint, href,
+	// source_url, registry_url, ...). Scans every argument value in the call,
+	// recursively through nested arrays/objects/envelopes, and matches if ANY
+	// value satisfies ANY listed pattern. Unlike ArgumentRegexPatterns this
+	// predicate takes no argument name — the whole point is not needing one.
+	if len(m.ArgumentValueRegexAny) > 0 {
+		if !matchAnyArgumentValueRegex(arguments, m.ArgumentValueRegexAny) {
+			return false
+		}
+	}
+
 	// Exclude argument patterns — if any exclusion pattern matches, the rule does NOT fire.
 	// Used to carve out known-safe variants from broad glob patterns (e.g., .env.example from **/.env.*).
 	if len(m.ExcludeArgumentPatterns) > 0 {
@@ -674,7 +741,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 
 	// If we had name matchers and they matched (or no name matchers were specified)
 	// AND all argument patterns matched, the rule matches.
-	return nameSpecified || len(m.ArgumentPatterns) > 0 || len(m.ArgumentPatternsAny) > 0 || len(m.ArgumentRegexPatterns) > 0 || len(m.ArgumentNotContains) > 0 || len(m.ToolNameNotPrefixAny) > 0
+	return nameSpecified || len(m.ArgumentPatterns) > 0 || len(m.ArgumentPatternsAny) > 0 || len(m.ArgumentRegexPatterns) > 0 || len(m.ArgumentValueRegexAny) > 0 || len(m.ArgumentNotContains) > 0 || len(m.ToolNameNotPrefixAny) > 0 || m.IdentifierRenderEvasion
 }
 
 // matchToolName checks if a tool name matches a pattern.
@@ -705,6 +772,58 @@ func matchToolName(name, pattern string) bool {
 //	**/.ssh/**       — matches any path containing a .ssh directory
 //	/home/*/.aws/**  — matches .aws under any user in /home
 func matchGlob(value, pattern string) bool {
+	// Windows filesystem paths are case-insensitive; POSIX paths are not.
+	// filepath.Match is case-sensitive on every platform this binary ships
+	// on, so a rule authored against "C:\ProgramData\..." never matched
+	// "c:\programdata\...", even though they name the same file on Windows
+	// (#3598). Fold only when either side looks like a Windows path — a
+	// POSIX value/pattern must stay case-sensitive. Determine this from the
+	// ORIGINAL value, before expandWindowsEnvVarPrefix below can strip the
+	// very prefix that makes it look Windows-style.
+	windowsStyle := isWindowsStylePath(value) || isWindowsStylePath(pattern)
+
+	value = expandWindowsEnvVarPrefix(value)
+
+	if windowsStyle {
+		value = strings.ToLower(value)
+		pattern = strings.ToLower(pattern)
+	}
+
+	if matchGlobLiteral(value, pattern) {
+		return true
+	}
+
+	// Separator normalisation (#3610). Every path glob in the shipped corpus
+	// is authored with forward slashes, but a native Windows agent emits
+	// "C:\Users\bob\.ssh\id_rsa" — the ordinary input shape on that
+	// platform, not an evasion. Because this binary is built for a POSIX
+	// filepath.Separator, a backslash is an ordinary character: splitPath sees
+	// ONE component, so every "**/..." glob silently falls through and a BLOCK
+	// rule returns AUDIT. 943 of the 959 path-glob rules carry no Windows
+	// spelling at all and depend entirely on this normalisation.
+	//
+	// Retried rather than rewritten in place, so this is strictly additive: a
+	// dozen rules in mcp-privilege-escalation.yaml (#3601/#3604) deliberately
+	// carry backslash-spelled literal patterns for this same platform reason,
+	// and folding the value's separators before the first attempt would stop
+	// those patterns matching the very values they were written for. An extra
+	// attempt can only ever add a match, never remove one.
+	//
+	// Gated on isWindowsStylePath (drive letter, UNC share, or env-var prefix)
+	// exactly as the case-fold above is, so a POSIX filename that legitimately
+	// contains a backslash is never rewritten.
+	if windowsStyle && strings.Contains(value, `\`) {
+		return matchGlobLiteral(strings.ReplaceAll(value, `\`, "/"), pattern)
+	}
+
+	return false
+}
+
+// matchGlobLiteral runs one glob attempt against an already case-folded,
+// already env-var-expanded value. Split out of matchGlob so the separator
+// normalisation above can retry the same match without duplicating the
+// two matching strategies.
+func matchGlobLiteral(value, pattern string) bool {
 	if !strings.Contains(pattern, "**") {
 		matched, _ := filepath.Match(pattern, value)
 		return matched
@@ -715,6 +834,150 @@ func matchGlob(value, pattern string) bool {
 	pParts := splitPathPattern(pattern)
 
 	return globMatch(vParts, pParts)
+}
+
+// isWindowsStylePath reports whether s has the shape of a Windows path — a
+// drive letter ("C:\" / "C:/"), a UNC share ("\\host\share"), or an
+// unexpanded environment-variable reference ("%ProgramData%\..." /
+// "$env:ProgramData\..."). Used to gate the case-fold in matchGlob to
+// Windows-style values only (#3598).
+func isWindowsStylePath(s string) bool {
+	if len(s) >= 3 {
+		c := s[0]
+		isLetter := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		if isLetter && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
+			return true
+		}
+	}
+	if strings.HasPrefix(s, `\\`) {
+		return true
+	}
+	return isEnvVarPrefixedPath(s)
+}
+
+// isEnvVarPrefixedPath reports whether s opens with an unexpanded Windows
+// environment-variable reference — "%ProgramData%\..." (cmd.exe) or
+// "$env:ProgramData\..." (PowerShell). A terminal command never carries this
+// form: the shell expands it before the analyzer sees the argument. An MCP
+// tool-call argument can carry it verbatim, because expansion (if any) is up
+// to the tool implementation, not the transport (#3601).
+//
+// Deliberately narrow: for the "%...%" form, every byte between the two
+// percent signs must be alphanumeric or underscore, so an unrelated value
+// that merely starts with '%' — a git log format string like "%an <%ae>", a
+// URL-encoded byte — is never mistaken for an environment-variable reference
+// and folded.
+func isEnvVarPrefixedPath(s string) bool {
+	if strings.HasPrefix(strings.ToLower(s), "$env:") {
+		return len(s) > len("$env:")
+	}
+	if len(s) < 3 || s[0] != '%' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if c == '%' {
+			return i > 1
+		}
+		isAlnum := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'
+		if !isAlnum {
+			return false
+		}
+	}
+	return false
+}
+
+// windowsUserProfileEnvVars maps recognized Windows user-profile
+// environment-variable names to the literal path-segment sequence they
+// expand to, relative to the home directory. "%AppData%" and
+// "%LOCALAPPDATA%" always expand to a fixed two-segment suffix (Roaming or
+// Local, under AppData) — unlike "%ProgramData%" (#3601), a single segment
+// closed by adding literal glob variants directly to the affected rules.
+// "%USERPROFILE%" has no fixed segment at all: it IS the home directory,
+// and the next path component is a machine-specific username that can't be
+// written as a literal glob segment. Mapping it to "" strips the reference
+// entirely, so the remainder degrades to a path relative to the home
+// directory — exactly what every existing "**/..." glob (e.g.
+// "**/.ssh/id_rsa", "**/AppData/Roaming/sops/age/**") already matches via
+// "**" consuming zero-or-more leading components (#3605).
+var windowsUserProfileEnvVars = map[string]string{
+	"appdata":      "AppData/Roaming",
+	"localappdata": "AppData/Local",
+	"userprofile":  "",
+}
+
+// expandWindowsEnvVarPrefix rewrites a value's leading "%VAR%" (cmd.exe) or
+// "$env:VAR" (PowerShell) reference — when VAR is a recognized user-profile
+// variable — to the literal path segment(s) it names, and normalizes the
+// whole result to forward slashes so it matches the existing "**/..." glob
+// corpus (all shipped rules use the forward-slash spelling) regardless of
+// which separator style the caller used. A terminal command can never carry
+// this form — the shell expands it before the analyzer sees the argument;
+// an MCP tool-call argument can, because expansion (if any) is up to the
+// tool implementation, not the transport (#3601, #3605).
+//
+// Unrecognized prefixes — including "%ProgramData%", handled separately by
+// the literal glob variants added in #3601 — are returned unchanged.
+func expandWindowsEnvVarPrefix(s string) string {
+	name, rest, ok := splitEnvVarPrefix(s)
+	if !ok {
+		return s
+	}
+	expansion, known := windowsUserProfileEnvVars[strings.ToLower(name)]
+	if !known {
+		return s
+	}
+
+	rest = strings.TrimLeft(rest, `\/`)
+	var out string
+	switch {
+	case expansion == "":
+		out = rest
+	case rest == "":
+		out = expansion
+	default:
+		out = expansion + "/" + rest
+	}
+	return strings.ReplaceAll(out, `\`, "/")
+}
+
+// splitEnvVarPrefix reports whether s opens with an unexpanded Windows
+// environment-variable reference and, if so, returns the variable name and
+// the remainder of s after it. Mirrors isEnvVarPrefixedPath's narrow
+// alnum/underscore-only name check so an unrelated value — a git log
+// format string like "%an <%ae>", a URL-encoded byte — is never mistaken
+// for one.
+func splitEnvVarPrefix(s string) (name, rest string, ok bool) {
+	if strings.HasPrefix(strings.ToLower(s), "$env:") {
+		body := s[len("$env:"):]
+		i := 0
+		for i < len(body) && isEnvVarNameByte(body[i]) {
+			i++
+		}
+		if i == 0 {
+			return "", "", false
+		}
+		return body[:i], body[i:], true
+	}
+	if len(s) < 3 || s[0] != '%' {
+		return "", "", false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '%' {
+			if i == 1 {
+				return "", "", false
+			}
+			return s[1:i], s[i+1:], true
+		}
+		if !isEnvVarNameByte(s[i]) {
+			return "", "", false
+		}
+	}
+	return "", "", false
+}
+
+func isEnvVarNameByte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 // globMatch recursively matches value parts against pattern parts.
@@ -933,21 +1196,27 @@ func (e *PolicyEvaluator) CheckValueLimits(toolName string, arguments map[string
 			continue
 		}
 
-		numVal, ok := extractNumericArg(arguments, rule.Argument)
-		if !ok {
+		// Fail closed over every resolved spelling of the argument: with an ASCII
+		// key this is the one exact value, but a normalized-name collision
+		// resolves to several, and the cap must fire if ANY of them violates it
+		// (#3727 finding 3).
+		numVals := numericArgValues(arguments, rule.Argument)
+		if len(numVals) == 0 {
 			continue
 		}
 
 		violated := false
 		limitDesc := ""
-
-		if rule.Max != nil && numVal > *rule.Max {
-			violated = true
-			limitDesc = fmt.Sprintf("max=%.2f", *rule.Max)
-		}
-		if rule.Min != nil && numVal < *rule.Min {
-			violated = true
-			limitDesc = fmt.Sprintf("min=%.2f", *rule.Min)
+		var numVal float64
+		for _, cand := range numVals {
+			if rule.Max != nil && cand > *rule.Max {
+				violated, limitDesc, numVal = true, fmt.Sprintf("max=%.2f", *rule.Max), cand
+				break
+			}
+			if rule.Min != nil && cand < *rule.Min {
+				violated, limitDesc, numVal = true, fmt.Sprintf("min=%.2f", *rule.Min), cand
+				break
+			}
 		}
 
 		if violated {
@@ -982,7 +1251,7 @@ func matchValueLimitTool(toolName string, rule ValueLimitRule) bool {
 	}
 	if rule.ToolNameRegex != "" {
 		re, err := cachedRegexp(rule.ToolNameRegex)
-		if err == nil && re.MatchString(toolName) {
+		if err == nil && toolNameRegexMatches(re, toolName) {
 			return true
 		}
 	}
@@ -1002,10 +1271,49 @@ func matchValueLimitTool(toolName string, rule ValueLimitRule) bool {
 // surfaced this: every mcp-fin-cap-*/mcp-fin-block-negative-* rule's own
 // authored TP fixtures used string amounts and were failing silently).
 func extractNumericArg(arguments map[string]interface{}, argName string) (float64, bool) {
-	val, ok := arguments[argName]
-	if !ok {
-		return 0, false
+	// Resolve through argFieldRecovered (exact-then-render-recovery), the same
+	// narrow resolver the four #3720 sites use. Previously this compared the
+	// RECOVERED name to argName with ==, which still missed a Unicode SEPARATOR:
+	// `amount` + U+00A0 recovers to `amount ` (a trailing ASCII space), which is
+	// not `amount`, so extractNumericArg returned not-found and CheckValueLimits
+	// skipped a BLOCKing financial cap (#3727 finding 2). argFieldRecovered
+	// compares the NORMALIZED recovered name (separators stripped) to the
+	// normalized key, closing the separator half of the class, while still
+	// resolving ASCII keys by exact match only — so it does NOT import
+	// resolveField's case-insensitive/camelCase fallbacks that would change
+	// which of two sibling rules (mcp-llminf-audit-vector-db-enum-n-results and
+	// its `-camel` twin) claims a `nResults` call.
+	for _, v := range argFieldRecovered(arguments, argName) {
+		if f, ok := argValueToFloat(v); ok {
+			return f, true
+		}
 	}
+	return 0, false
+}
+
+// numericArgValues returns the float64 form of EVERY value the argument key
+// resolves to (exact, else all render-recovery matches), skipping non-numeric
+// ones. CheckValueLimits fails CLOSED over these: a value_limits BLOCK fires if
+// ANY resolved Unicode spelling of the argument violates the cap, so a
+// normalized-name collision (two spellings of `amount` with different values)
+// cannot hide a violating amount behind a benign sibling by map-iteration order
+// (#3727 finding 3).
+func numericArgValues(arguments map[string]interface{}, argName string) []float64 {
+	cands := argFieldRecovered(arguments, argName)
+	out := make([]float64, 0, len(cands))
+	for _, v := range cands {
+		if f, ok := argValueToFloat(v); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// argValueToFloat parses a single argument value into a float64. Financial/crypto
+// MCP tools commonly encode numeric values as JSON strings rather than numbers
+// (to avoid float64 precision loss on large token/wei quantities), so a string
+// that parses as a number counts (issue #2869).
+func argValueToFloat(val interface{}) (float64, bool) {
 	switch v := val.(type) {
 	case float64:
 		return v, true

@@ -2928,6 +2928,96 @@ var HomeRedirectCases = []TestCase{
 		Description:      `HOME set to relative path before terraform — terraform reads ~/.terraformrc and cloud credentials from attacker-controlled relative directory.`,
 		Tags:             []string{"tp", "home-redirect", "terraform", "relative-path"},
 	},
+	{
+		ID:               "TN-HOMEDIR-NEEDLE-004",
+		Command:          `grep -rn 'HOME=/tmp/fakehome' docs/`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `The HOME value is the grep PATTERN operand, a search needle, never the haystack. Excluded by command_position_exclude: [search_needle], following the #3780 precedent, after which the read-only allow applies (#3793).`,
+		Tags:             []string{"tn", "search-needle", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-DOWNGRADE-GUARD-005",
+		Command:          `HOME=/tmp/evil git push; git commit -m "note about the HOME variable"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `A real inline HOME redirect before git, chained with a commit message. The real prefix must BLOCK whatever the neighbouring statement is (#3793 guard).`,
+		Tags:             []string{"tp", "downgrade-guard", "regression", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-PIPE-SHELL-006",
+		Command:          `echo "export HOME=/tmp/evil" | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Text piped into a shell is executed. is_doc_text / in_heredoc are set on it, which is why the HOME-redirect rules carry no command_intent_downgrade (#3793 regression, measured 2026-09-11).`,
+		Tags:             []string{"tp", "pipe-to-shell", "regression", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-PIPE-SHELL-007",
+		Command:          `printf 'export HOME=/tmp/evil\n' | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Text piped into a shell is executed. is_doc_text / in_heredoc are set on it, which is why the HOME-redirect rules carry no command_intent_downgrade (#3793 regression, measured 2026-09-11).`,
+		Tags:             []string{"tp", "pipe-to-shell", "regression", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-PIPE-SHELL-008",
+		Command:          "cat <<'EOF' | bash\nexport HOME=/tmp/evil\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Text piped into a shell is executed. is_doc_text / in_heredoc are set on it, which is why the HOME-redirect rules carry no command_intent_downgrade (#3793 regression, measured 2026-09-11).`,
+		Tags:             []string{"tp", "pipe-to-shell", "regression", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-PIPE-SHELL-009",
+		Command:          "tee /tmp/x.sh <<'EOF'\nexport HOME=/tmp/evil\nEOF\nbash /tmp/x.sh",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Write-then-execute, NOT pipe-to-shell (there is no pipe): the heredoc body is written to /tmp/x.sh and a later statement runs it. in_heredoc is set on the writing statement, so a command_intent_downgrade on the HOME-redirect rules laundered it until #3800 correlated the written path with the executed one. Mis-tagged as pipe-to-shell in #3795, which is why #3793 looked like a clean re-apply after #3797.`,
+		Tags:             []string{"tp", "write-then-execute", "regression", "issue-3793", "issue-3800"},
+	},
+	{
+		ID:               "TP-HOMEDIR-PIPE-SHELL-010",
+		Command:          `echo "HOME=/tmp/evil ssh example.com" | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `Text piped into a shell is executed. is_doc_text / in_heredoc are set on it, which is why the HOME-redirect rules carry no command_intent_downgrade (#3793 regression, measured 2026-09-11).`,
+		Tags:             []string{"tp", "pipe-to-shell", "regression", "issue-3793"},
+	},
+	{
+		ID:               "TP-HOMEDIR-WRITE-EXEC-011",
+		Command:          `echo "export HOME=/tmp/evil" > /tmp/x.sh; bash /tmp/x.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `#3800: text written to a path that the same command then executes is a program, not data. The writing statement is doc-shaped on its own (is_doc_text / in_heredoc), so before #3800 the rule's inertness label was honoured and the executed command was laundered. shellparse.WritesThenExecutes correlates the written path with the executed one; the label is withdrawn and the rule fires as it does for the bare command. Guards the #3793 re-apply of command_intent_downgrade on the HOME-redirect rules.`,
+		Tags:             []string{"tp", "write-then-execute", "regression", "issue-3793", "issue-3800"},
+	},
+	{
+		ID:               "TP-HOMEDIR-WRITE-EXEC-012",
+		Command:          `printf 'export HOME=/tmp/evil\n' > x.sh && chmod +x x.sh && ./x.sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "regex",
+		Description:      `#3800: text written to a path that the same command then executes is a program, not data. The writing statement is doc-shaped on its own (is_doc_text / in_heredoc), so before #3800 the rule's inertness label was honoured and the executed command was laundered. shellparse.WritesThenExecutes correlates the written path with the executed one; the label is withdrawn and the rule fires as it does for the bare command. Guards the #3793 re-apply of command_intent_downgrade on the HOME-redirect rules.`,
+		Tags:             []string{"tp", "write-then-execute", "regression", "issue-3793", "issue-3800"},
+	},
 
 	// --- TRUE NEGATIVES ---
 
@@ -3892,6 +3982,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, SysctlKernelManipulationCases...)
 	all = append(all, BinfmtMiscInterpreterHijackCases...)
 	all = append(all, SetarchPersonalityBypassCases...)
+	all = append(all, SymlinkSystemPathRedirectCases...)
 	all = append(all, ToolPreprocessorEnvHijackCoverageCases...)
 	all = append(all, KernelModuleLoadCoverageCases...)
 	all = append(all, DevKmemAccessTNCases...)
@@ -3901,6 +3992,7 @@ func AllPrivilegeEscalationCases() []TestCase {
 	all = append(all, PythonWarningsImportGadgetCases...)
 	all = append(all, SandboxHostFilesystemOvershareCases...)
 	all = append(all, VenvInterpreterPoisonCases...)
+	all = append(all, AccountDatabaseDirectWriteCases...)
 	return all
 }
 
@@ -3989,6 +4081,120 @@ var ChAttrImmutableRemovalCases = []TestCase{
 		TaxonomyRef:      "privilege-escalation/file-permissions/immutable-flag-removal",
 		Analyzer:         "regex",
 		Description:      "chattr +i adds immutability — not blocked by -i removal rules. Gets default AUDIT.",
+		Tags:             []string{"tn", "safe"},
+	},
+}
+
+// ---------------------------------------------------------------------------
+// System Account Database Write (issue #3779)
+// Taxonomy: privilege-escalation/file-permissions/system-account-database-write
+//
+// A direct write to /etc/shadow, /etc/master.passwd, or /etc/passwd that
+// plants/modifies a password hash or appends a UID-0 account entry, bypassing
+// useradd/usermod/passwd/chpasswd entirely. Distinct from the sibling
+// credential-exposure/password-db-access/system-shadow-read node (reading the
+// file) and from immutable-flag-removal above (a prerequisite step on a
+// hardened host, not the backdoor-planting act itself).
+// Rule: ts-block-account-db-direct-write
+// ---------------------------------------------------------------------------
+
+// AccountDatabaseDirectWriteCases tests detection of write-family operations
+// against the system account/password database.
+var AccountDatabaseDirectWriteCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-ACCTDB-WRITE-001",
+		Command:          `echo 'root:$6$abcd$hash...:19000:0:99999:7:::' > /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "Full overwrite of /etc/shadow via redirect — plants a password hash and wipes every other local account's entry.",
+		Tags:             []string{"tp", "canonical", "critical"},
+	},
+	{
+		ID:               "TP-ACCTDB-WRITE-002",
+		Command:          `echo 'backdoor:x:0:0::/root:/bin/bash' >> /etc/passwd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "Appends a self-provisioned UID-0 backdoor account to /etc/passwd, bypassing useradd's own safeguards.",
+		Tags:             []string{"tp", "critical"},
+	},
+	{
+		ID:               "TP-ACCTDB-WRITE-003",
+		Command:          `sed -i 's/^root:[^:]*:/root:$6$abcd$hash.../' /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "sed -i in-place rewrite of root's password hash in /etc/shadow.",
+		Tags:             []string{"tp"},
+	},
+	{
+		ID:               "TP-ACCTDB-WRITE-004",
+		Command:          `tee -a /etc/passwd <<< 'svc:x:0:0::/root:/bin/sh'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "tee -a append of a UID-0 entry to /etc/passwd.",
+		Tags:             []string{"tp"},
+	},
+	{
+		ID:               "TP-ACCTDB-WRITE-005",
+		Command:          `python3 -c "open('/etc/shadow','a').write('backdoor:hash:...\n')"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "Interpreter one-liner opening /etc/shadow in append mode to plant a credential.",
+		Tags:             []string{"tp", "interpreter"},
+	},
+	{
+		ID:               "TP-ACCTDB-WRITE-006",
+		Command:          `dd if=/tmp/payload of=/etc/master.passwd`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "dd overwrite of BSD/macOS /etc/master.passwd.",
+		Tags:             []string{"tp", "bsd"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-ACCTDB-WRITE-001",
+		Command:          `sudo passwd username`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "passwd is the audited, validated tool for account changes — not a raw file write. AUDIT comes from the generic ts-audit-sudo rule, not this write rule.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-ACCTDB-WRITE-002",
+		Command:          `cat /etc/passwd`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "Reading /etc/passwd is not a write and is unmatched by any rule — covered by a different taxonomy node for the /etc/shadow read case.",
+		Tags:             []string{"tn", "safe"},
+	},
+	{
+		ID:               "TN-ACCTDB-WRITE-003",
+		Command:          `cp /etc/passwd /tmp/passwd-backup`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/system-account-database-write",
+		Analyzer:         "regex",
+		Description:      "/etc/passwd is the cp SOURCE here, not the destination — an ordinary backup, not a write to the account database. Falls through to the default AUDIT decision, unmatched by this rule.",
 		Tags:             []string{"tn", "safe"},
 	},
 }
@@ -5151,6 +5357,50 @@ var RpathRunpathPoisonCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "Exporting LD_LIBRARY_PATH with relative paths — loads libraries from attacker-controlled CWD.",
 		Tags:             []string{"tp", "library-hijack"},
+	},
+
+	// --- #3684: declaration builtins on the two LD_LIBRARY_PATH rules ---
+	//
+	// Both were `export`-anchored. Neither was a decision regression — the
+	// declaration spellings still BLOCKed, via ts-block-ld-preload-export,
+	// which #3212 had already widened. What was lost was the RULE ID: the
+	// export form reported ts-block-ld-library-path-poison and the declare
+	// form reported a different rule, for the same attack.
+	//
+	// That is not cosmetic here. Since the SaaS resolves compliance controls
+	// through the ref carried on the wire, one attack rendering under two rule
+	// ids renders two different narratives — the same shape check-surface-
+	// agreement exists to catch across the shell/MCP boundary, arrived at here
+	// by a keyword the attacker chooses.
+	{
+		ID:               "TP-RPATH-DECLARE-001",
+		Command:          `declare -x LD_LIBRARY_PATH=/tmp/evil:/usr/lib`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/library-hijack/rpath-runpath-poisoning",
+		Analyzer:         "regex",
+		Description:      "declare -x LD_LIBRARY_PATH to /tmp — exports exactly as export does. #3684.",
+		Tags:             []string{"tp", "library-hijack", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-RPATH-TYPESET-001",
+		Command:          `typeset -x LD_LIBRARY_PATH=/dev/shm/libs`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/library-hijack/rpath-runpath-poisoning",
+		Analyzer:         "regex",
+		Description:      "typeset -x LD_LIBRARY_PATH to /dev/shm — the ksh/zsh spelling of the same export. #3684.",
+		Tags:             []string{"tp", "library-hijack", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-RPATH-DECLARE-AUDIT-001",
+		Command:          `declare -x LD_LIBRARY_PATH=/opt/myapp/lib`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/library-hijack/rpath-runpath-poisoning",
+		Analyzer:         "regex",
+		Description:      "declare -x LD_LIBRARY_PATH to a non-writable root — the AUDIT-tier sibling. Before #3684 this produced AUDIT with NO rule id, an event the attestation chain cannot cite; now it is attributed to ts-audit-ld-library-path-export. Same decision, real difference.",
+		Tags:             []string{"tp", "library-hijack", "declaration-builtin", "attribution"},
 	},
 
 	// --- TRUE NEGATIVES: Must be ALLOWED ---
@@ -6658,6 +6908,73 @@ var KernelMemoryAccessCases = []TestCase{
 		Description:      "tasklist with findstr to check if eventvwr is running — read-only process query. ts-audit-uac-bypass-binary must NOT fire (AUDIT from default is acceptable — not blocked).",
 		Tags:             []string{"tn", "safe", "windows"},
 	},
+
+	// ts-block-programdata-ai-config-plant / ts-audit-programdata-ai-vendor-dir-create
+	// CVE-2026-35603 (issue #3590). C:\ProgramData's default ACL lets the built-in
+	// Users group create subdirectories, and four Windows AI coding CLIs load a
+	// machine-wide config from a vendor subdirectory there with no owner/ACL check.
+	// Planting the file executes the attacker's hooks in the security context of the
+	// next user — including an administrator — who launches the tool.
+	{
+		ID:               "TP-PE-PROGRAMDATA-PLANT-001",
+		Command:          `Set-Content -Path C:\ProgramData\ClaudeCode\managed-settings.json -Value '{"hooks":{}}'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Set-Content planting Claude Code's machine-wide managed-settings.json under C:\\ProgramData — the CVE-2026-35603 write. ts-block-programdata-ai-config-plant must BLOCK.",
+		Tags:             []string{"tp", "windows", "privilege-escalation", "cve-2026-35603"},
+	},
+	{
+		ID:               "TP-PE-PROGRAMDATA-PLANT-002",
+		Command:          `echo "[notify]" > C:\ProgramData\openai\codex\config.toml`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Redirect planting Codex CLI's machine-wide config.toml — the same planted file both grants notify-command execution and disables the victim's approval gate. ts-block-programdata-ai-config-plant must BLOCK.",
+		Tags:             []string{"tp", "windows", "privilege-escalation", "cve-2026-35603"},
+	},
+	{
+		ID:               "TP-PE-PROGRAMDATA-DIRCREATE-001",
+		Command:          `mkdir C:\ProgramData\Cursor`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Creating Cursor's machine-wide config directory under C:\\ProgramData — step one of the plant, and a distinct detectable event from the later silent execution. ts-audit-programdata-ai-vendor-dir-create must AUDIT.",
+		Tags:             []string{"tp", "windows", "privilege-escalation", "cve-2026-35603"},
+	},
+	{
+		ID:               "TN-PE-PROGRAMDATA-PLANT-001",
+		Command:          `Get-Content C:\ProgramData\ClaudeCode\managed-settings.json`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Reading the machine-wide config to inspect it is the taxonomy node's own recommended defence, not the plant. ts-block-programdata-ai-config-plant must NOT fire (AUDIT from default is acceptable — not blocked).",
+		Tags:             []string{"tn", "safe", "windows"},
+	},
+	{
+		ID:               "TN-PE-PROGRAMDATA-PLANT-002",
+		Command:          `Set-Content -Path C:\ProgramData\MyApp\config.json -Value "{}"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Ordinary non-AI software writing its own ProgramData config — the rule names the four disclosed vendor paths, never ProgramData as a whole, because chocolatey/Docker/installers live there too. Must NOT fire.",
+		Tags:             []string{"tn", "safe", "windows", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-PE-PROGRAMDATA-DIRCREATE-001",
+		Command:          `mkdir C:\ProgramData\chocolatey`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/windows/programdata-config-trust-hijack",
+		Analyzer:         "regex",
+		Description:      "Creating a non-AI package manager's ProgramData directory — the generalised \"any new ProgramData subdirectory\" shape was deliberately not implemented for exactly this reason. ts-audit-programdata-ai-vendor-dir-create must NOT fire.",
+		Tags:             []string{"tn", "safe", "windows", "common-dev-operation"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -7554,6 +7871,43 @@ var PythonWarningsImportGadgetCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "the precision test: a dot in the MODULE field, which CPython only regex-matches and never imports. Matching any dot in the value would false-positive here.",
 		Tags:             []string{"tn", "safe", "precision", "module-field"},
+	},
+}
+
+// SymlinkSystemPathRedirectCases tests detection of symlinks whose target is
+// a path under a system directory (/etc, /usr, /var, /sys, /proc) — the
+// attack primitive TOCTOU/filesystem-redirect chains build on.
+// Taxonomy: privilege-escalation/file-permissions/symlink-system-path-redirect
+var SymlinkSystemPathRedirectCases = []TestCase{
+	{
+		ID:               "TP-SYMLINK-SYSPATH-001",
+		Command:          `ln -s /etc/nginx/nginx.conf /tmp/nginx.conf`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/symlink-system-path-redirect",
+		Analyzer:         "regex",
+		Description:      `symlink whose target is under /etc. Matches ts-audit-symlink-system-files.`,
+		Tags:             []string{"tp", "toctou", "symlink"},
+	},
+	{
+		ID:               "TP-SYMLINK-SYSPATH-002",
+		Command:          `ln -sf /usr/bin/python3 /tmp/py3`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/file-permissions/symlink-system-path-redirect",
+		Analyzer:         "regex",
+		Description:      `symlink whose target is under /usr. Matches ts-audit-symlink-system-files.`,
+		Tags:             []string{"tp", "toctou", "symlink"},
+	},
+	{
+		ID:               "TN-SYMLINK-SYSPATH-001",
+		Command:          `ln -s /home/user/project/config.yaml /tmp/config.yaml`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/file-permissions/symlink-system-path-redirect",
+		Analyzer:         "regex",
+		Description:      `symlink target is an ordinary project file outside any system directory — ts-audit-symlink-system-files does not fire (Triggered: []); AUDIT is the engine's default decision, not a rule match.`,
+		Tags:             []string{"tn", "safe", "common-dev-operation"},
 	},
 }
 

@@ -79,6 +79,24 @@ import (
 // rewritten, or when parsing fails — callers fall back to the raw command in
 // all three cases.
 func NormalizeUnsetParamExp(command string) string {
+	return NormalizeUnsetParamExpInContext(command, nil)
+}
+
+// NormalizeUnsetParamExpInContext is NormalizeUnsetParamExp with names known
+// to be assigned OUTSIDE command treated exactly as if they were assigned
+// inside it — i.e. never folded.
+//
+// It exists because this normalizer is applied to two different scopes. Given
+// the whole command, assignedNames() sees every assignment and the "names
+// assigned anywhere in the command are skipped" exclusion documented above
+// holds. Given a SINGLE STATEMENT of a compound command, an assignment in a
+// SIBLING statement is invisible, so `x=:; ${x:-rm} -rf /` folds to `rm -rf /`
+// when what actually runs is `: -rf /`. Bash resolves parameters against the
+// whole shell, not against one statement, so the statement-scoped caller has
+// to supply the rest of the picture.
+//
+// Passing nil reproduces NormalizeUnsetParamExp exactly.
+func NormalizeUnsetParamExpInContext(command string, outerAssigned map[string]bool) string {
 	// Iterated to a fixpoint because one pass folds only the OUTERMOST
 	// resolvable expansion of a nest: `${zqx:-r${foo}m}` has a default word
 	// that is not statically resolvable until the inner splice is folded, so
@@ -87,7 +105,7 @@ func NormalizeUnsetParamExp(command string) string {
 	// two deep — the cap is a runaway guard, not a coverage limit.
 	out := ""
 	for i := 0; i < 3; i++ {
-		next := normalizeUnsetParamExpOnce(command)
+		next := normalizeUnsetParamExpOnce(command, outerAssigned)
 		if next == "" || next == command {
 			break
 		}
@@ -96,7 +114,7 @@ func NormalizeUnsetParamExp(command string) string {
 	return out
 }
 
-func normalizeUnsetParamExpOnce(command string) string {
+func normalizeUnsetParamExpOnce(command string, outerAssigned map[string]bool) string {
 	if !strings.Contains(command, "$") {
 		return ""
 	}
@@ -109,6 +127,19 @@ func normalizeUnsetParamExpOnce(command string) string {
 	}
 
 	assigned := assignedNames(file)
+	// Names assigned outside this text count as assigned. Merged into a copy
+	// so a caller's map is never mutated — the same map is reused across every
+	// statement of one command.
+	if len(outerAssigned) > 0 {
+		merged := make(map[string]bool, len(assigned)+len(outerAssigned))
+		for n := range assigned {
+			merged[n] = true
+		}
+		for n := range outerAssigned {
+			merged[n] = true
+		}
+		assigned = merged
+	}
 	execStarts := execWordStarts(file)
 
 	type span struct {
@@ -429,7 +460,10 @@ func assignedNames(file *syntax.File) map[string]bool {
 			}
 			// `read x`, `mapfile -t x`, `readarray x` bind their arguments.
 			if len(n.Args) > 0 {
-				if lit := wordLiteral(n.Args[0]); lit == "read" || lit == "mapfile" || lit == "readarray" {
+				// literalExecName, not wordLiteral: a spliced `r\ead x` still binds
+				// x, and missing it here folds `r${x}m` as if x were unset — a false
+				// BLOCK on a command bash runs as `r<value>m` (#3874 review, C4).
+				if lit, _ := literalExecName(n); lit == "read" || lit == "mapfile" || lit == "readarray" {
 					for _, arg := range n.Args[1:] {
 						if v := wordLiteral(arg); isIdentifier(v) {
 							names[v] = true

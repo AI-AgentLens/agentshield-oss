@@ -41,6 +41,16 @@ var RecursiveRootDeleteCases = []TestCase{
 		Tags: []string{"canonical", "critical"},
 	},
 	{
+		ID:               "TP-FSDESTR-PIPE-CLASSIFY-001",
+		Command:          `echo ok | python3 -c "import shutil; shutil.rmtree('/tmp/x')" | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/recursive-root-delete",
+		Analyzer:         "semantic",
+		Description:      `Pins the classify() half of the #3796 inertness-label withdrawal. The semantic analyzer reads ctx.CommandFacts directly (semantic.go, HasAny) and is the only consumer reached EXCLUSIVELY through classify() — the per-statement path cannot cover it. A mutation removing that call site passed every other test in the repo while dropping this command to AUDIT, so without this case the "two application points" claim is defended by prose rather than by the suite.`,
+		Tags:             []string{"tp", "pipe-to-executor", "regression", "issue-3796", "classify-point"},
+	},
+	{
 		ID:               "FN-FSDESTR-002",
 		Command:          `rm --recursive --force /`,
 		ExpectedDecision: "BLOCK",

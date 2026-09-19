@@ -58,6 +58,20 @@ type CommandSegment struct {
 	// heredoc runs the body exactly like `-c` code, just via stdin instead of
 	// argv (#3081). Empty when there is no heredoc redirect on this statement.
 	HeredocBody string
+	// InterpHeredocBody is the literal body text of a `<<`/`<<-` heredoc fed
+	// to a non-shell interpreter (CodeInterpreters — python/node/ruby/…),
+	// captured only when the executable is one of those. This is deliberately
+	// NOT HeredocBody: the body is source code in the interpreter's own
+	// language, not shell source, so ExtractInlineCode never returns it and
+	// nothing here treats it as a shell command to match rules against
+	// directly (that would reopen the inert string-literal false positives
+	// #1570/#1788/#2995 were fixed for). It exists so a caller can look
+	// specifically for a command-execution call inside the body — os.system,
+	// subprocess.run, child_process.exec, Ruby/Perl system()/backticks — and
+	// recover the shell command such a call would actually run (#3697).
+	// Empty when there is no heredoc redirect, or the executable isn't a
+	// recognized code interpreter.
+	InterpHeredocBody string
 	// HereStringBody is the literal payload of a `<<<` here-string redirect
 	// attached to this statement, captured only when IsShell — `bash <<<
 	// 'rm -rf /'` and `bash -s <<< 'rm -rf /'` read their command from stdin
@@ -348,6 +362,17 @@ func walkStmt(pc *ParsedCommand, stmt *syntax.Stmt, raw string, depth, maxDepth 
 					if seg.HereStringBody != "" || seg.ProcSubstLiteral != "" {
 						break
 					}
+				}
+			}
+		} else if CodeInterpreters[seg.Executable] {
+			// The interpreter counterpart of the IsShell block above (#3697):
+			// same "first heredoc redirect wins" capture, into the separate
+			// field so nothing downstream mistakes interpreter source for
+			// shell source.
+			for _, redir := range stmt.Redirs {
+				if redir.Hdoc != nil {
+					seg.InterpHeredocBody = strings.TrimSpace(WordToString(redir.Hdoc))
+					break
 				}
 			}
 		}
@@ -938,7 +963,7 @@ func setPositionalElems(call *syntax.CallExpr) ([]string, bool) {
 	if len(call.Args) < 2 {
 		return nil, false
 	}
-	exe, ok := literalWordValue(call.Args[0])
+	exe, ok := literalExecName(call)
 	if !ok || exe != "set" {
 		return nil, false
 	}
@@ -963,7 +988,7 @@ func isShiftCall(call *syntax.CallExpr) bool {
 	if len(call.Args) == 0 {
 		return false
 	}
-	exe, ok := literalWordValue(call.Args[0])
+	exe, ok := literalExecName(call)
 	return ok && exe == "shift"
 }
 
@@ -1025,17 +1050,19 @@ func containsFuncDecl(file *syntax.File) bool {
 //     ts-audit-ifs-manipulation rule already flags the IFS-override variant
 //     at AUDIT, so this is a lower-priority gap than the silent, unflagged
 //     default-IFS miss #3193 closes.
-//   - Only the here-string form (`<<<`) is recognized, never `cmd | read -a
-//     NAME`. Bash runs the last stage of a pipeline in a subshell, so `cmd |
-//     read -a NAME; use "${NAME[@]}"` can never actually populate NAME in the
-//     parent shell — resolving it would be modeling an effect that doesn't
-//     happen at runtime.
+//   - Only a stdin redirect from a constant source is recognized — the
+//     here-string form (`<<<`) or, since #3829, a literal heredoc
+//     (`<<'EOF'` … `EOF`, first body line) — never `cmd | read -a NAME`.
+//     Bash runs the last stage of a pipeline in a subshell, so `cmd | read -a
+//     NAME; use "${NAME[@]}"` can never actually populate NAME in the parent
+//     shell — resolving it would be modeling an effect that doesn't happen
+//     at runtime.
 func readArrayHereStringElems(stmt *syntax.Stmt) (string, []string, bool) {
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok || len(call.Assigns) > 0 || len(call.Args) < 2 {
 		return "", nil, false
 	}
-	exe, ok := literalWordValue(call.Args[0])
+	exe, ok := literalExecName(call)
 	if !ok || exe != "read" {
 		return "", nil, false
 	}
@@ -1057,24 +1084,66 @@ func readArrayHereStringElems(stmt *syntax.Stmt) (string, []string, bool) {
 		return "", nil, false
 	}
 
-	val, ok := hereStringLiteral(stmt)
+	lines, ok := stdinLiteralLines(stmt)
 	if !ok {
 		return "", nil, false
 	}
-	elems := strings.Fields(val)
+	// `read` consumes exactly one line, so a multi-line heredoc binds only
+	// its first line; a here-string is a single "line" by construction.
+	elems := strings.Fields(lines[0])
 	if len(elems) == 0 {
 		return "", nil, false
 	}
 	return name, elems, true
 }
 
+// stdinLiteralLines returns the constant text a binding builtin (`read`,
+// `mapfile`, `readarray`) consumes from stmt's stdin, as the lines bash would
+// hand it, from either of the two constant-source spellings. It is the single
+// extraction rule shared by readArrayHereStringElems,
+// readScalarHereStringElem and mapfileHereStringElems, so "the source must be
+// literal, never dynamic" cannot drift between them:
+//
+//   - a `<<<` here-string whose word is fully literal (hereStringLiteral) —
+//     returned as ONE entry holding the whole word, exactly the value the
+//     three recognizers consumed before #3829, so their here-string
+//     semantics are byte-identical to before;
+//   - a `<<EOF` / `<<-EOF` heredoc whose body is fully literal
+//     (heredocLiteralLines) — one entry per body line (#3829).
+//
+// A statement carrying BOTH spellings on stdin is refused outright: bash lets
+// the last redirect win, which this table does not model, and the shape has
+// no benign reason to exist.
+func stdinLiteralLines(stmt *syntax.Stmt) ([]string, bool) {
+	var hereString, heredoc bool
+	for _, r := range stmt.Redirs {
+		switch {
+		case r == nil:
+		case r.Op == syntax.WordHdoc:
+			hereString = true
+		case r.Hdoc != nil && (r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc):
+			heredoc = true
+		}
+	}
+	switch {
+	case hereString && heredoc:
+		return nil, false
+	case hereString:
+		val, ok := hereStringLiteral(stmt)
+		if !ok {
+			return nil, false
+		}
+		return []string{val}, true
+	case heredoc:
+		return heredocLiteralLines(stmt)
+	}
+	return nil, false
+}
+
 // hereStringLiteral returns the literal text of stmt's `<<<` here-string
 // redirect, if it has one and its word is fully literal (no ParamExp,
-// CmdSubst, or other runtime-resolved part). Shared by every binding-builtin
-// recognizer below (readArrayHereStringElems, readScalarHereStringElem,
-// mapfileHereStringElems) so the here-string extraction rule — the redirect
-// must exist and be literal, never a dynamic source — cannot drift between
-// them.
+// CmdSubst, or other runtime-resolved part). Reached through
+// stdinLiteralLines, never called by a recognizer directly.
 func hereStringLiteral(stmt *syntax.Stmt) (string, bool) {
 	for _, r := range stmt.Redirs {
 		if r.Op != syntax.WordHdoc {
@@ -1087,6 +1156,79 @@ func hereStringLiteral(stmt *syntax.Stmt) (string, bool) {
 		return val, true
 	}
 	return "", false
+}
+
+// heredocLiteralLines returns the body of stmt's first `<<EOF` / `<<-EOF`
+// heredoc as the lines bash presents to the command, when that body is
+// constant (#3829). `read zc <<'EOF'` … `$zc` executes the body's first line
+// on bash exactly as `read zc <<< "…"; $zc` does — the here-string path
+// resolved it and the heredoc path did not, so one spelling BLOCKed while the
+// other AUDITed.
+//
+// The constant-only discipline is the here-string path's, applied to the
+// shape mvdan/sh already gives us (see HeredocBodies, "Quoted vs. unquoted
+// delimiter"): a QUOTED delimiter yields a single *syntax.Lit body; an
+// UNQUOTED delimiter yields a mix of Lit and expansion parts (ParamExp,
+// CmdSubst, ArithmExp) wherever the body has one. So:
+//
+//   - Any non-Lit part bails — the body has a live expansion, so it is a
+//     dynamic source, the same refusal TN-READ-SCALAR-EXEC-002's
+//     `read zc <<< "$1"; $zc` gets.
+//   - An unquoted delimiter whose body has NO expansion is resolved. Bash
+//     treats such a body as literal text (verified: `read zc <<EOF` /
+//     `echo MARK` / `EOF` / `$zc` prints MARK), and the parser has already
+//     proven the absence of expansions, so refusing it would leave the most
+//     common spelling of the construct as a miss for no soundness gain. The
+//     rejected alternative — resolving quoted delimiters only — would also
+//     mean inspecting the delimiter word, which no other heredoc reader in
+//     this package does.
+//   - Any backslash in the body bails. Two different backslash rewrites can
+//     apply (an unquoted delimiter's `\$`/`\\`/`\<newline>` processing, and
+//     `read` without `-r` folding `\x` to `x` on any input), and modeling
+//     either is out of scope; refusing costs a miss, never a wrong value.
+//   - `<<-` strips leading TABS (not spaces) from every body line, as bash
+//     does. The printer keeps them, so a `<<-EOF` body's first line would
+//     otherwise be `\trm -rf /`.
+//
+// The trailing newline before the delimiter line is dropped; a body line that
+// is genuinely empty is kept as an empty entry (mapfile binds it as an empty
+// element). Returns ok=false when there is no heredoc, its body is not
+// constant, or it is empty.
+func heredocLiteralLines(stmt *syntax.Stmt) ([]string, bool) {
+	for _, r := range stmt.Redirs {
+		if r == nil || r.Hdoc == nil || (r.Op != syntax.Hdoc && r.Op != syntax.DashHdoc) {
+			continue
+		}
+		var sb strings.Builder
+		for _, part := range r.Hdoc.Parts {
+			lit, ok := part.(*syntax.Lit)
+			if !ok {
+				return nil, false
+			}
+			sb.WriteString(lit.Value)
+		}
+		body := sb.String()
+		if strings.Contains(body, "\\") {
+			return nil, false
+		}
+		lines := strings.Split(body, "\n")
+		if r.Op == syntax.DashHdoc {
+			for i, line := range lines {
+				lines[i] = strings.TrimLeft(line, "\t")
+			}
+		}
+		// The body text ends with the newline that precedes the delimiter
+		// line (for `<<-`, plus that line's own indentation, now stripped),
+		// which Split renders as a final empty entry that is not a body line.
+		if n := len(lines); n > 0 && lines[n-1] == "" {
+			lines = lines[:n-1]
+		}
+		if len(lines) == 0 {
+			return nil, false
+		}
+		return lines, true
+	}
+	return nil, false
 }
 
 // readScalarHereStringElem recognizes the narrow, safe shape `read NAME <<<
@@ -1109,7 +1251,7 @@ func readScalarHereStringElem(stmt *syntax.Stmt) (string, string, bool) {
 	if !ok || len(call.Assigns) > 0 || len(call.Args) < 2 {
 		return "", "", false
 	}
-	exe, ok := literalWordValue(call.Args[0])
+	exe, ok := literalExecName(call)
 	if !ok || exe != "read" {
 		return "", "", false
 	}
@@ -1139,11 +1281,14 @@ func readScalarHereStringElem(stmt *syntax.Stmt) (string, string, bool) {
 		return "", "", false
 	}
 
-	val, ok := hereStringLiteral(stmt)
+	lines, ok := stdinLiteralLines(stmt)
 	if !ok {
 		return "", "", false
 	}
-	trimmed := strings.Trim(val, " \t\n")
+	// `read` consumes exactly one line: a multi-line heredoc binds only its
+	// first line (verified on bash — `read zc <<'EOF'` over two `echo` lines
+	// runs only the first); a here-string is a single "line" by construction.
+	trimmed := strings.Trim(lines[0], " \t\n")
 	if trimmed == "" {
 		return "", "", false
 	}
@@ -1161,31 +1306,45 @@ func readScalarHereStringElem(stmt *syntax.Stmt) (string, string, bool) {
 // readScalarHereStringElem stays off read's other flags.
 //
 // `-t` strips the trailing newline mapfile would otherwise keep on each
-// line; without it, the newline survives into the array element. Both are
-// recorded identically here — the newline only matters when this table later
-// feeds resolveArrayIndex for a bare `${NAME[0]}` in EXECUTABLE position,
-// where unquoted parameter expansion's own default-IFS word splitting strips
-// a trailing newline the same way regardless of -t, so the distinction is
-// invisible at that one call site. A multi-line literal (embedded `\n` inside
-// the here-string's quoted word) bails entirely — mapfile would split it into
-// more than one element, which this single-element table cannot represent.
+// line; without it, the newline survives into the array element. For a
+// SINGLE-line source both are recorded identically here — the newline only
+// matters when this table later feeds resolveArrayIndex for a bare
+// `${NAME[0]}` in EXECUTABLE position, where unquoted parameter expansion's
+// own default-IFS word splitting strips a trailing newline the same way
+// regardless of -t, so the distinction is invisible at that one call site. A
+// multi-line here-string (embedded `\n` inside the quoted word) bails
+// entirely — mapfile would split it into more than one element, which the
+// single-element shape cannot represent.
+//
+// A multi-line HEREDOC body (#3829) is the natural one-element-per-line
+// source, and there the -t distinction is visible: with `-t`,
+// `"${NAME[@]}"` expands to one clean word per line and runs (verified on
+// bash 5.3: `mapfile -t a <<'EOF'` / `echo` / `MARK` / `EOF` / `"${a[@]}"`
+// prints MARK); without it, element 0 is `echo\n`, the quoted splat keeps
+// the newline, and bash reports `$'echo\n': command not found` — while the
+// UNQUOTED `${a[@]}` word-splits and does run. resolveExecPart unwraps
+// DblQuoted, so this resolver cannot tell those two spellings apart; a
+// multi-line body without `-t` therefore bails rather than resolve to a
+// command that only runs in one of them.
 func mapfileHereStringElems(stmt *syntax.Stmt) (string, []string, bool) {
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok || len(call.Assigns) > 0 || len(call.Args) < 2 {
 		return "", nil, false
 	}
-	exe, ok := literalWordValue(call.Args[0])
+	exe, ok := literalExecName(call)
 	if !ok || (exe != "mapfile" && exe != "readarray") {
 		return "", nil, false
 	}
 
 	var name string
+	var stripNewline bool
 	for _, arg := range call.Args[1:] {
 		word, ok := literalWordValue(arg)
 		if !ok {
 			return "", nil, false
 		}
 		if word == "-t" {
+			stripNewline = true
 			continue
 		}
 		if strings.HasPrefix(word, "-") {
@@ -1200,11 +1359,30 @@ func mapfileHereStringElems(stmt *syntax.Stmt) (string, []string, bool) {
 		return "", nil, false
 	}
 
-	val, ok := hereStringLiteral(stmt)
-	if !ok || val == "" || strings.Contains(val, "\n") {
+	lines, ok := stdinLiteralLines(stmt)
+	if !ok {
 		return "", nil, false
 	}
-	return name, []string{val}, true
+	if len(lines) == 1 {
+		if lines[0] == "" || strings.Contains(lines[0], "\n") {
+			return "", nil, false
+		}
+		return name, []string{lines[0]}, true
+	}
+	if !stripNewline {
+		return "", nil, false
+	}
+	allBlank := true
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			allBlank = false
+			break
+		}
+	}
+	if allBlank {
+		return "", nil, false
+	}
+	return name, lines, true
 }
 
 // isReadArrayFlag reports whether s is a short-flag cluster (e.g. "-a",
@@ -1275,6 +1453,133 @@ func literalWordValue(w *syntax.Word) (string, bool) {
 		}
 	}
 	return sb.String(), true
+}
+
+// literalExecName returns the command name of call exactly as bash resolves it
+// — quote removal applied PER PART — so `r\ead`, `re""ad`, `"read"` and `read`
+// are the same name, and `'r\ead'` is not.
+//
+// literalWordValue is NOT that. It concatenates an unquoted Lit's Value
+// verbatim, and mvdan/sh keeps the backslash in it, so a builtin comparison
+// against the raw value misses a spliced spelling bash runs unchanged. The
+// recognisers for set, shift, read, mapfile and readarray — and the
+// assignment scan in unset_paramexp.go — go through this. (echo, printf,
+// source and eval lookups still use NormalizeExecName.) Measured in #3848: the raw
+// comparison let `r\ead zc <<< "..."; $zc` drop the stdin binding, so the
+// resolved command never reached a rule (13 corpus BLOCKs fell to AUDIT).
+//
+// Why this is not literalWordValue + NormalizeExecName (#3874's first cut, and
+// a regression the adversarial review of it caught): flattening the word
+// first loses WHICH backslashes were quoted, and StripShellQuotes then deletes
+// all of them. Inside quotes a backslash before an ordinary character is
+// literal, so `'s\hift' 3` is "s\hift: command not found" and leaves the
+// positional list alone — but the flattened form compared equal to "shift",
+// the recogniser bailed positional resolution, and
+// `set -- <destructive words>; 's\hift' 3; "$@"` fell from BLOCK to AUDIT
+// while bash still ran the words. Where a match can only ADD a finding that
+// looseness costs at most a false BLOCK; where a match REMOVES one it is a
+// bypass, so those sites have to be exact. In this package that is shift
+// (bails positional resolution) and the unset_paramexp.go assignment scan
+// (suppresses the unset-parameter fold). It is NOT true of every
+// NormalizeExecName caller elsewhere: analyzer/substitution_scope.go's
+// unset / read / printf -v lookups remove a binding on a loose match — see
+// shapes 9–10 in that file's Model boundary list.
+//
+// Exactness, per bash's quote removal:
+//
+//	unquoted      \x -> x for any x; \<newline> -> nothing
+//	'...'         verbatim
+//	"..."         \ is removed only before $ ` " \ and <newline>
+//	$'...'        accepted only when it holds no backslash (no ANSI-C escape to
+//	              decode); otherwise ok=false rather than guess
+//
+// ok=false for any dynamic part. Executable position only — argument and value
+// words keep going through literalWordValue, where a backslash can be data.
+func literalExecName(call *syntax.CallExpr) (string, bool) {
+	if call == nil || len(call.Args) == 0 {
+		return "", false
+	}
+	return literalExecWord(call.Args[0])
+}
+
+// literalExecWord is literalExecName for a bare word.
+func literalExecWord(w *syntax.Word) (string, bool) {
+	if w == nil || len(w.Parts) == 0 {
+		return "", false
+	}
+	var sb strings.Builder
+	for _, p := range w.Parts {
+		switch part := p.(type) {
+		case *syntax.Lit:
+			sb.WriteString(unescapeUnquoted(part.Value))
+		case *syntax.SglQuoted:
+			if part.Dollar && strings.Contains(part.Value, `\`) {
+				return "", false
+			}
+			sb.WriteString(part.Value)
+		case *syntax.DblQuoted:
+			for _, dp := range part.Parts {
+				lit, ok := dp.(*syntax.Lit)
+				if !ok {
+					return "", false
+				}
+				sb.WriteString(unescapeDblQuoted(lit.Value))
+			}
+		default:
+			return "", false
+		}
+	}
+	return sb.String(), true
+}
+
+// unescapeUnquoted applies bash quote removal to unquoted literal text: a
+// backslash is dropped and the next byte kept, except backslash-newline, which
+// is a line continuation and vanishes entirely. A trailing lone backslash has
+// nothing to escape and is kept.
+func unescapeUnquoted(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			sb.WriteByte(s[i])
+			continue
+		}
+		i++
+		if s[i] != '\n' {
+			sb.WriteByte(s[i])
+		}
+	}
+	return sb.String()
+}
+
+// unescapeDblQuoted applies bash quote removal to literal text inside double
+// quotes, where a backslash is special only before $ ` " \ and newline. Before
+// anything else it is a literal backslash and BOTH bytes stay.
+func unescapeDblQuoted(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			sb.WriteByte(s[i])
+			continue
+		}
+		switch s[i+1] {
+		case '$', '`', '"', '\\':
+			i++
+			sb.WriteByte(s[i])
+		case '\n':
+			i++
+		default:
+			sb.WriteByte(s[i])
+		}
+	}
+	return sb.String()
 }
 
 // resolveExecWord attempts to statically resolve a word used in EXECUTABLE
@@ -2417,12 +2722,24 @@ func HasFlag(flags map[string]string, key string) bool {
 var ShellInterpreters = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true,
 	"ksh": true, "fish": true, "csh": true, "tcsh": true,
+	// Spellings that execute stdin exactly as their siblings do. Omitting
+	// them let `| mksh`, `| ash`, `| rbash`, `| ksh93` launder a piped
+	// command past the inertness-label withdrawal (#3796 review). ksh93 is
+	// literally /bin/ksh on macOS.
+	"ksh93": true, "mksh": true, "ash": true, "rbash": true,
 }
 
 var CodeInterpreters = map[string]bool{
 	"python": true, "python3": true, "python2": true,
 	"node": true, "ruby": true, "perl": true, "lua": true,
 	"php": true,
+	// Reconciles this map with the classifier's own interpHered regex
+	// (internal/analyzer/intent.go), which already GRANTS
+	// in_interpreter_heredoc for Rscript and osascript. One list granting a
+	// label the other cannot revoke is how `| osascript` kept an inertness
+	// excuse while executing its stdin (#3796 review; osascript and tclsh
+	// verified to run stdin as a program).
+	"tclsh": true, "osascript": true, "Rscript": true,
 }
 
 // PrivilegeShellCarriers are privilege-switching programs whose `-c` argument

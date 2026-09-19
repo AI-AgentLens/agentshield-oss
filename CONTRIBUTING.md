@@ -5,7 +5,7 @@ Thank you for your interest in contributing to AgentShield! This document provid
 ## Getting Started
 
 ### Prerequisites
-- Go 1.23 or later
+- Go 1.25 or later (the version pinned in `go.mod`; CI builds with 1.26)
 - Git
 - Make
 

@@ -119,6 +119,41 @@ func DequoteCommand(command string) string {
 			if n.Word != nil && dequoteWordInPlace(n.Word) {
 				changed = true
 			}
+		case *syntax.WordIter:
+			// `for p in <items>` and `select p in <items>`. The loop word list
+			// hangs off ForClause.Loop, not off any CallExpr, so a spliced
+			// literal there was invisible to this walk — while the body's
+			// `"$p"` carries the resolved value straight to the command:
+			//
+			//	for p in /etc/sha'd'ow; do cat "$p"; done
+			//
+			// Verified on bash: reads the real file. The sibling normalizers
+			// over this same tree (NormalizeUnsetParamExp, ExpandBraces) walk
+			// words generically and already reached this position; only this
+			// one enumerates node types by hand, so only this one missed it
+			// (issue #3045 is the same class in collectStmts).
+			for _, w := range n.Items {
+				if dequoteWordInPlace(w) {
+					changed = true
+				}
+			}
+		case *syntax.ArrayExpr:
+			// `f=(/etc/sha'd'ow); cat "${f[0]}"` — array literal elements are
+			// ArrayElem.Value words under Assign.Array, reached neither by the
+			// CallExpr arm (which reads Assigns[].Value, nil for an array) nor
+			// by the DeclClause arm (same field). Covers both `f=(...)` and
+			// `declare -a f=(...)` because syntax.Walk descends into either.
+			for _, el := range n.Elems {
+				if el.Value != nil && dequoteWordInPlace(el.Value) {
+					changed = true
+				}
+			}
+			// Deliberately NOT handled: *syntax.CaseClause patterns. A case
+			// pattern is a glob matched against a subject, not a value handed
+			// to a command, so there is no execution to defeat — and quoting
+			// is semantically load-bearing there ('*' quoted is a literal
+			// asterisk), so rewriting it would invent a match form the shell
+			// never produces. Same reasoning as schema_walk.go's `not` branch.
 		case *syntax.TestClause:
 			// `[[ ... ]]` conditions (`[[ -f \/dev/shm/x ]] && source
 			// /dev/shm/x`) parse to their own node, not a CallExpr -- a

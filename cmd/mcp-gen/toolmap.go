@@ -11,4 +11,8 @@ var (
 	ReadWriteTools = append(append([]string{}, ReadTools...), WriteTools...)
 	// AllFileTools includes read, write, and delete tools.
 	AllFileTools = append(append([]string{}, ReadWriteTools...), DeleteTools...)
+	// ReadDeleteTools is read + delete, excluding write — for protected paths
+	// whose write access is already covered by a dedicated rule elsewhere
+	// (see writeCoveredElsewhere in classifier.go, #3735).
+	ReadDeleteTools = append(append([]string{}, ReadTools...), DeleteTools...)
 )

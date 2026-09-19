@@ -29,6 +29,28 @@ func premiumMCPPacksDir() string {
 	return filepath.Join(filepath.Dir(filename), "..", "..", "packs", "premium", "mcp")
 }
 
+// parseMCPPackFile reads and parses a single MCP pack YAML file. Extracted
+// from loadMCPRulesFromDir/loadMCPStructuralRulesFromDir (#3637) so a read or
+// parse failure is directly unit-testable, without relying on t.Fatalf firing
+// inside a deliberately-failing subtest — a subtest engineered to fail also
+// marks its PARENT test (and so the whole package run) permanently FAIL,
+// which is the wrong shape for a gate that must itself stay green. Before
+// #3637 this loader hand-rolled the same read+unmarshal inline and swallowed
+// either error with t.Logf + continue — a malformed MCP pack silently
+// contributed zero rules with no red anywhere, the same failure mode
+// #2188/#3035 already fixed on the terminal side via PackInfo.LoadError.
+func parseMCPPackFile(path string) (MCPPolicy, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return MCPPolicy{}, fmt.Errorf("cannot read %s: %w", path, err)
+	}
+	var pack MCPPolicy
+	if err := yaml.Unmarshal(data, &pack); err != nil {
+		return MCPPolicy{}, fmt.Errorf("pack %s failed to parse: %w", path, err)
+	}
+	return pack, nil
+}
+
 // loadMCPRulesFromDir loads all MCP semantic rules from every pack YAML file
 // in dir.
 func loadMCPRulesFromDir(t *testing.T, dir string) []MCPRule {
@@ -43,15 +65,9 @@ func loadMCPRulesFromDir(t *testing.T, dir string) []MCPRule {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		pack, err := parseMCPPackFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			t.Logf("skip %s: %v", entry.Name(), err)
-			continue
-		}
-		var pack MCPPolicy
-		if err := yaml.Unmarshal(data, &pack); err != nil {
-			t.Logf("skip %s: parse error: %v", entry.Name(), err)
-			continue
+			t.Fatal(err)
 		}
 		allRules = append(allRules, pack.Rules...)
 	}
@@ -72,15 +88,9 @@ func loadMCPStructuralRulesFromDir(t *testing.T, dir string) []MCPStructuralRule
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		pack, err := parseMCPPackFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			t.Logf("skip %s: %v", entry.Name(), err)
-			continue
-		}
-		var pack MCPPolicy
-		if err := yaml.Unmarshal(data, &pack); err != nil {
-			t.Logf("skip %s: parse error: %v", entry.Name(), err)
-			continue
+			t.Fatal(err)
 		}
 		allRules = append(allRules, pack.StructuralRules...)
 	}
@@ -119,6 +129,58 @@ func loadAllPremiumMCPRules(t *testing.T) []MCPRule {
 func loadAllPremiumMCPStructuralRules(t *testing.T) []MCPStructuralRule {
 	t.Helper()
 	return loadMCPStructuralRulesFromDir(t, premiumMCPPacksDir())
+}
+
+// TestParseMCPPackFile proves the #3637 gate mechanism: a pack file that
+// fails to read or parse must surface as an error rather than being silently
+// dropped. loadMCPRulesFromDir and loadMCPStructuralRulesFromDir both call
+// t.Fatal on this error, which is what actually reddens
+// TestMCPRuleYAMLTests / TestAllMCPRulesHaveTests / their premium and
+// structural siblings when a pack breaks — but exercising that Fatal path
+// directly would mark this test's own parent (and package run) permanently
+// FAIL, so this test instead pins the pure decision the Fatal is based on.
+func TestParseMCPPackFile(t *testing.T) {
+	dir := t.TempDir()
+
+	goodPath := filepath.Join(dir, "good.yaml")
+	if err := os.WriteFile(goodPath, []byte(`
+name: "Good Pack"
+rules:
+  - id: "good-rule"
+    match:
+      tool_name_any: ["read_file"]
+    decision: "BLOCK"
+    reason: "ok"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseMCPPackFile(goodPath); err != nil {
+		t.Errorf("valid pack should parse cleanly, got: %v", err)
+	}
+
+	badPath := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(badPath, []byte(`
+name: "Bad Pack"
+rules:
+  - id: "bad-rule"
+    match:
+      tool_name_any: ["read_file"]
+    decision: "BLOCK"
+    reason: docs: explain pip install git+https:// supply chain risks
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := parseMCPPackFile(badPath)
+	if err == nil {
+		t.Fatal("malformed pack must return an error — this is the #3637 gate")
+	}
+	if !strings.Contains(err.Error(), "bad.yaml") {
+		t.Errorf("error should name the failed pack path, got: %v", err)
+	}
+
+	if _, err := parseMCPPackFile(filepath.Join(dir, "does-not-exist.yaml")); err == nil {
+		t.Error("missing file must return an error")
+	}
 }
 
 // TestMCPRuleYAMLTests validates every MCP rule's inline TP/TN test cases

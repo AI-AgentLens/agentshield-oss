@@ -35,3 +35,4 @@ compliance-bin/
 
 # Local /ultrareview worktree clones (per-agent isolation, never commit)
 .claude/worktrees/
+.DS_Store

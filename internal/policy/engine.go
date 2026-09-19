@@ -150,8 +150,64 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		Reasons:        []string{},
 		TaxonomyRefs:   []string{},
 	}
+	// A protected path used only by its designated consumer (ssh -i, kubectl
+	// --kubeconfig, …) is recorded, not blocked — see consumers.go. Decided
+	// lazily on the first protected-path hit; finish() folds the record into
+	// whatever verdict the rest of evaluation reaches.
+	consumerNote := ""
+	consumerOnly := func() bool {
+		if consumerNote != "" {
+			return true
+		}
+		ok, exe := e.protectedPathConsumerOnly(command, parsed)
+		if ok {
+			consumerNote = fmt.Sprintf("Protected credential path used by its designated consumer (%s) — recorded, not blocked", exe)
+		}
+		return ok
+	}
+	// envConsumerNote is the assignment half of the same idea (#3630) and is
+	// kept in a SEPARATE variable on purpose: consumerOnly() suppresses a
+	// BLOCK, and an assignment must never be able to do that. `ssh -i key
+	// host` laundering a `cat` was the bug #3670 fixed on the mount side; an
+	// `export KUBECONFIG=…` laundering one would be the same shape.
+	envConsumerNote := ""
 	finish := func(r EvalResult) EvalResult {
+		// Read before applyModeDowngrade: in audit-only mode a BLOCK arrives
+		// here already rewritten to AUDIT, and annotating that with
+		// "recorded, not blocked" would describe the wrong event.
+		//
+		// BLOCK only, deliberately. REQUIRE_APPROVAL is not "blocked for
+		// something else" — it is the *default decision* of the shipped
+		// configs/default_policy.yaml template, so treating it as blocking
+		// suppressed the record on every command under that policy, which is
+		// the one users are told to copy. Measured 2026-09-06 against a
+		// binary built from this tree: `export KUBECONFIG=$HOME/.kube/config`
+		// under the template got REQUIRE_APPROVAL with NO rule id, while the
+		// identical command under the Go DefaultPolicy() (AUDIT) was
+		// correctly attributed. The flag half (#3625, consumerNote) never had
+		// this guard and was attributed under both. Beyond consistency: a
+		// REQUIRE_APPROVAL prompt is precisely where a human benefits from
+		// being told the command hands a credential path to KUBECONFIG.
+		blocking := r.Decision == DecisionBlock
 		r = applyModeDowngrade(r, e.mode)
+		notes := make([]string, 0, 2)
+		if consumerNote != "" {
+			notes = append(notes, consumerNote)
+		}
+		// The assignment record explains an otherwise unattributed AUDIT. It
+		// is not added to a command that is being blocked for something else
+		// — there the block is the event, and a "recorded, not blocked"
+		// reason alongside it would read as a contradiction.
+		if envConsumerNote != "" && !blocking {
+			notes = append(notes, envConsumerNote)
+		}
+		if len(notes) > 0 {
+			r.TriggeredRules = append(r.TriggeredRules, ProtectedPathConsumerRuleID)
+			r.Reasons = append(r.Reasons, notes...)
+			if r.Decision == DecisionAllow {
+				r.Decision = DecisionAudit
+			}
+		}
 		r.Explanation = buildExplanation(r)
 		return r
 	}
@@ -175,7 +231,7 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		return finish(result)
 	}
 
-	if blocked, rule := e.checkProtectedPaths(paths); blocked {
+	if blocked, rule := e.checkProtectedPaths(paths); blocked && !consumerOnly() {
 		result.Decision = DecisionBlock
 		result.TriggeredRules = append(result.TriggeredRules, "protected-path")
 		result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
@@ -209,10 +265,19 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		// after the AST walk. We override to BLOCK on a hit because
 		// protected paths are non-negotiable — combiner severity doesn't
 		// apply when the policy explicitly named the path off-limits.
-		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths); blocked {
+		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths); blocked && !consumerOnly() {
 			result.Decision = DecisionBlock
 			result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
 			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
+		}
+
+		// Assignment half of the consumer table (#3630): naming a protected
+		// path into a designated consumer's environment credential slot
+		// (`export KUBECONFIG=~/.kube/config`) is recorded, never blocked.
+		// Deliberately does not feed checkProtectedPaths — see
+		// AnalysisContext.Assignments and ProtectedEnvAssignment.
+		if env, ok := e.ProtectedEnvAssignment(ctx.Assignments); ok {
+			envConsumerNote = fmt.Sprintf("Protected credential path assigned to %s, a designated consumer's environment credential slot — recorded, not blocked", env)
 		}
 
 		return finish(result)
@@ -248,6 +313,40 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 	// the pipeline reopens the bypass.
 	materializedCommand := shellparse.MaterializeAssignments(command)
 
+	// ifsCommand is the third instance of exactly that reasoning, and it was
+	// simply missing (found by the #3717 cross-path parity table): `${IFS}`/
+	// `$IFS` is the shell's own word separator, so `cmd${IFS}--flag` runs
+	// `cmd --flag` while no raw-text rule matches. The pipeline has folded it
+	// since #3044 — the largest single bypass class measured in this codebase,
+	// 68% of BLOCKing commands — but the fallback never did, so disabling the
+	// pipeline turned every ${IFS}-obfuscated invocation into a silent miss.
+	//
+	// Deliberately only the plain fold, NOT the composed
+	// DequoteCommand(ifsCommand) form the pipeline also carries (#3209): that
+	// composition has no witness on this path, and widening the fallback past
+	// what a test pins is how the two paths drift in the other direction.
+	ifsCommand := shellparse.NormalizeIFS(command)
+
+	// emittedCommand decodes the escape sequences a printf format string or an
+	// `echo -e` argument expands, when that text reaches an executor (#3802):
+	// `printf '\\nufw disable\\n' | sh` runs the payload while no raw-text rule
+	// opening with `\\b` can match across the literal backslash-n. Fourth
+	// instance of the reasoning spelled out for foldedCommand above — the
+	// pipeline gets this via RegexAnalyzer's wholeCommandForms, and without its
+	// own candidate here, disabling the pipeline reopens the bypass.
+	// TestEmittedSeparatorParityAcrossEvaluationPaths pins the two together.
+	emittedCommand := shellparse.DecodeEmittedSeparators(command)
+
+	// interpExecCandidates recovers command text from an exec call inside an
+	// interpreter heredoc body — "csrutil disable" from a python heredoc
+	// calling os.system("csrutil disable") (#3697). This is the regex-only
+	// fallback path, so it needs its own candidate for the same reason
+	// foldedCommand/materializedCommand/ifsCommand above do: the pipeline
+	// gets it via RegexAnalyzer's wholeCommandForms, but disabling the
+	// pipeline must not reopen the bypass. Computed once, tried per rule
+	// like every other whole-command candidate.
+	interpExecCandidates := analyzer.InterpreterHeredocExecStatements(command)
+
 	for _, rule := range e.policy.Rules {
 		if e.policy.IsRuleDisabled(rule.ID) {
 			continue
@@ -269,6 +368,18 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 			matchedCmd = foldedCommand
 		case materializedCommand != "" && e.matchRule(materializedCommand, rule):
 			matchedCmd = materializedCommand
+		case ifsCommand != "" && e.matchRule(ifsCommand, rule):
+			matchedCmd = ifsCommand
+		case emittedCommand != "" && e.matchRule(emittedCommand, rule):
+			matchedCmd = emittedCommand
+		}
+		if matchedCmd == "" {
+			for _, cand := range interpExecCandidates {
+				if e.matchRule(cand, rule) {
+					matchedCmd = cand
+					break
+				}
+			}
 		}
 		if matchedCmd == "" {
 			continue
@@ -389,17 +500,19 @@ func (e *Engine) matchRule(command string, rule Rule) bool {
 // positionExcluded is the regex-fallback half of command_position_exclude
 // (#3376) — the analyzer-pipeline half lives in RegexAnalyzer.Analyze. Both
 // call the same analyzer.PositionExcluded with the same raw-pattern predicate
-// (matchRulePattern here, matchRegexRule there, both exclude-label-free), so
-// the two paths cannot drift the way #3232/#3234 found command_regex_exclude
-// and command_intent_exclude had.
+// (matchRulePattern here, matchRegexRule there, both exclude-label-free) and
+// the same fold context (#3725), so the two paths cannot drift the way
+// #3232/#3234 found command_regex_exclude and command_intent_exclude had.
 //
-// Costs an AST parse, so it runs last: only a rule that already matched and
-// survived its intent labels pays for it.
+// Costs an AST parse (building foldCtx) plus another inside PositionExcluded
+// itself, so it runs last: only a rule that already matched and survived its
+// intent labels pays for it.
 func (e *Engine) positionExcluded(command string, rule Rule) bool {
 	if len(rule.Match.CommandPositionExclude) == 0 {
 		return false
 	}
-	return analyzer.PositionExcluded(command, rule.Match.CommandPositionExclude, func(s string) bool {
+	foldCtx := analyzer.NewStatementFoldContext(command)
+	return analyzer.PositionExcluded(command, rule.Match.CommandPositionExclude, foldCtx, func(s string) bool {
 		return e.matchRulePattern(s, rule)
 	})
 }
@@ -429,10 +542,59 @@ func (e *Engine) intentExcluded(command string, rule Rule) bool {
 	if len(rule.Match.CommandIntentExclude) == 0 || e.intentClassifier == nil {
 		return false
 	}
-	statements, parsed := shellparse.SplitTopLevelStatementsChecked(command)
-	return analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, rule.Match.CommandIntentExclude, func(stmt string) bool {
-		return e.matchRulePattern(stmt, rule)
-	})
+	statements, parsed := analyzer.AttributionStatements(command)
+	return analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, rule.Match.CommandIntentExclude, e.statementMatcher(command, rule))
+}
+
+// statementMatcher builds the per-statement predicate that
+// analyzer.IntentExcludedForStatements uses to attribute a match to a
+// statement, for both command_intent_exclude and command_intent_downgrade on
+// this regex-fallback path.
+//
+// It is the twin of RegexAnalyzer.Analyze's own statementMatcher and shares its
+// candidate generator (analyzer.StatementMatchCandidates), which is the whole
+// point (#3717): before this, both paths tested each statement with the plain
+// matcher against RAW text only, while the top-level match folded ${IFS}
+// separators, unset-parameter splices, quote splices and friends. An
+// obfuscated real statement therefore did not count as matching and was
+// skipped during attribution, leaving a coincidentally-matching doc-text
+// sibling to carry the whole decision and downgrade (or suppress) a BLOCK that
+// actually executed — a fail-open, since the attestation then records "no
+// violation" for a statement that ran.
+//
+// Raw text is tried first so a statement that matches as written never pays
+// for candidate generation; StatementMatchCandidates costs several AST parses.
+// The memo is per predicate (i.e. per rule, per call) rather than per
+// evaluation: only a rule whose pattern already matched the whole command ever
+// reaches here, so cross-rule sharing would buy little and cost a threaded
+// cache on every matchRule signature.
+func (e *Engine) statementMatcher(command string, rule Rule) func(string) bool {
+	var foldCtx *analyzer.StatementFoldContext
+	forms := map[string][]string{}
+	return func(stmt string) bool {
+		if e.matchRulePattern(stmt, rule) {
+			return true
+		}
+		cands, ok := forms[stmt]
+		if !ok {
+			if foldCtx == nil {
+				// Built from the WHOLE command — the symbol table because a
+				// defining "NAME=value" assignment lives even when the use
+				// site is a separate statement (#3089), the assignment
+				// context so a fold cannot contradict a sibling statement's
+				// assignment. Same as the pipeline path.
+				foldCtx = analyzer.NewStatementFoldContext(command)
+			}
+			cands = analyzer.StatementMatchCandidates(stmt, foldCtx)
+			forms[stmt] = cands
+		}
+		for _, cand := range cands {
+			if e.matchRulePattern(cand, rule) {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 // matchRulePattern reports whether the rule's raw match predicate (exact,
@@ -464,13 +626,16 @@ func (e *Engine) matchRulePattern(command string, rule Rule) bool {
 
 // effectiveDecision returns rule.Decision, downgraded BLOCK/REQUIRE_APPROVAL→
 // AUDIT when the rule opts into command_intent_downgrade (#2843) and every
-// statement that makes the rule fire sits in a downgrade-labeled position (a
-// sensitive literal inside a gh/git --body/--message argument, a heredoc body).
-// This is the regex-fallback twin of RegexAnalyzer.Analyze's downgrade, so the
-// accuracy corpus and inline-YAML tests (which run this path) reach the same
-// verdict the live pipeline does. Per-statement scoping (via
-// IntentExcludedForStatements) keeps a chained real access at BLOCK: only the
-// downgrade labels move a decision, never a genuine executed access.
+// statement that makes the rule fire sits in a downgrade-labeled OR
+// exclude-labeled position (a sensitive literal inside a gh/git --body/
+// --message argument, a heredoc body, or an is_self_mgmt/is_bash_comment
+// statement — see analyzer.UnionIntentLabels for why the exclude labels also
+// count here, #3792). This is the regex-fallback twin of
+// RegexAnalyzer.Analyze's downgrade, so the accuracy corpus and inline-YAML
+// tests (which run this path) reach the same verdict the live pipeline does.
+// Per-statement scoping (via IntentExcludedForStatements) keeps a chained
+// real access at BLOCK: only the downgrade/exclude labels move a decision,
+// never a genuine executed access.
 func (e *Engine) effectiveDecision(command string, rule Rule) Decision {
 	if len(rule.Match.CommandIntentDowngrade) == 0 || e.intentClassifier == nil {
 		return rule.Decision
@@ -478,10 +643,9 @@ func (e *Engine) effectiveDecision(command string, rule Rule) Decision {
 	if rule.Decision != DecisionBlock && rule.Decision != DecisionRequireApproval {
 		return rule.Decision
 	}
-	statements, parsed := shellparse.SplitTopLevelStatementsChecked(command)
-	if analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, rule.Match.CommandIntentDowngrade, func(stmt string) bool {
-		return e.matchRulePattern(stmt, rule)
-	}) {
+	statements, parsed := analyzer.AttributionStatements(command)
+	labels := analyzer.UnionIntentLabels(rule.Match.CommandIntentDowngrade, rule.Match.CommandIntentExclude)
+	if analyzer.IntentExcludedForStatements(e.intentClassifier, command, statements, parsed, labels, e.statementMatcher(command, rule)) {
 		return DecisionAudit
 	}
 	return rule.Decision

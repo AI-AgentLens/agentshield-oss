@@ -17,7 +17,7 @@ normal, and the hook will intercept and evaluate them transparently.
 
 ## How It Works
 
-AgentShield evaluates each command through a 7-layer security pipeline:
+AgentShield evaluates each command through a staged analyzer pipeline (see `docs/architecture.md` for the current stage list); the core decision layers are:
 - Dangerous commands are **blocked** — the host refuses to execute them
 - Safe commands **pass through** and execute normally
 - Auditable commands execute but are flagged for review

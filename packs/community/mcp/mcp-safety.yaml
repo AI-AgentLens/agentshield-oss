@@ -683,7 +683,7 @@ rules:
   # MITRE ATLAS: AML.T0054 (LLM Jailbreak via tool name spoofing)
   # CWE-116 (Improper Encoding — Unicode confusable bypass)
   - id: "mcp-tools-list-tool-name-homoglyph"
-    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-description-poisoning"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-tool-identifier-render-evasion"
     match: {}  # empty match — rule never fires from YAML; detection is in manifest_guard.go (ScanToolsListManifest, tool-name Unicode scan loop)
     decision: "BLOCK"
     confidence: 0.97
@@ -940,7 +940,12 @@ rules:
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:
-  # Block any file-writing tool that targets sensitive system/credential paths
+  # Block any file-writing tool that targets sensitive system/credential paths.
+  # #3779: added /etc/master.passwd (BSD/macOS shadow equivalent — was missing
+  # entirely, a straight bypass on BSD/macOS agents) and the str_replace_editor
+  # / append_file tool names to the write family (the shell-side sibling rule,
+  # ts-block-account-db-direct-write, documents the same three-path,
+  # write-family shape on the terminal side).
   - id: mcp-struct-block-sensitive-path-write
     taxonomy: "credential-exposure/config-file-access/generic-config-access"
     match:
@@ -952,6 +957,8 @@ structural_rules:
         - "filesystem_write"
         - "edit_file"
         - "write_to_file"
+        - "str_replace_editor"
+        - "append_file"
       args_match:
         path:
           pattern_any:
@@ -961,6 +968,7 @@ structural_rules:
             - "\\.kube/"
             - "/etc/passwd"
             - "/etc/shadow"
+            - "/etc/master\\.passwd"
     decision: "BLOCK"
     reason: "MCP tool writing to sensitive/protected path."
     confidence: 0.95
@@ -970,6 +978,10 @@ structural_rules:
           args: {"path": "/home/user/.ssh/authorized_keys", "content": "ssh-rsa AAAA"}
         - tool: "save_file"
           args: {"path": "/root/.aws/credentials", "content": "aws_secret"}
+        - tool: "str_replace_editor"
+          args: {"path": "/etc/master.passwd", "old_str": "root:*:", "new_str": "root:$6$hash:"}
+        - tool: "append_file"
+          args: {"path": "/etc/passwd", "content": "backdoor:x:0:0::/root:/bin/bash"}
       tn:
         - tool: "write_file"
           args: {"path": "/workspace/src/main.go", "content": "package main"}
@@ -1251,9 +1263,17 @@ structural_rules:
         - tool: "list_directory"
           args: {"directory": "/workspace/src"}
 
-  # Block SSRF — requests to cloud metadata endpoints and internal IP ranges
+  # Block SSRF — requests to cloud metadata endpoints and internal IP ranges.
+  # This whole family (through mcp-struct-block-ssrf-base-url below) is
+  # arg-name-shaped variants of ONE mechanism — an arbitrary MCP tool call
+  # (tool_name_regex: ".*") with a metadata/private-network destination —
+  # which is unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf's
+  # explicit scope ("URI-shaped arguments ... on tools that are legitimately
+  # in the fetching business"), not network-http-request's shell-level
+  # curl/wget/httpie exfiltration mechanism. Re-pointed from
+  # network-http-request (found via check-pack-taxonomy-fit -per-rule).
   - id: mcp-struct-block-ssrf-metadata
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -1282,7 +1302,7 @@ structural_rules:
           args: {"url": "https://api.github.com/repos/example/repo"}
 
   - id: mcp-struct-block-ssrf-metadata-endpoint
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -1307,7 +1327,7 @@ structural_rules:
           args: {"endpoint": "https://api.example.com/v1/users"}
 
   - id: mcp-struct-block-ssrf-private-network
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -1333,7 +1353,7 @@ structural_rules:
   # Many tools expose network access through non-standard argument names that
   # the url/endpoint rules above do not cover (closes #164).
   - id: mcp-struct-block-ssrf-target
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -1361,7 +1381,7 @@ structural_rules:
           args: {"target": "https://api.example.com/v1/data"}
 
   - id: mcp-struct-block-ssrf-server
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:
@@ -1389,7 +1409,7 @@ structural_rules:
           args: {"server": "https://api.stripe.com/v1/charges"}
 
   - id: mcp-struct-block-ssrf-base-url
-    taxonomy: "data-exfiltration/network-egress/network-http-request"
+    taxonomy: "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
     match:
       tool_name_regex: ".*"
       args_match:

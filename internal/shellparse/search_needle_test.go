@@ -62,12 +62,88 @@ func TestSearchToolNeedles(t *testing.T) {
 
 		// --- not redacted: ambiguous or non-search shapes ---
 		{
-			name:  "no grep-family executable at all",
+			name:    "no grep-family executable at all",
 			command: `cat "frida -n <process>"`,
 		},
 		{
 			name:    "-e consumes the pattern — layout unknown, grepPatternOperand refuses",
 			command: `grep -e "frida -n <process>" -r docs/`,
+		},
+		// #3690: an $IFS-glued flag+value pair parses as ONE dynamic word
+		// (Lit("-e") + ParamExp("IFS") + the quoted pattern) — staticWord
+		// can't resolve it, so it reports "" the same as a fully-dynamic
+		// standalone word. Before the #3690 fix, grepPatternOperand treated
+		// "" as "definitely not a flag" and returned this word's index as
+		// the pattern operand, redacting a REAL hex-encoded command word
+		// along with the ambiguous "-e" flag it was fused to — a live
+		// bypass of any rule using search_needle. Must refuse (no redaction)
+		// exactly like the fully-static "-e" case above.
+		{
+			name:    "#3690: $IFS-glued flag+value fuses into one dynamic word — grepPatternOperand still refuses",
+			command: "grep -e${IFS}\"frida -n <process>\" -r docs/",
+		},
+		// The other half of the #3690 fix: a BARE dynamic word with no
+		// literal flag prefix (a loop variable standing on its own) is not
+		// ambiguous — no expansion can synthesize a leading "-" out of
+		// nothing written into the word — so it must still be identified as
+		// the pattern operand, unchanged from before the fix.
+		{
+			name:    "#3690 regression guard: a bare dynamic pattern (no flag prefix) is still identified",
+			command: `grep -n $p notes.txt`,
+			found:   true,
+			items:   []string{`$p`},
+		},
+
+		// --- #3728 finding B: INLINE pattern-bearing flags glued into one word
+		// (`-eVALUE`, `-e"$p"`, `--regexp=VALUE`). The value is the needle and
+		// is resolved to its subspan — the flag prefix is left intact. Before
+		// the fix these were refused (the leading-dash guard treated the whole
+		// -e"$p" word as ambiguous), which was a new false BLOCK on a plain
+		// search.
+		{
+			name:    `#3728: -e"$p" glued quoted value — value subspan is the needle`,
+			command: `grep -e"$p" notes.txt`,
+			found:   true,
+			items:   []string{`"$p"`},
+		},
+		{
+			name:    "#3728: -efoo glued literal value",
+			command: `grep -efoo notes.txt`,
+			found:   true,
+			items:   []string{`foo`},
+		},
+		{
+			name:    `#3728: --regexp="$p" long inline form`,
+			command: `grep --regexp="$p" notes.txt`,
+			found:   true,
+			items:   []string{`"$p"`},
+		},
+		{
+			name:    "#3728: --regexp=foo long inline literal form",
+			command: `grep --regexp=foo notes.txt`,
+			found:   true,
+			items:   []string{`foo`},
+		},
+		{
+			name:    "#3728: -rie cluster ending in the pattern flag, glued value",
+			command: `grep -rie"$p" notes.txt`,
+			found:   true,
+			items:   []string{`"$p"`},
+		},
+
+		// --- #3728 finding B, the other direction: forms that MUST still refuse
+		// so the #3690 fix (and the #3729-tracked bypass) do not regress.
+		{
+			name:    "#3728: -e$p unquoted glued value can word-split — still refuses",
+			command: `grep -e$p notes.txt`,
+		},
+		{
+			name:    "#3728: -f is a pattern FILE, not a needle — stays live",
+			command: `grep -f patterns.txt notes.txt`,
+		},
+		{
+			name:    `#3728: -e"$(cmd)" executes (the #3729 class) — inline form declines`,
+			command: `grep -e"$(cat x)" notes.txt`,
 		},
 		{
 			name:    "haystack, not the needle — pattern is the first arg",
@@ -76,6 +152,37 @@ func TestSearchToolNeedles(t *testing.T) {
 			// HAYSTACK (second operand) and must stay live.
 			found: true,
 			items: []string{"safe"},
+		},
+
+		// --- #3729: a bare command/process substitution used as the WHOLE
+		// pattern operand runs BEFORE grep ever sees a value, so it must
+		// never be treated as an inert needle. These must stay live (no
+		// redaction) so a rule matching the executed text keeps firing.
+		{
+			name:    "#3729: command substitution as the bare pattern — executes before grep, must stay live",
+			command: `grep "$(frida -n chrome)" notes.txt`,
+		},
+		{
+			name:    "#3729: hex-encoded command substitution as the pattern — must stay live",
+			command: `grep "$(printf '\x74\x6f\x75\x63\x68 /tmp/x')" /dev/null`,
+		},
+		{
+			name:    "#3729: unquoted bare command substitution — must stay live",
+			command: `grep $(frida -n chrome) notes.txt`,
+		},
+		{
+			name:    "#3729: process substitution as the pattern — must stay live",
+			command: `grep <(frida -n chrome) notes.txt`,
+		},
+		{
+			name:    "#3729: command substitution nested inside a parameter default — must stay live",
+			command: `grep "${p:-$(frida -n chrome)}" notes.txt`,
+		},
+		{
+			name:    "#3729 regression guard: a plain quoted variable is still an inert needle",
+			command: `grep "$p" notes.txt`,
+			found:   true,
+			items:   []string{`"$p"`},
 		},
 	}
 

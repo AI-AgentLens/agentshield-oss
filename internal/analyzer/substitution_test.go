@@ -113,13 +113,52 @@ func TestSubstitutionAnalyzer_NoAssignmentsAtAll(t *testing.T) {
 	}
 }
 
-func TestSubstitutionAnalyzer_DefaultExpansionNotFolded(t *testing.T) {
-	// `${VAR:-default}` is a shape we explicitly refuse to fold — the
-	// runtime semantics depend on whether VAR is set. Test with a *known*
-	// var so we know we're refusing on shape, not on lookup miss.
+// This case used to assert the opposite — that `${VAR:-default}` is refused on
+// SHAPE, "because the runtime semantics depend on whether VAR is set". That
+// premise is false for the very command it tested: this command BINDS P1, so
+// P1 is set and non-empty, the default branch is dead code, and every shell
+// reads ~/.ssh/id_rsa. The old assertion pinned a fail-open miss as if it were
+// a safety property (#3706). What survives of it is the unbound half, split out
+// below — there the set-ness really is unknowable here, and the fold belongs to
+// shellparse.NormalizeUnsetParamExp.
+func TestSubstitutionAnalyzer_DefaultExpansionBoundVarFolds(t *testing.T) {
 	got := runSubstitution(t, "P1=~/.ssh; cat ${P1:-/tmp}/id_rsa")
+	want := []string{"~/.ssh/id_rsa"}
+	if !slices.Equal(got, want) {
+		t.Errorf("materialized paths = %v, want %v", got, want)
+	}
+}
+
+func TestSubstitutionAnalyzer_DefaultExpansionBoundVarIgnoresDynamicDefault(t *testing.T) {
+	// The default word's own dynamism is irrelevant once the variable is
+	// known to be set: the shell never evaluates it.
+	got := runSubstitution(t, "P1=~/.ssh; cat ${P1:-$(pwd)}/id_rsa")
+	want := []string{"~/.ssh/id_rsa"}
+	if !slices.Equal(got, want) {
+		t.Errorf("materialized paths = %v, want %v", got, want)
+	}
+}
+
+func TestSubstitutionAnalyzer_DefaultExpansionUnboundVarNotFolded(t *testing.T) {
+	// Nothing in the command binds ZQXP, so which branch runs depends on the
+	// caller's environment. This layer refuses; a CONSTANT default in that
+	// position is NormalizeUnsetParamExp's to fold, and a dynamic one is
+	// nobody's.
+	got := runSubstitution(t, "cat ${ZQXP:-$(pwd)}/id_rsa")
 	if len(got) != 0 {
-		t.Errorf("expected no materialized paths for ${VAR:-default} shape, got %v", got)
+		t.Errorf("expected no materialized paths for an unbound ${VAR:-default}, got %v", got)
+	}
+}
+
+func TestSubstitutionAnalyzer_DefaultExpansionBoundToBenignValueWins(t *testing.T) {
+	// The false-positive direction of the same fold: the variable is bound to
+	// something harmless and the protected path is only the unreachable
+	// default. Folding to the default here would BLOCK a command that opens
+	// no protected file.
+	got := runSubstitution(t, "P1=/etc/ok; cat ${P1:-~/.ssh}/id_rsa")
+	want := []string{"/etc/ok/id_rsa"}
+	if !slices.Equal(got, want) {
+		t.Errorf("materialized paths = %v, want %v", got, want)
 	}
 }
 

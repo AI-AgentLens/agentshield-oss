@@ -40,6 +40,24 @@ func TestInertLoopWordLists(t *testing.T) {
 			inert:   true,
 			items:   []string{`/etc/shadow`},
 		},
+		// #3728 finding B: an INLINE pattern-bearing flag (`-e"$p"`,
+		// `--regexp="$p"`) is unambiguously a search — the loop variable is the
+		// needle, so the word list is inert. Before the fix grepNeedleSpan
+		// refused these (leading-dash guard on the glued -e"$p" word), leaving
+		// the loop variable "live" and a plain search over notes.txt falsely
+		// blocked by sec-block-etc-shadow.
+		{
+			name:    `#3728: grep -e"$p" inline quoted needle`,
+			command: `for p in /etc/shadow; do grep -e"$p" notes.txt; done`,
+			inert:   true,
+			items:   []string{`/etc/shadow`},
+		},
+		{
+			name:    `#3728: grep --regexp="$p" inline needle`,
+			command: `for p in /etc/shadow; do grep --regexp="$p" notes.txt; done`,
+			inert:   true,
+			items:   []string{`/etc/shadow`},
+		},
 		{
 			name:    "substring expansion of the loop variable in echo",
 			command: `for s in "/etc/shadow"; do echo "${s:0:50}"; done`,
@@ -79,6 +97,21 @@ func TestInertLoopWordLists(t *testing.T) {
 		{
 			name:    "grep -f makes the operand a pattern FILE",
 			command: `for p in /etc/shadow; do grep -f "$p" notes.txt; done`,
+		},
+		{
+			// #3728 finding B guard: the loop variable is BOTH the inline needle
+			// (`-e"$p"`, inert) AND the haystack (`"$p"`, a file grep opens) —
+			// so the loop must stay LIVE. Resolving the needle subspan must not
+			// bless the separate haystack reference.
+			name:    `#3728: inline needle AND haystack both bind the loop variable`,
+			command: `for p in /etc/shadow; do grep -e"$p" "$p"; done`,
+		},
+		{
+			// #3728/#3690 guard: an $IFS-glued -e word splits the value off into
+			// a SEPARATE token — grepNeedleSpan refuses, so the loop stays live
+			// even though the surface shape looks like an inline needle.
+			name:    `#3728: $IFS-glued -e inside the loop still refuses (stays live)`,
+			command: `for p in /etc/shadow; do grep -e${IFS}"$p" notes.txt; done`,
 		},
 		{
 			name:    "test clause stats the path",

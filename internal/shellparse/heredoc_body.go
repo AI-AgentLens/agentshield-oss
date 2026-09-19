@@ -14,16 +14,98 @@ import (
 // shipped rule pattern.
 const HeredocBodyPlaceholder = "HEREDOCBODY"
 
-// heredocDataSinks are the executables whose heredoc-fed stdin is treated as
-// inert DATA: they copy or print stdin verbatim and never interpret it as
-// code. Deliberately the same two names the InHeredoc intent label already
-// scopes to ("cat/tee << EOF — body is data written to a file, not
-// execution", intent.go) — this function answers a different question about
-// the same shape (see below), not a broader one. Kept short on purpose: any
-// other consumer (bash, sh, python3, …) can execute what it reads from stdin,
-// which is exactly the risk InInterpreterHeredoc's doc comment already warns
-// about for the sibling label.
-var heredocDataSinks = []string{"cat", "tee"}
+// NOTE (#3827): the old two-name allowlist (cat, tee) is gone — see
+// heredocBodyIsInert for why the gate inverted. The InHeredoc intent label in
+// intent.go still scopes to exactly those two names; that asymmetry is now
+// deliberate, because the label and this function answer different questions.
+//
+// heredocBindingSinks read stdin into a NAME rather than executing it — and
+// the name is then executed later in the same command:
+//
+//	read zc <<< "rm -rf /"; $zc          (TP-READ-SCALAR-EXEC-001)
+//	mapfile -t a <<< "..."; ${a[0]}      (TP-READ-MAPFILE-EXEC-001)
+//
+// So the body is NOT inert even though the sink interprets nothing itself.
+// This is the real reason the old allowlist had to be short, and it is a
+// sharper reason than "any other consumer can execute what it reads": the set
+// of bash builtins that slurp stdin into a variable is CLOSED and tiny, where
+// the set of commands that might be an interpreter is open-ended. The same
+// three names are already recognised as a class in parse.go and
+// unset_paramexp.go; this is that class, named.
+var heredocBindingSinks = []string{"read", "mapfile", "readarray"}
+
+func isHeredocBindingSink(name string) bool {
+	for _, s := range heredocBindingSinks {
+		if name == s {
+			return true
+		}
+	}
+	return false
+}
+
+// heredocExecSinks execute or FORWARD stdin without being named in the
+// interpreter maps, which key on binary names rather than builtins:
+//
+//   - eval  — runs what it is given; TestHeredocBodies pins it as non-inert.
+//   - source / .  — `source /dev/stdin <<'EOF'` runs the body in the CURRENT
+//     shell. That is the same mechanism closed for pipes in #3798 item 1, and
+//     it would be incoherent to treat it as inert here.
+//   - xargs — hands stdin to another command as arguments, so the body is not
+//     consumed as data by xargs itself.
+//
+// `command` and `exec` are deliberately absent: both are already in
+// ExecWrappers and therefore stripped before the sink is named, so
+// `exec bash <<'EOF'` resolves to bash.
+var heredocExecSinks = []string{"eval", "source", ".", "xargs"}
+
+func isHeredocExecSink(name string) bool {
+	for _, s := range heredocExecSinks {
+		if name == s {
+			return true
+		}
+	}
+	return false
+}
+
+// heredocBodyIsInert reports whether a QUOTED heredoc body fed to this sink is
+// merely data. args is the sink's full argument list with exec wrappers
+// already stripped.
+//
+// # Why this is a blocklist and not an allowlist (#3827, Gary's call)
+//
+// It used to be an allowlist of two names, so every unrecognised sink kept its
+// body live — `gh issue comment --body-file - <<'BODY'` BLOCKed on prose that
+// merely QUOTED an attack string, and so did any in-house tool. That treats
+// "sink I do not recognise" as evidence of execution, which inverts this
+// package's own rule that withdrawing an inertness excuse requires EVIDENCE.
+// It also has a specific cost here: filing a false-positive report about a
+// rule was blocked BY that rule, twice in one day (#3822, #3827).
+//
+// The two classes that genuinely are not inert are both ENUMERABLE, which is
+// what makes the inversion safe rather than optimistic:
+//
+//   - executors — ShellInterpreters/CodeInterpreters, hardened in the #3796
+//     review precisely so mksh/ash/rbash/ksh93/osascript/tclsh/Rscript could
+//     not launder a body past it.
+//   - binding sinks — the three builtins above.
+//
+// git is neither, and is handled by spelling: `git commit -F -` takes inert
+// prose (#3493), while `git apply` and `git am` take a patch, so only the
+// commit spelling qualifies.
+//
+// Residual risk, stated rather than hidden: a sink that binds stdin to a name
+// by some mechanism not in heredocBindingSinks. That is a far more bounded
+// unknown than "every command that might be an interpreter", and the nine
+// TP-READ-*/TP-MAPFILE-* corpus cases turn red the moment it is got wrong.
+func heredocBodyIsInert(name string, args []*syntax.Word) bool {
+	if IsShellOrInterpreter(name) || isHeredocBindingSink(name) || isHeredocExecSink(name) {
+		return false
+	}
+	if name == "git" {
+		return isGitCommitMessageStdinSink(args)
+	}
+	return true
+}
 
 // isGitCommitMessageStdinSink reports whether args (the CallExpr's argument
 // list with "git" itself already stripped) is `commit` reading its message
@@ -52,8 +134,8 @@ func isGitCommitMessageStdinSink(args []*syntax.Word) bool {
 }
 
 // HeredocBodies reports the BODY spans of every `<<DELIM … DELIM` heredoc in
-// command that feeds a recognized inert-data consumer (cat, tee, or
-// `git commit … -F -`), together with a rendering of command in which exactly
+// command whose sink does not execute, bind, or forward the body (see
+// heredocBodyIsInert), together with a rendering of command in which exactly
 // those bodies have been replaced by HeredocBodyPlaceholder.
 //
 // # Why this exists
@@ -89,10 +171,14 @@ func isGitCommitMessageStdinSink(args []*syntax.Word) bool {
 //
 // # What is deliberately NOT covered
 //
-// Only cat/tee heredocs, and `git commit … -F -`/`--file -` heredocs
-// (#3493 — reading the commit message from stdin is exactly as inert as
-// `cat`/`tee`; no other git subcommand qualifies, see
-// isGitCommitMessageStdinSink), qualify. A heredoc fed to an interpreter
+// Since #3827 the gate is a blocklist, not an allowlist: a heredoc qualifies
+// UNLESS its sink executes the body (an interpreter, eval, source/., xargs),
+// binds it to a name that is executed later (read/mapfile/readarray), or is a
+// git subcommand other than `commit … -F -`/`--file -` (#3493 — reading the
+// commit message from stdin is exactly as inert as `cat`/`tee`, while
+// `git apply`/`git am` take a patch; see isGitCommitMessageStdinSink). Exec
+// wrappers are stripped first, so `sudo bash <<'EOF'` is named bash, not sudo.
+// A heredoc fed to an interpreter
 // (`bash <<EOF`, `python3 <<EOF`, `eval <<EOF`) is source code, not inert
 // data — the InInterpreterHeredoc label already exists for the python/node/
 // etc. case and carries its own explicit warning that rules serving as sole
@@ -104,6 +190,30 @@ func isGitCommitMessageStdinSink(args []*syntax.Word) bool {
 // A here-string (`<<<`, syntax.WordHdoc) is a single expression, not a
 // multi-line body with its own delimiter, and is not a Hdoc/DashHdoc
 // redirect — Redirect.Hdoc is nil for it, so it is never collected here.
+//
+// # Quoted vs. unquoted delimiter (#3730)
+//
+// A shell only treats the body as inert literal text when the delimiter is
+// quoted (`<<'EOF'`, `<<"EOF"`, `<<\EOF`). An UNQUOTED delimiter (`<<EOF`)
+// gets the same expansion a double-quoted string gets: parameter expansion,
+// command substitution, arithmetic expansion. So `$(rm -rf /)` inside an
+// unquoted-delimiter body to `cat`/`tee` genuinely executes before the sink
+// ever sees it — redacting the whole span for a rule like
+// `ts-block-mcp-socket-hijack` would blind it to a real listener started via
+// `cat <<EOF\n$(nc -lU /tmp/mcp-agent.sock)\nEOF`.
+//
+// mvdan/sh already encodes this structurally, so this function does not
+// need to inspect the delimiter itself: `Redirect.Hdoc.Parts` is a single
+// `*syntax.Lit` for a quoted delimiter (the whole body, verbatim, including
+// any literal `$(...)` text), and a mix of `*syntax.Lit` and expansion nodes
+// (`*syntax.CmdSubst`, `*syntax.ParamExp`, `*syntax.ArithmExp`, …) for an
+// unquoted one. Only `*syntax.Lit` parts are ever redacted or collected as
+// items; every other part type is left untouched in both the item text and
+// the redacted command, so a pattern that only matches inside a live
+// expansion still matches the redacted form and PositionExcluded's
+// subtraction check correctly refuses to exclude it. A quoted delimiter is
+// unaffected: its single Lit part reproduces the pre-#3730 whole-body
+// behavior exactly.
 //
 // Returns (nil, "") when the command has no qualifying heredoc, when parsing
 // fails, or when nothing was rewritten — the same no-op sentinel convention
@@ -130,12 +240,26 @@ func HeredocBodies(command string) (items []string, redacted string) {
 		if !ok || len(ce.Args) == 0 {
 			return true
 		}
-		exe := staticWord(ce.Args[0])
+		// Strip exec wrappers before naming the sink, or `sudo bash <<'EOF'`
+		// reads as the unknown command "sudo" and its body would be called
+		// inert — the exact regression the inversion below could introduce.
+		// The corpus carries that shape (`sudo bash <<< …`), so this is
+		// load-bearing, not defensive.
+		words := make([]string, len(ce.Args))
+		for i, a := range ce.Args {
+			words[i] = WordToString(a)
+		}
+		stripped := StripExecWrappers(words)
+		if len(stripped) == 0 {
+			return true
+		}
+		offset := len(words) - len(stripped) // StripExecWrappers only trims the front
+		exe := staticWord(ce.Args[offset])
 		if exe == "" {
 			return true
 		}
 		name := path.Base(NormalizeExecName(exe))
-		if !isHeredocDataSink(name) && (name != "git" || !isGitCommitMessageStdinSink(ce.Args[1:])) {
+		if !heredocBodyIsInert(name, ce.Args[offset+1:]) {
 			return true
 		}
 		for _, r := range st.Redirs {
@@ -145,11 +269,22 @@ func HeredocBodies(command string) (items []string, redacted string) {
 			if r.Op != syntax.Hdoc && r.Op != syntax.DashHdoc {
 				continue
 			}
-			s, e := int(r.Hdoc.Pos().Offset()), int(r.Hdoc.End().Offset())
-			if s < 0 || e > len(command) || s >= e {
-				continue
+			// Only literal text is inert. A live expansion part (CmdSubst,
+			// ParamExp, ArithmExp, ProcSubst, ...) is left completely
+			// untouched — neither redacted nor collected as an item — so it
+			// stays visible to the pattern matcher in both attribution and
+			// subtraction. See "Quoted vs. unquoted delimiter" above.
+			for _, part := range r.Hdoc.Parts {
+				lit, ok := part.(*syntax.Lit)
+				if !ok {
+					continue
+				}
+				s, e := int(lit.Pos().Offset()), int(lit.End().Offset())
+				if s < 0 || e > len(command) || s >= e {
+					continue
+				}
+				spans = append(spans, byteSpan{s, e})
 			}
-			spans = append(spans, byteSpan{s, e})
 		}
 		return true
 	})
@@ -176,13 +311,4 @@ func HeredocBodies(command string) (items []string, redacted string) {
 		return nil, ""
 	}
 	return items, out
-}
-
-func isHeredocDataSink(exe string) bool {
-	for _, name := range heredocDataSinks {
-		if exe == name {
-			return true
-		}
-	}
-	return false
 }

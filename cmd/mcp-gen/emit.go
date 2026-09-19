@@ -38,52 +38,206 @@ type MCPGenPack struct {
 // EmitMCPPack merges candidates into the MCP pack YAML file at outPath.
 //
 // This MERGES rather than overwrites: any rule already present in the file
-// on disk (by id) is kept verbatim in its existing on-disk order, and
-// candidates are appended after it, skipping any candidate whose id already
-// exists. A bare `go run ./cmd/mcp-gen` with no removal mechanism at all was
-// the original #3367 bug — regeneration rewrote the file from just the
-// current candidate set, so any id that fell out of classification (a
-// classifier fix, a corpus change) silently vanished from a pack every
-// community user's binary embeds. Rule removal is not something this tool
-// does; that stays a human decision made by editing the YAML directly.
-func EmitMCPPack(candidates []Candidate, outPath string) error {
-	existing, err := loadMCPGenPack(outPath)
+// on disk (by id) is kept in its existing on-disk order, and candidates are
+// appended after it, skipping any candidate whose id already exists. A bare
+// `go run ./cmd/mcp-gen` with no removal mechanism at all was the original
+// #3367 bug — regeneration rewrote the file from just the current candidate
+// set, so any id that fell out of classification (a classifier fix, a
+// corpus change) silently vanished from a pack every community user's
+// binary embeds. Rule removal is not something this tool does; that stays a
+// human decision made by editing the YAML directly.
+//
+// The write path operates on a yaml.Node tree, not the plain MCPGenPack
+// struct, so it can splice in additions without disturbing any node it
+// doesn't touch — including comments attached to those nodes. Struct-based
+// marshaling has no concept of a comment bound to a specific field; the
+// first version of this function used it and silently ate the hand-written
+// `# Hand-edited (#3735): ...` rationale on the m2-settings.xml rule on
+// every real (non-dry-run) regen, because re-serializing the whole struct
+// has nowhere to put a comment that isn't itself a struct field (#3855).
+//
+// reclassified carries EVERY candidate this run's classifier produced,
+// including the ones dedup dropped because their id is already shipped. It
+// feeds the tool-coverage widening pass and nothing else. Without it the
+// generator is strictly ADDITIVE — dedup drops an already-shipped id before
+// it can reach this function, so a classifier fix can never reach a rule
+// already in the file, and "fix the classifier, then regenerate" is a
+// silent no-op. That is what let #3589 sit shipped: the editor-verb gap was
+// fixed-able in classifier.go but undeliverable. Pass nil to skip widening.
+func EmitMCPPack(candidates, reclassified []Candidate, outPath string) error {
+	root, existingIDs, err := loadMCPGenPackNode(outPath)
 	if err != nil {
 		return fmt.Errorf("read existing pack: %w", err)
 	}
 
-	existingIDs := make(map[string]bool, len(existing.Rules))
-	for _, r := range existing.Rules {
-		existingIDs[r.ID] = true
-	}
+	// Field order mirrors the struct this replaced (Name, Description,
+	// Version, Author, Generated, Rules) — setMappingNodeScalar updates a
+	// field in place if it already exists (the common case: every real file
+	// was written by this same function before) and only appends a new
+	// key/value pair in insertion order for a brand-new document.
+	setMappingNodeScalar(root, "name", "MCP Generated Rules (Shell-to-MCP)")
+	setMappingNodeScalar(root, "description", "Auto-generated MCP rules from convertible shell rules — credential files, config files, and sensitive paths")
+	setMappingNodeScalar(root, "version", "1.0.0")
+	setMappingNodeScalar(root, "author", "AgentShield MCP Generator")
+	setMappingNodeScalar(root, "generated", time.Now().UTC().Format(time.RFC3339))
 
-	pack := MCPGenPack{
-		Name:        "MCP Generated Rules (Shell-to-MCP)",
-		Description: "Auto-generated MCP rules from convertible shell rules — credential files, config files, and sensitive paths",
-		Version:     "1.0.0",
-		Author:      "AgentShield MCP Generator",
-		Generated:   time.Now().UTC().Format(time.RFC3339),
-		Rules:       existing.Rules,
-	}
+	rulesNode := getOrCreateSeqNode(root, "rules")
+
+	widenToolCoverageNode(rulesNode, reclassified)
 
 	for _, c := range candidates {
 		rule := candidateToRule(c)
 		if existingIDs[rule.ID] {
 			continue
 		}
-		pack.Rules = append(pack.Rules, rule)
+		ruleNode := &yaml.Node{}
+		if err := ruleNode.Encode(rule); err != nil {
+			return fmt.Errorf("encode rule %s: %w", rule.ID, err)
+		}
+		rulesNode.Content = append(rulesNode.Content, ruleNode)
 		existingIDs[rule.ID] = true
 	}
 
-	data, err := yaml.Marshal(&pack)
+	data, err := yaml.Marshal(root)
 	if err != nil {
 		return fmt.Errorf("marshal YAML: %w", err)
 	}
 
-	// Add a header comment.
+	// Add a header comment. This is always written fresh rather than stored
+	// as a YAML comment on the node tree — it's not user-editable content,
+	// so there's nothing here worth round-tripping.
 	header := "# Auto-generated by cmd/mcp-gen — do not edit manually.\n# Re-generate with: go run ./cmd/mcp-gen\n#\n# Source: shell rules from packs/*.yaml\n# Each rule protects a file path or URL that is equally reachable via MCP tool calls.\n\n"
 
 	return os.WriteFile(outPath, []byte(header+string(data)), 0644)
+}
+
+// loadMCPGenPackNode reads the existing generated pack as a yaml.Node tree
+// so EmitMCPPack can splice in additions and widen existing rules without
+// destroying comments attached to nodes it never touches.
+//
+// Mirrors loadMCPGenPack's fail-safe semantics exactly: a missing file
+// starts a fresh empty document (the first-ever run), and a present but
+// unparseable file is an error, never silently treated as empty — treating
+// it as empty would look, to the very next write, exactly like "nothing to
+// preserve" and delete every rule the file held.
+func loadMCPGenPackNode(path string) (root *yaml.Node, existingIDs map[string]bool, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, map[string]bool{}, nil
+		}
+		return nil, nil, err
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, nil, fmt.Errorf("parse %s: expected a top-level mapping", path)
+	}
+	root = doc.Content[0]
+
+	existingIDs = make(map[string]bool)
+	if rulesNode := findMappingValueNode(root, "rules"); rulesNode != nil {
+		for _, ruleNode := range rulesNode.Content {
+			if idNode := findMappingValueNode(ruleNode, "id"); idNode != nil {
+				existingIDs[idNode.Value] = true
+			}
+		}
+	}
+	return root, existingIDs, nil
+}
+
+// findMappingValueNode returns the value node for key in a YAML mapping
+// node, or nil if mapping is not a mapping or has no such key.
+func findMappingValueNode(mapping *yaml.Node, key string) *yaml.Node {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// setMappingNodeScalar sets key's value to a scalar string in mapping,
+// updating the existing value node in place if key is already present (so
+// its position in the document is unchanged) or appending a new key/value
+// pair if not.
+func setMappingNodeScalar(mapping *yaml.Node, key, value string) {
+	if v := findMappingValueNode(mapping, key); v != nil {
+		v.SetString(value)
+		return
+	}
+	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	valNode := &yaml.Node{}
+	valNode.SetString(value)
+	mapping.Content = append(mapping.Content, keyNode, valNode)
+}
+
+// getOrCreateSeqNode returns the sequence node for key in mapping, creating
+// an empty one (and appending the key) if it doesn't already exist.
+func getOrCreateSeqNode(mapping *yaml.Node, key string) *yaml.Node {
+	if v := findMappingValueNode(mapping, key); v != nil {
+		return v
+	}
+	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	seqNode := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	mapping.Content = append(mapping.Content, keyNode, seqNode)
+	return seqNode
+}
+
+// widenToolCoverageNode is the yaml.Node counterpart of widenToolCoverage
+// below — same union-only semantics (see that function's doc comment for
+// the safety argument), but it mutates tool_name_any sequence nodes on the
+// existing tree in place instead of rebuilding rule structs, so a comment
+// attached to any part of an untouched — or even a widened — rule node
+// survives.
+func widenToolCoverageNode(rulesNode *yaml.Node, reclassified []Candidate) {
+	if rulesNode == nil || len(reclassified) == 0 {
+		return
+	}
+	want := make(map[string][]string, len(reclassified))
+	for _, c := range reclassified {
+		want[candidateRuleID(c)] = c.ToolNames
+	}
+
+	for _, ruleNode := range rulesNode.Content {
+		idNode := findMappingValueNode(ruleNode, "id")
+		if idNode == nil {
+			continue
+		}
+		tools, ok := want[idNode.Value]
+		if !ok || len(tools) == 0 {
+			continue
+		}
+		matchNode := findMappingValueNode(ruleNode, "match")
+		if matchNode == nil {
+			continue
+		}
+		toolsNode := findMappingValueNode(matchNode, "tool_name_any")
+		if toolsNode == nil || len(toolsNode.Content) == 0 {
+			// A rule with no tool_name_any at all matches every tool;
+			// writing one in would narrow it. Same skip as widenToolCoverage.
+			continue
+		}
+		have := make(map[string]bool, len(toolsNode.Content))
+		for _, t := range toolsNode.Content {
+			have[t.Value] = true
+		}
+		for _, t := range tools {
+			if have[t] {
+				continue
+			}
+			n := &yaml.Node{}
+			n.SetString(t)
+			toolsNode.Content = append(toolsNode.Content, n)
+			have[t] = true
+		}
+	}
 }
 
 // loadMCPGenPack reads an existing generated pack, if any. A missing file is

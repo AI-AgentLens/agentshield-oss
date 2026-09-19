@@ -109,6 +109,21 @@ func TestPositionExcludeSearchNeedleParityAcrossEvaluationPaths(t *testing.T) {
 			`grep -i "frida -n <process>" -r docs/ && frida -n chrome`,
 			DecisionBlock,
 		},
+		{
+			"#3729: command substitution used as the WHOLE pattern still executes — must BLOCK, not be excused as an inert needle",
+			`grep "$(frida -n chrome)" notes.txt`,
+			DecisionBlock,
+		},
+		{
+			"#3725: unset-param-splice real attach + needle-position sibling — must BLOCK, not be laundered by the sibling's excluded position",
+			`f${zqx}rida -n chrome; grep -i "frida -n <process>" -r docs/`,
+			DecisionBlock,
+		},
+		{
+			"#3725: indirect-executable-variable real attach + needle-position sibling — must BLOCK, not be laundered by the sibling's excluded position",
+			`x=frida; $x -n chrome; grep -i "frida -n <process>" -r docs/`,
+			DecisionBlock,
+		},
 	})
 }
 
@@ -133,6 +148,20 @@ func TestPositionExcludeHeredocBodyParityAcrossEvaluationPaths(t *testing.T) {
 			"filename is the real write target, not body prose",
 			"cat > sitecustomize.py <<'EOF'\nimport os\nEOF",
 			DecisionBlock,
+		},
+		// #3730: an unquoted delimiter expands the body before cat/tee ever
+		// sees it, so a command substitution that performs the write
+		// executes for real — redacting the whole span (the pre-fix
+		// behavior) would have excused this as inert prose. Must BLOCK.
+		{
+			"unquoted delimiter — the write happens via a live command substitution",
+			"cat > \"$S/notes.md\" <<EOF\n$(cp backdoor.py /usr/lib/python3/dist-packages/sitecustomize.py)\nEOF",
+			DecisionBlock,
+		},
+		{
+			"unquoted delimiter — genuinely inert prose is still excused",
+			"cat > \"$S/notes.md\" <<EOF\n- blocks cat/tee writes to sitecustomize.py\nEOF",
+			DecisionAudit,
 		},
 	})
 }

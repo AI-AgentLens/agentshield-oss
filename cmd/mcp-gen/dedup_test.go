@@ -336,3 +336,129 @@ func TestCoverageDedup_KnownDuplicatesFromIssue3464(t *testing.T) {
 	}
 	t.Logf("net-new candidates after coverage dedup: %d", len(netNew))
 }
+
+// TestLoadExistingMCPRulesFromDirs_MergesAndSkipsMissing pins the merge
+// mechanics of LoadExistingMCPRulesFromDirs in isolation from any real
+// corpus content: a rule id/pattern living in EITHER of two directories must
+// end up in the merged result, and a directory that does not exist on disk
+// must be skipped rather than aborting the whole load — main.go relies on
+// exactly this to keep working on the OSS tree, where packs/premium/mcp
+// doesn't exist (scripts/publish-oss.sh excludes packs/premium/).
+func TestLoadExistingMCPRulesFromDirs_MergesAndSkipsMissing(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	packA := `rules:
+  - id: mcp-a-rule
+    match:
+      tool_name_any: [read_file]
+      argument_patterns:
+        path: "**/.secret-a"
+    decision: BLOCK
+`
+	packB := `rules:
+  - id: mcp-b-rule
+    match:
+      tool_name_any: [read_file]
+      argument_patterns:
+        path: "**/.secret-b"
+    decision: BLOCK
+`
+	if err := os.WriteFile(filepath.Join(dirA, "a.yaml"), []byte(packA), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "b.yaml"), []byte(packB), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, patterns, err := LoadExistingMCPRulesFromDirs([]string{dirA, missing, dirB})
+	if err != nil {
+		t.Fatalf("LoadExistingMCPRulesFromDirs: %v", err)
+	}
+	if !ids["mcp-a-rule"] || !ids["mcp-b-rule"] {
+		t.Errorf("expected both rule ids merged from dirA and dirB, got %v", ids)
+	}
+	if !patterns["**/.secret-a"] || !patterns["**/.secret-b"] {
+		t.Errorf("expected both patterns merged from dirA and dirB, got %v", patterns)
+	}
+}
+
+// TestLoadExistingMCPPolicyFromDirs_MergesAndSkipsMissing is the
+// CoverageChecker-path twin of the merge test above: a candidate covered
+// only by a rule in the SECOND directory of the list must still be
+// recognized as covered, even with a nonexistent directory also in the list.
+func TestLoadExistingMCPPolicyFromDirs_MergesAndSkipsMissing(t *testing.T) {
+	dirA := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	packA := `rules:
+  - id: mcp-a-rule
+    match:
+      tool_name_any: [read_file, write_file]
+      argument_patterns:
+        path: "**/.secret-a"
+    decision: BLOCK
+`
+	if err := os.WriteFile(filepath.Join(dirA, "a.yaml"), []byte(packA), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	policy, err := LoadExistingMCPPolicyFromDirs([]string{missing, dirA})
+	if err != nil {
+		t.Fatalf("LoadExistingMCPPolicyFromDirs: %v", err)
+	}
+	cc := NewCoverageChecker(policy)
+	c := Candidate{
+		SourceRule: ShellRule{ID: "protected-path-secret-a", Decision: "BLOCK"},
+		Category:   "path-read",
+		Paths:      []string{"**/.secret-a"},
+		ToolNames:  ReadTools,
+		Decision:   "BLOCK",
+	}
+	if !cc.Covers(c) {
+		t.Error("a candidate covered by a rule in a merged, still-existing directory must be recognized as covered even when another directory in the list is missing")
+	}
+}
+
+// TestLoadExistingMCPPolicyFromDirs_IncludesPremiumCoverage is the dedup
+// half of #3817, replayed against the real shipped corpus: three MCP rules
+// that already cover a shell-rule-derived candidate's targets all live in
+// packs/premium/mcp, never packs/community/mcp, so CoverageChecker missed
+// all three before this fix (main.go used to build its existing-policy view
+// from packs/community/mcp alone). This test uses the sharpest of the three
+// — ts-block-mfa-seed-replacement's /root/.google_authenticator target,
+// covered only by mcp-sec-block-google-authenticator-write in
+// packs/premium/mcp/mcp-devtool-creds.yaml.
+func TestLoadExistingMCPPolicyFromDirs_IncludesPremiumCoverage(t *testing.T) {
+	root := findProjectRoot()
+	communityDir := filepath.Join(root, "packs", "community", "mcp")
+	premiumDir := filepath.Join(root, "packs", "premium", "mcp")
+	if _, err := os.Stat(premiumDir); err != nil {
+		t.Skipf("packs/premium/mcp not present in this checkout (OSS tree): %v", err)
+	}
+
+	c := Candidate{
+		SourceRule: ShellRule{ID: "ts-block-mfa-seed-replacement", Decision: "BLOCK"},
+		Category:   "config-write",
+		Paths:      []string{"/root/.google_authenticator"},
+		ToolNames:  WriteTools,
+		Decision:   "BLOCK",
+	}
+
+	communityOnlyPolicy, err := LoadExistingMCPPolicyFromDirs([]string{communityDir})
+	if err != nil {
+		t.Fatalf("LoadExistingMCPPolicyFromDirs (community only): %v", err)
+	}
+	if NewCoverageChecker(communityOnlyPolicy).Covers(c) {
+		t.Fatal("candidate should NOT be covered by community-only packs — the covering rule is premium-only; if this now passes, the fixture has drifted and this test's premise needs re-checking")
+	}
+
+	mergedPolicy, err := LoadExistingMCPPolicyFromDirs([]string{communityDir, premiumDir})
+	if err != nil {
+		t.Fatalf("LoadExistingMCPPolicyFromDirs (community+premium): %v", err)
+	}
+	if !NewCoverageChecker(mergedPolicy).Covers(c) {
+		t.Fatal("candidate should be covered once premium packs are included — mcp-sec-block-google-authenticator-write (packs/premium/mcp/mcp-devtool-creds.yaml) BLOCKs write_file at **/.google_authenticator")
+	}
+}

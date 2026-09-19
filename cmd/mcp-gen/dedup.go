@@ -147,6 +147,71 @@ func representativeTools(category string) []string {
 	}
 }
 
+// LoadExistingMCPRulesFromDirs merges LoadExistingMCPRules across multiple
+// pack directories. A directory that does not exist is skipped rather than
+// treated as an error — packs/premium/mcp is absent from the OSS-published
+// tree (scripts/publish-oss.sh excludes packs/premium/), and dedup must
+// degrade to community-only coverage there, not fail outright.
+func LoadExistingMCPRulesFromDirs(dirs []string) (map[string]bool, map[string]bool, error) {
+	ruleIDs := map[string]bool{}
+	pathPatterns := map[string]bool{}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err != nil {
+			continue
+		}
+		ids, patterns, err := LoadExistingMCPRules(dir)
+		if err != nil {
+			return ruleIDs, pathPatterns, err
+		}
+		for id := range ids {
+			ruleIDs[id] = true
+		}
+		for p := range patterns {
+			pathPatterns[p] = true
+		}
+	}
+	return ruleIDs, pathPatterns, nil
+}
+
+// LoadExistingMCPPolicyFromDirs merges LoadExistingMCPPolicy across multiple
+// pack directories, with the same missing-directory handling as
+// LoadExistingMCPRulesFromDirs above.
+//
+// This — and its dedup-map counterpart above — is the fix for the dedup half
+// of #3817: main.go used to build both the textual existingIDs/existingPatterns
+// maps and the CoverageChecker's policy from packs/community/mcp alone, so a
+// candidate covered ONLY by a premium rule was invisible to both and looked
+// like a net-new gap. All three concrete misses #3817 found were exactly
+// this — mcp-sec-block-google-authenticator-write, mcp-persist-block-var-root-write
+// and mcp-sc-block-pkgmgr-config-write all live in packs/premium/mcp/, never
+// packs/community/mcp/. The glob-matching semantics the issue speculated
+// about (a leading "**/" not lining up with a bare anchored path) are fine —
+// traced by hand against globMatch/splitPath and confirmed by
+// TestLoadExistingMCPPolicyFromDirs_IncludesPremiumCoverage below, which
+// fails if community-only ever again reports it "covered" (that would mean
+// the fixture drifted and this comment's claim needs re-checking) and fails
+// if community+premium does NOT report it covered (that would be this fix
+// regressing). Output emission stays community-only (main.go's mcpOutPath is
+// unaffected) — this only widens what dedup treats as read-only input.
+func LoadExistingMCPPolicyFromDirs(dirs []string) (*mcp.MCPPolicy, error) {
+	merged := &mcp.MCPPolicy{}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err != nil {
+			continue
+		}
+		policy, err := LoadExistingMCPPolicy(dir)
+		if err != nil {
+			return merged, err
+		}
+		merged.Rules = append(merged.Rules, policy.Rules...)
+		merged.StructuralRules = append(merged.StructuralRules, policy.StructuralRules...)
+		merged.ResourceRules = append(merged.ResourceRules, policy.ResourceRules...)
+		merged.BlockedTools = append(merged.BlockedTools, policy.BlockedTools...)
+		merged.BlockedResources = append(merged.BlockedResources, policy.BlockedResources...)
+	}
+	return merged, nil
+}
+
 // CoverageChecker answers "does the existing MCP policy already decide this
 // candidate's targets at least as restrictively as the candidate itself
 // would" by running the real MCP evaluator, not by comparing pattern

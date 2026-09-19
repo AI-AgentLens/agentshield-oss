@@ -54,19 +54,70 @@ var skillIdentityFallbackKeys = []string{"name", "id", "task"}
 // a specific skill is not tracked by CompoSkillTracker at all — see the type
 // doc for why that is deliberate.
 func extractSkillIdentity(toolName string, args map[string]interface{}) (string, bool) {
-	for _, k := range skillIdentityArgKeys {
-		if s, ok := args[k].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.ToLower(strings.TrimSpace(s)), true
-		}
+	ids := extractSkillIdentities(toolName, args)
+	if len(ids) == 0 {
+		return "", false
+	}
+	return ids[0], true
+}
+
+// extractSkillIdentities returns EVERY skill identity a tool call resolves to.
+// A normalized-name collision resolves one identity key to several disguised
+// spellings with different values; returning all of them lets CompoSkillTracker
+// attribute the call to each, so a benign identity that sorts first cannot hide
+// the one the cross-skill composite would fire on (#3727 pass-2 finding 2). In
+// the ordinary single-identity case this is a one-element slice.
+func extractSkillIdentities(toolName string, args map[string]interface{}) []string {
+	if ids := skillIdentityArgs(args, skillIdentityArgKeys); len(ids) > 0 {
+		return ids
 	}
 	if skillDispatchTools[strings.ToLower(strings.TrimSpace(toolName))] {
-		for _, k := range skillIdentityFallbackKeys {
-			if s, ok := args[k].(string); ok && strings.TrimSpace(s) != "" {
-				return strings.ToLower(strings.TrimSpace(s)), true
-			}
+		if ids := skillIdentityArgs(args, skillIdentityFallbackKeys); len(ids) > 0 {
+			return ids
 		}
 	}
-	return "", false
+	return nil
+}
+
+// skillIdentityArgs returns the lowercased, trimmed, non-blank identities under
+// the FIRST of keys that resolves to any — EVERY such value for that key, not
+// just the first (deduped, in the resolver's stable order).
+//
+// It resolves each candidate through argFieldRecovered (exact-then-render-
+// recovery) rather than indexing args directly OR running the full resolveField
+// ladder (see #3691/#3712/#3720/#3727): an MCP argument NAME is attacker-declared
+// and attacker-resolved, so `skill_id` + U+00A0 is a working parameter that an
+// exact-key lookup misses. Missing it here is silent by construction — an
+// unattributable call is not tracked by CompoSkillTracker at all, so the
+// cross-skill composite simply never fires and nothing is logged.
+//
+// That silence is documented as deliberate for calls carrying NO skill
+// identity; it was never meant to cover a call that DOES carry one, spelled
+// with a separator the renderer folds away. An ASCII camelCase/uppercase
+// spelling still resolves exactly as before (#3727 finding 1), and every value
+// a key resolves to is returned, so a normalized-name collision cannot drop the
+// dangerous identity behind a benign sibling that sorts first (#3727 finding 2/3).
+func skillIdentityArgs(args map[string]interface{}, keys []string) []string {
+	for _, k := range keys {
+		var ids []string
+		seen := map[string]bool{}
+		for _, v := range argFieldRecovered(args, k) {
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+			id := strings.ToLower(strings.TrimSpace(s))
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+		if len(ids) > 0 {
+			return ids
+		}
+	}
+	return nil
 }
 
 // skillCaps accumulates which capability classes a single named skill has
@@ -131,8 +182,12 @@ func (t *CompoSkillTracker) Scan(toolName string, args map[string]interface{}) C
 	if t == nil {
 		return ""
 	}
-	identity, ok := extractSkillIdentity(toolName, args)
-	if !ok {
+	// Attribute the call to EVERY identity it resolves to, not just the first
+	// (#3727 pass-2 finding 2): a normalized-name collision resolves one
+	// identity key to several disguised spellings, and a benign one that sorts
+	// first must not hide the identity the composite would fire on.
+	identities := extractSkillIdentities(toolName, args)
+	if len(identities) == 0 {
 		return ""
 	}
 
@@ -142,31 +197,34 @@ func (t *CompoSkillTracker) Scan(toolName string, args map[string]interface{}) C
 		return ""
 	}
 
-	caps := t.skills[identity]
-	if caps == nil {
-		if len(t.skills) >= compoSkillMaxSkills {
-			return ""
+	callCaps := classifyTrifectaCaps(toolName, args)
+	for _, identity := range identities {
+		caps := t.skills[identity]
+		if caps == nil {
+			if len(t.skills) >= compoSkillMaxSkills {
+				continue
+			}
+			caps = &skillCaps{}
+			t.skills[identity] = caps
 		}
-		caps = &skillCaps{}
-		t.skills[identity] = caps
-	}
 
-	for _, c := range classifyTrifectaCaps(toolName, args) {
-		switch c {
-		case capPrivateRead, capUntrustedIngest:
-			caps.read = true
-		case capEgress:
-			caps.egress = true
+		for _, c := range callCaps {
+			switch c {
+			case capPrivateRead, capUntrustedIngest:
+				caps.read = true
+			case capEgress:
+				caps.egress = true
+			}
 		}
-	}
 
-	for otherID, other := range t.skills {
-		if otherID == identity {
-			continue
-		}
-		if (caps.read && other.egress) || (caps.egress && other.read) {
-			t.fired = true
-			return SignalCompoSkillChain
+		for otherID, other := range t.skills {
+			if otherID == identity {
+				continue
+			}
+			if (caps.read && other.egress) || (caps.egress && other.read) {
+				t.fired = true
+				return SignalCompoSkillChain
+			}
 		}
 	}
 	return ""

@@ -18,8 +18,35 @@
 #   FIXED — in the baseline, passing now. The ratchet: the entry must come out,
 #           so the baseline can only ever shrink.
 #
-# Usage:  scripts/check-oss-baseline.sh <go-test-log> [baseline-file]
-# Exit:   0 = no delta   1 = NEW and/or FIXED entries   2 = usage/unusable log
+# ── 2026-09-14: the ratchet was measured, and it did not hold ───────────────
+#
+# The design above assumed drift would be rare ("~27% red rate", per the measured
+# note in oss-distribution.yml). Over the 12 scheduled runs to 2026-09-13 it was
+# red on NINE — 75%. The three greens each came right after a human hand-edited
+# the baseline. The cause is structural, not neglect: the squad adds corpus cases
+# nightly, a steady fraction of which only a premium rule covers, so the baseline
+# goes stale faster than anyone maintains it. A ratchet that requires a manual
+# commit at the squad's merge rate is a ratchet that is always red, and an
+# always-red job is a muted job — the exact failure #3130 is a monument to.
+#
+# So --refresh makes the baseline self-maintaining: the delta is still computed
+# and still reported, then ABSORBED into the file, which the job commits. The
+# record of what the free tier stopped (or started) detecting moves out of red
+# CI runs nobody opens and into `git log -p scripts/oss-known-failures.txt`,
+# where each night's diff is exactly that measurement.
+#
+# What stays fatal is the thing that actually means something: exit 2, the suite
+# did not run to completion. Coverage drift in the free tier is a product fact we
+# record; a suite that proved nothing is a broken check we must not paper over.
+#
+# The trade, stated plainly: a genuine community regression is now auto-absorbed
+# rather than flagged. That is deliberate and Gary's call (2026-09-14) — the OSS
+# tier is allowed to lag as long as the lag is visible, and the git diff makes it
+# visible in a way nine consecutive ignored reds did not.
+#
+# Usage:  scripts/check-oss-baseline.sh [--refresh] <go-test-log> [baseline-file]
+# Exit:   0 = no delta (or --refresh absorbed it)   1 = NEW and/or FIXED entries
+#         2 = usage/unusable log
 #
 # Entry format (one per line in the baseline; # comments and blanks ignored):
 #   case:<subtest path>   a corpus case, deduped across its parent sweeps
@@ -32,6 +59,13 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+REFRESH=0
+if [ "${1:-}" = "--refresh" ]; then
+  REFRESH=1
+  shift
+fi
+
 LOG="${1:-}"
 BASELINE="${2:-$SCRIPT_DIR/oss-known-failures.txt}"
 
@@ -146,6 +180,49 @@ if [ "$n_fixed" -gt 0 ]; then
   emit ""
   while IFS= read -r l; do [ -n "$l" ] && emit "- \`$l\`"; done < "$WORK/fixed.txt"
   emit ""
+fi
+
+# ── --refresh: absorb the delta into the baseline ────────────────────────────
+# A MERGE, never a rewrite. Six entries carry hand-written `# tier-split`
+# rationale and one explanatory comment block sits among the entries; those are
+# the most valuable lines in the file, and regenerating it from the observed set
+# would silently delete every one of them. So: walk the existing file, keep each
+# line verbatim when its entry still fails (annotation and all), drop entries
+# that now pass (the ratchet still only shrinks), and append genuinely new ones
+# under a dated header so the file records WHEN the free tier lost each case.
+if [ "$REFRESH" -eq 1 ]; then
+  {
+    awk -v obsfile="$WORK/observed.txt" '
+      BEGIN { while ((getline l < obsfile) > 0) if (l != "") keep[l] = 1 }
+      {
+        key = $0
+        sub(/[[:space:]]*#.*$/, "", key)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+        if (key == "") { print; next }        # comment or blank — preserve verbatim
+        if (key in keep) print                # still failing — keep the line AND its note
+      }                                       # otherwise: passes now, ratchet it out
+    ' "$BASELINE"
+
+    if [ "$n_new" -gt 0 ]; then
+      echo ""
+      echo "# --- $(date -u +%Y-%m-%d): $n_new entr$([ "$n_new" -eq 1 ] && echo y || echo ies) added by check-oss-baseline.sh --refresh ---"
+      cat "$WORK/new.txt"
+    fi
+  } > "$WORK/refreshed.txt"
+
+  # Refuse to install a baseline that lost the entries we meant to keep. Writing
+  # a truncated file here would silently erase the measurement this whole script
+  # exists to maintain, and the next run would report it all as FIXED.
+  n_written=$(sed -E 's/[[:space:]]*#.*$//' "$WORK/refreshed.txt" | grep -cE '^[[:space:]]*[^[:space:]]')
+  if [ "$n_written" -ne "$n_obs" ]; then
+    echo "error: refreshed baseline has $n_written entries, expected $n_obs — refusing to write" >&2
+    exit 2
+  fi
+
+  mv "$WORK/refreshed.txt" "$BASELINE"
+  emit "Baseline refreshed: **+$n_new / -$n_fixed**, now $n_written entries. The diff on"
+  emit "\`scripts/oss-known-failures.txt\` is the record of what changed."
+  exit 0
 fi
 
 exit 1

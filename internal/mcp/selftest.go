@@ -3,7 +3,6 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 
 	"github.com/AI-AgentLens/agentshield/internal/mcp/scenarios"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
@@ -93,18 +92,13 @@ func RunMCPSelfTest(packsDir string, extraDirs ...string) MCPSelfTestResults {
 	}
 
 	evaluator := NewPolicyEvaluator(merged)
-	// Scenario evaluation only consults handler.Evaluator plus stateless
-	// scanners, so the trackers wired by newMessageHandler never influence
-	// self-test decisions — using the shared constructor keeps the wiring in
-	// one place without changing counts.
-	handler := newMessageHandler(evaluator, nil, io.Discard, "", "", nil)
 
 	allScenarios := scenarios.AllScenarios()
 	var results MCPSelfTestResults
 	results.Total = len(allScenarios)
 
 	for _, sc := range allScenarios {
-		actual := evaluateScenarioFromDef(handler, sc)
+		actual := evaluateScenarioFromDef(evaluator, sc)
 		match := actual == sc.ExpectedDecision
 
 		sr := ScenarioResult{
@@ -143,14 +137,34 @@ func RunMCPSelfTest(packsDir string, extraDirs ...string) MCPSelfTestResults {
 
 // evaluateScenarioFromDef runs a single scenario through the full MCP evaluation
 // pipeline. This is the non-test version used by RunMCPSelfTest.
-func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) string {
+//
+// It takes a *PolicyEvaluator, NOT a *MessageHandler, and that is load-bearing
+// (#3392). A MessageHandler accumulates per-session state — call history,
+// bounded history, threshold counters, approval-fatigue counters, subagent and
+// capability trackers — that several detectors read. Every caller of this
+// function shares one instance across the whole 5.6k-scenario corpus, so any
+// read of that state would make a verdict a function of the scenario's POSITION
+// in the registration list rather than of the scenario. Corpus-level
+// measurements taken through such a harness are not reproducible, and #3392 was
+// filed on exactly that suspicion after a sweep produced a "29.2% corpus bypass"
+// figure that had to be retracted.
+//
+// The suspicion did not survive measurement (see
+// TestMCPScenarioVerdictsAreOrderIndependent for the numbers), because this
+// function only ever read evaluator fields. But it was reachable-by-accident:
+// one new scenario kind wired to a handler method would have reintroduced it
+// silently. Narrowing the parameter makes purity a compile error to break
+// instead of a property someone has to remember. Session-dependent scenarios,
+// if they are ever wanted, need an explicit second entry point and an explicit
+// opt-out from the order-independence gate — not a widened parameter here.
+func evaluateScenarioFromDef(ev *PolicyEvaluator, sc scenarios.Scenario) string {
 	// roots/list response scenario: evaluate declared root URIs against protected paths.
 	if sc.RootsListRoots != nil {
 		roots := make([]RootInfo, 0, len(sc.RootsListRoots))
 		for _, uri := range sc.RootsListRoots {
 			roots = append(roots, RootInfo{URI: uri})
 		}
-		result := handler.Evaluator.EvaluateRootsList(roots)
+		result := ev.EvaluateRootsList(roots)
 		return string(result.Decision)
 	}
 
@@ -238,7 +252,7 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 	// notifications/resources/updated scenario: validate the notification URI against
 	// the same resource-read policy used by HandleResourcesUpdatedNotification.
 	if sc.ResourcesUpdatedURI != "" {
-		result := handler.Evaluator.EvaluateResourceRead(sc.ResourcesUpdatedURI)
+		result := ev.EvaluateResourceRead(sc.ResourcesUpdatedURI)
 		return string(result.Decision)
 	}
 
@@ -376,7 +390,7 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 	}
 
 	// Step 1: Policy evaluation (with description for semantic classification)
-	result := handler.Evaluator.EvaluateToolCallFull(sc.ToolName, sc.Arguments, sc.ToolDescription)
+	result := ev.EvaluateToolCallFull(sc.ToolName, sc.Arguments, sc.ToolDescription)
 
 	// Step 2: Content scanning
 	if result.Decision != policy.DecisionBlock {
@@ -398,7 +412,7 @@ func evaluateScenarioFromDef(handler *MessageHandler, sc scenarios.Scenario) str
 
 	// Step 3: Value limits
 	if result.Decision != policy.DecisionBlock {
-		vlResult := handler.Evaluator.CheckValueLimits(sc.ToolName, sc.Arguments)
+		vlResult := ev.CheckValueLimits(sc.ToolName, sc.Arguments)
 		if vlResult.Blocked {
 			result.Decision = policy.DecisionBlock
 		}

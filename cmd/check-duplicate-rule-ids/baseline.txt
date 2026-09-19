@@ -1,0 +1,46 @@
+# Grandfathered duplicate rule IDs (#3660). Format: `<count> <rule-id>`.
+#
+# Every line here is a rule id Shield's loaders will emit MORE THAN ONCE for a
+# single detection, because mergeMCPPack/LoadPacks append into one slice and
+# evaluate() accumulates without deduping on id.
+#
+# DO NOT ADD LINES without maintainer sign-off. This is pre-#3660 debt only.
+# The ratchet fails on a NEW duplicate, on a baselined one that GROWS, and on a
+# baselined one that no longer reproduces — so this list can only shrink.
+#
+# Resolved 2026-09-06 (Gary's decision: "simplest dedupe. Keep the community
+# definitions for now, drop or merge the duplicate definition, and the more
+# specific taxonomy node wins."), 5 entries removed from this baseline:
+#   - mcp-sec-block-hcloud-credentials: kept the community rule, widened its
+#     argument_patterns to also cover ~/.hcloud/ (from the deleted premium
+#     duplicate), retargeted to cloud-provider-credential-access (names
+#     Hetzner explicitly; cloud-provider-token was a generic GCP-key node).
+#   - mcp-sec-block-planetscale-credentials: kept the community rule, but
+#     replaced its argument_patterns with the premium duplicate's — the
+#     original **/.planetscale/** glob matched neither real pscale CLI path
+#     and was silently inert. Taxonomy stayed cicd-credential-access (names
+#     PlanetScale explicitly; developer-saas-credential-theft was scoped to
+#     issue trackers/error monitoring and was the misfit).
+#   - ts-audit-jupyter-execute-cmd / ts-audit-papermill-execute: kept the
+#     community rules (papermill's match upgraded from command_prefix to the
+#     premium duplicate's structural/executable form), retargeted both to
+#     jupyter-notebook-output-injection — the premium duplicates' taxonomy was
+#     correct; the community rules' original indirect-code-exec was a misfit
+#     (that node is about hiding a dangerous command word from a regex
+#     monitor, not plainly-named non-interactive notebook execution).
+#   - mcp-sc-block-npm-cache-write: merged rather than dropped — the two
+#     definitions were not true duplicates, they covered genuinely different
+#     npm storage (installed node_modules/npx cache vs. the content-addressable
+#     download cache). Combined into one rule under
+#     package-manager-global-poisoning (generalized from conda-only to also
+#     name the npm/Node.js instance of the same mechanism); the original
+#     package-manifest-tampering (lock files/manifests) fit neither half.
+#
+# The 2 intra-file pairs below (consul-token, nomad-token) already agree on
+# taxonomy (fixed 2026-09-06, separately) — the ID collision itself (a
+# rule-authoring call: merge the two match patterns into one rule, or rename
+# one id) is unresolved and still correctly baselined here.
+
+# --- INTRA-FILE, both in packs/community/mcp/mcp-secrets.yaml ---------------
+2 mcp-sec-block-consul-token
+2 mcp-sec-block-nomad-token

@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"net/url"
+	"path"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
@@ -46,6 +48,11 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// Check compound commands within this single evaluation
 		// (e.g., "curl -o x.sh && bash x.sh")
 		findings = append(findings, s.checkCompoundDownloadExecute(pc)...)
+
+		// Check for the agentic-pentest decoy-payload pattern: a recon/exploit
+		// tool run against a target, followed by fetching an executable
+		// artifact FROM THAT SAME HOST, followed by running it (#3654).
+		findings = append(findings, s.checkPentestDecoyPayloadExecution(pc)...)
 
 		// 2. Run user-defined YAML stateful rules
 		for _, rule := range s.userRules {
@@ -170,6 +177,113 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand) [
 	}
 
 	return findings
+}
+
+// pentestReconTools are offensive-security scanning/exploitation tools whose
+// invocation names an explicit network target — the "recon step" of the
+// agentic-pentest decoy-payload chain (taxonomy:
+// unauthorized-execution/agentic-attacks/agentic-pentest-tool-decoy-payload-execution,
+// #3654). Source: "Red-Teaming the Agentic Red-Team" (arXiv:2606.24496) —
+// an autonomous offensive-security agent recons a target, discovers a
+// fully-functional but self-vulnerable "tool" staged on that same target,
+// downloads it, and runs it. No prompt injection or malicious code is
+// present anywhere in the chain — the paper's own framing is that this is
+// the point: model-based code inspection finds nothing to object to.
+var pentestReconTools = map[string]bool{
+	"nmap": true, "masscan": true, "rustscan": true,
+	"gobuster": true, "dirb": true, "dirsearch": true, "ffuf": true, "wfuzz": true,
+	"nikto": true, "sqlmap": true, "nuclei": true,
+	"whatweb": true, "wpscan": true,
+	"amass": true, "subfinder": true,
+	"hydra": true, "medusa": true,
+}
+
+// pentestReconTargetFlags are the flag names these tools use to carry an
+// explicit target host/URL, checked before falling back to positional args.
+var pentestReconTargetFlags = []string{"u", "url", "host", "h", "target", "rhost", "rhosts", "d"}
+
+// checkPentestDecoyPayloadExecution detects: [recon/exploit tool against a
+// target] -> [download of an executable artifact FROM THAT SAME HOST] ->
+// [local execution of the downloaded artifact]. The differentiator from the
+// generic download-execute chain above is host correlation — downloading and
+// running a tool discovered on the very host under test is the behavioral
+// signature the taxonomy entry names; downloading a tool from a DIFFERENT
+// host (the operator's own tooling infra) is ordinary pentest workflow and
+// must not match. Exact-host-match only (no subdomain/base-domain fuzzing) —
+// deliberately conservative for a BLOCK-tier finding; see #3654 PR notes for
+// the scope decision.
+func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedCommand) []Finding {
+	if parsed == nil || len(parsed.Segments) < 3 {
+		return nil
+	}
+
+	// 1. Find the recon/exploit step and its target host.
+	reconHost := ""
+	reconTool := ""
+	reconIdx := -1
+	for i, seg := range parsed.Segments {
+		if !pentestReconTools[seg.Executable] {
+			continue
+		}
+		if h := extractReconTargetHost(seg); h != "" {
+			reconHost = h
+			reconTool = seg.Executable
+			reconIdx = i
+			break
+		}
+	}
+	if reconIdx == -1 {
+		return nil
+	}
+
+	// 2. Find a later download step whose URL host matches the recon target.
+	downloadedFiles := map[string]bool{}
+	downloadIdx := -1
+	for i := reconIdx + 1; i < len(parsed.Segments); i++ {
+		seg := parsed.Segments[i]
+		if !isDownloadCommand(seg.Executable) {
+			continue
+		}
+		if extractDownloadURLHost(seg) != reconHost {
+			continue
+		}
+		outFile := pathnorm.StripShellQuotes(extractDownloadOutputFile(seg))
+		if outFile == "" {
+			outFile = extractDownloadURLBasename(seg)
+		}
+		if outFile != "" {
+			downloadedFiles[outFile] = true
+			downloadIdx = i
+		}
+	}
+	if downloadIdx == -1 || len(downloadedFiles) == 0 {
+		return nil
+	}
+
+	// 3. Find local execution (or chmod +x prep) of the downloaded artifact.
+	for i := downloadIdx + 1; i < len(parsed.Segments); i++ {
+		seg := parsed.Segments[i]
+		for f := range downloadedFiles {
+			if isExecuteOfFile(seg, f) {
+				return []Finding{{
+					AnalyzerName: "stateful",
+					RuleID:       "sf-block-pentest-decoy-payload-execution",
+					Decision:     "BLOCK",
+					Confidence:   0.90,
+					Reason: reconTool + " recon against " + reconHost + " followed by fetching and " +
+						"executing an artifact from that SAME host — treat any tool discovered on a " +
+						"scanned target as an untrusted, potentially self-compromising supply-chain " +
+						"artifact, never as a required deliverable. No prompt injection is required " +
+						"for this attack; the artifact's code is honestly-behaving with a self-planted " +
+						"vulnerability triggered by ordinary execution (arXiv:2606.24496).",
+					TaxonomyRef: "unauthorized-execution/agentic-attacks/agentic-pentest-tool-decoy-payload-execution",
+					Tags:        []string{"stateful", "agentic-attack", "pentest-decoy-payload"},
+				}}
+			}
+		}
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +421,157 @@ func extractChmodTarget(seg CommandSegment) string {
 	for _, arg := range seg.Args {
 		if !strings.HasPrefix(arg, "+") && !strings.HasPrefix(arg, "-") && arg != "chmod" {
 			return arg
+		}
+	}
+	return ""
+}
+
+// nonHostFileSuffixes are common non-URL file extensions that would
+// otherwise look host-like to hostFromToken (they contain a dot) — wordlist
+// and output-file arguments sitting alongside a recon tool's target, e.g.
+// "-w wordlist.txt". Filtering them out only costs recall: a missed host
+// extraction just means the chain fails to correlate, never a false BLOCK,
+// since correlation requires an exact match against a SECOND independently
+// extracted host.
+var nonHostFileSuffixes = []string{
+	".txt", ".lst", ".dic", ".csv", ".json", ".xml", ".yaml", ".yml", ".db", ".sqlite", ".log",
+}
+
+// hostFromToken extracts a lowercase hostname/IP from a single shell
+// argument: a full URL ("http://host/path"), a scheme-less "host/path" or
+// "host:port" (curl/wget/nmap all accept this shape), or a bare
+// hostname/IP/CIDR target ("10.0.0.5", "10.0.0.0/24"). Requires a '.' in the
+// extracted head so it doesn't match bare flag-like tokens. Deliberately
+// loose in the safe direction only: a wrong extraction can only weaken
+// correlation (both call sites require the SAME extracted host to appear on
+// two independent segments), it can never manufacture a match between two
+// genuinely different hosts.
+func hostFromToken(raw string) string {
+	tok := pathnorm.StripShellQuotes(strings.TrimSpace(raw))
+	if tok == "" {
+		return ""
+	}
+
+	if strings.Contains(tok, "://") {
+		u, err := url.Parse(tok)
+		if err != nil || u.Hostname() == "" {
+			return ""
+		}
+		return strings.ToLower(u.Hostname())
+	}
+
+	lower := strings.ToLower(tok)
+	for _, suffix := range nonHostFileSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return ""
+		}
+	}
+
+	head := tok
+	if idx := strings.IndexByte(head, '/'); idx >= 0 {
+		head = head[:idx]
+	}
+	if idx := strings.IndexByte(head, ':'); idx >= 0 {
+		head = head[:idx]
+	}
+	if head == "" || !strings.Contains(head, ".") || !hostLikeToken(head) {
+		return ""
+	}
+	return strings.ToLower(head)
+}
+
+// hostLikeToken reports whether s is composed only of characters valid in a
+// hostname or IPv4 literal.
+func hostLikeToken(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// extractReconTargetHost pulls the scan/exploit target host out of a recon
+// tool's segment: known target-carrying flags first (-u/-url/-host/-target/
+// -rhost(s)/-d), then the first host-like positional argument.
+func extractReconTargetHost(seg CommandSegment) string {
+	for _, flag := range pentestReconTargetFlags {
+		if v, ok := seg.Flags[flag]; ok && v != "" {
+			if h := hostFromToken(v); h != "" {
+				return h
+			}
+		}
+	}
+	for _, arg := range seg.Args {
+		if h := hostFromToken(arg); h != "" {
+			return h
+		}
+	}
+	return ""
+}
+
+// extractDownloadURLHost pulls the source host out of a curl/wget segment's
+// URL argument. Requires an explicit "://" scheme, unlike hostFromToken's
+// bare-host fallback used for recon targets — a download segment's Args can
+// also contain the OUTPUT filename (e.g. "curl -o decrypt.py https://...",
+// where the parser leaves an empty Flags["o"] and puts both "decrypt.py" and
+// the URL in Args, see extractDownloadOutputFile's comment). A bare filename
+// like "decrypt.py" satisfies hostFromToken's dotted-hostname shape, so
+// scanning Args with the bare-host-tolerant matcher would grab the filename
+// and never reach the real URL. curl/wget invocations in practice always
+// carry an explicit scheme, so requiring one here costs no real recall.
+func extractDownloadURLHost(seg CommandSegment) string {
+	for _, arg := range seg.Args {
+		if h := urlSchemeHost(arg); h != "" {
+			return h
+		}
+	}
+	for _, v := range seg.Flags {
+		if h := urlSchemeHost(v); h != "" {
+			return h
+		}
+	}
+	return ""
+}
+
+// urlSchemeHost extracts the lowercase hostname from a token that carries an
+// explicit "scheme://" prefix; returns "" for anything else (including bare
+// hostnames — see extractDownloadURLHost).
+func urlSchemeHost(raw string) string {
+	tok := pathnorm.StripShellQuotes(strings.TrimSpace(raw))
+	if !strings.Contains(tok, "://") {
+		return ""
+	}
+	u, err := url.Parse(tok)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// extractDownloadURLBasename infers the local filename curl -O / wget's
+// default naming produces when no explicit -o/-O <name> is given — the
+// URL's path basename. Only called after extractDownloadOutputFile finds no
+// explicit output filename.
+func extractDownloadURLBasename(seg CommandSegment) string {
+	for _, arg := range seg.Args {
+		a := pathnorm.StripShellQuotes(arg)
+		raw := a
+		if !strings.Contains(raw, "://") {
+			if !strings.Contains(raw, ".") {
+				continue
+			}
+			raw = "http://" + raw
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Path == "" || u.Path == "/" {
+			continue
+		}
+		base := path.Base(u.Path)
+		if base != "" && base != "." && base != "/" {
+			return base
 		}
 	}
 	return ""

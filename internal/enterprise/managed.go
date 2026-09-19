@@ -49,9 +49,14 @@ func BypassGuard(cfg *ManagedConfig) EvalMiddleware {
 }
 
 // selfProtectRules are hardcoded patterns that block attempts to tamper with AgentShield.
+//
+// A rule fires when Pattern matches and Exclude (optional) does not. Exclude
+// exists for the default-deny shape (sp-block-config-touch): "anything that
+// names this file, unless it is plainly a read".
 var selfProtectRules = []struct {
 	ID      string
 	Pattern *regexp.Regexp
+	Exclude *regexp.Regexp
 }{
 	{
 		ID: "sp-block-bypass-env",
@@ -86,13 +91,70 @@ var selfProtectRules = []struct {
 		Pattern: regexp.MustCompile(`rm\s+.*(\.(claude|cursor|windsurf|codeium|gemini|codex|openclaw)/(settings\.json|hooks\.json|hooks/))`),
 	},
 	{
+		// Narrowed 2026-09-02 (#3620): the verb list used to be
+		// (echo|cat|tee|>). `cat` and `echo` only write through a redirect,
+		// and `>` already matches that form (`cat > ~/.agentshield/policy.yaml
+		// <<EOF`, `echo x >> …`), so listing them blocked every plain
+		// `cat ~/.agentshield/policy.yaml` on a managed host — a false positive
+		// that had been there since the rule was written. Writers that are not
+		// tee-or-redirect are sp-block-config-touch's job below.
 		ID:      "sp-block-policy-write",
-		Pattern: regexp.MustCompile(`(echo|cat|tee|>)\s*.*[~/]\.agentshield/policy\.yaml`),
+		Pattern: regexp.MustCompile(`(tee|>)\s*.*[~/]\.agentshield/policy\.yaml`),
 	},
 	{
 		ID:      "sp-block-binary-replace",
 		Pattern: regexp.MustCompile(`(cp|mv|ln|install)\s+.*agentshield`),
 	},
+	{
+		// sp-block-config-touch (#3620) is the default-deny counterpart of
+		// sp-block-policy-write. That rule enumerates write verbs — echo, cat,
+		// tee, a redirect — and an interpreter is not one of them:
+		// `python3 -c "open('~/.agentshield/policy.yaml','w').write(...)"`
+		// passed as AUDIT on a managed host while the echo form was blocked.
+		// Enumerating writers cannot win (perl, ruby, node, sed -i, cp, mv, dd,
+		// install, rsync, and every tool not yet thought of), so this rule
+		// inverts the question: on a managed host nothing an agent does with
+		// these files is legitimate except reading them, so any command that
+		// names one is blocked unless it is a single simple statement that
+		// starts with a read-only tool and contains no redirect, pipe,
+		// separator, subshell or backtick. The write-verb rules stay for their
+		// specific audit attribution.
+		//
+		// Honest limit: this is still a match over command TEXT (raw, dequoted
+		// and unset-param-folded, via matchesSelfProtectRule). A path reached
+		// through a symlink or an alias the shell resolves is not seen. The
+		// path-based layer that would close that lives in the structural and
+		// dataflow analyzers and is tracked separately under #3620.
+		ID:      "sp-block-config-touch",
+		Pattern: regexp.MustCompile(`[~/]\.agentshield/(policy\.yaml|managed\.json|agentshield\.yaml|credentials\.json|packs(/|\b))`),
+		Exclude: plainReadRe,
+	},
+}
+
+// plainReadRe recognises a single simple statement that starts with a
+// read-only tool and contains no redirect, pipe, separator, subshell or
+// backtick — the one shape of command that may touch the managed config
+// directory on a managed host. Shared by sp-block-config-touch (text layer)
+// and IsPlainConfigRead (the path layer in internal/cli), so the two layers
+// cannot disagree about what a read is.
+//
+// The allowlist is tools that CANNOT write or execute through any argument.
+// It used to include less, more, bat and yq; the adversarial review of
+// 2026-09-02 rewrote the managed policy with `yq -i` and ran arbitrary
+// commands with `less +':!sh …'` and `bat --pager 'sh …'`, all exit 0, each
+// doubly exempted (text rule AND path layer). A pager with a shell escape is
+// not a reader. jq stays: it has no in-place or exec mode. Anything not on
+// the list — a pager, an editor, an in-place processor — falls through to
+// the default-deny and blocks.
+var plainReadRe = regexp.MustCompile("^\\s*(sudo\\s+)?(cat|head|tail|grep|rg|ls|stat|file|wc|diff|jq|echo|printf|agentshield)(\\s+[^;&|<>\\n`(!]*)?$")
+
+// IsPlainConfigRead reports whether cmd is a single simple read-only
+// statement (see plainReadRe). The path-based config protection in managed
+// mode (#3620) exempts exactly these, so that `cat ~/.agentshield/policy.yaml`
+// stays possible while every other access to the directory — including one
+// reached through a variable or an interpreter — is blocked.
+func IsPlainConfigRead(cmd string) bool {
+	return plainReadRe.MatchString(cmd)
 }
 
 // SelfProtect is pre-eval middleware that blocks commands targeting AgentShield itself.
@@ -123,9 +185,13 @@ func matchesSelfProtectRule(cmd string) (ruleID string, matched bool) {
 			return "", false
 		}
 		for _, rule := range selfProtectRules {
-			if rule.Pattern.MatchString(s) {
-				return rule.ID, true
+			if !rule.Pattern.MatchString(s) {
+				continue
 			}
+			if rule.Exclude != nil && rule.Exclude.MatchString(s) {
+				continue
+			}
+			return rule.ID, true
 		}
 		return "", false
 	}

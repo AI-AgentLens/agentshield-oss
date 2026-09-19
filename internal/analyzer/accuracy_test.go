@@ -348,9 +348,13 @@ func TestAccuracyMetrics(t *testing.T) {
 	total := len(allCases)
 	counts := map[string]int{"TP": 0, "TN": 0, "FP": 0, "FN": 0}
 	byKingdom := map[string]map[string]int{}
+	ids := map[string][]string{}
 
 	for _, tc := range allCases {
 		counts[tc.Classification]++
+		if tc.Classification == "FP" || tc.Classification == "FN" {
+			ids[tc.Classification] = append(ids[tc.Classification], tc.ID)
+		}
 
 		kingdom := extractKingdom(tc.TaxonomyRef)
 		if byKingdom[kingdom] == nil {
@@ -358,14 +362,16 @@ func TestAccuracyMetrics(t *testing.T) {
 		}
 		byKingdom[kingdom][tc.Classification]++
 	}
+	sort.Strings(ids["FP"])
+	sort.Strings(ids["FN"])
 
 	t.Logf("=== AgentShield Accuracy Metrics ===")
 	t.Logf("Total test cases: %d", total)
 	t.Logf("")
 	t.Logf("  TP (True Positives):  %d", counts["TP"])
 	t.Logf("  TN (True Negatives):  %d", counts["TN"])
-	t.Logf("  FP (False Positives): %d  (known, awaiting fix)", counts["FP"])
-	t.Logf("  FN (False Negatives): %d  (known, awaiting analyzer)", counts["FN"])
+	t.Logf("  FP (False Positives): %d  (known, awaiting fix)%s", counts["FP"], namedCases(ids["FP"]))
+	t.Logf("  FN (False Negatives): %d  (known, awaiting analyzer)%s", counts["FN"], namedCases(ids["FN"]))
 	t.Logf("")
 
 	// Precision = TP / (TP + FP), Recall = TP / (TP + FN)
@@ -373,13 +379,18 @@ func TestAccuracyMetrics(t *testing.T) {
 	fp := float64(counts["FP"])
 	fn := float64(counts["FN"])
 
+	// The raw fraction is printed alongside the percentage on purpose (#3737).
+	// At corpus scale a single regression rounds away: 3767/3768 renders as
+	// "100.0%", which is indistinguishable from a genuinely clean 3767/3767.
+	// Nine consecutive supervisor reports celebrated "Precision 100.0%" while
+	// the corpus carried an unowned FP. A fraction cannot round.
 	if tp+fp > 0 {
-		t.Logf("  Precision: %.1f%%  (of flagged commands, how many are truly bad)",
-			100*tp/(tp+fp))
+		t.Logf("  Precision: %.1f%%  (%d/%d)  (of flagged commands, how many are truly bad)",
+			100*tp/(tp+fp), counts["TP"], counts["TP"]+counts["FP"])
 	}
 	if tp+fn > 0 {
-		t.Logf("  Recall:    %.1f%%  (of bad commands, how many are caught)",
-			100*tp/(tp+fn))
+		t.Logf("  Recall:    %.1f%%  (%d/%d)  (of bad commands, how many are caught)",
+			100*tp/(tp+fn), counts["TP"], counts["TP"]+counts["FN"])
 	}
 
 	t.Logf("")
@@ -388,6 +399,25 @@ func TestAccuracyMetrics(t *testing.T) {
 		t.Logf("  %-40s  TP:%d TN:%d FP:%d FN:%d",
 			kingdom, kCounts["TP"], kCounts["TN"], kCounts["FP"], kCounts["FN"])
 	}
+}
+
+// namedCases renders an FP/FN case-id list for the metrics header, or the
+// empty string when there are none.
+//
+// Why the ids and not just the count (#3737): an accepted FP/FN case is
+// invisible twice over. TestPipeline_AllKingdoms *skips* FP/FN-classified
+// cases, so it stays green no matter how many accumulate, and the precision
+// figure rounds a single one away. That left FP-ANSIC-HEREDOC-DATA sitting in
+// the corpus with every issue in its promotion path closed and no open owner —
+// a number nobody could act on because nothing said which case it was.
+//
+// Naming them costs one line and makes the count traceable to a case id, which
+// is the difference between "FP: 1" and "FP: 1 — go look at this".
+func namedCases(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	return "  [" + strings.Join(ids, ", ") + "]"
 }
 
 // extractKingdom returns the kingdom portion of a taxonomy ref.

@@ -147,14 +147,17 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		return fmt.Errorf("failed to read stdin: %w", err)
+		return hookInputFailure("hook input read", err)
 	}
 
 	var input hookInput
 	if err := json.Unmarshal(data, &input); err != nil {
-		// If we can't parse the input, allow the action (fail open)
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: could not parse hook input: %v\n", err)
-		return nil
+		// Before 2026-09-02 this was `return nil // fail open` with a warning:
+		// truncated or malformed stdin on a managed fail_closed host allowed
+		// the command with no audit event — the one silent allow left after
+		// #3622, found by the adversarial review. Same boundary as every other
+		// pre-verdict failure now.
+		return hookInputFailure("hook input parse", err)
 	}
 
 	// Also capture raw tool_input for MCP argument parsing
@@ -191,7 +194,15 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 // evaluateCommand is the shared policy evaluation logic for all IDE hooks.
 // sessionID is the harness's own session identifier (see sessionIDFor); pass
 // "" when the harness doesn't provide one.
-func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult, *logger.AuditEvent, error) {
+//
+// It never returns an error. Every failure on the way to a verdict — config
+// load, audit-log init, policy load, pack parse, engine init — goes through
+// failSafeDecision (#3619), so a broken policy or an unwritable log is a
+// DECISION: BLOCK under managed fail_closed, AUDIT with a flagged event
+// otherwise. Before #3619 two of those sites returned a plain error and every
+// harness handler turned it into a silent allow; the signature is what makes
+// that impossible to reintroduce.
+func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult, *logger.AuditEvent) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
@@ -223,27 +234,18 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 				SessionID:      sessionID,
 				Principal:      osPrincipal(),
 			}
-			return &blockedResult, &event, nil
+			return &blockedResult, &event
 		}
 	}
 
 	cfg, err := config.Load(policyPath, logPath, mode)
 	if err != nil {
-		// Check fail_closed
-		if managedCfg := enterprise.LoadManagedConfig(); managedCfg != nil && managedCfg.FailClosed {
-			blockedResult := policy.EvalResult{
-				Decision:    policy.DecisionBlock,
-				Reasons:     []string{"AgentShield: config load error — blocking (fail_closed enabled)"},
-				Explanation: "AgentShield: config load error — blocking (fail_closed enabled)",
-			}
-			return &blockedResult, nil, nil
-		}
-		return nil, nil, fmt.Errorf("config load failed: %w", err)
+		return failSafeDecision(evalFailure{stage: "config load", err: err}, cmdStr, cwd, source, sessionID)
 	}
 
 	auditLogger, err := logger.New(cfg.LogPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("logger init failed: %w", err)
+		return failSafeDecision(evalFailure{stage: "audit log init", err: err, cfg: cfg}, cmdStr, cwd, source, sessionID)
 	}
 	defer func() {
 		_ = auditLogger.Close()
@@ -254,17 +256,21 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 
 	pol, err := policy.Load(cfg.PolicyPath)
 	if err != nil {
-		// Check fail_closed
-		if cfg.Managed != nil && cfg.Managed.FailClosed {
-			blockedResult := policy.EvalResult{
-				Decision:    policy.DecisionBlock,
-				Reasons:     []string{"AgentShield: policy load error — blocking (fail_closed enabled)"},
-				Explanation: "AgentShield: policy load error — blocking (fail_closed enabled)",
-			}
-			return &blockedResult, nil, nil
-		}
-		return nil, nil, fmt.Errorf("policy load failed: %w", err)
+		return failSafeDecision(evalFailure{stage: "policy load", err: err, cfg: cfg, log: auditLogger}, cmdStr, cwd, source, sessionID)
 	}
+	// #3620: on a managed host the local policy cannot weaken the admin's.
+	// Applied to the user file BEFORE packs merge in, so a premium pack's own
+	// disable_rules (a deliberate tier split) are untouched.
+	if dropped := dropLocalDisablesWhenManaged(pol, cfg); len(dropped) > 0 {
+		fmt.Fprintf(os.Stderr, "[AgentShield] managed mode: ignoring local disable_rules (%s) — only the admin's policy applies\n", strings.Join(dropped, ", "))
+	}
+	// #3620, path layer: on a managed host the config directory is a protected
+	// path unless the command is a plain read. The text rule
+	// (sp-block-config-touch) sees spellings; this sees the paths the
+	// analyzers materialize — `CFG=$HOME/.agentshield; python3 -c
+	// "open('$CFG/policy.yaml','w')"` names the directory nowhere in its text
+	// and exited 0 before this.
+	protectManagedConfigDir(pol, cfg, cmdStr)
 
 	// Layer 1: embedded community shell packs (always available, no disk dep).
 	pol, embeddedInfos, _ := policy.LoadEmbeddedShellPacks(pol)
@@ -285,18 +291,18 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 	for _, fp := range failedPacks {
 		fmt.Fprintf(os.Stderr, "[AgentShield] CRITICAL: pack %q failed to parse — its rules are NOT loaded, enforcement degraded: %v\n", fp.Path, fp.LoadError)
 	}
-	if len(failedPacks) > 0 && cfg.Managed != nil && cfg.Managed.FailClosed {
-		blockedResult := policy.EvalResult{
-			Decision:    policy.DecisionBlock,
-			Reasons:     []string{"AgentShield: a policy pack failed to parse — blocking (fail_closed enabled)"},
-			Explanation: "AgentShield: a policy pack failed to parse — blocking (fail_closed enabled)",
-		}
-		return &blockedResult, nil, nil
+	if len(failedPacks) > 0 && failClosedEnabled(cfg) {
+		return failSafeDecision(evalFailure{
+			stage: "policy pack parse",
+			err:   fmt.Errorf("%d policy pack(s) failed to parse; enforcement would be degraded", len(failedPacks)),
+			cfg:   cfg,
+			log:   auditLogger,
+		}, cmdStr, cwd, source, sessionID)
 	}
 
 	engine, err := policy.NewEngineWithAnalyzers(pol, cfg.Analyzer.MaxParseDepth)
 	if err != nil {
-		return nil, nil, fmt.Errorf("engine init failed: %w", err)
+		return failSafeDecision(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger}, cmdStr, cwd, source, sessionID)
 	}
 	// Issue #1952: audit-only mode downgrades happen inside the engine, so
 	// every caller (shell hook, MCP hook, agentshield check, scan) gets the
@@ -337,7 +343,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 	// Send to SaaS (fire-and-forget)
 	sendRemoteAudit(&event)
 
-	return &evalResult, &event, nil
+	return &evalResult, &event
 }
 
 // buildMiddlewareChain assembles the middleware chain based on enterprise config.
@@ -362,11 +368,7 @@ func handleWindsurfHook(input hookInput) error {
 		return nil
 	}
 
-	evalResult, _, err := evaluateCommand(cmdStr, input.ToolInfo.Cwd, "windsurf-hook", sessionIDFor(input))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
-		return nil // fail open
-	}
+	evalResult, _ := evaluateCommand(cmdStr, input.ToolInfo.Cwd, "windsurf-hook", sessionIDFor(input))
 
 	if evalResult.Decision == policy.DecisionBlock {
 		fmt.Fprintf(os.Stderr, "🛑 BLOCKED by AgentShield\n")
@@ -386,12 +388,7 @@ func handleCursorHook(input hookInput) error {
 		return nil
 	}
 
-	evalResult, _, err := evaluateCommand(cmdStr, input.Cwd, "cursor-hook", sessionIDFor(input))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
-		outputCursorAllow() // fail open
-		return nil
-	}
+	evalResult, _ := evaluateCommand(cmdStr, input.Cwd, "cursor-hook", sessionIDFor(input))
 
 	if evalResult.Decision == policy.DecisionBlock {
 		output := cursorHookOutput{
@@ -437,11 +434,7 @@ func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
 		if cmdStr == "" {
 			return nil
 		}
-		evalResult, _, err := evaluateCommand(cmdStr, "", source, sessionIDFor(input))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
-			return nil // fail open
-		}
+		evalResult, _ := evaluateCommand(cmdStr, "", source, sessionIDFor(input))
 		if evalResult.Decision == policy.DecisionBlock {
 			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
 			if len(evalResult.TriggeredRules) > 0 {
@@ -480,10 +473,29 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 	// Issue #1952: load the AgentShield config so we can apply audit-only
 	// mode to MCP tool calls too. The mode resolution lives in config.Load —
 	// don't re-implement it here.
-	cfg, _ := config.Load(policyPath, logPath, mode)
+	cfg, cfgErr := config.Load(policyPath, logPath, mode)
 	modeForAudit := ""
 	if cfg != nil {
 		modeForAudit = cfg.Mode
+	}
+
+	// The MCP path had no fail-closed boundary (adversarial review of #3622,
+	// 2026-09-02): the config error was discarded, and a corrupt MCP policy or
+	// pack became a warning plus a silent fallback to whatever loaded. Same
+	// contract as the shell path now: on a managed fail_closed host a degraded
+	// ruleset blocks; elsewhere it is evaluated but said out loud.
+	if degraded := mcpRulesetDegraded(cfgErr, loaded); degraded != "" {
+		if failClosedEnabled(cfg) {
+			result := mcp.MCPEvalResult{
+				Decision:       policy.DecisionBlock,
+				TriggeredRules: []string{failClosedRuleID},
+				Reasons:        []string{"AgentShield: MCP ruleset failed to load — blocking (fail_closed enabled): " + degraded},
+			}
+			auditMCPCall(toolName, arguments, result, source, "managed", sessionID)
+			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n   Reason: %s\n", toolName, result.Reasons[0])
+			os.Exit(2)
+		}
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: MCP ruleset degraded (%s) — evaluated against what loaded (fail-safe default, not enforced as configured)\n", degraded)
 	}
 
 	evaluator := mcp.NewPolicyEvaluator(loaded.Policy)
@@ -590,12 +602,7 @@ func handleGeminiCLIHook(input hookInput) error {
 	}
 
 	cwd := input.ToolInput.DirPath
-	evalResult, _, err := evaluateCommand(cmdStr, cwd, "gemini-cli-hook", sessionIDFor(input))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %v\n", err)
-		outputGeminiAllow() // fail open
-		return nil
-	}
+	evalResult, _ := evaluateCommand(cmdStr, cwd, "gemini-cli-hook", sessionIDFor(input))
 
 	if evalResult.Decision == policy.DecisionBlock {
 		output := geminiHookOutput{

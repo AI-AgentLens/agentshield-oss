@@ -82,11 +82,8 @@ func TestEvaluateCommand_AuditEventCarriesTaxonomyAndIdentity(t *testing.T) {
 	home := writeTestPolicy(t)
 
 	const sessionID = "sess-3111-shell"
-	evalResult, event, err := evaluateCommand(
+	evalResult, event := evaluateCommand(
 		"frobnicate --launch-sequence", "/workspace/acme-api", "claude-code-hook", sessionID)
-	if err != nil {
-		t.Fatalf("evaluateCommand: %v", err)
-	}
 	if evalResult.Decision != policy.DecisionBlock {
 		t.Fatalf("Decision = %v; want BLOCK", evalResult.Decision)
 	}

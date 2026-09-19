@@ -54,6 +54,19 @@ type AnalysisContext struct {
 	// Empty when no substitution-derived paths are recoverable.
 	MaterializedPaths []string
 
+	// Assignments are the constant `NAME=value` bindings the Substitution
+	// analyzer resolved, in name order. Deliberately SEPARATE from
+	// MaterializedPaths: an assignment reads nothing, so a protected path
+	// appearing here must never produce a BLOCK (`P=~/.kube/config` alone
+	// has always been allowed and stays allowed). The engine consults this
+	// set only to ATTRIBUTE an assignment into a designated consumer's
+	// environment credential slot — `export KUBECONFIG=~/.kube/config` is
+	// kubectl's credential slot by environment rather than by flag, so it is
+	// recorded as protected-path-consumer AUDIT instead of going unnamed
+	// (#3630). Covers `export VAR=`, the `VAR=… cmd` prefix form, and a bare
+	// `VAR=…` statement. Empty when nothing statically resolved.
+	Assignments []Assignment
+
 	// CommandFacts are structural facts about the command TEXT (is it a bash
 	// comment, doc-text vehicle like `git -m`/`gh --body`, heredoc body,
 	// agentshield self-management). Populated by IntentClassifier — the
@@ -83,6 +96,15 @@ type AnalysisContext struct {
 	// needs this separately to fail closed on a parse-failure fallback
 	// instead of trusting whole-blob classification (#3467).
 	RawStatementsParsed bool
+}
+
+// Assignment is one constant `NAME=value` binding resolved by the
+// Substitution analyzer. Value is the materialized right-hand side with
+// $HOME already folded to `~` (same folding the path check applies), so a
+// consumer of this type compares it exactly as it would an argv word.
+type Assignment struct {
+	Name  string
+	Value string
 }
 
 // Finding is a single result from an analyzer.

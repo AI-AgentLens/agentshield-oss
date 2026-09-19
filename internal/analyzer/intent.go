@@ -132,6 +132,13 @@ type IntentClassifier struct {
 	// every rule that requests the is_self_mgmt label.
 	wrapperFuncs    map[string]bool
 	wrapperFuncsSet bool
+
+	// reach / reachSet cache shellparse.AnalyzeTextReach for the current
+	// evaluation (#3796, #3800) — same Memo-scoped lifetime and rationale as
+	// wrapperFuncs above: IntentExcludedForStatements is called once per rule
+	// that opts into an inertness label, always on the same command.
+	reach    shellparse.TextReach
+	reachSet bool
 }
 
 // Memo returns a copy of c that caches Classify results.
@@ -180,6 +187,25 @@ func (c *IntentClassifier) selfMgmtWrapperFuncs(command string) map[string]bool 
 	c.wrapperFuncs = shellparse.SelfMgmtWrapperFunctionNames(command)
 	c.wrapperFuncsSet = true
 	return c.wrapperFuncs
+}
+
+// commandTextReach lazily computes and caches
+// shellparse.AnalyzeTextReach(command) — whether the text is piped into a
+// shell or interpreter (#3796) and which written paths the command then
+// executes (#3800). Gated on c.memo != nil for exactly the reason
+// selfMgmtWrapperFuncs is: the memo is only non-nil on a Memo()-scoped copy,
+// where every call passes the same command. On the shared classifier,
+// reused across different commands, recomputing is the safe fallback.
+func (c *IntentClassifier) commandTextReach(command string) shellparse.TextReach {
+	if c.memo == nil {
+		return shellparse.AnalyzeTextReach(command)
+	}
+	if c.reachSet {
+		return c.reach
+	}
+	c.reach = shellparse.AnalyzeTextReach(command)
+	c.reachSet = true
+	return c.reach
 }
 
 // docTextAlternations are the per-shape regexes that together define the
@@ -249,7 +275,7 @@ func (c *IntentClassifier) Classify(cmd string) CommandFacts {
 }
 
 func (c *IntentClassifier) classify(cmd string) CommandFacts {
-	return CommandFacts{
+	f := CommandFacts{
 		IsBashComment: c.bashComment.MatchString(cmd),
 		IsDocText:     c.docText.MatchString(cmd),
 		InHeredoc:     c.heredoc.MatchString(cmd),
@@ -257,6 +283,36 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 		InInterpreterHeredoc: c.interpHered.MatchString(cmd),
 		IsSelfMgmt:           c.selfMgmt.MatchString(cmd),
 	}
+	// #3796 / #3800: the three inertness labels all assert "this text is
+	// never executed". Piped into a shell or interpreter (#3796), or written
+	// to a path the same command then runs (#3800), it IS executed, so the
+	// labels are withdrawn rather than left to excuse a real command.
+	// Measured before each change: a firewall-disable command BLOCKed on its
+	// own, while the same text piped into a shell — and later, written to a
+	// script and executed — returned a decision naming no rule at all, for
+	// any of the ~327 BLOCK rules carrying one of these labels.
+	//
+	// The AST walk runs only when a label is actually set. Classify is on the
+	// hot path (33.6% of pipeline CPU at the #3236 perf breach, which is why
+	// it memoizes), and a command making no inertness claim pays nothing.
+	if (f.IsDocText || f.InHeredoc || f.InInterpreterHeredoc) && shellparse.TextReachesExecutor(cmd) {
+		f.IsDocText = false
+		f.InHeredoc = false
+		f.InInterpreterHeredoc = false
+	}
+	return f
+}
+
+// isInertTextLabel reports whether label asserts "this text is never
+// executed" — the class #3796 withdraws when the text is piped into a shell
+// or interpreter and #3800 withdraws when it is written to a path the command
+// then executes.
+func isInertTextLabel(label string) bool {
+	switch label {
+	case LabelIsDocText, LabelInHeredoc, LabelInInterpreterHeredoc:
+		return true
+	}
+	return false
 }
 
 // Name implements Analyzer.
@@ -266,13 +322,48 @@ func (c *IntentClassifier) Name() string { return "intent-classifier" }
 // ctx.RawStatementsParsed, and returns no findings.
 func (c *IntentClassifier) Analyze(ctx *AnalysisContext) []Finding {
 	ctx.CommandFacts = c.Classify(ctx.RawCommand)
-	topLevel, parsed := shellparse.SplitTopLevelStatementsChecked(ctx.RawCommand)
-	ctx.RawStatementsParsed = parsed
-	ctx.RawStatements = append(
-		topLevel,
-		carrierResolvedStatements(ctx.RawCommand)...,
-	)
+	ctx.RawStatements, ctx.RawStatementsParsed = AttributionStatements(ctx.RawCommand)
 	return nil
+}
+
+// AttributionStatements returns the statement list per-statement intent
+// attribution must consult: the raw top-level split, plus the statements a
+// carrier (`eval '...'`, `bash -c '...'`, `trap '...' EXIT`) actually runs.
+//
+// It exists as an exported function because there are TWO consumers and they
+// had drifted. The pipeline reached it through ctx.RawStatements, which
+// IntentClassifier.Analyze fills in with both halves. The regex-fallback
+// engine called shellparse.SplitTopLevelStatementsChecked directly and got
+// only the first half — so for a command whose dangerous statement and
+// doc-text statement both live inside ONE carrier body:
+//
+//	eval 'REAL-INVOCATION; git commit -m "...REAL-INVOCATION..."'
+//
+// the fallback saw a single top-level statement, took
+// IntentExcludedForStatements' len(statements) <= 1 branch, classified the
+// whole raw eval text (which contains "; git commit -m", so it reads as
+// doc-text) and downgraded — or, for command_intent_exclude, suppressed
+// outright. Measured before this change: fallback AUDIT / pipeline BLOCK, on
+// the obfuscated AND the unobfuscated form alike, so the divergence pre-dated
+// #3717's fold work and was merely made more visible by it.
+//
+// parsed is the top-level split's own flag; carrier statements never change
+// it, since a carrier body that will not parse contributes no statements
+// rather than an unparsed blob.
+func AttributionStatements(command string) (statements []string, parsed bool) {
+	topLevel, parsed := shellparse.SplitTopLevelStatementsChecked(command)
+	statements = append(topLevel, carrierResolvedStatements(command)...)
+	// Command-execution literals recovered from inside an interpreter
+	// heredoc body (#3697) — "csrutil disable" from
+	// `python3 - <<PY\nos.system("csrutil disable")\nPY`. Appended as its
+	// own candidate statement, carrying none of the source statement's
+	// CommandFacts, so a rule opted into in_interpreter_heredoc keeps
+	// excusing a bare mention while still catching a call that actually
+	// shells out. See InterpreterHeredocExecStatements' doc comment — this
+	// is use 1 of 2; use 2 (whole-command candidate form) is wired
+	// separately into RegexAnalyzer.Analyze and policy.Engine.Evaluate.
+	statements = append(statements, InterpreterHeredocExecStatements(command)...)
+	return statements, parsed
 }
 
 // carrierResolvedStatements recovers the shell statements a carrier (`eval
@@ -340,6 +431,41 @@ func carrierResolvedStatements(command string) []string {
 	for _, s := range shellparse.SplitTopLevelStatements(command) {
 		walk(s, 1)
 	}
+	return out
+}
+
+// UnionIntentLabels combines two label lists for a single
+// IntentExcludedForStatements call (#3792).
+//
+// A rule's command_intent_downgrade check must also accept a statement that
+// is already excused by command_intent_exclude labels. Without this, a
+// compound command whose statements are excused by DIFFERENT mechanisms —
+// one heredoc-shaped (in_heredoc), a sibling self-management-shaped
+// (is_self_mgmt) — satisfies neither label set uniformly on its own:
+// IntentExcludedForStatements requires EVERY matched statement to satisfy the
+// SAME list, so both the exclude check and the downgrade check fail closed,
+// and the match stays at full BLOCK severity even though no single statement
+// is a live credential access (sec-block-ssh-private, a heredoc writing a key
+// PATH to a file alongside an `agentshield mcp-eval` probe of that path).
+//
+// Feed the union into the DOWNGRADE check only — never into the exclude
+// check, which must keep requiring every matched statement to be fully
+// exclude-labeled. That asymmetry is what keeps this safe: the exclude check
+// on the same rule runs first (see RegexAnalyzer.Analyze / Engine.matchRule)
+// and would already have suppressed the match entirely had every statement
+// qualified for exclusion, so widening the downgrade check can only weaken a
+// BLOCK that survived exclusion to AUDIT — it can never silently drop a
+// finding a genuinely live statement would otherwise have earned.
+func UnionIntentLabels(downgrade, exclude []string) []string {
+	if len(exclude) == 0 {
+		return downgrade
+	}
+	if len(downgrade) == 0 {
+		return exclude
+	}
+	out := make([]string, 0, len(downgrade)+len(exclude))
+	out = append(out, downgrade...)
+	out = append(out, exclude...)
 	return out
 }
 
@@ -417,9 +543,46 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 			break
 		}
 	}
+	// #3796 / #3800: an inertness label cannot be honoured for a command that
+	// pipes text into a shell or interpreter, or writes it to a path the
+	// command then executes. Per-statement classification alone cannot see
+	// either: SplitTopLevelStatements turns a pipeline into sibling
+	// statements, so the upstream fragment still classifies as doc-text with
+	// the pipe gone — and a `tee x.sh <<EOF` statement is doc-shaped on its
+	// own no matter what `bash x.sh` does two statements later. The check is
+	// therefore against the whole COMMAND, and it is computed only when an
+	// inertness label is actually requested.
+	//
+	// Two granularities, and the difference is a Codex finding (#3800 review
+	// pass 2). A pipe into an executor, a pipe into a `tee` that writes an
+	// executed path, or a redirect on a compound command withdraw for the
+	// whole command — the splitter has already separated the doc-shaped
+	// fragment from the operator that makes it a program, so there is no
+	// finer answer (and on main, `echo "<doc>" > notes.txt; echo true | bash`
+	// already withdraws command-wide). A plain write-then-execute is
+	// attributed to the statement that WRITES the executed path, so `echo
+	// "<doc>" > notes.txt; echo true > check.sh; bash check.sh` keeps the
+	// notes write's label: nothing in that statement reached an executor.
+	inertRequested := false
+	for _, label := range exclude {
+		if isInertTextLabel(label) {
+			inertRequested = true
+			break
+		}
+	}
+	var reach shellparse.TextReach
+	if inertRequested {
+		reach = classifier.commandTextReach(command)
+	}
+	withdrawAll := reach.PipesIntoExecutor || reach.CoarseCorrelated
 	labelMatches := func(stmt string) bool {
 		facts := classifier.Classify(stmt)
+		inertWithdrawn := withdrawAll ||
+			(len(reach.Correlated) > 0 && shellparse.StatementWritesAny(stmt, reach.Correlated))
 		for _, label := range exclude {
+			if inertWithdrawn && isInertTextLabel(label) {
+				continue
+			}
 			if label == LabelIsSelfMgmt {
 				// #3548: is_self_mgmt's fact is "an agentshield mcp-eval/
 				// scan/... invocation appears in this text" — true

@@ -65,17 +65,26 @@ func ScanEmailWriteInjection(toolName string, arguments map[string]interface{}) 
 
 	var result EmailInjectionScanResult
 	for _, argName := range emailBodyArgNames {
-		val, ok := arguments[argName]
-		if !ok {
-			continue
-		}
-		text, ok := val.(string)
-		if !ok || text == "" {
-			continue
-		}
+		// argFieldRecovered (not resolveField, not a raw map index):
+		// emailBodyArgNames are FIXED keys this file authored, so they need the
+		// Unicode separator/confusable recovery of #3691/#3712 WITHOUT the rest
+		// of the ladder. Full resolveField also lowercases and strips
+		// '_'/'-'/spaces, so an ASCII caller spelling (`Body`, `text_body`)
+		// could newly scan a field this rule never claimed — the ASCII-parity
+		// change #3727 removed from its own four sites (#3731).
+		//
+		// Every candidate is scanned so a normalized-name collision cannot hide
+		// an injected body behind a benign sibling via map-iteration order
+		// (#3727 finding 3). Fails CLOSED.
+		for _, val := range argFieldRecovered(arguments, argName) {
+			text, ok := val.(string)
+			if !ok || text == "" {
+				continue
+			}
 
-		scanEmailBodyText(&result, toolName, argName, text)
-		scanEmailBodySeparatorFolded(&result, toolName, argName, text)
+			scanEmailBodyText(&result, toolName, argName, text)
+			scanEmailBodySeparatorFolded(&result, toolName, argName, text)
+		}
 	}
 
 	if len(result.Findings) > 0 {

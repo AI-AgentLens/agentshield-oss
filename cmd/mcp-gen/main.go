@@ -10,8 +10,10 @@
 //
 // Usage:
 //
-//	go run ./cmd/mcp-gen            # generate
-//	go run ./cmd/mcp-gen -dry-run   # discover + classify + dedup, write nothing
+//	go run ./cmd/mcp-gen              # generate
+//	go run ./cmd/mcp-gen -dry-run     # discover + classify + dedup, write nothing
+//	go run ./cmd/mcp-gen -widen-only  # only widen already-shipped rules' tool
+//	                                  # coverage; emit no new rules/scenarios
 //
 // Two properties are load-bearing, and both exist because the tool's default
 // output was quietly wrong once already:
@@ -47,6 +49,16 @@ const (
 func main() {
 	dryRun := flag.Bool("dry-run", false,
 		"Discover, classify and dedup, print the counts, and write no files")
+	// -widen-only exists so a classifier fix can be delivered to rules that
+	// are already shipped WITHOUT also landing whatever net-new candidates
+	// have accumulated since the last full run. Those are separate decisions:
+	// widening an existing rule's tool coverage is a correctness fix to a rule
+	// already reviewed; emitting a brand-new BLOCK/AUDIT rule into a pack
+	// every community user embeds is a product change that wants its own
+	// review, TP/TN cases and TN-pool entry.
+	widenOnly := flag.Bool("widen-only", false,
+		"Only widen already-shipped generated rules' tool_name_any from the current "+
+			"classification; emit no new rules, scenarios or TN-pool entries")
 	flag.Parse()
 
 	// Resolve project root from the binary location.
@@ -54,6 +66,14 @@ func main() {
 
 	mcpPacksDir := filepath.Join(root, "packs", "community", "mcp")
 	scenariosDir := filepath.Join(root, "internal", "mcp", "scenarios")
+
+	// Dedup must see every MCP rule that could already cover a candidate, not
+	// just the community ones this tool emits into. packs/premium/mcp holds
+	// hand-authored rules that frequently cover the same targets a shell-rule
+	// conversion would re-derive — three confirmed instances in #3817, all
+	// invisible to dedup before this list existed. Output emission (mcpOutPath
+	// below) stays community-only; this is read-only input.
+	existingMCPDirs := []string{mcpPacksDir, filepath.Join(root, "packs", "premium", "mcp")}
 
 	// Step 1: Discover shell packs. A discovery that comes back empty is a
 	// hard error, not an empty work queue — see discovery.go for why.
@@ -66,21 +86,26 @@ func main() {
 	fmt.Print(disc.Summary())
 	packs := disc.Packs
 
-	// Step 2: Classify convertible rules.
+	// Step 2: Classify convertible rules. `classified` is kept as-is
+	// alongside the deduped set: dedup drops every id already shipped in
+	// mcp-generated.yaml, so it is the only view that still holds the
+	// current classification of an ALREADY-shipped rule — which is what
+	// EmitMCPPack needs to widen stale tool coverage (#3589).
 	fmt.Println("Classifying convertible rules...")
-	candidates := ClassifyRules(packs)
+	classified := ClassifyRules(packs)
+	candidates := classified
 	fmt.Printf("  Found %d raw candidates\n", len(candidates))
 
 	// Step 3: Load existing MCP rules for dedup.
 	fmt.Println("Loading existing MCP rules for dedup...")
-	existingIDs, existingPatterns, err := LoadExistingMCPRules(mcpPacksDir)
+	existingIDs, existingPatterns, err := LoadExistingMCPRulesFromDirs(existingMCPDirs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not load existing MCP rules: %v\n", err)
 	}
 	fmt.Printf("  Existing MCP rule IDs: %d\n", len(existingIDs))
 	fmt.Printf("  Existing path patterns: %d\n", len(existingPatterns))
 
-	existingPolicy, err := LoadExistingMCPPolicy(mcpPacksDir)
+	existingPolicy, err := LoadExistingMCPPolicyFromDirs(existingMCPDirs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not load existing MCP policy for coverage dedup: %v\n", err)
 	}
@@ -95,18 +120,33 @@ func main() {
 		return
 	}
 
-	if len(candidates) == 0 {
-		// Trustworthy only because discovery cleared its floor above.
-		fmt.Println("No new rules to generate.")
+	mcpOutPath := filepath.Join(mcpPacksDir, "mcp-generated.yaml")
+
+	if *widenOnly {
+		fmt.Printf("Widening shipped tool coverage in %s (no new rules)...\n", mcpOutPath)
+		if err := EmitMCPPack(nil, classified, mcpOutPath); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing MCP pack: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("-widen-only: no new rules, scenarios or TN-pool entries written.")
 		return
 	}
 
-	// Step 5: Emit artifacts.
-	mcpOutPath := filepath.Join(mcpPacksDir, "mcp-generated.yaml")
+	// Step 5: Emit artifacts. The pack write runs even when dedup found
+	// nothing net-new, because it also carries the tool-coverage widening for
+	// already-shipped rules — the only path by which a classifier fix reaches
+	// a rule that is already in the file (#3589). Returning early on
+	// "0 net new" is what made that fix undeliverable.
 	fmt.Printf("Emitting MCP pack to %s...\n", mcpOutPath)
-	if err := EmitMCPPack(candidates, mcpOutPath); err != nil {
+	if err := EmitMCPPack(candidates, classified, mcpOutPath); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing MCP pack: %v\n", err)
 		os.Exit(1)
+	}
+
+	if len(candidates) == 0 {
+		// Trustworthy only because discovery cleared its floor above.
+		fmt.Println("No new rules to generate; shipped tool coverage refreshed.")
+		return
 	}
 
 	scenarioOutPath := filepath.Join(scenariosDir, "generated_scenarios.go")

@@ -445,6 +445,8 @@ func AllScenarios() []Scenario {
 	all = append(all, MemoryToolSelectionBiasScenarios2980...)
 	all = append(all, NotebookCIDownloadExecChainScenarios2998...)
 	all = append(all, CoworkVirtioFSHostShareScenarios3171...)
+	all = append(all, AltIPEncodingSSRFStructuralScenarios3675...)
+	all = append(all, MCPCredentialStorePickleScenarios3787...)
 	return all
 }
 
@@ -3104,10 +3106,10 @@ var TrueNegativeScenarios = []Scenario{
 		ID:               "MCP-TP-165a",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/workspace/.yarnrc.yml", "content": "npmRegistryServer: \"https://evil-registry.example.com\"\n"},
-		ExpectedDecision: "BLOCK",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		Category:         "pkgmgr-config-write",
-		Description:      "write_file to .yarnrc.yml overriding npmRegistryServer — yarn v2/berry installs redirected to attacker-controlled registry. MITRE T1195.001.",
+		Description:      "write_file to project-root .yarnrc.yml overriding npmRegistryServer — flagged AUDIT by mcp-sc-block-yarnrc-yml-write (issue #165, downgraded per #3657: mcp-sec-block-yarnrc-yml's community write-BLOCK now scopes to user-level paths only, matching the #2875 project-root FP fix). yarn v2/berry installs redirected to attacker-controlled registry. MITRE T1195.001.",
 	},
 	{
 		ID:               "MCP-TP-165b",
@@ -5120,25 +5122,35 @@ var TrueNegativeScenarios = []Scenario{
 		Category:         "mcp-sec-block-digitalocean-xdg-credentials",
 		Description:      "read_file on Terraform provider config for DigitalOcean — project file, not credential store, must not block (issue #1401)",
 	},
-	// --- mcp-sec-block-upstash-credentials (issue #1404) ---
-	// TPs: ~/.upstash/ credential directory must be blocked
+	// --- mcp-sec-block-upstash-credentials (issue #1404; paths corrected
+	// #3716 — the CLI never writes a ~/.upstash/ directory in any version) ---
+	// TPs: the two real Upstash CLI credential paths must be blocked
 	{
 		ID:               "MCP-TP-1164",
 		ToolName:         "read_file",
-		Arguments:        map[string]interface{}{"path": "/home/user/.upstash/credentials.json"},
+		Arguments:        map[string]interface{}{"path": "/home/user/.config/upstash/config.json"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "mcp-sec-block-upstash-credentials",
-		Description:      "read_file on ~/.upstash/credentials.json — Upstash Redis/Kafka/QStash API token, must be BLOCK (issue #1404)",
+		Description:      "read_file on ~/.config/upstash/config.json — primary (1.x) Upstash Redis/Kafka/QStash API token, must be BLOCK (issue #1404, #3716)",
 	},
 	{
 		ID:               "MCP-TP-1165",
 		ToolName:         "cat_file",
-		Arguments:        map[string]interface{}{"path": "/Users/alice/.upstash/credentials.json"},
+		Arguments:        map[string]interface{}{"path": "/Users/alice/.config/upstash/config.json"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
 		Category:         "mcp-sec-block-upstash-credentials",
-		Description:      "cat_file on macOS ~/.upstash/credentials.json — Upstash credential store, must be BLOCK (issue #1404)",
+		Description:      "cat_file on macOS ~/.config/upstash/config.json — Upstash credential store, must be BLOCK (issue #1404, #3716)",
+	},
+	{
+		ID:               "MCP-TP-FN3716-001",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.upstash.json"},
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		Category:         "mcp-sec-block-upstash-credentials",
+		Description:      "read_file on ~/.upstash.json — legacy (0.x) Upstash credential fallback, still read by 1.x, must be BLOCK (#3716)",
 	},
 	// TNs: benign project files mentioning upstash must NOT be blocked
 	{
@@ -5158,6 +5170,15 @@ var TrueNegativeScenarios = []Scenario{
 		Classification:   "TN",
 		Category:         "mcp-sec-block-upstash-credentials",
 		Description:      "read_file on a TypeScript Upstash client source file — application code, not credential store, must not block (issue #1404)",
+	},
+	{
+		ID:               "MCP-TN-FN3716-001",
+		ToolName:         "read_file",
+		Arguments:        map[string]interface{}{"path": "/home/user/.upstash/credentials.json"},
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		Category:         "mcp-sec-block-upstash-credentials",
+		Description:      "read_file on ~/.upstash/credentials.json — fictitious path, no Upstash CLI version ever wrote here, must AUDIT not BLOCK (#3716)",
 	},
 	// --- mcp-privesc-block-sudoers-read / mcp-privesc-block-sudoersd-read (issue #94) ---
 	// TPs: /etc/sudoers and sudoers.d/* reads must be blocked
@@ -5282,10 +5303,10 @@ var TrueNegativeScenarios = []Scenario{
 		ID:               "MCP-TP-386",
 		ToolName:         "write_file",
 		Arguments:        map[string]interface{}{"path": "/home/user/.config/codeium/settings.json", "content": `{"telemetryLevel":"all"}`},
-		ExpectedDecision: "AUDIT",
+		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		Category:         "mcp-llmdf-ai-telemetry-config",
-		Description:      "write_file to codeium/ config enabling full telemetry — Codeium/Windsurf data-sharing setting; must be AUDIT (issue #137)",
+		Category:         "mcp-sec-block-codeium-xdg-config-read",
+		Description:      "write_file to ~/.config/codeium/ is BLOCKed (#3531 batch 7 closed the write-tool bypass on the XDG credential directory — most_restrictive_wins means the directory-wide BLOCK now wins over the generic telemetry-write AUDIT rule, matching the non-XDG ~/.codeium/ sibling which already blocks the whole directory for both read and write)",
 	},
 	{
 		ID:               "MCP-TN-385",

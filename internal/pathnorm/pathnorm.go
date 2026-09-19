@@ -60,3 +60,27 @@ func StripShellQuotes(s string) string {
 	}
 	return b.String()
 }
+
+// FoldHomeVar rewrites a leading $HOME or ${HOME} to ~, the spelling the
+// protected-path matcher already expands.
+//
+// $HOME is the one variable every shell binds before the command runs, and
+// the one real scripts spell instead of `~`; the substitution analyzer folds
+// it the same way. Kept here so the protected-path token check, the
+// consumer-slot walk and the bind-mount source extractor cannot drift apart.
+//
+// The fold requires a `/` or end-of-string after the name, so $HOMEBREW_PREFIX
+// is left alone rather than becoming ~BREW_PREFIX.
+func FoldHomeVar(s string) string {
+	for _, prefix := range [...]string{"${HOME}", "$HOME"} {
+		if !strings.HasPrefix(s, prefix) {
+			continue
+		}
+		rest := s[len(prefix):]
+		if rest == "" || rest[0] == '/' {
+			return "~" + rest
+		}
+		return s
+	}
+	return s
+}

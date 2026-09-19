@@ -1,4 +1,4 @@
-.PHONY: build test test-perf lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-mcp-tool-symmetry check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest
+.PHONY: build test test-perf lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-mcp-tool-symmetry check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest check-duplicate-rule-ids check-arg-map-lookups check-regex-anchors
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -146,13 +146,22 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	fi
 	@agentshield scan > /dev/null 2>&1 && echo "✅ AgentShield deployed and verified" || echo "⚠️  Deploy done but scan failed"
 
-check: lint-fix test build check-rule-coverage ## Run full pre-commit check (lint, test, build, rule coverage)
+check: lint-fix test build check-rule-coverage check-duplicate-rule-ids check-arg-map-lookups ## Run full pre-commit check (lint, test, build, rule coverage, duplicate ids, arg-map lookups)
 
 check-rule-coverage: ## Enforce TP+TN test coverage on every terminal pack rule
 	go run ./cmd/check-rule-coverage -v
 
 check-mcp-tool-symmetry: ## Flag MCP credential-exposure rules with read-only tool_name_any (write-tool bypass, #3525)
 	go run ./cmd/check-mcp-tool-symmetry -v
+
+check-duplicate-rule-ids: ## Ratchet against rule ids defined more than once (#3660)
+	go run ./cmd/check-duplicate-rule-ids -v
+
+check-regex-anchors: ## Ratchet against command_regex with an unanchored leading verb alternation + .* span (#3846)
+	go run ./cmd/check-regex-anchors -v
+
+check-arg-map-lookups: ## Forbid raw fixed-key arguments-map lookups in internal/mcp (#3720)
+	go run ./cmd/check-arg-map-lookups -v
 
 # Semantic-fit of pack taxonomy refs (#3333). Needs the AI_risk_compliance
 # taxonomy tree, which this repo does not vendor — pass its path, the same

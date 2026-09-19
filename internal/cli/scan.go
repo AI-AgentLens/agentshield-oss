@@ -299,13 +299,17 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	total := len(shellCases) + len(mcpCases) + 2 + 2 + 2 + tamperTotal
 	passed := shellPass + mcpPass + descPass + contentPass + guardPass + tamperPass
 	failed := total - passed
+	tamperFailed := tamperTotal - tamperPass
+	policyFailed := failed - tamperFailed
 
 	fmt.Println("═══════════════════════════════════════════════════════")
 	if failed == 0 {
 		fmt.Printf("  ✅ All %d tests passed — AgentShield is working correctly\n", total)
 	} else {
 		fmt.Printf("  ⚠  %d/%d tests passed, %d failed\n", passed, total, failed)
-		fmt.Println("  Review your policy configuration.")
+		for _, line := range scanSummaryAdvice(policyFailed, tamperFailed) {
+			fmt.Println("  " + line)
+		}
 	}
 	fmt.Println("═══════════════════════════════════════════════════════")
 	fmt.Println()
@@ -594,6 +598,26 @@ func printManagedChecks(cfg *config.Config, managedCfg *enterprise.ManagedConfig
 	}
 
 	return passed, total
+}
+
+// scanSummaryAdvice picks the footer advice from WHICH section failed (#3140).
+// Shell, MCP, description, content and config-guard cases fail because a
+// rule is missing or disabled, so "review your policy" is the right
+// instruction. Tamper-protection checks fail because the install itself is
+// damaged — a missing policy file, a modified hook, an unprotected or broken
+// audit chain — and no policy edit fixes that.
+func scanSummaryAdvice(policyFailed, tamperFailed int) []string {
+	var lines []string
+	if policyFailed > 0 {
+		lines = append(lines, "Review your policy configuration.")
+	}
+	if tamperFailed > 0 {
+		lines = append(lines,
+			"Tamper protection: see the failed lines in the section above. "+
+				"A missing policy file or a modified hook is restored by `agentshield setup <ide>`; "+
+				"an unprotected or broken audit chain is a log-integrity finding, not a policy setting.")
+	}
+	return lines
 }
 
 // auditChainStatus renders the "Audit chain" line and reports how it counts

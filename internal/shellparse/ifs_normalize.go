@@ -112,6 +112,28 @@ func NormalizeIFS(command string) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// CommandAssignmentContext reports the whole-command facts a single statement
+// cannot see for itself: whether IFS is reassigned anywhere, and every name
+// assigned anywhere.
+//
+// Statement-scoped callers of NormalizeIFS / NormalizeUnsetParamExp need this.
+// Both normalizers already refuse a rewrite that an assignment in their own
+// text invalidates — NormalizeIFS bails outright on `IFS=`, and
+// NormalizeUnsetParamExp skips names assignedNames() found — but handed one
+// statement of a compound command they cannot see a sibling's assignment, so
+// `IFS=; : cmd${IFS}--flag` folds to `: cmd --flag` when bash runs
+// `: cmd--flag`. Returns (false, nil) when the command does not parse: no
+// claim can be made, and the conservative reading is "no known assignments",
+// which leaves the folds exactly as they were before this existed.
+func CommandAssignmentContext(command string) (ifsReassignedAnywhere bool, assigned map[string]bool) {
+	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
+	file, err := parser.Parse(strings.NewReader(command), "")
+	if err != nil {
+		return false, nil
+	}
+	return ifsReassigned(file), assignedNames(file)
+}
+
 // ifsReassigned reports whether the command assigns IFS anywhere, via a
 // plain assignment ("IFS=, cmd") or a declaration builtin ("export IFS=,",
 // "local IFS=,", "declare IFS=,", "readonly IFS=,").

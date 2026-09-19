@@ -117,5 +117,69 @@ n=$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$REAL" | grep -c .)
 if [ "$n" -gt 0 ]; then echo "  ok: real baseline parses ($n entries)"
 else echo "  FAIL: real baseline parsed to 0 entries"; fail=1; fi
 
+# ── --refresh (2026-09-14) ───────────────────────────────────────────────────
+# The refresh absorbs the delta so the nightly stops being 75%-red. Its one
+# dangerous property is that it REWRITES the measurement file, so the cases that
+# matter are the lossy ones: a hand-written `# tier-split` rationale and a
+# comment block sitting among the entries are the highest-value lines in that
+# file, and a naive regenerate-from-observed would delete every one of them.
+echo
+echo "check-oss-baseline --refresh:"
+
+mk_annotated_baseline() { # <path>
+  cat > "$1" <<'EOF'
+# header comment, preserved
+case:TP-ALPHA-001
+case:TP-BETA-002    # tier-split #3161: community AUDITs, premium escalates
+# an explanatory block sitting among the entries
+test:TestSomeWholeCorpusSweep
+EOF
+}
+
+# New entry appears: absorbed, exit 0, and the annotation on an UNRELATED
+# surviving line must survive verbatim.
+B="$TMP/refresh1.txt"; mk_annotated_baseline "$B"
+"$GATE" --refresh "$TMP/new.log" "$B" > "$TMP/r1.txt" 2>&1
+check "--refresh absorbs a new failure -> green" 0 $?
+contains "reports what it absorbed"      "$TMP/r1.txt" "Baseline refreshed"
+contains "new entry written to baseline" "$B" "case:TP-GAMMA-003"
+contains "PRESERVES the tier-split annotation" "$B" "tier-split #3161: community AUDITs, premium escalates"
+contains "PRESERVES the header comment"        "$B" "# header comment, preserved"
+contains "PRESERVES the interleaved comment"   "$B" "# an explanatory block sitting among the entries"
+contains "dates the added batch"               "$B" "added by check-oss-baseline.sh --refresh"
+
+# A fixed case must be ratcheted OUT by refresh, not left to hide a regression.
+B="$TMP/refresh2.txt"; mk_annotated_baseline "$B"
+"$GATE" --refresh "$TMP/fixed.log" "$B" > "$TMP/r2.txt" 2>&1
+check "--refresh ratchets out a now-passing case" 0 $?
+if grep -qE '^case:TP-BETA-002' "$B"; then
+  echo "  FAIL: fixed entry survived the refresh"; fail=1
+else echo "  ok: fixed entry removed from baseline"; fi
+contains "surviving entry still present" "$B" "case:TP-ALPHA-001"
+
+# Idempotence: refreshing twice must be a no-op, or the file churns every night.
+B="$TMP/refresh3.txt"; mk_annotated_baseline "$B"
+"$GATE" --refresh "$TMP/new.log" "$B" >/dev/null 2>&1
+cp "$B" "$TMP/after1.txt"
+"$GATE" --refresh "$TMP/new.log" "$B" > "$TMP/r3.txt" 2>&1
+check "second --refresh is a no-op -> green" 0 $?
+if diff -q "$TMP/after1.txt" "$B" >/dev/null; then echo "  ok: idempotent (file unchanged)"
+else echo "  FAIL: refresh is not idempotent — the file churns"; fail=1; fi
+
+# --refresh must NOT paper over a suite that never ran. That is the one failure
+# this whole file exists to keep fatal, and a refresh mode is exactly how it
+# would get lost.
+B="$TMP/refresh4.txt"; mk_annotated_baseline "$B"; cp "$B" "$TMP/before4.txt"
+"$GATE" --refresh "$TMP/truncated.log" "$B" >/dev/null 2>&1
+check "--refresh still exits 2 when the suite never ran" 2 $?
+if diff -q "$TMP/before4.txt" "$B" >/dev/null; then echo "  ok: baseline untouched when the suite proved nothing"
+else echo "  FAIL: refresh wrote a baseline from a suite that never ran"; fail=1; fi
+
+# Without --refresh the ratchet must still be able to go red, or this change
+# silently disarmed the gate everywhere it is still wanted.
+B="$TMP/refresh5.txt"; mk_annotated_baseline "$B"
+"$GATE" "$TMP/new.log" "$B" >/dev/null 2>&1
+check "no --refresh -> still red on a delta" 1 $?
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit "$fail"

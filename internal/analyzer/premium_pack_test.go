@@ -1,8 +1,9 @@
 package analyzer_test
 
 import (
-	"os"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Two builds run this test package against two different rule sets.
@@ -11,8 +12,13 @@ import (
 // keeps every test file, and scripts/integration-test-oss.sh then runs
 // `go test ./internal/policy/ ./internal/analyzer/` against that stripped tree
 // — so any assertion whose answer depends on premium rules being loaded has to
-// know which tree it is running in. There is exactly ONE mechanism for that
-// (this file); do not add a second way to detect it.
+// know which tree it is running in. There is exactly ONE mechanism for that;
+// do not add a second way to detect it.
+//
+// That mechanism moved to internal/ossbuild when internal/policy grew its first
+// premium-dependent assertion (#3684) and could not import a _test.go file. The
+// two names below are the local adapters, kept so the ~10 call sites in this
+// package read the same as before.
 //
 // Two shapes are legitimate:
 //
@@ -24,11 +30,9 @@ import (
 //     cover the weaker tree — that would let a real regression through on the
 //     build that is actually shipped to customers.
 
-// premiumPacksPresent reports whether packs/premium/ is loadable from the test
-// working directory (internal/analyzer/, hence ../../).
+// premiumPacksPresent reports whether packs/premium/ is part of this tree.
 func premiumPacksPresent() bool {
-	_, err := os.Stat("../../packs/premium/terminal-safety-advanced.yaml")
-	return err == nil
+	return ossbuild.PremiumPacksPresent()
 }
 
 // requirePremiumPack skips the caller when packs/premium/ is absent, so a test

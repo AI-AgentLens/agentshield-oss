@@ -32,6 +32,25 @@ const (
 	// (bash/sh/python3/…) — that body is code, not data. See
 	// shellparse.HeredocBodies (#3397).
 	LabelPosHeredocBody = "heredoc_body"
+	// LabelPosQuotedProgramArg — the match exists only inside a word that is
+	// ENTIRELY one shell quote (`'…'` / `"…"`, no unquoted characters
+	// concatenated onto it), passed as an argument to a fixed allowlist of
+	// domain-specific-syntax consumers (awk, sed, perl, jq — never a shell
+	// or code interpreter that could execute the string as shell source).
+	// Filename generation only applies to UNQUOTED words on the invoking
+	// shell's own command line, so a wholly-quoted argument to one of these
+	// tools can never carry a live zsh glob qualifier. See
+	// shellparse.QuotedProgramArgs (#3631).
+	LabelPosQuotedProgramArg = "quoted_program_arg"
+	// LabelPosInterpHeredocLiteral — the match exists only inside a quoted
+	// string literal in a python3/node/ruby/perl heredoc body that contains
+	// NO command-execution call this package can recognize anywhere in that
+	// body: data being assigned, printed, or written to a file, never a
+	// program the interpreter runs. A body that DOES contain a recognized
+	// exec call gets no exclusion at all, even for a literal that isn't
+	// itself that call's argument — see InertInterpreterHeredocLiterals
+	// (#3809) for why that's the line, not "not itself an exec argument".
+	LabelPosInterpHeredocLiteral = "interp_heredoc_literal"
 )
 
 // IsValidPositionLabel reports whether a position-exclusion label is
@@ -39,7 +58,12 @@ const (
 // rejects unknown intent labels: a typo would suppress nothing and leave a
 // rule shipping the false positive it opted out of.
 func IsValidPositionLabel(name string) bool {
-	return name == LabelPosLoopWordList || name == LabelPosSearchNeedle || name == LabelPosHeredocBody
+	switch name {
+	case LabelPosLoopWordList, LabelPosSearchNeedle, LabelPosHeredocBody, LabelPosQuotedProgramArg, LabelPosInterpHeredocLiteral:
+		return true
+	default:
+		return false
+	}
 }
 
 // PositionExcluded reports whether a match that has already fired should be
@@ -50,6 +74,13 @@ func IsValidPositionLabel(name string) bool {
 // the caller because the two evaluation paths spell it differently
 // (analyzer.RegexAnalyzer.matchRegexRule and policy.Engine.matchRulePattern),
 // exactly as IntentExcludedForStatements takes it.
+//
+// foldCtx is the whole-command fold context (see StatementFoldContext) used
+// to give the SUBTRACTION check below the same obfuscation-aware candidates
+// the top-level match and command_intent_exclude/downgrade attribution
+// already get (#3717). Pass nil for "no context" — every lexical fold still
+// applies, only indirect-executable resolution and sibling-assignment
+// invalidation are skipped.
 //
 // Two independent conditions must hold, and needing both is the point:
 //
@@ -62,9 +93,17 @@ func IsValidPositionLabel(name string) bool {
 //
 // Subtraction is checked against the redacted command in the same alternative
 // renderings the matcher itself uses (dequoted, IFS-normalized, per
+// statement, and — #3725 — every StatementMatchCandidates fold of each
 // statement), so a second occurrence that is only visible after a transform —
-// `cat /etc/sha'dow'` — still keeps the block.
-func PositionExcluded(command string, positions []string, matches func(string) bool) bool {
+// `cat /etc/sha'dow'`, or an obfuscated real invocation sitting next to an
+// unrelated excluded-position sibling — still keeps the block. Before #3725
+// the per-statement half of this list was raw statement text only: a real
+// statement obfuscated with `${IFS}` or an unset-parameter splice (which the
+// top-level match already resolves via the same fold candidates) did not
+// match here, so it was invisible to subtraction and the command was
+// excluded on the strength of an unrelated needle/loop sibling alone — a
+// fail-open in the same direction and shape as #3717.
+func PositionExcluded(command string, positions []string, foldCtx *StatementFoldContext, matches func(string) bool) bool {
 	for _, p := range positions {
 		var items []string
 		var redacted string
@@ -75,13 +114,17 @@ func PositionExcluded(command string, positions []string, matches func(string) b
 			items, redacted = shellparse.SearchToolNeedles(command)
 		case LabelPosHeredocBody:
 			items, redacted = shellparse.HeredocBodies(command)
+		case LabelPosQuotedProgramArg:
+			items, redacted = shellparse.QuotedProgramArgs(command)
+		case LabelPosInterpHeredocLiteral:
+			items, redacted = InertInterpreterHeredocLiterals(command)
 		default:
 			continue
 		}
 		if redacted == "" || !anyMatches(matches, itemForms(items)) {
 			continue
 		}
-		if !anyMatches(matches, redactedForms(redacted)) {
+		if !anyMatches(matches, redactedForms(redacted, foldCtx)) {
 			return true
 		}
 	}
@@ -115,11 +158,14 @@ func itemForms(items []string) []string {
 }
 
 // redactedForms is the set of texts the pattern must NOT match for the
-// exclusion to hold. It deliberately mirrors the cheap whole-command and
-// per-statement candidates the regex layer already derives, rather than the
-// full arsenal: every form here is a way the SAME match could survive
-// redaction, and missing one would suppress a real second occurrence.
-func redactedForms(redacted string) []string {
+// exclusion to hold. It mirrors the whole-command candidates the regex layer
+// already derives, plus — per statement (#3725) — the FULL
+// StatementMatchCandidates fold set, not just the raw split text: every form
+// here is a way the SAME match could survive redaction, and missing one would
+// suppress a real second occurrence. StatementMatchCandidates always includes
+// the statement's own raw text as its first element, so this subsumes the
+// plain per-statement check it replaces.
+func redactedForms(redacted string, foldCtx *StatementFoldContext) []string {
 	forms := []string{
 		redacted,
 		shellparse.DequoteCommand(redacted),
@@ -127,9 +173,10 @@ func redactedForms(redacted string) []string {
 	}
 	for _, st := range shellparse.SplitTopLevelStatements(redacted) {
 		st = strings.TrimRight(st, " \t\n;")
-		if st != "" {
-			forms = append(forms, st)
+		if st == "" {
+			continue
 		}
+		forms = append(forms, StatementMatchCandidates(st, foldCtx)...)
 	}
 	return forms
 }

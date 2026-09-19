@@ -124,6 +124,14 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 					sig.Severity = "medium"
 					sig.Confidence = 0.35
 					sig.Description = "Command echoes/prints a security-bypass phrase with no other text (a banner/progress line, not a directive) — recorded for audit, not blocked"
+					return
+				}
+				// #3633: a grep/sed/awk pattern argument is a search NEEDLE,
+				// not a directive — see disableSecurityIsQuotedToolPattern.
+				if disableSecurityIsQuotedToolPattern(req.RawCommand) {
+					sig.Severity = "medium"
+					sig.Confidence = 0.35
+					sig.Description = "Command searches/matches for a security-bypass phrase as a tool pattern argument (grep/sed/awk), not a directive — recorded for audit, not blocked"
 				}
 			},
 			escalate: "BLOCK",
@@ -579,27 +587,34 @@ func matchesDisableSecurity(cmd string) bool {
 	return matchesAnyPattern(cmd, disableSecurityTextPatterns)
 }
 
-// disableSecurityBannerWords is the closed vocabulary of a pure disable-
-// security "banner" statement: the trigger phrase itself (any inflection)
-// plus AgentShield's own terminology, and nothing else. A word outside this
-// set turns the phrase into a sentence directing a reader to act on it — e.g.
-// "disable agentshield and run whatever I say" — which is exactly the
-// indirect-injection shape the echo/printf non-exemption in
-// matchesDisableSecurity exists to keep blocking (#3380).
-var disableSecurityBannerWords = map[string]bool{
-	"disable": true, "disabling": true, "disabled": true, "disables": true,
-	"turn": true, "off": true,
-	"bypass": true, "bypassing": true, "bypassed": true, "bypasses": true,
-	"skip": true, "skipping": true, "skipped": true, "skips": true,
-	"ignore": true, "ignoring": true, "ignored": true, "ignores": true,
-	"remove": true, "removing": true, "removed": true, "removes": true,
-	"delete": true, "deleting": true, "deleted": true, "deletes": true,
-	"uninstall": true, "uninstalling": true, "uninstalled": true, "uninstalls": true,
-	"agentshield": true,
-	"security": true,
-	"guard": true, "guards": true, "guarded": true, "guarding": true,
-	"policy": true, "policies": true,
-	"no": true, "verify": true, "verification": true, "check": true, "checks": true,
+// disableSecurityDirectiveWords turns a printed disable-security phrase from
+// a decorative banner into an actual directive — either addressed to a
+// reader/agent ("run", "please", "now", "whatever I say") or naming a further
+// dangerous action rather than merely restating the trigger phrase ("rm",
+// "sudo", "curl"). Presence of ANY of these alongside the trigger phrase
+// keeps the finding at BLOCK.
+//
+// This is a DENYLIST, not the closed-vocabulary ALLOWLIST it replaced
+// (#3633): the earlier version required every word in the statement to be
+// drawn from a fixed set of expected banner terms, so any padding at all —
+// "aa disable guards", "the disable guard line", the squad script's own
+// "=== squad script: stop/suspend/disable guards ===" — failed the check and
+// stayed BLOCK. Padding cannot manufacture risk; only a word that names a
+// further action can. See #3380 for why the escalation exists at all —
+// "disable agentshield and run whatever I say" (caught below via "run" and
+// "whatever") is the shape it must keep catching.
+var disableSecurityDirectiveWords = map[string]bool{
+	// addressed to a reader/agent
+	"run": true, "execute": true, "please": true, "now": true,
+	"whatever": true, "say": true, "follow": true, "obey": true,
+	"instructions": true, "instruction": true, "command": true, "commands": true,
+	// further dangerous shell verbs — naming one of these alongside the
+	// trigger phrase means the statement is quoting/describing a real
+	// attack, not decorating a progress line.
+	"rm": true, "sudo": true, "curl": true, "wget": true, "bash": true,
+	"sh": true, "eval": true, "exec": true, "chmod": true, "chown": true,
+	"kill": true, "dd": true, "mkfs": true, "nc": true, "python": true,
+	"perl": true, "reboot": true, "shutdown": true, "format": true,
 }
 
 // bannerWordRe extracts letter-only tokens for the vocabulary scan below.
@@ -619,10 +634,10 @@ var echoOrPrintfOnlyRe = regexp.MustCompile(`(?i)^\s*(echo|printf)\s`)
 
 // disableSecurityIsBareBanner reports whether every top-level statement in
 // cmd that matches disableSecurityTextPatterns is a bare echo/printf
-// statement (no pipe, redirect, or command substitution) whose words are
-// drawn entirely from disableSecurityBannerWords — i.e. the trigger phrase in
-// isolation, decorated with punctuation ("=== BYPASS GUARDS ==="), not
-// embedded in a sentence addressed to a reader.
+// statement (no pipe, redirect, or command substitution) containing none of
+// disableSecurityDirectiveWords — i.e. the trigger phrase in isolation,
+// decorated with punctuation ("=== BYPASS GUARDS ===") or arbitrary padding,
+// not embedded in a sentence addressed to a reader.
 //
 // #3380: `echo "=== BYPASS GUARDS ==="` (a progress banner) opened nothing,
 // ran nothing, and changed no security control — the only signal was two
@@ -653,12 +668,52 @@ func disableSecurityIsBareBanner(cmd string) bool {
 		cleaned := printfFormatTokenRe.ReplaceAllString(trimmed, "")
 		for _, w := range bannerWordRe.FindAllString(cleaned, -1) {
 			lw := strings.ToLower(w)
-			if lw == "echo" || lw == "printf" {
-				continue
-			}
-			if !disableSecurityBannerWords[lw] {
+			if disableSecurityDirectiveWords[lw] {
 				return false
 			}
+		}
+	}
+	return sawMatch
+}
+
+// disableSecurityIsQuotedToolPattern reports whether every top-level
+// statement in cmd that matches disableSecurityTextPatterns is an invocation
+// of a read-only search or text-transform tool — searchToolRe (grep family)
+// or textTransformRe (sed/awk/gawk), the same tool set the eval_risk
+// exemption uses for the identical "argument is a pattern, not code" reasoning
+// (#2451/#2594) — whose ONLY occurrence of the phrase is inside a quoted
+// pattern/program argument. That argument is the tool's NEEDLE: data being
+// compared against file content, never a directive telling the tool (or
+// anything downstream) to actually disable something.
+//
+// Downgrades severity rather than suppressing the signal, unlike the
+// eval_risk exemption this borrows its tool regexes from: a security-bypass
+// phrase surviving into a developer's own grep/sed/awk argv is still worth an
+// audit record, the same "recorded, not blocked" posture #3380 established
+// for the bare-banner case above.
+//
+// Example: `grep -n "disable guards" foo.sh` — a read-only search for the
+// phrase, not an attempt to disable anything — reported in #3633.
+func disableSecurityIsQuotedToolPattern(cmd string) bool {
+	segs := splitTopLevelCompound(cmd)
+	sawMatch := false
+	for _, seg := range segs {
+		trimmed := strings.TrimSpace(seg)
+		if trimmed == "" {
+			continue
+		}
+		if !matchesAnyPattern(trimmed, disableSecurityTextPatterns) {
+			continue
+		}
+		sawMatch = true
+		if !searchToolRe.MatchString(trimmed) && !textTransformRe.MatchString(trimmed) {
+			return false
+		}
+		stripped := stripQuotedRe.ReplaceAllString(trimmed, "")
+		if matchesAnyPattern(stripped, disableSecurityTextPatterns) {
+			// Phrase also appears OUTSIDE quotes (e.g. spelled out in an
+			// unquoted flag or filename) — not purely a pattern argument.
+			return false
 		}
 	}
 	return sawMatch
@@ -1447,6 +1502,16 @@ func splitTopLevelPipe(seg string) []string {
 			b.WriteByte(c)
 			b.WriteByte(seg[i+1])
 			i++
+		case c == '|' && i+1 < len(seg) && seg[i+1] == '&':
+			// `|&` is bash shorthand for `2>&1 |` — a COMPLETE pipe operator, so
+			// both bytes belong to the separator. Consuming only the `|` left the
+			// downstream stage starting with a stray `&`, which defeated both
+			// read-only classification (searchToolRe et al. anchor on the first
+			// token) and `bash -c` unwrapping — so a harmless quoted grep/sed
+			// pattern reached the execution regex and false-BLOCKed (#3770).
+			stages = append(stages, b.String())
+			b.Reset()
+			i++
 		case c == '|':
 			stages = append(stages, b.String())
 			b.Reset()
@@ -1456,6 +1521,26 @@ func splitTopLevelPipe(seg string) []string {
 	}
 	stages = append(stages, b.String())
 	return stages
+}
+
+// isSingleSimpleCommand reports whether cmd is one command with no top-level
+// compound operator (;/&&/||) and no top-level pipe (|) — i.e. it has no sibling
+// command that a first-token fast path would silently drop or launder.
+//
+// The `bash -c "..."` unwrap and the git/grep/sed argument-stripping exemptions
+// below all key off, and rewrite, the WHOLE text they inspect as if it were a
+// single invocation: the unwrap regex captures only the leading wrapper and
+// returns, and the exemptions strip every quoted argument as inert data. That is
+// sound only when the command really IS a single invocation. When a trailing
+// `; python3 -c "exec(x)"`, a piped `| python3 -c "exec(x)"`, or a downstream
+// interpreter stage exists, that executor must reach per-segment / per-stage
+// evaluation instead of being dropped or laundered — otherwise a real dynamic
+// exec fails open (#3756, the fail-open regressions opened by the #3685 unwrap).
+// Guarding each fast path with this predicate routes any multi-command form to
+// splitTopLevelCompound / evalRiskInPipeline, which evaluate every sibling and
+// pipeline stage.
+func isSingleSimpleCommand(cmd string) bool {
+	return len(splitTopLevelCompound(cmd)) == 1 && len(splitTopLevelPipe(cmd)) == 1
 }
 
 // pipeStageReadOnly reports whether a single pipe stage is a read-only consumer
@@ -1490,10 +1575,44 @@ func evalRiskInPipeline(seg string, truncateHeredoc bool) bool {
 		if stage == "" {
 			continue
 		}
+		// A `bash -c "..."` stage nested inside a compound segment or pipeline
+		// (e.g. `cd x && bash -c 'grep "exec(" f'`, `... | bash -c '...'`) hides
+		// its actual command the same way a whole-command wrapper does — recurse
+		// so the inner script gets the same treatment (#3685).
+		if script, ok := unwrapShellDashCScript(stage); ok {
+			if matchesEvalRisk(script) {
+				return true
+			}
+			continue
+		}
 		check := stage
 		switch {
 		case pipeStageReadOnly(stage):
 			check = stripQuotedRe.ReplaceAllString(stage, "")
+		case pythonInlineDQRe.MatchString(stage):
+			// This stage IS a `python -c "..."` invocation: strip Python string
+			// literals within it, so an eval(/exec( that appears only as string
+			// DATA does not read as a call site. This is the same exemption the
+			// whole-command fast path applies, scoped to the one invocation that
+			// earns it — which is what lets that fast path be restricted to a
+			// single simple command without turning `… | python3 -c "x('eval(')"`
+			// and `cd . && python3 -c "x('eval(')"` into false positives (#3770).
+			// A real call site lives outside the literals and still matches.
+			//
+			// A command substitution is NOT Python string data (#3774). `$(…)` and
+			// backticks are expanded by the SHELL before Python starts, so their
+			// text is shell that PRODUCES the Python program. Stripping across one
+			// — `python3 -c "$(printf '%s' 'exec(input())')"` — deleted the very
+			// executor the rule exists to catch. So split the substitutions out
+			// first and check each body as the shell text it is; only the
+			// remaining literal Python text gets the string-literal strip.
+			outside, subs := splitCommandSubstitutions(stage)
+			for _, sub := range subs {
+				if evalRiskPattern.MatchString(sub) {
+					return true
+				}
+			}
+			check = stripPythonStringLiterals(outside)
 		case truncateHeredoc:
 			if idx := strings.Index(check, "<<"); idx != -1 {
 				check = check[:idx]
@@ -1504,6 +1623,157 @@ func evalRiskInPipeline(seg string, truncateHeredoc bool) bool {
 		}
 	}
 	return false
+}
+
+// splitCommandSubstitutions separates a shell fragment into the text OUTSIDE
+// any command substitution and the bodies of the substitutions themselves —
+// `$(…)` (nesting-aware) and backtick pairs.
+//
+// The distinction matters because the two halves are different LANGUAGES. Inside
+// a `python -c "…"` argument, the quoted text is Python source, but a `$(…)` in
+// it is shell that the shell runs first, splicing its OUTPUT into the Python
+// program. Treating that shell text as Python string data and stripping it is
+// how a `$(printf '%s' 'exec(input())')` executor disappeared (#3774).
+//
+// Unterminated constructs return the remainder as a body: an unclosed `$(` is
+// treated as substitution text rather than silently dropped, which keeps the
+// fail-safe direction (more text reaches the execution regex, never less).
+// Single quotes are deliberately NOT tracked — within the double-quoted `-c`
+// argument this scans, a `'` is ordinary Python punctuation and does not
+// suppress shell expansion, so honouring it would miss real substitutions.
+func splitCommandSubstitutions(s string) (string, []string) {
+	var outside strings.Builder
+	var subs []string
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
+			depth, j := 1, i+2
+			start := j
+			for ; j < len(s) && depth > 0; j++ {
+				switch s[j] {
+				case '(':
+					depth++
+				case ')':
+					depth--
+				}
+			}
+			if depth != 0 {
+				subs = append(subs, s[start:])
+				return outside.String(), subs
+			}
+			subs = append(subs, s[start:j-1])
+			i = j - 1
+		case s[i] == '`':
+			j := i + 1
+			for ; j < len(s) && s[j] != '`'; j++ {
+			}
+			if j >= len(s) {
+				subs = append(subs, s[i+1:])
+				return outside.String(), subs
+			}
+			subs = append(subs, s[i+1:j])
+			i = j
+		default:
+			outside.WriteByte(s[i])
+		}
+	}
+	return outside.String(), subs
+}
+
+// shellDashCWordRe captures the WHOLE shell word that follows `-c`, as the
+// concatenation of one or more adjacent quoted runs, and requires a real word
+// boundary (whitespace or end) after it.
+//
+// The previous pair of single-run regexes stopped at the first closing quote, so
+// a quote-SPLICED argument — `bash -c 'a'"'"'b'`, the standard way to embed a
+// single quote — captured only the leading `'a'` fragment. The caller then
+// evaluated that truncated fragment and RETURNED, discarding the rest of the
+// script, which is where a nested executor hid (#3770 N1).
+//
+// Only quoted runs are accepted. An unquoted run would let the word stop at a
+// shell metacharacter (`bash -c exec(x)` → `exec`), reintroducing exactly the
+// truncate-then-discard bypass this replaces; leaving such a command unwrapped
+// is fail-safe, because it is then evaluated as raw text. The trailing
+// `(?:\s|$)` likewise refuses `bash -c 'true'; …`, where the wrapper is only the
+// first of several commands — segmentation runs before unwrapping, so each
+// stage reaches here already trimmed to a single invocation.
+var shellDashCWordRe = regexp.MustCompile(
+	`(?i)^\s*(?:bash|sh|zsh|dash)\s+(?:-[a-zA-Z]+\s+)*-c\s+((?:'[^']*'|"(?:[^"\\]|\\.)*")+)(?:\s|$)`,
+)
+
+// unquoteShellWord concatenates the runs of a shell word into the single string
+// the shell would pass as one argument: single-quoted runs are literal,
+// double-quoted runs are unescaped. Adjacent runs join with no separator, which
+// is what makes `'a'"'"'b'` collapse to `a'b`.
+func unquoteShellWord(w string) string {
+	var b strings.Builder
+	for i := 0; i < len(w); i++ {
+		switch w[i] {
+		case '\'':
+			j := i + 1
+			for j < len(w) && w[j] != '\'' {
+				j++
+			}
+			b.WriteString(w[i+1 : j])
+			i = j
+		case '"':
+			j := i + 1
+			var seg strings.Builder
+			for j < len(w) && w[j] != '"' {
+				if w[j] == '\\' && j+1 < len(w) {
+					seg.WriteByte(w[j])
+					j++
+					seg.WriteByte(w[j])
+					j++
+					continue
+				}
+				seg.WriteByte(w[j])
+				j++
+			}
+			b.WriteString(unescapeShellDQBody(seg.String()))
+			i = j
+		default:
+			b.WriteByte(w[i])
+		}
+	}
+	return b.String()
+}
+
+// unescapeShellDQBody undoes bash double-quote escaping: inside `"..."`, a
+// backslash is special only before `"`, `\`, `$` or a backtick — any other
+// backslash is literal and must be left alone.
+func unescapeShellDQBody(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '"', '\\', '$', '`':
+				b.WriteByte(s[i+1])
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// unwrapShellDashCScript extracts the inline script body from a `bash -c
+// "..."` / `sh -c '...'` invocation. Without this, every eval-risk exemption
+// below keys off the FIRST token of the text it inspects — searchToolRe,
+// textTransformRe, pipeStageReadOnly — and that token is "bash", not "grep",
+// so a read-only grep/sed/awk stage wrapped in `bash -c` is checked as raw,
+// unstripped text: its quoted PATTERN argument (data, never executed) reads
+// as a live eval(/exec( call (#3685). Unwrapping and recursing through
+// matchesEvalRisk gives the inner script the exact segmentation/exemption
+// treatment it would get as the top-level command — a wrapper that genuinely
+// executes eval/exec is unaffected, since that text still isn't a read-only
+// tool's argument and nothing strips it either way.
+func unwrapShellDashCScript(cmd string) (string, bool) {
+	if m := shellDashCWordRe.FindStringSubmatch(cmd); m != nil {
+		return unquoteShellWord(m[1]), true
+	}
+	return "", false
 }
 
 // matchesEvalRisk returns true if the command contains a dynamic eval/exec call.
@@ -1554,6 +1824,25 @@ func matchesEvalRisk(cmd string) bool {
 	// create --title "... exec() ..."` otherwise bypasses every safe-caller
 	// branch as one cd-prefixed segment (#2967, the FP that blocked Baby Remedy).
 	cmd = normalizeMultilineCommand(cmd)
+	// A whole-command `bash -c "..."` / `sh -c '...'` wrapper: recurse into the
+	// inner script so a read-only grep/sed/awk stage inside it gets the same
+	// pattern-argument exemption a bare invocation would get, instead of being
+	// checked as raw, unstripped text under the executable name "bash" (#3685).
+	//
+	// Only when the wrapper IS the whole command. The unwrap regex is anchored at
+	// the start but not the end, so on `bash -c 'true'; python3 -c "exec(x)"` or
+	// `bash -c 'true' | python3 -c "exec(x)"` it captures just the wrapper's own
+	// script (`true`) and this early return DISCARDS the trailing/piped executor —
+	// a real dynamic exec fails open (#3756). Gate on isSingleSimpleCommand so a
+	// multi-command form falls through to the compound / pipeline branches below,
+	// where the wrapper is unwrapped per-stage (evalRiskInPipeline) and every
+	// sibling command is still evaluated. C2's #3685 FP fix is unaffected: a lone
+	// `bash -c "grep 'exec(' f"` is a single simple command and still unwraps here.
+	if isSingleSimpleCommand(cmd) {
+		if script, ok := unwrapShellDashCScript(cmd); ok {
+			return matchesEvalRisk(script)
+		}
+	}
 	// Only apply the safe-caller fast path when the command is a SINGLE git/gh
 	// invocation (no top-level compound operators). A compound command like
 	// `git status ; python3 -c "exec(...)"` starts with git but its trailing
@@ -1562,7 +1851,13 @@ func matchesEvalRisk(cmd string) bool {
 	// (issue #2363). Multi-segment compounds fall through to the per-segment
 	// splitTopLevelCompound branch below, where each segment is evaluated
 	// independently and the python3 -c segment fires eval_risk correctly.
-	if safeCallerRe.MatchString(cmd) && len(splitTopLevelCompound(cmd)) == 1 {
+	//
+	// isSingleSimpleCommand also rejects a top-level PIPE: `git log ... | python3
+	// -c "exec(x)"` starts with git but pipes into a live interpreter, and
+	// stripping the whole pipeline's quoted args as a git message would launder
+	// the executor. A pipeline routes to evalRiskInPipeline, which strips only the
+	// git stage and checks the interpreter stage as-is (#3756).
+	if safeCallerRe.MatchString(cmd) && isSingleSimpleCommand(cmd) {
 		// Truncate at the heredoc marker FIRST, then strip quoted content. The
 		// reverse order miscounts quote pairs when the heredoc body itself
 		// contains unbalanced quotes (e.g. `git commit -m "$(cat <<'EOF'\n...
@@ -1582,19 +1877,25 @@ func matchesEvalRisk(cmd string) bool {
 	// Search tools (grep, egrep, fgrep, rg, ag, ack): their arguments are patterns and
 	// file paths, never executed as code. eval()/exec() inside a quoted pattern is
 	// benign — strip quoted args before checking (issue #2451).
-	// Same single-invocation guard as safeCallerRe: `rg 'eval(' . | bash` splits
-	// into two compound segments; the bash segment is not a search tool and falls
-	// through to normal eval_risk detection.
-	if searchToolRe.MatchString(cmd) && len(splitTopLevelCompound(cmd)) == 1 {
+	// Same single-invocation guard as safeCallerRe (isSingleSimpleCommand): both
+	// `rg 'eval(' . && bash ...` (compound) and `grep 'exec(' f | python3 -c
+	// "exec(x)"` (pipe) have a sibling/downstream executor. The compound-only
+	// guard let a pipe through, so a leading grep laundered a following
+	// interpreter's payload (#3756, root cause of F2). A pipeline now routes to
+	// evalRiskInPipeline, which strips only the grep stage's quoted pattern and
+	// checks the interpreter stage as-is.
+	if searchToolRe.MatchString(cmd) && isSingleSimpleCommand(cmd) {
 		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
 		return evalRiskPattern.MatchString(stripped)
 	}
 	// Stream text-transform tools (sed/awk): quoted patterns/programs are data,
 	// not executed code — eval()/exec() in a `s/eval(/.../` substitution is literal
 	// text (the remediation-verification rewrite workflow, #2594). Same single-
-	// invocation guard as searchToolRe so `sed '...' f | bash` still checks the
-	// bash segment via the per-segment branch below.
-	if textTransformRe.MatchString(cmd) && len(splitTopLevelCompound(cmd)) == 1 {
+	// invocation guard as searchToolRe (isSingleSimpleCommand): `sed '...' f |
+	// python3 -c "exec(x)"` pipes into a live interpreter, so it routes to
+	// evalRiskInPipeline instead of stripping the whole pipeline as sed data
+	// (#3756).
+	if textTransformRe.MatchString(cmd) && isSingleSimpleCommand(cmd) {
 		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
 		return evalRiskPattern.MatchString(stripped)
 	}
@@ -1610,7 +1911,17 @@ func matchesEvalRisk(cmd string) bool {
 	// below because python -c arguments often contain semicolons (Python
 	// statement separators) that would be split into dangling segments,
 	// leaking eval()/exec() patterns from inside strings.
-	if pythonInlineDQRe.MatchString(cmd) {
+	//
+	// Restricted to a single simple command (#3770). pythonInlineDQRe also
+	// matches a python invocation that merely FOLLOWS a `;`/`&&`, and the strip
+	// then ran over the WHOLE command — deleting every single-quoted run in it,
+	// including a sibling `bash -c '<real exec>'` whose script is single-quoted
+	// shell code, not Python string data. That erased the nested executor before
+	// segmentation could ever see it. Multi-command forms now fall through to the
+	// compound / pipeline branches, where evalRiskInPipeline applies this same
+	// strip to the python stage ALONE, so the FP protection survives without the
+	// whole-command blast radius.
+	if pythonInlineDQRe.MatchString(cmd) && isSingleSimpleCommand(cmd) {
 		stripped := stripPythonStringLiterals(cmd)
 		if idx := strings.Index(stripped, "<<"); idx != -1 {
 			stripped = stripped[:idx]

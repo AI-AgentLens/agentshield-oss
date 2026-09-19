@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -232,18 +233,40 @@ func loadFileConfig(configDir string) *fileConfig {
 }
 
 // LoadManaged loads managed.json from the given config directory.
-// Returns nil if the file doesn't exist or is invalid.
+//
+// Returns nil only when the file does not exist. A managed.json that exists
+// but cannot be read or parsed is NOT "not managed" (#3620): before this,
+// one corrupt byte in the enrollment file downgraded the host to unmanaged,
+// after which pause and bypass were honored — reproduced through the real
+// hook with `{not json`. A present-but-broken enrollment is treated as
+// managed with fail_closed set, which is the conservative reading and the
+// one an operator would want. enterprise.LoadManagedConfigFrom applies the
+// same rule; internal/cli pins the two loaders to agree.
 func LoadManaged(configDir string) *ManagedConfig {
 	managedPath := filepath.Join(configDir, "managed.json")
 	data, err := os.ReadFile(managedPath)
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return corruptManagedConfig(err)
 	}
 	var mc ManagedConfig
 	if err := json.Unmarshal(data, &mc); err != nil {
-		return nil
+		return corruptManagedConfig(err)
 	}
 	return &mc
+}
+
+// corruptManagedConfig is the fail-closed reading of an unreadable or
+// unparseable managed.json. The OrganizationID carries the cause so a
+// `scan` or an audit event can show why the host is behaving as managed.
+func corruptManagedConfig(cause error) *ManagedConfig {
+	return &ManagedConfig{
+		Managed:        true,
+		FailClosed:     true,
+		OrganizationID: fmt.Sprintf("unknown (managed.json unreadable: %v)", cause),
+	}
 }
 
 func ensureDir(path string) error {

@@ -59,6 +59,10 @@ type Defaults struct {
 	NonInteractive Decision `yaml:"non_interactive"`
 	LogRedaction   bool     `yaml:"log_redaction"`
 	ProtectedPaths []string `yaml:"protected_paths"`
+	// ProtectedPathConsumers lists executables that may take a protected path
+	// as a credential in a named slot; such a use is recorded (AUDIT) instead
+	// of blocked. See consumers.go. Additive on merge: users can add, not remove.
+	ProtectedPathConsumers []ProtectedPathConsumer `yaml:"protected_path_consumers,omitempty"`
 }
 
 type Network struct {

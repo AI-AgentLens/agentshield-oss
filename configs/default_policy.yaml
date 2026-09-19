@@ -16,6 +16,38 @@ defaults:
     - "/etc/**"
     - "/System/**"
     - "/Library/**"
+  # A protected path handed to its designated consumer through the credential
+  # slot is recorded (AUDIT, rule protected-path-consumer), not blocked:
+  # ssh -i, kubectl --kubeconfig, gpg --homedir, ssh-add <key>. Every other
+  # way of naming the path still BLOCKs — cat, python open(), a redirect, or
+  # scp with the key as a SOURCE operand (no -i before it). Additive: you can
+  # declare another consumer here, never remove a shipped one.
+  #
+  # `env:` is the same slot spelled as an environment variable —
+  # `export KUBECONFIG=~/.kube/config` is what `kubectl --kubeconfig …` is.
+  # Assigning a protected path to one of these names is RECORDED, never
+  # blocked; a protected path assigned to any other variable is ignored, as
+  # it always has been (an assignment reads nothing). The read itself still
+  # BLOCKs: `cat $KUBECONFIG` resolves through the symbol table.
+  protected_path_consumers:
+    - executable: ["ssh", "scp", "sftp", "ssh-copy-id"]
+      flags: ["-i", "-F"]
+    - executable: ["ssh-keygen"]
+      flags: ["-f"]
+    - executable: ["ssh-add"]
+      positional: true
+    - executable: ["kubectl", "helm"]
+      flags: ["--kubeconfig"]
+      env: ["KUBECONFIG"]
+    - executable: ["gpg", "gpg2", "gpgconf"]
+      flags: ["--homedir"]
+      env: ["GNUPGHOME"]
+    # Cloud CLIs have no flag for the credential file — the environment is
+    # the only slot, so these entries carry no flags.
+    - executable: ["aws"]
+      env: ["AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE"]
+    - executable: ["gcloud"]
+      env: ["GOOGLE_APPLICATION_CREDENTIALS", "CLOUDSDK_CONFIG"]
 
 network:
   allow_domains:
@@ -62,8 +94,21 @@ rules:
     decision: "REQUIRE_APPROVAL"
     reason: "Network requests require approval."
 
-  # === SANDBOX: Preview changes first ===
-  - id: "sandbox-git-changes"
+  # === REQUIRE_APPROVAL: Ask before running (git / file state changes) ===
+  # These used to carry decision: "SANDBOX" — a preview-in-a-temp-checkout
+  # mode that ran the command in a throwaway sandbox before letting it touch
+  # the real working tree. That execution path (internal/approval) was
+  # removed along with the `run` subcommand after an incident where
+  # AgentShield actually executed a destructive command (see CLAUDE.md);
+  # AgentShield now only evaluates commands, so there is nothing left to
+  # sandbox INTO. "SANDBOX" was never a real decision value after that —
+  # it isn't declared in internal/policy/types.go and the engine doesn't
+  # branch on it, so these two rules silently fell through to ALLOW. Asking
+  # for approval is the closest real behavior to "let me look before this
+  # runs" (#3298 tracks REQUIRE_APPROVAL itself still resolving to allow on
+  # harnesses with no native approval channel — a separate, already-tracked
+  # gap, not reintroduced here).
+  - id: "approve-git-changes"
     match:
       command_prefix:
         - "git checkout"
@@ -71,17 +116,17 @@ rules:
         - "git reset"
         - "git rebase"
         - "git merge"
-    decision: "SANDBOX"
-    reason: "Git state changes are sandboxed for preview."
+    decision: "REQUIRE_APPROVAL"
+    reason: "Git state changes require approval before running."
 
-  - id: "sandbox-file-edits"
+  - id: "approve-file-edits"
     match:
       command_prefix:
         - "sed "
         - "perl -pi"
         - "python -c"
-    decision: "SANDBOX"
-    reason: "In-place edits are sandboxed so you can review diffs first."
+    decision: "REQUIRE_APPROVAL"
+    reason: "In-place edits require approval so you can review them first."
 
   # === ALLOW: Safe read-only commands ===
   - id: "allow-readonly"

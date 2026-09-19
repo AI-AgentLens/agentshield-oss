@@ -17,7 +17,14 @@ package testdata
 //   - model-registry-autonomous-publish (push_to_hub / huggingface-cli upload /
 //     ollama push — the model member of the autonomous-publish family)
 //   - shadow-ai-deployment (public endpoint access grants)
-//   - ai-incident-response-gap (cloud AI logging disable, AI monitoring disable)
+//   (Cloud AI service logging disable/delete and third-party AI monitoring
+//    disable — AWS Bedrock, Azure diagnostic settings, GCP logging buckets,
+//    LangSmith/W&B env vars — live under
+//    persistence-evasion/anti-forensics/cloud-ai-monitoring-disable, moved
+//    2026-09-06: these are active anti-forensics acts against a capability
+//    that exists, not the absence of a written incident-response procedure
+//    ai-incident-response-gap actually describes. Same reasoning as the
+//    ai-audit-trail-circumvention split below.)
 //   (AI audit log deletion/truncation lives under
 //    persistence-evasion/anti-forensics/ai-audit-trail-circumvention — destroying
 //    a log that exists is not the same threat as never having built one.)
@@ -535,7 +542,7 @@ var AIEndpointPublicAccessCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // AWS Bedrock Invocation Logging Delete (AI Incident Response Gap)
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-block-aws-bedrock-logging-delete
 // ---------------------------------------------------------------------------
 
@@ -545,7 +552,7 @@ var AWSBedrockLoggingDeleteCases = []TestCase{
 		Command:          `aws bedrock delete-model-invocation-logging-configuration`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deletes AWS Bedrock invocation logging config — all future AI calls unaudited.",
 		Tags:             []string{"tp", "governance", "logging-delete", "block"},
@@ -555,7 +562,7 @@ var AWSBedrockLoggingDeleteCases = []TestCase{
 		Command:          `aws bedrock delete-model-invocation-logging-configuration --profile prod`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Bedrock logging delete with explicit AWS profile — anti-forensics in prod.",
 		Tags:             []string{"tp", "governance", "logging-delete", "block"},
@@ -565,7 +572,7 @@ var AWSBedrockLoggingDeleteCases = []TestCase{
 		Command:          `aws bedrock get-model-invocation-logging-configuration`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Reading the Bedrock logging configuration — not deleting it.",
 		Tags:             []string{"tn", "safe"},
@@ -575,7 +582,7 @@ var AWSBedrockLoggingDeleteCases = []TestCase{
 		Command:          `aws bedrock list-foundation-models`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Listing Bedrock foundation models — no audit trail manipulation.",
 		Tags:             []string{"tn", "safe"},
@@ -584,7 +591,7 @@ var AWSBedrockLoggingDeleteCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // AWS Bedrock Logging Disable via put-model-invocation-logging-configuration
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-aws-bedrock-logging-disable
 // ---------------------------------------------------------------------------
 
@@ -594,7 +601,7 @@ var AWSBedrockLoggingDisableCases = []TestCase{
 		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"textDataDeliveryEnabled":false}'`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Disabling text data delivery in Bedrock invocation logging — degrades AI audit trail.",
 		Tags:             []string{"tp", "governance", "logging-disable"},
@@ -604,7 +611,7 @@ var AWSBedrockLoggingDisableCases = []TestCase{
 		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"imageDataDeliveryEnabled":false,"embeddingDataDeliveryEnabled":false}'`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Disabling image and embedding data delivery in Bedrock logging.",
 		Tags:             []string{"tp", "governance", "logging-disable"},
@@ -614,7 +621,7 @@ var AWSBedrockLoggingDisableCases = []TestCase{
 		Command:          `aws bedrock put-model-invocation-logging-configuration --logging-config '{"textDataDeliveryEnabled":true}'`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Enabling text data delivery — not disabling the audit trail.",
 		Tags:             []string{"tn", "safe"},
@@ -624,7 +631,7 @@ var AWSBedrockLoggingDisableCases = []TestCase{
 		Command:          `aws bedrock get-model-invocation-logging-configuration`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Reading Bedrock logging config — read-only, no change to audit trail.",
 		Tags:             []string{"tn", "safe"},
@@ -633,7 +640,7 @@ var AWSBedrockLoggingDisableCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // AWS CloudWatch Log Group Delete (Bedrock audit logs)
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-aws-logs-delete-bedrock-group
 // ---------------------------------------------------------------------------
 
@@ -643,7 +650,7 @@ var AWSLogsDeleteBedrockGroupCases = []TestCase{
 		Command:          `aws logs delete-log-group --log-group-name /aws/bedrock/modelinvocations`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting the CloudWatch log group that receives Bedrock AI invocation logs.",
 		Tags:             []string{"tp", "governance", "log-delete"},
@@ -653,7 +660,7 @@ var AWSLogsDeleteBedrockGroupCases = []TestCase{
 		Command:          `aws logs delete-log-group --log-group-name /aws/bedrock/guardrail-invocations`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting Bedrock guardrail invocation log group — removes AI safety audit trail.",
 		Tags:             []string{"tp", "governance", "log-delete"},
@@ -663,7 +670,7 @@ var AWSLogsDeleteBedrockGroupCases = []TestCase{
 		Command:          `aws logs describe-log-groups --log-group-name-prefix /aws/bedrock`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Listing Bedrock log groups — read-only investigation.",
 		Tags:             []string{"tn", "safe"},
@@ -673,7 +680,7 @@ var AWSLogsDeleteBedrockGroupCases = []TestCase{
 		Command:          `aws logs delete-log-group --log-group-name /aws/lambda/my-function`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting a Lambda log group — not a Bedrock AI audit log.",
 		Tags:             []string{"tn", "safe"},
@@ -682,7 +689,7 @@ var AWSLogsDeleteBedrockGroupCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // Azure Monitor Diagnostic Settings Delete (AI service audit trail)
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-azure-ai-diagnostic-delete
 // ---------------------------------------------------------------------------
 
@@ -692,7 +699,7 @@ var AzureAIDiagnosticDeleteCases = []TestCase{
 		Command:          `az monitor diagnostic-settings delete --name ai-audit --resource /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/openai`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting Azure Monitor diagnostic settings — stops AI audit log delivery.",
 		Tags:             []string{"tp", "governance", "diagnostic-delete"},
@@ -702,7 +709,7 @@ var AzureAIDiagnosticDeleteCases = []TestCase{
 		Command:          `az monitor diagnostic-settings delete --name vertex-ai-logs --resource /subscriptions/sub/resourceGroups/rg/providers/Microsoft.MachineLearning/workspaces/ml-ws`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting Azure ML workspace diagnostic settings — removes AI monitoring.",
 		Tags:             []string{"tp", "governance", "diagnostic-delete"},
@@ -712,7 +719,7 @@ var AzureAIDiagnosticDeleteCases = []TestCase{
 		Command:          `az monitor diagnostic-settings list --resource /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/openai`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Listing Azure Monitor diagnostic settings — read-only, no deletion.",
 		Tags:             []string{"tn", "safe"},
@@ -722,7 +729,7 @@ var AzureAIDiagnosticDeleteCases = []TestCase{
 		Command:          `az monitor diagnostic-settings create --name new-ai-audit --resource /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/openai --logs '[{"category":"RequestResponse","enabled":true}]' --workspace /subscriptions/xxx/resourceGroups/rg/providers/Microsoft.OperationalInsights/workspaces/log-analytics`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Creating (not deleting) Azure Monitor diagnostic settings — enabling AI audit logging.",
 		Tags:             []string{"tn", "safe"},
@@ -731,7 +738,7 @@ var AzureAIDiagnosticDeleteCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // Google Cloud Logging Bucket Delete (AI audit trail)
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-gcloud-logging-bucket-delete
 // ---------------------------------------------------------------------------
 
@@ -741,7 +748,7 @@ var GCloudLoggingBucketDeleteCases = []TestCase{
 		Command:          `gcloud logging buckets delete ai-audit-bucket --location=global`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting a GCP logging bucket — may destroy Vertex AI invocation audit records.",
 		Tags:             []string{"tp", "governance", "logging-bucket-delete"},
@@ -751,7 +758,7 @@ var GCloudLoggingBucketDeleteCases = []TestCase{
 		Command:          `gcloud logging buckets delete vertex-ai-logs --location=us-central1 --project=ml-prod`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Deleting Vertex AI logs bucket in production project.",
 		Tags:             []string{"tp", "governance", "logging-bucket-delete"},
@@ -761,7 +768,7 @@ var GCloudLoggingBucketDeleteCases = []TestCase{
 		Command:          `gcloud logging buckets list --location=global`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Listing GCP logging buckets — read-only investigation.",
 		Tags:             []string{"tn", "safe"},
@@ -771,7 +778,7 @@ var GCloudLoggingBucketDeleteCases = []TestCase{
 		Command:          `gcloud logging buckets describe ai-audit-bucket --location=global`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Describing a logging bucket — read-only, no deletion.",
 		Tags:             []string{"tn", "safe"},
@@ -780,7 +787,7 @@ var GCloudLoggingBucketDeleteCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // Third-Party AI Monitoring Disable via Shell Export
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-ai-monitoring-disable-export
 // ---------------------------------------------------------------------------
 
@@ -790,7 +797,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `export LANGCHAIN_TRACING_V2=false`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Disabling LangSmith tracing via env var — suppresses LangChain agent audit trail.",
 		Tags:             []string{"tp", "governance", "monitoring-disable"},
@@ -800,7 +807,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `export WANDB_MODE=disabled`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Disabling Weights & Biases monitoring — suppresses ML experiment tracking.",
 		Tags:             []string{"tp", "governance", "monitoring-disable"},
@@ -810,7 +817,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `export WANDB_DISABLED=true`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Setting WANDB_DISABLED=true disables W&B monitoring entirely.",
 		Tags:             []string{"tp", "governance", "monitoring-disable"},
@@ -820,17 +827,66 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `export HELICONE_ENABLED=false`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Disabling Helicone AI observability platform monitoring.",
 		Tags:             []string{"tp", "governance", "monitoring-disable"},
+	},
+
+	// --- #3684: declaration-builtin spellings ---
+	//
+	// The rule was anchored on the literal `export`, so `declare -x
+	// WANDB_MODE=disabled` produced AUDIT with NO rule id at all. For an
+	// anti-forensics rule that is the worst possible failure mode: the event
+	// whose entire purpose is to be citable in the audit trail became the one
+	// event shape the attestation chain cannot represent (same class as the
+	// env-assignment half of #3630).
+	{
+		ID:               "TP-TS-AUDIT-AIMDE-DECLARE-001",
+		Command:          `declare -x WANDB_MODE=disabled`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "declare -x WANDB_MODE=disabled — exports exactly as export does, so every child training run is unmonitored. Before #3684 this was AUDIT with no rule id.",
+		Tags:             []string{"tp", "governance", "monitoring-disable", "declaration-builtin"},
+	},
+	{
+		ID:               "TP-TS-AUDIT-AIMDE-TYPESET-001",
+		Command:          `typeset -x LANGCHAIN_TRACING_V2=false`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "typeset -x LANGCHAIN_TRACING_V2=false — the ksh/zsh spelling of the same LangSmith kill switch. #3684.",
+		Tags:             []string{"tp", "governance", "monitoring-disable", "declaration-builtin"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AIMDE-DECLARE-ENABLE-001",
+		Command:          `declare -x WANDB_MODE=online`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "declare -x with a monitoring-ENABLING value — sits in exactly the position the widening added, so it pins that the rule still keys on the value and not merely on the new keyword. NOTE: this rule's own decision is AUDIT, which is also the default, so this corpus row cannot by itself distinguish 'rule declined' from 'rule fired'. The discriminating assertion is the matching inline TN in terminal-safety.yaml, graded by TestRuleYAMLTests via engine.matchRule. #3684.",
+		Tags:             []string{"tn", "safe", "declaration-builtin"},
+	},
+	{
+		ID:               "TN-TS-AUDIT-AIMDE-DECLARE-NOEXPORT-001",
+		Command:          `declare WANDB_MODE=disabled`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
+		Analyzer:         "regex",
+		Description:      "declare WITHOUT -x never exports, so no child training process reads it and no monitoring is actually disabled. #3684.",
+		Tags:             []string{"tn", "safe", "declaration-builtin"},
 	},
 	{
 		ID:               "TN-TS-AUDIT-AIMDE-001",
 		Command:          `export LANGCHAIN_TRACING_V2=true`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Enabling LangSmith tracing — not disabling monitoring.",
 		Tags:             []string{"tn", "safe"},
@@ -840,7 +896,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `export WANDB_MODE=online`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Setting WANDB_MODE=online enables W&B logging — not disabling it.",
 		Tags:             []string{"tn", "safe"},
@@ -850,7 +906,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 		Command:          `printenv LANGCHAIN_TRACING_V2`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Reading LANGCHAIN_TRACING_V2 value — read-only inspection, not disabling.",
 		Tags:             []string{"tn", "safe"},
@@ -859,7 +915,7 @@ var AIMonitoringDisableExportCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // Third-Party AI Monitoring Disable — Persistent Write to .env / shell config
-// Taxonomy: governance-risk/ai-governance-gap/ai-incident-response-gap
+// Taxonomy: persistence-evasion/anti-forensics/cloud-ai-monitoring-disable
 // Rule: ts-audit-ai-monitoring-disable-persist
 // ---------------------------------------------------------------------------
 
@@ -869,7 +925,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 		Command:          `echo "LANGCHAIN_TRACING_V2=false" >> .env`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Persisting LANGCHAIN_TRACING_V2=false to .env — durable monitoring disable across sessions.",
 		Tags:             []string{"tp", "governance", "monitoring-disable-persist"},
@@ -879,7 +935,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 		Command:          `echo "WANDB_DISABLED=true" >> .env`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Persisting WANDB_DISABLED=true to .env — permanently disables W&B monitoring.",
 		Tags:             []string{"tp", "governance", "monitoring-disable-persist"},
@@ -889,7 +945,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 		Command:          `echo "export WANDB_MODE=disabled" >> ~/.bashrc`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Writing WANDB_MODE=disabled to .bashrc — blocked by ts-block-shell-profile-append (most restrictive wins).",
 		Tags:             []string{"tp", "governance", "monitoring-disable-persist"},
@@ -899,7 +955,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 		Command:          `echo "LANGCHAIN_TRACING_V2=true" >> .env`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Persisting LANGCHAIN_TRACING_V2=true — enabling monitoring, not disabling.",
 		Tags:             []string{"tn", "safe"},
@@ -909,7 +965,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 		Command:          `echo "WANDB_PROJECT=my-project" >> .env`,
 		ExpectedDecision: "ALLOW",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-incident-response-gap",
+		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
 		Description:      "Writing W&B project name to .env — configuration, not disabling monitoring.",
 		Tags:             []string{"tn", "safe"},

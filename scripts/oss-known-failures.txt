@@ -233,17 +233,223 @@
 # the unstripped tree: all four ADB cases PASS both sweeps, so "passes with
 # premium" is a measurement, not an absence of evidence.
 #
-# Total: 943 -- re-derive, do not hand-maintain. This read `933` while the
+#
+# 2026-08-31: +3 blind, 0 ratchet-down. Net 952 -> 955.
+#
+# Two expressions of premium absence, measured on the OSS-stripped tree
+# (`git archive origin/main` at 35af3234 + the strip integration-test-oss.sh
+# performs), with the unstripped tree as the control. CI reported only the
+# first two at run 33326436909 (08-30 17:51); the third landed overnight
+# after that run, so measuring against current main rather than patching the
+# CI log is what caught it.
+#
+#   case:runuser-endopts  -> NOT a corpus case. Budget assertion in
+#   case:sudo-endopts        TestWrapperPositionalParity and
+#                            TestWrapperValueFlagParity respectively. Both
+#                            end-of-options positions leak 47/1717 in the OSS
+#                            build against a budget of 46; the full tree leaks
+#                            45/2604 on the same two positions and PASSES.
+#                            The leak-set delta is exactly two cases, the same
+#                            two on both positions:
+#                              TP-DEFEXFIL-008  (sleep-then-nc, backgrounded)
+#                              TP-DEFEXFIL-014  (sleep-then-socat, backgrounded)
+#                            Both are ALREADY baselined below as corpus cases,
+#                            so this is not new blindness -- it is the same
+#                            blindness surfacing a second way, exactly as the
+#                            sudo-endopts note above records. Nothing leaks in
+#                            full-only, so there is no ratchet-down hiding here.
+#
+#                            SAY THE COST OUT LOUD: baselining a whole subtest
+#                            means a THIRD leak on either position would land
+#                            inside an already-baselined entry and produce no
+#                            delta. That is a real coverage loss, accepted here
+#                            only because the budget is build-unaware and the
+#                            alternative is a permanently-red job, which is the
+#                            failure mode this whole file exists to prevent.
+#                            The structural fix -- make maxLeaks build-aware so
+#                            these two lines can come back out -- is #3592.
+#
+#                            Both budgets now sit at ZERO HEADROOM in BOTH
+#                            builds (full: 46/46 on four positions; OSS: 47 vs
+#                            46 on these two). The 08-24 "FRAGILE GREEN" note
+#                            predicted this recurrence and was right.
+#
+#   case:TP-SC-STDLIB-CWD-SHADOW-001
+#                         -> BLIND ON THE PATTERN, but NOT undetected. Read
+#                            narrowly. Landed with #3584 (archive-extraction
+#                            CWD stdlib-module-shadow RCE); its only covering
+#                            rule is in packs/premium/supply-chain.yaml. In the
+#                            OSS build the regex sweep reports Expected: BLOCK
+#                            / Got: AUDIT with an EMPTY rule list -- real
+#                            blindness on the download-extract-execute shape --
+#                            while the full-pipeline sweep BLOCKs it via the
+#                            community guardian analyzer. Measured both ways,
+#                            not inferred: probed the OSS pipeline directly and
+#                            it returned decision=BLOCK triggered=[guardian-eval_risk].
+#                            It is NOT tier-split: the free tier fires on the
+#                            eval-risk payload shape, not on the supply-chain
+#                            mechanism, and does not attribute it to
+#                            supply-chain/path-hijacking/stdlib-module-cwd-shadow.
+#                            Calling it tier-split would claim free-tier
+#                            archive-extraction awareness that does not exist.
+#                            Same shape as the TP-ADB-AM-START-INJECT-003 split
+#                            above. Note also that guardian-eval_risk is the
+#                            subject of a known over-stacking FP (#3094), so the
+#                            free tier's catch here is incidental, not designed.
+#
+# Control on the unstripped tree: TP-SC-STDLIB-CWD-SHADOW-001 PASSES both
+# sweeps and both parity budgets pass, so "passes with premium" is a
+# measurement, not an absence of evidence. Reproduced the delta end-to-end by
+# running scripts/check-oss-baseline.sh over the local OSS suite log: 955
+# observed, 3 NEW, 0 FIXED -- matching this entry exactly.
+#
+# Bookkeeping note, not a defect to chase: the 08-24 entry below closes at
+# "Total: 943" but the file held 952 before this change. Commit 55ce1ae3
+# (08-27) added 9 entries without a dated block. Re-derive, never trust the
+# narrative.
+# 2026-08-31 (#3590, PR for CVE-2026-35603): +2. The two BLOCK-expecting
+# ProgramData config-plant TPs are covered only by
+# ts-block-programdata-ai-config-plant in packs/premium/terminal-safety-advanced.yaml,
+# so the OSS build falls through to the default AUDIT. Blind, not tier-split:
+# no community rule fires on those commands at all. Measured, not assumed --
+# ran the analyzer sweeps in a worktree with packs/premium/ stripped and read
+# the failure set off the log; internal/policy stayed green, and the AUDIT-
+# expecting sibling TP-PE-PROGRAMDATA-DIRCREATE-001 passes there (the default
+# decision happens to match), so only these two lines are warranted.
+#
+# 2026-08-31 (#3592): -2. Net 957 -> 955. Read this one carefully, because it is
+# the first removal here that is NOT a ratchet-down: the two prior removals
+# (08-04 -10, 08-24 -1) were both real detection improvements, and this is not.
+# case:runuser-endopts and case:sudo-endopts are gone because the budgets they
+# stood in for are now build-aware, not because the OSS build detects anything
+# more than it did this morning. Coverage is unchanged; what changed is that the
+# gate can express the gap per case instead of swallowing a whole subtest.
+#
+# What changed: TestWrapperPositionalParity and TestWrapperValueFlagParity each
+# compared against ONE absolute maxLeaks = 46 calibrated on the full tree. They
+# now pick the constant per build via premiumPacksPresent(), the same mechanism
+# TestHeredocShellExecParity and TestBraceWordListParity already use -- full 46,
+# OSS 47. Re-measured on 4ffdcee4 rather than trusting the 08-31 numbers above,
+# because #3597 grew the corpus after they were taken:
+#
+#   position group        OSS          full         (previous budget 46)
+#   in-table, no `--`     44/1717      46/2606      PASS / PASS
+#   `... -- ` end-opts    47/1717      45/2606      FAIL / PASS
+#
+# Why this is a removal and not a looser gate. The leak-set diff was computed
+# case by case, not from counts: the OSS build leaks exactly TP-DEFEXFIL-008 and
+# TP-DEFEXFIL-014 more than the full build, on EVERY position including the
+# controls -- both already recorded below, so no new blindness is being absorbed.
+# Probed rather than inferred: bare, OSS BLOCKs both via community
+# ts-block-netcat; prefixed, that rule stops firing and the decision falls to
+# AUDIT on ts-audit-sudo / ts-audit-sudo-alternatives; the full build BLOCKs both
+# in every form via premium ne-block-deferred-exfil-sleep / -subshell, which
+# match the raw text and survive any prefix.
+#
+# THE POINT, since the count alone reads like slack: a baselined entry here is a
+# whole subtest, so a genuine THIRD leak on either end-of-options position landed
+# INSIDE an already-baselined line and produced no delta -- the "gate that cannot
+# fail" shape check-oss-baseline.sh exists to prevent, and the cost the 08-31
+# entry above said out loud. Both positions are gated again, at 47/47, zero
+# headroom. The six non-endopts positions now carry three counts of slack in the
+# OSS build; they keep zero headroom in the full tree (46/46), which is the gate
+# that runs on every PR, and three counts of slack is strictly more gate than the
+# none they had while the subtest was baselined.
+#
+# The 2026-08-10 (#3253) sudo-endopts note near the top of this file predicted
+# this: "If the budget is ever made build-aware this line comes back out." It
+# has, and it did. That note stays where it is -- it is now the record of a
+# prediction that came true, and re-deriving the explanation from a test name
+# alone is expensive.
+#
+# Total: 955 -- re-derive, do not hand-maintain. This read `933` while the
 # file actually held 937 entries, so it had silently drifted by 4 before
 # #3432 touched it; a stale count in a file whose whole job is counting is
 # the same shape as the gates this file exists to distrust. Re-derive with:
 #   sed -E 's/[[:space:]]*#.*$//' scripts/oss-known-failures.txt \
 #     | grep -v '^[[:space:]]*$' | sort -u | wc -l
+#
+# 2026-09-05 (#3634, commit 01d105aa): +4. Net 958 -> 962. The macOS SIP and
+# Gatekeeper turn-off TPs. Their only covering rules are premium
+# ts-block-macos-sip-disable / ts-block-macos-gatekeeper-disable in
+# packs/premium/terminal-safety-advanced.yaml, so the OSS build falls through
+# to the default AUDIT. Landed 09-05 without the baseline line in the same PR
+# -- the recurring shape, not a new failure mode.
+#
+# The four commands are NOT quoted verbatim anywhere in this file, on purpose:
+# doing so gets the edit blocked by the very rules being documented. Read them
+# off internal/analyzer/testdata/persistence_evasion_cases.go.
+#
+# Measured from the OSS suite log of CI run 33977936264, not inferred, and the
+# four do NOT share a verdict:
+#
+#   TP-MACOS-SEC-001      csrutil, bare full-protection form
+#   TP-MACOS-SEC-003      spctl, bare system-wide form
+#                         -> BLIND. Triggered rule list is EMPTY in BOTH sweeps
+#                            (TestAccuracy_AllKingdoms and
+#                            TestPipeline_AllKingdoms) -- the default
+#                            fall-through, i.e. real blindness.
+#   TP-MACOS-SEC-002      csrutil, sudo-prefixed authenticated-root form
+#   TP-MACOS-SEC-004      spctl, sudo-prefixed form
+#                         -> BLIND ON THE BEHAVIOUR, but the decision is not a
+#                            fall-through: ts-audit-sudo fires and produces the
+#                            AUDIT. Read narrowly -- that rule reads the `sudo`
+#                            prefix, not the SIP/Gatekeeper action, so the free
+#                            tier records an event for the same command WITHOUT
+#                            recognising what it does. Strip the prefix and the
+#                            rule list is empty, as in 001/003.
+#
+# No community rule reads either tool name at all: the only file in packs/
+# matching them is packs/premium/terminal-safety-advanced.yaml.
+#
+# The AUDIT-expecting siblings TN-MACOS-SEC-001..004 (the read-only status
+# forms) PASS in the OSS build -- the default decision happens to match -- so
+# only these four lines are warranted, not the whole family.
+#
+# Control on the unstripped tree: all four PASS both sweeps
+# (go test ./internal/analyzer/ -run 'Test(Accuracy|Pipeline)_AllKingdoms/TP-MACOS-SEC'
+# -> ok, 1.0s), so "passes with premium" is a measurement, not an absence of
+# evidence. Delta reproduced end-to-end by running scripts/check-oss-baseline.sh
+# over that CI log: 962 observed, 4 NEW, 0 FIXED -- matching this entry exactly.
+#
+# Re-derived total after this change: 962. The `Total: 955` note above was
+# already stale by 3 when this landed (the file held 958), which is exactly the
+# drift that note warns about. Re-derive; do not trust either number.
+#
+# TP-MACOS-SEC-005/006 (#3697) are the same two rules, same reasoning: an
+# exec-call inside an interpreter heredoc body (os.system('csrutil disable')
+# / os.system('spctl --master-disable')) recovered as its own candidate by
+# InterpreterHeredocExecStatements, which only these premium rules' patterns
+# match. Verified directly, not inferred: an engine built from
+# packs/community/ ONLY resolves both to AUDIT with zero triggered rules.
+#
+# TP-MACOS-SEC-007/008 and TN-MACOS-SEC-005/006/007 (#3755) are the same two
+# premium rules again, all accepted-FP or bypass-regression rows that BLOCK
+# only because a premium rule matches:
+#   007/008 — the two BLOCK->AUDIT bypasses #3751 opened (`from os import
+#             system` outside the closed allowlist; a "#" inside a string
+#             literal defeating the comment strip). Now BLOCK again.
+#   005/006 — the #3668 bare-mention FP, an accepted fail-safe BLOCK now that
+#             in_interpreter_heredoc is off both rules.
+#   007 (TN) — case D, `print("os.system('csrutil disable')")`: an inert
+#             printed example the extractor recovers from and the rule BLOCKs.
+#             Accepted FP (the string-literal mask that would have spared it
+#             was dropped — it fail-opened on f-strings and post-triple-quote
+#             calls; see #3755). Its recorded decision is BLOCK, so it enters
+#             this list too.
+# Measured, not inferred: with packs/premium/*.yaml moved aside (premium/mcp
+# left in place so the //go:embed still resolves) all five FAIL both sweeps,
+# while FN-MACOS-SEC-001 keeps expecting AUDIT and PASSES — so exactly these
+# five lines are warranted, not the whole family. Control on the unstripped
+# tree: all six of the #3755 rows PASS both sweeps.
 case:FN-NSREG-004
 case:FN-NSREG-005
 case:FN-NSREG-006
 case:TN-AIVULN-004
 case:TN-ENDPTHIJACK-004
+case:TN-MACOS-SEC-005
+case:TN-MACOS-SEC-006
+case:TN-MACOS-SEC-007
 case:TN-MODELEXFIL-002
 case:TN-NE-ARPSPOOF-HEREDOC-2843
 case:TN-NE-BLOCK-ARP-DNS-TOOLS-001
@@ -255,6 +461,12 @@ case:TP-AAEXEC-UNCONFINED-001
 case:TP-AAEXEC-UNCONFINED-002
 case:TP-AAEXEC-UNCONFINED-003
 case:TP-AAEXEC-UNCONFINED-004
+# #3779: only ts-block-account-db-direct-write (packs/premium/) covers direct
+# writes to /etc/shadow|/etc/master.passwd|/etc/passwd — blind in OSS, not
+# tier-split (no community rule fires on these at all, not even at AUDIT).
+case:TP-ACCTDB-WRITE-001
+case:TP-ACCTDB-WRITE-002
+case:TP-ACCTDB-WRITE-004
 case:TP-ADB-AM-START-INJECT-001
 case:TP-ADB-AM-START-INJECT-002
 case:TP-ADB-AM-START-INJECT-003
@@ -383,11 +595,8 @@ case:TP-DB-SCHEMA-DROP-CONSTR-001
 case:TP-DB-SCHEMA-DROP-CONSTR-002
 case:TP-DEFEXFIL-002
 case:TP-DEFEXFIL-004
-case:TP-DEFEXFIL-005
-case:TP-DEFEXFIL-006
 case:TP-DEFEXFIL-008
 case:TP-DEFEXFIL-009
-case:TP-DEFEXFIL-010
 case:TP-DEFEXFIL-012
 case:TP-DEFEXFIL-013
 case:TP-DEFEXFIL-014
@@ -419,6 +628,8 @@ case:TP-EMACS-EVAL-EXEC-009
 case:TP-ENDPTHIJACK-001
 case:TP-ENDPTHIJACK-003
 case:TP-ENDPTHIJACK-004
+case:TP-ENDPTHIJACK-DECLARE-001
+case:TP-ENDPTHIJACK-TYPESET-001
 case:TP-ENVENUM-001
 case:TP-ETBE-001
 case:TP-ETBE-002
@@ -437,6 +648,8 @@ case:TP-FRIDA-SPAWN-001
 case:TP-FRIDA-SPAWN-002
 case:TP-FRIDA-TRACE-001
 case:TP-FRIDA-TRACE-002
+case:TP-FWALL-MACOS-001
+case:TP-FWALL-MACOS-002
 case:TP-GCLOUD-DEVICE-001
 case:TP-GCLOUD-DEVICE-002
 case:TP-GCLOUD-OAUTH-001
@@ -610,6 +823,14 @@ case:TP-LOGROTATE-INJECT-002
 case:TP-LOGROTATE-INJECT-003
 case:TP-LOGROTATE-INJECT-004
 case:TP-LOGROTATE-INJECT-006
+case:TP-MACOS-SEC-001
+case:TP-MACOS-SEC-002
+case:TP-MACOS-SEC-003
+case:TP-MACOS-SEC-004
+case:TP-MACOS-SEC-005
+case:TP-MACOS-SEC-006
+case:TP-MACOS-SEC-007
+case:TP-MACOS-SEC-008
 case:TP-MALWARE-MSFVENOM-001
 case:TP-MALWARE-MSFVENOM-002
 case:TP-MALWARE-MSFVENOM-003
@@ -624,6 +845,10 @@ case:TP-MCPCFGINJ-001
 case:TP-MCPCFGINJ-002
 case:TP-MCPCFGINJ-003
 case:TP-MCPCFGINJ-004
+case:TP-MCPCREDSTORE-001
+case:TP-MCPCREDSTORE-002
+case:TP-MCPCREDSTORE-003
+case:TP-MCPCREDSTORE-004
 case:TP-MCTDP-001
 case:TP-MCTDP-002
 case:TP-MEMFORENSICS-001
@@ -740,7 +965,6 @@ case:TP-NE-BLOCK-WHATWEB-002
 case:TP-NE-BLOCK-ZROK-001
 case:TP-NE-BLOCK-ZROK-002
 case:TP-NE-BRACEEXFIL-001
-case:TP-NE-BRACEEXFIL-002
 case:TP-NE-DNS-VARIND-001
 case:TP-NE-DNS-VARIND-002
 case:TP-NE-ENV-DUMP-NET-001
@@ -779,6 +1003,8 @@ case:TP-OAUTH-TUNNEL-004
 case:TP-ORCHFAILOPEN-001
 case:TP-ORCHFAILOPEN-002
 case:TP-ORCHFAILOPEN-003
+case:TP-ORCHFAILOPEN-005
+case:TP-ORCHFAILOPEN-006
 case:TP-OSC52-CLIP-001
 case:TP-OSC52-CLIP-002
 case:TP-OSC52-CLIP-003
@@ -803,6 +1029,8 @@ case:TP-PE-OBSERVABILITY-TRACE-001
 case:TP-PE-OBSERVABILITY-TRACE-002
 case:TP-PE-OBSERVABILITY-TRACE-003
 case:TP-PE-OBSERVABILITY-TRACE-004
+case:TP-PE-PROGRAMDATA-PLANT-001
+case:TP-PE-PROGRAMDATA-PLANT-002
 case:TP-PKGINST-006
 case:TP-PKGINST-008
 case:TP-PKGPUB-001
@@ -885,14 +1113,17 @@ case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-001
 case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-002
 case:TP-SC-BLOCK-GITURLS-001
 case:TP-SC-BLOCK-GITURLS-002
+case:TP-SC-BLOCK-GOFLAGS-TYPESET-001
 case:TP-SC-BLOCK-GOMODREPLACE-001
 case:TP-SC-BLOCK-GOMODREPLACE-003
+case:TP-SC-BLOCK-GONOSUM-DECLARE-001
 case:TP-SC-BLOCK-GOPROXY-001
 case:TP-SC-BLOCK-GOPROXY-002
 case:TP-SC-BLOCK-GOPROXY-003
 case:TP-SC-BLOCK-GOPROXY-004
 case:TP-SC-BLOCK-GOPROXY-005
 case:TP-SC-BLOCK-GOPROXY-006
+case:TP-SC-BLOCK-GOPROXY-DECLARE-001
 case:TP-SC-BLOCK-HF-CLI-001
 case:TP-SC-BLOCK-HF-CLI-002
 case:TP-SC-BLOCK-IDE-AI-TYPOSQUAT-001
@@ -1018,6 +1249,7 @@ case:TP-SC-SKILL-MARKET-002
 case:TP-SC-SKILL-MARKET-003
 case:TP-SC-SKILL-SEMANTIC-001
 case:TP-SC-SKILL-SEMANTIC-002
+case:TP-SC-STDLIB-CWD-SHADOW-001
 case:TP-SC-SUBLIMINAL-006
 case:TP-SC-TEST-TRIVIAL-OVERWRITE-001
 case:TP-SC-TEST-TRIVIAL-OVERWRITE-002
@@ -1066,6 +1298,7 @@ case:TP-STDINSRC-PROCSUB-NETWORK-001
 case:TP-STDINSRC-PROCSUB-NETWORK-002
 case:TP-SUBAGENT-CHAIN-001
 case:TP-SUBAGENT-CHAIN-002
+case:TP-SYSDLAUNCHD-009
 case:TP-TAR-CHECKPOINT-EXEC-001
 case:TP-TAR-CHECKPOINT-EXEC-002
 case:TP-TAR-CHECKPOINT-EXEC-003
@@ -1191,3 +1424,71 @@ case:TP-ZIP-UNZIP-CMD-002
 case:TP-ZIP-UNZIP-CMD-003
 case:TP-ZIP-UNZIP-CMD-005
 case:TP-ZSHGLOB-001
+
+# --- 2026-09-14: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestEmittedEscapeParity
+
+# --- 2026-09-14 (#3823): 4 entries added by hand ---
+# TP-DEFEXFIL-017..020 are the BLOCK positive controls for the narrowed premium
+# ne-block-deferred-exfil-sleep (curl -T, -XPOST + --data-binary, a variable
+# expanded into the URL, a backtick in a wget URL). Blind in the OSS build:
+# the Triggered list is EMPTY on all four, measured on an OSS-stripped
+# `git archive` run of TestPipeline_AllKingdoms (bare form; sweep-level entries,
+# if any, land via the nightly --refresh). TP-DEFEXFIL-016 (/etc/shadow) is not
+# listed because community sec-block-etc-shadow still BLOCKs it. Re-derived
+# total 982 -> 986.
+case:TP-DEFEXFIL-017
+case:TP-DEFEXFIL-018
+case:TP-DEFEXFIL-019
+case:TP-DEFEXFIL-020
+
+# --- 2026-09-15 (#3831): 3 entries added, 3 removed by hand ---
+# TP-DEFEXFIL-021..023 are the BLOCK positive controls for the narrowed premium
+# ne-block-deferred-exfil-{nohup,subshell,brace-group} (curl -d @file, wget
+# --post-file, curl -T — neutral /tmp paths, so no community rule reaches them;
+# ne-audit-curl/ne-audit-wget are premium too). Derived by shape, not by an
+# OSS-stripped run: the only rules that fire on them in the full build live in
+# packs/premium/network-egress.yaml. The nightly --refresh confirms or absorbs.
+# Removed above: TP-DEFEXFIL-005, TP-DEFEXFIL-006 and TP-NE-BRACEEXFIL-002 —
+# plain literal-URL fetches reclassified BLOCK -> AUDIT in the same PR, so their
+# "BLOCK is premium-only" premise no longer holds. Total 986 -> 986.
+case:TP-DEFEXFIL-021
+case:TP-DEFEXFIL-022
+case:TP-DEFEXFIL-023
+
+# --- 2026-09-15 (#3850): 2 entries added, 1 removed by hand ---
+# TP-DEFEXFIL-024 (nohup curl -d @/etc/passwd) and TP-DEFEXFIL-026 (nohup curl
+# with a $(...) in the URL) are BLOCK positive controls for the narrowed premium
+# ne-block-nohup-network-exfil. Derived by probing each new case through
+# `agentshield check --policy <empty policy> --shell-file`, which evaluates the
+# binary's embedded community packs alone (--policy skips ~/.agentshield/packs,
+# #3030): both come back AUDIT with no rule, so only premium reaches them. The
+# other two new BLOCK cases are NOT listed because a community rule already
+# blocks them in the same probe: TP-DEFEXFIL-025 (wget --post-file=/etc/shadow)
+# via sec-block-etc-shadow and TP-DEFEXFIL-027 (nohup nc) via ts-block-netcat.
+# Removed above: TP-DEFEXFIL-010 — a plain literal-URL wget reclassified
+# BLOCK -> AUDIT in the same PR, so its "BLOCK is premium-only" premise no
+# longer holds. The nightly --refresh confirms or absorbs. Total 985 -> 986.
+case:TP-DEFEXFIL-024
+case:TP-DEFEXFIL-026
+
+# --- 2026-09-16: 1 entry added by check-oss-baseline.sh --refresh ---
+case:TP-DEFEXFIL-027
+
+# --- 2026-09-18/19 (#3889): 2 entries added, pre-flighted by hand ---
+# ne-block-deferred-exfil-sleep moved is_doc_text/in_heredoc to
+# command_intent_downgrade (the rule's own BLOCK-evidence fixture text had been
+# quoting itself into a false BLOCK on doc/test files). Both new cases probed
+# via `agentshield check --shell-file <f> --policy <empty>` (embedded community
+# packs only, #3030):
+#   TP-NE-DEFERREDEXFIL-EXECGUARD-3889 expects BLOCK (bash reads the payload as
+#     its own heredoc stdin, a real execution) but comes back AUDIT — only the
+#     premium BLOCK twin reaches it.
+#   TN-NE-DEFERREDEXFIL-DOCTEXT-3889 expects AUDIT (the same payload text as
+#     inert cat-heredoc prose, attested via the new downgrade) but comes back
+#     ALLOW under ts-allow-readonly — the premium AUDIT-producing rules
+#     (ne-block-deferred-exfil-sleep downgraded, ne-audit-deferred-fetch-sleep,
+#     ne-audit-sleep-chain) that outrank it via most_restrictive_wins are all
+#     premium-only, so nothing raises it above ALLOW in the OSS build.
+case:TP-NE-DEFERREDEXFIL-EXECGUARD-3889
+case:TN-NE-DEFERREDEXFIL-DOCTEXT-3889

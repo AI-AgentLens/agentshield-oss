@@ -70,7 +70,10 @@ func TestPositionExcludedLoopWordList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PositionExcluded(tt.command, []string{LabelPosLoopWordList}, matches)
+			// A real per-command fold context, matching both production call
+			// sites (neither ever passes nil) — see #3725.
+			fc := NewStatementFoldContext(tt.command)
+			got := PositionExcluded(tt.command, []string{LabelPosLoopWordList}, fc, matches)
 			if got != tt.want {
 				t.Fatalf("PositionExcluded(%q) = %v, want %v", tt.command, got, tt.want)
 			}
@@ -122,11 +125,39 @@ func TestPositionExcludedSearchNeedle(t *testing.T) {
 			command: `frida -n chrome`,
 			want:    false,
 		},
+		// #3725: sibling of #3717's laundering, applied to the SUBTRACTION
+		// check. Before this fix, redactedForms tested each split statement's
+		// RAW text only — the same gap #3717 closed for command_intent_exclude
+		// attribution. An obfuscated real statement therefore did not match
+		// during subtraction, and an unrelated needle sibling's excluded
+		// position wrongly "explained away" a match a real, executed
+		// statement produced. Must NOT be excluded.
+		//
+		// (An ${IFS}-separator variant is deliberately NOT included here: the
+		// pre-fix redactedForms already ran shellparse.NormalizeIFS over the
+		// whole redacted command, so that particular obfuscation was an
+		// accidental non-reproduction of this bug, not a case this fix closes.
+		// Unset-parameter splices and indirect-executable variables were not
+		// covered at the whole-command level and are the real regression.)
+		{
+			name:    "#3725: unset-param-splice real attach + needle-position sibling",
+			command: `f${zqx}rida -n chrome; grep -i "frida -n <process>" -r docs/`,
+			want:    false,
+		},
+		{
+			name:    "#3725: indirect-executable-variable real attach + needle-position sibling",
+			command: `x=frida; $x -n chrome; grep -i "frida -n <process>" -r docs/`,
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PositionExcluded(tt.command, []string{LabelPosSearchNeedle}, matches)
+			// A real per-command fold context, matching both production call
+			// sites (neither ever passes nil) — the indirect-executable-
+			// variable case below needs the symbol table nil would omit.
+			fc := NewStatementFoldContext(tt.command)
+			got := PositionExcluded(tt.command, []string{LabelPosSearchNeedle}, fc, matches)
 			if got != tt.want {
 				t.Fatalf("PositionExcluded(%q) = %v, want %v", tt.command, got, tt.want)
 			}
@@ -196,11 +227,27 @@ func TestPositionExcludedHeredocBody(t *testing.T) {
 			command: "cp backdoor.py sitecustomize.py",
 			want:    false,
 		},
+		// #3730: an UNQUOTED delimiter expands its body before the sink
+		// ever runs, so a command substitution that itself performs the
+		// write executes live — it must never be excused as inert prose.
+		{
+			name:    "unquoted delimiter — the write happens via a live command substitution",
+			command: "cat > \"$S/notes.md\" <<EOF\n$(cp backdoor.py /usr/lib/python3/dist-packages/sitecustomize.py)\nEOF",
+			want:    false,
+		},
+		// The identical prose, still unquoted but with no expansion at all,
+		// stays fully literal and is correctly excused exactly as the quoted
+		// case above.
+		{
+			name:    "unquoted delimiter — genuinely inert prose is still excused",
+			command: "cat > \"$S/notes.md\" <<EOF\n- blocks cat/tee writes to sitecustomize.py\nEOF",
+			want:    true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PositionExcluded(tt.command, []string{LabelPosHeredocBody}, matches)
+			got := PositionExcluded(tt.command, []string{LabelPosHeredocBody}, nil, matches)
 			if got != tt.want {
 				t.Fatalf("PositionExcluded(%q) = %v, want %v", tt.command, got, tt.want)
 			}
@@ -214,13 +261,13 @@ func TestPositionExcludedHeredocBody(t *testing.T) {
 func TestPositionExcludedIsOptIn(t *testing.T) {
 	cmd := `for p in /etc/shadow; do echo "$p"; done`
 	matches := shadowMatcher()
-	if PositionExcluded(cmd, nil, matches) {
+	if PositionExcluded(cmd, nil, nil, matches) {
 		t.Error("no labels must never exclude")
 	}
-	if PositionExcluded(cmd, []string{"not_a_label"}, matches) {
+	if PositionExcluded(cmd, []string{"not_a_label"}, nil, matches) {
 		t.Error("unrecognised label must never exclude")
 	}
-	if !PositionExcluded(cmd, []string{"not_a_label", LabelPosLoopWordList}, matches) {
+	if !PositionExcluded(cmd, []string{"not_a_label", LabelPosLoopWordList}, nil, matches) {
 		t.Error("a recognised label alongside an unrecognised one must still apply")
 	}
 }
@@ -248,7 +295,7 @@ func TestIsValidPositionLabel(t *testing.T) {
 func TestLoopItemPlaceholderMatchesNoShippedLiteral(t *testing.T) {
 	cmd := `for p in /etc/shadow; do echo "$p"; done`
 	greedy := func(s string) bool { return strings.Contains(s, "/etc/shadow") }
-	if !PositionExcluded(cmd, []string{LabelPosLoopWordList}, greedy) {
+	if !PositionExcluded(cmd, []string{LabelPosLoopWordList}, nil, greedy) {
 		t.Fatal("expected the inert loop to be excluded")
 	}
 }
@@ -257,7 +304,7 @@ func TestLoopItemPlaceholderMatchesNoShippedLiteral(t *testing.T) {
 func TestSearchNeedlePlaceholderMatchesNoShippedLiteral(t *testing.T) {
 	cmd := `grep -i "frida -n <process>" -r docs/`
 	greedy := func(s string) bool { return strings.Contains(s, "frida") }
-	if !PositionExcluded(cmd, []string{LabelPosSearchNeedle}, greedy) {
+	if !PositionExcluded(cmd, []string{LabelPosSearchNeedle}, nil, greedy) {
 		t.Fatal("expected the search needle to be excluded")
 	}
 }
@@ -266,7 +313,7 @@ func TestSearchNeedlePlaceholderMatchesNoShippedLiteral(t *testing.T) {
 func TestHeredocBodyPlaceholderMatchesNoShippedLiteral(t *testing.T) {
 	cmd := "cat > notes.md <<'EOF'\nsitecustomize.py\nEOF"
 	greedy := func(s string) bool { return strings.Contains(s, "sitecustomize.py") }
-	if !PositionExcluded(cmd, []string{LabelPosHeredocBody}, greedy) {
+	if !PositionExcluded(cmd, []string{LabelPosHeredocBody}, nil, greedy) {
 		t.Fatal("expected the heredoc body to be excluded")
 	}
 }

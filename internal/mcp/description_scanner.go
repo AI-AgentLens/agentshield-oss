@@ -2629,6 +2629,22 @@ func detectRenderedTextEvasion(text string) []PoisonFinding {
 		return nil
 	}
 
+	// Collapse whitespace runs on both sides before matching (#3695).
+	// RecoverRenderedText and FoldUnicodeSeparators are cardinality-preserving
+	// — two separators fold to two ASCII spaces, not one — but several of the
+	// patterns and co-occurrence detectors below (agentPrivateReasoningRE's
+	// "chain[\s_-]?of[\s_-]?thought", the "auto[\s_-]?approv"/"pre[\s_-]?approved"
+	// pair) use a single optional whitespace char as an internal word-joiner, not
+	// `\s+`. A doubled separator — Unicode or a second plain ASCII space — then
+	// splits the phrase across a two-character gap none of them span, and the
+	// match silently disappears. Same shape and fix as foldSeparatorRuns in
+	// semantic.go (#3689/#3594), applied identically to both sides so it can only
+	// ADD a match, never manufacture one absent from the raw text: collapsing is
+	// idempotent on already-cardinality-matched folded text, and no matcher here
+	// requires two adjacent whitespace characters to fire.
+	baseline = foldSeparatorRuns(baseline)
+	recovered = foldSeparatorRuns(recovered)
+
 	findings := foldedOnlyFindings(baseline, recovered, SignalRenderedTextEvasion,
 		"Codepoint-level disguises (invisible formatters such as U+00AD SOFT HYPHEN, "+
 			"blank-rendering fillers, and Cyrillic/Greek confusables) that survive every "+

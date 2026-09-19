@@ -67,7 +67,19 @@ func TestStdinSourceParity(t *testing.T) {
 	// provides for a command that ALSO carries an assignment+read pair to
 	// materialize. Not a new gap; the same one, newly measured by cases that
 	// didn't exist when the ceiling was last set.
-	const maxLeaks = 86
+	maxLeaks := 86
+
+	// BUILD-AWARE, by #3599's mechanism. Measured at 1ee76fb:
+	//
+	//	full tree   86/3950   OSS tree   88/2642
+	//
+	// Same structure as TestShellSourceCarrierParity's split, and the same two
+	// numbers on the same corpus: this sweep and TestProcSubstEchoParity draw
+	// from the shared BLOCK baseline (parity_baseline_test.go), so they move
+	// together. Both trees keep ZERO headroom; ratchet each DOWN independently.
+	if !premiumPacksPresent() {
+		maxLeaks = 88
+	}
 
 	var leaks []string
 	tried := 0

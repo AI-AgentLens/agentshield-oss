@@ -244,12 +244,11 @@ func inertArgSpans(c *syntax.CallExpr, escapes bool) []byteSpan {
 		if escapes && !hasGrepSummaryFlag(c.Args) {
 			return nil
 		}
-		i := grepPatternOperand(c.Args)
-		if i <= 0 {
+		span, ok := grepNeedleSpan(c.Args)
+		if !ok {
 			return nil
 		}
-		w := c.Args[i]
-		return []byteSpan{{int(w.Pos().Offset()), int(w.End().Offset())}}
+		return []byteSpan{span}
 	}
 	return nil
 }
@@ -419,20 +418,74 @@ func escaping(span byteSpan, escapes []byteSpan) bool {
 	return false
 }
 
-// grepPatternOperand returns the index in args of the PATTERN operand of a
-// grep-family invocation, or -1 when it cannot be identified with certainty.
+// grepNeedleSpan returns the byte span of the PATTERN operand (the needle) of a
+// grep-family invocation, and true, or a zero span and false when it cannot be
+// identified with certainty.
+//
+// The span is usually a whole argument WORD — `grep foo file` returns the span
+// of `foo`. But for an INLINE pattern-bearing flag the span is only the VALUE
+// subspan, never the flag byte(s): `grep -efoo file`, `grep -e"$p" file` and
+// `grep --regexp=foo file` return the span of `foo` / `"$p"` / `foo`, leaving
+// the `-e` / `--regexp=` prefix intact when the caller redacts. Only the needle
+// is inert; the flag is not, and redacting the flag away could change how the
+// rule's own pattern reads the surrounding text (#3728, Codex finding B).
 //
 // Only the pattern is inert: `grep foo "$p"` has "$p" as the HAYSTACK, a file
-// the command opens. Distinguishing the two means knowing where the flags
-// stop, so any flag that might consume the following token (-e, -f, -m, -A,
-// --include …) gives up rather than guessing — mistaking a flag VALUE for the
-// pattern would shift every later operand by one and could mark a haystack
-// inert.
-func grepPatternOperand(args []*syntax.Word) int {
+// the command opens. Distinguishing the two means knowing where the flags stop,
+// so any flag that might consume a SEPARATE following token (`-e VALUE`, -f, -m,
+// -A, --include …) still gives up rather than guessing — mistaking a flag VALUE
+// for the pattern would shift every later operand by one and could mark a
+// haystack inert.
+func grepNeedleSpan(args []*syntax.Word) (byteSpan, bool) {
 	endOfFlags := false
 	for i := 1; i < len(args); i++ {
-		t := staticWord(args[i])
+		w := args[i]
+		t := staticWord(w)
 		if !endOfFlags {
+			// An inline pattern-bearing flag carries the needle glued into the
+			// SAME shell word (`-eVALUE`, `-e"$p"`, `--regexp=VALUE`); the value
+			// subspan is the needle and the next word is the haystack. Checked
+			// before the generic flag handling below so `--regexp=` is not
+			// mistaken for a value-inline FILTER flag like `--include=` (whose
+			// value is a glob, not a pattern) and skipped (#3728, finding B).
+			if sub, ok := inlinePatternValueSpan(w); ok {
+				return sub, true
+			}
+			// staticWord's own contract: "" means UNKNOWN (a parameter
+			// expansion, command substitution, or arithmetic is part of this
+			// word), never "empty string". A bare dynamic word standing on its
+			// own ($p, "$p", $(cmd)) — no expansion can synthesize a leading
+			// "-" out of nothing WRITTEN into the word, so it cannot itself be
+			// a flag, and it is safe to treat it as the pattern operand exactly
+			// as this function always has (TestInertLoopWordLists's grep cases
+			// depend on this). But a word can ALSO be unknown while still
+			// carrying a literal leading "-" as its first, static part — an
+			// $IFS-glued flag+value pair (`-e${IFS}pattern`) or an unquoted
+			// `-e$p` parses as ONE word whose first Parts entry is the Lit "-e"
+			// followed by a dynamic tail that WORD-SPLITS the value off into a
+			// separate token, so staticWord bails on the whole word rather than
+			// reporting the "-e" prefix (#3690). inlinePatternValueSpan above
+			// already peeled off the SAFE glued forms (a quoted or literal
+			// value that cannot split), so anything reaching here with a
+			// leading dash is ambiguous — refuse, keep every word live, the
+			// same as a recognized ambiguous flag: a mis-scoped flag costs a
+			// block that stands, not a bypass that ships.
+			if t == "" {
+				if leadingDashUnresolved(w) {
+					return byteSpan{}, false
+				}
+				// A wholly-dynamic bare word is the needle ONLY when it cannot
+				// itself run code before grep sees it. `grep "$(cmd)" file` and
+				// `grep <(cmd) file` execute cmd first — redacting the word here
+				// would suppress a rule that should fire on the executed text, a
+				// live bypass shared by every rule using search_needle (#3729).
+				// A plain variable reference ($p, "$p", ${x:-default}) carries no
+				// such risk and stays the needle, unchanged from before the fix.
+				if containsExecutingExpansion(w) {
+					return byteSpan{}, false
+				}
+				return wholeWordSpan(w), true
+			}
 			if t == "--" {
 				endOfFlags = true
 				continue
@@ -440,24 +493,194 @@ func grepPatternOperand(args []*syntax.Word) int {
 			if strings.HasPrefix(t, "--") {
 				// `--include=*.go` carries its value inline, so the next token
 				// is still the pattern. A bare long flag is only safe to skip
-				// when it is known not to take one.
+				// when it is known not to take one. (`--regexp=`/`--regex=` are
+				// handled by inlinePatternValueSpan above, before this branch.)
 				if strings.Contains(t, "=") || grepBooleanLongFlags[t] {
 					continue
 				}
-				return -1
+				return byteSpan{}, false
 			}
 			if len(t) > 1 && strings.HasPrefix(t, "-") {
 				for _, r := range t[1:] {
 					if !strings.ContainsRune(grepBooleanShortFlags, r) {
-						return -1
+						return byteSpan{}, false
 					}
 				}
 				continue
 			}
 		}
-		return i
+		return wholeWordSpan(w), true
 	}
-	return -1
+	return byteSpan{}, false
+}
+
+func wholeWordSpan(w *syntax.Word) byteSpan {
+	return byteSpan{int(w.Pos().Offset()), int(w.End().Offset())}
+}
+
+// containsExecutingExpansion reports whether any part of w can run code
+// before the word's value is available — a command substitution, a process
+// substitution, or an arithmetic expansion (which may itself embed either,
+// e.g. `$(( $(cmd) ))` or an array index). syntax.Walk descends into every
+// nested position that matters here, including a ParamExp's `${x:-default}`
+// arm, so a substitution buried inside one is still found. Used to keep a
+// dynamic word LIVE rather than mis-attributing it as an inert search needle
+// or loop item (#3729): the shell runs the executing part first regardless of
+// what consumes the resulting text, so treating the word as pure data would
+// suppress a rule that should fire on what it just ran.
+func containsExecutingExpansion(w *syntax.Word) bool {
+	found := false
+	syntax.Walk(w, func(node syntax.Node) bool {
+		if found {
+			return false
+		}
+		switch node.(type) {
+		case *syntax.CmdSubst, *syntax.ProcSubst, *syntax.ArithmExp, *syntax.ArithmCmd:
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// inlinePatternValueSpan recognises a grep word that carries its PATTERN value
+// GLUED into the same shell word as the flag — `-eVALUE`, `-e"$p"`,
+// `--regexp=VALUE`, `--regex=VALUE`, and short-flag clusters ending in the
+// pattern flag (`-ie"$p"`) — and returns the byte span of just the VALUE
+// (#3728, Codex finding B: `grep -e"$p" file` and `grep --regexp="$p" file` are
+// unambiguously searches, so refusing to attribute the needle was a new FP).
+//
+// It declines (returns false) unless the value is INERT: composed only of
+// literal text and QUOTED variable substitutions that can neither word-split
+// into a separate token nor execute code. That is what separates `-e"$p"` (a
+// quoted value — one token, the pattern) from `-e${IFS}pat` and `-e$p` (an
+// unquoted expansion that word-splits `-e` off from a SEPARATE value token,
+// #3690, the case #3728 originally fixed) and from `-e"$(cmd)"` (a command
+// substitution that executes — the #3729 class, not widened here). Declining
+// lets grepNeedleSpan fall through to its leading-dash refusal, keeping the
+// whole invocation live.
+//
+// -f/--file are deliberately NOT recognised: their value is a FILE of patterns,
+// not a needle, so `grep -f FILE` must stay live (its FILE is a real path).
+func inlinePatternValueSpan(w *syntax.Word) (byteSpan, bool) {
+	if w == nil || len(w.Parts) == 0 {
+		return byteSpan{}, false
+	}
+	lit, ok := w.Parts[0].(*syntax.Lit)
+	if !ok {
+		return byteSpan{}, false
+	}
+	head := lit.Value
+
+	// Long form: --regexp=VALUE / --regex=VALUE. The value starts right after
+	// the "=" and runs through the rest of the word's parts.
+	for _, pfx := range []string{"--regexp=", "--regex="} {
+		if strings.HasPrefix(head, pfx) {
+			if !inertNeedleTail(w.Parts) {
+				return byteSpan{}, false
+			}
+			start := int(lit.Pos().Offset()) + len(pfx)
+			end := int(w.End().Offset())
+			if start >= end {
+				return byteSpan{}, false
+			}
+			return byteSpan{start, end}, true
+		}
+	}
+
+	// Short form: a "-"-prefixed cluster of value-free short flags ending in
+	// "e" (the pattern flag), with the value glued directly after the "e"
+	// (`-efoo`, `-e"$p"`, `-rie"$p"`). Everything after the "e" — the rest of
+	// head plus any following parts — is the value.
+	if len(head) >= 2 && head[0] == '-' && head[1] != '-' {
+		for j := 1; j < len(head); j++ {
+			c := head[j]
+			if c == 'e' {
+				start := int(lit.Pos().Offset()) + j + 1
+				end := int(w.End().Offset())
+				if start >= end {
+					// `-e` with the value in a SEPARATE word (`grep -e pat`):
+					// a consumed unknown token, not an inline value. Decline so
+					// grepNeedleSpan refuses and keeps the invocation live.
+					return byteSpan{}, false
+				}
+				if !inertNeedleTail(w.Parts) {
+					return byteSpan{}, false
+				}
+				return byteSpan{start, end}, true
+			}
+			if !strings.ContainsRune(grepBooleanShortFlags, rune(c)) {
+				// A value-consuming or unknown flag before any "e" (`-f…`,
+				// `-m…`): not a clean inline pattern layout. Decline.
+				return byteSpan{}, false
+			}
+		}
+	}
+	return byteSpan{}, false
+}
+
+// inertNeedleTail reports whether every part of a grep pattern word is inert as
+// a search needle: literal text, or a QUOTED variable substitution that
+// substitutes a value without word-splitting or executing. An unquoted
+// parameter expansion (word-splits a flag off its value — #3690) or any
+// command/process/arithmetic substitution (executes before grep — the #3729
+// class) makes it non-inert.
+func inertNeedleTail(parts []syntax.WordPart) bool {
+	for _, p := range parts {
+		switch pp := p.(type) {
+		case *syntax.Lit, *syntax.SglQuoted:
+			// literal bytes — inert
+		case *syntax.DblQuoted:
+			for _, inner := range pp.Parts {
+				switch inner.(type) {
+				case *syntax.Lit, *syntax.ParamExp:
+					// "$p" — a quoted variable substitution: one token, no exec
+				default:
+					return false // "$(cmd)"/"$((…))" inside quotes: executes
+				}
+			}
+		default:
+			return false // unquoted $p (word-splits) or $(cmd) (executes)
+		}
+	}
+	return true
+}
+
+// leadingDashUnresolved reports whether an otherwise-dynamic word (one
+// staticWord already returned "" for) nonetheless carries a literal leading
+// "-" as its FIRST word part — the shape of a flag whose VALUE is what is
+// dynamic (`-e${IFS}pattern`, `-e"$var"`), as opposed to a bare dynamic word
+// standing entirely on its own (`$p`, `"$p"`, `$(cmd)`) which cannot
+// possibly be a flag: no expansion synthesizes a leading "-" out of nothing
+// written into the word itself (#3690).
+//
+// Only the first part is inspected — a "-" appearing later in the word
+// (`x-e`, or a Lit sandwiched between two dynamic parts) is not a flag
+// prefix and grepNeedleSpan already treats a fully-static "-e" via the
+// ordinary strings.HasPrefix(t, "-") branch, which this helper never runs for
+// (that branch only fires when t != "").
+func leadingDashUnresolved(w *syntax.Word) bool {
+	if w == nil || len(w.Parts) == 0 {
+		return false
+	}
+	switch p := w.Parts[0].(type) {
+	case *syntax.Lit:
+		return strings.HasPrefix(p.Value, "-")
+	case *syntax.DblQuoted:
+		// `"-e"$var` — a fully-quoted leading "-e" followed by an unquoted
+		// dynamic tail concatenated onto the same word. Rare, but the same
+		// shape as the unquoted case: the flag-looking prefix is real, only
+		// the value is dynamic.
+		if len(p.Parts) > 0 {
+			if lit, ok := p.Parts[0].(*syntax.Lit); ok {
+				return strings.HasPrefix(lit.Value, "-")
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 // grepBooleanShortFlags are the grep short options that never consume the

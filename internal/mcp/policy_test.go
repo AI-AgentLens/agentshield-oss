@@ -294,6 +294,232 @@ func TestMatchGlob_SchemeValue(t *testing.T) {
 	}
 }
 
+// TestMatchGlob_WindowsPathCaseFold pins #3598: Windows paths are
+// case-insensitive on the filesystem, so a rule authored against
+// "C:\ProgramData\..." must also catch a lower- or upper-cased spelling of
+// the identical file — the exact evasion measured against
+// mcp-privesc-block-programdata-ai-config-plant on main@4ffdcee4.
+func TestMatchGlob_WindowsPathCaseFold(t *testing.T) {
+	// filepath.Match's escape syntax needs the pattern's backslashes doubled;
+	// build it the same way the shipped YAML rule does (single-quoted YAML
+	// preserves \\ literally).
+	escapedPattern := `*ProgramData\\ClaudeCode\\managed-settings.json`
+
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"exact case", `C:\ProgramData\ClaudeCode\managed-settings.json`, true},
+		{"lowercased drive+path", `c:\programdata\claudecode\managed-settings.json`, true},
+		{"uppercased whole path", `C:\PROGRAMDATA\CLAUDECODE\MANAGED-SETTINGS.JSON`, true},
+		{"mixed case", `c:\ProgramData\claudeCode\Managed-Settings.json`, true},
+		{"different file, same case fold — must not match", `c:\programdata\chocolatey\config.json`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchGlob(tc.value, escapedPattern); got != tc.want {
+				t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.value, escapedPattern, got, tc.want)
+			}
+		})
+	}
+
+	// The double-star forward-slash spelling used alongside the backslash
+	// pattern in the shipped rule must fold the same way.
+	dsPattern := "**/ProgramData/ClaudeCode/managed-settings.json"
+	if !matchGlob("c:/programdata/claudecode/managed-settings.json", dsPattern) {
+		t.Errorf("matchGlob lowercased forward-slash Windows path did not match %q", dsPattern)
+	}
+	if !matchGlob("C:/PROGRAMDATA/CLAUDECODE/MANAGED-SETTINGS.JSON", dsPattern) {
+		t.Errorf("matchGlob uppercased forward-slash Windows path did not match %q", dsPattern)
+	}
+}
+
+// TestMatchGlob_POSIXPathStaysCaseSensitive guards the other half of #3598's
+// fix: folding must be scoped to Windows-style values/patterns only. A POSIX
+// path with different casing must NOT match — case is semantically
+// significant on POSIX filesystems (this is the "must not be folded" side
+// issue #3598 explicitly calls out).
+func TestMatchGlob_POSIXPathStaysCaseSensitive(t *testing.T) {
+	if matchGlob("/etc/Passwd", "/etc/passwd") {
+		t.Error("expected /etc/Passwd to NOT match /etc/passwd — POSIX paths are case-sensitive")
+	}
+	if matchGlob("/Home/user/.ssh/ID_RSA", "/home/*/.ssh/id_rsa") {
+		t.Error("expected mixed-case POSIX path to NOT match a lowercase pattern")
+	}
+	// Sanity: same-case POSIX matching is unaffected by the fold gate.
+	if !matchGlob("/home/user/.ssh/id_rsa", "/home/*/.ssh/id_rsa") {
+		t.Error("expected same-case POSIX path to still match")
+	}
+}
+
+// TestIsWindowsStylePath pins the detector that gates the case-fold: only
+// drive-letter, UNC-shaped, and unexpanded-env-var-prefixed strings qualify,
+// so an ordinary POSIX path or unrelated argument value is never folded.
+func TestIsWindowsStylePath(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{`C:\ProgramData\ClaudeCode`, true},
+		{`c:\programdata\claudecode`, true},
+		{`C:/ProgramData/ClaudeCode`, true},
+		{`\\host\share\file.json`, true},
+		{`/etc/passwd`, false},
+		{`~/.ssh/id_rsa`, false},
+		{`relative/path`, false},
+		{`https://example.com/C:foo`, false},
+		{``, false},
+		{`C`, false},
+		{`C:`, false},
+		// Unexpanded environment-variable prefixes (#3601).
+		{`%ProgramData%\ClaudeCode\managed-settings.json`, true},
+		{`%PROGRAMDATA%\ClaudeCode\managed-settings.json`, true},
+		{`%programdata%\ClaudeCode\managed-settings.json`, true},
+		{`$env:ProgramData\ClaudeCode\managed-settings.json`, true},
+		{`$ENV:PROGRAMDATA\ClaudeCode\managed-settings.json`, true},
+		// Must NOT be mistaken for one: values that merely start with '%' or
+		// '$' but aren't a well-formed env-var reference.
+		{`%an <%ae>`, false},
+		{`%B`, false},
+		{`%h %s`, false},
+		{`$env:`, false},
+		{`$HOME/.ssh/id_rsa`, false},
+	}
+	for _, tc := range cases {
+		if got := isWindowsStylePath(tc.s); got != tc.want {
+			t.Errorf("isWindowsStylePath(%q) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+
+// TestMatchGlob_EnvVarPrefixCaseFold pins #3601: an MCP tool-call argument
+// can carry an unexpanded Windows environment-variable reference verbatim —
+// unlike a terminal command, where the shell expands "%ProgramData%" before
+// the analyzer ever sees the argument. A rule authored against the literal
+// "C:\ProgramData\..." spelling must also catch this equivalent spelling of
+// the identical file, in any casing.
+func TestMatchGlob_EnvVarPrefixCaseFold(t *testing.T) {
+	patterns := []string{
+		`*%ProgramData%\\ClaudeCode\\managed-settings.json`,
+		`*$env:ProgramData\\ClaudeCode\\managed-settings.json`,
+	}
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"percent form, canonical case", `%ProgramData%\ClaudeCode\managed-settings.json`, true},
+		{"percent form, all caps", `%PROGRAMDATA%\ClaudeCode\managed-settings.json`, true},
+		{"percent form, all lower", `%programdata%\claudecode\managed-settings.json`, true},
+		{"$env: form, canonical case", `$env:ProgramData\ClaudeCode\managed-settings.json`, true},
+		{"$env: form, all caps", `$ENV:PROGRAMDATA\CLAUDECODE\MANAGED-SETTINGS.JSON`, true},
+		{"different vendor dir — must not match", `%ProgramData%\chocolatey\config.json`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matched := false
+			for _, p := range patterns {
+				if matchGlob(tc.value, p) {
+					matched = true
+				}
+			}
+			if matched != tc.want {
+				t.Errorf("matchGlob(%q, %v) = %v, want %v", tc.value, patterns, matched, tc.want)
+			}
+		})
+	}
+
+	// Forward-slash multi-component form, mirroring the shipped "**/..." glob.
+	dsPatterns := []string{
+		"**/%ProgramData%/ClaudeCode/managed-settings.json",
+		"**/$env:ProgramData/ClaudeCode/managed-settings.json",
+	}
+	if !matchGlob("%PROGRAMDATA%/ClaudeCode/managed-settings.json", dsPatterns[0]) {
+		t.Errorf("matchGlob forward-slash %%PROGRAMDATA%% path did not match %q", dsPatterns[0])
+	}
+	if !matchGlob("$env:ProgramData/ClaudeCode/managed-settings.json", dsPatterns[1]) {
+		t.Errorf("matchGlob forward-slash $env:ProgramData path did not match %q", dsPatterns[1])
+	}
+}
+
+// TestExpandWindowsEnvVarPrefix pins the value-normalization pass added for
+// #3605. Unlike #3601's literal-glob-variant fix for "%ProgramData%" (a
+// single fixed segment), "%AppData%"/"%LOCALAPPDATA%" expand to a
+// two-segment suffix and "%USERPROFILE%" has no fixed segment at all — so
+// this rewrites the value to the literal segments before matching, rather
+// than proliferating patterns per rule.
+func TestExpandWindowsEnvVarPrefix(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"AppData, backslash", `%AppData%\sops\age\keys.txt`, "AppData/Roaming/sops/age/keys.txt"},
+		{"AppData, forward slash", `%AppData%/sops/age/keys.txt`, "AppData/Roaming/sops/age/keys.txt"},
+		{"AppData, all caps", `%APPDATA%\sops\age\keys.txt`, "AppData/Roaming/sops/age/keys.txt"},
+		{"LOCALAPPDATA, backslash", `%LOCALAPPDATA%\Microsoft\Credentials\blob`, "AppData/Local/Microsoft/Credentials/blob"},
+		{"$env: AppData form", `$env:AppData\sops\age\keys.txt`, "AppData/Roaming/sops/age/keys.txt"},
+		{"$env: LOCALAPPDATA all caps", `$ENV:LOCALAPPDATA\Microsoft\Edge\Cookies`, "AppData/Local/Microsoft/Edge/Cookies"},
+		{"USERPROFILE strips to home-relative", `%USERPROFILE%\.ssh\id_rsa`, ".ssh/id_rsa"},
+		{"USERPROFILE, $env: form", `$env:USERPROFILE\.aws\credentials`, ".aws/credentials"},
+		{"USERPROFILE alone, no remainder", `%USERPROFILE%`, ""},
+		// Unrecognized/unrelated prefixes must pass through unchanged —
+		// %ProgramData% is handled by #3601's literal glob variants, not by
+		// this expansion, and an ordinary value has no prefix to expand.
+		{"ProgramData is not in the expansion table", `%ProgramData%\ClaudeCode\managed-settings.json`, `%ProgramData%\ClaudeCode\managed-settings.json`},
+		{"plain POSIX value untouched", `/home/user/.ssh/id_rsa`, `/home/user/.ssh/id_rsa`},
+		{"git-log format string untouched", `%an <%ae>`, `%an <%ae>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := expandWindowsEnvVarPrefix(tc.value); got != tc.want {
+				t.Errorf("expandWindowsEnvVarPrefix(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMatchGlob_AppDataLocalAppDataUserProfileUntokenised is the end-to-end
+// regression for #3605 (sibling of #3601): an MCP tool-call argument can
+// carry "%AppData%"/"%LOCALAPPDATA%"/"%USERPROFILE%" (or their $env:
+// PowerShell equivalents) unexpanded, and every shipped rule's glob was
+// authored against the literal Windows path, not the env-var spelling.
+// Exercised against the ACTUAL shipped patterns (not synthetic ones) so
+// this proves the real rules close, not just the matcher in isolation.
+func TestMatchGlob_AppDataLocalAppDataUserProfileUntokenised(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		pattern string
+		want    bool
+	}{
+		// mcp-sec-block-sops-age-appsupport-key-access (community mcp-secrets.yaml)
+		{"sops/age key, %AppData% backslash", `%AppData%\sops\age\keys.txt`, "**/AppData/Roaming/sops/age/**", true},
+		{"sops/age key, $env:AppData", `$env:AppData/sops/age/keys.txt`, "**/AppData/Roaming/sops/age/**", true},
+		{"sops/age key, different vendor dir must not match", `%AppData%\chocolatey\config.json`, "**/AppData/Roaming/sops/age/**", false},
+		// mcp-sec-block-edge-appdata-credential-db (community mcp-secrets.yaml)
+		{"Edge Login Data, %LOCALAPPDATA%", `%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Login Data`, "**/AppData/Local/Microsoft/Edge/**", true},
+		// mcp-sec-block-windows-credential-manager (community mcp-secrets.yaml)
+		{"Windows Credential Manager blob, $env:LOCALAPPDATA", `$env:LOCALAPPDATA\Microsoft\Credentials\ABC123`, "**/AppData/Local/Microsoft/Credentials/**", true},
+		// mcp-sec-block-dpapi-master-key (community mcp-secrets.yaml)
+		{"DPAPI master key, %AppData%", `%AppData%\Microsoft\Protect\S-1-5-21-123\master_key`, "**/AppData/Roaming/Microsoft/Protect/**", true},
+		// %USERPROFILE% has no AppData component at all — closes against the
+		// generic home-relative glob every OS shares, not an AppData one.
+		{"SSH key via %USERPROFILE%", `%USERPROFILE%\.ssh\id_rsa`, "**/.ssh/id_rsa", true},
+		{"AWS credentials via $env:USERPROFILE", `$env:USERPROFILE\.aws\credentials`, "**/.aws/credentials", true},
+		// Benign %USERPROFILE% file — must stay AUDIT-equivalent (no match).
+		{"benign document via %USERPROFILE% must not match", `%USERPROFILE%\Documents\report.docx`, "**/.ssh/id_rsa", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchGlob(tc.value, tc.pattern); got != tc.want {
+				t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.value, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestArgumentPatternsAny(t *testing.T) {
 	rule := MCPRule{
 		ID: "test-patterns-any",
@@ -444,5 +670,87 @@ func TestPolicyWithAllowDefault(t *testing.T) {
 	result = e.EvaluateToolCall("dangerous_tool", nil)
 	if result.Decision != policy.DecisionBlock {
 		t.Errorf("expected BLOCK, got %v", result.Decision)
+	}
+}
+
+// TestMatchGlob_WindowsBackslashSeparator pins #3610: the fourth and widest
+// sub-class of the Windows-path gap. A native Windows agent emits
+// `C:\Users\bob\.ssh\id_rsa`; this binary is built for a POSIX
+// filepath.Separator, so splitPath saw ONE component and every `**/...` glob
+// silently fell through — a BLOCK rule returning AUDIT, which falsifies the
+// attestation.
+//
+// The forward-slash row is the load-bearing control: the drive-letter prefix
+// and home anchor were already handled by #3598, so a failure confined to the
+// backslash row isolates the separator as the entire cause.
+func TestMatchGlob_WindowsBackslashSeparator(t *testing.T) {
+	const sshPattern = "**/.ssh/id_rsa"
+	const awsPattern = "**/.aws/credentials"
+
+	cases := []struct {
+		name    string
+		value   string
+		pattern string
+		want    bool
+	}{
+		{"POSIX forward slash (control)", "/home/user/.ssh/id_rsa", sshPattern, true},
+		{"drive + forward slash (control, #3598)", "C:/Users/user/.ssh/id_rsa", sshPattern, true},
+		{"drive + backslash", `C:\Users\user\.ssh\id_rsa`, sshPattern, true},
+		{"drive + backslash, lowercased", `c:\users\user\.ssh\id_rsa`, sshPattern, true},
+		{"UNC share + backslash", `\\host\share\.ssh\id_rsa`, sshPattern, true},
+		{"drive + mixed separators", `C:\Users\user/.ssh\id_rsa`, sshPattern, true},
+		{"drive + backslash, aws credentials", `C:\Users\user\.aws\credentials`, awsPattern, true},
+		// Negative controls: normalising separators must not make an unrelated
+		// Windows path match a rule it never named.
+		{"different file under the same root", `C:\Users\user\.ssh\known_hosts`, sshPattern, false},
+		{"aws value against the ssh pattern", `C:\Users\user\.aws\credentials`, sshPattern, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchGlob(tc.value, tc.pattern); got != tc.want {
+				t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.value, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMatchGlob_BackslashNormalisationIsAdditive guards the design choice in
+// matchGlob: the separator fold is a RETRY, not an in-place rewrite.
+//
+// Twelve shipped patterns in packs/premium/mcp/mcp-privilege-escalation.yaml
+// (#3601/#3604) are authored with backslash-spelled literals precisely because
+// a POSIX-built binary cannot split them. Normalising the value BEFORE the
+// first attempt would stop those patterns matching the values they exist to
+// catch — trading one fail-open for another. Retrying can only add a match.
+func TestMatchGlob_BackslashNormalisationIsAdditive(t *testing.T) {
+	// Exactly as the shipped YAML spells it (single-quoted YAML preserves the
+	// doubled backslash, which is filepath.Match's escape for a literal one).
+	backslashPattern := `*ProgramData\\ClaudeCode\\managed-settings.json`
+
+	if !matchGlob(`C:\ProgramData\ClaudeCode\managed-settings.json`, backslashPattern) {
+		t.Error("backslash-spelled pattern must still match its backslash value — " +
+			"in-place normalisation would have broken #3601/#3604")
+	}
+	// ...and the forward-slash sibling pattern in the same rule now covers the
+	// backslash value too, which is what makes those 12 variants redundant
+	// rather than load-bearing going forward.
+	if !matchGlob(`C:\ProgramData\ClaudeCode\managed-settings.json`,
+		"**/ProgramData/ClaudeCode/managed-settings.json") {
+		t.Error("forward-slash pattern should now also match the backslash spelling (#3610)")
+	}
+}
+
+// TestMatchGlob_POSIXBackslashNotNormalised guards the gate. A backslash is a
+// legal character in a POSIX filename, so a value that does NOT look
+// Windows-style (no drive letter, no UNC prefix, no env-var reference) must be
+// left exactly as it is — the same scoping the #3598 case-fold uses.
+func TestMatchGlob_POSIXBackslashNotNormalised(t *testing.T) {
+	// A real POSIX file literally named `a\b` inside /tmp must not be treated
+	// as two path components.
+	if matchGlob(`/tmp/a\b/id_rsa`, "**/a/b/id_rsa") {
+		t.Error(`POSIX value /tmp/a\b/... must not have its backslash normalised into a separator`)
+	}
+	if !matchGlob(`/tmp/a\b/id_rsa`, `**/a\\b/id_rsa`) {
+		t.Error("a POSIX filename containing a backslash must still match a pattern that escapes it")
 	}
 }

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -39,11 +40,24 @@ const browserGameMinInteractions = 3
 
 // browserGameSessionState is the mutable per-session state machine.
 type browserGameSessionState struct {
-	currentOrigin       string // origin of the page currently under interactive engagement
-	interactionCount    int    // interaction calls observed on currentOrigin since the last navigate
-	sawCredentialSignal bool   // a clipboard read was observed while engaged with currentOrigin
-	awaitingDisclosure  bool   // just navigated to a new origin after engagement + a credential signal
-	fired               bool
+	// currentOrigins is the SET of origins the page under interactive engagement
+	// may be at, not a single origin. A navigation whose `url` argument name
+	// collides (two disguised spellings carrying different destinations) is
+	// AMBIGUOUS: the tracker sees both and cannot know which one the server
+	// loaded. Collapsing that to one origin let a decoy candidate suppress the
+	// composite (#3740 finding 2) — see scanNavigateLocked. Normally one element.
+	currentOrigins      []string
+	interactionCount    int  // interaction calls observed since the last navigate
+	sawCredentialSignal bool // a clipboard read was observed while engaged
+	// awaitingOrigins is the SET of possible-current origins at which a paste
+	// would complete a disclosure — disclosure eligibility tracked PER ORIGIN,
+	// not as one shared flag (#3754 regression 2). It is always a subset of
+	// currentOrigins. A shared boolean could not clear a window that every
+	// concrete path had invalidated when currentOrigins held more than one member
+	// (an unrelated same-origin candidate kept it alive), which fired a false
+	// paste and latched `fired`, suppressing a later genuine detection.
+	awaitingOrigins []string
+	fired           bool
 }
 
 // BrowserGameJailbreakTracker detects the gamified context-reframing
@@ -99,9 +113,13 @@ func (t *BrowserGameJailbreakTracker) Scan(toolName string, args map[string]inte
 		return ""
 
 	case isBrowserDisclosureTool(lname):
-		if t.state.awaitingDisclosure && hasPayloadArg(args) {
+		// Fire if ANY possible current origin is still armed. awaitingOrigins is a
+		// subset of currentOrigins, so a non-empty set means the page could be at
+		// an armed disclosure sink. An empty set means every concrete path
+		// invalidated the window, so `fired` is never latched on a dead window.
+		if len(t.state.awaitingOrigins) > 0 && hasPayloadArg(args) {
 			t.state.fired = true
-			t.state.awaitingDisclosure = false
+			t.state.awaitingOrigins = nil
 			return SignalBrowserGameJailbreakSession
 		}
 		// Typing/pasting/submitting is itself interactive engagement when it
@@ -119,24 +137,85 @@ func (t *BrowserGameJailbreakTracker) Scan(toolName string, args map[string]inte
 
 // scanNavigateLocked handles a navigation call. Caller must hold t.mu.
 func (t *BrowserGameJailbreakTracker) scanNavigateLocked(args map[string]interface{}) {
-	origin := firstURLOrigin(args)
-	if origin == "" {
+	origins := allURLOrigins(args)
+	if len(origins) == 0 {
 		return
 	}
 
-	if t.state.currentOrigin != "" && origin != t.state.currentOrigin &&
-		t.state.interactionCount >= browserGameMinInteractions && t.state.sawCredentialSignal {
-		t.state.awaitingDisclosure = true
-	} else if origin != t.state.currentOrigin {
-		// Navigated away without meeting the engagement+credential-read bar —
-		// any previously armed disclosure window is now stale.
-		t.state.awaitingDisclosure = false
-	}
+	// Evaluate EVERY POSSIBLE TRANSITION — every (possible current origin, new
+	// candidate origin) pair — against the PRE-call engagement state (#3727
+	// pass-2 finding 2, corrected by #3740 finding 2). A colliding `url` argument
+	// name resolves to several origins and the tracker cannot know which one the
+	// server actually loaded, so BOTH ends of the transition are sets.
+	//
+	// #3727 evaluated every candidate but then collapsed the state to the LAST
+	// origin, which reintroduced the suppression it was closing:
+	//
+	//	arming    a first navigation resolving to [game, sink] kept only `sink`,
+	//	          so the later navigation to the sink read as SAME-origin and
+	//	          never armed the disclosure window;
+	//	clearing  an armed window at `sink` was cleared by candidates
+	//	          [sink, unrelated], even though the same-origin candidate would
+	//	          have preserved it — a decoy disarming a live detection.
+	//
+	// Disclosure eligibility is decided PER DESTINATION ORIGIN (#3754 regression
+	// 2), not as one shared flag. A destination D is armed after this navigation
+	// iff EITHER:
+	//
+	//	(a) some possible transition INTO D qualifies — a cross-origin move
+	//	    (prev != D, prev != "") from a page that met the engagement +
+	//	    credential-read bar; OR
+	//	(b) D is a same-origin continuation of an already-armed origin — the page
+	//	    stayed at D and D was already awaiting disclosure, so its window
+	//	    survives a reload / same-origin move.
+	//
+	// This is the conservative reading of an ambiguous state — ARM when ANY
+	// possible transition qualifies, CLEAR a destination when EVERY possible
+	// transition into it invalidates its window. Because eligibility rides on the
+	// specific origin rather than a shared boolean, a window that every concrete
+	// path invalidated leaves NO origin armed (so a later paste cannot fire on it
+	// and latch `fired`). With a single current origin and a single candidate
+	// these rules reduce to exactly the previous conditions, so unambiguous
+	// sessions are byte-identical.
+	preCurrents := t.state.currentOrigins
+	preAwaiting := t.state.awaitingOrigins
+	preArmed := t.state.interactionCount >= browserGameMinInteractions && t.state.sawCredentialSignal
 
-	// Start tracking engagement fresh on the newly loaded page.
-	t.state.currentOrigin = origin
+	var armed []string
+	for _, dest := range origins {
+		qualifies := false
+		if preArmed {
+			for _, prev := range preCurrents {
+				if prev != "" && prev != dest {
+					qualifies = true // (a) qualifying cross-origin transition into dest
+					break
+				}
+			}
+		}
+		if !qualifies && containsOrigin(preCurrents, dest) && containsOrigin(preAwaiting, dest) {
+			qualifies = true // (b) same-origin continuation of an already-armed origin
+		}
+		if qualifies {
+			armed = append(armed, dest)
+		}
+	}
+	t.state.awaitingOrigins = armed
+
+	// Start tracking engagement fresh on the newly loaded page. With a collision,
+	// every resolved origin stays a possible current page.
+	t.state.currentOrigins = origins
 	t.state.interactionCount = 0
 	t.state.sawCredentialSignal = false
+}
+
+// containsOrigin reports whether origins contains o.
+func containsOrigin(origins []string, o string) bool {
+	for _, x := range origins {
+		if x == o {
+			return true
+		}
+	}
+	return false
 }
 
 // isBrowserNavigateTool matches tool names that load a new page/origin.
@@ -182,23 +261,52 @@ func isBrowserInteractionTool(lname string) bool {
 // use for the destination URL.
 var urlArgNames = []string{"url", "uri", "href", "link", "destination"}
 
-// firstURLOrigin extracts the host of the first http(s) URL found in args —
-// checking known URL-ish keys first, then falling back to a scan of all
-// string values for a scheme-prefixed URL.
-func firstURLOrigin(args map[string]interface{}) string {
+// allURLOrigins extracts the host of every http(s) URL found under a known
+// URL-ish key — returning EVERY origin the first such key resolves to, not just
+// the first (#3727 pass-2 finding 2). A normalized-name collision resolves one
+// `url` key to several values; returning them all lets the caller evaluate each,
+// so a benign origin that sorts first cannot hide an attacker one.
+//
+// Resolution is argFieldRecovered (exact-then-render-recovery, not a raw map
+// index and not the full resolveField ladder — #3691/#3712/#3720/#3727), so a
+// Unicode-separator-corrupted key still resolves while an ASCII case/convention
+// variant does not. When no keyed URL resolves it falls back to scanning all
+// string values; that scan is deduped and sorted so the result is deterministic
+// rather than map-iteration-ordered.
+func allURLOrigins(args map[string]interface{}) []string {
+	var origins []string
+	seen := map[string]bool{}
+	add := func(o string) {
+		if o != "" && !seen[o] {
+			seen[o] = true
+			origins = append(origins, o)
+		}
+	}
 	for _, k := range urlArgNames {
-		if v, ok := args[k]; ok {
-			if origin := hostOf(argValueToString(v)); origin != "" {
-				return origin
-			}
+		before := len(origins)
+		for _, v := range argFieldRecovered(args, k) {
+			add(hostOf(argValueToString(v)))
+		}
+		if len(origins) > before {
+			return origins // first key that yields an origin wins; all of its origins
 		}
 	}
 	for _, v := range args {
-		if origin := hostOf(argValueToString(v)); origin != "" {
-			return origin
-		}
+		add(hostOf(argValueToString(v)))
 	}
-	return ""
+	sort.Strings(origins)
+	return origins
+}
+
+// firstURLOrigin returns the first origin allURLOrigins resolves, or "". Kept as
+// the single-value view for callers/tests that only need one; the tracker uses
+// allURLOrigins so a collision is evaluated in full.
+func firstURLOrigin(args map[string]interface{}) string {
+	origins := allURLOrigins(args)
+	if len(origins) == 0 {
+		return ""
+	}
+	return origins[0]
 }
 
 // hostOf returns the lowercased hostname of raw if it parses as an http(s)

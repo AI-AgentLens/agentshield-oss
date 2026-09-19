@@ -73,15 +73,19 @@ func TestExtractFetchResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			host, ns, res, ok := extractFetchResource(tt.args)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if !ok {
+			refs := extractFetchResources(tt.args)
+			if !tt.wantOK {
+				if len(refs) != 0 {
+					t.Fatalf("got %d refs, want none", len(refs))
+				}
 				return
 			}
-			if host != tt.wantHost || ns != tt.wantNamespace || res != tt.wantResource {
-				t.Errorf("got (%q, %q, %q), want (%q, %q, %q)", host, ns, res, tt.wantHost, tt.wantNamespace, tt.wantResource)
+			if len(refs) != 1 {
+				t.Fatalf("got %d refs, want exactly 1", len(refs))
+			}
+			r := refs[0]
+			if r.host != tt.wantHost || r.namespace != tt.wantNamespace || r.resource != tt.wantResource {
+				t.Errorf("got (%q, %q, %q), want (%q, %q, %q)", r.host, r.namespace, r.resource, tt.wantHost, tt.wantNamespace, tt.wantResource)
 			}
 		})
 	}

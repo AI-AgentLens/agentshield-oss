@@ -119,7 +119,47 @@ func TestUnsetParamExpParity(t *testing.T) {
 	// fix, again zero regressions on TestAccuracy. '.' stays excluded on the
 	// RIGHT (`file${N}.txt` is the common shape there). Ratchet DOWN as those
 	// are closed; never up without recording why here.
-	const maxLeaks = 40
+	//
+	// Raised 40 -> 43 by three of the four compound-word-position corpus cases
+	// (TP-SHADOW-FORLIST-SPLICE-001, TP-SSHKEY-DECLARRAY-SPLICE-001,
+	// TP-SHADOW-SELECT-ANSIC-001). Same residue class the FN-FORKBMB-003 and
+	// TP-CRYPTODENY-00[34] rows above already sit in: the exec-splice mutation
+	// targets the first word, and splicing a bash KEYWORD (`f${zqx}or`,
+	// `s${zqx}elect`, `d${zqx}eclare`) does not produce a working command —
+	// bash recognises keywords on the literal token, so the mutant is a syntax
+	// error rather than an evasion. Not a bypass, an artifact of the sweep.
+	//
+	// Raised 43 -> 45 by TP-MACOS-SEC-005/006 (#3697), the same shape as
+	// TP-FSDESTR-005 already sitting in this residue: the exec-splice probe
+	// reconstructs its mutant with `strings.Join(fields, " ")`, which
+	// collapses the heredoc body's real newlines into a single line —
+	// "p${zqx}ython3 - <<'PY' import os os.system(...) PY" is not valid
+	// heredoc syntax at all, so no real shell would run it this way. The
+	// probe's own reconstruction breaks the command, not our detection —
+	// see TP-FSDESTR-005's identical leak just above for the same finding.
+	//
+	// Raised 45 -> 46 by TN-MACOS-SEC-007 (#3755), the exact same artifact.
+	// That case (`print("os.system('csrutil disable')")` in a python heredoc)
+	// is a benign printed example that the extractor recovers from and the
+	// rule BLOCKs — an accepted FP recorded with its real BLOCK decision, so
+	// it enters this BLOCK baseline. Its exec-splice mutant collapses the
+	// heredoc to one line exactly as above, and was measured AUDIT for that
+	// reason (orig BLOCK, mutant AUDIT — verified directly against the built
+	// binary). One more measurement artifact, not one more bypass.
+	//
+	// Raised 46 -> 52 by the six TP-READ-HEREDOC-* cases (#3829), the same
+	// artifact a third time: measured exec-splice 46/2579 -> 52/2585 and
+	// exec-default 42/2587 -> 48/2593 against origin/main 1b1c3ca2, so the
+	// delta is exactly those six BLOCK cases in both positions (the other
+	// three positions absorbed them inside their existing headroom). Verified
+	// on the built binary: with the heredoc's newlines KEPT, every mutant
+	// still BLOCKs (`r${zqx}ead zc <<'EOF'\nrm -rf /\nEOF\n$zc` and
+	// `${zqx:-read} …` both fire st-block-rm-recursive-root) — the fold and
+	// the #3829 resolver compose. Flattened by this probe's fields.Join they
+	// AUDIT, and so does the UNMUTATED flattened control (`read zc <<'EOF' rm
+	// -rf / EOF $zc`, no ${zqx} at all), which pins the leak on the
+	// reconstruction rather than on either transform.
+	const maxLeaks = 52
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

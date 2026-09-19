@@ -1,6 +1,9 @@
 package shellparse
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The FP that motivated this (#3397): a heredoc body that merely NAMES a
 // sensitive filename in prose, written to an unrelated file.
@@ -49,6 +52,68 @@ func TestHeredocBodies(t *testing.T) {
 		{
 			name:    "eval heredoc",
 			command: "eval <<'EOF'\nrm -rf /\nEOF",
+		},
+
+		// --- #3827: the gate inverted from allowlist to blocklist ---
+		// An unrecognised sink is DATA, not evidence of execution. These are
+		// the shapes that used to BLOCK purely for not being cat/tee, which
+		// made filing an FP report about a rule trip that same rule.
+		{
+			name:    "gh --body-file - (the #3827 report shape)",
+			command: "gh issue comment 1 --body-file - <<'BODY'\nquotes an attack string as prose\nBODY",
+			found:   true,
+		},
+		{
+			name:    "gh with no flags at all",
+			command: "gh issue create <<'BODY'\nquotes an attack string as prose\nBODY",
+			found:   true,
+		},
+		{
+			name:    "an in-house tool nobody has heard of",
+			command: "notify-team --channel ops <<'BODY'\nquotes an attack string as prose\nBODY",
+			found:   true,
+		},
+		{
+			name:    "ordinary data filters",
+			command: "sort <<'BODY'\nplain data\nBODY",
+			found:   true,
+		},
+
+		// --- ...but the inversion must NOT un-block these ---
+		// A binding sink does not execute the body; it binds it to a name that
+		// IS executed later in the same command (TP-READ-SCALAR-EXEC-001).
+		// A blanket "inert unless it is an interpreter" gets these wrong.
+		{
+			name:    "read binds the body to a name executed later",
+			command: "read zc <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "mapfile binds the body to an array",
+			command: "mapfile -t a <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "readarray is mapfile's other spelling",
+			command: "readarray -t a <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "source /dev/stdin runs the body in the current shell",
+			command: "source /dev/stdin <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "dot is source's other spelling",
+			command: ". /dev/stdin <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "xargs forwards the body as arguments",
+			command: "xargs sh -c <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "exec wrappers are stripped before naming the sink",
+			command: "sudo bash <<'EOF'\nrm -rf /\nEOF",
+		},
+		{
+			name:    "git apply takes a patch, not prose",
+			command: "git apply <<'EOF'\nrm -rf /\nEOF",
 		},
 
 		// --- git commit -F - reading the message from stdin (#3493) ---
@@ -160,4 +225,80 @@ func TestHeredocBodiesNoOp(t *testing.T) {
 	if items != nil || redacted != "" {
 		t.Fatalf("expected no-op sentinel, got items=%#v redacted=%q", items, redacted)
 	}
+}
+
+// #3730: an UNQUOTED heredoc delimiter gets the shell's normal expansion —
+// command substitution, parameter expansion, arithmetic — before the body
+// ever reaches cat/tee. Redacting the whole span (as the pre-fix code did)
+// hides a real, executing command from every rule using this label. A live
+// expansion must never be redacted or collected as an item; only genuinely
+// literal text may be.
+func TestHeredocBodiesUnquotedDelimiterLeavesExpansionsLive(t *testing.T) {
+	t.Run("command substitution stays live and unredacted", func(t *testing.T) {
+		cmd := "cat > f.txt <<EOF\n$(rm -rf /)\nEOF"
+		items, redacted := HeredocBodies(cmd)
+		if !containsAll(redacted, "$(rm -rf /)") {
+			t.Errorf("live command substitution was redacted away: %q", redacted)
+		}
+		for _, it := range items {
+			if containsAll(it, "rm -rf /") {
+				t.Errorf("live command substitution leaked into a redacted item: %q", it)
+			}
+		}
+	})
+
+	t.Run("the identical body under a QUOTED delimiter is fully literal and redacted as before", func(t *testing.T) {
+		cmd := "cat > f.txt <<'EOF'\n$(rm -rf /)\nEOF"
+		items, redacted := HeredocBodies(cmd)
+		if redacted == "" {
+			t.Fatal("expected a redaction — the quoted body is inert literal text")
+		}
+		if containsAll(redacted, "rm -rf /") {
+			t.Errorf("literal body under a quoted delimiter was not redacted: %q", redacted)
+		}
+		if !containsAll(strings.Join(items, ""), "rm -rf /") {
+			t.Errorf("literal body text was not captured as an item: %#v", items)
+		}
+	})
+
+	t.Run("literal prose is redacted, live substitution beside it is not", func(t *testing.T) {
+		cmd := "cat > f.txt <<EOF\nsafe prefix $(rm -rf /) safe suffix\nEOF"
+		items, redacted := HeredocBodies(cmd)
+		if redacted == "" {
+			t.Fatal("expected the literal spans to be redacted")
+		}
+		if !containsAll(redacted, "$(rm -rf /)") {
+			t.Errorf("live command substitution was redacted away: %q", redacted)
+		}
+		if containsAll(redacted, "safe prefix") || containsAll(redacted, "safe suffix") {
+			t.Errorf("literal prose survived redaction: %q", redacted)
+		}
+		for _, it := range items {
+			if containsAll(it, "rm -rf /") {
+				t.Errorf("live command substitution leaked into a redacted item: %q", it)
+			}
+		}
+	})
+
+	t.Run("parameter expansion stays live and unredacted", func(t *testing.T) {
+		cmd := "cat > f.txt <<EOF\n${SECRET}\nEOF"
+		_, redacted := HeredocBodies(cmd)
+		if redacted != "" && !containsAll(redacted, "${SECRET}") {
+			t.Errorf("live parameter expansion was redacted away: %q", redacted)
+		}
+	})
+
+	t.Run("fully literal unquoted body still redacts as before", func(t *testing.T) {
+		cmd := "cat > \"$S/notes.md\" <<EOF\n- blocks cat/tee writes to sitecustomize.py\nEOF"
+		items, redacted := HeredocBodies(cmd)
+		if redacted == "" {
+			t.Fatal("expected a redaction — no live expansion in this body")
+		}
+		if !containsAll(strings.Join(items, ""), "sitecustomize.py") {
+			t.Errorf("literal body text was not captured as an item: %#v", items)
+		}
+		if containsAll(redacted, "sitecustomize.py") {
+			t.Errorf("literal body was not redacted: %q", redacted)
+		}
+	})
 }

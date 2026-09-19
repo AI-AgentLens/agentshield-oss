@@ -8,7 +8,7 @@ name: MCP Generated Rules (Shell-to-MCP)
 description: Auto-generated MCP rules from convertible shell rules — credential files, config files, and sensitive paths
 version: 1.0.0
 author: AgentShield MCP Generator
-generated: "2026-03-21T19:14:24Z"
+generated: "2026-09-03T05:16:56Z"
 rules:
     - id: mcp-gen-ne-block-resolv-conf-write
       taxonomy: persistence-evasion/lateral-movement/dns-hosts-poisoning
@@ -60,6 +60,7 @@ rules:
                 - /root/.docker/config.json
                 - /var/root/.docker/config.json
                 - /Users/*/.docker/config.json
+                - C:/Users/*/.docker/config.json
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.docker/config.json is blocked.'
     - id: mcp-gen-protected-path-netrc
@@ -88,6 +89,7 @@ rules:
                 - /root/.netrc
                 - /var/root/.netrc
                 - /Users/*/.netrc
+                - C:/Users/*/.netrc
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.netrc is blocked.'
     - id: mcp-gen-protected-path-config-gh
@@ -116,6 +118,7 @@ rules:
                 - /root/.config/gh/**
                 - /var/root/.config/gh/**
                 - /Users/*/.config/gh/**
+                - C:/Users/*/.config/gh/**
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.config/gh/** is blocked.'
     - id: mcp-gen-protected-path-vault-token
@@ -144,6 +147,7 @@ rules:
                 - /root/.vault-token
                 - /var/root/.vault-token
                 - /Users/*/.vault-token
+                - C:/Users/*/.vault-token
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.vault-token is blocked.'
     - id: mcp-gen-protected-path-terraformd
@@ -172,6 +176,7 @@ rules:
                 - /root/.terraform.d/**
                 - /var/root/.terraform.d/**
                 - /Users/*/.terraform.d/**
+                - C:/Users/*/.terraform.d/**
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.terraform.d/** is blocked.'
     - id: mcp-gen-sec-block-etc-shadow
@@ -213,6 +218,17 @@ rules:
             - get_file_contents
             - open_file
             - view_file
+            - write_file
+            - create_file
+            - edit_file
+            - save_file
+            - update_file
+            - append_file
+            - str_replace_editor
+            - write_to_file
+            - delete_file
+            - remove_file
+            - unlink
         argument_patterns_any:
             path:
                 - /home/*/.openai
@@ -275,6 +291,7 @@ rules:
                 - /root/.pip/**
                 - /var/root/.pip/**
                 - /Users/*/.pip/**
+                - C:/Users/*/.pip/**
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.pip/** is blocked.'
     - id: mcp-gen-protected-path-config-pip
@@ -303,6 +320,7 @@ rules:
                 - /root/.config/pip/**
                 - /var/root/.config/pip/**
                 - /Users/*/.config/pip/**
+                - C:/Users/*/.config/pip/**
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.config/pip/** is blocked.'
     - id: mcp-gen-protected-path-cargo-configtoml
@@ -331,9 +349,21 @@ rules:
                 - /root/.cargo/config.toml
                 - /var/root/.cargo/config.toml
                 - /Users/*/.cargo/config.toml
+                - C:/Users/*/.cargo/config.toml
       decision: BLOCK
       reason: '[MCP] Access to protected path ~/.cargo/config.toml is blocked.'
     - id: mcp-gen-protected-path-m2-settingsxml
+      # Hand-edited (#3735): write-family tools deliberately excluded here.
+      # mcp-sc-block-pkgmgr-config-write (packs/premium/mcp/mcp-supply-chain.yaml,
+      # supply-chain/config-tampering/package-registry-redirect) already BLOCKs
+      # writes to this path under a more specific taxonomy — leaving write
+      # tools here caused a two-way taxonomy disagreement on the same write
+      # action. cmd/mcp-gen's classifyProtectedPaths now tracks this via
+      # writeCoveredElsewhere and will scope any FUTURE protected-path
+      # candidate the same way from first generation; this file's own
+      # widenToolCoverage is deliberately union-only (#3367) and can never
+      # narrow an already-shipped rule, so re-running `go run ./cmd/mcp-gen`
+      # will not revert this edit and cannot re-add write tools here.
       taxonomy: credential-exposure/config-file-access/protected-path
       match:
         tool_name_any:
@@ -342,14 +372,6 @@ rules:
             - get_file_contents
             - open_file
             - view_file
-            - write_file
-            - create_file
-            - edit_file
-            - save_file
-            - update_file
-            - append_file
-            - str_replace_editor
-            - write_to_file
             - delete_file
             - remove_file
             - unlink
@@ -359,8 +381,9 @@ rules:
                 - /root/.m2/settings.xml
                 - /var/root/.m2/settings.xml
                 - /Users/*/.m2/settings.xml
+                - C:/Users/*/.m2/settings.xml
       decision: BLOCK
-      reason: '[MCP] Access to protected path ~/.m2/settings.xml is blocked.'
+      reason: '[MCP] Access to protected path ~/.m2/settings.xml is blocked. Write access is BLOCKed separately by mcp-sc-block-pkgmgr-config-write (supply-chain/config-tampering/package-registry-redirect).'
     - id: mcp-gen-sc-audit-gem-volatile-install-dir
       taxonomy: supply-chain/package-install/global-package-install
       match:
@@ -414,23 +437,6 @@ rules:
                 - /Users/*/.ssh/config
       decision: BLOCK
       reason: '[MCP] Writing to the SSH client config can inject ProxyCommand directives, disable host key checking, or enable agent forwarding — enabling MITM attacks and credential theft on all subsequent SSH connections.'
-    - id: mcp-gen-ts-block-symlink-credential-files
-      taxonomy: credential-exposure/file-access/credential-file-read
-      match:
-        tool_name_any:
-            - read_file
-            - cat_file
-            - get_file_contents
-            - open_file
-            - view_file
-        argument_patterns_any:
-            path:
-                - /home/*/.ssh
-                - /root/.ssh
-                - /var/root/.ssh
-                - /Users/*/.ssh
-      decision: BLOCK
-      reason: '[MCP] Creating a symlink to a credential or sensitive authentication file — classic TOCTOU attack that bypasses path-based access controls by reading the file through an innocuous-looking link.'
     - id: mcp-gen-ts-block-ldso-conf-write
       taxonomy: privilege-escalation/library-hijack/rpath-runpath-poisoning
       match:

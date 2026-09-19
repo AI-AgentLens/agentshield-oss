@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,11 +20,56 @@ func packsDir() string {
 func loadAllRules(t *testing.T) []Rule {
 	t.Helper()
 	base := DefaultPolicy()
-	pol, _, err := LoadPacks(packsDir(), base)
+	pol, infos, err := LoadPacks(packsDir(), base)
 	if err != nil {
 		t.Fatalf("failed to load packs: %v", err)
 	}
+	if loadErr := firstPackLoadError(infos); loadErr != nil {
+		t.Fatal(loadErr)
+	}
 	return pol.Rules
+}
+
+// firstPackLoadError returns an error naming the first pack whose LoadError
+// is set, or nil if every pack loaded cleanly. Extracted from loadAllRules so
+// the "does the gate refuse to swallow a bad pack" behavior is directly
+// unit-testable — without needing t.Fatalf to actually fire inside a test
+// (a subtest deliberately engineered to fail also marks its PARENT test, and
+// therefore the whole package run, as permanently FAIL — the wrong shape for
+// a gate that must itself stay green).
+func firstPackLoadError(infos []PackInfo) error {
+	for _, info := range infos {
+		if info.LoadError != nil {
+			return fmt.Errorf("pack %q failed to load: %w", info.Path, info.LoadError)
+		}
+	}
+	return nil
+}
+
+// TestFirstPackLoadError proves the #3637 gate mechanism: loadAllRules must
+// stop swallowing a pack whose LoadError is set (LoadPacks already recorded
+// it per #2188/#3035, but TestRuleYAMLTests and TestAllRulesHaveTests loaded
+// through the old loadAllRules with `_` discarding the infos slice, so both
+// gates stayed green while silently missing an entire pack's rules).
+func TestFirstPackLoadError(t *testing.T) {
+	if err := firstPackLoadError(nil); err != nil {
+		t.Errorf("no infos should report no error, got %v", err)
+	}
+	clean := []PackInfo{{Path: "good.yaml"}, {Path: "also-good.yaml"}}
+	if err := firstPackLoadError(clean); err != nil {
+		t.Errorf("infos with no LoadError should report no error, got %v", err)
+	}
+	withFailure := []PackInfo{
+		{Path: "good.yaml"},
+		{Path: "bad.yaml", LoadError: errors.New("yaml: line 8: mapping values are not allowed in this context")},
+	}
+	err := firstPackLoadError(withFailure)
+	if err == nil {
+		t.Fatal("expected an error when a pack has LoadError set — this is the #3637 gate")
+	}
+	if !strings.Contains(err.Error(), "bad.yaml") {
+		t.Errorf("error should name the failed pack, got: %v", err)
+	}
 }
 
 // TestRuleYAMLTests validates every rule's inline TP/TN test cases.

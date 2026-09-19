@@ -24,7 +24,7 @@ flowchart LR
   AS --> Log
 ```
 
-Both channels share the same audit/redaction pipeline and rule-pack tiers. They have **separate evaluation pipelines** (different signal models): shell uses the 7-layer analyzer; MCP uses the proxy scanners.
+Both channels share the same audit/redaction pipeline and rule-pack tiers. They have **separate evaluation pipelines** (different signal models): shell uses the staged analyzer pipeline below; MCP uses the proxy scanners.
 
 These two channels are the integration thesis: they are the **chokepoints
 every agent framework converges on**, so AgentShield integrates per-protocol,
@@ -38,10 +38,13 @@ claim boundary: "anything that speaks MCP can be mediated" holds without
 qualification; shell support is enumerated per-harness (see the README
 support matrix — Windsurf and Gemini CLI have no MCP interception today).
 
-## Shell pipeline (7 detection layers + Layer 2.5 enrichment)
+## Shell pipeline (8 stages by default, 10 with the conditional ones)
+
+Six decision layers run in every install (1–6), two enrichment stages produce no findings (0 and 2.5), and two decision stages are registered only when configured (6.5 and 7). The authoritative order is the `analyzers` slice in `BuildAnalyzerPipeline` (`internal/policy/pipeline.go`); this doc has previously said "6-layer", then "7-layer", while the code moved on — when in doubt, count the slice.
 
 | # | Layer | Source | Catches |
 |---|-------|--------|---------|
+| **0** | **Intent classifier** | **`internal/analyzer/intent.go`** | **enrichment only — labels the statement's text (`is_doc_text`, `is_bash_comment`, `in_heredoc`, `is_self_mgmt`) into `ctx.CommandFacts` so rules can opt into `command_intent_exclude` / `command_intent_downgrade`. Runs first so every later stage sees the labels.** |
 | 1 | Regex | `internal/analyzer/regex.go` | exact patterns (`rm -rf /`, `curl \| bash`) |
 | 2 | Structural | `internal/analyzer/structural.go` | shell AST via `mvdan.cc/sh`, flag normalization, sudo unwrapping, pipes |
 | **2.5** | **Substitution** | **`internal/analyzer/substitution.go`** | **constant propagation through `Name=value` assignments + constant-decoder pipeline folding (#1699). Returns no findings — enriches `ctx.MaterializedPaths` for the engine to re-check. Defeats split-concat bypasses like `P1=~/.ssh; P2=id_rsa; cat $P1/$P2` and constant base64-decoder shapes like `cat $(echo b64 \| base64 -d)`.** |
@@ -49,16 +52,17 @@ support matrix — Windsurf and Gemini CLI have no MCP interception today).
 | 4 | Dataflow | `internal/analyzer/dataflow.go` | source→sink taint through pipes/redirects |
 | 5 | Stateful | `internal/analyzer/stateful.go` | multi-step chain detection within a single compound command |
 | 6 | Guardian | `internal/guardian/heuristic.go` | prompt injection, obfuscation, inline secrets, eval/exec risk, unicode steganography |
-| 7 | Data Label | `internal/analyzer/datalabel.go` | customer-defined PII / codenames (4-tier engine, conditional) |
+| 6.5 | Artifact Hash | `internal/analyzer/artifact_hash.go` | **conditional** — registered only when `AGENTSHIELD_ARTIFACT_MANIFEST` names a loadable manifest. Verifies a bundled skill script invoked by the command still matches the SHA-256 the comply scanner recorded for it (schema-only integration, Comply#3029). Emits a finding only on a confirmed mismatch, so it cannot produce a false BLOCK; it is the first stage that reads the filesystem at eval time |
+| 7 | Data Label | `internal/analyzer/datalabel.go` | **conditional** — registered only when `data_labels` are configured. Customer-defined PII / codenames (4-tier engine) |
 
 Pre-pipeline: `internal/normalize/normalize.go` extracts the executable, args, paths, and domains and pre-parses the AST. Post-decision: `internal/redact/` redacts secrets from the audit-event command/args/error before persisting.
 
-The combiner uses **most-restrictive-wins**: `BLOCK > AUDIT > ALLOW`. If the pipeline produces no findings and no rules match, the engine falls through to the default decision (AUDIT) with a `protected_paths` override (BLOCK if path matches — including any path materialized by Layer 2.5).
+The combiner uses **most-restrictive-wins**: `BLOCK > AUDIT > ALLOW`. If the pipeline produces no findings and no rules match, the engine falls through to the default decision (AUDIT) with a `protected_paths` override (BLOCK if path matches — including any path materialized by Layer 2.5). One carve-out (2026-09-02): a protected path that appears **only** in a designated consumer's credential slot — `ssh -i`, `kubectl --kubeconfig`, `gpg --homedir`, `ssh-add <key>`; table in `defaults.protected_path_consumers`, engine logic in `internal/policy/consumers.go` — is recorded as AUDIT (`protected-path-consumer`) instead of blocked. Measured before the carve-out, the shipped default blocked every one of those while the same tools read the same files implicitly; a consumer using its credential is the event an attestation should record, not an exfiltration. Flag-position-aware, so `scp ~/.ssh/id_rsa host:` (key as source operand) still blocks. `echo`/`printf` arguments are text to both the normalizer and the substitution analyzer, so `echo $HOME/.kube/config` and `echo ~/.kube/config` get the same verdict. Extended 2026-09-06 (#3630): a consumer's credential slot may also be an **environment variable** (`env:` in the same table — `KUBECONFIG`, `GNUPGHOME`, `AWS_SHARED_CREDENTIALS_FILE`, …), so `export KUBECONFIG=~/.kube/config` is recorded as `protected-path-consumer` AUDIT rather than passing unattributed. The assignment path reads `ctx.Assignments` (published by the substitution analyzer), never `ctx.MaterializedPaths`, and is held in its own engine variable: it can only ADD a record, never suppress a BLOCK, and a read through the variable (`cat $KUBECONFIG`) still blocks.
 
 ### Invariants (pipeline)
 
 - **Pipeline is fail-safe**: any analyzer panicking returns AUDIT, never crashes the host.
-- **Stateful is intra-command-only in production** — `internal/policy/pipeline.go` calls `NewStatefulAnalyzer(nil)`. The `SessionStore` interface exists but no production code calls `Record()`. Cross-command session state is **not** an active surface; treat it as deferred (see #19, deferred MCP cross-tool taint).
+- **Stateful is intra-command-only** — `stateful.chain` matches segments of one compound command (`&&`, `;`, `|`). There is no cross-invocation session store on the hook path: each hook is a fresh process, no `Evaluate*` signature takes history, and the old `SessionStore` interface was deleted in #2772 (2026-07-01). The `analyzer.SessionState` type in `types.go` is an orphaned placeholder with no readers or writers. Session-level shell detection belongs in `shield-server`, which already keeps a per-session store (`cmd/shield-server/sessions.go`) and per-session MCP call history keyed by `session_id`.
 - **Layer 2.5 returns no findings** — pure context enrichment via `ctx.MaterializedPaths`. The engine re-checks materialized paths against `protected_paths` *after* the pipeline runs. Anything that makes Layer 2.5 produce a Finding directly is wrong; if it needs a Finding, it belongs in Structural / Semantic / Guardian.
 - **Layer 2.5 ↔ Guardian boundary**: constant decoder pipelines (e.g. `cat $(echo b64 | base64 -d)`) are Layer 2.5's job — folded deterministically. *Non-constant* decoder shapes (CmdSubst with unresolved source, ParamExp Layer 2.5 couldn't resolve) are flagged AUDIT by Guardian's `obfuscated_decoder_eval` signal. Keeping the constant-emitter list in `internal/guardian/decoder_audit.go` in sync with `evalConstSource` in `internal/analyzer/substitution_decoder.go` is what makes the split work — see the comments in `decoder_audit.go`.
 - **DataLabel is zero-cost when disabled** — `NewEngine` returns nil when `data_labels` is empty, the analyzer is not registered.
@@ -70,8 +74,8 @@ The combiner uses **most-restrictive-wins**: `BLOCK > AUDIT > ALLOW`. If the pip
 flowchart LR
   Cmd["Raw Command"]
   Norm["Normalize\n(pre-pipeline)"]
-  R["1. Regex"] --> S["2. Structural"] --> Sub["2.5 Substitution\n(enrichment, no findings)"] --> Sem["3. Semantic"] --> DF["4. Dataflow"] --> SF["5. Stateful"] --> G["6. Guardian"] --> DL["7. DataLabel"]
-  Cmd --> Norm --> R
+  IC["0. Intent classifier\n(enrichment, no findings)"] --> R["1. Regex"] --> S["2. Structural"] --> Sub["2.5 Substitution\n(enrichment, no findings)"] --> Sem["3. Semantic"] --> DF["4. Dataflow"] --> SF["5. Stateful"] --> G["6. Guardian"] --> AH["6.5 Artifact hash\n(conditional)"] --> DL["7. DataLabel\n(conditional)"]
+  Cmd --> Norm --> IC
   DL --> Comb["Combiner\n(most-restrictive-wins)"] --> ProtPath["Re-check\nprotected_paths\n(incl. materialized)"] --> Dec["Decision\nBLOCK / AUDIT / ALLOW"]
   Dec --> Redact["Redact\n(audit-log only)"]
 ```
@@ -102,7 +106,7 @@ flowchart TB
 ```
 packs/
 ├── community/                # OSS, embedded into binary
-│   ├── *.yaml                # shell rules (~1100 today)
+│   ├── *.yaml                # shell rules — count via `make coverage` (COVERAGE.md); never hand-count
 │   └── mcp/*.yaml            # MCP rules (community)
 └── premium/                  # paid tier, delivered via SaaS API
     ├── *.yaml                # shell rules (semantic/dataflow/stateful)
@@ -133,8 +137,16 @@ The eval_risk regression suite (`heuristic_test.go::TestHeuristicProvider_EvalRi
 |------------|-------|---------|
 | `BypassGuard` | pre-eval | ignores `AGENTSHIELD_BYPASS=1` |
 | `SelfProtect` | pre-eval | blocks 6 hardcoded patterns targeting AgentShield itself (config delete, hook delete, binary replace, policy write, setup --disable, env-var bypass) |
-| `FailClosed` | post-eval | ensures errors return AUDIT, never ALLOW |
-| `RemoteLog` | post-eval | async webhook fan-out (fire-and-forget with retry) |
+| fail-closed boundary | `internal/cli/fail_safe.go` (#3619) | not a middleware: `evaluateCommand` returns no error, and every pre-verdict failure (config load, audit-log init, policy load, pack parse, engine init) goes through `failSafeDecision` — BLOCK (`enterprise-fail-closed`) under managed `fail_closed`, AUDIT (`agentshield-eval-error`) with a flagged, error-carrying event otherwise. The former `enterprise.FailClosed` post-eval middleware was deleted; the chain runs before evaluation and could never see a result |
+| `RemoteLogger` | *defined, not in the chain* | zero references outside `internal/enterprise`; webhook forwarding actually ships through `internal/logger/webhook.go`. Delete or wire |
+
+The seam is loose where it matters — `internal/analyzer`, `internal/policy` and `internal/shellparse` import nothing from `enterprise` — and leaky at the CLI layer: besides the two chained middlewares, managed-mode decisions (bypass, pause, two fail-closed checks) are inline `if managed` branches across `internal/cli`. `internal/policy/remediation` is the one non-CLI importer, by design (one definition of "managed"), and is a presentation helper that belongs at `internal/remediation`.
+
+**What managed mode guarantees today (measured 2026-09-01 through the real hook, fresh build):**
+
+- Fail-closed holds for every evaluation failure since #3619: config load, audit-log init, policy load, pack parse and engine init all pass through `failSafeDecision` (`internal/cli/fail_safe.go`), which returns BLOCK under managed `fail_closed` and a flagged, error-carrying AUDIT otherwise. `evaluateCommand` no longer returns an error, so a harness handler cannot allow on one. Before #3619 two of the five sites returned a plain error that every handler turned into a silent allow — an invalid `command_intent_exclude` label was enough to let `rm -rf /` through under `fail_closed: true`. `cmd/shield-server` builds its engine once at startup, so its failure mode is "no server"; what the thin client does when the server is unreachable is a separate question tracked with #3619.
+- Self-protection is seven text rules over the raw, dequoted and unset-param-folded command. Six enumerate tamper spellings; the seventh, `sp-block-config-touch` (#3620), is default-deny: any command naming `policy.yaml`, `managed.json`, `agentshield.yaml`, `credentials.json` or `packs/` under `~/.agentshield` is blocked unless it is a single simple statement starting with a read-only tool. That closes the interpreter-write class (`python3 -c "open(…).write(…)"` was AUDIT before). A `managed.json` that exists but does not parse is read as managed + `fail_closed` by both loaders (`config.LoadManaged`, `enterprise.LoadManagedConfigFrom`; `TestManagedConfigLoaders_Agree` pins them), so a corrupt enrollment no longer re-enables pause and bypass. Local `disable_rules:` is dropped from the user policy on a managed host before packs merge. The path layer (2026-09-02): on a managed host `~/.agentshield/**` is added to `protected_paths` for every command that is not a plain read, and the substitution analyzer now folds `$HOME` and extracts file-access literals from interpreter one-liners, so `CFG=$HOME/.agentshield; python3 -c "open('$CFG/policy.yaml','w')"` — which names the directory nowhere in its text — is blocked as a protected path. Text rule and path rule share `plainReadRe`, one definition of "read". Still open under #3620: a path reached through a symlink the shell resolves, and hook-config-file protection beyond `rm`.
+- The honest claim is therefore "raises the cost and records the attempt", not "cannot be turned off". A hard guarantee requires OS-enforced ownership beneath managed mode (root-owned or immutable `~/.agentshield`, MDM-pinned hook config, or signed enrollment state the hook verifies). README wording was aligned to this on 2026-09-01.
 
 A watchdog runs as a separate process (`agentshield watchdog`) for tamper detection on the binary + config.
 
@@ -172,8 +184,9 @@ self-test, that test is checked in next to it (`*_test.sh`) and runs in CI.
 - **Don't** embed `MITRE `, `OWASP `, `CWE-`, or `LLM0x` text in rule `message:` fields. Compliance is resolved from the `taxonomy:` ref at scan time. (See `AI_risk_compliance/CLAUDE.md` Rule Metadata Convention.)
 - **Don't** write community packs to `~/.agentshield/packs/` on install. The embedded-packs invariant is the fitness-function-protected design (#1366 was the broken pre-2026-04 shape).
 - **Don't** introduce a new MCP rule referencing a taxonomy ref that doesn't yet exist in `AI_risk_compliance/main`. The `Taxonomy refs` CI check sparse-clones AI_risk_compliance and fails closed. Cross-repo ordering: file the taxonomy entry PR first, merge it, *then* land the rule PR.
-- **Don't** add cross-command session state without wiring `SessionStore.Record()` at the engine entry point. The interface's existence does not imply an active surface — it's deferred.
+- **Don't** add cross-invocation session state to the hook binary. Each hook is a fresh process and there is no store to wire (the `SessionStore` interface was deleted in #2772). The seam for session-level detection is `shield-server`'s per-session store, which already keys MCP call history by `session_id`.
 - **Don't** add a rule that fires on `git commit -m`/`gh pr create --body`/`gh issue create --body` content without going through the safe-caller strip chain. Every such rule that ignores it adds a FP class to the dogfooding queue.
+- **Don't** extend `internal/analyzer/substitution_scope.go` to catch an adversarial bash-scope shape. The scope model is frozen with a documented boundary (#3769; see Known gaps below): four rounds of fixing such shapes each opened the next round's holes. Add the shape to the list in its `# Model boundary` comment instead.
 
 ## Intentionally deferred
 
@@ -181,7 +194,7 @@ These exist as ports/scaffolds but are not active production surfaces. Re-activa
 
 | Surface | Status | Tracking |
 |---------|--------|----------|
-| Cross-command session state | `SessionStore` interface defined, never recorded in production | (no specific issue; see #19 for related MCP cross-tool taint design) |
+| Cross-command shell session state | no store on the hook path (`SessionStore` deleted in #2772; `analyzer.SessionState` is an orphaned placeholder); `shield-server`'s `sessionStore` is the seed | see #19 for the MCP cross-tool taint design |
 | MCP cross-tool taint tracking (Phase 4) | design-only | #19 |
 | Stratified confidence model with FP-budget fitness function | design-only | #1581 |
 | Command-intent pre-classifier (replace `{{DOC_CONTEXT}}` macro sprawl) | design-only | #1580 |
@@ -189,6 +202,25 @@ These exist as ports/scaffolds but are not active production surfaces. Re-activa
 
 If you find code that looks like one of these is partially implemented but unreachable, that's expected — it's a sacrificial scaffold awaiting a concrete need to drive the full implementation.
 
+## Known gaps and evolution seams (architecture review, 2026-09-01)
+
+Documented first, deliberately not built. Each row names the evidence measured on 2026-09-01 and the trigger that would justify the work. The verdict of that review: the engine is a pure function `(command, context) → verdict` with three dependencies and every stage earning its keep (2026-07-01 ablation); the coupling is loose at the package level and leaky at the CLI level; the entry point is not one.
+
+| Gap | Evidence | Seam / trigger |
+|---|---|---|
+| **Engine assembly is copy-pasted, not shared** | `config.Load → policy.Load → LoadEmbeddedShellPacks → LoadPacks → NewEngineWithAnalyzers` appears in `internal/cli/hook.go`, `internal/cli/check.go` (twice) and `cmd/shield-server/server.go`; the MCP stack (`LoadMCPPolicy → LoadEmbeddedMCPPacks → LoadMCPPacks`) in `internal/cli/mcp_proxy.go` and `server.go`. CLAUDE.md asks authors to keep them in lock-step by hand. | One `LoadShellEngine(cfg)` / `LoadMCPStack(cfg)` pair owned by `internal/policy` / `internal/mcp`. Trigger: the next change to either sequence. |
+| **Fail-closed was partial** (closed 2026-09-02, #3619) | Two of five evaluation-error sites in `evaluateCommand` returned a plain error; harness handlers allowed on error with no audit event. Reproduced: invalid intent label + `fail_closed: true` → `rm -rf /` exited 0. | `failSafeDecision` (`internal/cli/fail_safe.go`) is the single boundary and `evaluateCommand` no longer returns an error. Pinned by `TestFailSafeDecision_*` and by `TestHook_EngineInitFailure_ExitsTwoUnderManagedFailClosed`, which re-executes the real hook and asserts exit 2. Still open under #3619: the thin client's behaviour when `shield-server` is unreachable. |
+| **Self-protection was write-verb regexes** (three of four layers closed 2026-09-02, #3620) | `sp-block-policy-write` matched `(echo\|cat\|tee\|>)`; interpreter writes passed. A corrupt `managed.json` read as "not managed" and re-enabled pause/bypass. `disable_rules` was honored in managed mode. | Done: corrupt `managed.json` → managed + `fail_closed` in both loaders; local `disable_rules` dropped on managed hosts; default-deny `sp-block-config-touch` over the config dir; path layer — `~/.agentshield/**` becomes a protected path on managed hosts for non-read commands, and the substitution analyzer folds `$HOME` and extracts file-access literals from interpreter one-liners (a general fix: `P=$HOME/.ssh; cat $P/id_rsa` also escaped `protected_paths` before). Open: hook-config files beyond `rm`; symlinked paths. |
+| **Enterprise seam is half a middleware chain** | `buildMiddlewareChain` carries `BypassGuard` + `SelfProtect`. The bypass, pause and two fail-closed decisions are inline `if managed` branches in `hook.go`; `enterprise.FailClosed` and `enterprise.RemoteLogger` are defined and never wired (0 references outside the package). Core packages import nothing from `enterprise`. | Delete the two unwired middlewares — wiring `FailClosed` cannot fix #3619 because the chain is pre-eval only. Route the inline branches through whatever the #3619 boundary becomes; move `internal/policy/remediation` to `internal/remediation`. Trigger: #3619. |
+| **MCP scanners are hand-wired** | `internal/mcp/handler.go` is 4,029 lines with 18 sequential `if result.Decision != "BLOCK"` guards and 57 `Scan*` call sites. Adding one scanner (#3453) touched 4 files and added 37 lines to `handler.go`. 7 of 9 response-scan audit sites still emit the catch-all taxonomy ref `unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning` although `signalTaxonomyRef` / `indirectDirectiveTaxonomyRef` exist. | A scanner registry (`[]{scan, taxonomyFor}`) makes the taxonomy ref a required field instead of a step to remember. Trigger: the catch-all regression is a fusion-moat defect today — the SaaS resolves compliance controls through that ref, so a generic ref attests generically. |
+| **No cross-invocation shell state** | Each hook is a fresh process; no `Evaluate*` signature takes history; `stateful.chain` sees one compound command. `shield-server` already keeps a per-session store and per-session MCP call history keyed by `session_id`. | Session-level shell detection (the lethal trifecta across invocations) lives in `shield-server`, not the hook binary. Trigger: the first rule that needs it. |
+| **A third channel is structural** | `Engine.Evaluate*` is shell-shaped (command string + parsed AST); MCP is a separate subsystem. A browser/computer-use action or an A2A call has no home. Comply already ships five `ai-a2a-*` static rules — the structure plane sees A2A, the action plane cannot. | Do not build a third engine. The `/v1/evaluate` request and `AuditEvent` are the surface-neutral envelope to extend first. Trigger: a design partner running A2A or computer-use agents. |
+| **Identity plane is declared, not carried** | `evaluateRequest.AgentID` is parsed and never read; `AuditEvent` has no `agent_id`, while the comment above the request struct says the field is "carried from day one". `SessionID` and `Principal` are carried on all harnesses. | Add `AgentID` to `AuditEvent` (`omitempty` — the hash chain re-marshals) and copy it through in `server.go`. Trigger: now; it is one field. |
+| **"Generated" scenarios are hand-written** | `internal/mcp/scenarios/generated_scenarios.go` is a 22-line stub; `curated_scenarios.go` (18,626 lines) and its siblings are hand-curated (61K lines in total); nothing in CI diffs `make mcp-gen` output. | Rename the framing; add a check-vs-diff gate for `mcp-gen` (the taxonomy-artifact freshness shape) or retire the generator. |
+| **Guardian keeps growing** | 47 `regexp.MustCompile` in `heuristic.go` (21 at the 2026-05-03 review); it had the worst LOC-per-catch ROI in the 2026-07-01 ablation. | Split into per-signal providers behind the existing `HeuristicProvider` interface when the next signal lands. |
+| **Stale top-level reports** | `PROGRESS.md`, `REDTEAM_REPORT.md`, `BENCHMARK.md`, `TAXONOMY_HEALTH.md`, `COMPLIANCE_GAPS.md` are Feb–Apr 2026 snapshots with 0–2 inbound references (the live red-team reports are the gitignored `internal/*/testdata/*_REDTEAM_REPORT.md`); `CHANGELOG.md` stops at 0.1.0 while releases run v0.2.20xx through goreleaser; `static_rules` was a tracked symlink into the private Comply repo with no consumer (removed, #3115). | Tracked in the cleanup issue filed with this review. |
+| **Layer 2.5 scope model is best-effort, and frozen** (accepted 2026-09-11, #3769) | Four adversarial rounds on the protected-path-read lineage (#3706 → #3743 → #3752 → #3769) each found holes in the previous round's fixes. Round 4 measured eight shapes at `0da80a27`: three missed reads introduced by round 3 (`printf -v` reading its own target, `printf -v` with `%q`, an uncalled function discarding a seed); one false BLOCK introduced by round 3 (a subshell's conditional alternate leaking out); two gaps in round 3's conditional merge (a temporary prefix after a conditional write, and more than `maxScopeAlternates` conditional writes, so padding switches protection off); and two older misses (joint state across two variables, `+=` after a conditional). Shapes and mechanisms: the `# Model boundary` section of `internal/analyzer/substitution_scope.go`. | **Accepted, not queued** (Gary, 2026-09-11). A construct the walker does not model drops the value, so a protected read behind it never reaches `protected_paths` and gets the default decision: fail-open, per the minimal-intrusion default. **For attestation:** such a read is recorded at the default decision with no protected-path attribution, so a receipt built from it cannot tell it apart from an ordinary command. **Rejected:** (a) keep extending the model, since each round opened the next; (c) treat any value the walker cannot prove overwritten as still protected, which closes the class but turns every uncertainty into a BLOCK; and an add-only `AUDIT protected-path-unresolved` record through the same engine channel as `protected-path-consumer`, which changes no decision and would attribute shapes 1–5 and 7. **Revisit trigger:** a scope-evasion shape seen in real traffic (audit log or SaaS telemetry), or a customer or auditor asking what an unattributed default-decision event means; the add-only record is the first step then. Until a trigger fires, a new shape of this class is added to the list in the code, not fixed. |
+
 ---
 
-*Last refreshed 2026-05-03 alongside the #1768 misdiagnosis investigation. If you're updating Shield architecture, please update this doc in the same PR — staleness is what got us into the #1768 loop in the first place.*
+*Last refreshed 2026-09-01 (architecture review). The previous footer said 2026-05-03 while the file had been edited three times since and still described a `SessionStore` deleted in July — a stale freshness marker is worse than none. Update this line in the same PR as any edit above.*

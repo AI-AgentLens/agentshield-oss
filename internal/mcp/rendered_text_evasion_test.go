@@ -302,6 +302,61 @@ func TestRenderedTextEvasionDoesNotDoubleReport(t *testing.T) {
 	}
 }
 
+// TestRenderedTextEvasionWhitespaceCardinality pins #3695: a doubled
+// separator between the words of a directive -- Unicode or a second plain
+// ASCII space -- must not drop a finding that a single separator produces.
+//
+// agentPrivateReasoningRE's "chain[\s_-]?of[\s_-]?thought" (and the sibling
+// "auto[\s_-]?approv" / "pre[\s_-]?approved" pair) uses a single OPTIONAL
+// whitespace character as an internal word-joiner, not `\s+`. Doubling the
+// separator between two words then splits the phrase across a two-character
+// gap none of them span, and the prose co-occurrence detector never sees the
+// phrase at all -- unlike the descSignals literal-phrase matchers in
+// semantic.go, which #3689 already made whitespace-run tolerant.
+//
+// Reproduces MCP-TP-3434-003 (Cyrillic-confusable chain-of-thought
+// exfiltration), the one scenario that measurably leaked in the issue: two
+// plain ASCII spaces triggers no Unicode fold at all, so this signal is the
+// only surface that even attempts the match for that spelling.
+func TestRenderedTextEvasionWhitespaceCardinality(t *testing.T) {
+	// Positive control: the single-separator (shipped) spelling must already
+	// fire, or doubling it proves nothing about the fold.
+	if sigs := rtDescSignals(rtToCyrillic(rtCoT())); !rtHas(sigs, SignalRenderedTextEvasion) {
+		t.Fatalf("positive control failed: single-separator spelling does not fire rendered_text_evasion: %v", sigs)
+	}
+
+	spellings := []struct {
+		name string
+		sep  string
+	}{
+		{"double U+00A0", rtNBSP + rtNBSP},
+		{"U+2009 thin space + U+200A hair space", "  "},
+		{"two plain ASCII spaces", "  "},
+	}
+	for _, sp := range spellings {
+		t.Run(sp.name, func(t *testing.T) {
+			disguised := rtToCyrillic(rtSplitWords(rtCoT(), sp.sep))
+			sigs := rtDescSignals(disguised)
+			if !rtHas(sigs, SignalRenderedTextEvasion) {
+				t.Errorf("doubled separator dropped the finding: got %v for %q", sigs, disguised)
+			}
+		})
+	}
+}
+
+// TestRenderedTextEvasionWhitespaceCardinalityNoFP pins the other half of
+// #3695: collapsing whitespace runs before matching must not manufacture a
+// finding on benign prose that merely happens to contain a fold-eligible
+// codepoint (soft hyphen) and doubled spacing, unrelated to any directive.
+func TestRenderedTextEvasionWhitespaceCardinalityNoFP(t *testing.T) {
+	text := strings.ReplaceAll(
+		"Die Kon"+rtSHY+"fi"+rtSHY+"gu"+rtSHY+"rations"+rtSHY+"datei muss im Arbeits"+rtSHY+"verzeichnis liegen.",
+		" ", "  ")
+	if sigs := rtDescSignals(text); rtHas(sigs, SignalRenderedTextEvasion) {
+		t.Errorf("false positive: doubled whitespace on benign text fired rendered_text_evasion: %v (text=%q)", sigs, text)
+	}
+}
+
 // TestRenderedTextEvasionAxisParity is the fitness function.
 //
 // It asserts that a directive detected in ASCII stays detected under every

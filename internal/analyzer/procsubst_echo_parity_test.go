@@ -45,7 +45,19 @@ func TestProcSubstEchoParity(t *testing.T) {
 	// 2026-08-14 (#3249), +1: TP-SSHKEY-SPLITCONCAT-001 (split-concat
 	// assignment materialization) joins the corpus and leaks under one of the
 	// two wrappers — same pre-existing depth-cap bucket documented above.
-	const maxLeaks = 86
+	maxLeaks := 86
+
+	// BUILD-AWARE, by #3599's mechanism. Measured at 1ee76fb:
+	//
+	//	full tree   86/3950   OSS tree   88/2642
+	//
+	// Identical to TestStdinSourceParity's split, and not a coincidence: both
+	// sweep two wrappers over the shared BLOCK baseline
+	// (parity_baseline_test.go), so the same corpus movement lands on both.
+	// Both trees keep ZERO headroom; ratchet each DOWN independently.
+	if !premiumPacksPresent() {
+		maxLeaks = 88
+	}
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

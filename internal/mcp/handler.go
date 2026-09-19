@@ -26,6 +26,7 @@ type MessageHandler struct {
 	SubAgentTracker      *SubAgentTracker             // optional; nil disables sub-agent scope escalation detection
 	CapabilityExpansion  *CapabilityExpansionTracker  // optional; nil disables capability expansion detection
 	AnnotationCache      *ToolAnnotationCache         // optional; nil disables annotation-driven call-time coherence
+	DescriptionCache     *ToolDescriptionCache        // optional; nil means tools/call is always evaluated with an empty description (#3692)
 	ThresholdPoisoning   *ThresholdPoisoningTracker   // optional; nil disables ShareLock multi-tool threshold poisoning detection
 	CallHistory          *MCPCallHistoryTracker       // optional; nil disables per-session call history (cross-call sequence rules, #2493)
 	LethalTrifecta       *LethalTrifectaTracker       // optional; nil disables cross-call lethal-trifecta session accumulation (#2596)
@@ -58,6 +59,7 @@ func newMessageHandler(evaluator *PolicyEvaluator, onAudit AuditFunc, stderr io.
 		SubAgentTracker:      NewSubAgentTracker(),
 		CapabilityExpansion:  NewCapabilityExpansionTracker(),
 		AnnotationCache:      NewToolAnnotationCache(),
+		DescriptionCache:     NewToolDescriptionCache(),
 		ThresholdPoisoning:   NewThresholdPoisoningTracker(),
 		CallHistory:          NewMCPCallHistoryTracker(),
 		LethalTrifecta:       NewLethalTrifectaTracker(),
@@ -379,7 +381,19 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	// including this call. CallHistory is nil-safe: when unset, Record no-ops,
 	// History() returns nil, and evaluation is identical to the stateless path.
 	h.CallHistory.Record(params.Name, params.Arguments)
-	result := h.Evaluator.EvaluateToolCallWithHistory(params.Name, params.Arguments, "", h.CallHistory.History())
+
+	// Look up the description this tool advertised in the last tools/list
+	// response so semantic rules that classify on description text (e.g.
+	// mcp-sem-block-code-execute, mcp-sem-block-credential-access,
+	// mcp-sem-block-process-manage) can fire on the proxy path, not just in
+	// the corpus harness and shield-server's /v1/evaluate (#3692). A tool
+	// never seen in tools/list (or DescriptionCache unset) evaluates with ""
+	// — the same behavior as before this cache existed.
+	var toolDescription string
+	if h.DescriptionCache != nil {
+		toolDescription = h.DescriptionCache.Get(params.Name)
+	}
+	result := h.Evaluator.EvaluateToolCallWithHistory(params.Name, params.Arguments, toolDescription, h.CallHistory.History())
 
 	// If policy didn't block, scan argument content for secrets/exfiltration
 	if result.Decision != "BLOCK" {
@@ -1176,6 +1190,26 @@ func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte
 	var reasons []string
 	decision := "AUDIT" // all sampling requests are audited
 
+	// Stop-sequence output-space suppression. `stopSequences` is the only
+	// parameter in the protocol that constrains what the model can emit
+	// DETERMINISTICALLY -- prose asking a model not to refuse is a request,
+	// a stop sequence is enforced by the inference API. Folded into the same
+	// scanResult so one decision and one audit entry cover the request.
+	// See sampling_stop_sequence_scanner.go.
+	if ssResult := ScanSamplingStopSequences(params); ssResult.Found {
+		for _, f := range ssResult.Findings {
+			triggered = append(triggered, "sampling:"+string(f.Signal))
+			if sent := h.Evaluator.LookupSentinel(stopSequenceSentinelEngine(f.Signal)); sent != nil {
+				triggered = append(triggered, sent.ID)
+			}
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (sequence: "+f.Sequence+")")
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (sequence: %q)\n", f.Signal, f.Detail, f.Sequence)
+		}
+		if ssResult.Blocked {
+			scanResult.Blocked = true
+		}
+	}
+
 	if scanResult.Blocked {
 		decision = "BLOCK"
 		triggered = append(triggered, "sampling-content-scan")
@@ -1610,6 +1644,58 @@ func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
 		// Fall through when nothing blocking fired — a latent directive is AUDIT.
 	}
 
+	// Content-block RANKING channel — reads `annotations.priority` and
+	// `annotations.lastModified`, the two routing fields on the same object as
+	// `audience` above, applied to prompts/get message content. Both were parsed into ContentAnnotations and read by
+	// nothing: they are the protocol's own answers to "what must not be
+	// dropped" and "which of these is current", which is precisely the
+	// tiebreaker a model consults when two sources disagree. Mixed tier: an
+	// anomalous ranking claim on a model-only block, a priority-partitioned
+	// response, and a non-date character in the timestamp field BLOCK; the same
+	// anomalies on a user-visible block AUDIT.
+	// See content_ranking_scanner.go.
+	if crResult := ScanPromptsGetRankingChannel(result); crResult.Found {
+		decision := "AUDIT"
+		if crResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s prompts/get response carries %d ranking-channel signal(s)\n",
+			decision, len(crResult.Findings))
+		reasons := make([]string, 0, len(crResult.Findings))
+		triggeredRules := []string{"mcp-prompts-get-content-ranking-channel"}
+		for _, f := range crResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(promptsRankingSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       MethodPromptsGet,
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-prompts-content-ranking-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
+			})
+		}
+		if crResult.Blocked {
+			reason := "prompts/get response content-block ranking channel abuse detected"
+			if len(crResult.Findings) > 0 {
+				reason = string(crResult.Findings[0].Signal) + ": " + crResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — forged recency and an
+		// out-of-range priority on a user-visible block are AUDIT.
+	}
+
 	scanResult := ScanPromptsGetResponse(result)
 	if !scanResult.Poisoned {
 		return nil
@@ -1776,6 +1862,12 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	// only name + arguments; annotations come from the tools/list response).
 	if h.AnnotationCache != nil {
 		h.AnnotationCache.Update(listResult.Tools)
+	}
+
+	// Cache tool descriptions so a later tools/call can be evaluated against
+	// them — tools/call carries only name + arguments (#3692).
+	if h.DescriptionCache != nil {
+		h.DescriptionCache.Update(listResult.Tools)
 	}
 
 	// Record generically-named parameters for cross-channel fragmentation
@@ -2660,6 +2752,55 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		}
 	}
 
+	// Secret-overexposure scan (issue #3807) — unlike the DataLabel scan above
+	// (customer-configured labels, Content text only), this is a BUILT-IN,
+	// always-on check for generic credential-shaped values in EITHER Content
+	// text or structuredContent fields, independent of which tool produced
+	// them. Confirmed vendor-shaped secrets (AWS key, GitHub token, PEM block,
+	// ...) BLOCK; a structuredContent field whose NAME matches the secret-
+	// naming vocabulary (token/secret/password/credential/key) with an opaque
+	// value AUDITs — the tier that catches a disclosed value with no
+	// recognized vendor shape, e.g. CVE-2026-67357's ArcadeDB cluster token.
+	// Taxonomy: data-exfiltration/llm-data-flow/mcp-tool-response-secret-overexposure
+	if rsResult := ScanToolCallResponseForSecrets(callResult.Content, callResult.StructuredContent); rsResult.Found {
+		decision := "AUDIT"
+		if rsResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response carries %d secret-overexposure signal(s)\n",
+			decision, len(rsResult.Findings))
+		reasons := make([]string, 0, len(rsResult.Findings))
+		triggeredRules := []string{"mcp-tool-response-secret-overexposure"}
+		for _, f := range rsResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (field=%q idx=%d)\n", f.Signal, f.Detail, f.Field, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(responseSecretSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-response-secret-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(responseSecretSentinelEngine(rsResult.Findings[0].Signal)),
+			})
+		}
+		if rsResult.Blocked {
+			reason := string(rsResult.Findings[0].Signal) + ": " + rsResult.Findings[0].Detail
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — the field-name heuristic
+		// alone is AUDIT, not a block.
+	}
+
 	// Traceback / stack-trace detection (AUDIT only — info-disclosure + indirect
 	// prompt-injection risk; does not block the response).
 	// Taxonomy: data-exfiltration/llm-data-flow/llm-context-injection
@@ -2684,7 +2825,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-traceback-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+				TaxonomyRef:    h.sentinelTaxonomyRef("mcp-tool-result-traceback"),
 			})
 		}
 		// Fall through — traceback alone is AUDIT, not a block.
@@ -2788,7 +2929,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-content-audience-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+				TaxonomyRef:    h.sentinelTaxonomyRef(contentAudienceSentinelEngine(caResult.Findings[0].Signal)),
 			})
 		}
 		if caResult.Blocked {
@@ -2801,6 +2942,107 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 			}
 		}
 		// Fall through when nothing blocking fired — a latent directive is AUDIT.
+	}
+
+	// Content-block RANKING channel — reads `annotations.priority` and
+	// `annotations.lastModified`, the two routing fields on the same object as
+	// `audience` above. Both were parsed into ContentAnnotations and read by
+	// nothing: they are the protocol's own answers to "what must not be
+	// dropped" and "which of these is current", which is precisely the
+	// tiebreaker a model consults when two sources disagree. Mixed tier: an
+	// anomalous ranking claim on a model-only block, a priority-partitioned
+	// response, and a non-date character in the timestamp field BLOCK; the same
+	// anomalies on a user-visible block AUDIT.
+	// See content_ranking_scanner.go.
+	if crResult := ScanContentRankingChannel(callResult.Content); crResult.Found {
+		decision := "AUDIT"
+		if crResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response carries %d ranking-channel signal(s)\n",
+			decision, len(crResult.Findings))
+		reasons := make([]string, 0, len(crResult.Findings))
+		triggeredRules := []string{"mcp-response-content-ranking-channel"}
+		for _, f := range crResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(contentRankingSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-content-ranking-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(contentRankingSentinelEngine(crResult.Findings[0].Signal)),
+			})
+		}
+		if crResult.Blocked {
+			reason := "tool response content-block ranking channel abuse detected"
+			if len(crResult.Findings) > 0 {
+				reason = string(crResult.Findings[0].Signal) + ": " + crResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — forged recency and an
+		// out-of-range priority on a user-visible block are AUDIT.
+	}
+
+	// Error-costumed remediation steering — reads `isError`, the flag by which
+	// a server declares the TOOL (not the protocol) failed. The MCP spec routes
+	// tool failures through the success channel deliberately, so that the model
+	// "can potentially self-correct" — which makes this the one prose field the
+	// protocol itself instructs the model to treat as actionable next-step
+	// guidance. Until this scan the flag was parsed into CallToolResult and read
+	// by nothing. Mixed tier: credential steering, remote-exec steering,
+	// concealment and the isError+audience composition BLOCK; security-control
+	// disablement and exfil redirect AUDIT.
+	// See response_error_remediation_scanner.go.
+	if erResult := ScanToolResultErrorRemediation(callResult.Content, callResult.IsError); erResult.Found {
+		decision := "AUDIT"
+		if erResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response carries %d error-remediation steering signal(s)\n",
+			decision, len(erResult.Findings))
+		reasons := make([]string, 0, len(erResult.Findings))
+		triggeredRules := []string{"mcp-response-error-remediation-steering"}
+		for _, f := range erResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d, isError=%v)\n", f.Signal, f.Detail, f.ContentIndex, f.ServerAssertedFailure)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(errorRemediationSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-error-remediation-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(errorRemediationSentinelEngine(erResult.Findings[0].Signal)),
+			})
+		}
+		if erResult.Blocked {
+			reason := string(erResult.Findings[0].Signal) + ": " + erResult.Findings[0].Detail
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — AUDIT-tier signals do
+		// not replace the response.
 	}
 
 	// Non-text content block scan — covers MCP 2025-06-18 content block
@@ -2838,7 +3080,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-non-text-content-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+				TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-non-text-content"),
 			})
 		}
 		replacement, replErr := NewBlockResponse(msg.ID, reason)
@@ -2880,7 +3122,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-formula-injection-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+				TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-csv-formula-injection"),
 			})
 		}
 		replacement, replErr := NewBlockResponse(msg.ID, reason)
@@ -2969,7 +3211,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 					Reasons:        reasons,
 					Source:         "mcp-proxy-meta-field-scan",
 					ServerName:     h.ServerName,
-					TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+					TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-meta-field-injection"),
 				})
 			}
 			replacement, replErr := NewBlockResponse(msg.ID, reason)
@@ -3225,7 +3467,7 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-traceback-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+				TaxonomyRef:    h.sentinelTaxonomyRef("mcp-tool-result-traceback"),
 			})
 		}
 		// Fall through — traceback alone is AUDIT, not a block.
@@ -3411,7 +3653,7 @@ func (h *MessageHandler) scanResultLevelMeta(meta json.RawMessage, msgID *json.R
 			Reasons:        reasons,
 			Source:         source,
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning",
+			TaxonomyRef:    h.sentinelTaxonomyRef(ruleID),
 		})
 	}
 	replacement, replErr := NewBlockResponse(msgID, reason)
@@ -3529,6 +3771,62 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 			}
 		}
 		// Fall through when nothing blocking fired — a latent directive is AUDIT.
+	}
+
+	// Content-block RANKING channel — reads `annotations.priority` and
+	// `annotations.lastModified`, the two routing fields on the same object as
+	// `audience` above, applied to resources/list entries. Both were parsed into ContentAnnotations and read by
+	// nothing: they are the protocol's own answers to "what must not be
+	// dropped" and "which of these is current", which is precisely the
+	// tiebreaker a model consults when two sources disagree. Mixed tier: an
+	// anomalous ranking claim on a model-only block, a priority-partitioned
+	// response, and a non-date character in the timestamp field BLOCK; the same
+	// anomalies on a user-visible block AUDIT.
+	// See content_ranking_scanner.go.
+	if crResult := ScanResourceListRankingChannel(listResult.Resources); crResult.Found {
+		decision := "AUDIT"
+		if crResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s resources/list response carries %d ranking-channel signal(s)\n",
+			decision, len(crResult.Findings))
+		reasons := make([]string, 0, len(crResult.Findings))
+		// No sentinel lookup here, matching the resources/list audience site
+		// immediately above: contentRankingSentinelEngine resolves to the
+		// tools/call sentinels, and attaching one of those rule IDs to a
+		// resources/list finding would attribute the event to a surface it did
+		// not come from. The un-sentineled rule name and the
+		// mcp-resource-metadata-injection node are the same pre-existing gap
+		// that site documents; this does not widen it.
+		triggeredRules := []string{"mcp-resource-list-content-ranking-channel"}
+		for _, f := range crResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       MethodResourcesList,
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-resource-list-content-ranking-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-metadata-injection",
+			})
+		}
+		if crResult.Blocked {
+			reason := "resources/list entry content-block ranking channel abuse detected"
+			if len(crResult.Findings) > 0 {
+				reason = string(crResult.Findings[0].Signal) + ": " + crResult.Findings[0].Detail
+			}
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — forged recency and an
+		// out-of-range priority on a user-visible block are AUDIT.
 	}
 
 	return nil

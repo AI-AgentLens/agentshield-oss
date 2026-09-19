@@ -35,6 +35,9 @@ func AllTestCases() []TestCase {
 	// AWS_CONFIG_FILE/KUBECONFIG/GAC env hijack, credential_process directive,
 	// kubeconfig users.exec plugin poison, AKIA static-key replacement.
 	all = append(all, CloudConfigRedirectCases...)
+	// #3630 (2026-09-06): the environment half of the designated-consumer
+	// table — `export KUBECONFIG=<protected path>` recorded, never blocked.
+	all = append(all, EnvAssignConsumerCases...)
 	all = append(all, AwsCredentialProcessPoisonCases...)
 	all = append(all, KubeconfigExecPluginPoisonCases...)
 	all = append(all, AwsCredentialsStaticKeyPoisonCases...)
@@ -298,5 +301,9 @@ func AllTestCases() []TestCase {
 	// substitution (#3190) forms already covered — plus a structural rule
 	// for the non-decomposable network-fetch-via-redirect shape.
 	all = append(all, StdinSourceDecompositionCases...)
+	// MCP credential-store insecure deserialization (#3785): an MCP server's own
+	// steady-state credential/session persistence via pickle/yaml unsafe deserialization
+	// (CVE-2026-76404 class) — distinct from the existing ML-checkpoint/agent-cache coverage.
+	all = append(all, MCPCredentialStoreDeserializationCases...)
 	return all
 }

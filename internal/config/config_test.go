@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -38,15 +39,38 @@ func TestLoadManaged_FileMissing(t *testing.T) {
 	}
 }
 
-func TestLoadManaged_InvalidJSON(t *testing.T) {
+// TestLoadManaged_InvalidJSON_FailsClosed pins #3620: a managed.json that
+// exists but does not parse is a corrupt enrollment, not an absent one. It
+// used to return nil, and nil meant "not managed" everywhere — one bad byte
+// let `agentshield pause` and AGENTSHIELD_BYPASS through on a managed host.
+func TestLoadManaged_InvalidJSON_FailsClosed(t *testing.T) {
 	tmpDir := t.TempDir()
 	managedPath := filepath.Join(tmpDir, "managed.json")
 	if err := os.WriteFile(managedPath, []byte("not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	mc := LoadManaged(tmpDir)
-	if mc != nil {
-		t.Errorf("expected nil for invalid JSON, got %+v", mc)
+	if mc == nil || !mc.Managed || !mc.FailClosed {
+		t.Fatalf("corrupt managed.json → %+v; want Managed=true FailClosed=true (a present-but-broken enrollment must not downgrade the host)", mc)
+	}
+	if !strings.Contains(mc.OrganizationID, "unreadable") {
+		t.Errorf("OrganizationID = %q; want it to name the cause so scan/audit can explain the posture", mc.OrganizationID)
+	}
+}
+
+func TestLoadManaged_UnreadableFile_FailsClosed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permission bits")
+	}
+	tmpDir := t.TempDir()
+	managedPath := filepath.Join(tmpDir, "managed.json")
+	if err := os.WriteFile(managedPath, []byte(`{"managed": true}`), 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(managedPath, 0600) })
+	mc := LoadManaged(tmpDir)
+	if mc == nil || !mc.Managed || !mc.FailClosed {
+		t.Fatalf("unreadable managed.json → %+v; want Managed=true FailClosed=true", mc)
 	}
 }
 

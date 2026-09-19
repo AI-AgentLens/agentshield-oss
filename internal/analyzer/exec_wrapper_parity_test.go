@@ -97,7 +97,16 @@ func TestExecWrapperParity(t *testing.T) {
 	// residue as every entry above: the assignment sits before the read, so a
 	// wrapper prefix only reaches the first statement. Does not leak here
 	// under "exec", hence +0 there — same shape as -002's exception above.
-	const maxLeaks = 44
+	//
+	// Raised 44 -> 46 by the four compound-word-position corpus cases
+	// (TP-SHADOW-FORLIST-SPLICE-001, TP-SHADOW-ARRAY-SPLICE-001,
+	// TP-SSHKEY-DECLARRAY-SPLICE-001, TP-SHADOW-SELECT-ANSIC-001). All four are
+	// the documented residue class, not new leakage: a prefix wraps only the
+	// FIRST statement, and `nohup for p in X; do ...; done` is not even valid
+	// shell — `for` after a command word is an ordinary argument, so the `do`
+	// that follows is a syntax error. The already-present TP-COMPOUND-EVASION-*
+	// rows leak for exactly this reason.
+	const maxLeaks = 46
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

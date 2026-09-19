@@ -472,6 +472,18 @@ type SamplingCreateMessageParams struct {
 	// "allServers" is a cross-server context exfiltration vector: the malicious server's
 	// LLM response contains context from every other connected MCP server.
 	IncludeContext string `json:"includeContext,omitempty"`
+	// StopSequences are the strings at which the inference API halts
+	// generation. Until this field was added here json.Unmarshal dropped it,
+	// so a server could supply them and no scanner in this package saw
+	// anything — the same silent shape as ContentItem.Annotations before
+	// #3484 and ToolAnnotations before that.
+	//
+	// They matter because they are the only parameter in the protocol that
+	// constrains the model's output space DETERMINISTICALLY. Prose that asks
+	// a model not to refuse is a request it may decline; a stop sequence is
+	// enforced by the inference API, so the refusal token simply never
+	// arrives. See samplingRefusalStopSequences in sampling_stop_sequence_scanner.go.
+	StopSequences []string `json:"stopSequences,omitempty"`
 	// Task carries the SEP-1686 task augmentation — see CallToolParams.Task.
 	Task json.RawMessage `json:"task,omitempty"`
 }

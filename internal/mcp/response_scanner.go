@@ -252,6 +252,27 @@ const (
 	// the content-pattern scanners above. See staged_trust.go.
 	// (taxonomy: unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning)
 	SignalResponseStagedTrustDefection ResponsePoisonSignal = "response_staged_trust_defection"
+
+	// SignalResponseToolCallEnvelopeInjection fires when a tool response's
+	// content contains a nested, well-formed JSON-RPC tool-call envelope — the
+	// confirmed "Tool Call Injection" vector from "Agent Data Injection Attacks
+	// are Realistic Threats to AI Agents" (arXiv:2607.05120, July 2026):
+	// untrusted content processed by Claude Code, Codex, and Gemini CLI is
+	// shaped to be misread as legitimate tool-call/tool-response structure —
+	// data the agent's tool-dispatch logic, not its language understanding,
+	// consumes as trusted — producing confirmed remote code execution and
+	// supply-chain compromise in the paper's evaluation.
+	//
+	// Distinct from SignalResponseTrustMetadataFieldSpoofing: that signal is a
+	// MALFORMED escape-breakout that forges an adjacent trust field via a
+	// broken delimiter. This shape is fully well-formed JSON — the envelope
+	// parses cleanly, and the attack is that it exists at all inside response
+	// body TEXT. The real tool-call channel is the JSON-RPC transport itself,
+	// so a "tools/call"/"tools/list" method envelope has no legitimate reason
+	// to be nested inside response content — an instruction-pattern scanner
+	// has nothing to flag because no imperative phrasing is present.
+	// (taxonomy: unauthorized-execution/agentic-attacks/agent-data-injection)
+	SignalResponseToolCallEnvelopeInjection ResponsePoisonSignal = "response_tool_call_envelope_injection"
 )
 
 // ResponsePoisonFinding records one detected poisoning signal in a tool response.
@@ -319,6 +340,8 @@ func signalTaxonomyRef(signal ResponsePoisonSignal) string {
 		return "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
 	case SignalResponseSkillAuthoringBanner:
 		return "supply-chain/config-tampering/agent-skill-authoring-self-poisoning"
+	case SignalResponseToolCallEnvelopeInjection:
+		return "unauthorized-execution/agentic-attacks/agent-data-injection"
 	default:
 		return "unauthorized-execution/agentic-attacks/mcp-tool-response-poisoning"
 	}
@@ -715,6 +738,27 @@ func scanResponseText(result *ResponseScanResult, text string) {
 	// scanned on the original (non-lowercased) text since this is codepoint
 	// classification, not keyword matching.
 	scanResponseUnicodeTagSmuggling(result, text)
+
+	// Signal 20: Agent Data Injection — Tool Call Injection (arXiv:2607.05120).
+	// A nested, well-formed JSON-RPC tool-call envelope — a "tools/call" or
+	// "tools/list" method value, PAIRED with the protocol version marker or a
+	// params.name+arguments pair — has no legitimate reason to appear inside
+	// response body text: the real tool-call channel is the JSON-RPC transport
+	// itself, not something a server includes as content for the model to read.
+	// AND-scoped (method + frame) rather than the method value alone, since a
+	// bare "method":"tools/call" substring could in principle occur in
+	// unrelated JSON; requiring the paired envelope marker keeps this scoped to
+	// the actual forged-dispatch shape the paper demonstrated, not any mention
+	// of the string "tools/call".
+	if method := firstSignalMatch(responseToolCallEnvelopeMethodPatterns, lower); method != nil {
+		if frame := firstSignalMatch(responseToolCallEnvelopeFramePatterns, lower); frame != nil {
+			result.Findings = append(result.Findings, ResponsePoisonFinding{
+				Signal:  SignalResponseToolCallEnvelopeInjection,
+				Detail:  fmt.Sprintf("%s + %s", method.description, frame.description),
+				Snippet: safeSnippet(text, method.loc[0], 100),
+			})
+		}
+	}
 }
 
 // scanResponseUnicodeTagSmuggling fires SignalResponseUnicodeTagSmuggling when
@@ -1551,6 +1595,33 @@ var skillAuthoringHiddenHookPatterns = []responseSignalPattern{
 		"bare module-level call to an underscore-prefixed function (fires at import time)"},
 	{regexp.MustCompile(`(?m)^@_[a-z][a-z0-9_]*\b`),
 		"underscore-prefixed decorator wrapping a function"},
+}
+
+// responseToolCallEnvelopeMethodPatterns detects the JSON-RPC method-name half
+// of the Tool Call Injection AND-combination (see
+// SignalResponseToolCallEnvelopeInjection, arXiv:2607.05120) — the specific
+// method values a forged tools/call or tools/list envelope must declare to be
+// dispatched as a real MCP request.
+var responseToolCallEnvelopeMethodPatterns = []responseSignalPattern{
+	{regexp.MustCompile(`"method"\s*:\s*"tools/call"`),
+		`embedded JSON-RPC "method":"tools/call" tool-invocation directive`},
+	{regexp.MustCompile(`"method"\s*:\s*"tools/list"`),
+		`embedded JSON-RPC "method":"tools/list" tool-invocation directive`},
+}
+
+// responseToolCallEnvelopeFramePatterns detects the JSON-RPC envelope/params
+// half of the AND-combination — either the protocol version marker or the
+// params.name+arguments pair a real tools/call request carries. Either alone
+// can occur in ordinary API JSON (a field happening to be named "jsonrpc", or
+// an unrelated "name"/"arguments" pair); paired with a tools/call|tools/list
+// method value, it is specifically the wire-format shape of a tool
+// invocation — which has no legitimate reason to be embedded as text inside a
+// tool RESPONSE, since the real tool-call channel is the transport itself.
+var responseToolCallEnvelopeFramePatterns = []responseSignalPattern{
+	{regexp.MustCompile(`"jsonrpc"\s*:\s*"2\.0"`),
+		"JSON-RPC 2.0 protocol version marker"},
+	{regexp.MustCompile(`"params"\s*:\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:`),
+		"tools/call params object (name + arguments pair)"},
 }
 
 // responseSignalPatternMatch records the description and match location of whichever

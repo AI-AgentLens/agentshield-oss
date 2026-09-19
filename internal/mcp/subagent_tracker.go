@@ -121,13 +121,23 @@ func (t *SubAgentTracker) ScanDelegationContent(toolName string, arguments map[s
 		return "", ""
 	}
 	for _, argName := range taskArgNames {
-		val, ok := arguments[argName]
-		if !ok {
-			continue
-		}
-		text := argValueToString(val)
-		if dangerousTaskRe.MatchString(text) {
-			return SignalSubAgentTaskEscalation, argName
+		// argFieldRecovered (not resolveField, not a raw map index): taskArgNames
+		// are FIXED keys this file authored, so they need the Unicode
+		// separator/confusable recovery of #3691/#3712 WITHOUT the rest of the
+		// ladder. Full resolveField also lowercases and strips '_'/'-'/spaces,
+		// so an ASCII caller spelling (`Task`, `sub_task`) could newly raise an
+		// escalation signal where a flat index never did — the ASCII-parity
+		// change #3727 removed from its own four sites (#3731).
+		//
+		// Every candidate is scanned so a normalized-name collision cannot hide
+		// a dangerous task behind a benign sibling via map-iteration order: if
+		// ANY spelling carries escalating text, the signal fires (#3727
+		// finding 3). Fails CLOSED.
+		for _, val := range argFieldRecovered(arguments, argName) {
+			text := argValueToString(val)
+			if dangerousTaskRe.MatchString(text) {
+				return SignalSubAgentTaskEscalation, argName
+			}
 		}
 	}
 	return "", ""

@@ -37,12 +37,14 @@ var grepFamilyNames = []string{"grep", "egrep", "fgrep", "rg", "ag"}
 //
 // # What is deliberately NOT covered
 //
-// grepPatternOperand already refuses to identify the pattern when a
-// flag that might consume the following token (-e, -f, -m, -A, --include, …)
-// is present — see its doc comment. That refusal propagates here unchanged:
-// an ambiguous invocation keeps every word live rather than guessing which
-// one is the needle, so a mis-scoped flag costs a block that stands, not a
-// bypass that ships.
+// grepNeedleSpan already refuses to identify the pattern when a flag that
+// might consume a SEPARATE following token (`-e VALUE`, -f, -m, -A, --include,
+// …) is present — see its doc comment. That refusal propagates here unchanged:
+// an ambiguous invocation keeps every word live rather than guessing which one
+// is the needle, so a mis-scoped flag costs a block that stands, not a bypass
+// that ships. Inline pattern-bearing flags (`-e"$p"`, `--regexp=…`) are the
+// exception it CAN resolve: the value is glued into the same word, so
+// grepNeedleSpan returns just that value subspan (#3728).
 //
 // Unlike InertLoopWordLists this does not gate on whether the invocation's
 // output escapes to somewhere that could act on it. That gate exists there
@@ -84,16 +86,14 @@ func SearchToolNeedles(command string) (items []string, redacted string) {
 		if exe == "" || !isGrepFamily(path.Base(NormalizeExecName(exe))) {
 			return true
 		}
-		i := grepPatternOperand(c.Args)
-		if i <= 0 {
+		span, ok := grepNeedleSpan(c.Args)
+		if !ok {
 			return true
 		}
-		w := c.Args[i]
-		s, e := int(w.Pos().Offset()), int(w.End().Offset())
-		if s < 0 || e > len(command) || s >= e {
+		if span.start < 0 || span.end > len(command) || span.start >= span.end {
 			return true
 		}
-		spans = append(spans, byteSpan{s, e})
+		spans = append(spans, span)
 		return true
 	})
 	if len(spans) == 0 {

@@ -283,3 +283,56 @@ func TestValueLimit_LobstarWildeScenario(t *testing.T) {
 		t.Fatal("expected NOT blocked — small 4-token transfer within limit")
 	}
 }
+
+// TestValueLimit_NBSPSeparatorParity is #3727 finding 2: the live value-limit
+// bypass. Before the fix extractNumericArg's recovery fallback compared the
+// RECOVERED name to the key with ==, but RecoverRenderedText folds U+00A0 to an
+// ASCII space, so `amount` + U+00A0 recovered to `amount ` (trailing space) —
+// not `amount` — and the numeric lookup returned not-found, so CheckValueLimits
+// silently skipped a BLOCKing financial cap. The narrow resolver compares the
+// NORMALIZED recovered name (separators stripped), so the respelled key now
+// caps exactly as the ASCII key does.
+func TestValueLimit_NBSPSeparatorParity(t *testing.T) {
+	e := NewPolicyEvaluator(testValueLimitPolicy())
+
+	// Control: the ASCII `amount` key blocks a 52M transfer (max 100).
+	if r := e.CheckValueLimits("send_tokens", map[string]interface{}{"amount": float64(52000000)}); !r.Blocked {
+		t.Fatal("vacuous control: ASCII `amount` did not block a 52M transfer")
+	}
+
+	for sepName, sep := range separatorRunSpellings() {
+		t.Run(sepName, func(t *testing.T) {
+			assertFoldable(t, sepName, sep)
+			r := e.CheckValueLimits("send_tokens", map[string]interface{}{"amount" + sep: float64(52000000)})
+			if !r.Blocked {
+				t.Errorf("%s: `amount`+%s walked past the BLOCKing value cap", sepName, sepName)
+			}
+		})
+	}
+}
+
+// TestValueLimit_CollisionFailsClosedDeterministically is #3727 finding 3 on the
+// value-limit path. Two folded spellings of `amount` carry different values and
+// there is no exact `amount`; only one violates the cap. The resolver returns
+// both candidates and CheckValueLimits fails CLOSED — it blocks if ANY resolved
+// spelling violates — so the violating amount cannot hide behind the benign
+// sibling that sorts first, on any run.
+func TestValueLimit_CollisionFailsClosedDeterministically(t *testing.T) {
+	e := NewPolicyEvaluator(testValueLimitPolicy())
+	nbsp := sepRune(0x00A0) // sorts before U+2009 by raw key bytes
+	thin := sepRune(0x2009)
+
+	build := func() map[string]interface{} {
+		return map[string]interface{}{
+			"amount" + nbsp: float64(5),        // benign, within cap 100
+			"amount" + thin: float64(52000000), // violates cap 100
+			"to":            "0xabc123",
+		}
+	}
+	for i := 0; i < 200; i++ {
+		r := e.CheckValueLimits("send_tokens", build())
+		if !r.Blocked {
+			t.Fatalf("iter %d: a normalized-name collision let a 52M transfer past the cap", i)
+		}
+	}
+}

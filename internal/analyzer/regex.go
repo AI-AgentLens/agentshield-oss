@@ -133,10 +133,12 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	classifier := a.classifier.Memo()
 	dequotedCommand := shellparse.DequoteCommand(ctx.RawCommand)
 	ifsNormalized := shellparse.NormalizeIFS(ctx.RawCommand)
-	// Built once from the FULL raw command, where a defining "NAME=value"
-	// assignment lives even when the usage ("$NAME ...") is a separate
-	// statement — see ResolveIndirectExecutable's doc comment (#3089).
-	execSyms := shellparse.BuildExecSymbolTable(ctx.RawCommand)
+	// Built once from the FULL raw command: the symbol table because a
+	// defining "NAME=value" assignment lives even when the usage
+	// ("$NAME ...") is a separate statement (#3089), and the assignment
+	// context because a fold applied to ONE statement must not contradict an
+	// assignment in a sibling one (see StatementFoldContext).
+	foldCtx := NewStatementFoldContext(ctx.RawCommand)
 
 	// Alternative renderings of the WHOLE command that mean exactly what the raw
 	// text means, checked for every rule (not just anchored ones, unlike the
@@ -178,6 +180,20 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			addForm(joined)
 			addForm(shellparse.DequoteCommand(joined))
 			addForm(shellparse.NormalizeIFS(joined))
+		}
+		// A `printf` format string or an `echo -e` argument whose escape
+		// sequences the program EXPANDS, when that text is handed to an executor
+		// (#3802). `printf '\\nufw disable\\n' | sh` runs the payload while the
+		// two raw characters before it are a backslash and an `n` — both word
+		// characters — so a rule opening with `\\b` cannot match. Measured at
+		// 30.8% of BLOCKing commands that survive the `echo '<cmd>' | sh`
+		// control. A whole-command form rather than an anchored-only retry for
+		// the same reason line continuations are one: the escape lands
+		// mid-pattern, so it defeats unanchored rules too.
+		if emitted := shellparse.DecodeEmittedSeparators(ctx.RawCommand); emitted != "" {
+			addForm(emitted)
+			addForm(shellparse.DequoteCommand(emitted))
+			addForm(shellparse.NormalizeIFS(emitted))
 		}
 		// Indirect executable names ("x=aws; $x ec2 terminate-instances ...",
 		// "$(echo aws) ec2 ...") are not substring-monotonic the way
@@ -320,6 +336,68 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 				addForm(shellparse.NormalizeIFS(materialized))
 			}
 		}
+		// Command-execution literals recovered from inside an interpreter
+		// heredoc body (#3697) — "csrutil disable" from a python heredoc
+		// calling os.system("csrutil disable"). Checked for every rule, not
+		// just anchored ones: this is literal command text a real call would
+		// run, exactly like the other whole-command forms above. Use 2 of 2
+		// — see InterpreterHeredocExecStatements' doc comment; use 1
+		// (per-statement exclusion scoping) is ctx.RawStatements, populated
+		// separately via AttributionStatements.
+		for _, cand := range InterpreterHeredocExecStatements(ctx.RawCommand) {
+			addForm(cand)
+			addForm(shellparse.DequoteCommand(cand))
+		}
+	}
+
+	// Per-statement match candidates, memoized for this evaluation.
+	// StatementMatchCandidates costs several AST parses per statement and has
+	// two consumers here — retryCandidates below (does the rule fire at all?)
+	// and statementMatcher (which statement does a match belong to?) — that
+	// each walk the same command, split by different splitters. Keying the
+	// memo on the statement TEXT is what lets the two share work whenever the
+	// splitters agree, which is the common case.
+	stmtForms := map[string][]string{}
+	statementCandidates := func(s string) []string {
+		if f, ok := stmtForms[s]; ok {
+			return f
+		}
+		f := StatementMatchCandidates(s, foldCtx)
+		stmtForms[s] = f
+		return f
+	}
+
+	// statementMatcher builds the per-statement predicate that
+	// IntentExcludedForStatements uses to attribute a match to a statement.
+	//
+	// It deliberately uses the SAME candidate set as the per-statement retry
+	// below (#3717). Testing raw statement text only meant an obfuscated real
+	// statement did not count as matching and was skipped during attribution,
+	// so an adjacent doc-text sibling that repeated the rule's pattern
+	// verbatim became the only counted statement and carried the whole
+	// decision — downgrading (or, for command_intent_exclude, suppressing) a
+	// BLOCK that actually executed. Sharing the candidate generator rather
+	// than re-deriving it is the point: a fold added to the top-level match
+	// cannot silently fail to reach attribution.
+	//
+	// policy.Engine's regex-fallback twin (intentExcluded / effectiveDecision)
+	// builds the same predicate over the same function, so the two paths
+	// cannot disagree.
+	statementMatcher := func(rule RegexRule) func(string) bool {
+		return func(stmt string) bool {
+			// Raw text first, so a statement that matches as written never
+			// pays for candidate generation. statementCandidates(stmt)[0] is
+			// stmt itself, so this is a short-circuit, not a second predicate.
+			if a.matchRegexRule(stmt, rule) {
+				return true
+			}
+			for _, cand := range statementCandidates(stmt) {
+				if a.matchRegexRule(cand, rule) {
+					return true
+				}
+			}
+			return false
+		}
 	}
 
 	// Extra match candidates for the per-statement retry below, computed at most
@@ -341,283 +419,6 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		if ifsNormalized != "" {
 			seen[ifsNormalized] = true
 		}
-		add := func(s string) {
-			if s == "" || seen[s] {
-				return
-			}
-			seen[s] = true
-			candidates = append(candidates, s)
-			// Fold unset-parameter expansions on the way IN, so every peel
-			// below gets it for free — the splice can hide inside whatever a
-			// peel extracts, not just in the statement the peel started from.
-			// `trap 'cat /${zqx}etc/shadow' EXIT` is the case that forced
-			// this: InlineCodeFragments recovers the trap body, and the body
-			// still carries the splice. Doing it here rather than at each peel
-			// site means a peel added later cannot forget it. Non-recursive on
-			// purpose — folding is idempotent, so the second fold of a folded
-			// form returns the "" no-op sentinel anyway.
-			if folded := shellparse.NormalizeUnsetParamExp(s); folded != "" && !seen[folded] {
-				seen[folded] = true
-				candidates = append(candidates, folded)
-			}
-			// Same reasoning, for split-concat assignments (#3249): a carrier
-			// body can itself contain "p=id_rsa; cat ~/.ssh/$p" — the literal
-			// a rule is written against never appears in ITS text either,
-			// same as ctx.RawCommand's own split-concat case the
-			// wholeCommandForms pass already folds (line ~310). That pass
-			// only walks ctx.RawCommand and its whole-command forms, never a
-			// fragment recovered from inside a carrier, so a rule needing
-			// this fold saw nothing when the split-concat assignment was
-			// delivered through eval/bash -c/trap instead of written
-			// directly (#3321).
-			if materialized := shellparse.MaterializeAssignments(s); materialized != "" && !seen[materialized] {
-				seen[materialized] = true
-				candidates = append(candidates, materialized)
-			}
-		}
-
-		// addInlineCodeForms registers the code carried inside `bash -c '...'`,
-		// `eval '...'`, `trap '...' EXIT`, a shell heredoc body and friends
-		// (#3050/#3059/#3081), in every shape a peel can expose.
-		//
-		// It exists as ONE function because there are two call sites — the
-		// statement as written, and the statement after its executable has been
-		// resolved through one level of indirection (#3089) — and they had
-		// drifted. The `s` site peeled leading assignments off a recovered
-		// fragment; the `resolved` site did not; neither peeled an exec
-		// wrapper. So `bash -c 'env dd if=/dev/zero of=/dev/sda'` handed the
-		// ^-anchored dd rule a fragment still beginning with `env`, and
-		// `x=bash; $x -c 'env dd ...'` was a second, independent instance of
-		// the same omission.
-		//
-		// That gap pre-dates #3221 — `env` is the oldest entry in the wrapper
-		// table, and #3057 peels wrappers off a STATEMENT — it simply had no
-		// witness, because no corpus TP was wrapper-prefixed until #3221 added
-		// some. Wrapping those in a carrier composed the two features for the
-		// first time and three carrier parity sweeps went over budget at once.
-		//
-		// Keeping the peels here rather than in add() confines the parse cost
-		// to commands that actually carry inline code. Keeping them in one
-		// function is what stops the next peel from being added to one call
-		// site and not the other.
-		// It recurses because a carrier body is very often another carrier:
-		// `bash <<EOF ... bash -c 'dd if=/dev/zero of=/dev/sda' ... EOF`,
-		// `bash <<EOF ... su -c 'rm -rf /' ... EOF`, heredoc-wrapped `eval`.
-		// One level of extraction leaves the ^-anchored rule looking at
-		// `bash -c '...'`, which it does not match. This is the "double-wrapped
-		// payload" residual #3081 recorded and attributed to maxParseDepth's
-		// default of 2 — true for the AST layers, but the regex layer's own
-		// extraction was simply not recursive, and that half is fixable here
-		// without touching the parse depth every analyzer shares.
-		//
-		// Depth is capped at maxInlineCodeNesting rather than left to terminate
-		// naturally on "no carrier found". Termination is not in doubt — a
-		// fragment with no inline code yields none — but the cost is
-		// multiplicative per level and an adversarial input can nest carriers
-		// as deep as it likes.
-		const maxInlineCodeNesting = 3
-		var addInlineCodeForms func(text string, depth int)
-		addInlineCodeForms = func(text string, depth int) {
-			if depth > maxInlineCodeNesting {
-				return
-			}
-			for _, frag := range shellparse.InlineCodeFragments(text) {
-				add(frag)
-				add(shellparse.NormalizeIFS(frag))
-				if fs := shellparse.StripCommandPrefixes(frag); fs != "" {
-					add(fs)
-					add(shellparse.NormalizeIFS(fs))
-				}
-				if fw := shellparse.StripExecWrapperPrefix(frag); fw != "" {
-					add(fw)
-					add(shellparse.DequoteCommand(fw))
-					add(shellparse.NormalizeIFS(fw))
-				}
-				// A fragment can itself be a bare indirection — `eval "$zc"`
-				// and `bash -c "$zc"` both recover the fragment "$zc" above,
-				// unresolved, when zc is a constant scalar assigned earlier in
-				// the raw command. ResolveIndirectExecutable already resolves
-				// exactly this shape for a plain STATEMENT (#3089); it was
-				// never called on a fragment recovered from a carrier's BODY,
-				// so the two features — carrier-body extraction and indirect-
-				// executable resolution — never composed (#3238). Both halves
-				// independently produce the right answer; only the call was
-				// missing, so this mirrors the peels above rather than adding
-				// a new mechanism.
-				if resolved := shellparse.ResolveIndirectExecutable(frag, execSyms); resolved != "" {
-					add(resolved)
-					add(shellparse.DequoteCommand(resolved))
-					add(shellparse.NormalizeIFS(resolved))
-					if fs := shellparse.StripCommandPrefixes(resolved); fs != "" {
-						add(fs)
-						add(shellparse.NormalizeIFS(fs))
-					}
-					if fw := shellparse.StripExecWrapperPrefix(resolved); fw != "" {
-						add(fw)
-						add(shellparse.DequoteCommand(fw))
-						add(shellparse.NormalizeIFS(fw))
-					}
-					// The resolved value is the scalar's whole runtime text,
-					// which is very often a COMPOUND command ("if true; then
-					// rm -rf /; fi") rather than a single simple one — the
-					// scalar carries whatever the attacker assigned it, same
-					// as ctx.RawCommand itself can be compound. Splitting it
-					// the same way the top-level command is split (#3045) is
-					// what lets an anchored rule see "rm -rf /" as its own
-					// statement instead of only the unmatchable "if true;
-					// then rm -rf /; fi" blob. Deliberately NOT re-entering
-					// addStatementForms here (its own call back into
-					// addInlineCodeForms would make this mutually recursive
-					// with no combined depth limit) — this is one bounded
-					// pass of the cheap peels only, not the full arsenal.
-					for _, sub := range shellparse.SplitSequencedStatements(resolved) {
-						sub = strings.TrimRight(sub, " \t\n;")
-						if sub == "" || sub == resolved {
-							continue
-						}
-						add(sub)
-						add(shellparse.DequoteCommand(sub))
-						add(shellparse.NormalizeIFS(sub))
-					}
-					addInlineCodeForms(resolved, depth+1)
-				}
-				addInlineCodeForms(frag, depth+1)
-			}
-		}
-
-		// addStatementForms registers every text shape a single statement can
-		// legitimately be matched in: as written, with quote artifacts removed,
-		// with ${IFS}/$IFS word-splitting separators collapsed to a literal
-		// space (#3044 — a bare ${IFS} default-whitespace substitution
-		// defeated 68% of BLOCKing commands corpus-wide, the largest single
-		// bypass class found in this codebase), and with prefixes that do not
-		// change which command runs peeled off.
-		addStatementForms := func(s string) {
-			add(s)
-			// A whole-word brace group ("{env,dd,if=/dev/zero,of=/dev/sda}")
-			// can BE the prefix-plus-command shape the peels below exist to
-			// see through — StripCommandPrefixes/StripExecWrapperPrefix look
-			// for a literal "NAME=value "/"env "/"! " token at the START of
-			// the text, which a brace group hides entirely (it is one token,
-			// no spaces, until expanded). Expand up front, replacing the
-			// working statement, so every peel below runs against the
-			// corrected text the same way it already runs against the raw
-			// one (issue #3217).
-			if expanded := shellparse.NormalizeBraceWordList(s); expanded != "" {
-				s = expanded
-				add(s)
-			}
-			dequoted := shellparse.DequoteCommand(s)
-			add(dequoted)
-			ifsNormalized := shellparse.NormalizeIFS(s)
-			add(ifsNormalized)
-			// Composed forms, both orders: a quote-splice AND an ${IFS}
-			// separator can coexist in the same statement
-			// ("cat${IFS}~/.gi'thub'/creden'tials'"), and each transform
-			// alone leaves the other artifact standing. Order matters here —
-			// DequoteCommand bails on any word containing a ParamExp
-			// (dynamic content), so "cat${IFS}~/.gi'thub'/creden'tials'"
-			// dequotes to "" (the $IFS glues the whole thing into one
-			// unresolvable word) until IFS is normalized FIRST, splitting it
-			// into a separate, now purely-static, quoted word.
-			if dequoted != "" {
-				add(shellparse.NormalizeIFS(dequoted))
-			}
-			if ifsNormalized != "" {
-				add(shellparse.DequoteCommand(ifsNormalized))
-			}
-			// An unset-parameter splice inside this statement
-			// ("r${zqx}m -rf /", "${zqx:-dd} if=/dev/zero of=/dev/sda").
-			// Composed with dequoting in that order only: DequoteCommand
-			// bails on any word holding a ParamExp, so the splice has to go
-			// first for a statement carrying both.
-			if folded := shellparse.NormalizeUnsetParamExp(s); folded != "" {
-				add(folded)
-				add(shellparse.DequoteCommand(folded))
-				add(shellparse.NormalizeIFS(folded))
-			}
-
-			// Leading env assignments and "!" negation sit BEFORE the command
-			// word and do not change which command runs, but they defeat every
-			// "^"-anchored rule (#3048). Note this applies even when the command
-			// is a SINGLE statement equal to ctx.RawCommand — "LC_ALL=C dd
-			// if=/dev/zero of=/dev/sda" has nothing to split, yet still needs
-			// its stripped form checked.
-			if stripped := shellparse.StripCommandPrefixes(s); stripped != "" {
-				add(stripped)
-				add(shellparse.DequoteCommand(stripped))
-				add(shellparse.NormalizeIFS(stripped))
-			}
-
-			// Code carried inside `bash -c '...'` / `sh -c "..."` (#3050). The
-			// structural analyzer can see in there once the fragment is
-			// dequoted, but regex anchors still only see "bash -c ...", so
-			// `bash -c "dd if=/dev/zero of=/dev/sda"` kept missing the
-			// ^-anchored dd rule.
-			addInlineCodeForms(s, 1)
-
-			// An execution wrapper is the same shape of prefix: `env`, `exec`,
-			// `nohup`, `timeout 10` and friends do not change WHICH command
-			// runs, but they defeat anchored rules exactly as an assignment
-			// does. The AST layers have seen through wrappers for a while; the
-			// regex layer had no equivalent, leaving a hard 11.1% floor (#3057).
-			if unwrapped := shellparse.StripExecWrapperPrefix(s); unwrapped != "" {
-				add(unwrapped)
-				add(shellparse.DequoteCommand(unwrapped))
-				add(shellparse.NormalizeIFS(unwrapped))
-			}
-
-			// A statement's own executable can be named through one level of
-			// indirection — "x=dd; $x if=/dev/zero of=/dev/sda" or "$(echo dd)
-			// if=/dev/zero of=/dev/sda" run exactly "dd if=/dev/zero
-			// of=/dev/sda" (#3089). The AST layer already resolves this via
-			// shellparse.Parse's own symbol table; execSyms is built once from
-			// ctx.RawCommand (where the defining assignment lives, even when
-			// it's a separate preceding statement) and reused for every
-			// candidate here.
-			if resolved := shellparse.ResolveIndirectExecutable(s, execSyms); resolved != "" {
-				add(resolved)
-				add(shellparse.DequoteCommand(resolved))
-				add(shellparse.NormalizeIFS(resolved))
-				if stripped := shellparse.StripCommandPrefixes(resolved); stripped != "" {
-					add(stripped)
-				}
-				// The wrapper/carrier ITSELF can be the thing delivered
-				// indirectly — "x=env; $x dd if=/dev/zero of=/dev/sda" or
-				// "x=bash; $x -c 'dd if=/dev/zero of=/dev/sda'" — so re-run the
-				// same wrapper-stripping and inline-code extraction used for
-				// the plain statement `s` against the newly-resolved text too;
-				// otherwise composing indirection with an already-covered
-				// carrier (env/nice/timeout, bash -c, eval, trap) reopens the
-				// exact gap those carriers' own fixes closed (#3057, #3050,
-				// #3059/#3084), one level removed (#3089).
-				if unwrapped := shellparse.StripExecWrapperPrefix(resolved); unwrapped != "" {
-					add(unwrapped)
-					add(shellparse.DequoteCommand(unwrapped))
-					add(shellparse.NormalizeIFS(unwrapped))
-				}
-				addInlineCodeForms(resolved, 1)
-			}
-
-			// Re-run the prefix/inline-code/wrapper peels against the
-			// ${IFS}-normalized form too: each of those identifies its target
-			// by the literal first-word text ("nice", "env", "bash -c"), which
-			// an unresolved ${IFS} glued onto it defeats — "/bin/nice${IFS}dd"
-			// parses as ONE token, not "/bin/nice" separate from "dd", so
-			// StripExecWrapperPrefix's wrapper-name lookup never matches it.
-			// Only the exec-wrapper case is wired below: prefix-strip and
-			// inline-code-fragment extraction don't depend on ${IFS} being
-			// glued to a following word the way a wrapper's own name does,
-			// so running them a second time on ifsNormalized would just
-			// re-derive forms add() already dedupes.
-			if ifsNormalized != "" {
-				if unwrapped := shellparse.StripExecWrapperPrefix(ifsNormalized); unwrapped != "" {
-					add(unwrapped)
-					add(shellparse.DequoteCommand(unwrapped))
-				}
-			}
-		}
-
 		for _, s := range shellparse.SplitSequencedStatements(ctx.RawCommand) {
 			// A statement's source span keeps its trailing separator
 			// ("curl ... | deno run -;" inside a brace group). Rules anchored at
@@ -630,15 +431,12 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			if s == "" {
 				continue
 			}
-			addStatementForms(s)
-
-			// A backslash-newline is whitespace the shell deletes before
-			// tokenizing, so `rm \<NL>-rf /` IS `rm -rf /` — but no regex
-			// matches a backslash where it expects a space, and 52.5% of
-			// BLOCKing commands degraded behind one (#3055). Re-render the
-			// statement on a single line and match that shape too.
-			if joined := shellparse.JoinLineContinuations(s); joined != "" {
-				addStatementForms(joined)
+			for _, f := range statementCandidates(s) {
+				if f == "" || seen[f] {
+					continue
+				}
+				seen[f] = true
+				candidates = append(candidates, f)
 			}
 		}
 		return candidates
@@ -658,9 +456,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// dangerous statement can't be excused by an adjacent doc-text/
 		// heredoc/self-mgmt-shaped one within the same compound command.
 		if len(rule.IntentExclude) > 0 {
-			excluded := IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentExclude, func(stmt string) bool {
-				return a.matchRegexRule(stmt, rule)
-			})
+			excluded := IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentExclude, statementMatcher(rule))
 			if excluded {
 				continue
 			}
@@ -711,7 +507,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// match to a position and it costs an AST parse — a rule that did not
 		// fire must not pay for it.
 		if matched && len(rule.PositionExclude) > 0 &&
-			PositionExcluded(ctx.RawCommand, rule.PositionExclude, func(s string) bool {
+			PositionExcluded(ctx.RawCommand, rule.PositionExclude, foldCtx, func(s string) bool {
 				return a.matchRegexRule(s, rule)
 			}) {
 			matched = false
@@ -725,11 +521,16 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			// executing an access — downgrade to AUDIT so it stays logged but
 			// doesn't interrupt. Same per-statement scoping as IntentExclude: a
 			// chained real access in a non-doc-text statement keeps its BLOCK.
+			// The label list is IntentDowngrade UNIONED with IntentExclude
+			// (#3792): a compound command can have one statement excused only by
+			// an exclude label (e.g. is_self_mgmt) and a sibling excused only by
+			// a downgrade label (e.g. in_heredoc) — neither list alone covers
+			// every matched statement, so without the union both checks fail
+			// closed and the match stays at full BLOCK. See UnionIntentLabels
+			// for why this can only weaken a decision, never suppress one.
 			if len(rule.IntentDowngrade) > 0 &&
 				(decision == "BLOCK" || decision == "REQUIRE_APPROVAL") &&
-				IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentDowngrade, func(stmt string) bool {
-					return a.matchRegexRule(stmt, rule)
-				}) {
+				IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, UnionIntentLabels(rule.IntentDowngrade, rule.IntentExclude), statementMatcher(rule)) {
 				reason = reason + " [downgraded BLOCK→AUDIT: the sensitive pattern appears inside a documentation/message argument (gh/git --body/--message), not an executed access]"
 				decision = "AUDIT"
 			}
