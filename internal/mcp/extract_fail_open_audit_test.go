@@ -236,6 +236,10 @@ func TestExtractFailOpenEmitsAuditEvent(t *testing.T) {
 			if len(entry.Reasons) == 0 {
 				t.Error("expected a non-empty Reasons explaining what could not be parsed")
 			}
+			if entry.TaxonomyRef != securityMediatorParseFailOpenTaxonomyRef {
+				t.Errorf("TaxonomyRef = %q, want %q — an unattributed fail-open receipt is the one shape the attestation chain cannot represent",
+					entry.TaxonomyRef, securityMediatorParseFailOpenTaxonomyRef)
+			}
 		})
 	}
 }

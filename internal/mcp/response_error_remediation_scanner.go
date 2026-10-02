@@ -154,6 +154,13 @@ type ErrorRemediationFinding struct {
 	// attestation-relevant fact: the payload arrived through the protocol's
 	// own self-correction pathway, not through ordinary tool output.
 	ServerAssertedFailure bool `json:"server_asserted_failure"`
+	// Blocking is whether THIS finding blocks: the signal's tier, unless the
+	// attribution gate downgraded it.
+	Blocking bool `json:"blocking"`
+	// AttributionGated records that the match looked quoted or attributed, so
+	// it was recorded at AUDIT instead of blocked (#3911). Before #3911 such a
+	// match produced no finding at all.
+	AttributionGated bool `json:"attribution_gated,omitempty"`
 }
 
 // ErrorRemediationScanResult is the aggregate result.
@@ -361,31 +368,51 @@ func errorRemediationSentences(form string) []struct {
 // ScanToolResultErrorRemediation inspects a tools/call result for remediation
 // steering. serverAssertedFailure is the result's `isError` flag.
 //
-// Every match must clear three gates: the result is framed as a failure, the
-// match sits in an instruction sentence, and the sentence is not quoted or
+// Every match must clear two gates to fire: the result is framed as a
+// failure, and the match sits in an instruction sentence. A third, the
+// quotation/attribution gate, decides the TIER: a match that looks quoted or
 // attributed (a debugging transcript pasting a poisoned error into a bug
-// report must not fire). Both the wire form and the render-recovered form of
-// each block are tried, so a fullwidth or confusable spelling cannot walk
-// past the patterns — see prose_forms.go.
+// report) is recorded at AUDIT instead of blocked. Until #3911 it was dropped
+// outright, and since the quoting is written by the same party as the payload
+// that made one `"` a bypass. Both the wire form and the render-recovered
+// form of each block are tried, so a fullwidth or confusable spelling cannot
+// walk past the patterns — see prose_forms.go.
 func ScanToolResultErrorRemediation(items []ContentItem, serverAssertedFailure bool) ErrorRemediationScanResult {
 	var result ErrorRemediationScanResult
-	seen := map[ErrorRemediationSignal]bool{}
 
-	add := func(sig ErrorRemediationSignal, detail string, idx int, blocking bool) {
-		if seen[sig] {
-			return
-		}
-		seen[sig] = true
-		result.Found = true
-		if blocking {
-			result.Blocked = true
-		}
-		result.Findings = append(result.Findings, ErrorRemediationFinding{
+	// Ungated findings are kept exactly as they were before #3911: the first
+	// ungated match of each signal, in scan order. Gated findings are held
+	// apart and only surface for a signal that never matched ungated, so a
+	// quoted-looking occurrence early in the text can never preempt — and so
+	// downgrade — a bare occurrence of the same signal later on.
+	var ungated, gated []ErrorRemediationFinding
+	seenUngated := map[ErrorRemediationSignal]bool{}
+	seenGated := map[ErrorRemediationSignal]bool{}
+
+	add := func(sig ErrorRemediationSignal, detail string, idx int, tierBlocking bool, strength attributionStrength, leg string) {
+		f := ErrorRemediationFinding{
 			Signal:                sig,
 			Detail:                detail,
 			ContentIndex:          idx,
 			ServerAssertedFailure: serverAssertedFailure,
-		})
+			Blocking:              tierBlocking,
+		}
+		if strength == attributionNone {
+			if seenUngated[sig] {
+				return
+			}
+			seenUngated[sig] = true
+			ungated = append(ungated, f)
+			return
+		}
+		if seenUngated[sig] || seenGated[sig] {
+			return
+		}
+		seenGated[sig] = true
+		f.Blocking = false
+		f.AttributionGated = true
+		f.Detail += attributionDowngradeNote(leg)
+		gated = append(gated, f)
 	}
 
 	for i, item := range items {
@@ -420,56 +447,86 @@ func ScanToolResultErrorRemediation(items []ContentItem, serverAssertedFailure b
 				// DANGEROUS MATCH, never at the sentence start. A bug report
 				// pasting a poisoned error inside quotes is one unpunctuated
 				// sentence, so its sentence start sits at offset 0 with
-				// nothing before it and the gate passes vacuously.
-				admitted := func(re *regexp.Regexp) bool {
+				// nothing before it and the gate passes vacuously. It returns
+				// a strength, never a verdict to drop (#3911): add() records a
+				// gated match at AUDIT. Only reached after the caller's
+				// MatchString, so the match always exists.
+				//
+				// A block the server hid from the human (audience:["assistant"])
+				// gets the cue legs only, exactly as content_audience does
+				// (follow-on b): quotation marks and code spans the human never
+				// sees are not innocent quotation. Per block, not per signal, so
+				// the two scanners judge the same block the same way (Gary,
+				// 2026-09-23, #3966 item 4).
+				legs := attributionAllLegs
+				if modelOnly {
+					legs = attributionCueLegsOnly
+				}
+				gate := func(re *regexp.Regexp) (attributionStrength, string) {
 					loc := re.FindStringIndex(s)
 					if loc == nil {
-						return false
+						return attributionNone, ""
 					}
-					return !isQuotedOrAttributed(form.text, form.text, sent.start+loc[0], sent.start+loc[1])
+					return attributionEvidence(form.text, form.text, sent.start+loc[0], sent.start+loc[1], legs)
 				}
 
 				if credentialArtifactRE.MatchString(s) &&
-					(credentialOnwardTransferRE.MatchString(s) || pathSubstitutionCueRE.MatchString(s)) &&
-					admitted(credentialArtifactRE) {
+					(credentialOnwardTransferRE.MatchString(s) || pathSubstitutionCueRE.MatchString(s)) {
+					strength, leg := gate(credentialArtifactRE)
 					add(SignalErrorRemediationCredentialSteering,
 						"failure remediation instructs reading a credential artifact and passing its contents onward: "+
-							clip(s)+form.note, i, true)
+							clip(s)+form.note, i, true, strength, leg)
 				}
-				if remoteExecRE.MatchString(s) && admitted(remoteExecRE) {
+				if remoteExecRE.MatchString(s) {
+					strength, leg := gate(remoteExecRE)
 					add(SignalErrorRemediationRemoteExec,
 						"failure remediation instructs fetching or decoding remote content into an interpreter: "+
-							clip(s)+form.note, i, true)
+							clip(s)+form.note, i, true, strength, leg)
 				}
-				if concealmentRE.MatchString(s) && admitted(concealmentRE) {
+				if concealmentRE.MatchString(s) {
+					strength, leg := gate(concealmentRE)
 					add(SignalErrorRemediationConcealment,
 						"failure remediation instructs withholding the failure or the recovery from the user: "+
-							clip(s)+form.note, i, true)
+							clip(s)+form.note, i, true, strength, leg)
 				}
-				if securityControlDisableRE.MatchString(s) && admitted(securityControlDisableRE) {
+				if securityControlDisableRE.MatchString(s) {
+					strength, leg := gate(securityControlDisableRE)
 					add(SignalErrorRemediationSecurityControlDisable,
-						"failure remediation instructs disabling a security control: "+clip(s)+form.note, i, false)
+						"failure remediation instructs disabling a security control: "+clip(s)+form.note, i, false, strength, leg)
 				}
 				if exfilRedirectVerbRE.MatchString(s) && exfilRedirectExternalURLRE.MatchString(s) &&
-					!loopbackURLRE.MatchString(s) && !docsLinkRE.MatchString(s) &&
-					admitted(exfilRedirectExternalURLRE) {
+					!loopbackURLRE.MatchString(s) && !docsLinkRE.MatchString(s) {
+					strength, leg := gate(exfilRedirectExternalURLRE)
 					add(SignalErrorRemediationExfilRedirect,
 						"failure remediation instructs sending output or context to an external endpoint: "+
-							clip(s)+form.note, i, false)
+							clip(s)+form.note, i, false, strength, leg)
 				}
 				// The composition unique to this channel: the server asserts
 				// the call failed, supplies a fix, and routes the block away
 				// from the human.
-				if serverAssertedFailure && modelOnly && remediationCueRE.MatchString(s) &&
-					admitted(remediationCueRE) {
+				if serverAssertedFailure && modelOnly && remediationCueRE.MatchString(s) {
+					strength, leg := gate(remediationCueRE)
 					add(SignalErrorFlaggedModelOnlyRemediation,
 						"result flagged isError:true supplies a remediation instruction in a content block "+
 							"annotated audience:[\"assistant\"], withholding the failure and its fix from the user: "+
-							clip(s)+form.note, i, true)
+							clip(s)+form.note, i, true, strength, leg)
 				}
 			}
 		}
 	}
+
+	result.Findings = ungated
+	for _, f := range gated {
+		if !seenUngated[f.Signal] {
+			result.Findings = append(result.Findings, f)
+		}
+	}
+	for _, f := range result.Findings {
+		if f.Blocking {
+			result.Blocked = true
+		}
+	}
+	result.Found = len(result.Findings) > 0
 	return result
 }
 

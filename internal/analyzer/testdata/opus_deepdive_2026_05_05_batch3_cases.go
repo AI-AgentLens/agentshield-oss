@@ -147,7 +147,7 @@ var LogrotateScriptInjectionCases = []TestCase{
 	{
 		ID:               "TN-LOGROTATE-INJECT-007",
 		Command:          "echo '# logrotate config' > /etc/logrotate.d/myapp",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/cron-job/logrotate-script-injection",
 		Analyzer:         "regex",
@@ -284,7 +284,7 @@ var PamExecScriptInjectionCases = []TestCase{
 	{
 		ID:               "TN-PAM-EXEC-INJECT-005",
 		Command:          "echo 'pam_exec is a high-risk module' > ~/notes.md",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/input-capture/pam-exec-credential-capture",
 		Analyzer:         "regex",

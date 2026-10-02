@@ -1236,7 +1236,7 @@ var AwsCredentialProcessPoisonCases = []TestCase{
 	{
 		ID:               "TN-AWSCREDPROC-001",
 		Command:          `echo 'credential_process = aws-vault exec dev --json' >> ~/.aws/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/credential-config-redirect/aws-config-credential-process-poison",
 		Analyzer:         "regex",
@@ -1246,7 +1246,7 @@ var AwsCredentialProcessPoisonCases = []TestCase{
 	{
 		ID:               "TN-AWSCREDPROC-002",
 		Command:          `echo 'credential_process = /usr/local/bin/aws-sso-util credential-process --profile dev' >> ~/.aws/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/credential-config-redirect/aws-config-credential-process-poison",
 		Analyzer:         "regex",
@@ -1256,7 +1256,7 @@ var AwsCredentialProcessPoisonCases = []TestCase{
 	{
 		ID:               "TN-AWSCREDPROC-003",
 		Command:          `echo 'credential_process = aws-okta exec prod -- credential-process' >> ~/.aws/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "credential-exposure/credential-config-redirect/aws-config-credential-process-poison",
 		Analyzer:         "regex",
@@ -1324,7 +1324,7 @@ var KubeconfigExecPluginPoisonCases = []TestCase{
 	{
 		ID:               "TN-KUBEEXEC-001",
 		Command:          `echo '      command: aws-iam-authenticator' >> ~/.kube/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/agent-config-persistence/kubeconfig-exec-plugin-poison",
 		Analyzer:         "regex",
@@ -1334,7 +1334,7 @@ var KubeconfigExecPluginPoisonCases = []TestCase{
 	{
 		ID:               "TN-KUBEEXEC-002",
 		Command:          `echo '      command: gke-gcloud-auth-plugin' >> ~/.kube/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/agent-config-persistence/kubeconfig-exec-plugin-poison",
 		Analyzer:         "regex",
@@ -1344,7 +1344,7 @@ var KubeconfigExecPluginPoisonCases = []TestCase{
 	{
 		ID:               "TN-KUBEEXEC-003",
 		Command:          `echo '      command: kubelogin' >> ~/.kube/config`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/agent-config-persistence/kubeconfig-exec-plugin-poison",
 		Analyzer:         "regex",

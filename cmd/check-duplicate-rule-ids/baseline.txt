@@ -36,11 +36,12 @@
 #     name the npm/Node.js instance of the same mechanism); the original
 #     package-manifest-tampering (lock files/manifests) fit neither half.
 #
-# The 2 intra-file pairs below (consul-token, nomad-token) already agree on
-# taxonomy (fixed 2026-09-06, separately) — the ID collision itself (a
-# rule-authoring call: merge the two match patterns into one rule, or rename
-# one id) is unresolved and still correctly baselined here.
-
-# --- INTRA-FILE, both in packs/community/mcp/mcp-secrets.yaml ---------------
-2 mcp-sec-block-consul-token
-2 mcp-sec-block-nomad-token
+# Resolved 2026-09-28, the last 2 entries (both intra-file pairs in
+# packs/community/mcp/mcp-secrets.yaml, taxonomy already agreeing):
+#   - mcp-sec-block-consul-token / mcp-sec-block-nomad-token: kept the first
+#     definition (argument_patterns_any over ~/.consul/token, ~/.config/consul/*
+#     and the Nomad equivalents) and merged in the second definition's single
+#     path (~/.consul_token, ~/.nomad_token) plus its TP/TN cases, so the
+#     merged rule matches the UNION of what the two copies matched. The tool
+#     lists were already identical. No id is duplicated any more; this
+#     baseline is empty and the ratchet now fails on the first new duplicate.

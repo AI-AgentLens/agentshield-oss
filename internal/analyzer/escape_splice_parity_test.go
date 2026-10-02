@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // TestEscapeSpliceParity is the fitness function for issue #3208: a
@@ -82,30 +83,99 @@ func TestEscapeSpliceParity(t *testing.T) {
 	// them (TP-DECLBIND-001/-002) are ALSO a builtin-name miss, of a different
 	// kind — a spliced `export`/`readonly` parses as a plain call rather than a
 	// DeclClause — and are not closed here.
+	//
+	// 2026-09-18 (#3848, harness only — no engine change): the mutation is
+	// now spliced IN PLACE. Each position names the FIELD it mutates and the
+	// spelling it wants there, and the harness writes that spelling into the
+	// original command at the field's own byte span (spliceField), so
+	// separators, heredocs and line continuations survive. Until now the
+	// mutation was strings.Fields + strings.Join, which flattened every
+	// multi-line command into one line — so those cases read as leaks whether
+	// or not the engine handled the splice, and every budget below carried
+	// that artifact (the 18 + 1 rows the paragraph above accounts for on
+	// exec-backslash; the +2 and +1 the punct-escape-slash comments below
+	// record). Measured on this corpus, Fields/Join → in place:
+	//   exec-backslash    54 → 35   (the 35 the #3848 classification predicted)
+	//   exec-locale-quote 47 → 28
+	//   arg2-backslash    39 → 35   (budget was 120, last measured at 100)
+	//   punct-escape-flag  5 →  1
+	//   punct-escape-slash 14 → 9
+	// Denominators unchanged (2559 / 2559 / 2094 / 410 / 1302): a command is
+	// tried or skipped on exactly the same test as before. Budgets are set to
+	// the measured residue, so a new leak fails here on the day it lands.
+	// The alternative — skipping multi-line commands the way continueAtSpace
+	// / ifsAtSpace do — was rejected: it would have dropped every
+	// heredoc-bound BLOCK from the probe instead of measuring it.
+	//
+	// exec-backslash 35 → 6, exec-locale-quote 28 → 5 (2026-09-21, #3848 class
+	// B + bonus): dequotedCommand re-renders the WHOLE command through
+	// mvdan/sh's printer, which turns a top-level ";" into a newline, so
+	// "s\leep 120; curl ..." dequoted to "sleep 120\ncurl ..." — no rule
+	// pattern written with ";" between two statements (ne-block-deferred-
+	// exfil-sleep, ts-block-printf-v-exec, ts-block-nameref-eval-chain, the
+	// adb rule) can match a "\n". shellparse.FoldLeadingExecWord folds only
+	// the first word's own bytes in place, leaving every separator untouched,
+	// and regex.go adds it as its own whole-command candidate. It closed all
+	// 11 of the #3848 "class B" cases the issue named, plus 18 more (classes
+	// C/D and part of G) that shared the same root cause once traced —
+	// NormalizeExecName strips both the backslash AND the $"..." locale-quote
+	// form, so exec-locale-quote improved for free. The 6/5 residuals are
+	// TWO other, independent mechanisms, both pre-existing and out of scope
+	// here: (a) three semantic-stage rules (FSDESTR-005, SYSDIR-001,
+	// NSREG-007 — class E) resolve the executable themselves via their own
+	// AST walk, never consulting regex.go's candidates; (b) DECLBIND-001/-002
+	// and PATHHIJACK-ESCSPLICE-001 (classes F/G) need the *parser* to
+	// recognise a spliced "export"/"readonly" as a DeclClause, or a SECOND
+	// splice elsewhere in the same statement folded too — both a level below
+	// what a whole-command regex candidate can fix. Leak sets confirmed
+	// strict subsets of the pre-fix ones (diffed by hand); no new leak
+	// appeared on either position.
+	//
+	// exec-backslash 6 → 3, exec-locale-quote 5 → 4 (2026-09-21, #3848 class
+	// E): closed FSDESTR-005/SYSDIR-001/NSREG-007. These three built-in
+	// semantic.go rules key off ctx.RawCommand as literal text — a
+	// strings.Contains(raw, "find")/"pip config set" prefilter, or (for
+	// sem-block-python-rmtree's heredoc form) interpreterHeredocIntroPattern's
+	// \bpython3\b regex against raw — rather than through ctx.Parsed's
+	// already-folded seg.Executable, so "f\ind /etc -delete" and
+	// "p\ython3 - <<'PY'" contained no literal "find"/"python3" substring to
+	// match. The analyzer already tries three folded copies of raw (IFS,
+	// unset-param, brace-list) for exactly this shape of gap; it was missing
+	// the fourth, shellparse.FoldLeadingExecWord (the same transform class B
+	// added to regex.go). Leak set confirmed a strict subset (diffed by
+	// hand); the exec-locale-quote improvement (one of the same three cases)
+	// came for free from the same candidate — NormalizeExecName folds both
+	// forms. The 3/4 residuals are DECLBIND-001/-002 and
+	// PATHHIJACK-ESCSPLICE-001 (classes F/G) — unrelated to raw-text
+	// prefiltering: mvdan/sh only recognizes "export"/"readonly" as a
+	// DeclClause on an exact literal spelling, so a spliced "e\xport" parses
+	// as a plain CallExpr and the assignment (x=rm) is never extracted for
+	// $x substitution. Left open on #3848 — a parser-shape fix, not a
+	// raw-text-candidate one.
 	positions := []struct {
 		name     string
 		maxLeaks int
 		floor    int
 		ossFloor int
-		fn       func([]string) (string, bool)
+		fn       func([]string) (int, string, bool)
 	}{
-		{"exec-backslash", 55, 1900, 1200, func(f []string) (string, bool) {
+		{"exec-backslash", 3, 1900, 1200, func(f []string) (int, string, bool) {
 			if !usable(f[0]) {
-				return "", false
+				return 0, "", false
 			}
-			return f[0][:1] + `\` + f[0][1:] + " " + strings.Join(f[1:], " "), true
+			return 0, f[0][:1] + `\` + f[0][1:], true
 		}},
-		{"exec-locale-quote", 50, 1900, 1200, func(f []string) (string, bool) {
+		{"exec-locale-quote", 4, 1900, 1200, func(f []string) (int, string, bool) {
 			if !usable(f[0]) {
-				return "", false
+				return 0, "", false
 			}
-			return `$"` + f[0] + `"` + " " + strings.Join(f[1:], " "), true
+			return 0, `$"` + f[0] + `"`, true
 		}},
-		{"arg2-backslash", 120, 1500, 1000, func(f []string) (string, bool) {
+		{"arg2-backslash", 35, 1500, 1000, func(f []string) (int, string, bool) {
 			if len(f) < 2 || !usable(f[1]) {
-				return "", false
+				return 0, "", false
 			}
-			return f[0] + " " + f[1][:1] + `\` + f[1][1:] + " " + strings.Join(f[2:], " "), true
+			return 1, f[1][:1] + `\` + f[1][1:], true
 		}},
 		// punct-escape-flag / punct-escape-slash (#3209): a backslash escaping
 		// a non-alphanumeric, non-shell-special character — the residue
@@ -170,29 +240,29 @@ func TestEscapeSpliceParity(t *testing.T) {
 		// the same artifact unset_paramexp_parity_test.go records for its heredoc
 		// rows. Ratchets back to 13 if this position ever learns to skip
 		// multi-line commands the way continueAtSpace / ifsAtSpace do.
-		{"punct-escape-flag", 6, 280, 170, func(f []string) (string, bool) {
+		// 2026-09-18: it learned to preserve them instead (in-place splice,
+		// see above), and measured 9 — below the 13, because the flattening
+		// had been costing more rows than the two comments above attributed to
+		// it. Same for punct-escape-flag: 5 → 1.
+		{"punct-escape-flag", 1, 280, 170, func(f []string) (int, string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
 				if len(w) > 3 && strings.HasPrefix(w, "--") && usable(w) {
-					mutated := append(append([]string{}, f[:i]...), w[:1]+`\`+w[1:])
-					mutated = append(mutated, f[i+1:]...)
-					return strings.Join(mutated, " "), true
+					return i, w[:1] + `\` + w[1:], true
 				}
 			}
-			return "", false
+			return 0, "", false
 		}},
-		{"punct-escape-slash", 14, 900, 550, func(f []string) (string, bool) {
+		{"punct-escape-slash", 9, 900, 550, func(f []string) (int, string, bool) {
 			for i := 1; i < len(f); i++ {
 				w := f[i]
 				idx := strings.Index(w, "/")
 				if idx < 0 || !usable(w) {
 					continue
 				}
-				mutated := append(append([]string{}, f[:i]...), w[:idx]+`\/`+w[idx+1:])
-				mutated = append(mutated, f[i+1:]...)
-				return strings.Join(mutated, " "), true
+				return i, w[:idx] + `\/` + w[idx+1:], true
 			}
-			return "", false
+			return 0, "", false
 		}},
 	}
 
@@ -203,14 +273,19 @@ func TestEscapeSpliceParity(t *testing.T) {
 			var leaks []string
 			tried := 0
 			for _, tc := range baseline {
-				fields := strings.Fields(tc.Command)
-				if len(fields) < 2 {
+				spans := fieldSpans(tc.Command)
+				if len(spans) < 2 {
 					continue
 				}
-				mutated, ok := p.fn(fields)
+				fields := make([]string, len(spans))
+				for i, s := range spans {
+					fields[i] = tc.Command[s[0]:s[1]]
+				}
+				idx, word, ok := p.fn(fields)
 				if !ok {
 					continue
 				}
+				mutated := spliceField(tc.Command, spans, idx, word)
 				tried++
 				if got := string(engine.Evaluate(mutated, nil).Decision); rank[got] < rank["BLOCK"] {
 					leaks = append(leaks, fmt.Sprintf("[%s] %q -> %q = %s", tc.ID, tc.Command, mutated, got))
@@ -281,5 +356,70 @@ func TestEscapeSpliceFPBoundary(t *testing.T) {
 				t.Errorf("legitimate non-alphanumeric escape usage was BLOCKed:\n  %s", cmd)
 			}
 		})
+	}
+}
+
+// fieldSpans returns the byte spans of cmd's whitespace-delimited fields —
+// exactly the words strings.Fields would return, but with their positions,
+// so a mutation can be applied where the word actually sits instead of into
+// a single-space re-join that has lost every newline.
+func fieldSpans(cmd string) [][2]int {
+	var spans [][2]int
+	start := -1
+	for i, r := range cmd {
+		if unicode.IsSpace(r) {
+			if start >= 0 {
+				spans = append(spans, [2]int{start, i})
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		spans = append(spans, [2]int{start, len(cmd)})
+	}
+	return spans
+}
+
+// spliceField replaces the idx-th field of cmd (per spans) with word,
+// leaving every other byte — including the separators — untouched.
+func spliceField(cmd string, spans [][2]int, idx int, word string) string {
+	s := spans[idx]
+	return cmd[:s[0]] + word + cmd[s[1]:]
+}
+
+// TestSpliceField pins the two properties the parity probe relies on: the
+// spans agree with strings.Fields, and a splice into a multi-line command
+// keeps its newlines (the property the Fields/Join reconstruction lacked).
+func TestSpliceField(t *testing.T) {
+	t.Parallel()
+	for _, cmd := range []string{
+		"echo -n hello",
+		"  sleep  3;\tcurl -sS https://app.example.com/api/packs ",
+		"read zc <<'EOF'\nls -la\nEOF\n$zc",
+		"printf -v c 'ls -la' \\\n  && $c",
+	} {
+		spans := fieldSpans(cmd)
+		want := strings.Fields(cmd)
+		if len(spans) != len(want) {
+			t.Fatalf("%q: %d spans, strings.Fields gives %d", cmd, len(spans), len(want))
+		}
+		for i, s := range spans {
+			if got := cmd[s[0]:s[1]]; got != want[i] {
+				t.Fatalf("%q: field %d = %q, want %q", cmd, i, got, want[i])
+			}
+		}
+	}
+	heredoc := "read zc <<'EOF'\nls -la\nEOF\n$zc"
+	got := spliceField(heredoc, fieldSpans(heredoc), 0, `r\ead`)
+	if want := "r\\ead zc <<'EOF'\nls -la\nEOF\n$zc"; got != want {
+		t.Fatalf("heredoc splice:\n got %q\nwant %q", got, want)
+	}
+	two := "  sleep  3; curl x"
+	if got, want := spliceField(two, fieldSpans(two), 1, `3\;`), "  sleep  3\\; curl x"; got != want {
+		t.Fatalf("arg splice: got %q want %q", got, want)
 	}
 }

@@ -88,11 +88,12 @@
 
     "rule_tests": {
       "type": "object",
-      "description": "Inline TP/TN cases. TP commands MUST fire the rule; TN commands must NOT fire it. Validated by go test ./internal/policy -run TestRuleYAMLTests.",
+      "description": "Inline TP/TN/attested cases. TP commands MUST fire the rule; TN commands must NOT fire it; attested commands MUST fire AND come out at AUDIT via a command_intent_downgrade label (#2843/#2983). Validated by go test ./internal/policy -run TestRuleYAMLTests.",
       "additionalProperties": false,
       "properties": {
         "tp": { "type": "array", "items": { "type": "string" } },
-        "tn": { "type": "array", "items": { "type": "string" } }
+        "tn": { "type": "array", "items": { "type": "string" } },
+        "attested": { "type": "array", "items": { "type": "string" }, "description": "Commands on which the rule fires (is attributed) but a command_intent_downgrade label moves BLOCK/REQUIRE_APPROVAL to an attested AUDIT: doc-text and heredoc positions. Requires command_intent_downgrade on the rule." }
       }
     },
 

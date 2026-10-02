@@ -365,6 +365,402 @@ func TestNormalize_TPRegression_RealPathAccess(t *testing.T) {
 	}
 }
 
+// TestNormalize_FPRegression_BashCommentNotPathExtracted is issue #4009: a
+// line that is entirely a bash comment parses to zero AST segments (nothing
+// executes), which used to fall through to the naive whitespace tokenizer —
+// the same fallback meant for heredoc commands, which doesn't know about
+// `#`. That let the built-in protected-path check (which runs before intent
+// labels like is_bash_comment are consulted) BLOCK a comment that never runs
+// anything.
+func TestNormalize_FPRegression_BashCommentNotPathExtracted(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "whole-line comment", args: []string{"#", "cat", "~/.ssh/id_rsa"}},
+		{name: "no space after hash", args: []string{"#cat", "~/.ssh/id_rsa"}},
+		{name: "leading whitespace before hash", args: []string{"  ", "#", "cat", "~/.ssh/id_rsa"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nc := Normalize(tt.args, "/tmp")
+			for _, p := range nc.Paths {
+				if strings.Contains(p, ".ssh") {
+					t.Errorf("FP: protected path %q was extracted from a bash comment: %v", p, tt.args)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeCommand_TPRegression_ZeroSegmentShapesStillExtractPaths pins
+// the #4013 review finding. shellparse returns ZERO segments for several
+// shapes that do execute or write, so "zero segments" cannot mean "nothing
+// executes". Their only path extraction is the naive fallback, and dropping it
+// fails open on the built-in protected-path check.
+//
+// The path is deliberately one no rule protects (~/.zzorgvault). With a key
+// path a dedicated rule backstops the decision, so a policy-level test passes
+// whether or not the path was extracted.
+func TestNormalizeCommand_TPRegression_ZeroSegmentShapesStillExtractPaths(t *testing.T) {
+	cases := []struct{ name, cmd string }{
+		{"export with command substitution", "export K=$(cat ~/.zzorgvault/token)"},
+		{"export with backticks", "export K=`cat ~/.zzorgvault/token`"},
+		{"declare -x", "declare -x K=$(cat ~/.zzorgvault/token)"},
+		{"readonly", "readonly K=$(cat ~/.zzorgvault/token)"},
+		{"local", "local K=$(cat ~/.zzorgvault/token)"},
+		{"bare truncating redirect", "> ~/.zzorgvault/token"},
+		{"bare appending redirect", ">> ~/.zzorgvault/token"},
+		{"test expression", "[[ -f ~/.zzorgvault/token ]]"},
+		{"comment line then bare redirect", "# note\n> ~/.zzorgvault/token"},
+		// \r is not a blank to bash or zsh: this runs a command named `\r#`
+		// and executes the substitution (#4013 Codex pass 1).
+		{"carriage return before hash", "\r# $(cat ~/.zzorgvault/token)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := NormalizeCommand(tc.cmd, "/tmp")
+			// Precondition: the shape really takes the zero-segment branch.
+			// If the parser starts emitting a segment here, this test no
+			// longer covers the fallback; fail loudly, don't pass vacuously.
+			if nc.Parsed == nil || len(nc.Parsed.Segments) != 0 {
+				t.Fatalf("precondition: want a parsed command with zero segments for %q, got %+v", tc.cmd, nc.Parsed)
+			}
+			for _, p := range nc.Paths {
+				if strings.Contains(p, ".zzorgvault") {
+					return
+				}
+			}
+			t.Errorf("fail-open: no .zzorgvault path extracted from %q, got %v", tc.cmd, nc.Paths)
+		})
+	}
+}
+
+// TestNormalizeCommand_TPRegression_CommandSubstitutionPathExtraction pins
+// #4030: a protected path read inside a command/process substitution is a
+// real read of that path, but the AST-aware walker treated the whole
+// `$(...)`/backtick word as one opaque dynamic token with no path inside it —
+// worse, since the token contains "/", it could be misclassified and mangled
+// into a bogus literal path by expandPath instead. Every path here has no
+// dedicated rule backstopping it (~/.zzorgvault), so a policy-level BLOCK can
+// only come from the built-in protected-path check actually seeing the path.
+//
+// Assertions are on the EXACT resolved path, not a substring: a mangled
+// extraction such as "/tmp/$(cat ~/.zzorgvault/token)" contains the substring
+// and matches no protected_paths glob (#4051 Codex pass 1, test finding).
+func TestNormalizeCommand_TPRegression_CommandSubstitutionPathExtraction(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	const want = "/home/tester/.zzorgvault/token"
+	const p = "~/.zzorgvault/token"
+	const abs = want // quoted operands: bash expands no ~ inside quotes, so a real read names the path absolutely
+	cases := []struct{ name, cmd string }{
+		{"dollar-paren, own segment", "echo $(cat " + p + ")"},
+		{"backtick form", "echo `cat " + p + "`"},
+		{"substitution as the whole command word", "$(cat " + p + ")"},
+		{"substitution captured then referenced", "x=$(cat " + p + "); echo $x"},
+		{"substitution inside a larger word", "echo prefix-$(cat " + p + ")"},
+		{"double-quoted body with a double-quoted absolute operand", `echo "$(cat "` + abs + `")"`},
+		// Codex pass 1, item 1: inside backquotes a nested substitution is
+		// spelled \`...\`. Reparsing the raw body slice read the escapes as
+		// literal backquotes; the whole-command parse reads them as bash does.
+		{"escaped backquote nested in backquotes", "echo `echo \\`cat " + p + "\\``"},
+		// Codex pass 1, item 2: the first version stopped at level 8 and let
+		// level 9 through silently. The parsed walk has no depth cap.
+		{"nested depth 2", nestSubst(2, "cat "+p)},
+		{"nested depth 8", nestSubst(8, "cat "+p)},
+		{"nested depth 9", nestSubst(9, "cat "+p)},
+		{"nested depth 64", nestSubst(64, "cat "+p)},
+		{"input process substitution", "diff <(cat " + p + ") /dev/null"},
+		{"output process substitution", "echo hi > >(cat " + p + ")"},
+		{"unquoted heredoc body runs its substitution", "cat <<EOF\n$(cat " + p + ")\nEOF"},
+		{"substitution inside a double-quoted bash -c string runs in the outer shell", `bash -c "echo $(cat ` + p + `)"`},
+		// A zero-segment body: `<file` is a statement with no command.
+		{"read shorthand, spaced", "echo $(< " + p + ")"},
+		{"read shorthand, unspaced", `echo "$(<` + p + `)"`},
+		{"read shorthand as an assignment value", "K=$(<" + p + ")"},
+		// A zero-segment body with no bare redirect reaches only the fallback
+		// tokenizer — the same model normalize() applies to a zero-segment
+		// top-level command (`[[ -s f ]]` alone extracts f).
+		{"zero-segment body, test clause", `echo "$([[ -s ` + p + ` ]])"`},
+		{"zero-segment body wrapping a nested read", "echo $(export K=$(cat " + p + "))"},
+		// Whole-command context helps here too: the body sees D's value.
+		{"assignment materialized into the body", "D=~/.zzorgvault; echo $(cat $D/token)"},
+		// A here-string's word is data (F1 below), but a substitution INSIDE
+		// that word still runs before the command reads it.
+		{"substitution inside a here-string word", `cat <<< "$(cat ` + p + `)"`},
+		{"substitution inside a here-string word read by read", `read -r v <<< "$(cat ` + p + `)"`},
+		// #4051 Opus pass 2 found each row below unpinned: its mutant survived
+		// the suite. X1 — a bare output redirect opens (and truncates) the file.
+		{"bare truncate", `echo "$(>` + p + `)"`},
+		{"bare append", `echo "$(>>` + p + `)"`},
+		// X2 — the body's own redirect extraction: a compound or subshell
+		// redirect lives on the body's ParsedCommand, and under a heredoc root
+		// nothing else extracts a segment redirect in the body.
+		{"brace-group redirect in a body", `echo "$({ cat; } < ` + p + `)"`},
+		{"segment redirect in a body under a heredoc command", "cat <<EOF\n$(cat < " + p + ")\nEOF"},
+		{"subshell redirect in a body", `echo "$( (cat) < ` + p + `)"`},
+		// A redirect inside a `bash -c` body that sits in a substitution is on
+		// a segment of the body's Subcommands; under a heredoc root only the
+		// substitution walk reaches it (bash runs `cat < P` and reads P).
+		{"bash -c redirect in a body under a heredoc command", "cat <<EOF\n$(bash -c 'cat < " + p + "')\nEOF"},
+		// X10 — a bare redirect on a later statement of the body.
+		{"bare redirect on the second statement", `echo "$(x=1; <` + p + `)"`},
+		// X11 — a substitution inside a parameter-expansion operator word that
+		// DOES run: the variable is unset (so the default runs), unknown to
+		// the model (so it may run), or set (so the alternate runs).
+		{"default of an unset variable", `echo "${ZQUNSETVAR:-$(cat ` + p + `)}"`},
+		{"default of an environment variable", `T="${GITHUB_TOKEN:-$(cat ` + p + `)}"`},
+		{"alternate of a set variable", `x=1; echo "${x:+$(cat ` + p + `)}"`},
+		// X20 — a quoted or spliced read-shorthand word.
+		{"read shorthand, double-quoted absolute", `echo "$(<"` + abs + `")"`},
+		{"read shorthand, single-quoted absolute", `echo "$(<'` + abs + `')"`},
+		{"read shorthand, quote splice", `echo "$(<~/.zz'orgvault'/token)"`},
+		// X23 — a read in a body's later segment.
+		{"read after cd &&", `echo "$(cd /tmp && cat ` + p + `)"`},
+		{"read in a pipeline's second segment", `echo "$(echo x | cat - ` + p + `)"`},
+		{"read after cd ;", `V=$(cd /tmp; cat ` + p + `)`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := NormalizeCommand(tc.cmd, "/tmp")
+			for _, got := range nc.Paths {
+				if got == want {
+					return
+				}
+			}
+			t.Errorf("fail-open: %q not extracted from %q, got %v", want, tc.cmd, nc.Paths)
+		})
+	}
+}
+
+// nestSubst returns `echo $(echo $( … $(inner) … ))` with depth levels of
+// command substitution, inner running at the deepest one.
+func nestSubst(depth int, inner string) string {
+	s := inner
+	for i := 1; i < depth; i++ {
+		s = "echo $(" + s + ")"
+	}
+	return "echo $(" + s + ")"
+}
+
+// TestNormalizeCommand_FPRegression_CommandSubstitutionBenign guards the
+// other direction of #4030's fix: a substitution that does not touch the path
+// must not manufacture an extraction of it.
+func TestNormalizeCommand_FPRegression_CommandSubstitutionBenign(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	const p = "~/.zzorgvault/token"
+	cases := []struct{ name, cmd string }{
+		{"benign basename", "echo $(basename foo)"},
+		{"benign pwd", "echo $(pwd)"},
+		{"benign captured date", "VAR=$(date +%s); echo $VAR"},
+		{"body only prints the path", "echo $(echo " + p + ")"},
+		{"quoted heredoc keeps its body literal", "cat <<'EOF'\n$(cat " + p + ")\nEOF"},
+		{"single quotes keep the body literal", "echo '$(cat " + p + ")'"},
+		{"escaped dollar is not a substitution", `echo \$(cat ` + p + `)`},
+		{"grep pattern inside a body is text", "echo $(grep -c '" + p + "' notes.txt)"},
+		// agentshield-oss#9 model: a `sh -c` body handed to a wrapper is the
+		// inner script's text, at top level and inside a substitution alike.
+		{"docker sh -c body inside a substitution", "echo $(docker run --rm alpine sh -c 'cat " + p + "')"},
+		// Codex pass 1, item 3 — the context-loss mechanism. A real shell runs
+		// the body with e bound, so `$e cat f` is `echo cat f`: it prints.
+		// Parsed on its own, the body had no binding, NormalizeUnsetParamExp
+		// folded $e to nothing, and the extractor saw `cat f` — a false BLOCK.
+		{"outer binding names the body's executable", `e=echo; echo "$($e cat ` + p + `)"`},
+		{"outer binding, braced", `e=echo; echo "$(${e} cat ` + p + `)"`},
+		// These two bindings are resolved by the parse's symbol table, not
+		// materialized into the text, so they also separate the in-context
+		// parse from reparsing the (folded) body text on its own.
+		{"outer array element names the body's executable", `a=(echo); echo "$(${a[0]} cat ` + p + `)"`},
+		{"outer positional names the body's executable", `set -- echo; echo "$($1 cat ` + p + `)"`},
+		// Same loss, IFS side: with IFS empty, `cat${IFS}f` is the single word
+		// `catf` (bash: command not found). The whole command reassigns IFS, so
+		// NormalizeIFS declines to fold; a body parsed alone folded it to a space.
+		{"outer IFS reassignment", "IFS=; echo $(cat${IFS}" + p + ")"},
+		// #4051 Opus pass 2, F1: a here-string's word and a heredoc's body are
+		// data on stdin, not a file the command opens. Main never extracted
+		// these (the spaced `<<<` sends main's whole command to the fallback
+		// tokenizer, which swallows everything after the operator); pass 1
+		// did, through the substitution walk's redirect loop.
+		{"here-string word read by cat", `echo "$(cat <<< '` + p + `')"`},
+		{"here-string word counted by wc", `N=$(wc -l <<< "` + p + `")`},
+		{"here-string word parsed by jq", `F=$(jq -r . <<< '"` + p + `"')`},
+		{"here-string word searched by grep", `N=$(grep -c vault <<< '` + p + `')`},
+		{"unspaced here-string word", `echo "$(tr a-z A-Z <<<'` + p + `')"`},
+		{"here-string after a heredoc commit message", "git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\"; N=$(wc -l <<< '" + p + "')"},
+		{"command-less unspaced here-string body", `echo "$(<<<'` + p + `')"`},
+		{"heredoc body text inside a substitution", "X=$(cat <<'EOF'\n" + p + "\nEOF\n)"},
+		// A heredoc's delimiter is a word too, and it is never opened.
+		{"heredoc delimiter that looks like a path", "X=$(cat <<'" + p + "'\nx\n" + p + "\n)"},
+		{"tab-stripping heredoc delimiter that looks like a path", "X=$(cat <<-'" + p + "'\n\tx\n\t" + p + "\n)"},
+		// The same data words on a compound command's own redirect (they land
+		// on the body's ParsedCommand.Redirects, not on a segment).
+		{"here-string fed to a brace group", `echo "$({ cat; } <<< '` + p + `')"`},
+		{"here-string fed to a subshell", `echo "$( (cat) <<< '` + p + `')"`},
+		{"here-string fed to a while loop", `echo "$(while read l; do echo $l; done <<< '` + p + `')"`},
+		{"path-shaped heredoc delimiter on a brace group", "X=$({ cat; } <<'" + p + "'\nx\n" + p + "\n)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := NormalizeCommand(tc.cmd, "/tmp")
+			// Anything under the directory is what a `~/.zzorgvault/**` glob
+			// would match, so that is the bar — not just the exact file.
+			for _, got := range nc.Paths {
+				if strings.HasPrefix(got, "/home/tester/.zzorgvault/") {
+					t.Errorf("unexpected extraction %q from %q (all: %v)", got, tc.cmd, nc.Paths)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeCommand_Gap_CommandSubstitutionUnfoldedDefaultExecutable pins
+// a documented false BLOCK, so closing it has to be deliberate.
+//
+// `e=echo; echo "$(${e:-cat} f)"` prints f — e is bound — but the executable
+// word stays the unresolved text `${e:-cat}`: shellparse's resolver
+// deliberately does not fold the default operators for a bound variable
+// (paramop.go foldExpansionOp; the unset side belongs to
+// NormalizeUnsetParamExp). An executable the model cannot name is not known to
+// be print-only, so its path-shaped operand is extracted — at top level on
+// main exactly as inside the substitution (both rows below). This is the
+// residual of Codex pass 1 item 3 after the context fix: not context loss,
+// the top-level model's own over-approximation reaching one more position.
+func TestNormalizeCommand_Gap_CommandSubstitutionUnfoldedDefaultExecutable(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	const want = "/home/tester/.zzorgvault/token"
+	for _, cmd := range []string{
+		`e=echo; ${e:-cat} ~/.zzorgvault/token`,           // top level (main: extracted)
+		`e=echo; echo "$(${e:-cat} ~/.zzorgvault/token)"`, // same word inside a substitution
+	} {
+		nc := NormalizeCommand(cmd, "/tmp")
+		found := false
+		for _, got := range nc.Paths {
+			if got == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("gap closed for %q (paths %v): if deliberate, move this row to the benign table and update #4051's boundary note", cmd, nc.Paths)
+		}
+	}
+}
+
+// TestNormalizeCommand_Gap_CommandSubstitutionModelBoundaries pins the
+// documented false BLOCKs of #4051's substitution walk (Opus pass 2, F2-F4)
+// and two parity rows, so closing any of them has to be deliberate. Every row
+// is extracted today although bash does NOT read the file (each verified
+// against a real bash); each has a top-level analog that main already
+// extracts, listed after it, so none is a class the walk invented — it is the
+// top-level model reaching into substitution bodies.
+func TestNormalizeCommand_Gap_CommandSubstitutionModelBoundaries(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	const want = "/home/tester/.zzorgvault/token"
+	const p = "~/.zzorgvault/token"
+	cases := []struct{ name, cmd string }{
+		// F2: a substitution in a parameter-expansion operator word runs only
+		// when the operator selects it; the walk treats it as always run. The
+		// model treats every branch as reachable at top level too.
+		{"F2 default of a set variable", `x=1; echo "${x:-$(cat ` + p + `)}"`},
+		{"F2 alternate of an unset variable", `unset x; echo "${x:+$(cat ` + p + `)}"`},
+		{"F2 analog: dead branch at top level", "true || cat " + p},
+		// F3: an uncalled function's body never runs.
+		{"F3 uncalled function body", `f() { echo "$(cat ` + p + `)"; }`},
+		{"F3 analog: uncalled function at top level", "f() { cat " + p + "; }"},
+		// F4: a zero-segment body goes through the fallback tokenizer, which
+		// skips the first token (it is the executable in a top-level command)
+		// and reads quoted text and heredoc/here-string data as paths.
+		{"F4 quoted text in a zero-segment body", `echo "$(export MSG='do not cat ` + p + `')"`},
+		{"F4 same, after another statement", `ls; echo "$(export MSG='do not cat ` + p + `')"`},
+		{"F4 analog: zero-segment command at top level", "export MSG='do not cat " + p + "'"},
+		{"F4 command-less heredoc body", "echo \"$(<<'EOF'\n" + p + "\nEOF\n)\""},
+		{"F4 analog: command-less heredoc at top level", "<<'EOF'\n" + p + "\nEOF"},
+		{"F4 command-less spaced here-string body", `echo "$(<<< '` + p + `')"`},
+		{"F4 analog: command-less spaced here-string at top level", "<<< '" + p + "'"},
+		// Parity: expandPath strips quotes before resolving ~ (#2813), so a
+		// quoted ~ resolves to the home path although bash expands no ~ inside
+		// quotes. Same as `cat "~/…"` at top level on main.
+		{"quoted-tilde operand in a body", `echo "$(cat "` + p + `")"`},
+		{"quoted-tilde read shorthand", `echo "$(<"` + p + `")"`},
+		{"analog: quoted-tilde operand at top level", `cat "` + p + `"`},
+		// Top level, NOT changed by #4051: an unspaced here-string word in a
+		// command that parses to segments is extracted as a redirect path.
+		// Removing that is a separate narrowing.
+		{"top-level unspaced here-string word", "true; cat<<<'" + p + "'"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := NormalizeCommand(tc.cmd, "/tmp")
+			for _, got := range nc.Paths {
+				if got == want {
+					return
+				}
+			}
+			t.Errorf("boundary closed for %q (paths %v): if deliberate, move the row to the benign table and update #4051's boundary list", tc.cmd, nc.Paths)
+		})
+	}
+}
+
+// TestNormalizeCommand_FPRegression_MultiLineCommentBlock: a block made only of
+// comment and blank lines is as inert as a single comment line (#4009).
+func TestNormalizeCommand_FPRegression_MultiLineCommentBlock(t *testing.T) {
+	key := "~/." + "ssh/id_rsa"
+	for _, cmd := range []string{
+		"# step 1\n# cat " + key,
+		"\n  # cat " + key + "\n\n",
+		"\t#cat " + key,
+	} {
+		nc := NormalizeCommand(cmd, "/tmp")
+		for _, p := range nc.Paths {
+			if strings.Contains(p, ".ssh") {
+				t.Errorf("FP: protected path %q extracted from comment-only %q", p, cmd)
+			}
+		}
+	}
+}
+
+func TestIsCommentOnly(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		"# a":               true,
+		"  #a\n\n# b":       true,
+		"":                  false,
+		"   \n":             false,
+		"# a\ncat x":        false,
+		"cat x # a":         false,
+		"> x":               false,
+		"export K=$(cat x)": false,
+		"\r# a":             false, // \r is not a shell blank
+		"\v# a":             false,
+		"\u00a0# a":         false,
+		"# a\r":             true, // CRLF line ending on a comment
+	} {
+		if got := isCommentOnly(cmd); got != want {
+			t.Errorf("isCommentOnly(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// TestNormalize_TPRegression_TrailingCommentStillExtractsRealPath is the
+// companion positive control for #4009: a real command that merely has a
+// trailing `#` comment on the same line must still have its own path
+// extracted — the AST parses one real segment there, so the fix (which only
+// withholds extraction for comment-only text) must not touch it.
+func TestNormalize_TPRegression_TrailingCommentStillExtractsRealPath(t *testing.T) {
+	homeDir, _ := os.UserHomeDir()
+	nc := Normalize([]string{"cat", "~/.ssh/id_rsa", "#", "note"}, "/tmp")
+	want := filepath.Join(homeDir, ".ssh/id_rsa")
+	found := false
+	for _, got := range nc.Paths {
+		if got == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("TP: expected path %q to be extracted, got %v", want, nc.Paths)
+	}
+}
+
 // TestNormalize_ASTCachesParseResult verifies that the Parsed field is
 // populated for non-heredoc commands, enabling downstream reuse.
 func TestNormalize_ASTCachesParseResult(t *testing.T) {

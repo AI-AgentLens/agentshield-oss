@@ -2125,7 +2125,7 @@ structural_rules:
         - tool: "__mcp_roots_list_response__"
           args: {"uri": "file:///workspace/specific-project"}
 
-  # === AUDIT: MCP write to AI agent memory stores (agent-safety-alignment-drift)
+  # === AUDIT: MCP write to AI agent memory stores (agent-memory-poisoning)
   # (moved from semantic_rules: — args_match/tool_name_any are structural
   # predicates, not semantic MCPSemanticMatch fields; see #2869 Class B) ===
   #
@@ -2136,11 +2136,18 @@ structural_rules:
   # Note: CLAUDE.md and broader agent instruction files are covered by the
   # pre-existing mcp-persist-block-instruction-file-write rule (mcp-persistence.yaml)
   # with taxonomy persistence-evasion/agent-config-persistence. This rule targets
-  # the .claude/memory/ store specifically with the alignment-drift taxonomy.
+  # the .claude/memory/ store specifically.
   #
-  # OWASP LLM01/LLM08 | Taxonomy: unauthorized-execution/agentic-attacks/agent-safety-alignment-drift
+  # Re-homed 2026-09-20 (#3934): agent-safety-alignment-drift's abstract
+  # explicitly excludes single-event guardrail detections ("without triggering
+  # any single-event guardrail detection") — this rule fires on one write to
+  # one path. agent-memory-poisoning covers "memory databases, context stores"
+  # and is where 4 sibling Comply rules (ai-agent-memory-poisoning.yaml) for
+  # the same artifact already resolve.
+  #
+  # OWASP LLM01/LLM08 | Taxonomy: unauthorized-execution/agentic-attacks/agent-memory-poisoning
   - id: mcp-audit-agent-memory-store-write
-    taxonomy: "unauthorized-execution/agentic-attacks/agent-safety-alignment-drift"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-memory-poisoning"
     match:
       tool_name_any:
         - "write_file"

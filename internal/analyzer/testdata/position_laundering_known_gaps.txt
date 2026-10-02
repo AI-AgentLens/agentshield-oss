@@ -1,0 +1,17 @@
+# Known laundering gaps for TestPositionExclusionCannotBeLaundered (internal/analyzer/position_laundering_fitness_test.go).
+# Same format and reading as doctext_laundering_known_gaps.txt: rule<TAB>channel<TAB>fnv32a(tp)<TAB>note.
+# The first three fields are the key; the note is for the reader. `#` and blank lines are ignored.
+#
+# Every line would be a BLOCK that becomes an AUDIT because a command_position_exclude
+# position excused text the command then EXECUTES (piped into a shell/interpreter, or
+# written to a path the command runs or sources). Leaks that also occur with every
+# position exclusion stripped are not recorded here: the test counts them separately
+# ("lower-but-not-position"), because a position withdrawal cannot fix them.
+#
+# Empty since #3967 (2026-09-22): 52 leaks on 09a1762a (heredoc_body 42,
+# interp_heredoc_literal 7, quoted_program_arg 3), 0 after the executor-reach withdrawal.
+# #3976 (2026-09-23) added six substitution channels (cmdsub via bash -c and eval,
+# procsub, capture-then-eval, python/awk procsub): 76 leaks with the new predicate
+# disabled, 0 with it. "Empty" means empty over the channels the test probes, not
+# over every way text can reach an executor.
+# A new line here is a regression to explain, not an allowance.

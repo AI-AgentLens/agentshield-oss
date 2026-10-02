@@ -707,6 +707,15 @@ func TestBindingBuiltinHeredocResolution(t *testing.T) {
 // TestSetPositionalResolution covers #3237: `set -- <words>` binding bash's
 // positional parameters ($1, $@, $*), resolved the same way #3089's scalar
 // variables and #3091's array literals are.
+//
+// `shift` rule (#3876): a shift bails positional resolution only when it
+// actually moves the words a later use site reads — a literal count between
+// 1 and the number of words bound, placed after the `set --` and before the
+// last positional use, outside a function body. `shift 0`, a count larger
+// than the words bound (bash reports an error and shifts nothing), a shift
+// before the `set --`, and a shift after the last use site leave the resolved
+// words untouched. A non-literal count still bails: the table cannot know
+// whether it moves anything.
 func TestSetPositionalResolution(t *testing.T) {
 	tests := []struct {
 		name string
@@ -744,9 +753,39 @@ func TestSetPositionalResolution(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "shift anywhere in the command bails ALL positional resolution",
+			name: "shift that moves the words bails positional resolution",
 			cmd:  `set -- rm ls; shift; $1 -rf /`,
 			want: "",
+		},
+		{
+			name: "shift 1 before the use site with two words bound bails",
+			cmd:  `set -- rm ls; shift 1; $1 -rf /`,
+			want: "",
+		},
+		{
+			name: "shift with a non-literal count bails",
+			cmd:  `set -- rm ls; shift $n; $1 -rf /`,
+			want: "",
+		},
+		{
+			name: "shift 0 moves nothing and keeps resolution (#3876)",
+			cmd:  `set -- rm -rf /; shift 0; "$@"`,
+			want: `set -- rm -rf /; shift 0; rm -rf /`,
+		},
+		{
+			name: "shift past the bound words moves nothing and keeps resolution (#3876)",
+			cmd:  `set -- rm -rf /; shift 99; "$@"`,
+			want: `set -- rm -rf /; shift 99; rm -rf /`,
+		},
+		{
+			name: "shift after the last positional use keeps resolution (#3876)",
+			cmd:  `set -- rm -rf /; "$@"; shift`,
+			want: `set -- rm -rf /; rm -rf /; shift`,
+		},
+		{
+			name: "shift before the set-- keeps resolution (#3876)",
+			cmd:  `shift; set -- rm -rf /; "$@"`,
+			want: `shift; set -- rm -rf /; rm -rf /`,
 		},
 		{
 			name: "out-of-range index yields no-op",
@@ -806,6 +845,56 @@ func TestSetPositionalFuncDeclScoping(t *testing.T) {
 			cmd:            `f() { echo hi; }; set -- rm; $1 -rf /`,
 			segIdx:         2,
 			wantExecutable: "rm",
+		},
+		{
+			// #3876: a shift inside a function body moves that function's own
+			// positionals, never the outer `set --` words, so it must not bail
+			// resolution at the top level — whether or not f is ever called.
+			name:           "shift inside an uncalled function keeps outer resolution",
+			cmd:            `f() { shift; }; set -- rm -rf /; "$@"`,
+			segIdx:         2,
+			wantExecutable: "rm",
+		},
+		{
+			name:           "shift inside a called function keeps outer resolution",
+			cmd:            `f() { shift; }; set -- rm -rf /; f; "$@"`,
+			segIdx:         3,
+			wantExecutable: "rm",
+		},
+		{
+			// Control for the two rows above: the same shape with no shift at
+			// all resolves the same way, so the rows measure the shift.
+			name:           "control: function without a shift keeps outer resolution",
+			cmd:            `f() { true; }; set -- rm -rf /; "$@"`,
+			segIdx:         2,
+			wantExecutable: "rm",
+		},
+		{
+			// The declaration sits AFTER the `set --` here, so the
+			// shift-before-set clause cannot preserve resolution on its own:
+			// only the function-body clause does (Codex review of #3962).
+			name:           "shift inside an uncalled function declared after set-- keeps outer resolution",
+			cmd:            `set -- rm -rf /; f() { shift; }; "$@"`,
+			segIdx:         2,
+			wantExecutable: "rm",
+		},
+		{
+			// bash function positionals are function-scoped: calling f shifts
+			// f's own (empty) list, never the caller's words. Verified on
+			// bash 3.2 and 5.3: `set -- rm -rf /; f() { shift; }; f; "$@"`
+			// runs `rm -rf /`.
+			name:           "shift inside a called function declared after set-- keeps outer resolution",
+			cmd:            `set -- rm -rf /; f() { shift; }; f; "$@"`,
+			segIdx:         3,
+			wantExecutable: "rm",
+		},
+		{
+			// A top-level shift that really moves the words still bails, even
+			// with a function present.
+			name:           "top-level shift that moves the words still bails",
+			cmd:            `f() { true; }; set -- ls rm -rf /; shift; "$@"`,
+			segIdx:         3,
+			wantExecutable: `"$@"`,
 		},
 	}
 	for _, tc := range tests {

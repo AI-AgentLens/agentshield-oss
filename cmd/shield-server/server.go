@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -228,6 +229,21 @@ type evaluateResponse struct {
 	Mode             string   `json:"mode"`
 	Degraded         bool     `json:"degraded"`
 	SessionID        string   `json:"session_id,omitempty"`
+	// Notes: where evaluation excused a match or knowingly gave up (#3995).
+	// Omitted when empty. Carried to the server's own audit log too.
+	Notes []analyzer.Note `json:"notes,omitempty"`
+}
+
+// auditNotes is the server-side twin of cli.auditNotes: nil in, nil out.
+func auditNotes(ns []analyzer.Note) []logger.Note {
+	if len(ns) == 0 {
+		return nil
+	}
+	out := make([]logger.Note, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, logger.Note{Kind: n.Kind, Rule: n.Rule, Detail: n.Detail})
+	}
+	return out
 }
 
 type healthResponse struct {
@@ -322,6 +338,7 @@ func (s *Server) evaluateShell(req evaluateRequest) evaluateResponse {
 		Reasons:          result.Reasons,
 		Taxonomy:         result.TaxonomyRefs,
 		Explanation:      result.Explanation,
+		Notes:            result.Notes,
 		OriginalDecision: string(result.OriginalDecision),
 		Remediation:      remediation.SuggestForShell(result.TriggeredRules, req.Command),
 	}
@@ -407,6 +424,7 @@ func (s *Server) logAudit(req evaluateRequest, resp evaluateResponse) {
 		TriggeredRules:   resp.Rules,
 		Reasons:          resp.Reasons,
 		TaxonomyRefs:     resp.Taxonomy,
+		Notes:            auditNotes(resp.Notes),
 		Mode:             resp.Mode,
 		OriginalDecision: resp.OriginalDecision,
 		Source:           source,

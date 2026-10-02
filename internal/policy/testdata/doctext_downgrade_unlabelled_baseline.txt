@@ -1,0 +1,177 @@
+# Baseline for TestBlockShellRulesCarryDocTextDowngrade (internal/policy/doctext_downgrade_coverage_test.go).
+# Every line is a BLOCK rule with a command_regex/command_prefix/command_exact matcher whose
+# command_intent_downgrade does NOT include both is_doc_text and in_heredoc. Each line:
+#   rule-id<TAB>reason<TAB>pack
+# `#` and blank lines are ignored. The test fails on an unlabelled rule missing from this file AND on a
+# line that no longer needs to be here (rule now labelled, or gone), so the file only ever shrinks.
+# Removing a line is the deliberate act: label the rule, prove its TPs keep BLOCK, delete the line.
+#
+# Generated 2026-09-22 by the #3963 sweep, which labelled 408 of the 543 unlabelled rules
+# [is_doc_text, in_heredoc]. These 135 were measured and left OUT of the sweep; each needs a human (Gary):
+#
+#   tp-loses-block(inline|corpus)   an inline or corpus TRUE POSITIVE drops BLOCK->AUDIT with the label.
+#                                   Nearly all are rules whose attack IS a text position: echo/printf/tee/
+#                                   here-string writing a sensitive file (sudoers, ~/.bashrc, .npmrc, ...),
+#                                   or a text payload (prompt-injection strings, bidi/OSC52/ANSI escapes,
+#                                   gh pr --body reviewer bypass). A doc-text label cannot distinguish the
+#                                   documentation from the attack there; a position-scoped mechanism can.
+#   echo-wrap-laundering-leak       TestDocTextDowngradeCannotBeLaundered reports a NEW leak once labelled
+#                                   (echo '<tp>' | bash, or echo "$(<tp>)" ends at AUDIT).
+#   heredoc-suffix-laundering-leak  appending ` <<< x` or a heredoc to a live TP (e.g. `cat <secret-file> <<< x`)
+#                                   drops it BLOCK->AUDIT: the in_heredoc classifier treats `cat FILE <<< x`
+#                                   as an inert cat-heredoc sink although cat reads FILE. The same leak
+#                                   already exists on main for 21 TPs of labelled rules (#3964).
+#
+#   deliberate-no-downgrade          the rule carries an in-pack comment recording a deliberate decision NOT to
+#                                   downgrade; the sweep does not override a recorded decision.
+#
+# The 11 partial-label rules below predate the sweep: they carry a deliberately narrower label set
+# (e.g. only in_interpreter_heredoc) chosen per rule, and were not examined here.
+
+ne-block-curlrc-wgetrc-proxy-write	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
+ne-block-dev-tcp	tp-loses-block(corpus)	packs/premium/network-egress.yaml
+ne-block-dns-exfil-backtick	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
+ne-block-dns-exfil-subquery	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
+ne-block-dns-exfil-var-indirect	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
+ne-block-etc-hosts-write	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
+ne-block-llm-configfile-endpoint-hijack	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
+ne-block-llm-userconfig-endpoint-hijack	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
+ne-block-resolv-conf-write	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
+sc-block-ado-prependpath	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-ai-endpoint-dotenv-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-ai-hosts-hijack	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-cargo-config-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-devcontainer-tee	tp-loses-block(inline)	packs/premium/supply-chain.yaml
+sc-block-devcontainer-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-docker-compose-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-dockerfile-tee	tp-loses-block(inline)	packs/premium/supply-chain.yaml
+sc-block-dockerfile-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-gemrc-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-github-path-injection	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-lockfile-overwrite	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-mcp-config-injection	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-ml-dataset-append	heredoc-suffix-laundering-leak (#3964)	packs/premium/supply-chain.yaml
+sc-block-ml-dataset-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-npmrc-edit	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-pip-conf-write	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sc-block-pypirc-edit	tp-loses-block(inline+corpus)	packs/premium/supply-chain.yaml
+sec-block-age-identity-key	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-ai-ide-oauth-token-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-aws-credential-process-poison	tp-loses-block(inline+corpus)	packs/premium/secrets-pii-advanced.yaml
+sec-block-aws-credentials-static-key-poison	tp-loses-block(inline+corpus)	packs/premium/secrets-pii-advanced.yaml
+sec-block-chrome-login-db	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-cloud-cred-regex	tp-loses-block(corpus)	packs/community/secrets-pii.yaml
+sec-block-firefox-login-db	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-ipsec-secrets-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-keepassxc-config-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-keepassxc-db-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-keytab-file-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-krb5cc-copy	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-kubeconfig-file-access	tp-loses-block(corpus)	packs/community/secrets-pii.yaml
+sec-block-ml-platform-token-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-pass-store-direct	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-protected-path-cred-regex	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-tfstate-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+sec-block-wireguard-conf-read	heredoc-suffix-laundering-leak (#3964)	packs/community/secrets-pii.yaml
+ts-block-account-db-direct-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-actions-runner-hook-job	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-agent-session-hijack	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-agent-settings-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-agentshield-log-truncate	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-ansic-hex-escape	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-ansic-octal-escape	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-ansic-unicode-escape	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-bash-aliases-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-bash-dev-tcp	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-batch-schedule	echo-wrap-laundering-leak	packs/community/terminal-safety.yaml
+ts-block-bidi-embedding	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-bidi-isolate	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-bidi-override	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-binfmt-modify	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-binfmt-register	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-cdpath-untrusted-injection	echo-wrap-laundering-leak	packs/community/terminal-safety.yaml
+ts-block-chromium-extension-policy-tamper	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-cicd-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-cicd-write-reverse	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-coproc-fd-write	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-core-pattern-pipe	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-deep-path-traversal	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-delegation-artifact-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-dev-kmem-write	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-echo-pts	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-gid-map-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-git-hook-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-git-rr-cache-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-gitattributes-merge-marker-bypass	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-indirect-injection-html-comment	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-indirect-injection-llm-format	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-indirect-injection-markdown-alt	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-instruction-file-exfil-embed	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-jailbreak-compliance-prefix	echo-wrap-laundering-leak	packs/community/terminal-safety.yaml
+ts-block-kernel-helper-path-hijack	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-kubeconfig-exec-plugin-poison	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-launchd-system-persist	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-launchd-user-persist	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-launchd-user-persist-tee	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-ld-preload-export	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-ldso-conf-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-ldso-preload-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-llm-chmod-dangerous	echo-wrap-laundering-leak	packs/community/terminal-safety.yaml
+ts-block-log-file-clear	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-logrotate-script-injection	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-mcp-oauth-token-read	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-mcp-registration-agent-config-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-osc52-clipboard-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-pam-config-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-pam-exec-script-injection	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-paramexp-prompt-transform	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-path-hijack-export	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-policy-puppetry-xml	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-pr-description-ai-reviewer-bypass	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-proc-fd-read	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-proc-mem-read	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-proc-root-escape	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-procsub-exfil	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-procsub-output-network	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-procsys-write-security	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-pts-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-python-pth-tee	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-python-pth-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-python-sitecustomize-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-ransom-note-artifact-creation	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-self-propagating-injection	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-selinux-config-disable	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-setgroups-deny	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-shell-profile-append	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-shell-profile-overwrite	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-shell-profile-tee	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-shell-sysprofile-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-shm-redirect-sensitive	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-ssh-config-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-sshd-server-config-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-sudoers-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-sysrq-trigger	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-systemd-local-persist	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-systemd-local-persist-tee	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-systemd-user-persist	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-systemd-user-persist-tee	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
+ts-block-uid-map-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-venv-pyvenv-cfg-interpreter-poison	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
+ts-block-wildcard-inject-checkpoint	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-wildcard-inject-checkpoint-marker	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-wildcard-inject-reference	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-wildcard-inject-rsync-shell	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+
+ts-block-authorized-keys-write	partial-label (pre-existing: [in_interpreter_heredoc])	packs/community/terminal-safety.yaml
+ts-block-git-config-sshcommand	partial-label (pre-existing: [in_heredoc])	packs/community/terminal-safety.yaml
+ts-block-cgroup-release-agent-write	partial-label (pre-existing: [in_heredoc])	packs/community/terminal-safety.yaml
+ts-block-cgroup-notify-on-release	partial-label (pre-existing: [in_heredoc])	packs/community/terminal-safety.yaml
+ts-block-printf-v-exec	partial-label (pre-existing: [in_heredoc])	packs/community/terminal-safety.yaml
+ts-block-mfa-seed-replacement	partial-label (pre-existing: [in_heredoc])	packs/premium/secrets-pii-advanced.yaml
+sc-block-agent-skill-scanner-truncation-padding	partial-label (pre-existing: [in_heredoc])	packs/premium/supply-chain.yaml
+ts-block-llm-eval-stdin-pipe	partial-label (pre-existing: [in_heredoc])	packs/premium/terminal-safety-advanced.yaml
+ts-block-best-of-n-jailbreak-meta	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
+ts-block-authority-framed-env-exfil-telemetry	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
+ts-block-programdata-ai-config-plant	partial-label (pre-existing: [in_interpreter_heredoc])	packs/premium/terminal-safety-advanced.yaml
+ts-block-home-redirect	deliberate-no-downgrade (#3793 in-pack comment; decision held on draft PR #3813)	packs/community/terminal-safety.yaml
+ts-block-home-redirect-inline	deliberate-no-downgrade (#3793 in-pack comment; decision held on draft PR #3813)	packs/community/terminal-safety.yaml

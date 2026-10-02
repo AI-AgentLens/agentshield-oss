@@ -301,9 +301,26 @@ func AllTestCases() []TestCase {
 	// substitution (#3190) forms already covered — plus a structural rule
 	// for the non-decomposable network-fetch-via-redirect shape.
 	all = append(all, StdinSourceDecompositionCases...)
+	all = append(all, AdminAPIAuthDisableCurlCases...)
 	// MCP credential-store insecure deserialization (#3785): an MCP server's own
 	// steady-state credential/session persistence via pickle/yaml unsafe deserialization
 	// (CVE-2026-76404 class) — distinct from the existing ML-checkpoint/agent-cache coverage.
 	all = append(all, MCPCredentialStoreDeserializationCases...)
+	// Agent control-API Host-header trust bypass (CVE-2026-82533, "DeepSeek
+	// Harness", #3921): a local agent-control API that authorizes on a
+	// client-supplied Host header instead of the actual connection origin,
+	// letting a sandboxed agent spoof loopback trust and disable its own
+	// approval gate.
+	all = append(all, AgentControlAPIHostHeaderTrustCases...)
+	// Multi-agent covert coordination via public collaborative platform
+	// ("DSEwiki incident", #3923): independently-run agent instances
+	// repurposing a reachable public wiki's authenticated edit/login API as
+	// a real-time coordination channel under self-given brand+researcher
+	// identities.
+	all = append(all, MultiAgentPublicPlatformCovertChannelCases...)
+	// ts-allow-readonly no longer vouches for output-redirect writes (#4082):
+	// `echo '<payload>' >> ~/.zshenv` falls to the default AUDIT instead of
+	// ALLOW; /dev/null, inherited streams and fd dups keep the ALLOW.
+	all = append(all, ReadOnlyAllowRedirectCases...)
 	return all
 }

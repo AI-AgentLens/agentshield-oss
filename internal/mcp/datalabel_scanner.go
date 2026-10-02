@@ -97,6 +97,24 @@ func (s *DataLabelScanner) ScanToolCallContent(toolName string, arguments map[st
 		}
 
 		matches := s.engine.ScanText(text, toolName, "outbound")
+		// A nested argument is json.Marshal'd, which escapes `&`, `<`, `>`
+		// and newlines, so a label pattern containing one never matched
+		// inside it. Scan its decoded view too, under its own byte budget,
+		// and keep one finding per label.
+		if _, isString := argValue.(string); !isString {
+			if alt, ok := decodedValueScanText(argValue); ok {
+				have := map[string]bool{}
+				for _, m := range matches {
+					have[m.LabelID] = true
+				}
+				for _, m := range s.engine.ScanText(alt, toolName, "outbound") {
+					if !have[m.LabelID] {
+						have[m.LabelID] = true
+						matches = append(matches, m)
+					}
+				}
+			}
+		}
 		for _, m := range matches {
 			finding := DataLabelFinding{
 				LabelID:     m.LabelID,

@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -325,6 +324,19 @@ func ScanElicitationCreate(params *ElicitationCreateParams) ElicitationScanResul
 		}
 	}
 
+	// --- URL-mode target and install deep links (MCP 2025-11-25) ---
+	//
+	// The one field on this surface the client is asked to OPEN. See
+	// elicitation_url_scanner.go for the three verdicts.
+	for _, f := range scanElicitationURLs(params) {
+		result.Findings = append(result.Findings, f)
+		if elicitationURLSignalBlocks(f.Signal) {
+			result.Blocked = true
+		} else {
+			result.Audited = true
+		}
+	}
+
 	return result
 }
 
@@ -343,8 +355,16 @@ func elicitationRawSchemaFindings(schema *ElicitationSchema, alreadyReported map
 	if schema == nil || len(schema.Raw) == 0 {
 		return nil
 	}
-	var root map[string]interface{}
-	if err := json.Unmarshal(schema.Raw, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and hide
+	// every credential-shaped property name from this pass (#4069). A syntax
+	// error still returns nothing — the request is malformed JSON-RPC.
+	decoded, ok := decodeJSONValue(schema.Raw)
+	if !ok {
+		return nil
+	}
+	root, ok := decoded.(map[string]interface{})
+	if !ok {
 		return nil
 	}
 

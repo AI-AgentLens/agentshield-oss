@@ -52,6 +52,13 @@ import (
 //     structurally, so the cue is not needed and the match is admitted, at
 //     AUDIT tier (SignalAudienceHiddenLatentDirective).
 //
+// Correction (#3911): in a model-only block the quotation gate is no longer
+// the ordinary response surface's gate. Its structural legs (quotes,
+// backticks, fences, blockquote/dialogue labels) do not apply — the server
+// routed the block away from the human, so a fence inside it is not innocent
+// quotation — and a match behind an attribution cue is recorded at AUDIT
+// instead of dropped. See scanHiddenBlockText.
+//
 // Two further shapes exist only because the audience field exists:
 // an instruction to conceal information from the human, delivered in a block
 // the human is already not being shown (SignalAudienceHiddenUserConcealment);
@@ -120,8 +127,13 @@ type ContentAudienceFinding struct {
 	Snippet      string                `json:"snippet,omitempty"`
 	// Blocking distinguishes the BLOCK-tier signals from the AUDIT-tier one so
 	// the call site can act on a mixed-tier result without re-deriving the
-	// mapping from the signal name.
+	// mapping from the signal name. False on a BLOCK-tier signal when the
+	// attribution gate downgraded it (AttributionGated).
 	Blocking bool `json:"blocking"`
+	// AttributionGated records that the match sat behind an explicit
+	// attribution cue, so it was recorded at AUDIT instead of blocked (#3911).
+	// Before #3911 such a match produced no finding at all.
+	AttributionGated bool `json:"attribution_gated,omitempty"`
 }
 
 // ContentAudienceScanResult is the outcome of ScanContentAudienceChannel.
@@ -240,7 +252,27 @@ func scanHiddenBlocks(items []ContentItem) ContentAudienceScanResult {
 // finalizeContentAudienceResult derives Blocked/Found from the accumulated
 // findings. Shared by every surface adapter so the tier-derivation logic
 // cannot drift between them.
+//
+// It also orders ungated findings ahead of attribution-gated ones (#3911),
+// stably. Call sites read Findings[0] for the audit TaxonomyRef and the BLOCK
+// reason; gated findings did not exist before #3911, so putting them last
+// keeps both exactly what they were for any result that has an ungated
+// finding.
 func finalizeContentAudienceResult(result ContentAudienceScanResult) ContentAudienceScanResult {
+	if len(result.Findings) > 0 {
+		ordered := make([]ContentAudienceFinding, 0, len(result.Findings))
+		for _, f := range result.Findings {
+			if !f.AttributionGated {
+				ordered = append(ordered, f)
+			}
+		}
+		for _, f := range result.Findings {
+			if f.AttributionGated {
+				ordered = append(ordered, f)
+			}
+		}
+		result.Findings = ordered
+	}
 	for _, f := range result.Findings {
 		if f.Blocking {
 			result.Blocked = true
@@ -283,17 +315,31 @@ func scanContentAudienceRenderRecovered(result *ContentAudienceScanResult, items
 		return
 	}
 
+	// seen maps a finding key to whether the finding already held for it was
+	// attribution-gated. A gated raw finding must not shadow an UNGATED
+	// recovered one (#3911): before gated findings existed the raw pass
+	// produced nothing for that key and the recovered BLOCK was appended, so
+	// the gated one is dropped and the recovered one takes its place.
 	seen := make(map[string]bool, len(result.Findings))
 	for _, f := range result.Findings {
-		seen[string(f.Signal)+"\x00"+strconv.Itoa(f.ContentIndex)] = true
+		seen[string(f.Signal)+"\x00"+strconv.Itoa(f.ContentIndex)] = f.AttributionGated
 	}
 
 	for _, f := range scanFn(recoveredItems).Findings {
 		key := string(f.Signal) + "\x00" + strconv.Itoa(f.ContentIndex)
-		if seen[key] {
-			continue
+		if heldGated, held := seen[key]; held {
+			if !heldGated || f.AttributionGated {
+				continue
+			}
+			kept := result.Findings[:0]
+			for _, g := range result.Findings {
+				if string(g.Signal)+"\x00"+strconv.Itoa(g.ContentIndex) != key {
+					kept = append(kept, g)
+				}
+			}
+			result.Findings = kept
 		}
-		seen[key] = true
+		seen[key] = f.AttributionGated
 		f.Detail += " — recovered by undoing codepoint-level disguises (invisible formatters " +
 			"such as U+00AD SOFT HYPHEN removed; blank-rendering fillers and Unicode separators " +
 			"folded to ASCII space; fullwidth/mathematical and Cyrillic/Greek confusables folded " +
@@ -349,43 +395,85 @@ var hiddenDirectiveCooccurrences = []struct {
 	{auditSecurityNounRE, auditSuppressionVerbRE, 180, "audit-log evasion"},
 }
 
+// scanHiddenBlockText produces at most one finding per model-only block.
+//
+// # The attribution gate downgrades here; it does not drop (#3911)
+//
+// Every match is judged by attributionEvidence with attributionCueLegsOnly.
+// Two decisions from #3911, both Gary's (2026-09-22):
+//
+//   - A gated match is recorded at AUDIT (Blocking:false, AttributionGated),
+//     not dropped. Before, one `"` in front of a concealment directive was the
+//     only thing between it and a BLOCK — firstAudienceMatch does not require
+//     hasAgentDirectedCue, so the quotation gate was the sole discourse gate.
+//   - The STRUCTURAL legs (quotes, backticks, fences, blockquote/dialogue
+//     labels) do not apply at all in a model-only block. A server that routes
+//     a block away from the human has already said who it is for; wrapping a
+//     directive in a fence there is not innocent quotation. An explicit
+//     attribution cue may still downgrade.
+//
+// Order is what keeps ungated behaviour byte-identical to before: an ungated
+// match wins exactly as it did (concealment first, then the directive
+// classes in order) and a gated match only surfaces, as a fallback, when no
+// ungated match exists anywhere in the block.
 func scanHiddenBlockText(result *ContentAudienceScanResult, idx int, text string) {
 	lower := strings.ToLower(text)
+	var fallback *ContentAudienceFinding
+	keep := func(f ContentAudienceFinding, m audienceMatch) bool {
+		if m.strength == attributionNone {
+			result.Findings = append(result.Findings, f)
+			return true
+		}
+		if fallback == nil {
+			f.Blocking = false
+			f.AttributionGated = true
+			f.Detail += attributionDowngradeNote(m.leg)
+			fallback = &f
+		}
+		return false
+	}
 
 	// Concealment directive — BLOCK. Checked first: it is the signal specific
 	// to this surface, so attributing the finding to it is more useful than
 	// attributing it to a generic directive class it may also match.
-	if loc, desc, ok := firstUnquotedMatch(userConcealmentPatterns, text, lower); ok {
-		result.Findings = append(result.Findings, ContentAudienceFinding{
+	if m, ok := firstAudienceMatch(userConcealmentPatterns, text, lower); ok {
+		f := ContentAudienceFinding{
 			Signal: SignalAudienceHiddenUserConcealment,
 			Detail: "content block annotated audience:[\"assistant\"] (withheld from the user) " +
-				"instructs the agent to conceal information from the user or operator — " + desc,
+				"instructs the agent to conceal information from the user or operator — " + m.desc,
 			ContentIndex: idx,
-			Snippet:      safeSnippet(text, loc, 100),
+			Snippet:      safeSnippet(text, m.loc, 100),
 			Blocking:     true,
-		})
-		return
+		}
+		if keep(f, m) {
+			return
+		}
 	}
 
-	// Directive classes. A match that clears both discourse gates escalates to
-	// BLOCK; one that clears only the quotation gate is admitted at AUDIT.
+	// Directive classes. A match that also clears the agent-directed-cue gate
+	// escalates to BLOCK; one that does not is admitted at AUDIT.
 	for _, cls := range hiddenDirectiveClasses {
-		if loc, desc, directed, ok := firstAudienceAdmittedMatch(cls.patterns, text, lower); ok {
-			appendDirectiveFinding(result, idx, text, loc, cls.class+" ("+desc+")", directed)
-			return
+		if m, ok := firstAudienceMatch(cls.patterns, text, lower); ok {
+			if keep(directiveFinding(idx, text, m.loc, cls.class+" ("+m.desc+")", m.directed), m) {
+				return
+			}
 		}
 	}
 	for _, co := range hiddenDirectiveCooccurrences {
-		if loc, directed, ok := firstAudienceAdmittedCooccurrence(co.nounRE, co.verbRE, co.window, text, lower); ok {
-			appendDirectiveFinding(result, idx, text, loc, co.class, directed)
-			return
+		if m, ok := firstAudienceCooccurrence(co.nounRE, co.verbRE, co.window, text, lower); ok {
+			if keep(directiveFinding(idx, text, m.loc, co.class, m.directed), m) {
+				return
+			}
 		}
+	}
+	if fallback != nil {
+		result.Findings = append(result.Findings, *fallback)
 	}
 }
 
-func appendDirectiveFinding(result *ContentAudienceScanResult, idx int, text string, loc int, class string, directed bool) {
+func directiveFinding(idx int, text string, loc int, class string, directed bool) ContentAudienceFinding {
 	if directed {
-		result.Findings = append(result.Findings, ContentAudienceFinding{
+		return ContentAudienceFinding{
 			Signal: SignalAudienceHiddenDirectiveEscalation,
 			Detail: "content block annotated audience:[\"assistant\"] (withheld from the user) " +
 				"carries an agent-directed " + class + ". On an unannotated block this is an AUDIT " +
@@ -394,10 +482,9 @@ func appendDirectiveFinding(result *ContentAudienceScanResult, idx int, text str
 			ContentIndex: idx,
 			Snippet:      safeSnippet(text, loc, 100),
 			Blocking:     true,
-		})
-		return
+		}
 	}
-	result.Findings = append(result.Findings, ContentAudienceFinding{
+	return ContentAudienceFinding{
 		Signal: SignalAudienceHiddenLatentDirective,
 		Detail: "content block annotated audience:[\"assistant\"] (withheld from the user) " +
 			"carries a " + class + " with no second-person cue and no imperative sentence start. " +
@@ -406,29 +493,50 @@ func appendDirectiveFinding(result *ContentAudienceScanResult, idx int, text str
 		ContentIndex: idx,
 		Snippet:      safeSnippet(text, loc, 100),
 		Blocking:     false,
-	})
+	}
 }
 
-// firstAudienceAdmittedMatch returns the first match that clears the
-// quotation/attribution gate, together with whether it also clears the
-// agent-directed-cue gate. Unlike firstDirectedMatch it does not require the
-// second gate — in a model-only block the audience annotation supplies the
-// addressee the cue was standing in for.
-func firstAudienceAdmittedMatch(patterns []signalPattern, text, lower string) (int, string, bool, bool) {
+// audienceMatch is one pattern match in a model-only block, with what the
+// attribution gate made of it.
+type audienceMatch struct {
+	loc      int
+	desc     string
+	directed bool
+	strength attributionStrength
+	leg      string
+}
+
+// firstAudienceMatch returns the first match the attribution gate leaves
+// ungated, or — only when there is none — the first gated one. Patterns are
+// tried in order and every location of a pattern before the next, exactly as
+// before #3911, so the ungated match returned is the one that was returned
+// then. directed reports whether the match also clears the agent-directed-cue
+// gate; unlike firstDirectedMatch that gate is not REQUIRED here — in a
+// model-only block the audience annotation supplies the addressee the cue was
+// standing in for.
+func firstAudienceMatch(patterns []signalPattern, text, lower string) (audienceMatch, bool) {
+	var gated audienceMatch
+	haveGated := false
 	for _, p := range patterns {
 		for _, loc := range p.re.FindAllStringIndex(lower, -1) {
-			if isQuotedOrAttributed(text, lower, loc[0], loc[1]) {
-				continue
+			strength, leg := attributionEvidence(text, lower, loc[0], loc[1], attributionCueLegsOnly)
+			if strength == attributionNone {
+				return audienceMatch{loc[0], p.description, hasAgentDirectedCue(text, lower, loc[0], loc[1]), strength, leg}, true
 			}
-			return loc[0], p.description, hasAgentDirectedCue(text, lower, loc[0], loc[1]), true
+			if !haveGated {
+				gated = audienceMatch{loc[0], p.description, hasAgentDirectedCue(text, lower, loc[0], loc[1]), strength, leg}
+				haveGated = true
+			}
 		}
 	}
-	return 0, "", false, false
+	return gated, haveGated
 }
 
-// firstAudienceAdmittedCooccurrence is the co-occurrence equivalent of
-// firstAudienceAdmittedMatch.
-func firstAudienceAdmittedCooccurrence(nounRE, verbRE *regexp.Regexp, window int, text, lower string) (int, bool, bool) {
+// firstAudienceCooccurrence is the co-occurrence equivalent of
+// firstAudienceMatch.
+func firstAudienceCooccurrence(nounRE, verbRE *regexp.Regexp, window int, text, lower string) (audienceMatch, bool) {
+	var gated audienceMatch
+	haveGated := false
 	for _, loc := range nounRE.FindAllStringIndex(lower, -1) {
 		windowStart := loc[0] - window
 		if windowStart < 0 {
@@ -441,26 +549,16 @@ func firstAudienceAdmittedCooccurrence(nounRE, verbRE *regexp.Regexp, window int
 		if !verbRE.MatchString(lower[windowStart:windowEnd]) {
 			continue
 		}
-		if isQuotedOrAttributed(text, lower, loc[0], loc[1]) {
-			continue
+		strength, leg := attributionEvidence(text, lower, loc[0], loc[1], attributionCueLegsOnly)
+		if strength == attributionNone {
+			return audienceMatch{loc[0], "", hasAgentDirectedCue(text, lower, loc[0], loc[1]), strength, leg}, true
 		}
-		return loc[0], hasAgentDirectedCue(text, lower, loc[0], loc[1]), true
-	}
-	return 0, false, false
-}
-
-// firstUnquotedMatch returns the first match that clears the quotation/
-// attribution gate only.
-func firstUnquotedMatch(patterns []signalPattern, text, lower string) (int, string, bool) {
-	for _, p := range patterns {
-		for _, loc := range p.re.FindAllStringIndex(lower, -1) {
-			if isQuotedOrAttributed(text, lower, loc[0], loc[1]) {
-				continue
-			}
-			return loc[0], p.description, true
+		if !haveGated {
+			gated = audienceMatch{loc[0], "", hasAgentDirectedCue(text, lower, loc[0], loc[1]), strength, leg}
+			haveGated = true
 		}
 	}
-	return 0, "", false
+	return gated, haveGated
 }
 
 // userConcealmentPatterns match directives to withhold information from the
@@ -521,8 +619,20 @@ var hiddenActionDirectiveRE = regexp.MustCompile(`(?i)` +
 	`(?:\A\s*|[.!?]\s+|\byou\s+(?:must|should|need\s+to|have\s+to|are\s+to|will|can\s+now)\s+|\bplease\s+|\bnow\s+|\bthen\s+|\bnext,\s+|\bfirst,\s+)` +
 	`(delete|remove|drop|truncate|purge|wipe|disable|revoke|overwrite|replace|reset|rotate|chmod|chown|force[\s-]?push|send|upload|post|transmit|exfiltrate|curl|wget|install|execute|run|invoke|escalate|grant|elevate)\s+\S`)
 
+// scanAudiencePartitionedDivergence pairs a user-visible "nothing happened"
+// claim with a model-only action directive.
+//
+// The two halves are gated differently (#3911). The CLAIM sits in a block the
+// human can see, so every leg of the attribution gate applies to it: a claim
+// quoted from somewhere else ("the docs say \"no changes were made\"") is not
+// the tool claiming it. The DIRECTIVE sits in a model-only block, so only the
+// attribution-cue legs apply — see scanHiddenBlockText. Either half gated
+// records the divergence at AUDIT rather than dropping it; only an ungated
+// claim paired with an ungated directive BLOCKs, and that pairing is found
+// exactly as it was before #3911.
 func scanAudiencePartitionedDivergence(result *ContentAudienceScanResult, items []ContentItem) {
 	userClaimIdx, userClaimText := -1, ""
+	claimStrength, claimLeg := attributionNone, ""
 	for i, item := range items {
 		if item.Type != "text" || item.Text == "" {
 			continue
@@ -532,10 +642,18 @@ func scanAudiencePartitionedDivergence(result *ContentAudienceScanResult, items 
 		}
 		if loc := benignOutcomeClaimRE.FindStringIndex(item.Text); loc != nil {
 			lower := strings.ToLower(item.Text)
-			if isQuotedOrAttributed(item.Text, lower, loc[0], loc[1]) {
+			strength, leg := attributionEvidence(item.Text, lower, loc[0], loc[1], attributionAllLegs)
+			if strength != attributionNone {
+				// Remember the first gated claim as a fallback, and keep
+				// looking for an ungated one exactly as before.
+				if userClaimIdx < 0 {
+					userClaimIdx, userClaimText = i, safeSnippet(item.Text, loc[0], 80)
+					claimStrength, claimLeg = strength, leg
+				}
 				continue
 			}
 			userClaimIdx, userClaimText = i, safeSnippet(item.Text, loc[0], 80)
+			claimStrength, claimLeg = attributionNone, ""
 			break
 		}
 	}
@@ -543,6 +661,24 @@ func scanAudiencePartitionedDivergence(result *ContentAudienceScanResult, items 
 		return
 	}
 
+	divergence := func(i int, text string, loc int) ContentAudienceFinding {
+		return ContentAudienceFinding{
+			Signal: SignalAudiencePartitionedDivergence,
+			Detail: fmt.Sprintf(
+				"tool result is partitioned by audience: the user-visible block at index %d claims no "+
+					"state change or a stopped operation (%q), while the block at index %d — annotated "+
+					"audience:[\"assistant\"] and withheld from the user — instructs the agent to carry "+
+					"out a state-changing action. The human reviews one half and the model acts on the other",
+				userClaimIdx, userClaimText, i),
+			ContentIndex: i,
+			Snippet:      safeSnippet(text, loc, 100),
+			Blocking:     true,
+		}
+	}
+
+	var fallback *ContentAudienceFinding
+	fallbackLeg := ""
+	fallbackUngated := false
 	for i, item := range items {
 		if item.Type != "text" || item.Text == "" || !item.Annotations.HiddenFromUser() {
 			continue
@@ -552,22 +688,27 @@ func scanAudiencePartitionedDivergence(result *ContentAudienceScanResult, items 
 			continue
 		}
 		lower := strings.ToLower(item.Text)
-		if isQuotedOrAttributed(item.Text, lower, loc[0], loc[1]) {
-			continue
+		strength, leg := attributionEvidence(item.Text, lower, loc[0], loc[1], attributionCueLegsOnly)
+		if strength == attributionNone && claimStrength == attributionNone {
+			result.Findings = append(result.Findings, divergence(i, item.Text, loc[0]))
+			return
 		}
-		result.Findings = append(result.Findings, ContentAudienceFinding{
-			Signal: SignalAudiencePartitionedDivergence,
-			Detail: fmt.Sprintf(
-				"tool result is partitioned by audience: the user-visible block at index %d claims no "+
-					"state change or a stopped operation (%q), while the block at index %d — annotated "+
-					"audience:[\"assistant\"] and withheld from the user — instructs the agent to carry "+
-					"out a state-changing action. The human reviews one half and the model acts on the other",
-				userClaimIdx, userClaimText, i),
-			ContentIndex: i,
-			Snippet:      safeSnippet(item.Text, loc[0], 100),
-			Blocking:     true,
-		})
-		return
+		// Fallback preference: an ungated directive over a gated one.
+		if fallback == nil || (strength == attributionNone && !fallbackUngated) {
+			f := divergence(i, item.Text, loc[0])
+			fallback = &f
+			fallbackUngated = strength == attributionNone
+			fallbackLeg = leg
+			if claimStrength != attributionNone {
+				fallbackLeg = claimLeg + " (the user-visible claim)"
+			}
+		}
+	}
+	if fallback != nil {
+		fallback.Blocking = false
+		fallback.AttributionGated = true
+		fallback.Detail += attributionDowngradeNote(fallbackLeg)
+		result.Findings = append(result.Findings, *fallback)
 	}
 }
 

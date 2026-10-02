@@ -137,7 +137,7 @@ var LineContinuationCases = []TestCase{
 	{
 		ID:               "TN-LINECONT-005",
 		Command:          "echo 'aws \\\nec2 terminate-instances --instance-ids i-123' >> runbook.md",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/cloud-infra/aws-instance-terminate",
 		Analyzer:         "pipeline",
@@ -147,7 +147,7 @@ var LineContinuationCases = []TestCase{
 	{
 		ID:               "TN-LINECONT-006",
 		Command:          "printf 'usage: dd \\\nif=<src> of=<dst>\\n' > help.txt",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
 		Analyzer:         "pipeline",

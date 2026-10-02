@@ -1,0 +1,6 @@
+name: shell-premium
+rules:
+- id: sh-p1
+  taxonomy: "k/c/p"
+- id: sh-p2
+  taxonomy: "k/c/p"

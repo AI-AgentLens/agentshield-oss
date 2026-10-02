@@ -104,6 +104,7 @@ func IsValidPositionLabel(name string) bool {
 // excluded on the strength of an unrelated needle/loop sibling alone — a
 // fail-open in the same direction and shape as #3717.
 func PositionExcluded(command string, positions []string, foldCtx *StatementFoldContext, matches func(string) bool) bool {
+	var pure, pureSet bool
 	for _, p := range positions {
 		var items []string
 		var redacted string
@@ -124,8 +125,113 @@ func PositionExcluded(command string, positions []string, foldCtx *StatementFold
 		if redacted == "" || !anyMatches(matches, itemForms(items)) {
 			continue
 		}
+		if positionAssertsDataText(p) {
+			// #3798 (strict purity): a data-text position holds only on a
+			// command line of commands that never run their input. The
+			// channel withdrawals (#3967 / #3976) stay as defence in depth.
+			if !pureSet {
+				pure, pureSet = shellparse.CommandLineIsPure(command, interpHeredocExecFree), true
+			}
+			if !pure || shellparse.TextReachesExecutor(command) || matchedItemInExecutedSubstitution(command, items, matches) {
+				continue
+			}
+		}
 		if !anyMatches(matches, redactedForms(redacted, foldCtx)) {
 			return true
+		}
+	}
+	return false
+}
+
+// positionAssertsDataText reports whether a position label's premise is "this
+// text is data, never run": a heredoc body written by cat/tee (heredoc_body),
+// a wholly-quoted awk/sed/perl/jq program (quoted_program_arg), a string
+// literal in an exec-free interpreter heredoc (interp_heredoc_literal). Each
+// is the position-exclusion twin of an inertness LABEL (in_heredoc,
+// in_interpreter_heredoc), and each is false the moment the command hands
+// that text to a shell.
+//
+// # The withdrawal (#3967)
+//
+// PositionExcluded skips such a label when shellparse.TextReachesExecutor
+// holds: the command pipes its text into a shell or interpreter (#3796), or
+// writes it to a path it then runs or sources (#3800). That is the SAME
+// predicate, at the same command-wide granularity, that withdraws the
+// inertness labels in IntentClassifier.classify. A position exclusion is a
+// finer-grained statement of the same "never executed" premise, so it cannot
+// outlive the evidence that already withdraws the label. It restores a BLOCK
+// only on positive evidence that the text runs; the plain note shape
+// (`cat > notes.md <<'EOF' … EOF`, nothing executes it) keeps its exclusion.
+//
+// Measured on main 09a1762a before this existed: 15 of the 19 inline TPs of
+// the five BLOCK rules carrying heredoc_body went BLOCK→AUDIT when the TP was
+// the body of `cat <<'EOF' | bash`, or of `cat > /tmp/x.sh <<'EOF'` followed
+// by `bash /tmp/x.sh` — the rule that should block was excluded outright.
+//
+// ExecutedText (#3938) was the other candidate and is rejected as the
+// withdrawal predicate: it drops emitted text carrying an unexpanded `$` or
+// backquote, which is right for what it is for (retrying STATIC text as a
+// command) and wrong here — a body piped into bash executes whether or not
+// its text is static. Gated on ExecutedText, every TP of
+// ts-block-paramexp-prompt-transform (parameter-expansion payloads, all
+// carrying `$`) would stay excused.
+//
+// Both evaluation paths reach this through PositionExcluded — the analyzer
+// pipeline (RegexAnalyzer.Analyze) and the regex-only fallback
+// (policy.Engine.positionExcluded) — so the withdrawal is written once and the
+// paths cannot drift; TestHeredocBodyExclusionWithdrawnWhenBodyExecutes and
+// the policy package's parity test assert both.
+//
+// loop_wordlist and search_needle are NOT in this class: a loop word whose
+// variable never reaches an executor, and a grep pattern operand, are words
+// on the invoking command line — piping grep's OUTPUT into bash executes the
+// matched file lines, not the needle.
+//
+// # The substitution channel (#3976)
+//
+// TextReachesExecutor covers pipe and write-then-execute, not a substitution
+// whose OUTPUT is executed: `bash -c "$(cat <<'EOF' … EOF)"`,
+// `eval "$(…)"`. The inertness labels never needed that case, because they
+// are judged per statement and `bash -c …` is not doc-text-shaped. A position
+// item is found anywhere in the command, so it did need it: the claim above
+// ("cannot outlive the evidence that withdraws the label") was false for
+// this channel until matchedItemInExecutedSubstitution. Unlike the
+// command-wide predicate, this one is attributed: it withdraws only when an
+// item the rule matches lies inside a substitution whose output runs, so
+// `echo "$(cat <<'EOF' … EOF)"` (printed, not run) keeps its exclusion.
+//
+// Cost: consulted only after attribution has already put a match in a
+// data-text position, so a command with no such match pays no extra parse.
+func positionAssertsDataText(label string) bool {
+	switch label {
+	case LabelPosHeredocBody, LabelPosQuotedProgramArg, LabelPosInterpHeredocLiteral:
+		return true
+	}
+	return false
+}
+
+// matchedItemInExecutedSubstitution reports whether an item the rule matches
+// sits inside a command or process substitution whose output the command
+// runs as a program (shellparse.ExecutedSubstitutionBodies, #3976).
+// Containment is textual: a body is the substitution's source text, so the
+// heredoc body or quoted program it contains appears in it verbatim. A miss
+// (e.g. a transform that changes the text) leaves the exclusion in place,
+// which is the pre-#3976 behaviour, never a new block.
+func matchedItemInExecutedSubstitution(command string, items []string, matches func(string) bool) bool {
+	var bodies []string
+	computed := false
+	for _, it := range items {
+		needle := strings.TrimSpace(it)
+		if needle == "" || !anyMatches(matches, itemForms([]string{it})) {
+			continue
+		}
+		if !computed {
+			bodies, computed = shellparse.ExecutedSubstitutionBodies(command), true
+		}
+		for _, b := range bodies {
+			if strings.Contains(b, needle) {
+				return true
+			}
 		}
 	}
 	return false
@@ -176,7 +282,18 @@ func redactedForms(redacted string, foldCtx *StatementFoldContext) []string {
 		if st == "" {
 			continue
 		}
-		forms = append(forms, StatementMatchCandidates(st, foldCtx)...)
+		// Restrict candidates for a restricting rule (#3991): a form here can
+		// only CANCEL an exclusion, so for a BLOCK/AUDIT rule reading a
+		// path-spelled command word as its program is stricter — a real
+		// `/usr/bin/tar …` next to a quoted doc-text copy of the pattern is
+		// not excused on the copy's account. For an ALLOW rule cancelling
+		// the exclusion LOOSENS the verdict, so the caller only sets
+		// restrictForms for restricting rules (Codex pass 2, R1).
+		if foldCtx != nil && foldCtx.restrictForms {
+			forms = append(forms, StatementRestrictCandidates(st, foldCtx)...)
+		} else {
+			forms = append(forms, StatementMatchCandidates(st, foldCtx)...)
+		}
 	}
 	return forms
 }

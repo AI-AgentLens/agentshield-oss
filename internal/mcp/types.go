@@ -4,6 +4,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -204,6 +205,8 @@ type ToolDefinition struct {
 	// way InputSchema/OutputSchema are — a server can hide a registration-time
 	// injection payload here that none of the "known" fields expose.
 	Meta json.RawMessage `json:"_meta,omitempty"`
+	// Icons is the MCP 2025-11-25 icon list a host renders with the tool (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 }
 
 // ListToolsResult is the result of a tools/list response.
@@ -356,6 +359,8 @@ type ResourceEntry struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty"`
+	// Icons is the MCP 2025-11-25 icon list a host renders with the resource (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 	// Annotations carries the MCP `Annotations` object. Per the 2025-06-18 and
 	// draft schemas, `Resource` (what a resources/list entry is) declares
 	// `annotations` directly — unlike `TextResourceContents`/
@@ -393,6 +398,8 @@ type ResourceTemplateEntry struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty"`
+	// Icons is the MCP 2025-11-25 icon list a host renders with the template (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 }
 
 // ResourcesTemplatesListResult is the JSON-RPC result for a
@@ -452,12 +459,113 @@ type A2AAgentCard struct {
 type SamplingMessage struct {
 	Role    string                 `json:"role"`    // "user" or "assistant"
 	Content SamplingMessageContent `json:"content"` // text or image content
+	// Blocks holds every content block of the message as it arrived on the
+	// wire. MCP 2025-11-25 (SEP-1577, sampling with tools) made `content`
+	// `SamplingMessageContentBlock | SamplingMessageContentBlock[]`. Until this
+	// field existed, the array form was an *json.UnmarshalTypeError against
+	// the single-object Content above: decodeLenient tolerated it, Content
+	// stayed zero, and ScanSamplingMessages skipped the message as empty. A
+	// prompt that BLOCKed as `{"type":"text",...}` reached the host model
+	// with only an AUDIT line when wrapped in `[...]`.
+	//
+	// Populated only by UnmarshalJSON; a struct literal leaves it nil and
+	// contentBlocks falls back to Content. Excluded from marshalling.
+	Blocks []SamplingMessageContent `json:"-"`
 }
 
-// SamplingMessageContent holds either text or image content in a sampling message.
+// UnmarshalJSON accepts `content` as a single block or an array of blocks,
+// and never fails. A custom unmarshaler that returns an error aborts the
+// WHOLE enclosing decode (encoding/json returns it rather than saving it),
+// which would drop every sibling message and parameter after this one — the
+// strict-struct fail-open switch that ElicitationSchema.UnmarshalJSON
+// documents. Any shape it does not recognise degrades to "no blocks".
+func (m *SamplingMessage) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Role    json.RawMessage `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(data, &wire) != nil {
+		return nil
+	}
+	_ = json.Unmarshal(wire.Role, &m.Role) // a non-string role stays empty
+	m.Blocks = decodeSamplingBlocks(wire.Content)
+	if len(m.Blocks) > 0 {
+		m.Content = m.Blocks[0]
+	}
+	return nil
+}
+
+// contentBlocks returns every block of the message: the decoded wire blocks
+// when present, otherwise the single Content (the struct-literal path).
+func (m SamplingMessage) contentBlocks() []SamplingMessageContent {
+	if m.Blocks != nil {
+		return m.Blocks
+	}
+	return []SamplingMessageContent{m.Content}
+}
+
+// decodeSamplingBlocks decodes a `content` value that is one block or an
+// array of blocks. A block that is not an object is skipped; a block whose
+// VALUES do not fit the Go types keeps every field that did decode
+// (encoding/json saves the first type error and continues), which is the
+// decodeLenient contract applied per block.
+func decodeSamplingBlocks(raw json.RawMessage) []SamplingMessageContent {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	var elems []json.RawMessage
+	switch trimmed[0] {
+	case '[':
+		if json.Unmarshal(trimmed, &elems) != nil {
+			return nil
+		}
+	case '{':
+		elems = []json.RawMessage{trimmed}
+	default:
+		return nil
+	}
+	blocks := make([]SamplingMessageContent, 0, len(elems))
+	for _, e := range elems {
+		e = bytes.TrimSpace(e)
+		if len(e) == 0 || e[0] != '{' {
+			continue
+		}
+		var b SamplingMessageContent
+		_ = json.Unmarshal(e, &b)
+		blocks = append(blocks, b)
+	}
+	return blocks
+}
+
+// SamplingMessageContent holds one content block of a sampling message.
+//
+// The text/image shape is MCP 2025-03-26. MCP 2025-11-25 (SEP-1577) added the
+// tool-loop blocks: an assistant `tool_use` (Name, ID, Input) and a user
+// `tool_result` (ToolUseID, Content, StructuredContent). Every one of those
+// fields is text the host model reads, and every one is authored by the
+// server that sent the request — including the `tool_use` blocks, which the
+// server echoes back as "the model's own earlier call" and can therefore
+// forge.
 type SamplingMessageContent struct {
-	Type string `json:"type"` // "text" or "image"
+	Type string `json:"type"` // "text", "image", "audio", "tool_use", "tool_result"
 	Text string `json:"text,omitempty"`
+
+	// tool_use
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+
+	// tool_result — Content is a nested ContentBlock[] (a CallToolResult body).
+	ToolUseID         string          `json:"toolUseId,omitempty"`
+	Content           json.RawMessage `json:"content,omitempty"`
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+}
+
+// SamplingToolChoice is the MCP 2025-11-25 (SEP-1577) `toolChoice` parameter.
+// Mode is "auto", "required" or "none".
+type SamplingToolChoice struct {
+	Mode string `json:"mode,omitempty"`
 }
 
 // SamplingCreateMessageParams represents the params of a sampling/createMessage request.
@@ -484,6 +592,15 @@ type SamplingCreateMessageParams struct {
 	// enforced by the inference API, so the refusal token simply never
 	// arrives. See samplingRefusalStopSequences in sampling_stop_sequence_scanner.go.
 	StopSequences []string `json:"stopSequences,omitempty"`
+	// Tools and ToolChoice are MCP 2025-11-25 (SEP-1577, sampling with
+	// tools). Tools uses the tools/list definition shape and carries the same
+	// model-read prose — name, description, inputSchema, outputSchema — but
+	// arrives inside a request no listing filter ever sees. Before these
+	// fields existed json.Unmarshal dropped them, so a poisoned description
+	// that tools/list would hide reached the host model verbatim. See
+	// scanSamplingTools in sampling_scanner.go.
+	Tools      []ToolDefinition    `json:"tools,omitempty"`
+	ToolChoice *SamplingToolChoice `json:"toolChoice,omitempty"`
 	// Task carries the SEP-1686 task augmentation — see CallToolParams.Task.
 	Task json.RawMessage `json:"task,omitempty"`
 }
@@ -495,6 +612,15 @@ type SamplingCreateMessageParams struct {
 type ElicitationCreateParams struct {
 	Message         string             `json:"message"`
 	RequestedSchema *ElicitationSchema `json:"requestedSchema,omitempty"`
+	// Mode, URL and ElicitationID are MCP 2025-11-25 URL-mode elicitation
+	// (SEP-1036): instead of a form, the server hands the client a URL to open
+	// for an out-of-band interaction (OAuth, payment, credential entry that
+	// must not pass through the client). Until these fields existed
+	// json.Unmarshal dropped them, so the one field on this surface that the
+	// client is asked to OPEN was never read. See elicitation_url_scanner.go.
+	Mode          string `json:"mode,omitempty"`
+	URL           string `json:"url,omitempty"`
+	ElicitationID string `json:"elicitationId,omitempty"`
 }
 
 // ElicitationSchema is the JSON-schema-like structure that describes the data an
@@ -694,6 +820,8 @@ type PromptDefinition struct {
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
+	// Icons is the MCP 2025-11-25 icon list a host renders with the prompt (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 }
 
 // ListPromptsResult is the result of a prompts/list response.
@@ -749,6 +877,9 @@ type CompletionCompleteParams struct {
 type ServerInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
+	// Icons is the MCP 2025-11-25 Implementation icon list a host renders with
+	// the server entry (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 }
 
 // InitializeResult is the JSON-RPC result for an initialize response.

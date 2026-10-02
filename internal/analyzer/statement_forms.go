@@ -38,17 +38,42 @@ type StatementFoldContext struct {
 	IFSReassigned bool
 	// AssignedNames holds every name assigned anywhere in the whole command.
 	AssignedNames map[string]bool
+	// EmptyBoundNames holds every name a `read`-like builtin with no
+	// plausible stdin source binds anywhere in the whole command: set but
+	// empty (#3876), which the unset-parameter fold models with
+	// set-but-empty semantics rather than unset.
+	EmptyBoundNames map[string]bool
+
+	// restrictForms widens PositionExcluded's redacted forms to
+	// StatementRestrictCandidates (#3991). Set only via withRestrictForms, and
+	// only for a RESTRICTING rule's exclusion check — see there.
+	restrictForms bool
+}
+
+// withRestrictForms returns a copy of fc whose PositionExcluded redacted forms
+// include the program-name renderings of path-spelled command words. A
+// surviving redacted match cancels an exclusion: stricter for a BLOCK/AUDIT
+// rule, LOOSER for an ALLOW rule (Codex pass 2 on #3993, R1) — so the caller
+// hands this only to restricting rules.
+func (fc *StatementFoldContext) withRestrictForms() *StatementFoldContext {
+	c := &StatementFoldContext{}
+	if fc != nil {
+		*c = *fc
+	}
+	c.restrictForms = true
+	return c
 }
 
 // NewStatementFoldContext builds the context for one whole command. Callers
 // build it once per evaluation and reuse it for every statement — it costs
 // two AST parses.
 func NewStatementFoldContext(command string) *StatementFoldContext {
-	ifsReassigned, assigned := shellparse.CommandAssignmentContext(command)
+	ifsReassigned, assigned, emptyBound := shellparse.CommandAssignmentContext(command)
 	return &StatementFoldContext{
-		ExecSyms:      shellparse.BuildExecSymbolTable(command),
-		IFSReassigned: ifsReassigned,
-		AssignedNames: assigned,
+		ExecSyms:        shellparse.BuildExecSymbolTable(command),
+		IFSReassigned:   ifsReassigned,
+		AssignedNames:   assigned,
+		EmptyBoundNames: emptyBound,
 	}
 }
 
@@ -68,6 +93,13 @@ func (fc *StatementFoldContext) assignedNames() map[string]bool {
 		return nil
 	}
 	return fc.AssignedNames
+}
+
+func (fc *StatementFoldContext) emptyBoundNames() map[string]bool {
+	if fc == nil {
+		return nil
+	}
+	return fc.EmptyBoundNames
 }
 
 // StatementMatchCandidates returns every text shape a single top-level shell
@@ -131,7 +163,7 @@ func StatementMatchCandidates(stmt string, fc *StatementFoldContext) []string {
 		return shellparse.NormalizeIFS(s)
 	}
 	normUnset := func(s string) string {
-		return shellparse.NormalizeUnsetParamExpInContext(s, fc.assignedNames())
+		return shellparse.NormalizeUnsetParamExpInContext(s, fc.assignedNames(), fc.emptyBoundNames())
 	}
 
 	add := func(s string) {
@@ -300,6 +332,29 @@ func StatementMatchCandidates(stmt string, fc *StatementFoldContext) []string {
 			s = expanded
 			add(s)
 		}
+		// A '?'/'*' pathname-expansion wildcard hides a sensitive path
+		// segment one shell-expansion phase after brace expansion — the
+		// STATEMENT-scoped counterpart of the whole-command pass in
+		// regex.go (issue #3927, follow-up to #3814/#3102). Without this,
+		// substitutionReachesExecutor's per-body attribution check
+		// (matchesStatement(body)) tested only the raw, un-deglobbed
+		// substitution-body text against a rule's own pattern:
+		// `echo "$(cat ~/.?sh/id_ed25519)"` deglobs to a BLOCKing form at
+		// the whole-command level, but the body `cat ~/.?sh/id_ed25519`
+		// alone never matched, so the is_doc_text label was never
+		// withdrawn and the decision stayed AUDIT even though a real shell
+		// reads the key. The same gap applied to any ctx.RawStatements-
+		// blind attribution check, not substitution bodies specifically —
+		// see TP-COMPOUND-EVASION-009. Composed the same three-way shape
+		// as ExpandBraces' whole-command alternatives (regex.go): each
+		// resolved alternative gets its own dequoted/IFS-normalized forms
+		// too, since a glob-hidden path can still carry a quote-splice or
+		// ${IFS} separator elsewhere in the same statement.
+		for _, alt := range shellparse.DeglobSensitivePaths(s) {
+			add(alt)
+			add(shellparse.DequoteCommand(alt))
+			add(normIFS(alt))
+		}
 		dequoted := shellparse.DequoteCommand(s)
 		add(dequoted)
 		ifsNormalized := normIFS(s)
@@ -358,6 +413,21 @@ func StatementMatchCandidates(stmt string, fc *StatementFoldContext) []string {
 			add(unwrapped)
 			add(shellparse.DequoteCommand(unwrapped))
 			add(normIFS(unwrapped))
+		}
+
+		// xargs is not in ExecWrappers (its options table is used directly by
+		// XargsPipeSinkTargets instead, see that function's doc comment) and,
+		// unlike the wrappers above, is idiomatically the SINK of a pipe
+		// rather than the statement's leading word — `find . | xargs tar
+		// --to-command=sh -xf` names tar only on xargs's own command line,
+		// behind a pipe the regex layer otherwise never looks past (#3045).
+		// Each target is itself run through the inline-code extractor, since
+		// xargs's target can be its own carrier ("xargs sh -c '...'").
+		for _, xt := range shellparse.XargsPipeSinkTargets(s) {
+			add(xt)
+			add(shellparse.DequoteCommand(xt))
+			add(normIFS(xt))
+			addInlineCodeForms(xt, 1)
 		}
 
 		// A statement's own executable can be named through one level of
@@ -423,3 +493,88 @@ func StatementMatchCandidates(stmt string, fc *StatementFoldContext) []string {
 	}
 	return candidates
 }
+
+// StatementRestrictCandidates is StatementMatchCandidates plus, for every
+// candidate whose command words are spelled as absolute or home-anchored paths,
+// the rendering with each reduced to its program name (#3991):
+// "/usr/bin/rm -rf /" is also matched as "rm -rf /".
+//
+// RESTRICT-ONLY. Its only legitimate consumers are ones where an extra match
+// can make a decision stricter and never looser: RegexAnalyzer's per-statement
+// retry, which is already closed to ALLOW rules, and PositionExcluded's
+// redacted forms, where a surviving match CANCELS an exclusion. It must never
+// feed an ALLOW rule, an intent-label or downgrade attribution predicate, or
+// any other check that removes a match on success — a binary an agent writes
+// to /tmp/x/rm is not rm, and nothing may be excused on its account. The
+// statement matchers used for attribution keep StatementMatchCandidates.
+//
+// Both orders of composition are covered: reducing a candidate a peel exposed
+// (`sudo /usr/bin/rm`, `bash -c '/usr/bin/rm …'`), and peeling the statement
+// after reducing it (`/usr/bin/bash -c '…'`, when a peel keys on the name).
+func StatementRestrictCandidates(stmt string, fc *StatementFoldContext) []string {
+	cands := func(s string) []string { return StatementMatchCandidates(s, fc) }
+	return restrictCandidatesFrom(stmt, cands(stmt), cands)
+}
+
+// restrictCandidatesFrom extends base — the StatementMatchCandidates of stmt —
+// with the program-name renderings; cands generates the candidates of a
+// reduced text. Split out so RegexAnalyzer can pass its memoized generator and
+// pay for no parse twice.
+//
+// A rendering can expose MORE to peel (Codex pass 2 on #3993, G4): in
+// `bash -c "/bin/bash -c '/usr/bin/tar …'"` the inner carrier is only
+// recognised once `/bin/bash` reads as `bash`, and only its body holds the
+// payload. So new renderings are re-peeled, breadth-first and deduplicated,
+// to maxProgramRepeelDepth levels — the same bound maxInlineCodeNesting puts
+// on carrier nesting — and at most maxProgramRepeels peels per statement, so
+// an adversarial input cannot make this unbounded.
+func restrictCandidatesFrom(stmt string, base []string, cands func(string) []string) []string {
+	out := make([]string, 0, len(base))
+	seen := make(map[string]bool, len(base))
+	add := func(s string) {
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	for _, c := range base {
+		add(c)
+	}
+	var fresh []string
+	reduce := func(texts []string) {
+		for _, t := range texts {
+			if r := shellparse.BasenameCommandWord(t); r != "" && !seen[r] {
+				add(r)
+				fresh = append(fresh, r)
+			}
+		}
+	}
+	reduce(append([]string{stmt}, base...))
+	peels := 0
+	for depth := 0; depth < maxProgramRepeelDepth && len(fresh) > 0; depth++ {
+		level := fresh
+		fresh = nil
+		for _, r := range level {
+			if peels >= maxProgramRepeels {
+				return out
+			}
+			peels++
+			cs := cands(r)
+			for _, c := range cs {
+				add(c)
+			}
+			reduce(cs)
+		}
+	}
+	return out
+}
+
+// maxProgramRepeelDepth bounds how many times a program-name rendering is
+// re-peeled — the same bound maxInlineCodeNesting puts on carrier nesting.
+// maxProgramRepeels bounds the total peels per statement: each costs several
+// AST parses, and an adversarial command can hold many path-spelled words.
+const (
+	maxProgramRepeelDepth = 3
+	maxProgramRepeels     = 16
+)

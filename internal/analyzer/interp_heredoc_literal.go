@@ -187,6 +187,13 @@ func InertInterpreterHeredocLiterals(command string) (items []string, redacted s
 // by interp_exec.go's allowlist — regardless of whether that call's own
 // argument is a literal. Presence alone, not just a literal argument, is
 // what triggers the bail (see the "narrower rule" section above).
+// interpHeredocExecFree is the purity gate's view of an interpreter heredoc
+// (#3798): the same exec-free analysis this file's position uses, with string
+// literals blanked so a quoted mention of a call is not mistaken for one.
+func interpHeredocExecFree(lang, body string) bool {
+	return !hasExecCall(lang, execDetectionText(body, interpLiteralSpansForLang(lang, body)))
+}
+
 func hasExecCall(lang, body string) bool {
 	switch lang {
 	case "python", "python2", "python3":

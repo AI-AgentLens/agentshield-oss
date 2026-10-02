@@ -1,0 +1,27 @@
+name: mcp-indented
+version: 1.0.0
+blocked_tools:
+  - execute_command
+  - run_shell
+blocked_resources:
+  - "file:///opt/fixture/denied"
+rules:
+  - id: mcp-a
+    taxonomy: "k/c/a"
+    match:
+      tool_name_any: ["read_file"]
+      argument_patterns_any:
+        path: ["**/.fixture-vault/secret"]
+    decision: BLOCK
+structural_rules:
+  - id: mcp-s1
+    taxonomy: "k/c/s"
+value_limits:
+  - id: mcp-v1
+    taxonomy: "k/c/v"
+resource_rules:
+  - id: mcp-r1
+    taxonomy: "k/c/r"
+semantic_rules:
+  - id: mcp-sem1
+    taxonomy: "k/c/sem"

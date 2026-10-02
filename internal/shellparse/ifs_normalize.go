@@ -125,13 +125,18 @@ func NormalizeIFS(command string) string {
 // `: cmd--flag`. Returns (false, nil) when the command does not parse: no
 // claim can be made, and the conservative reading is "no known assignments",
 // which leaves the folds exactly as they were before this existed.
-func CommandAssignmentContext(command string) (ifsReassignedAnywhere bool, assigned map[string]bool) {
+//
+// emptyBound holds the targets of a `read`-like builtin with no plausible
+// stdin source (#3876): set but empty, which the fold models with
+// set-but-empty rather than unset semantics.
+func CommandAssignmentContext(command string) (ifsReassignedAnywhere bool, assigned, emptyBound map[string]bool) {
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
-		return false, nil
+		return false, nil, nil
 	}
-	return ifsReassigned(file), assignedNames(file)
+	assigned, emptyBound = assignedNames(file)
+	return ifsReassigned(file), assigned, emptyBound
 }
 
 // ifsReassigned reports whether the command assigns IFS anywhere, via a

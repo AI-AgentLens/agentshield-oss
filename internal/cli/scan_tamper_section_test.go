@@ -66,6 +66,41 @@ func chainLogStates() []logState {
 			wantPassed:  false,
 			wantCounted: true,
 		},
+		// #4133 round 4 (Codex pass 4 finding 2): `mv audit.jsonl audit.jsonl.1`
+		// by an external rotation tool on a legacy log, before the next
+		// write. The live log asserts nothing; the rotated one still holds
+		// unprotected history, and the line must say so and count.
+		{
+			name: "externally rotated legacy log, live log still empty",
+			build: func(t *testing.T, path string) {
+				writeUnchainedEntries(t, path+".1", 3)
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatalf("touch live log: %v", err)
+				}
+			},
+			wantSubstr:  "partially protected — audit.jsonl.1 holds 3 pre-chain entries",
+			wantPassed:  false,
+			wantCounted: true,
+		},
+		{
+			name:        "externally rotated legacy log, live log not yet recreated",
+			build:       func(t *testing.T, path string) { writeUnchainedEntries(t, path+".1", 3) },
+			wantSubstr:  "partially protected — audit.jsonl.1 holds 3 pre-chain entries",
+			wantPassed:  false,
+			wantCounted: true,
+		},
+		{
+			name: "externally rotated chained log, live log still empty",
+			build: func(t *testing.T, path string) {
+				writeChainedEntries(t, path+".1", 3)
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatalf("touch live log: %v", err)
+				}
+			},
+			wantSubstr:  "no entries yet; audit.jsonl.1 verified (not linked)",
+			wantPassed:  false,
+			wantCounted: false,
+		},
 	}
 }
 

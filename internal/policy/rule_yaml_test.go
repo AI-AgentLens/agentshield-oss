@@ -117,6 +117,28 @@ func TestRuleYAMLTests(t *testing.T) {
 				}
 			})
 		}
+
+		// Test attested cases: the rule fires (so a receipt names it) but a
+		// command_intent_downgrade label moves the decision to AUDIT (#2843,
+		// #2983). Both halves are asserted — a case that stops firing has
+		// lost its attribution, and one that stays at BLOCK is the FP the
+		// label exists to prevent. An `attested:` case on a rule with no
+		// downgrade label is a rule-authoring error, not a passing test.
+		for i, cmd := range rule.Tests.Attested {
+			t.Run(fmt.Sprintf("%s/ATTESTED-%d", rule.ID, i+1), func(t *testing.T) {
+				if len(rule.Match.CommandIntentDowngrade) == 0 {
+					t.Errorf("ATTESTED case on rule %s, which has no command_intent_downgrade — use tp:/tn: instead:\n  %s", rule.ID, cmd)
+					return
+				}
+				if !engine.matchRule(cmd, rule) {
+					t.Errorf("ATTESTED failed — rule %s should FIRE (then downgrade) on:\n  %s", rule.ID, cmd)
+					return
+				}
+				if eff := engine.effectiveDecision(cmd, rule); eff != DecisionAudit {
+					t.Errorf("ATTESTED failed — rule %s fired at %s, want AUDIT (downgrade label did not apply) on:\n  %s", rule.ID, eff, cmd)
+				}
+			})
+		}
 	}
 
 	t.Logf("Validated inline tests for %d/%d rules (%d structural-only skipped — tested via full pipeline)", tested, len(rules), skippedStructural)

@@ -283,6 +283,11 @@ func firstDirectedCooccurrence(nounRE, verbRE *regexp.Regexp, window int, text, 
 // only when it is NOT quoted/code-fenced/blockquoted/attributed AND IS
 // addressed to the agent (second-person/self-referential cue, or bare
 // imperative sentence start).
+//
+// This scanner is AUDIT-tier, so SUPPRESSING a quoted-looking match here is
+// noise control, not a lost BLOCK — which is why it may keep treating
+// attributionGated as "do not report" (#3911). The two BLOCK-tier scanners
+// that share the gate must not: see attributionEvidence.
 func shouldFireDirective(text, lower string, start, end int) bool {
 	if isQuotedOrAttributed(text, lower, start, end) {
 		return false
@@ -290,20 +295,193 @@ func shouldFireDirective(text, lower string, start, end int) bool {
 	return hasAgentDirectedCue(text, lower, start, end)
 }
 
+// offsetsAreTransferable reports whether a byte offset computed against
+// `lower` may be used to index `text` (#3911).
+//
+// Every discourse gate in this package is handed BOTH the original text and
+// its lowercased form, with match offsets computed against one and used to
+// slice the other. That is sound only while `strings.ToLower` preserves
+// length — and it does not. Sweeping all 1,114,112 codepoints, exactly two
+// GROW under Go's ToLower:
+//
+//	U+023A LATIN CAPITAL LETTER A WITH STROKE  -> U+2C65  (2 bytes -> 3)
+//	U+023E LATIN CAPITAL LETTER T WITH DIAGONAL STROKE -> U+2C66  (2 bytes -> 3)
+//
+// About 96 of either character in a tool response is enough to push a match
+// offset past the end of the original, and `before := text[:start]` then
+// panics. There is no recover() anywhere in internal/ or cmd/, so the panic
+// takes down the MCP proxy process and with it ALL mediation — every
+// subsequent tool call on that server runs unmediated. Measured end-to-end
+// through FilterToolCallResponse: `strings.Repeat("Ⱥ", 300)` plus any
+// directive payload panics with "slice bounds out of range [:902] with
+// length 698". ScanContentAudienceChannel panics identically.
+//
+// The guard is length equality rather than a clamp, and the failure
+// direction is deliberate. These gates DOWNGRADE findings (and, on the
+// AUDIT-tier indirect scanner, suppress them), so a clamped offset would have
+// us downgrade on the strength of an index pointing at unrelated bytes. When
+// the offsets cannot be trusted the honest answer is to decline to gate: a
+// finding we cannot discourse-gate is reported at its full tier. Costing an
+// occasional finding on text containing one of two rare codepoints is the
+// right side of that trade.
+func offsetsAreTransferable(text, lower string, start, end int) bool {
+	if len(text) != len(lower) {
+		return false
+	}
+	return start >= 0 && end >= start && end <= len(text)
+}
+
 // attributionCueRE matches phrasing that attributes the surrounding text to a
 // third-party source (a report, an advisory, a changelog, a test case) rather
 // than presenting it as a live directive to the agent.
+//
+// # Two rules govern this set, and violating either was a silent BYPASS (#3906)
+//
+// UPDATE (#3911, Gary's decision 2026-09-22): the gate no longer suppresses
+// on the BLOCK-tier scanners — a gated match there is recorded at AUDIT
+// instead of dropped (see attributionEvidence). So an imprecision below now
+// costs a BLOCK downgraded to a visible AUDIT, not a silent miss. The two
+// rules still stand: a lost BLOCK is still a lost BLOCK.
+//
+// As originally written: this gate SUPPRESSES findings, so every imprecision
+// in it removes a BLOCK.
+// That is the opposite direction from a detection pattern, where imprecision
+// costs a false positive. Measured before the split below: nine ordinary error
+// lead-ins, each attributing nothing to anyone, took three response-side
+// scanners from 10/10 firing to **0/10 — 90/90, 100% suppression**, on those
+// scanners' own TP fixtures. An attacker did not have to craft any of them;
+// writing a realistic-sounding error produces them for free.
+//
+//  1. A cue must be in REPORTING position, not merely present. The original
+//     alternation carried `writes?`, `states?`, `notes?`, `claims?`, `quotes?`,
+//     `document(?:s|ed)?`, `comment(?:s|ed)?`, `reported?`, `logged`,
+//     `recorded` and bare `advisory` as bare-word matches — and in error prose
+//     every one of those is an ordinary noun or verb: "write denied",
+//     "invalid state", "token claims are invalid", "unbalanced quotes",
+//     "user is not logged in", "advisory lock is held". They are split into
+//     ambiguousAttributionCueRE below, which requires the report boundary that
+//     actually makes a word attributive (`:`, an opening quote, or "that").
+//
+//     TWO CORRECTIONS to the first version of this comment, both from the
+//     adversarial review of the merge (#3911). It claimed `note: quota
+//     exceeded` does not attribute — it DOES: a colon straight after the
+//     lexeme satisfies the boundary, so that lead-in still suppresses unless
+//     rule 2's sentence bound also engages, which it only does because the
+//     shipped fixture spells it with a trailing period. Spell it with a comma
+//     and the suppression is back. And it cited `reads?:` as a distinction
+//     the author had already started; measured, `reads?:` sits inside the
+//     `\b`-closed group and so matches `reads:x` but NEVER `reads: ` before
+//     whitespace — a third live instance of the trailing-`\b` family, not a
+//     precedent. The boundary set is a floor, not a solved problem.
+//
+//  2. A cue governs its own SENTENCE. "The server says the disk is full." does
+//     not attribute the sentence after it. See attributionWindowStart.
+//
+//  3. (#3911 item 6) Eight more lexemes moved to the ambiguous tier, finishing
+//     the split #3906 started: `repl(y|ies|ied)`, `quoted`, `transcript`,
+//     `debug log`, `cited`, `describ(es|ed|ing)`, `discuss(es|ed|ing)`,
+//     `mentions?`/`mentioned`. Each is an ordinary error word — "No reply from
+//     the upstream server, ", "Unterminated quoted string at line 4, ", "No
+//     mention of the key in the config, " — and with a comma instead of a
+//     period the sentence bound did not apply, so all eight still gated
+//     against a no-cue control that fired. "The transcript shows:" and "the
+//     advisory describes how" still attribute; the boundary is what says so.
+//
+// Same lesson as #3366/#3376 on the shell side — a count of a suspicious token
+// is not evidence, position is — and the same fix shape as #3901, which
+// rescoped positional exclusions per statement for exactly this reason.
 var attributionCueRE = regexp.MustCompile(`(?i)\b(` +
-	`says?|said|states?|stated|wrote|writes?|according\s+to|` +
-	`describ(?:es|ed|ing)|discuss(?:es|ed|ing)?|mentions?|mentioned|` +
-	`notes?|noted|claims?|claimed|argu(?:es|ed)|quoting|quotes?|quoted|` +
-	`cites?|cited|titled|reads?:|reported?|document(?:s|ed)?|logged|` +
-	`recorded|comment(?:s|ed)?|repl(?:y|ies|ied)|` +
+	`says?|said|according\s+to|` +
+	`claimed|argu(?:es|ed)|quoting|` +
+	`cites?|titled|reads?:|` +
 	`test\s*case|changelog|runbook|` +
-	`for\s+example|e\.g\.|for\s+instance|` +
-	`cve-\d{4}-\d+|cve\s+advisory|vulnerability\s+report|advisory|` +
-	`transcript|debug\s+log|policy\s+(?:doc(?:ument)?|states?)` +
-	`)\b`)
+	`for\s+example|for\s+instance|` +
+	`cve-\d{4}-\d+|cve\s+advisory|vulnerability\s+report|security\s+advisory|` +
+	`policy\s+(?:doc(?:ument)?|states?)` +
+	`)\b|` +
+	// SECOND trailing-\b defect in this file, same shape as the one documented
+	// on remediationCueRE and found the same way (#3906). `e\.g\.` sat inside
+	// the group above, whose closing `\b` can never hold after a period — both
+	// sides of that position are non-word characters. The cue therefore matched
+	// NOTHING, in the original and for as long as it had been written that way,
+	// so "a poisoned response, e.g. <payload>" was never suppressed. It is
+	// spelled out here without a trailing boundary, and `i\.e\.` — which was
+	// never listed at all — alongside it.
+	`\b(?:e\.g\.|i\.e\.)`)
+
+// ambiguousAttributionCueRE matches the lexemes whose attributive sense needs
+// a report boundary to exist at all. "The changelog notes that X" attributes;
+// "note: quota exceeded" does not. The boundary is a colon, an opening quote
+// or the complementizer "that"/"how", within a short span so the cue cannot
+// reach across a whole clause to borrow a colon from somewhere else.
+//
+// KNOWN WEAK: `<lexeme>:` alone satisfies this, so "Note: ", "State: ",
+// "Log: " and friends attribute nothing and still match. They are caught
+// today only when rule 2's sentence bound also applies. Since #3911 a match
+// gated this way is recorded at AUDIT on the BLOCK-tier scanners rather than
+// dropped, so this weakness now costs a BLOCK, not the whole finding —
+// tightening the boundary set remains a calibration question (how many
+// genuine `X says:` forms would be lost), no longer a bypass.
+//
+// The last line of lexemes was moved here from attributionCueRE by #3911
+// item 6 — see rule 3 there.
+var ambiguousAttributionCueRE = regexp.MustCompile(`(?i)\b(?:` +
+	`writes?|wrote|states?|stated|notes?|noted|claims?|quotes?|` +
+	`document(?:s|ed)?|comment(?:s|ed)?|reports?|reported|logs?|logged|` +
+	`records?|recorded|advisory|` +
+	`repl(?:y|ies|ied)|quoted|transcript|debug\s+log|cited|` +
+	`describ(?:es|ed|ing)|discuss(?:es|ed|ing)?|mentions?|mentioned` +
+	`)\b[^\n]{0,12}?(?::|["“]|\bthat\b|\bhow\b)`)
+
+// sentenceTerminatorAbbrevRE matches the tail of a token that ends in a period
+// WITHOUT ending a sentence — an abbreviation ("e.g.", "i.e.", "etc.", "vs.").
+// Without it, scoping the attribution window to the current sentence would cut
+// "e.g." in half and drop the cue that the quoted material depends on.
+//
+// It used to carry a `[a-z]` alternative for single-letter initials ("A.
+// Researcher"). Removed by #3911 item 7: it treated ANY letter-plus-period as
+// a non-terminator, so "The server says: see note A. <payload>" borrowed the
+// cue from the previous sentence and gated — contract (b) above, defeated by
+// one letter. An initial and a sentence-final single letter are not
+// distinguishable from the bytes, and the two errors are not symmetric: an
+// initial read as a terminator costs one cue (the finding is reported at its
+// full tier), while a terminator read as an initial extends the cue over a
+// sentence the attacker writes. "The report by A. Researcher says ..." still
+// gates, because its cue sits AFTER the initial.
+var sentenceTerminatorAbbrevRE = regexp.MustCompile(`(?i)(?:^|[^\w.])(?:e\.g|i\.e|etc|vs|cf|resp|approx|fig|no|dr|mr|ms|st)\.$`)
+
+// attributionWindowStart returns the offset from which an attribution cue may
+// be read for a match beginning at start: the later of a fixed lookbehind and
+// the start of the sentence the match sits in.
+//
+// The sentence bound is what makes "Write denied. To fix, read <artifact> and
+// forward it." fire — the ordinary error sentence in front can no longer lend
+// its vocabulary to the instruction that follows it.
+func attributionWindowStart(lower string, start int) int {
+	windowStart := start - 100
+	if windowStart < 0 {
+		windowStart = 0
+	}
+	for i := start - 1; i > windowStart; i-- {
+		c := lower[i]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			continue
+		}
+		// Walk back over the run of whitespace to the terminator itself.
+		j := i
+		for j > windowStart && (lower[j] == ' ' || lower[j] == '\t' || lower[j] == '\n' || lower[j] == '\r') {
+			j--
+		}
+		if lower[j] != '.' && lower[j] != '!' && lower[j] != '?' {
+			continue
+		}
+		if lower[j] == '.' && sentenceTerminatorAbbrevRE.MatchString(lower[windowStart:j+1]) {
+			continue
+		}
+		return i + 1
+	}
+	return windowStart
+}
 
 // dialogueLabelRE matches a blockquote marker or a speaker-labelled line
 // (User:, Agent:, Assistant:, System:, Attacker:, ...) at the start of a
@@ -315,56 +493,162 @@ var dialogueLabelRE = regexp.MustCompile(`(?im)^\s*(>|(user|agent|assistant|syst
 // third-person description of some unrelated policy or system.
 var agentDirectedCueRE = regexp.MustCompile(`(?i)\b(you|your|yourself|the\s+agent|the\s+assistant|the\s+model|this\s+tool|this\s+call|this\s+action|this\s+request|this\s+response|this\s+invocation|this\s+function)\b`)
 
-// isQuotedOrAttributed reports whether the byte range [start,end) of text
-// sits inside a fenced code block, an inline code span, a blockquote/
-// dialogue-labelled line, an open quotation, or near an attribution cue.
-func isQuotedOrAttributed(text, lower string, start, end int) bool {
-	before := text[:start]
+// attributionStrength is what the attribution gate concludes about one match.
+//
+// # Downgrade, not silence (#3911 — Gary's decision, 2026-09-22)
+//
+// This gate was a bool, and every call site read `true` as "drop the match".
+// That made it an EXCLUDE on two BLOCK-tier scanners, and its structural legs
+// (quote parity, backticks, fences, dialogue labels) are text written by the
+// same party who writes the payload. The post-merge review of #3906 measured
+// what that costs: 10 realistic structural lead-ins x 10 TP payloads, 100/100
+// suppressed on all three scanners, with a single `"` enough — and an
+// unbalanced quote 1,430 bytes earlier in the paragraph still enough. No
+// positional bound makes silence safe there; it only raises the bypass cost
+// from one byte to two.
+//
+// Quoting is weak evidence: enough to justify NOT BLOCKING, never enough to
+// justify NOT RECORDING. So the gate now returns a strength, and the call
+// sites decide what it is worth:
+//
+//   - response_error_remediation and content_audience (BLOCK tier) emit the
+//     same finding with Blocking:false — AUDIT, with the gating leg named in
+//     the Detail — instead of dropping it. Ungated matches keep their tier,
+//     and a gated match never preempts an ungated one for the same signal.
+//   - response_indirect_directive (AUDIT tier already) keeps suppressing via
+//     isQuotedOrAttributed. There, suppression is noise control on a scanner
+//     that cannot block, which is what the decision allows.
+//
+// Same move as #3937 on the shell side, where doc-text labels downgrade a
+// BLOCK to AUDIT rather than excluding the rule.
+type attributionStrength int
 
-	// Fenced code block: an odd number of ``` markers before start means the
-	// match sits inside an open fence.
-	if strings.Count(before, "```")%2 == 1 {
-		return true
+const (
+	// attributionNone: nothing around the match suggests quotation or
+	// attribution. The finding keeps whatever tier its signal carries.
+	attributionNone attributionStrength = iota
+	// attributionGated: the match looks quoted or attributed. Record it; do
+	// not block on it.
+	attributionGated
+)
+
+// attributionLegs selects which legs of the gate a call site honours.
+type attributionLegs int
+
+const (
+	// attributionAllLegs: structural legs (fence, inline code, blockquote/
+	// dialogue label, enclosed quotation) and the attribution-cue legs.
+	attributionAllLegs attributionLegs = iota
+	// attributionCueLegsOnly: the attribution-cue legs only. Used for
+	// content_audience's model-only blocks (#3911 follow-on b): a block the
+	// server has routed away from the human is not innocent quotation, so
+	// wrapping a directive in quotes or a fence inside one earns it nothing.
+	// An explicit attribution cue ("according to the advisory", "the report
+	// says:") may still downgrade.
+	attributionCueLegsOnly
+)
+
+// attributionEvidence reports whether the byte range [start,end) of text
+// looks quoted or attributed, and if so which leg says so (for the audit
+// Detail). See attributionStrength for what the call sites do with it.
+func attributionEvidence(text, lower string, start, end int, legs attributionLegs) (attributionStrength, string) {
+	// The guard lives here, not at the call sites, because this is the one
+	// function all three scanners funnel through. In content_audience's hidden
+	// blocks it is the ONLY discourse gate, since firstAudienceMatch does not
+	// require hasAgentDirectedCue.
+	if !offsetsAreTransferable(text, lower, start, end) {
+		return attributionNone, ""
+	}
+	if legs == attributionAllLegs {
+		if leg := enclosingQuotationLeg(text, start, end); leg != "" {
+			return attributionGated, leg
+		}
+	}
+	windowStart := attributionWindowStart(lower, start)
+	window := lower[windowStart:start]
+	if attributionCueRE.MatchString(window) || ambiguousAttributionCueRE.MatchString(window) {
+		return attributionGated, "an attribution cue earlier in the same sentence"
+	}
+	return attributionNone, ""
+}
+
+// enclosingQuotationLeg reports which structural leg, if any, places
+// [start,end) inside quoted material.
+//
+// # Enclosed, not merely opened (#3911 follow-on a)
+//
+// Every leg used to be satisfied by an odd count of openers BEFORE the match:
+// one `"` anywhere earlier in the paragraph, one backtick earlier on the
+// line, one ``` anywhere earlier in the document. An opener is one byte the
+// attacker writes in front of the payload. Quotation is a span, so each
+// quotation leg now also requires a CLOSER after the match:
+//
+//	straight / curly quote   a closing mark after the match, same paragraph
+//	inline backtick          a backtick after the match, same line
+//	``` fence                a ``` marker anywhere after the match
+//
+// A closer is still attacker-writable — this raises the cost from one byte to
+// two, which is exactly why a gated match is downgraded rather than dropped.
+// The blockquote/dialogue-label leg has no closer to require; it is kept as
+// is and downgrades like the others.
+func enclosingQuotationLeg(text string, start, end int) string {
+	before, after := text[:start], text[end:]
+
+	if strings.Count(before, "```")%2 == 1 && strings.Contains(after, "```") {
+		return "a fenced code block"
 	}
 
 	lineStart := strings.LastIndexByte(before, '\n') + 1
-
-	// Inline code span on the same line: an odd number of backticks since the
-	// start of the line means the match sits inside an open span.
-	if strings.Count(text[lineStart:start], "`")%2 == 1 {
-		return true
-	}
-
 	lineEnd := len(text)
-	if idx := strings.IndexByte(text[end:], '\n'); idx >= 0 {
+	if idx := strings.IndexByte(after, '\n'); idx >= 0 {
 		lineEnd = end + idx
 	}
-	if dialogueLabelRE.MatchString(text[lineStart:lineEnd]) {
-		return true
+
+	if strings.Count(text[lineStart:start], "`")%2 == 1 && strings.IndexByte(text[end:lineEnd], '`') >= 0 {
+		return "an inline code span"
 	}
 
-	// Quotation marks: an odd count of straight quotes, or more open than
-	// close curly quotes, since the start of the paragraph means the match
-	// sits inside an open quotation. Single quotes are deliberately excluded
-	// — English contractions ("don't") would otherwise read as unmatched
-	// quote characters on every other sentence.
+	if dialogueLabelRE.MatchString(text[lineStart:lineEnd]) {
+		return "a blockquote or dialogue-labelled line"
+	}
+
+	// Quotation marks, scoped to the paragraph on both sides. Single quotes
+	// are deliberately excluded — English contractions ("don't") would
+	// otherwise read as unmatched quote characters on every other sentence.
 	paraStart := 0
 	if idx := strings.LastIndex(before, "\n\n"); idx >= 0 {
 		paraStart = idx + 2
 	}
-	para := text[paraStart:start]
-	if strings.Count(para, `"`)%2 == 1 {
-		return true
+	paraEnd := len(text)
+	if idx := strings.Index(after, "\n\n"); idx >= 0 {
+		paraEnd = end + idx
 	}
-	if strings.Count(para, "“") > strings.Count(para, "”") {
-		return true
+	opened, rest := text[paraStart:start], text[end:paraEnd]
+	if strings.Count(opened, `"`)%2 == 1 && strings.IndexByte(rest, '"') >= 0 {
+		return "an enclosed quotation"
 	}
+	if strings.Count(opened, "“") > strings.Count(opened, "”") && strings.Contains(rest, "”") {
+		return "an enclosed quotation"
+	}
+	return ""
+}
 
-	windowStart := start - 100
-	if windowStart < 0 {
-		windowStart = 0
-	}
-	return attributionCueRE.MatchString(lower[windowStart:start])
+// isQuotedOrAttributed is the bool form of attributionEvidence over all legs.
+// It exists for the AUDIT-tier indirect-directive scanner, where suppressing
+// a quoted-looking match is noise control. A BLOCK-tier call site must not
+// use it: reading `true` as "drop" is the exclude #3911 removed.
+func isQuotedOrAttributed(text, lower string, start, end int) bool {
+	strength, _ := attributionEvidence(text, lower, start, end, attributionAllLegs)
+	return strength != attributionNone
+}
+
+// attributionDowngradeNote is appended to the Detail of a finding recorded at
+// AUDIT because the gate downgraded it, so the receipt says why it was not
+// blocked.
+func attributionDowngradeNote(leg string) string {
+	return " — recorded at AUDIT, not blocked: the match sits in " + leg +
+		", which is weak evidence of quotation because the surrounding text is written by the same " +
+		"party as the payload (#3911)"
 }
 
 // hasAgentDirectedCue reports whether the match at [start,end) is addressed
@@ -425,6 +709,9 @@ func indirectDirectiveSentinelEngine(signal ResponseIndirectDirectiveSignal) str
 // sentence or line — i.e., nothing but whitespace separates it from the start
 // of the text or a preceding sentence/line boundary.
 func isImperativeSentenceStart(text string, start int) bool {
+	if start < 0 || start > len(text) {
+		return false // see offsetsAreTransferable (#3911)
+	}
 	i := start - 1
 	for i >= 0 && (text[i] == ' ' || text[i] == '\t') {
 		i--

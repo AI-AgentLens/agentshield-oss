@@ -1,6 +1,10 @@
 package mcp
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+)
 
 // StructuredContentScanResult is the result of scanning a tool result's
 // structuredContent field for injection signals.
@@ -29,13 +33,26 @@ func ScanStructuredContent(structured map[string]interface{}) StructuredContentS
 
 // ScanStructuredContentRaw decodes a raw JSON message and delegates to
 // ScanStructuredContent. Returns an empty result for non-object JSON.
+//
+// UseNumber, and tolerate a type error, exactly as ScanNotificationMessage
+// does: the leaves are interface{}, so a valid-but-unrepresentable number
+// (1e400) beside the payload failed the decode and the whole `_meta` scan
+// switched off (#4064, from the review of #4059). A number leaf is never
+// scanned, so a json.Number in its place changes nothing else. A syntax
+// error still fails open: the bytes are not JSON and the client will not
+// act on them.
 func ScanStructuredContentRaw(raw json.RawMessage) StructuredContentScanResult {
 	if len(raw) == 0 {
 		return StructuredContentScanResult{}
 	}
 	var obj map[string]interface{}
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return StructuredContentScanResult{}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&obj); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			return StructuredContentScanResult{} // fail open on parse error
+		}
 	}
 	return ScanStructuredContent(obj)
 }

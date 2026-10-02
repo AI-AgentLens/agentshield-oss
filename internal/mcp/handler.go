@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 
@@ -95,8 +96,46 @@ func (h *MessageHandler) auditExtractFailOpen(method string, extractErr error) {
 		TriggeredRules: []string{"mcp-extract-fail-open"},
 		Reasons: []string{fmt.Sprintf(
 			"failed to parse %s params — request forwarded unscanned (fail open): %v", method, extractErr)},
-		Source:     "mcp-proxy",
-		ServerName: h.ServerName,
+		Source:      "mcp-proxy",
+		ServerName:  h.ServerName,
+		TaxonomyRef: securityMediatorParseFailOpenTaxonomyRef,
+	})
+}
+
+// wireShapeRuleID is the rule id carried by every protocol-shape receipt.
+// It sits alongside mcp-extract-fail-open: that one records "Shield could not
+// read this message and forwarded it unscanned", this one records "Shield
+// could have been made to do that and declined". See wire_shape.go.
+const wireShapeRuleID = "mcp-wire-shape-tolerated"
+
+// securityMediatorParseFailOpenTaxonomyRef is shared by both untaxonomied
+// fail-open receipts (mcp-extract-fail-open, mcp-wire-shape-tolerated): a
+// parser differential between the mediator and the endpoint, not an evasion
+// of either. See AI_risk_compliance taxonomy/unauthorized-execution/
+// agentic-attacks/security-mediator-parse-fail-open.yaml.
+const securityMediatorParseFailOpenTaxonomyRef = "unauthorized-execution/agentic-attacks/security-mediator-parse-fail-open"
+
+// auditWireShape emits an AUDIT event for a message whose JSON values
+// contradicted the protocol's own type declarations and which was scanned
+// anyway. AUDIT rather than BLOCK, deliberately: the enforcement value is
+// already banked by the scan that now runs, a non-conforming serializer is a
+// real thing in the wild, and a proxy that refuses traffic on a shape it
+// merely does not recognise is the fail-closed default this codebase declines
+// to ship. A no-op when OnAudit is nil.
+func (h *MessageHandler) auditWireShape(method string, a *WireShapeAnomaly) {
+	if a == nil || h.OnAudit == nil {
+		return
+	}
+	h.OnAudit(AuditEntry{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		ToolName:       method,
+		Decision:       "AUDIT",
+		Flagged:        true,
+		TriggeredRules: []string{wireShapeRuleID, wireShapeRuleID + ":" + string(a.Signal)},
+		Reasons:        []string{string(a.Signal) + ": " + a.Detail},
+		Source:         "mcp-proxy",
+		ServerName:     h.ServerName,
+		TaxonomyRef:    securityMediatorParseFailOpenTaxonomyRef,
 	})
 }
 
@@ -166,12 +205,13 @@ func (h *MessageHandler) HandleBatch(msgs []*Message) (bool, []byte) {
 // HandleToolCall evaluates a tools/call message against policy, content scanning,
 // value limits, and config guard. Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
-	params, err := ExtractToolCall(msg)
+	params, shape, err := extractToolCall(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract tool call: %v\n", err)
 		h.auditExtractFailOpen(MethodToolsCall, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodToolsCall, shape)
 
 	// Approval-fatigue detection — scan BEFORE recording so "prior" history is correct.
 	if h.ApprovalFatigue != nil {
@@ -821,12 +861,13 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 // HandleResourceRead evaluates a resources/read message against MCP policy.
 // Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
-	params, err := ExtractResourceRead(msg)
+	params, shape, err := extractResourceRead(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract resource read: %v\n", err)
 		h.auditExtractFailOpen(MethodResourcesRead, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodResourcesRead, shape)
 
 	result := h.Evaluator.EvaluateResourceRead(params.URI)
 
@@ -878,12 +919,13 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 // ["resources/subscribe"] with argument_patterns on the uri field.
 // Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
-	params, err := ExtractResourceSubscribe(msg)
+	params, shape, err := extractResourceSubscribe(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract resource subscribe: %v\n", err)
 		h.auditExtractFailOpen(MethodResourcesSubscribe, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodResourcesSubscribe, shape)
 
 	// Evaluate as a tool call so tool_name_any: ["resources/subscribe"] rules fire.
 	result := h.Evaluator.EvaluateToolCall(MethodResourcesSubscribe, map[string]interface{}{"uri": params.URI})
@@ -955,12 +997,13 @@ func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
 // existing resources/subscribe pattern.
 // Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandlePromptsGetRequest(msg *Message) (bool, []byte) {
-	params, err := ExtractGetPromptParams(msg)
+	params, shape, err := extractGetPromptParams(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract prompts/get: %v\n", err)
 		h.auditExtractFailOpen(MethodPromptsGet, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodPromptsGet, shape)
 
 	args := make(map[string]interface{}, len(params.Arguments))
 	for k, v := range params.Arguments {
@@ -1065,12 +1108,13 @@ func (h *MessageHandler) HandlePromptsGetRequest(msg *Message) (bool, []byte) {
 // the existing prompts/get pattern.
 // Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleCompletionCompleteRequest(msg *Message) (bool, []byte) {
-	params, err := ExtractCompletionCompleteParams(msg)
+	params, shape, err := extractCompletionCompleteParams(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract completion/complete: %v\n", err)
 		h.auditExtractFailOpen(MethodCompletionComplete, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodCompletionComplete, shape)
 
 	args := map[string]interface{}{params.Argument.Name: params.Argument.Value}
 	toolName := params.Ref.Name
@@ -1177,12 +1221,13 @@ func (h *MessageHandler) HandleTaskPollRequest(msg *Message) {
 // containing injection, credential-harvesting, or exfiltration patterns are BLOCKED.
 // Returns (true, blockResponseJSON) if blocked.
 func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte) {
-	params, err := ExtractSamplingMessage(msg)
+	params, shape, err := extractSamplingMessage(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract sampling/createMessage: %v\n", err)
 		h.auditExtractFailOpen(MethodSamplingCreateMessage, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodSamplingCreateMessage, shape)
 
 	scanResult := ScanSamplingMessages(params)
 
@@ -1210,11 +1255,44 @@ func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte
 		}
 	}
 
+	// Model-selection steering. Every other check on this surface inspects
+	// WHAT THE MODEL IS ASKED; `modelPreferences` is the only field in the
+	// protocol that constrains WHICH MODEL ANSWERS, and safety alignment is a
+	// property of the weights rather than of the prompt. The spec tells the
+	// host to SUBSTRING-match `hints[].name` against its own inventory, so a
+	// hint is a query the server runs against a model list it cannot see.
+	// Folded into the same scanResult so one decision and one audit entry
+	// cover the request. See sampling_model_preference_scanner.go.
+	if mpResult := ScanSamplingModelPreferences(params); mpResult.Found {
+		for _, f := range mpResult.Findings {
+			triggered = append(triggered, "sampling:"+string(f.Signal))
+			if sent := h.Evaluator.LookupSentinel(modelPreferenceSentinelEngine(f.Signal)); sent != nil {
+				triggered = append(triggered, sent.ID)
+			}
+			reason := string(f.Signal) + ": " + f.Detail
+			if f.Value != "" {
+				reason += " (value: " + f.Value + ")"
+			}
+			reasons = append(reasons, reason)
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+		}
+		if mpResult.Blocked {
+			scanResult.Blocked = true
+		}
+	}
+
 	if scanResult.Blocked {
 		decision = "BLOCK"
 		triggered = append(triggered, "sampling-content-scan")
+		toolDefAttributed := false
 		for _, f := range scanResult.Findings {
 			triggered = append(triggered, "sampling:"+string(f.Signal))
+			if f.Signal == SignalSamplingToolDefinition && !toolDefAttributed {
+				if sent := h.Evaluator.LookupSentinel(samplingToolDefinitionSentinelEngine); sent != nil {
+					triggered = append(triggered, sent.ID)
+				}
+				toolDefAttributed = true
+			}
 			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" (role: "+f.Role+")")
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED sampling/createMessage (%d signals)\n",
@@ -1260,6 +1338,19 @@ func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte
 			"message_count": len(params.Messages),
 			"max_tokens":    params.MaxTokens,
 		}
+		// SEP-1577: which tools the server put in front of the host model,
+		// and whether it forced a call. The names are the receipt; the
+		// definitions themselves were scanned above.
+		if len(params.Tools) > 0 {
+			names := make([]string, 0, len(params.Tools))
+			for _, t := range params.Tools {
+				names = append(names, t.Name)
+			}
+			args["tools"] = names
+		}
+		if params.ToolChoice != nil && params.ToolChoice.Mode != "" {
+			args["tool_choice"] = params.ToolChoice.Mode
+		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       "sampling/createMessage",
@@ -1294,12 +1385,13 @@ func (h *MessageHandler) HandleSamplingCreateMessage(msg *Message) (bool, []byte
 // Malicious servers abuse this to harvest credentials or launder approval for dangerous actions.
 // Returns (true, blockResponseJSON) if blocked; (false, nil) with AUDIT logging if suspicious.
 func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
-	params, err := ExtractElicitationCreate(msg)
+	params, shape, err := extractElicitationCreate(msg)
 	if err != nil {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] warning: failed to extract elicitation/create: %v\n", err)
 		h.auditExtractFailOpen(MethodElicitationCreate, err)
 		return false, nil // fail open
 	}
+	h.auditWireShape(MethodElicitationCreate, shape)
 
 	scanResult := ScanElicitationCreate(params)
 
@@ -1314,7 +1406,7 @@ func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
 			// Surface every BLOCK-tier finding (credential schema fields AND
 			// control-token injection in the message). Social-engineering findings
 			// are AUDIT-tier and are reported via the Audited branch only.
-			if f.Signal == SignalElicitationCredential || f.Signal == SignalElicitationControlToken {
+			if f.Signal == SignalElicitationCredential || f.Signal == SignalElicitationControlToken || elicitationURLSignalBlocks(f.Signal) {
 				triggered = append(triggered, "elicitation:"+string(f.Signal))
 				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
 			}
@@ -1351,10 +1443,40 @@ func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
 		}
 	}
 
+	// URL-mode findings name their sentinel rule, so the receipt can cite a
+	// taxonomy node. BLOCK-tier engines are attributed first, and the event's
+	// TaxonomyRef comes from the highest-tier sentinel that fired.
+	var taxonomyRef string
+	attributed := map[string]bool{}
+	for _, wantBlock := range []bool{true, false} {
+		for _, f := range scanResult.Findings {
+			engine := elicitationURLSentinelEngine(f.Signal)
+			if engine == "" || attributed[engine] || elicitationURLSignalBlocks(f.Signal) != wantBlock {
+				continue
+			}
+			if !wantBlock && decision == "BLOCK" {
+				continue
+			}
+			attributed[engine] = true
+			if sent := h.Evaluator.LookupSentinel(engine); sent != nil {
+				triggered = append(triggered, sent.ID)
+				if taxonomyRef == "" {
+					taxonomyRef = sent.Taxonomy
+				}
+			}
+		}
+	}
+
 	// Log the audit entry for all blocked or suspicious requests
 	if h.OnAudit != nil && decision != "ALLOW" {
 		args := map[string]interface{}{
 			"message": params.Message,
+		}
+		if params.Mode != "" {
+			args["mode"] = params.Mode
+		}
+		if params.URL != "" {
+			args["url"] = params.URL
 		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -1366,6 +1488,7 @@ func (h *MessageHandler) HandleElicitationCreate(msg *Message) (bool, []byte) {
 			Reasons:        reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 
@@ -1584,7 +1707,8 @@ func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
 		return nil
 	}
 
-	result := parsePromptsGetResult(msg.Result)
+	result, shape := parsePromptsGetResult(msg.Result)
+	h.auditWireShape(MethodPromptsGet+"-response", shape)
 	if result == nil {
 		return nil
 	}
@@ -1759,7 +1883,8 @@ func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
 		return nil
 	}
 
-	result := parsePromptsListResult(msg.Result)
+	result, shape := parsePromptsListResult(msg.Result)
+	h.auditWireShape(MethodPromptsList+"-response", shape)
 	if result == nil {
 		return nil
 	}
@@ -1842,11 +1967,22 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 
 	// Try to parse as ListToolsResult
 	var listResult ListToolsResult
-	if err := json.Unmarshal(msg.Result, &listResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &listResult)
+	if err != nil {
 		return nil
 	}
 
 	// Must have a tools array to be a tools/list response
+	// The receipt goes ABOVE the kind guard, not below it. Below it, a poison
+	// that breaks the guard itself — `"tools": {}` instead of an array, which
+	// makes encoding/json skip the whole subtree — produced no scan AND no
+	// record, i.e. nothing at all in exactly the case the receipt exists to
+	// name. Found by adversarial review of #3914. Emitting above the guard is
+	// safe because an anomaly can only arise from a field THIS result type
+	// declares, and the ten result types have distinct top-level names, so a
+	// filter tried against a different response kind sees only unknown keys,
+	// which encoding/json ignores silently.
+	h.auditWireShape(MethodToolsList+"-response", shape)
 	if listResult.Tools == nil {
 		return nil
 	}
@@ -2272,6 +2408,11 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 							triggeredRules = append(triggeredRules, sent.ID)
 						}
 					}
+					if f.Signal == SignalIconUnsafeSource {
+						if sent := h.Evaluator.LookupSentinel("mcp-desc-icon-unsafe-source"); sent != nil {
+							triggeredRules = append(triggeredRules, sent.ID)
+						}
+					}
 					if f.Signal == SignalSchemaMetaExternal {
 						if sent := h.Evaluator.LookupSentinel("mcp-desc-schema-meta-external"); sent != nil {
 							triggeredRules = append(triggeredRules, sent.ID)
@@ -2431,7 +2572,7 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 		// A description that is entirely or mostly base64/hex-encoded (no natural language)
 		// is abnormal for legitimate MCP servers and may indicate a cryptographic share.
 		// This is an AUDIT (not BLOCK) signal — the tool is preserved for the agent.
-		if h.ThresholdPoisoning != nil && ScanDescriptionForFragment(tool.Description) && h.OnAudit != nil {
+		if h.ThresholdPoisoning != nil && (ScanDescriptionForFragment(tool.Description) || ScanDescriptionForEmbeddedShare(tool.Description)) && h.OnAudit != nil {
 			ruleID := "mcp-agentic-audit-sharelock-encoded-fragment"
 			reason := fmt.Sprintf(
 				"Tool %q on server %q has a description that consists predominantly of encoded/high-entropy content "+
@@ -2508,11 +2649,13 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 	}
 
 	var result InitializeResult
-	if err := json.Unmarshal(msg.Result, &result); err != nil {
+	shape, err := decodeLenient(msg.Result, &result)
+	if err != nil {
 		return nil
 	}
 
 	// Must have protocolVersion to be an initialize response
+	h.auditWireShape("initialize"+"-response", shape)
 	if result.ProtocolVersion == "" {
 		return nil
 	}
@@ -2525,17 +2668,23 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 
 	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s initialize handshake: %s\n",
 		scan.Decision, scan.Reason)
+	rule := scan.Rule
+	taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation"
+	if rule == handshakeIconRule {
+		rule = h.iconSentinelID()
+		taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+	}
 	if h.OnAudit != nil {
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       "initialize",
 			Decision:       scan.Decision,
 			Flagged:        true,
-			TriggeredRules: []string{scan.Rule},
+			TriggeredRules: []string{rule},
 			Reasons:        []string{scan.Reason},
 			Source:         "mcp-proxy-handshake-scanner",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation",
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 
@@ -2647,9 +2796,59 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 
 	// Try to parse as CallToolResult — must have a content array or structuredContent.
 	var callResult CallToolResult
-	if err := json.Unmarshal(msg.Result, &callResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &callResult)
+	if err != nil {
 		return nil
 	}
+	h.auditWireShape(MethodToolsCall+"-response", shape)
+
+	// _meta field scan — the MCP spec's reserved `_meta` field can carry
+	// arbitrary implementation-specific metadata on a tool call result and is
+	// invisible to every scanner below (which all key off Content or
+	// StructuredContent) — a compromised server can smuggle an injection
+	// payload into _meta instead of those fields to bypass them. Runs before
+	// the emptiness guard below on purpose: `{"content":[],"_meta":{...}}` is
+	// a well-formed result with no content to scan and a poisoned _meta the
+	// guard used to make unreachable (#4072).
+	if len(callResult.Meta) > 0 {
+		metaResult := ScanStructuredContentRaw(callResult.Meta)
+		if metaResult.Poisoned {
+			reason := "_meta field contains injected instructions"
+			if len(metaResult.Findings) > 0 {
+				reason = string(metaResult.Findings[0].Signal) + ": " + metaResult.Findings[0].Detail
+			}
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED _meta field blocked (%d signals)\n", len(metaResult.Findings))
+			for _, f := range metaResult.Findings {
+				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
+			}
+			if h.OnAudit != nil {
+				reasons := make([]string, 0, len(metaResult.Findings))
+				for _, f := range metaResult.Findings {
+					reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+				}
+				triggeredRules := []string{"mcp-response-meta-field-injection"}
+				if sent := h.Evaluator.LookupSentinel("mcp-response-meta-field-injection"); sent != nil {
+					triggeredRules = append(triggeredRules, sent.ID)
+				}
+				h.OnAudit(AuditEntry{
+					Timestamp:      time.Now().UTC().Format(time.RFC3339),
+					ToolName:       "tools/call-response",
+					Decision:       "BLOCK",
+					Flagged:        true,
+					TriggeredRules: triggeredRules,
+					Reasons:        reasons,
+					Source:         "mcp-proxy-meta-field-scan",
+					ServerName:     h.ServerName,
+					TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-meta-field-injection"),
+				})
+			}
+			replacement, replErr := NewBlockResponse(msg.ID, reason)
+			if replErr == nil {
+				return replacement
+			}
+		}
+	}
+
 	if len(callResult.Content) == 0 && len(callResult.StructuredContent) == 0 {
 		return nil
 	}
@@ -3175,52 +3374,6 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		}
 	}
 
-	// _meta field scan — the MCP spec's reserved `_meta` field can carry
-	// arbitrary implementation-specific metadata on a tool call result. Like
-	// structuredContent, it is invisible to ScanToolCallResponse (which only
-	// walks Content) and to the structuredContent scan above — a compromised
-	// server can smuggle an injection payload into _meta instead of those
-	// fields to bypass both. Reuses the same recursive string-leaf walker as
-	// structuredContent since both are arbitrary server-supplied JSON objects.
-	if len(callResult.Meta) > 0 {
-		metaResult := ScanStructuredContentRaw(callResult.Meta)
-		if metaResult.Poisoned {
-			reason := "_meta field contains injected instructions"
-			if len(metaResult.Findings) > 0 {
-				reason = string(metaResult.Findings[0].Signal) + ": " + metaResult.Findings[0].Detail
-			}
-			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED _meta field blocked (%d signals)\n", len(metaResult.Findings))
-			for _, f := range metaResult.Findings {
-				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
-			}
-			if h.OnAudit != nil {
-				reasons := make([]string, 0, len(metaResult.Findings))
-				for _, f := range metaResult.Findings {
-					reasons = append(reasons, string(f.Signal)+": "+f.Detail)
-				}
-				triggeredRules := []string{"mcp-response-meta-field-injection"}
-				if sent := h.Evaluator.LookupSentinel("mcp-response-meta-field-injection"); sent != nil {
-					triggeredRules = append(triggeredRules, sent.ID)
-				}
-				h.OnAudit(AuditEntry{
-					Timestamp:      time.Now().UTC().Format(time.RFC3339),
-					ToolName:       "tools/call-response",
-					Decision:       "BLOCK",
-					Flagged:        true,
-					TriggeredRules: triggeredRules,
-					Reasons:        reasons,
-					Source:         "mcp-proxy-meta-field-scan",
-					ServerName:     h.ServerName,
-					TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-meta-field-injection"),
-				})
-			}
-			replacement, replErr := NewBlockResponse(msg.ID, reason)
-			if replErr == nil {
-				return replacement
-			}
-		}
-	}
-
 	// Forged control-token scan: a compromised server may return chat-template
 	// role delimiters or tool-invocation syntax in its result to forge a turn or
 	// an unsanctioned tool call. BLOCK on a corroborated token; bare tokens AUDIT
@@ -3382,15 +3535,21 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 
 	// Try to parse as ResourceReadResult — must have a non-empty contents array
 	var readResult ResourceReadResult
-	if err := json.Unmarshal(msg.Result, &readResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &readResult)
+	if err != nil {
 		return nil
 	}
-	if len(readResult.Contents) == 0 {
-		return nil
-	}
+	h.auditWireShape(MethodResourcesRead+"-response", shape)
 
+	// Runs before the emptiness guard below on purpose: an empty contents
+	// array beside a poisoned _meta is a well-formed result the guard used to
+	// make unreachable (#4072, same shape as tools/call).
 	if repl := h.scanResultLevelMeta(readResult.Meta, msg.ID, MethodResourcesRead, "mcp-resource-read-meta-field-injection", "mcp-proxy-resource-read-meta-scan"); repl != nil {
 		return repl
+	}
+
+	if len(readResult.Contents) == 0 {
+		return nil
 	}
 
 	// Block or audit oversized responses (long-context instruction-forgetting risk, issue #1512).
@@ -3690,9 +3849,20 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 
 	// Try to parse as ResourcesListResult — must have a non-empty resources array with URIs
 	var listResult ResourcesListResult
-	if err := json.Unmarshal(msg.Result, &listResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &listResult)
+	if err != nil {
 		return nil
 	}
+	h.auditWireShape(MethodResourcesList+"-response", shape)
+
+	// Runs before the emptiness/shape guards below on purpose: an empty or
+	// URI-less resources array beside a poisoned _meta is a well-formed
+	// result those guards used to make unreachable (#4072, same shape as
+	// tools/call).
+	if repl := h.scanResultLevelMeta(listResult.Meta, msg.ID, MethodResourcesList, "mcp-resource-list-meta-field-injection", "mcp-proxy-resource-list-meta-scan"); repl != nil {
+		return repl
+	}
+
 	if len(listResult.Resources) == 0 {
 		return nil
 	}
@@ -3707,10 +3877,6 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 	}
 	if !hasURI {
 		return nil
-	}
-
-	if repl := h.scanResultLevelMeta(listResult.Meta, msg.ID, MethodResourcesList, "mcp-resource-list-meta-field-injection", "mcp-proxy-resource-list-meta-scan"); repl != nil {
-		return repl
 	}
 
 	scanResult := ScanResourcesListResponse(&listResult)
@@ -3838,6 +4004,15 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 // network, scheme evasion, metadata smuggling, or prose metadata injection).
 // Split out of FilterResourceListResponse so the audience-channel scan below
 // can still run when this structural scan found nothing.
+// iconSentinelID resolves the one sentinel every icon finding cites, whatever
+// listing surface carried it (one detection, one node).
+func (h *MessageHandler) iconSentinelID() string {
+	if sent := h.Evaluator.LookupSentinel("mcp-desc-icon-unsafe-source"); sent != nil {
+		return sent.ID
+	}
+	return "mcp-desc-icon-unsafe-source"
+}
+
 func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage, scanResult ResourceListScanResult) []byte {
 	reason := "resources/list contains injection in URI template or resource metadata"
 	if len(scanResult.Findings) > 0 {
@@ -3866,6 +4041,7 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 		hasInternalNetworkFinding := false
 		hasSchemeEvasionFinding := false
 		hasMetadataSmugglingFinding := false
+		hasIconFinding := false
 		for _, f := range scanResult.Findings {
 			loc := f.URI
 			if f.Field != "" {
@@ -3887,6 +4063,8 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 				hasSchemeEvasionFinding = true
 			case SignalResourceListMetadataSmuggling:
 				hasMetadataSmugglingFinding = true
+			case SignalResourceListIconUnsafeSource:
+				hasIconFinding = true
 			}
 			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" ("+loc+")")
 		}
@@ -3947,6 +4125,10 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 			}
 			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
 		}
+		if hasIconFinding {
+			triggeredRules = append(triggeredRules, h.iconSentinelID())
+			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       MethodResourcesList,
@@ -3993,9 +4175,20 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 	}
 
 	var listResult ResourcesTemplatesListResult
-	if err := json.Unmarshal(msg.Result, &listResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &listResult)
+	if err != nil {
 		return nil
 	}
+	h.auditWireShape(MethodResourcesTemplatesList+"-response", shape)
+
+	// Runs before the emptiness/shape guards below on purpose: an empty or
+	// URI-template-less array beside a poisoned _meta is a well-formed
+	// result those guards used to make unreachable (#4072, same shape as
+	// tools/call).
+	if repl := h.scanResultLevelMeta(listResult.Meta, msg.ID, MethodResourcesTemplatesList, "mcp-resource-templates-list-meta-field-injection", "mcp-proxy-resource-templates-list-meta-scan"); repl != nil {
+		return repl
+	}
+
 	if len(listResult.ResourceTemplates) == 0 {
 		return nil
 	}
@@ -4009,10 +4202,6 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 	}
 	if !hasTemplate {
 		return nil
-	}
-
-	if repl := h.scanResultLevelMeta(listResult.Meta, msg.ID, MethodResourcesTemplatesList, "mcp-resource-templates-list-meta-field-injection", "mcp-proxy-resource-templates-list-meta-scan"); repl != nil {
-		return repl
 	}
 
 	scanResult := ScanResourcesTemplatesListResponse(&listResult)
@@ -4045,9 +4234,12 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		hasVarnameFinding := false
 		hasMetadataFinding := false
 		hasSensitiveFinding := false
+		hasIconFinding := false
 		for _, f := range scanResult.Findings {
 			loc := f.URITemplate
 			switch {
+			case f.Signal == SignalResourceTemplatesListIconUnsafeSource:
+				hasIconFinding = true
 			case f.Varname != "":
 				loc = "varname:" + f.Varname
 				hasVarnameFinding = true
@@ -4068,6 +4260,12 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		}
 		if hasMetadataFinding && !hasVarnameFinding && !hasSensitiveFinding {
 			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-metadata-injection"
+		}
+		if hasIconFinding {
+			triggeredRules = append(triggeredRules, h.iconSentinelID())
+			if !hasVarnameFinding && !hasMetadataFinding && !hasSensitiveFinding {
+				taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+			}
 		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -4114,9 +4312,11 @@ func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
 
 	// Try to parse as RootsListResult — must have a roots array
 	var rootsResult RootsListResult
-	if err := json.Unmarshal(msg.Result, &rootsResult); err != nil {
+	shape, err := decodeLenient(msg.Result, &rootsResult)
+	if err != nil {
 		return nil
 	}
+	h.auditWireShape(MethodRootsList+"-response", shape)
 	if len(rootsResult.Roots) == 0 {
 		return nil
 	}
@@ -4176,7 +4376,8 @@ func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
 // Taxonomy: unauthorized-execution/agentic-attacks/mcp-error-message-injection
 func (h *MessageHandler) FilterErrorResponse(data []byte) []byte {
 	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	shape, err := decodeLenient(data, &msg)
+	if err != nil {
 		return nil
 	}
 
@@ -4185,35 +4386,120 @@ func (h *MessageHandler) FilterErrorResponse(data []byte) []byte {
 		return nil
 	}
 
-	signal, detail := ScanErrorMessage(msg.Error.Message)
-	if signal == "" {
-		return nil // clean error message
-	}
+	// The decode is lenient because RPCError.Code is a concrete int, and a
+	// spelling like `"code": -32603.0` — which the reference TypeScript SDK
+	// accepts — used to fail the WHOLE envelope decode here (this function
+	// re-decodes `data` independently of ParseMessage, since http_proxy.go's
+	// relayJSON/relaySSE call it directly on raw response bytes), forwarding
+	// message and data together unscanned, wider than any single scanner
+	// (#4081).
+	//
+	// The receipt sits BELOW the kind guard, unlike the other Filter*Response
+	// sites (TestWireShapeReceiptAtEveryResponseSite). There the guard reads
+	// the poisonable container, so a receipt below it is lost in exactly the
+	// case it names. Here no guard field can be poisoned into failing the
+	// guard: `error` is a pointer encoding/json allocates for any non-null
+	// value (a wrong-kind value leaves it non-nil and zero), `method` zeroes
+	// to "", and `result` is json.RawMessage. So a tolerated poison always
+	// reaches the scan below, and a body the guard rejects — an array of tool
+	// results, `error:false` beside a result — is not this filter's message.
+	// relayJSON/relaySSE call every filter on every body, so a receipt above
+	// the guard said "error-response: decoded leniently and scanned anyway"
+	// about messages this function forwarded raw — a false audit line on the
+	// attestation surface (Opus pass 1 on #4101).
+	h.auditWireShape("error-response", shape)
 
-	reason := "error.message contains injection pattern: " + detail
-	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT error response — injection in error.message: %s\n", detail)
+	// Both prose surfaces of the error object, not just `message` (#3908).
+	// `data` is where the spec tells a server to put the detailed explanation
+	// — and it was parsed into RPCError.Data and read by nothing, measuring
+	// 0/8 against payloads `message` caught 4 of. See error_data_scanner.go.
+	scan := ScanRPCErrorObject(msg.Error.Message, msg.Error.Data)
+	if !scan.Found {
+		return nil // both prose surfaces clean
+	}
+	first := scan.Findings[0]
+	detail := first.Detail
+
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT error response — injection in %s: %s\n", first.Field, detail)
 
 	if h.OnAudit != nil {
+		reasons := make([]string, 0, len(scan.Findings))
+		rules := make([]string, 0, 2)
+		seenRule := map[string]bool{}
+		for _, f := range scan.Findings {
+			reasons = append(reasons, f.Signal+": "+f.Detail+" (field: "+f.Field+")")
+			// A finding on `data` cites the sentinel for that surface so the
+			// attestation can tell the two channels apart; one on `message`
+			// keeps the id the chain already knows.
+			rule := "mcp-error-message-injection"
+			if strings.HasPrefix(f.Field, "error.data") {
+				rule = "mcp-error-data-injection"
+			}
+			if sentinel := h.Evaluator.LookupSentinel(rule); sentinel != nil {
+				rule = sentinel.ID
+			}
+			if !seenRule[rule] {
+				seenRule[rule] = true
+				rules = append(rules, rule)
+			}
+		}
+		taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-error-message-injection"
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			ToolName:       "error-response",
 			Decision:       "AUDIT",
 			Flagged:        true,
-			TriggeredRules: []string{"mcp-error-message-injection"},
-			Reasons:        []string{reason},
+			TriggeredRules: rules,
+			Reasons:        reasons,
 			Source:         "mcp-proxy-error-scan",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-error-message-injection",
+			TaxonomyRef:    taxonomyRef,
 		})
 	}
 
-	// Replace the poisoned message while preserving the error code.
-	sanitized := fmt.Sprintf("error code %d [AgentShield: error message sanitized — injection pattern detected]", msg.Error.Code)
-	replacement, err := NewErrorResponse(msg.ID, msg.Error.Code, sanitized)
+	// Replace the poisoned message while preserving the error code. A code
+	// the typed decode could not hold (the #4081 float spelling) arrives as
+	// 0; recover it from the raw literal so the agent keeps the error class.
+	code := msg.Error.Code
+	if code == 0 {
+		code = recoverErrorCode(data)
+	}
+	sanitized := fmt.Sprintf("error code %d [AgentShield: error message sanitized — injection pattern detected]", code)
+	replacement, err := NewErrorResponse(msg.ID, code, sanitized)
 	if err != nil {
 		return nil
 	}
 	return replacement
+}
+
+// recoverErrorCode re-reads error.code from the raw envelope as a json.Number,
+// which accepts any RFC 8259 number literal, for the case where the typed
+// decode into RPCError.Code (an int) zeroed it. An integral literal within
+// int32 range is returned as that int: `-32603.0` is -32603, `1e3` is 1000.
+// encoding/json also accepts a quoted numeric string into json.Number, so
+// `"code":"-32603"` recovers -32603 too; the TS SDK rejects string codes, so
+// that path only shapes the replacement we emit, never what a peer accepted.
+// Anything else — a fractional literal (1.5), one no double can hold (1e400),
+// a non-numeric string, or no code at all — carries no JSON-RPC error class to
+// preserve, so the fallback is 0: not a defined JSON-RPC code, which is more
+// honest than inventing -32603 "Internal error" the server never sent.
+func recoverErrorCode(data []byte) int {
+	var probe struct {
+		Error struct {
+			Code json.Number `json:"code"`
+		} `json:"error"`
+	}
+	if _, err := decodeLenient(data, &probe); err != nil || probe.Error.Code == "" {
+		return 0
+	}
+	if n, err := probe.Error.Code.Int64(); err == nil && n >= math.MinInt32 && n <= math.MaxInt32 {
+		return int(n)
+	}
+	f, err := probe.Error.Code.Float64()
+	if err != nil || f != math.Trunc(f) || f < math.MinInt32 || f > math.MaxInt32 {
+		return 0
+	}
+	return int(f)
 }
 
 // --- Server→client response dispatch (performance) ---------------------------
@@ -4246,6 +4532,9 @@ func (h *MessageHandler) responseFilterChain() []func([]byte) []byte {
 		h.FilterPromptsGetResponse,
 		h.FilterPromptsListResponse,
 		h.FilterCompletionResponse,
+		h.FilterTaskGetResponse,
+		h.FilterTaskListResponse,
+		h.FilterInputRequiredResponse,
 	}
 }
 
@@ -4315,6 +4604,15 @@ func (h *MessageHandler) DispatchServerResponse(msg *Message, data []byte) []byt
 	}
 	if has("completion") {
 		matched = append(matched, h.FilterCompletionResponse)
+	}
+	if has("taskId") && has("status") {
+		matched = append(matched, h.FilterTaskGetResponse)
+	}
+	if has("tasks") {
+		matched = append(matched, h.FilterTaskListResponse)
+	}
+	if has("inputRequests") {
+		matched = append(matched, h.FilterInputRequiredResponse)
 	}
 
 	// Exactly one discriminator → scan with just that filter (the hot path).

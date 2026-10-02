@@ -30,6 +30,7 @@ rules:
     context:
       ci: true
     command_regex: '^\s*(env|printenv|set|export\s+-p)\s*($|\|)'
+    command_intent_downgrade: [is_doc_text, in_heredoc]
   decision: BLOCK
   confidence: 0.9
   reason: >-
@@ -66,6 +67,7 @@ rules:
     context:
       ci: true
     command_regex: '\b(gh\s+(secret|variable)\s+list|glab\s+variable\s+list|circleci\s+context\s+list-environment-variables)\b'
+    command_intent_downgrade: [is_doc_text, in_heredoc]
   decision: BLOCK
   confidence: 0.9
   reason: >-

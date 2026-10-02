@@ -407,9 +407,84 @@ func evaluateViaHookEnginePath(t *testing.T, command string) policy.Decision {
 	if err != nil {
 		t.Fatalf("NewEngineWithAnalyzers: %v", err)
 	}
-	cmdArgs := strings.Fields(command)
-	normalized := normalize.Normalize(cmdArgs, "")
-	return engine.EvaluateWithParsed(command, normalized.Paths, normalized.Parsed).Decision
+	// Mirror hook.go's evaluateCommand as it is now: NormalizeCommand on the
+	// raw command, and EvaluateWithParsedCwd with the process cwd. The replica
+	// used to copy the pre-#2951 call (tokenize by Fields, no cwd), so
+	// check and the hook drifted on cwd without this test noticing (#3997
+	// post-merge review).
+	cwd, _ := os.Getwd()
+	normalized := normalize.NormalizeCommand(command, cwd)
+	return engine.EvaluateWithParsedCwd(command, normalized.Paths, normalized.Parsed, cwd).Decision
+}
+
+// TestEvaluateShellCommand_CwdParity pins the closure of #4020: check now
+// evaluates with the process cwd, exactly like the hook, so the two agree in
+// both directions that used to diverge:
+//   - a relative dd target run from /dev: both BLOCK;
+//   - a relative protected_paths pattern: both BLOCK, because the engine now
+//     also matches a path under cwd, made cwd-relative, against it
+//     (policy.relativeToCwd) instead of only matching when cwd is "".
+//
+// Mutation controls: passing "" as the ENGINE cwd in check.go's evaluate()
+// fails the dd case here; passing "" to NormalizeCommand instead fails
+// TestEvaluateShellCommand_NormalizesWithProcessCwd.
+func TestEvaluateShellCommand_CwdParity(t *testing.T) {
+	withFakeHomeForCheck(t)
+	dd := "dd if=/dev/zero of=sda count=1"
+	t.Chdir("/dev")
+	got, err := evaluateShellCommand(dd, "")
+	if err != nil {
+		t.Fatalf("evaluateShellCommand: %v", err)
+	}
+	if got.Decision != policy.DecisionBlock {
+		t.Errorf("cwd=/dev check %q: got %s, want BLOCK", dd, got.Decision)
+	}
+	if hook := evaluateViaHookEnginePath(t, dd); hook != policy.DecisionBlock {
+		t.Errorf("cwd=/dev hook %q: got %s, want BLOCK", dd, hook)
+	}
+
+	pol, _, err := loadCheckPolicy("")
+	if err != nil {
+		t.Fatalf("loadCheckPolicy: %v", err)
+	}
+	pol.Defaults.ProtectedPaths = append(pol.Defaults.ProtectedPaths, "secrets/**")
+	engine, err := policy.NewEngineWithAnalyzers(pol, defaultMaxParseDepth())
+	if err != nil {
+		t.Fatalf("NewEngineWithAnalyzers: %v", err)
+	}
+	t.Chdir(t.TempDir())
+	cwd, _ := os.Getwd()
+	cmd := "cat secrets/token"
+	asCheck := normalize.NormalizeCommand(cmd, "")
+	if d := engine.EvaluateWithParsed(cmd, asCheck.Paths, asCheck.Parsed).Decision; d != policy.DecisionBlock {
+		t.Errorf("check-style (cwd \"\") path %q: got %s, want BLOCK", cmd, d)
+	}
+	asHook := normalize.NormalizeCommand(cmd, cwd)
+	if d := engine.EvaluateWithParsedCwd(cmd, asHook.Paths, asHook.Parsed, cwd).Decision; d != policy.DecisionBlock {
+		t.Errorf("hook-style (cwd %q) path %q: got %s, want BLOCK", cwd, cmd, d)
+	}
+}
+
+// TestEvaluateShellCommand_NormalizesWithProcessCwd: check must resolve a
+// relative token against the process cwd, as the hook does, so an ABSOLUTE
+// protected pattern covering that directory matches.
+func TestEvaluateShellCommand_NormalizesWithProcessCwd(t *testing.T) {
+	withFakeHomeForCheck(t)
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	cwd, _ = os.Getwd()
+	policyFile := filepath.Join(t.TempDir(), "policy.yaml")
+	body := "version: \"0.1\"\ndefaults:\n  decision: \"AUDIT\"\n  protected_paths:\n    - \"" + filepath.Join(cwd, "vault") + "/**\"\n"
+	if err := os.WriteFile(policyFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := evaluateShellCommand("cat vault/key", policyFile)
+	if err != nil {
+		t.Fatalf("evaluateShellCommand: %v", err)
+	}
+	if got.Decision != policy.DecisionBlock {
+		t.Errorf("check from %s, cat vault/key vs %s/vault/**: got %s, want BLOCK (rules=%v)", cwd, cwd, got.Decision, got.TriggeredRules)
+	}
 }
 
 func TestPrintShellResult_RendersAllSections(t *testing.T) {
@@ -868,5 +943,69 @@ func TestResolveShellFile_ParityWithShellFlag(t *testing.T) {
 				t.Errorf("rules diverged:\n  inline=%v\n  file  =%v", inline.TriggeredRules, fromFile.TriggeredRules)
 			}
 		})
+	}
+}
+
+// TestRunFixtureFile_ReusedEngineMatchesFreshEngine pins the fixture-mode
+// optimisation: one engine built once and reused across cases must return the
+// same decision and rules as a fresh engine built per command (the previous
+// behaviour, and still what --shell does). The panel mixes protected-path,
+// structural, regex and benign shapes, and evaluates them twice through the
+// same engine so a per-evaluation state leak would show as a second-pass
+// divergence.
+func TestRunFixtureFile_ReusedEngineMatchesFreshEngine(t *testing.T) {
+	withFakeHomeForCheck(t)
+
+	commands := []string{
+		"cat ~/.config/op/config",
+		"rm -rf /",
+		"sudo dd if=/dev/zero of=/dev/sda",
+		"ls -la",
+		"echo hello world",
+		"git status",
+	}
+
+	ce, err := newCheckEngine("")
+	if err != nil {
+		t.Fatalf("newCheckEngine: %v", err)
+	}
+	for pass := 1; pass <= 2; pass++ {
+		for _, cmd := range commands {
+			fresh, err := evaluateShellCommand(cmd, "")
+			if err != nil {
+				t.Fatalf("evaluateShellCommand(%q): %v", cmd, err)
+			}
+			reused := ce.evaluate(cmd)
+			if reused.Decision != fresh.Decision {
+				t.Errorf("pass %d %q: reused engine=%s, fresh engine=%s", pass, cmd, reused.Decision, fresh.Decision)
+			}
+			if strings.Join(reused.TriggeredRules, ",") != strings.Join(fresh.TriggeredRules, ",") {
+				t.Errorf("pass %d %q: reused rules=%v, fresh rules=%v", pass, cmd, reused.TriggeredRules, fresh.TriggeredRules)
+			}
+		}
+	}
+}
+
+// TestRunFixtureFile_EngineBuildFailureMarksEveryCase — with the engine built
+// once, a build failure must still surface on every case (the per-case shape
+// callers and the exit code depend on), not as a silent empty report.
+func TestRunFixtureFile_EngineBuildFailureMarksEveryCase(t *testing.T) {
+	withFakeHomeForCheck(t)
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "f.yaml")
+	if err := os.WriteFile(fixture, []byte("cases:\n  - name: a\n    shell: ls\n    expect: ALLOW\n  - name: b\n    shell: pwd\n    expect: ALLOW\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := runFixtureFile(fixture, filepath.Join(dir, "missing-policy.yaml"))
+	if err != nil {
+		t.Fatalf("runFixtureFile returned error instead of per-case failures: %v", err)
+	}
+	if report.failed != 2 || len(report.results) != 2 {
+		t.Fatalf("failed=%d results=%d, want 2 and 2", report.failed, len(report.results))
+	}
+	for _, r := range report.results {
+		if r.err == nil {
+			t.Errorf("case %q: err is nil, want the engine build error", r.name)
+		}
 	}
 }

@@ -49,35 +49,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/AI-AgentLens/agentshield/internal/rulecount"
 )
-
-// ruleEntry is the only shape this gate needs from a rule.
-type ruleEntry struct {
-	ID       string `yaml:"id"`
-	Taxonomy string `yaml:"taxonomy"`
-}
-
-// idBearingSections are the top-level pack keys that hold rules carrying an id.
-// A pack file is a mapping with SEVERAL such lists, not just `rules:` — reading
-// only `rules:` misses 356 of 3489 ids (11% of the corpus), including one of
-// the seven duplicates this gate exists to catch: mcp-sc-block-npm-cache-write
-// is defined under `structural_rules:` in two premium packs and is invisible to
-// a `rules:`-only scan. Found while building this gate; recorded here because
-// the same blind spot is easy to reintroduce.
-var idBearingSections = map[string]bool{
-	"rules":            true,
-	"structural_rules": true,
-	"resource_rules":   true,
-	"semantic_rules":   true,
-	"value_limits":     true,
-}
 
 // occurrence is one definition site. Two occurrences of the same id in one file
 // are two entries, on purpose — see the package comment.
@@ -222,68 +199,21 @@ func uniq(sorted []string) int {
 }
 
 // collect walks packsDir and returns rule_id -> every definition site,
-// repetitions included.
+// repetitions included. The walk itself — which files, which top-level
+// sections, and the refusal of an id-bearing section nobody has vetted — is
+// internal/rulecount, the one definition every count in this repo derives
+// from. Files under packsDir that are not in one of its four pack directories
+// are therefore not scanned; that matches what Shield loads.
 func collect(packsDir string) (map[string][]occurrence, error) {
+	report, err := rulecount.Count(packsDir)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string][]occurrence{}
-	err := filepath.WalkDir(packsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		name := d.Name()
-		if strings.HasPrefix(name, "_") {
-			return nil // disabled legacy packs, same convention as check-rule-coverage
-		}
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			return nil
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		var doc map[string]yaml.Node
-		if err := yaml.Unmarshal(b, &doc); err != nil {
-			// Skip malformed packs — Shield's own loader surfaces those (#2188).
-			return nil
-		}
-		for key, node := range doc {
-			if node.Kind != yaml.SequenceNode {
-				continue
-			}
-			var entries []ruleEntry
-			if err := node.Decode(&entries); err != nil {
-				continue // not a rule list (e.g. a list of plain strings)
-			}
-			carriesID := false
-			for _, r := range entries {
-				if r.ID != "" {
-					carriesID = true
-					break
-				}
-			}
-			if !carriesID {
-				continue
-			}
-			// An id-bearing section this gate does not know about would be
-			// scanned into the same namespace silently. Refuse instead: a gate
-			// that quietly widens its own scope is as bad as one that quietly
-			// narrows it. Add the key to idBearingSections deliberately.
-			if !idBearingSections[key] {
-				return fmt.Errorf("%s: unknown id-bearing section %q — add it to idBearingSections "+
-					"in cmd/check-duplicate-rule-ids/main.go, deliberately", path, key)
-			}
-			for _, r := range entries {
-				if r.ID == "" {
-					continue
-				}
-				out[r.ID] = append(out[r.ID], occurrence{Path: path, Taxonomy: r.Taxonomy})
-			}
-		}
-		return nil
-	})
-	return out, err
+	for _, e := range report.Entries {
+		out[e.ID] = append(out[e.ID], occurrence{Path: e.Path, Taxonomy: e.Taxonomy})
+	}
+	return out, nil
 }
 
 // loadBaseline reads `<count> <rule-id>` lines, ignoring blanks and comments.

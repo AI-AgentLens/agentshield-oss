@@ -46,9 +46,11 @@ const (
 	evalErrorRuleID = "agentshield-eval-error"
 )
 
-// eventLogger is the slice of the audit logger the boundary needs.
+// eventLogger is the slice of the audit logger the boundary needs: Log for
+// the disk line, and the lock note so the wire payload matches it.
 type eventLogger interface {
 	Log(event logger.AuditEvent) error
+	lockNoteSource
 }
 
 // evalFailure describes where evaluation stopped. cfg is nil when config
@@ -159,6 +161,7 @@ func failSafeDecision(f evalFailure, cmdStr, cwd, source, sessionID string) (*po
 		Principal:      osPrincipal(),
 		Error:          f.err.Error(),
 	}
+	noteLockUnavailable(&event, f.log)
 	if f.log != nil {
 		if err := f.log.Log(event); err != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)

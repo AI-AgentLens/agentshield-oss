@@ -1,5 +1,7 @@
 package policy
 
+import "github.com/AI-AgentLens/agentshield/internal/analyzer"
+
 type Decision string
 
 const (
@@ -84,6 +86,15 @@ type Rule struct {
 type RuleTest struct {
 	TP []string `yaml:"tp"`           // true positives: commands that MUST fire the rule
 	TN []string `yaml:"tn,omitempty"` // true negatives: commands that must NOT fire the rule
+	// Attested commands MUST match the rule's pattern AND come out at AUDIT:
+	// the rule fires and is attributed, but a command_intent_downgrade label
+	// (is_doc_text / in_heredoc / in_interpreter_heredoc, #2843) moves the
+	// BLOCK or REQUIRE_APPROVAL to an attested AUDIT. A `tn:` entry cannot say
+	// this — it asserts non-firing — and that gap is what pushed the #2982/
+	// #3041 migrations to copy every doc-text case into the Go corpus. For an
+	// AUDIT-tier rule the downgrade is a no-op, so the assertion reduces to
+	// "fires at AUDIT" — the attribution the exclude label used to drop (#2983).
+	Attested []string `yaml:"attested,omitempty"`
 }
 
 type Match struct {
@@ -286,6 +297,10 @@ type EvalResult struct {
 	// worse than an absent one for attestation. Issue #3111.
 	TaxonomyRefs []string `json:"taxonomy,omitempty"`
 	Explanation  string   `json:"explanation,omitempty"`
+	// Notes records where the pipeline excused a match or knowingly gave
+	// up (#3995) — see analyzer.Note. Carried to the audit event verbatim.
+	// Never a decision input.
+	Notes []analyzer.Note `json:"notes,omitempty"`
 	// OriginalDecision is set only when audit-only mode (issue #1952)
 	// downgrades a BLOCK or REQUIRE_APPROVAL to AUDIT. It carries the
 	// pre-downgrade decision out to the audit-log emitter so the SaaS can

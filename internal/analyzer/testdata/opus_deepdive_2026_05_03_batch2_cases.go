@@ -106,7 +106,7 @@ var LdSoPreloadWriteCases = []TestCase{
 	{
 		ID:               "TN-LDSOPRELOAD-003",
 		Command:          "echo /usr/local/lib/myapp.so > /tmp/preload-template.txt",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/ldpreload-hijacking/ld-preload-injection",
 		Analyzer:         "regex",
@@ -370,12 +370,15 @@ var MacOSNetworksetupHijackCases = []TestCase{
 	{
 		ID:               "TN-NETSETUP-006",
 		Command:          "echo 'do not run networksetup -setdnsservers Wi-Fi 1.2.3.4'",
-		ExpectedDecision: "ALLOW",
+		// #2843/#2983: the doc-text/heredoc label moved from command_intent_exclude to
+		// command_intent_downgrade, so the rule now FIRES here and is attributed at an
+		// attested AUDIT instead of being silently suppressed. Still not a BLOCK.
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "data-exfiltration/network-exfiltration/network-config-tampering",
 		Analyzer:         "regex",
 		Description:      "Echo-quoted documentation, no execution.",
-		Tags:             []string{"tn", "macos", "networksetup", "doc-context"},
+		Tags:             []string{"tn", "macos", "networksetup", "doc-context", "issue-2843"},
 	},
 }
 

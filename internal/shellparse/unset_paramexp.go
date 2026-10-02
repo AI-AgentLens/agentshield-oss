@@ -79,7 +79,7 @@ import (
 // rewritten, or when parsing fails — callers fall back to the raw command in
 // all three cases.
 func NormalizeUnsetParamExp(command string) string {
-	return NormalizeUnsetParamExpInContext(command, nil)
+	return NormalizeUnsetParamExpInContext(command, nil, nil)
 }
 
 // NormalizeUnsetParamExpInContext is NormalizeUnsetParamExp with names known
@@ -96,7 +96,12 @@ func NormalizeUnsetParamExp(command string) string {
 // to supply the rest of the picture.
 //
 // Passing nil reproduces NormalizeUnsetParamExp exactly.
-func NormalizeUnsetParamExpInContext(command string, outerAssigned map[string]bool) string {
+//
+// outerEmptyBound carries the names a sibling statement bound to a known-empty
+// value (a `read` at EOF, #3876); those fold with set-but-empty semantics —
+// see unsetExpansion — which differ from unset for `${x-w}`, `${x=w}` and
+// `${x+w}`.
+func NormalizeUnsetParamExpInContext(command string, outerAssigned, outerEmptyBound map[string]bool) string {
 	// Iterated to a fixpoint because one pass folds only the OUTERMOST
 	// resolvable expansion of a nest: `${zqx:-r${foo}m}` has a default word
 	// that is not statically resolvable until the inner splice is folded, so
@@ -105,7 +110,7 @@ func NormalizeUnsetParamExpInContext(command string, outerAssigned map[string]bo
 	// two deep — the cap is a runaway guard, not a coverage limit.
 	out := ""
 	for i := 0; i < 3; i++ {
-		next := normalizeUnsetParamExpOnce(command, outerAssigned)
+		next := normalizeUnsetParamExpOnce(command, outerAssigned, outerEmptyBound)
 		if next == "" || next == command {
 			break
 		}
@@ -114,7 +119,7 @@ func NormalizeUnsetParamExpInContext(command string, outerAssigned map[string]bo
 	return out
 }
 
-func normalizeUnsetParamExpOnce(command string, outerAssigned map[string]bool) string {
+func normalizeUnsetParamExpOnce(command string, outerAssigned, outerEmptyBound map[string]bool) string {
 	if !strings.Contains(command, "$") {
 		return ""
 	}
@@ -126,20 +131,12 @@ func normalizeUnsetParamExpOnce(command string, outerAssigned map[string]bool) s
 		return ""
 	}
 
-	assigned := assignedNames(file)
+	assigned, emptyBound := assignedNames(file)
 	// Names assigned outside this text count as assigned. Merged into a copy
 	// so a caller's map is never mutated — the same map is reused across every
 	// statement of one command.
-	if len(outerAssigned) > 0 {
-		merged := make(map[string]bool, len(assigned)+len(outerAssigned))
-		for n := range assigned {
-			merged[n] = true
-		}
-		for n := range outerAssigned {
-			merged[n] = true
-		}
-		assigned = merged
-	}
+	assigned = mergeNames(assigned, outerAssigned)
+	emptyBound = mergeNames(emptyBound, outerEmptyBound)
 	execStarts := execWordStarts(file)
 
 	type span struct {
@@ -153,7 +150,7 @@ func normalizeUnsetParamExpOnce(command string, outerAssigned map[string]bool) s
 		if !ok {
 			return true
 		}
-		repl, ok := unsetExpansion(pe, assigned)
+		repl, ok := unsetExpansion(pe, assigned, emptyBound)
 		if !ok {
 			return true
 		}
@@ -352,10 +349,34 @@ func isWordByte(b byte) bool {
 		(b >= '0' && b <= '9')
 }
 
+// mergeNames returns a set holding both inputs, copying so neither caller
+// map is mutated. It returns a as-is when b is empty.
+func mergeNames(a, b map[string]bool) map[string]bool {
+	if len(b) == 0 {
+		return a
+	}
+	merged := make(map[string]bool, len(a)+len(b))
+	for n := range a {
+		merged[n] = true
+	}
+	for n := range b {
+		merged[n] = true
+	}
+	return merged
+}
+
 // unsetExpansion returns the literal text pe expands to when its variable is
 // unset, and whether that value is statically determinable at all. See
 // NormalizeUnsetParamExp's doc comment for why each shape is included or not.
-func unsetExpansion(pe *syntax.ParamExp, assigned map[string]bool) (string, bool) {
+//
+// A name in emptyBound is SET but empty (a `read` at EOF, #3876). bash treats
+// that the same as unset for a bare expansion, for the `:`-forms, and for
+// slicing, trimming and case-folding — but NOT for the non-colon forms:
+// `${x-w}` and `${x=w}` expand to "" (the variable is set), and `${x+w}`
+// expands to w. Modelling those as unset would fold `${x-rm} -rf /` to
+// `rm -rf /` when bash runs `-rf /` (Codex review of #3962). Verified on
+// bash 3.2 and 5.3.
+func unsetExpansion(pe *syntax.ParamExp, assigned, emptyBound map[string]bool) (string, bool) {
 	if pe.Param == nil || !isIdentifier(pe.Param.Value) {
 		return "", false // special/positional parameter ($@, $1, $?, $$)
 	}
@@ -363,6 +384,7 @@ func unsetExpansion(pe *syntax.ParamExp, assigned map[string]bool) (string, bool
 	if assigned[name] || wellKnownEnvVars[name] {
 		return "", false
 	}
+	setButEmpty := emptyBound[name]
 	// Indirect (${!x}) resolves through a second variable; length (${#x})
 	// expands to "0", not empty; an explicit index is an array subscript.
 	if pe.Excl || pe.Length || pe.Width || pe.Index != nil || pe.NestedParam != nil {
@@ -381,12 +403,24 @@ func unsetExpansion(pe *syntax.ParamExp, assigned map[string]bool) (string, bool
 	}
 
 	switch pe.Exp.Op {
-	case syntax.DefaultUnset, syntax.DefaultUnsetOrNull,
-		syntax.AssignUnset, syntax.AssignUnsetOrNull:
-		// ${x-word} / ${x:-word} / ${x=word} / ${x:=word} -> word.
+	case syntax.DefaultUnset, syntax.AssignUnset:
+		// ${x-word} / ${x=word} -> word when x is unset, "" when x is set
+		// but empty.
+		if setButEmpty {
+			return "", true
+		}
 		return staticWordText(pe.Exp.Word)
-	case syntax.AlternateUnset, syntax.AlternateUnsetOrNull:
-		// ${x+word} / ${x:+word} -> "" when x is unset.
+	case syntax.DefaultUnsetOrNull, syntax.AssignUnsetOrNull:
+		// ${x:-word} / ${x:=word} -> word whether x is unset or empty.
+		return staticWordText(pe.Exp.Word)
+	case syntax.AlternateUnset:
+		// ${x+word} -> "" when x is unset, word when x is set but empty.
+		if setButEmpty {
+			return staticWordText(pe.Exp.Word)
+		}
+		return "", true
+	case syntax.AlternateUnsetOrNull:
+		// ${x:+word} -> "" whether x is unset or empty.
 		return "", true
 	case syntax.RemSmallSuffix, syntax.RemLargeSuffix,
 		syntax.RemSmallPrefix, syntax.RemLargePrefix,
@@ -448,10 +482,34 @@ func isIdentifier(s string) bool {
 // assignedNames collects every variable name the command binds, so an
 // expansion of one is left for the constant-symbol-table layers
 // (resolveExecWord #3089, substitution.go) rather than folded to empty here.
-func assignedNames(file *syntax.File) map[string]bool {
-	names := map[string]bool{}
+//
+// #3876 (a): a `read`/`mapfile`/`readarray` binds its target only
+// if something arrives on stdin. With `</dev/null`, an empty here-string, or
+// no stdin source at all, bash leaves the target EMPTY — which expands
+// like unset for a bare expansion — so such a read must not switch the fold
+// off. Only a read with a plausible non-empty source (a file that is not
+// /dev/null, a non-empty or non-literal here-string, a heredoc, a pipe,
+// `<&`, `-u`) counts as a binding here. The targets of an empty read are
+// returned separately as emptyBound, because set-but-empty and unset diverge
+// for `${x-w}`, `${x=w}` and `${x+w}` (see unsetExpansion).
+func assignedNames(file *syntax.File) (names, emptyBound map[string]bool) {
+	names = map[string]bool{}
+	emptyBound = map[string]bool{}
+	emptyReads := map[*syntax.CallExpr]bool{}
+	piped := map[*syntax.Stmt]bool{}
 	syntax.Walk(file, func(node syntax.Node) bool {
 		switch n := node.(type) {
+		case *syntax.BinaryCmd:
+			if n.Op == syntax.Pipe || n.Op == syntax.PipeAll {
+				piped[n.Y] = true
+				if inner, ok := n.Y.Cmd.(*syntax.BinaryCmd); ok && (inner.Op == syntax.Pipe || inner.Op == syntax.PipeAll) {
+					piped[inner.X] = true
+				}
+			}
+		case *syntax.Stmt:
+			if call, ok := n.Cmd.(*syntax.CallExpr); ok && isReadLikeCall(call) && !piped[n] && !readHasPlausibleSource(call, n.Redirs) {
+				emptyReads[call] = true
+			}
 		case *syntax.CallExpr:
 			for _, a := range n.Assigns {
 				if a.Name != nil {
@@ -459,15 +517,21 @@ func assignedNames(file *syntax.File) map[string]bool {
 				}
 			}
 			// `read x`, `mapfile -t x`, `readarray x` bind their arguments.
-			if len(n.Args) > 0 {
+			if len(n.Args) > 0 && !emptyReads[n] {
 				// literalExecName, not wordLiteral: a spliced `r\ead x` still binds
 				// x, and missing it here folds `r${x}m` as if x were unset — a false
 				// BLOCK on a command bash runs as `r<value>m` (#3874 review, C4).
-				if lit, _ := literalExecName(n); lit == "read" || lit == "mapfile" || lit == "readarray" {
+				if isReadLikeCall(n) {
 					for _, arg := range n.Args[1:] {
 						if v := wordLiteral(arg); isIdentifier(v) {
 							names[v] = true
 						}
+					}
+				}
+			} else if len(n.Args) > 0 && emptyReads[n] {
+				for _, arg := range n.Args[1:] {
+					if v := wordLiteral(arg); isIdentifier(v) {
+						emptyBound[v] = true
 					}
 				}
 			}
@@ -484,7 +548,49 @@ func assignedNames(file *syntax.File) map[string]bool {
 		}
 		return true
 	})
-	return names
+	return names, emptyBound
+}
+
+func isReadLikeCall(call *syntax.CallExpr) bool {
+	lit, _ := literalExecName(call)
+	return lit == "read" || lit == "mapfile" || lit == "readarray"
+}
+
+// readHasPlausibleSource reports whether a read-like builtin could bind a
+// non-empty value: stdin is redirected from something other than /dev/null,
+// a here-string is non-empty (or not statically known), a heredoc or `<&`
+// feeds it, or `-u N` names another descriptor. A bare `read NAME` with no
+// stdin source is treated as reading EOF — the hook mediates non-interactive
+// commands, so there is no terminal to answer it.
+func readHasPlausibleSource(call *syntax.CallExpr, redirs []*syntax.Redirect) bool {
+	for _, arg := range call.Args[1:] {
+		if v := wordLiteral(arg); strings.HasPrefix(v, "-u") {
+			return true
+		}
+	}
+	for _, r := range redirs {
+		if r == nil {
+			continue
+		}
+		if r.N != nil && r.N.Value != "0" {
+			continue
+		}
+		switch r.Op {
+		case syntax.RdrIn:
+			val, ok := literalWordValue(r.Word)
+			if !ok || val != "/dev/null" {
+				return true
+			}
+		case syntax.WordHdoc:
+			val, ok := literalWordValue(r.Word)
+			if !ok || strings.TrimSpace(val) != "" {
+				return true
+			}
+		case syntax.Hdoc, syntax.DashHdoc, syntax.DplIn, syntax.RdrInOut:
+			return true
+		}
+	}
+	return false
 }
 
 func wordLiteral(w *syntax.Word) string {

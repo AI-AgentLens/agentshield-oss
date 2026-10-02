@@ -102,6 +102,18 @@ var wrapperValueFlags = map[string]map[string]bool{
 	// here. Tracked in #3227.
 	"flock": setOf("-w", "--timeout", "-E", "--conflict-exit-code",
 		"-c", "--command"),
+	// xargs is NOT in ExecWrappers (see the comment there) — this entry is
+	// used only by XargsPipeSinkTargets (#3992), which calls
+	// wrapperTargetIndex directly without requiring table membership.
+	// `-I`/`-L`/`-n`/`-P`/`-s`/`-d`/`-E`/`-a` unambiguously always take a
+	// separate-token value; `-e`/`-i`/`-l` (and their long forms) have an
+	// OPTIONAL value in GNU xargs and are deliberately left out, same
+	// omission rule as sudo's `-h` above — a wrong entry swallows the real
+	// target, a missing one just leaves xargs unpeeled (status quo).
+	"xargs": setOf("-a", "--arg-file", "-d", "--delimiter", "-E",
+		"-I", "-L", "--max-lines", "-n", "--max-args",
+		"-P", "--max-procs", "-s", "--max-chars",
+		"--process-slot-var"),
 }
 
 // Wrappers that take a fixed number of bare POSITIONAL operands between their

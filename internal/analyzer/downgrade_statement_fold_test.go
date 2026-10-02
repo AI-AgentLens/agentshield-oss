@@ -184,7 +184,11 @@ var foldAttributionCases = []struct {
 		probe:        "N2",
 		name:         "default-value expansion whose name IS assigned in a sibling statement",
 		cmd:          `x=:; ${x:-systemd-run} --system /tmp/payload.sh; git commit -m "using systemd-run --system"`,
-		wantExcluded: true,
+		// #3798 strict purity: a command word carrying an expansion is
+		// impure, so the whole line loses its doc-text exemption. Strict
+		// does not resolve `x=:`; this FP is the accepted cost (Gary,
+		// 2026-09-23). Corpus mirror: TN-SYSTEMD-RUN-017, now FP.
+		wantExcluded: false,
 	},
 }
 
@@ -218,7 +222,13 @@ func TestIntentExcludedForStatements_RawMatcherReproducesTheBug_3717(t *testing.
 	// P1 and P2 are the two rows where the raw predicate is WRONG (it excuses
 	// an executed statement); every other row must agree with the fold-aware
 	// verdict, which is what keeps the fix's blast radius honest.
-	rawWrongOn := map[string]bool{"P1": true, "P2": true}
+	//
+	// Since #3798 (strict purity) P1 and P2 never reach a matcher: a line
+	// with `systemd-run` or an expanded command word is impure, so the
+	// labels are dropped first and both predicates agree. The mechanism is
+	// still live on PURE lines, where the fold sits in an argument; see
+	// TestIntentExcludedForStatements_RawMatcherReproducesTheBugOnPureLines_3717.
+	rawWrongOn := map[string]bool{}
 	for _, tt := range foldAttributionCases {
 		t.Run(tt.probe+"/"+tt.name, func(t *testing.T) {
 			statements, parsed := shellparse.SplitTopLevelStatementsChecked(tt.cmd)
@@ -231,6 +241,29 @@ func TestIntentExcludedForStatements_RawMatcherReproducesTheBug_3717(t *testing.
 				t.Errorf("raw-only predicate on %q = %v, want %v (the #3717 mechanism no longer reproduces as documented)", tt.cmd, got, want)
 			}
 		})
+	}
+}
+
+// TestIntentExcludedForStatements_RawMatcherReproducesTheBugOnPureLines_3717
+// keeps the #3717 built-in mutation check alive after #3798. Strict purity
+// removes the doc-text exemption from any line with an expanded command word,
+// which is where P1/P2 obfuscate. The fold-aware predicate still decides the
+// verdict when the obfuscation is in an ARGUMENT of a pure command: the raw
+// predicate misses the folded real read and excuses the line on the doc-text
+// sibling alone, the fold-aware one does not.
+func TestIntentExcludedForStatements_RawMatcherReproducesTheBugOnPureLines_3717(t *testing.T) {
+	c := NewIntentClassifier()
+	pattern := `cat\s+\S*zqsecret`
+	cmd := `cat /tmp/zq${zqx}secret; git commit -m "docs: cat /tmp/zqsecret is what the rule catches"`
+	statements, parsed := shellparse.SplitTopLevelStatementsChecked(cmd)
+	if !shellparse.CommandLineIsPure(cmd, interpHeredocExecFree) {
+		t.Fatalf("control: %q must be a pure line, or this row cannot reach the attribution", cmd)
+	}
+	if got := IntentExcludedForStatements(c, cmd, statements, parsed, docContextLabels, rawOnlyMatcher(pattern)); !got {
+		t.Errorf("raw-only predicate on %q = false, want true (the #3717 mechanism no longer reproduces on a pure line)", cmd)
+	}
+	if got := IntentExcludedForStatements(c, cmd, statements, parsed, docContextLabels, foldAwareMatcher(cmd, pattern)); got {
+		t.Errorf("fold-aware predicate on %q = true, want false (the folded real read must keep its BLOCK)", cmd)
 	}
 }
 

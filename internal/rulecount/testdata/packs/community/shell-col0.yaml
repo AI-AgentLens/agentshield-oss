@@ -1,0 +1,11 @@
+name: shell-col0
+version: 1.0.0
+rules:
+- id: sh-a
+  taxonomy: "k/c/a"
+  match: {command_prefix: "rm -rf"}
+  decision: BLOCK
+- id: sh-b
+  taxonomy: "k/c/b"
+  match: {command_prefix: "dd"}
+  decision: AUDIT

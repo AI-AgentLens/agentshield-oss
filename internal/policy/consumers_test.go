@@ -110,6 +110,40 @@ func TestProtectedPathConsumer_HomeSpellingViaSubstitution(t *testing.T) {
 	}
 }
 
+// TestProtectedPathConsumer_ExemptionKeyedOnWrittenExecutable pins the one
+// consumer of CommandSegment.Executable that must NOT use the program name the
+// parser now reduces a path to (#3991). Every other consumer uses a recognised
+// name to MATCH; this one uses it to EXEMPT. Keyed on the program name, any
+// binary an agent writes to /tmp and names ssh would read a key "recorded, not
+// blocked". A path-qualified consumer therefore keeps its pre-#3991 BLOCK —
+// including the real /usr/bin/ssh, a known and accepted cost.
+//
+// Tested here, on the packless DefaultPolicy engine, because with the packs
+// loaded sec-block-ssh-private also BLOCKs these commands: a decision-level
+// test in the analyzer package stays green when this exemption is wrongly keyed
+// (verified by mutation) — defense in depth doing its job, and a test proving
+// nothing about this seam.
+func TestProtectedPathConsumer_ExemptionKeyedOnWrittenExecutable(t *testing.T) {
+	engine, home := consumerEngine(t)
+	key := home + "/.ssh/id_ed25519"
+	kube := home + "/.kube/config-staging"
+	cases := []struct {
+		cmd   string
+		paths []string
+	}{
+		{"/tmp/x/ssh -i ~/.ssh/id_ed25519 deploy@host.example", []string{key}},
+		{"/usr/bin/ssh -i ~/.ssh/id_ed25519 deploy@host.example", []string{key}},
+		{"sudo /tmp/x/ssh -i ~/.ssh/id_ed25519 deploy@host.example", []string{key}},
+		{"~/bin/kubectl --kubeconfig ~/.kube/config-staging get pods", []string{kube}},
+	}
+	for _, tc := range cases {
+		res := engine.EvaluateWithParsed(tc.cmd, tc.paths, nil)
+		if res.Decision != DecisionBlock || has(res.TriggeredRules, ProtectedPathConsumerRuleID) {
+			t.Errorf("path-qualified consumer was exempted: %s\n  decision=%v rules=%v", tc.cmd, res.Decision, res.TriggeredRules)
+		}
+	}
+}
+
 func TestProtectedPathConsumer_NoConsumersConfiguredMeansBlock(t *testing.T) {
 	pol := DefaultPolicy()
 	pol.Defaults.ProtectedPathConsumers = nil

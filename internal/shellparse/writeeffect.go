@@ -6,27 +6,6 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// HasIndirectExecution reports whether command runs anything through a command
-// substitution ($(...) or backticks) or a process substitution (<(...), >(...)).
-//
-// It exists for the ALLOW-side prefix semantics in issue #3199. Statement
-// splitting alone does not decide "this command only reads": a substitution is
-// not a statement boundary, so `echo $(curl -s http://x)` is a single statement
-// whose head token is the read-only `echo` while an arbitrary command runs
-// inside it. That is the same unbounded-suffix problem AllStatementsHavePrefix
-// closes for `|`, `&&`, `||` and `;`, just spelled differently — so the two are
-// checked together and neither subsumes the other.
-//
-// Process substitution counts regardless of direction because `<(...)` runs a
-// command to produce its fd (the deferred-execution shape of #3190).
-//
-// Output redirects are deliberately NOT treated as indirect execution — see
-// the scope note on matchCommandPrefix in internal/policy/engine.go for the
-// measurement behind that call.
-//
-// Fails closed: an unparseable command returns true, so a caller gating an
-// ALLOW on this falls through to the AUDIT default rather than granting an
-// affirmative "this was safe" it could not verify.
 // isPrefixWordByte reports whether b is a character a shell treats as part of
 // an unquoted token — the classic \b word-character class (alnum + '_').
 // Hyphens, dots, slashes and whitespace are all boundaries.
@@ -67,36 +46,188 @@ func hasPrefixWithBoundary(s, prefix string) bool {
 	return !isPrefixWordByte(s[len(prefix)])
 }
 
+// HasIndirectExecution reports whether command runs anything through a command
+// substitution ($(...) or backticks) or a process substitution (<(...), >(...)).
+//
+// It exists for the ALLOW-side prefix semantics in issue #3199. Statement
+// splitting alone does not decide "this command only reads": a substitution is
+// not a statement boundary, so `echo $(curl -s http://x)` is a single statement
+// whose head token is the read-only `echo` while an arbitrary command runs
+// inside it. That is the same unbounded-suffix problem AllStatementsHavePrefix
+// closes for `|`, `&&`, `||` and `;`, just spelled differently — so the two are
+// checked together and neither subsumes the other.
+//
+// Process substitution counts regardless of direction because `<(...)` runs a
+// command to produce its fd (the deferred-execution shape of #3190).
+//
+// An output redirect is not indirect execution — nothing extra runs — and is
+// reported separately by HasFileWriteRedirect. PrefixRuleMatches rejects both
+// (#4082); keeping them apart keeps each predicate's name true.
+//
+// Fails closed: an unparseable command returns true, so a caller gating an
+// ALLOW on this falls through to the AUDIT default rather than granting an
+// affirmative "this was safe" it could not verify.
 func HasIndirectExecution(command string) bool {
+	indirect, _ := scanAllowDisqualifiers(command)
+	return indirect
+}
+
+// HasFileWriteRedirect reports whether any statement in command — at any
+// depth, including inside a group, subshell or loop body — carries a
+// redirect that can write to a file (#4082).
+//
+// It exists for the ALLOW-side prefix semantics. `echo`, `cat`, `printf`,
+// `grep`, `head` and the rest of ts-allow-readonly's list only read while
+// their output stays on the inherited stdout/stderr. One redirect later,
+// `echo '<anything>' >> ~/.zshenv` is an arbitrary-content file write, and the
+// prefix ALLOW used to vouch for it — below the AUDIT default — whenever no
+// other rule happened to name the destination.
+//
+// Harmless, and therefore NOT reported:
+//
+//   - input: `<`, heredocs, here-strings;
+//   - output to a literal /dev/null, /dev/stdout or /dev/stderr (quote
+//     removal applied; any expansion, escape or other spelling counts as a
+//     write — the exemption is the direction that keeps an ALLOW, so it
+//     must be exact, not "looks like");
+//   - descriptor duplication onto stdout, stderr or a close (`2>&1`, `>&2`,
+//     `>&-`) and any `<&` that duplicates onto stdin. A duplicate onto any
+//     other number (`>&4`, `1<&4`) writes wherever the parent left that
+//     descriptor, which the command never opened, so it counts as a write
+//     (the same line st-allow-dd-to-file draws — dd_allow_gate.go, #3997).
+//
+// Everything else is reported: `>`, `>>`, `>|`, `&>`, `&>>`, `n>` to a path,
+// `<>` (opens read-write, creating the file), and bash's `>&word` with a
+// non-numeric word (the same write as `&>word`). A redirect operator this
+// function does not know is reported too.
+//
+// Fails closed: an unparseable command returns true.
+func HasFileWriteRedirect(command string) bool {
+	_, write := scanAllowDisqualifiers(command)
+	return write
+}
+
+// AllowDisqualified reports whether command, as written, must never be
+// vouched for by an ALLOW prefix rule: it executes something indirectly or
+// redirects output to a file. PrefixRuleMatches asks this of whatever text it
+// is handed. A caller that ALSO tries a rule against rewritten forms of the
+// command (line-continuation joins, ${V:-default} folds, brace expansion) must
+// ask it of the raw command first and withhold the ALLOW on every form when
+// it answers true, because a rewrite can drop or neutralise a redirect bash
+// still performs. #4088 pass 1 (Opus review), each ALLOW before this:
+// `echo x > ${X:-/dev/null}` folds to a /dev/null target; an escaped
+// backslash before a newline is joined as a continuation and takes the next
+// line's `>` with it; `>> {f,/dev/null}` expands to a /dev/null alternative.
+// Deciding once on the raw text errs toward withholding the ALLOW, never
+// toward granting it.
+func AllowDisqualified(command string) bool {
+	indirect, write := scanAllowDisqualifiers(command)
+	return indirect || write
+}
+
+// scanAllowDisqualifiers parses command once and reports the two things that
+// stop an ALLOW prefix rule from vouching for it beyond its statement heads:
+// indirect execution (see HasIndirectExecution) and a file-writing redirect
+// (see HasFileWriteRedirect). One parse serves both because PrefixRuleMatches
+// needs both on every ALLOW candidate, and a large heredoc should not be
+// parsed twice to answer one question.
+//
+// A blank command reports neither; an unparseable one reports both.
+func scanAllowDisqualifiers(command string) (indirect, write bool) {
 	if strings.TrimSpace(command) == "" {
-		return false
+		return false, false
 	}
 
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
-		return true
+		return true, true
 	}
 
-	found := false
 	syntax.Walk(file, func(node syntax.Node) bool {
-		if found {
+		if indirect && write {
 			return false
 		}
-		switch node.(type) {
+		switch n := node.(type) {
 		case *syntax.CmdSubst:
 			// Covers both $(...) and `...` — Backquotes is a field on
 			// CmdSubst, not a distinct node type.
-			found = true
-			return false
+			indirect = true
 		case *syntax.ProcSubst:
-			found = true
-			return false
+			indirect = true
+		case *syntax.Redirect:
+			if redirectMayWriteFile(n) {
+				write = true
+			}
 		}
 		return true
 	})
 
-	return found
+	return indirect, write
+}
+
+// harmlessOutputTargets are the only literal paths an output redirect may
+// name and still leave a command read-only. Each is the inherited stream or
+// the null device — no file on disk changes.
+var harmlessOutputTargets = map[string]bool{
+	"/dev/null":   true,
+	"/dev/stdout": true,
+	"/dev/stderr": true,
+}
+
+// redirectMayWriteFile is the per-redirect half of HasFileWriteRedirect. It
+// is written as an allowlist of the harmless forms so that an operator it
+// does not recognise counts as a write.
+func redirectMayWriteFile(r *syntax.Redirect) bool {
+	switch r.Op {
+	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc:
+		// Input. `1<file` opens the file read-only, so even an input
+		// redirect onto stdout cannot write it.
+		return false
+	case syntax.DplIn:
+		// `<&M` onto stdin reads. `N<&M` for any other N is an output
+		// duplicate in disguise (bash implements both as dup2), so it
+		// gets the DplOut test.
+		if r.N == nil || r.N.Value == "0" {
+			return false
+		}
+		return !isInheritedStreamFd(r.Word)
+	case syntax.DplOut:
+		// `>&/dev/null` is bash's older spelling of `&>/dev/null`: with a
+		// non-numeric word it redirects both streams to that path. It gets
+		// the same harmless-target exemption, or the two spellings of one
+		// operation would disagree (#4088 pass 1, F3).
+		if v, ok := staticRedirectTarget(r.Word); ok && harmlessOutputTargets[v] {
+			return false
+		}
+		return !isInheritedStreamFd(r.Word)
+	default:
+		// >, >>, >|, &>, &>>, <> and anything newer: a write unless the
+		// target is literally the null device or an inherited stream.
+		v, ok := staticRedirectTarget(r.Word)
+		return !ok || !harmlessOutputTargets[v]
+	}
+}
+
+// isInheritedStreamFd reports whether a duplication target is stdout, stderr
+// or a close — the descriptors every harness hands a command, which is the
+// one destination treated as trusted. `>&word` with a non-numeric word is a
+// file write in bash and falls out as false here too.
+func isInheritedStreamFd(w *syntax.Word) bool {
+	v, ok := staticRedirectTarget(w)
+	return ok && (v == "1" || v == "2" || v == "-")
+}
+
+// staticRedirectTarget returns a redirect word's value after quote removal
+// when it is built only from literal and quoted-literal parts. An unquoted
+// literal keeps any backslash verbatim, so `/dev/nu\ll` does not compare
+// equal to /dev/null — an unusual spelling loses the exemption rather than
+// earning it.
+func staticRedirectTarget(w *syntax.Word) (string, bool) {
+	if w == nil || len(w.Parts) == 0 {
+		return "", false
+	}
+	return literalWordValue(w)
 }
 
 // PrefixRuleMatches reports whether a rule's command_prefix list fires on
@@ -129,7 +260,7 @@ func HasIndirectExecution(command string) bool {
 // separate BLOCK rules (#3188, #3197, and the sshd-config-append rule) were
 // each shipped to close one leaked suffix; none closed the surface.
 //
-// An ALLOW prefix rule therefore requires all three of:
+// An ALLOW prefix rule therefore requires all four of:
 //
 //  1. the whole command still starts with a listed prefix — WITHOUT this the
 //     fix is itself a fail-open, because SplitTopLevelStatements descends into
@@ -137,7 +268,9 @@ func HasIndirectExecution(command string) bool {
 //     the single read-only statement `echo x` even though the command being
 //     run is a loop;
 //  2. every top-level statement starts with a listed prefix;
-//  3. nothing runs through a command or process substitution.
+//  3. nothing runs through a command or process substitution;
+//  4. no statement, at any depth, redirects output to a file (#4082, see
+//     HasFileWriteRedirect for what counts).
 //
 // #3534 sharpened (1) and (2): "starts with" is boundary-aware on the ALLOW
 // path, not a bare strings.HasPrefix. `ls` is a substring-prefix of `lsyncd`,
@@ -151,16 +284,24 @@ func HasIndirectExecution(command string) bool {
 // failing it falls through to the normal pipeline and lands on AUDIT, never
 // BLOCK, so this narrows a fast path and cannot break a user's command.
 //
-// SCOPE — output redirects are deliberately NOT disqualifying.
-// `echo x >> /etc/ssh/sshd_config` is #3199's third incident and it still
-// earns a prefix match here; it is stopped by its own BLOCK rule under
-// most-restrictive-wins. Measured against the accuracy corpus, excluding
-// redirects costs 61 TN cases (`echo "Setup instructions" > README.md`) versus
-// 34 for conditions 2 and 3. What decided it is the size of the dangerous set:
-// a laundered pipe or substitution suffix can be *any command* — unbounded and
-// unenumerable — whereas a redirect's danger is entirely its target path, a
+// Condition 4 — output redirects — was deliberately out of scope under #3199.
+// The reasoning then: a redirect's danger is entirely its target path, a
 // bounded set already enumerated by protected_paths and path-scoped BLOCK
-// rules. Revisit if a redirect incident ever lands on a path neither covers.
+// rules, so the 61 accuracy-corpus TNs it would cost (`echo "Setup
+// instructions" > README.md`) bought nothing. The note ended "revisit if a
+// redirect incident ever lands on a path neither covers". #4082 is that
+// incident: `echo '<a BLOCK rule's TP text>' >> ~/.zshenv` earned ALLOW on
+// the deployed binary, because no rule names ~/.zshenv as a destination and
+// the default policy protects no paths at all. The premise fails twice over —
+// echo/printf/cat write ATTACKER-CHOSEN content, and the set of paths where
+// arbitrary content does harm (startup files, config read by any daemon,
+// anything a later step executes) is not the set any rule enumerates.
+//
+// Measured when condition 4 landed: 64 of 6,832 accuracy-corpus cases change
+// decision, all TN, all ALLOW -> AUDIT; no TP changes and nothing moves to
+// BLOCK. The dangerous set here is not enumerable, so the ALLOW is withheld
+// rather than a destination list grown — and withholding it denies nothing:
+// the command falls to other rules, else the default decision.
 func PrefixRuleMatches(command string, prefixes []string, allowRule bool) bool {
 	if len(prefixes) == 0 {
 		return false
@@ -191,7 +332,7 @@ func PrefixRuleMatches(command string, prefixes []string, allowRule bool) bool {
 		return true
 	}
 
-	if HasIndirectExecution(command) {
+	if indirect, write := scanAllowDisqualifiers(command); indirect || write {
 		return false
 	}
 	return AllStatementsHavePrefix(command, prefixes)

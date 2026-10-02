@@ -85,6 +85,49 @@ func TestHeredocLabelsAreDistinct(t *testing.T) {
 	}
 }
 
+// #3970: an interpreter given a script-file operand, or the value of a
+// code-carrying flag (-c/-e/-m/...), never reads a trailing HERE-STRING as
+// its program — the label must be withdrawn for that shape, same reasoning
+// as #3964's cat fix.
+func TestInterpreterHeredocLabel_WithdrawnWithOperand(t *testing.T) {
+	c := NewIntentClassifier()
+	for _, intro := range []string{
+		"python3 backup.py", "python3 -u backup.py", "node app.js", "ruby backup.rb",
+		"perl backup.pl", "php backup.php", "Rscript backup.R", "osascript backup.scpt",
+	} {
+		cmd := intro + " <<< x"
+		if got := c.Classify(cmd); got.InInterpreterHeredoc {
+			t.Errorf("intro %q: InInterpreterHeredoc = true, want false — a script-file operand means the interpreter never reads the here-string", intro)
+		}
+	}
+	// Live regression for #3970's own reproduction: the whole statement,
+	// including sensitive text in the interpreter's own argv, must not be
+	// excused just because a trailing here-string sits after it.
+	herestring := "python3 backup.py -c ~/.ssh/id_rsa <<< x"
+	if got := c.Classify(herestring); got.InInterpreterHeredoc {
+		t.Errorf("InInterpreterHeredoc = true for %q, want false", herestring)
+	}
+}
+
+// A multi-line HEREDOC body (not a here-string) is deliberately left alone
+// even with the identical operand present — ts-block-authorized-keys-
+// write's FP-fix (#3540) relies on the body being treated as source-code
+// text regardless of whether the interpreter actually reads it from stdin.
+// This is the regression guard for the narrower #3970 fix.
+func TestInterpreterHeredocLabel_NotWithdrawnForRealHeredocBody(t *testing.T) {
+	c := NewIntentClassifier()
+	body := "x = \"" + strings.Join([]string{"some", "shell", "text"}, " ") + "\""
+	for _, intro := range []string{
+		"python3 backup.py", "python3 -u backup.py", "node app.js", "ruby backup.rb",
+		"perl backup.pl", "php backup.php", "Rscript backup.R", "osascript backup.scpt",
+	} {
+		cmd := heredocBody(intro, body)
+		if got := c.Classify(cmd); !got.InInterpreterHeredoc {
+			t.Errorf("intro %q: InInterpreterHeredoc = false, want true — a real heredoc BODY stays excused regardless of the interpreter's operand", intro)
+		}
+	}
+}
+
 func TestInterpreterHeredocLabelIsValid(t *testing.T) {
 	if !IsValidIntentLabel(LabelInInterpreterHeredoc) {
 		t.Fatal("in_interpreter_heredoc must be accepted at policy load, else rules using it silently suppress nothing")

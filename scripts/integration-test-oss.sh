@@ -5,12 +5,26 @@
 # Tests: build from source, install, setup, and basic command evaluation.
 #
 # Usage:
-#   ./scripts/integration-test-oss.sh           # test current repo state
-#   ./scripts/integration-test-oss.sh --oss     # simulate OSS build (exclude premium)
+#   ./scripts/integration-test-oss.sh                    # test current repo state
+#   ./scripts/integration-test-oss.sh --oss              # OSS build: strip exactly what
+#                                                        #   scripts/publish-oss.sh strips
+#   ./scripts/integration-test-oss.sh --oss --stage-only DIR
+#                                                        # stage + strip + leakage check
+#                                                        #   into DIR, no Docker; DIR is
+#                                                        #   left for the caller to inspect
+#
+# What --oss builds, and what it does not (#3373): the strip and the carve-out
+# restore come from scripts/oss-excludes.sh, the same file publish-oss.sh
+# consumes, so the tree graded here is the tree that script would push. Two
+# things still differ from a real publish and are NOT covered: this stages from
+# `git archive HEAD` (tracked files only) where publish rsyncs the WORKING tree,
+# and publish then rewrites identifiers (the perl sanitize block) and runs the
+# private-identifier scan — neither happens here. This script never contacts
+# the public repo.
 #
 # Prerequisites:
-#   - Docker installed and running
-#   - homebrew/brew:latest image available
+#   - Docker installed and running (not for --stage-only)
+#   - homebrew/brew:latest image available (not for --stage-only)
 
 set -euo pipefail
 
@@ -18,8 +32,43 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 OSS_MODE=false
-if [[ "${1:-}" == "--oss" ]]; then
-    OSS_MODE=true
+STAGE_ONLY=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --oss)
+            OSS_MODE=true
+            ;;
+        --stage-only)
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 [--oss] [--stage-only DIR]" >&2
+                exit 2
+            fi
+            STAGE_ONLY="$2"
+            shift
+            ;;
+        *)
+            echo "Usage: $0 [--oss] [--stage-only DIR]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+if $OSS_MODE; then
+    if [[ ! -f "$REPO_ROOT/scripts/oss-excludes.sh" ]]; then
+        # The list is on its own exclude list, so it is absent from the
+        # published tree on purpose — and there --oss is meaningless: that tree
+        # already IS the OSS tree. In the source repo this means the file was
+        # moved or deleted, and a strip with no list would grade the full tree
+        # while calling it OSS. Refuse rather than fall through.
+        echo "ERROR: $REPO_ROOT/scripts/oss-excludes.sh not found." >&2
+        echo "       It ships only in the source repo. If this is the published" >&2
+        echo "       agentshield-oss tree, it already is the OSS build: run" >&2
+        echo "       'make test-install' instead." >&2
+        exit 2
+    fi
+    # shellcheck source=scripts/oss-excludes.sh
+    source "$REPO_ROOT/scripts/oss-excludes.sh"
 fi
 
 echo "=== AgentShield Integration Test ==="
@@ -27,32 +76,69 @@ echo "Mode: $(if $OSS_MODE; then echo 'OSS (premium excluded)'; else echo 'Full 
 echo "Source: $REPO_ROOT"
 echo ""
 
-# Create a temp directory with the repo content
-STAGING=$(mktemp -d)
-# mktemp -d is 0700 and owned by the invoking user. The homebrew/brew container
-# builds as its own "linuxbrew" user (uid 1000), a different uid, so it cannot
-# traverse 0700 and the first cp out of /agentshield dies with "Permission
-# denied" (#3159). Docker Desktop on darwin remaps bind-mount ownership to the
-# container user, which masks this entirely -- so this failed only on the Linux
-# self-hosted runner, and only once the gate was able to fail at all (#3130).
-# The mount is :ro, so widening the host-side mode grants the container nothing
-# it could not already read.
-chmod 755 "$STAGING"
-trap "rm -rf $STAGING" EXIT
+if [[ -n "$STAGE_ONLY" ]]; then
+    mkdir -p "$STAGE_ONLY"
+    if [[ -n "$(ls -A "$STAGE_ONLY")" ]]; then
+        echo "ERROR: --stage-only DIR must be empty: $STAGE_ONLY" >&2
+        exit 2
+    fi
+    STAGING="$STAGE_ONLY"
+else
+    # Create a temp directory with the repo content
+    STAGING=$(mktemp -d)
+    # mktemp -d is 0700 and owned by the invoking user. The homebrew/brew container
+    # builds as its own "linuxbrew" user (uid 1000), a different uid, so it cannot
+    # traverse 0700 and the first cp out of /agentshield dies with "Permission
+    # denied" (#3159). Docker Desktop on darwin remaps bind-mount ownership to the
+    # container user, which masks this entirely -- so this failed only on the Linux
+    # self-hosted runner, and only once the gate was able to fail at all (#3130).
+    # The mount is :ro, so widening the host-side mode grants the container nothing
+    # it could not already read.
+    chmod 755 "$STAGING"
+    trap "rm -rf $STAGING" EXIT
+fi
 
 echo "Staging repo content..."
 # Use git archive to get a clean copy (respects .gitignore, no .git dir)
 git archive HEAD | tar -x -C "$STAGING"
 
-# If OSS mode, remove premium files
 if $OSS_MODE; then
-    rm -rf "$STAGING/packs/premium/" \
-           "$STAGING/packs/packs_premium.go" \
-           "$STAGING/RULE_REVIEW.md" \
-           "$STAGING/FAILING_TESTS.md"
-    # Remove disabled legacy packs
-    rm -f "$STAGING"/packs/_*.yaml
-    echo "  Removed premium files for OSS simulation"
+    # Strip + restore with the shared function; before #3373 this was a
+    # hardcoded 5-entry list against the publisher's 18.
+    if ! oss_strip_tree "$STAGING" "$REPO_ROOT"; then
+        echo "ERROR: could not build the OSS tree (see above)." >&2
+        exit 1
+    fi
+    echo "  Stripped ${#OSS_EXCLUDES[@]} exclude entries per scripts/oss-excludes.sh"
+
+    # Positive control before the real assertion: a leakage check that cannot
+    # fail is the same defect as the gate that could not fail (#3130). A planted
+    # premium file must be reported, or this run stops here.
+    CONTROL=$(mktemp -d)
+    mkdir -p "$CONTROL/packs/premium"
+    : > "$CONTROL/packs/premium/planted.yaml"
+    if oss_check_leakage "$CONTROL" > /dev/null; then
+        rm -rf "$CONTROL"
+        echo "ERROR: leakage check passed a planted packs/premium/planted.yaml." >&2
+        echo "       The assertion is vacuous; refusing to trust it on the real tree." >&2
+        exit 1
+    fi
+    rm -rf "$CONTROL"
+
+    # The assertion the nightly could not make before #3373: nothing premium and
+    # nothing on the exclude list survives in the tree we are about to grade.
+    if ! LEAKS="$(oss_check_leakage "$STAGING")"; then
+        echo "ERROR: OSS tree contains paths the publish excludes:" >&2
+        printf '%s\n' "$LEAKS" >&2
+        exit 1
+    fi
+    echo "  Leakage check: OK (nothing under packs/premium/, nothing on the exclude list)"
+fi
+
+if [[ -n "$STAGE_ONLY" ]]; then
+    echo ""
+    echo "Staged $(find "$STAGING" -type f | wc -l | tr -d ' ') files into $STAGING (no Docker run)."
+    exit 0
 fi
 
 echo "Running Docker integration test..."

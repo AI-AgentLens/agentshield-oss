@@ -1,0 +1,4 @@
+name: shell-yml
+rules:
+- id: sh-yml-1
+  taxonomy: "k/c/y"

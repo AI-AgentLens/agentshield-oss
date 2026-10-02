@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
@@ -138,7 +140,270 @@ func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *anal
 // analyzers that resolve relative filesystem paths (e.g. the artifact-hash
 // verifier) can locate the on-disk file. Callers without a cwd (scan/check)
 // use EvaluateWithParsed, which passes "" — those analyzers then no-op.
+//
+// It is the single evaluation entry point: the hook (cli/hook.go), `check`,
+// `scan` and shield-server all arrive here, which is why #3991's safety
+// guarantee lives here — see EvaluateProgramPaths.
 func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string) EvalResult {
+	return e.EvaluateProgramPaths(command, paths, parsed, cwd, ProgramPathsStricter)
+}
+
+// ProgramPathMode selects how an evaluation treats a command word spelled as a
+// path (#3991): `/usr/bin/rm`, `"/usr/bin/tar"`, `~root/bin/tar`, `| /usr/bin/nc`.
+type ProgramPathMode int
+
+const (
+	// ProgramPathsStricter is production: evaluate as written (OFF) and, for a
+	// command with a path-spelled command word, again reading those words as
+	// the programs they run (ON); keep ON only when STRICTLY more restrictive.
+	ProgramPathsStricter ProgramPathMode = iota
+	// ProgramPathsOff evaluates as written only — byte-for-byte pre-#3991.
+	ProgramPathsOff
+	// ProgramPathsOn is the ON evaluation alone. Diagnostics and tests only:
+	// on its own it carries no guarantee of being at least as strict as OFF.
+	ProgramPathsOn
+)
+
+// EvaluateProgramPaths is EvaluateWithParsedCwd with the #3991 mode explicit.
+// Production uses ProgramPathsStricter through EvaluateWithParsedCwd; the other
+// modes exist so the relaxation sweep can compare OFF, ON and the result.
+//
+// # The guarantee, and where it comes from
+//
+// A path-spelled command word defeated every rule keyed on a program name —
+// `/usr/bin/rm -rf /` went BLOCK -> AUDIT. Reading such words as their
+// programs closes that, but reading them anywhere a match RELAXES the verdict
+// (an ALLOW rule, an exemption, a downgrade, an ALLOW's position exclusion, an
+// AUDIT finding that displaces a stricter default) opens new fail-opens, and
+// the combiner is not monotone in findings, so no per-consumer classification
+// can prove "never less restrictive than before". Codex found three relaxations
+// in pass 1 and three more in pass 2, each from a different consumer.
+//
+// So the guarantee is structural. OFF is exactly the pre-#3991 evaluation. ON
+// runs only when the command has a path-spelled command word, and its result
+// replaces OFF's only when strictly more restrictive under stricterResult's
+// local total order. The returned decision is therefore never below OFF's,
+// whatever any analyzer does with the program name. The restrict-only opt-in
+// in the analyzers (AnalysisContext.ResolveProgramPaths) is PRECISION: it keeps
+// ON from inventing ALLOWs and needless FPs. It is not what makes this safe,
+// and safety does not depend on its consumer table being complete.
+//
+// What the record carries: when OFF is returned (almost always), exactly the
+// pre-#3991 decision, rules, reasons and taxonomy refs. When ON is returned, ON's
+// — the rules that fired once the program name was read, which is the evidence
+// for the stricter verdict. The two are never merged.
+func (e *Engine) EvaluateProgramPaths(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode ProgramPathMode) EvalResult {
+	switch mode {
+	case ProgramPathsOff:
+		return e.evaluate(command, paths, parsed, cwd, false)
+	case ProgramPathsOn:
+		return e.evaluate(command, paths, parsed, cwd, true)
+	}
+	off := e.evaluate(command, paths, parsed, cwd, false)
+	// The regex-only fallback (no registry) reads no program names, so ON
+	// would equal OFF; do not pay for it twice.
+	if e.registry == nil || !mayHaveProgramPaths(command, parsed) {
+		return off
+	}
+	on := e.evaluate(command, paths, parsed, cwd, true)
+	return stricterResult(off, on)
+}
+
+// stricterResult returns on when its decision is STRICTLY more restrictive than
+// off's, and off otherwise — ties, and anything outside the order, keep off.
+// This is the max() #3991's safety rests on (see EvaluateProgramPaths).
+//
+// The order is local and total — ALLOW < AUDIT < REQUIRE_APPROVAL < BLOCK — and
+// deliberately NOT the combiner's decisionToSeverity, which has no
+// REQUIRE_APPROVAL case and ranks it below ALLOW (#3298). Using that here would
+// let an ON result at AUDIT replace an OFF REQUIRE_APPROVAL.
+//
+// Both results have already been through applyModeDowngrade, so under
+// audit-only a BLOCK arrives as AUDIT with OriginalDecision=BLOCK. Ranking on
+// Decision there ties OFF's plain AUDIT with ON's downgraded BLOCK, keeps OFF,
+// and drops the "would have blocked" record the shadow-rollout view reads
+// (#4021). So rank on the pre-downgrade decision. applyModeDowngrade is the
+// only writer of OriginalDecision, so enforce mode ranks exactly as before; and
+// because the downgrade is monotone, the returned Decision still never falls
+// below OFF's.
+func stricterResult(off, on EvalResult) EvalResult {
+	rank := func(d Decision) int {
+		switch d {
+		case DecisionAllow:
+			return 0
+		case DecisionAudit:
+			return 1
+		case DecisionRequireApproval:
+			return 2
+		case DecisionBlock:
+			return 3
+		}
+		return -1
+	}
+	preDowngrade := func(r EvalResult) Decision {
+		if r.OriginalDecision != "" {
+			return r.OriginalDecision
+		}
+		return r.Decision
+	}
+	ro, rn := rank(preDowngrade(off)), rank(preDowngrade(on))
+	if ro < 0 || rn <= ro {
+		return off
+	}
+	return on
+}
+
+// mayHaveProgramPaths is the cheap test for "is there a path-spelled command
+// word for ON to read" — at the top level or in a pipeline stage, in any parsed
+// segment at any depth (carriers, resolved indirect executables, quoted words),
+// on any line, or inside executed text (piped/heredoc/substitution bodies).
+// A miss only means ON is not run for that command: the result is OFF, i.e.
+// the pre-#3991 behaviour — a coverage gap, never a relaxation.
+//
+// Ordered cheapest first, because it runs on EVERY command: a lexical scan,
+// then a walk of the tree the caller already parsed (the hook always passes
+// one), and only when a path starts right after a quote, `(`, backquote or
+// `=`, or sits anywhere on a later line — the only places a command word
+// inside a carrier, heredoc, substitution or indirect assignment can begin —
+// the line split (each line peeled of the prefixes that do not change which
+// program runs, #4032), the executed-text extraction and, without a caller's
+// tree, a parse.
+func mayHaveProgramPaths(command string, parsed *analyzer.ParsedCommand) bool {
+	if !strings.ContainsAny(command, "/~") {
+		return false
+	}
+	if shellparse.BasenameCommandWord(command) != "" {
+		return true
+	}
+	if parsed != nil && shellparse.ProgramView(parsed) != nil {
+		return true
+	}
+	// xargs's own target (#4014, #3992) is a command word no statement starts
+	// with — `… | xargs /usr/bin/tar --to-command=sh`, or a carrier as the
+	// target (`xargs sh -c '/usr/bin/tar …'`). Every peel that can expose a
+	// command word must be mirrored here, or ON is skipped for it; the
+	// relaxation sweep's pre-check-miss assertion catches the next one.
+	if strings.Contains(command, "xargs") {
+		for _, t := range shellparse.XargsPipeSinkTargets(command) {
+			if shellparse.BasenameCommandWord(t) != "" {
+				return true
+			}
+			for _, frag := range shellparse.InlineCodeFragments(t) {
+				if shellparse.BasenameCommandWord(frag) != "" {
+					return true
+				}
+			}
+		}
+	}
+	if !embeddedPathWordRe.MatchString(command) {
+		// A path that is not right after a quote can still be a command word
+		// behind a wrapper prefix INSIDE a quoted body that runs
+		// (`echo 'sudo -n /usr/bin/rm …' | bash`, #4046). Admitting every
+		// quoted path would parse `git commit -m "fix /foo"`, so the executed
+		// text is extracted only when the command has a carrier shape at all.
+		if !strings.ContainsAny(command, "|<>$`") || !anyPathWordRe.MatchString(command) {
+			return false
+		}
+		return executedBodyHasPathCommandWord(command)
+	}
+	for _, line := range strings.Split(command, "\n") {
+		if pathCommandWordBehindPrefixes(line) {
+			return true
+		}
+	}
+	if executedBodyHasPathCommandWord(command) {
+		return true
+	}
+	if parsed == nil {
+		return shellparse.ProgramView(shellparse.Parse(command, 2)) != nil
+	}
+	return false
+}
+
+// embeddedPathWordRe matches an absolute or home-anchored path in either of
+// two positions, and its language is a strict SUPERSET of every earlier
+// version's — a gate that admits less than main did is a regression, however
+// the rest of the gate improves (Codex pass 1 on #4032 found exactly that).
+//
+//  1. Right after a quote, newline, `(`, backquote or `=`, with an optional
+//     bare `sudo ` (#4021 item 2) — where a command word nested in a carrier
+//     body, substitution or indirect assignment begins. The `sudo` alternative
+//     stays because it is what admits `echo 'sudo /usr/bin/rm …' | bash`: the
+//     quoted body is not a line, so the per-line peel below never sees it, and
+//     dropping the alternative turned that command from BLOCK into AUDIT.
+//  2. Anywhere on a line after the first, because a later line's command word
+//     can sit behind prefixes that do not change which program runs
+//     (`sudo -n /usr/bin/rm`, `X=1 env /usr/bin/rm`, `echo a; nohup
+//     /usr/bin/rm`; #4032). Which prefixes those are is not this regex's
+//     call: it only admits the line, and pathCommandWordBehindPrefixes decides
+//     with the analyzers' own peels. Listing them here would have left the
+//     next spelling, as listing `sudo` alone did.
+var embeddedPathWordRe = regexp.MustCompile("(?:[\n'\"(`=]\\s*(?:sudo\\s+)?|\n[^\n]*\\s)(/|~[A-Za-z0-9._-]*/)[^\\s/]")
+
+// anyPathWordRe admits a path-spelled word anywhere after whitespace, a quote,
+// `(`, backquote or `=`. It is only the cheap gate for the executed-text scan
+// (#4046); pathCommandWordBehindPrefixes decides.
+var anyPathWordRe = regexp.MustCompile("[\\s'\"(`=](/|~[A-Za-z0-9._-]*/)[^\\s/]")
+
+// executedBodyHasPathCommandWord reports whether any text the command will RUN
+// without being a top-level statement (piped/heredoc/substitution bodies)
+// has a path-spelled command word, behind the same prefixes the analyzers peel.
+func executedBodyHasPathCommandWord(command string) bool {
+	for _, body := range shellparse.ExecutedText(command) {
+		if pathCommandWordBehindPrefixes(body) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathCommandWordBehindPrefixes reports whether text has a command word spelled
+// as an absolute or home-anchored path, looking behind the prefixes that do not
+// change which program runs — leading assignments and `!`, and exec wrappers
+// with their options (`sudo -n`, `sudo --`, `nice -n 1`, `X=1 sudo`) — in each
+// sequenced statement and pipeline stage of the text.
+//
+// The peels are the ones the analyzers' restrict candidates already run
+// (StatementMatchCandidates: StripCommandPrefixes, StripExecWrapperPrefix),
+// not a prefix list of this file's, so this gate cannot admit a wrapper ON
+// does not read, or miss one it does: a wrapper is added in one place,
+// shellparse.ExecWrappers. Before #4032 the gate ran BasenameCommandWord
+// alone, which peels only a bare `sudo`, and a later heredoc line such as
+// `sudo -n /usr/bin/rm -rf /var/log` — BLOCK on its own — fell to the policy
+// default because ON was never run for it.
+//
+// Lexical first, then the parses, and only for text that carries a path at
+// all: this runs once per line of a multi-line command that the cheaper
+// checks above have already declined.
+//
+// Pinned honestly (Opus pass on #4032): for the heredoc class the regex
+// widening is the fix, not this peel. normalize skips the parse when a heredoc
+// is present, so the caller's tree is nil and the ProgramView(Parse) fallback
+// at the end of mayHaveProgramPaths sees through the wrappers on its own; a
+// mutant without the StripExecWrapperPrefix call still BLOCKs every wrapper
+// heredoc probe. The peel is what keeps the gate honest when a caller DOES
+// pass a tree, and that path is currently unpinned by a test.
+func pathCommandWordBehindPrefixes(text string) bool {
+	if !strings.ContainsAny(text, "/~") {
+		return false
+	}
+	if shellparse.BasenameCommandWord(text) != "" {
+		return true
+	}
+	for _, stmt := range shellparse.SplitTopLevelStatements(text) {
+		if s := shellparse.StripCommandPrefixes(stmt); s != "" && shellparse.BasenameCommandWord(s) != "" {
+			return true
+		}
+		if s := shellparse.StripExecWrapperPrefix(stmt); s != "" && shellparse.BasenameCommandWord(s) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// evaluate is one evaluation, with #3991's program-name reading on (resolve)
+// or off. Off, it is byte-for-byte the pre-#3991 EvaluateWithParsedCwd.
+func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve bool) EvalResult {
 	// Every return path goes through finish() so the issue #1952 mode
 	// downgrade and the explanation-building are applied uniformly. Doing
 	// this inside the function (rather than at each return site) is what
@@ -171,7 +436,37 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 	// host` laundering a `cat` was the bug #3670 fixed on the mount side; an
 	// `export KUBECONFIG=…` laundering one would be the same shape.
 	envConsumerNote := ""
+	// uniDecision/uniRules/uniReasons carry the Unicode smuggling finding
+	// (populated below, before finish() is ever called) so finish() can fold
+	// it in most-restrictive-wins — see #4007. Declared here, ahead of the
+	// closure that reads them, because a Go closure cannot forward-reference
+	// a variable declared later in the same function body.
+	var uniDecision Decision
+	var uniRules, uniReasons []string
 	finish := func(r EvalResult) EvalResult {
+		// Fold the Unicode smuggling finding in most-restrictive-wins, the
+		// same rule the combiner applies to every other analyzer (#4007): a
+		// strictly higher severity below replaces it outright (so a
+		// block-level homoglyph finding still wins when nothing else fired),
+		// an equal severity unions the rule ids, and a lower severity below
+		// leaves it untouched (so a real BLOCK found downstream is never
+		// displaced by a lone AUDIT-level homoglyph elsewhere in the line).
+		// This used to be a `return finish(result)` right after the scan,
+		// which skipped the protected-path check and RunAll/fallback
+		// entirely — one non-ASCII letter anywhere in the command silently
+		// downgraded every BLOCK to AUDIT.
+		if len(uniRules) > 0 {
+			switch {
+			case decisionSeverity(uniDecision) > decisionSeverity(r.Decision):
+				r.Decision = uniDecision
+				r.TriggeredRules = append([]string{}, uniRules...)
+				r.Reasons = append([]string{}, uniReasons...)
+				r.TaxonomyRefs = nil
+			case decisionSeverity(uniDecision) == decisionSeverity(r.Decision):
+				r.TriggeredRules = append(r.TriggeredRules, uniRules...)
+				r.Reasons = append(r.Reasons, uniReasons...)
+			}
+		}
 		// Read before applyModeDowngrade: in audit-only mode a BLOCK arrives
 		// here already rewritten to AUDIT, and annotating that with
 		// "recorded, not blocked" would describe the wrong event.
@@ -212,26 +507,29 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		return r
 	}
 
-	// Built-in: Unicode smuggling detection (runs before all rules)
+	// Built-in: Unicode smuggling detection (runs before all rules, but no
+	// longer returns early — see #4007). Its decision/rules/reasons are
+	// captured here and folded into the final result inside finish(), most-
+	// restrictive-wins against the protected-path check and RunAll/fallback,
+	// instead of short-circuiting them.
 	uniScan := unicheck.Scan(command)
 	if !uniScan.Clean {
 		hasBlockLevel := false
 		for _, threat := range uniScan.Threats {
-			result.TriggeredRules = append(result.TriggeredRules, "unicode-"+threat.Category)
-			result.Reasons = append(result.Reasons, threat.Description)
+			uniRules = append(uniRules, "unicode-"+threat.Category)
+			uniReasons = append(uniReasons, threat.Description)
 			if threat.Severity == "block" {
 				hasBlockLevel = true
 			}
 		}
 		if hasBlockLevel {
-			result.Decision = DecisionBlock
+			uniDecision = DecisionBlock
 		} else {
-			result.Decision = DecisionAudit
+			uniDecision = DecisionAudit
 		}
-		return finish(result)
 	}
 
-	if blocked, rule := e.checkProtectedPaths(paths); blocked && !consumerOnly() {
+	if blocked, rule := e.checkProtectedPaths(paths, cwd); blocked && !consumerOnly() {
 		result.Decision = DecisionBlock
 		result.TriggeredRules = append(result.TriggeredRules, "protected-path")
 		result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
@@ -242,11 +540,12 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 	// Otherwise, fall back to built-in regex-only matching.
 	if e.registry != nil {
 		ctx := &analyzer.AnalysisContext{
-			RawCommand:  command,
-			Paths:       paths,
-			Parsed:      parsed,
-			Cwd:         cwd,
-			ExecContext: e.execContext,
+			RawCommand:          command,
+			Paths:               paths,
+			Parsed:              parsed,
+			Cwd:                 cwd,
+			ExecContext:         e.execContext,
+			ResolveProgramPaths: resolve,
 		}
 		combined := e.registry.RunAll(ctx, string(e.policy.Defaults.Decision))
 		result.Decision = Decision(combined.Decision)
@@ -256,6 +555,9 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		// the audit event. The protected-path post-pass below can add a rule
 		// with no taxonomy — that's fine, it just contributes no ref.
 		result.TaxonomyRefs = combined.TaxonomyRefs
+		// #3995: the notes the stages left on the context ride out with the
+		// verdict. Read after RunAll; nothing decides on them.
+		result.Notes = ctx.Notes
 
 		// Layer 2.5 post-pass: re-run protected-path matching against any
 		// paths the substitution analyzer reconstructed from `Name=value`
@@ -265,7 +567,7 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		// after the AST walk. We override to BLOCK on a hit because
 		// protected paths are non-negotiable — combiner severity doesn't
 		// apply when the policy explicitly named the path off-limits.
-		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths); blocked && !consumerOnly() {
+		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths, cwd); blocked && !consumerOnly() {
 			result.Decision = DecisionBlock
 			result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
 			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
@@ -347,6 +649,44 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 	// like every other whole-command candidate.
 	interpExecCandidates := analyzer.InterpreterHeredocExecStatements(command)
 
+	// executedText: what an echo/printf/heredoc emits when the command hands
+	// it to an executor, and every substitution body (#3938). The pipeline
+	// gets these via RegexAnalyzer's per-statement retry; without its own
+	// candidate here, disabling the pipeline reopens the quote-before-anchor
+	// bypass. Tried only for restricting rules: an ALLOW must never be earned
+	// by a fragment (the same fail-safe the pipeline's retry keeps).
+	// TestExecutedTextParityAcrossEvaluationPaths pins the two together.
+	executedText, unresolvedText := shellparse.ExecutedTextReport(command)
+	// #3995 twin of the pipeline's notes for the regex-only path.
+	var notes []analyzer.Note
+	if unresolvedText > 0 {
+		notes = analyzer.AppendNote(notes, analyzer.Note{Kind: analyzer.NoteExecutedTextUnresolved, Detail: strconv.Itoa(unresolvedText)})
+	}
+
+	// #3995: the excused probe below asks the same candidate forms the
+	// match chain asks, in the same order, so an excusal that only shows on
+	// a normalized form (a dequoted self-mgmt payload, a materialized path)
+	// is recorded exactly as the pipeline records it. Codex review of #4005.
+	probeForms := []string{command}
+	for _, f := range []string{dequotedCommand, foldedCommand, materializedCommand, ifsCommand, emittedCommand} {
+		if f != "" {
+			probeForms = append(probeForms, f)
+		}
+	}
+	probeForms = append(probeForms, interpExecCandidates...)
+	probeForms = append(probeForms, executedText...)
+
+	// #4088 pass 1: mirror of RegexAnalyzer's raw-command ALLOW verdict. A
+	// prefix ALLOW is judged on the raw command, never on the dequoted, folded
+	// or IFS-normalised candidates below, any of which can lose a redirect
+	// bash still performs. Lazy: most commands meet no ALLOW prefix rule.
+	rawAllowDisq, rawAllowDisqDone := false, false
+	rawAllowDisqualified := func() bool {
+		if !rawAllowDisqDone {
+			rawAllowDisq, rawAllowDisqDone = shellparse.AllowDisqualified(command), true
+		}
+		return rawAllowDisq
+	}
 	for _, rule := range e.policy.Rules {
 		if e.policy.IsRuleDisabled(rule.ID) {
 			continue
@@ -356,6 +696,9 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		// runtime execution context matches. Checked before any matching so a
 		// gated-out rule costs nothing.
 		if !ruleContextActive(rule, e.execContext) {
+			continue
+		}
+		if rule.Decision == DecisionAllow && len(rule.Match.CommandPrefix) > 0 && rawAllowDisqualified() {
 			continue
 		}
 		matchedCmd := ""
@@ -381,7 +724,35 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 				}
 			}
 		}
+		if matchedCmd == "" && rule.Decision != DecisionAllow {
+			for _, cand := range executedText {
+				if e.matchRule(cand, rule) {
+					matchedCmd = cand
+					break
+				}
+			}
+		}
 		if matchedCmd == "" {
+			// #3995: a restricting rule whose raw pattern fires but whose own
+			// exclusion removed it leaves an "excused" note — the same record
+			// the pipeline path writes, on the raw command only.
+			if rule.Decision == DecisionBlock || rule.Decision == DecisionRequireApproval {
+				for _, form := range probeForms {
+					if !e.matchRulePattern(form, rule) {
+						continue
+					}
+					// The pattern fires on this form and matchRule did not:
+					// one of the two exclusions removed it.
+					switch {
+					case e.intentExcluded(form, rule):
+						stmts, _ := analyzer.AttributionStatements(form)
+						notes = analyzer.AppendNote(notes, analyzer.Note{Kind: analyzer.NoteExcused, Rule: rule.ID, Detail: "intent:" + strings.Join(analyzer.MatchedIntentLabels(e.intentClassifier, form, stmts, rule.Match.CommandIntentExclude), ",")})
+					case e.positionExcluded(form, rule):
+						notes = analyzer.AppendNote(notes, analyzer.Note{Kind: analyzer.NoteExcused, Rule: rule.ID, Detail: "position:" + strings.Join(analyzer.MatchedPositions(form, rule.Match.CommandPositionExclude, analyzer.NewStatementFoldContext(form), func(s string) bool { return e.matchRulePattern(s, rule) }), ",")})
+					}
+					break
+				}
+			}
 			continue
 		}
 		// Context-aware downgrade (#2843), mirroring RegexAnalyzer.Analyze on
@@ -397,6 +768,8 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		if eff := e.effectiveDecision(matchedCmd, rule); eff != rule.Decision {
 			dec = eff
 			reason = reason + " [downgraded BLOCK→AUDIT: the sensitive pattern appears inside a documentation/message argument (gh/git --body/--message), not an executed access]"
+			stmts, _ := analyzer.AttributionStatements(matchedCmd)
+			notes = analyzer.AppendNote(notes, analyzer.Note{Kind: analyzer.NoteDowngraded, Rule: rule.ID, Detail: "intent:" + strings.Join(analyzer.MatchedIntentLabels(e.intentClassifier, matchedCmd, stmts, analyzer.UnionIntentLabels(rule.Match.CommandIntentDowngrade, rule.Match.CommandIntentExclude)), ",")})
 		}
 		if !matched || decisionSeverity(dec) > decisionSeverity(bestDecision) {
 			bestDecision = dec
@@ -422,6 +795,7 @@ func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *a
 		result.Reasons = bestReasons
 		result.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(bestTaxonomy)
 	}
+	result.Notes = notes
 
 	return finish(result)
 }
@@ -461,8 +835,9 @@ func ruleContextActive(rule Rule, ec execenv.Context) bool {
 
 // matchCommandPrefix reports whether rule's command_prefix list fires on
 // command. The semantics — including the ALLOW-side narrowing from #3199 and
-// why output redirects are out of scope — live on shellparse.PrefixRuleMatches,
-// which is the single implementation shared with the analyzer's regex path.
+// the output-redirect condition added by #4082 — live on
+// shellparse.PrefixRuleMatches, which is the single implementation shared
+// with the analyzer's regex path.
 func matchCommandPrefix(command string, rule Rule) bool {
 	return shellparse.PrefixRuleMatches(command, rule.Match.CommandPrefix, rule.Decision == DecisionAllow)
 }
@@ -675,12 +1050,29 @@ func (e *Engine) compiledRegex(pattern string) *regexlit.Matcher {
 	return m
 }
 
-func (e *Engine) checkProtectedPaths(paths []string) (bool, string) {
+// checkProtectedPaths matches paths (already resolved by normalize against
+// cwd) against the configured protected_paths patterns. cwd must be the value
+// normalize.NormalizeCommand used to produce paths.
+//
+// A pattern matches in either of two ways, and the first is exactly main's
+// check, so this can only ADD matches, never remove one (#4025 Codex pass 1):
+//  1. the path against the pattern as written (~ expanded);
+//  2. for a relative pattern, a path under cwd, made relative to cwd, against
+//     the pattern. The hook hands over absolute paths, so without this a
+//     pattern like "secrets/**" never matched there (#4020). Relativising the
+//     path, rather than joining cwd onto the pattern, keeps cwd out of glob
+//     syntax: a cwd such as /work/project[1] would otherwise become a
+//     character class. See relativeToCwd for what it refuses.
+func (e *Engine) checkProtectedPaths(paths []string, cwd string) (bool, string) {
 	for _, path := range paths {
 		expandedPath := e.expandPath(path)
 		for _, pattern := range e.policy.Defaults.ProtectedPaths {
 			expandedPattern := e.expandPath(pattern)
 			if matchGlob(expandedPath, expandedPattern) {
+				return true, pattern
+			}
+			if rel, ok := relativeToCwd(expandedPath, expandedPattern, cwd); ok &&
+				matchGlob(rel, filepath.Clean(expandedPattern)) {
 				return true, pattern
 			}
 		}
@@ -696,6 +1088,29 @@ func (e *Engine) expandPath(path string) string {
 		return e.homeDir
 	}
 	return path
+}
+
+// relativeToCwd returns path relative to cwd, for matching a relative
+// protected_paths pattern. A relative pattern describes paths UNDER cwd:
+//   - a path outside cwd is refused. Its cwd-relative form starts with "../",
+//     and matchGlob's literal-prefix test would let "../**" claim every
+//     absolute path on the machine, or "*/x" claim "../x" (#4025 Opus review).
+//     So a pattern that climbs out of cwd ("../**") never matches here; it
+//     keeps only main's as-written match, as before this change.
+//   - a relative path (from variable substitution, "./secrets/token") is
+//     joined onto cwd first, so "./" and "secrets/.." spellings still match.
+func relativeToCwd(path, pattern, cwd string) (string, bool) {
+	if cwd == "" || !filepath.IsAbs(cwd) || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "~") {
+		return "", false
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	rel, err := filepath.Rel(filepath.Clean(cwd), path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	return rel, true
 }
 
 func matchGlob(path, pattern string) bool {

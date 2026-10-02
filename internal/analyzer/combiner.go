@@ -97,10 +97,18 @@ func (c *Combiner) combineMostRestrictive(findings []Finding, defaultDecision st
 
 	for _, f := range findings {
 		// If a structural/semantic ALLOW override exists for this taxonomy, skip
-		// non-structural/semantic findings that would BLOCK/AUDIT on the same taxonomy.
+		// REGEX findings that would BLOCK/AUDIT on the same taxonomy.
+		//
+		// Regex only, which is what an override is for: a regex is imprecise
+		// about the one statement the AST analysis vouched for. Dataflow,
+		// stateful and guardian findings carry their own statement-level
+		// evidence, and the override is keyed by taxonomy, not statement,
+		// so suppressing them let a harmless statement anywhere in the
+		// command silence a destructive one: `cat /dev/zero > <disk>; dd
+		// if=/dev/zero of=/tmp/x count=0` went from BLOCK
+		// (df-block-zero-to-device) to ALLOW (#4000).
 		if _, overridden := structuralAllows[f.TaxonomyRef]; overridden &&
-			f.AnalyzerName != "structural" && f.AnalyzerName != "semantic" &&
-			f.Decision != "ALLOW" {
+			f.AnalyzerName == "regex" && f.Decision != "ALLOW" {
 			continue
 		}
 

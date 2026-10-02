@@ -262,8 +262,12 @@ func collectSchemaPropertyNamesDeep(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(raw, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and hide
+	// every deeply-nested property name from the evasion pass (#4069). A
+	// syntax error still returns nothing (malformed schemas are tolerated).
+	root, ok := decodeJSONValue(raw)
+	if !ok {
 		return nil
 	}
 	seen := make(map[string]bool)

@@ -1,5 +1,13 @@
 // Command coverage generates COVERAGE.md by parsing pack YAML files and test data.
 //
+// The Summary totals come from internal/rulecount — the one rule-count
+// definition — and the per-kingdom catalog below them is reconciled against
+// it before anything is written: if the catalog lists a different number of
+// YAML rules than the count, the tool fails instead of publishing two numbers.
+// MCP blocked_tools and the Go-implemented roots intercepts still appear in
+// the catalog (they are enforcement), but they are listed as what they are and
+// are not counted as rules.
+//
 // Usage:
 //
 //	go run ./cmd/coverage
@@ -15,17 +23,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AI-AgentLens/agentshield/internal/rulecount"
 	"gopkg.in/yaml.v3"
 )
 
 // terminalRule mirrors the subset of policy.Rule we need for the report.
 type terminalRule struct {
-	ID         string `yaml:"id"`
-	Taxonomy   string `yaml:"taxonomy,omitempty"`
-	Match      match  `yaml:"match"`
-	Decision   string `yaml:"decision"`
+	ID         string  `yaml:"id"`
+	Taxonomy   string  `yaml:"taxonomy,omitempty"`
+	Match      match   `yaml:"match"`
+	Decision   string  `yaml:"decision"`
 	Confidence float64 `yaml:"confidence,omitempty"`
-	Reason     string `yaml:"reason"`
+	Reason     string  `yaml:"reason"`
 }
 
 type match struct {
@@ -53,13 +62,21 @@ type mcpRule struct {
 }
 
 type mcpPack struct {
-	Name            string        `yaml:"name"`
-	BlockedTools    []string      `yaml:"blocked_tools,omitempty"`
-	Rules           []mcpRule     `yaml:"rules,omitempty"`
-	StructuralRules []mcpRule     `yaml:"structural_rules,omitempty"`
-	ValueLimits     []mcpRule     `yaml:"value_limits,omitempty"`
-	ResourceRules   []mcpRule     `yaml:"resource_rules,omitempty"`
+	Name            string    `yaml:"name"`
+	BlockedTools    []string  `yaml:"blocked_tools,omitempty"`
+	Rules           []mcpRule `yaml:"rules,omitempty"`
+	StructuralRules []mcpRule `yaml:"structural_rules,omitempty"`
+	ValueLimits     []mcpRule `yaml:"value_limits,omitempty"`
+	ResourceRules   []mcpRule `yaml:"resource_rules,omitempty"`
+	SemanticRules   []mcpRule `yaml:"semantic_rules,omitempty"`
 }
+
+// Catalog match types that are enforcement but NOT rules under the
+// rulecount definition. They are reported on their own Summary rows.
+const (
+	matchBlockedTool = "blocked_tool"
+	matchGoIntercept = "go-intercept"
+)
 
 // flatRule is the common format used for report output.
 type flatRule struct {
@@ -83,19 +100,83 @@ func main() {
 	var mcpRules []flatRule
 	mcpRules = append(mcpRules, parseMCPPacks(filepath.Join(root, "packs", "community", "mcp"))...)
 	mcpRules = append(mcpRules, parseMCPPacks(filepath.Join(root, "packs", "premium", "mcp"))...)
+	mcpRules = append(mcpRules, goMCPIntercepts()...)
 
 	// Count test cases by kingdom
 	testCounts := countTestCases(filepath.Join(root, "internal", "analyzer", "testdata"))
 
+	// The Summary numbers. The catalog above must agree with them or the
+	// report would carry two answers to "how many rules".
+	counts, err := rulecount.Count(filepath.Join(root, "packs"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error counting rules: %v\n", err)
+		os.Exit(1)
+	}
+	if err := reconcile(terminalRules, mcpRules, counts); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Generate report
-	report := generateReport(terminalRules, mcpRules, testCounts)
+	report := generateReport(terminalRules, mcpRules, testCounts, counts)
 
 	outPath := filepath.Join(root, "COVERAGE.md")
 	if err := os.WriteFile(outPath, []byte(report), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing COVERAGE.md: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Generated %s (%d terminal rules, %d MCP rules)\n", outPath, len(terminalRules), len(mcpRules))
+	fmt.Printf("Generated %s (%d terminal rules, %d MCP rules, %d total, %d unique ids)\n",
+		outPath, counts.Counts.Shell.Total, counts.Counts.MCP.Total, counts.Counts.Total, counts.Counts.UniqueIDs)
+}
+
+// reconcile checks that the catalog's YAML-rule rows equal the rulecount
+// totals per surface. The catalog is parsed by a struct with named sections;
+// rulecount reads every id-bearing section generically. If the struct falls
+// behind (as it did for semantic_rules until 2026-09-28) the two disagree
+// and the report must not be written.
+func reconcile(terminal, mcp []flatRule, counts *rulecount.Report) error {
+	if got, want := len(terminal), counts.Counts.Shell.Total; got != want {
+		return fmt.Errorf("catalog lists %d terminal rules but rulecount says %d — a pack section the catalog struct does not parse?", got, want)
+	}
+	if got, want := countYAMLRules(mcp), counts.Counts.MCP.Total; got != want {
+		return fmt.Errorf("catalog lists %d MCP YAML rules but rulecount says %d — a pack section the catalog struct does not parse?", got, want)
+	}
+	return nil
+}
+
+// countYAMLRules counts catalog rows that are rules under the definition,
+// i.e. excludes blocked tools and Go intercepts.
+func countYAMLRules(rules []flatRule) int {
+	n := 0
+	for _, r := range rules {
+		if r.MatchType != matchBlockedTool && r.MatchType != matchGoIntercept {
+			n++
+		}
+	}
+	return n
+}
+
+// kingdomHeading counts rules under the definition and names the rows that
+// are enforcement but not rules, so a section heading can never disagree with
+// the Summary the way "(N rules)" over len(rows) did (2074 vs 2064 on
+// 2026-09-28).
+func kingdomHeading(kingdom string, rules []flatRule) string {
+	n := countYAMLRules(rules)
+	extra := len(rules) - n
+	if extra == 0 {
+		return fmt.Sprintf("%s (%d rules)", kingdom, n)
+	}
+	return fmt.Sprintf("%s (%d rules + %d enforcement entries — blocked tools / Go intercepts, not counted as rules)", kingdom, n, extra)
+}
+
+func countMatchType(rules []flatRule, matchType string) int {
+	n := 0
+	for _, r := range rules {
+		if r.MatchType == matchType {
+			n++
+		}
+	}
+	return n
 }
 
 func findRepoRoot() string {
@@ -185,7 +266,7 @@ func parseMCPPacks(dir string) []flatRule {
 			rules = append(rules, flatRule{
 				ID:        fmt.Sprintf("blocked-tool:%s", tool),
 				Decision:  "BLOCK",
-				MatchType: "blocked_tool",
+				MatchType: matchBlockedTool,
 				Reason:    fmt.Sprintf("Tool '%s' is blocked by default.", tool),
 				Kingdom:   "mcp-safety",
 				Pack:      pack.Name,
@@ -235,14 +316,31 @@ func parseMCPPacks(dir string) []flatRule {
 				Pack:      pack.Name,
 			})
 		}
+
+		for _, r := range pack.SemanticRules {
+			rules = append(rules, flatRule{
+				ID:        r.ID,
+				Decision:  r.Decision,
+				MatchType: "semantic",
+				Reason:    r.Reason,
+				Kingdom:   extractKingdom(r.Taxonomy),
+				Pack:      pack.Name,
+			})
+		}
 	}
 
-	// Go-implemented MCP intercepts (not in YAML packs — hardcoded in internal/mcp/policy.go).
-	goIntercepts := []flatRule{
+	return rules
+}
+
+// goMCPIntercepts are the Go-implemented MCP intercepts (not in YAML packs —
+// hardcoded in internal/mcp/policy.go). Appended ONCE: the previous report
+// appended them per pack directory and listed each twice.
+func goMCPIntercepts() []flatRule {
+	return []flatRule{
 		{
 			ID:        "mcp-roots-block-sensitive-cred-dir",
 			Decision:  "BLOCK",
-			MatchType: "go-intercept",
+			MatchType: matchGoIntercept,
 			Reason:    "Blocks roots/list responses that expose credential directories (MITRE T1078, T1083, OWASP LLM08).",
 			Kingdom:   "unauthorized-execution",
 			Pack:      "mcp-roots-guard (Go)",
@@ -250,15 +348,12 @@ func parseMCPPacks(dir string) []flatRule {
 		{
 			ID:        "mcp-roots-audit-broad-dir",
 			Decision:  "AUDIT",
-			MatchType: "go-intercept",
+			MatchType: matchGoIntercept,
 			Reason:    "Audits roots/list responses with broad directories that encompass credential paths (OWASP LLM08).",
 			Kingdom:   "unauthorized-execution",
 			Pack:      "mcp-roots-guard (Go)",
 		},
 	}
-	rules = append(rules, goIntercepts...)
-
-	return rules
 }
 
 func detectMatchType(m match) string {
@@ -304,14 +399,14 @@ type kingdomTestCounts struct {
 // mapping the file name to a kingdom.
 func countTestCases(dir string) map[string]kingdomTestCounts {
 	fileToKingdom := map[string]string{
-		"destructive_ops_cases.go":       "destructive-ops",
-		"credential_exposure_cases.go":   "credential-exposure",
-		"data_exfiltration_cases.go":     "data-exfiltration",
-		"governance_risk_cases.go":       "governance-risk",
-		"persistence_evasion_cases.go":   "persistence-evasion",
-		"privilege_escalation_cases.go":  "privilege-escalation",
-		"reconnaissance_cases.go":        "reconnaissance",
-		"supply_chain_cases.go":          "supply-chain",
+		"destructive_ops_cases.go":        "destructive-ops",
+		"credential_exposure_cases.go":    "credential-exposure",
+		"data_exfiltration_cases.go":      "data-exfiltration",
+		"governance_risk_cases.go":        "governance-risk",
+		"persistence_evasion_cases.go":    "persistence-evasion",
+		"privilege_escalation_cases.go":   "privilege-escalation",
+		"reconnaissance_cases.go":         "reconnaissance",
+		"supply_chain_cases.go":           "supply-chain",
 		"unauthorized_execution_cases.go": "unauthorized-execution",
 	}
 
@@ -342,7 +437,7 @@ func countTestCases(dir string) map[string]kingdomTestCounts {
 	return counts
 }
 
-func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdomTestCounts) string {
+func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdomTestCounts, counts *rulecount.Report) string {
 	var b strings.Builder
 
 	// --- Section 1: Summary ---
@@ -353,16 +448,22 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	}
 
 	b.WriteString("# AgentShield Coverage Report\n\n")
-	fmt.Fprintf(&b,"*Auto-generated on %s by `go run ./cmd/coverage`*\n\n", time.Now().UTC().Format("2006-01-02"))
+	fmt.Fprintf(&b, "*Auto-generated on %s by `go run ./cmd/coverage`*\n\n", time.Now().UTC().Format("2006-01-02"))
+	c := counts.Counts
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Metric | Count |\n")
 	b.WriteString("|--------|-------|\n")
-	fmt.Fprintf(&b,"| Terminal rules | %d |\n", len(terminal))
-	fmt.Fprintf(&b,"| MCP rules | %d |\n", len(mcp))
-	fmt.Fprintf(&b,"| Total rules | %d |\n", len(terminal)+len(mcp))
-	fmt.Fprintf(&b,"| Test cases (TP+TN) | %d |\n", totalTests)
-	fmt.Fprintf(&b,"| Kingdoms covered | %d |\n", len(kingdoms))
+	fmt.Fprintf(&b, "| Terminal rules (community %d + premium %d) | %d |\n", c.Shell.Community, c.Shell.Premium, c.Shell.Total)
+	fmt.Fprintf(&b, "| MCP rules (community %d + premium %d) | %d |\n", c.MCP.Community, c.MCP.Premium, c.MCP.Total)
+	fmt.Fprintf(&b, "| Total rules | %d |\n", c.Total)
+	fmt.Fprintf(&b, "| Unique rule ids | %d |\n", c.UniqueIDs)
+	fmt.Fprintf(&b, "| Rule ids defined more than once | %d |\n", len(counts.Duplicates))
+	fmt.Fprintf(&b, "| MCP blocked tools (enforcement, not rules) | %d |\n", countMatchType(mcp, matchBlockedTool))
+	fmt.Fprintf(&b, "| Go-implemented MCP intercepts (enforcement, not rules) | %d |\n", countMatchType(mcp, matchGoIntercept))
+	fmt.Fprintf(&b, "| Test cases (TP+TN) | %d |\n", totalTests)
+	fmt.Fprintf(&b, "| Kingdoms covered | %d |\n", len(kingdoms))
 	b.WriteString("\n")
+	fmt.Fprintf(&b, "Rule count definition (`internal/rulecount`, also published as `counts` in the premium manifest): %s\n\n", c.Definition)
 
 	// --- Section 2: Runtime Rules by Kingdom ---
 	b.WriteString("## Runtime Rules by Kingdom\n\n")
@@ -370,13 +471,13 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	sortedKingdoms := sortedKeys(byKingdom)
 	for _, k := range sortedKingdoms {
 		rules := byKingdom[k]
-		fmt.Fprintf(&b,"### %s (%d rules)\n\n", k, len(rules))
+		fmt.Fprintf(&b, "### %s\n\n", kingdomHeading(k, rules))
 		b.WriteString("| Rule ID | Decision | Match Type | Description |\n")
 		b.WriteString("|---------|----------|------------|-------------|\n")
 		for _, r := range rules {
 			reason := strings.ReplaceAll(r.Reason, "|", "\\|")
 			reason = strings.ReplaceAll(reason, "\n", " ")
-			fmt.Fprintf(&b,"| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
 		}
 		b.WriteString("\n")
 	}
@@ -387,13 +488,13 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	sortedMCPKingdoms := sortedKeys(mcpByKingdom)
 	for _, k := range sortedMCPKingdoms {
 		rules := mcpByKingdom[k]
-		fmt.Fprintf(&b,"### %s (%d rules)\n\n", k, len(rules))
+		fmt.Fprintf(&b, "### %s\n\n", kingdomHeading(k, rules))
 		b.WriteString("| Rule ID | Decision | Match Type | Description |\n")
 		b.WriteString("|---------|----------|------------|-------------|\n")
 		for _, r := range rules {
 			reason := strings.ReplaceAll(r.Reason, "|", "\\|")
 			reason = strings.ReplaceAll(reason, "\n", " ")
-			fmt.Fprintf(&b,"| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.ID, r.Decision, r.MatchType, reason)
 		}
 		b.WriteString("\n")
 	}
@@ -406,11 +507,11 @@ func generateReport(terminal []flatRule, mcp []flatRule, tests map[string]kingdo
 	grandTP, grandTN := 0, 0
 	for _, k := range sortedTestKingdoms {
 		c := tests[k]
-		fmt.Fprintf(&b,"| %s | %d | %d | %d |\n", k, c.TP, c.TN, c.TP+c.TN)
+		fmt.Fprintf(&b, "| %s | %d | %d | %d |\n", k, c.TP, c.TN, c.TP+c.TN)
 		grandTP += c.TP
 		grandTN += c.TN
 	}
-	fmt.Fprintf(&b,"| **Total** | **%d** | **%d** | **%d** |\n", grandTP, grandTN, grandTP+grandTN)
+	fmt.Fprintf(&b, "| **Total** | **%d** | **%d** | **%d** |\n", grandTP, grandTN, grandTP+grandTN)
 	b.WriteString("\n")
 
 	return b.String()

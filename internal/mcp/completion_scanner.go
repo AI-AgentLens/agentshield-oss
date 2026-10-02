@@ -49,7 +49,8 @@ func (h *MessageHandler) FilterCompletionResponse(data []byte) []byte {
 		return nil
 	}
 
-	result := parseCompletionCompleteResult(msg.Result)
+	result, shape := parseCompletionCompleteResult(msg.Result)
+	h.auditWireShape(MethodCompletionComplete+"-response", shape)
 	if result == nil {
 		return nil
 	}
@@ -102,19 +103,21 @@ func (h *MessageHandler) FilterCompletionResponse(data []byte) []byte {
 }
 
 // parseCompletionCompleteResult parses a JSON-RPC result as CompletionCompleteResult.
-// Returns nil if the data does not represent a completion/complete response.
-func parseCompletionCompleteResult(data json.RawMessage) *CompletionCompleteResult {
+// Returns nil if the data does not represent a completion/complete response, plus
+// any protocol-shape anomaly decodeLenient tolerated (see wire_shape.go).
+func parseCompletionCompleteResult(data json.RawMessage) (*CompletionCompleteResult, *WireShapeAnomaly) {
 	if len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 	var result CompletionCompleteResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil
+	shape, err := decodeLenient(data, &result)
+	if err != nil {
+		return nil, shape
 	}
 	// Must have a non-nil values slice to be a completion/complete response.
 	// An empty but present values array is valid (no suggestions).
 	if result.Completion.Values == nil {
-		return nil
+		return nil, shape
 	}
-	return &result
+	return &result, shape
 }

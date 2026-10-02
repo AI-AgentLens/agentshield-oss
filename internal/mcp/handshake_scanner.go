@@ -46,6 +46,10 @@ var trustSignalingKeywords = []string{
 	"internal",
 }
 
+// handshakeIconRule marks an icon finding; the handler swaps it for the shared
+// sentinel id and node so one detection reads the same on every surface.
+const handshakeIconRule = "mcp-desc-icon-unsafe-source"
+
 // HandshakeScanResult is the outcome of ScanInitializeResponse.
 type HandshakeScanResult struct {
 	// Decision is "BLOCK", "AUDIT", or "ALLOW".
@@ -76,6 +80,17 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 					Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q matches impersonation pattern %q — possible server identity spoofing", result.ServerInfo.Name, pattern),
 					Rule:     "mcp-initialize-handshake-manipulation",
 				}
+			}
+		}
+
+		// BLOCK: unsafe icon src (#4062). A host resolves serverInfo icons when it
+		// draws the server entry, with no user action; same verdict as every
+		// listing surface (scanIconsFor).
+		if f := scanIconsFor("serverInfo", result.ServerInfo.Icons); len(f) > 0 {
+			return HandshakeScanResult{
+				Decision: "BLOCK",
+				Reason:   "initialize handshake: " + f[0].Detail + ": " + f[0].Snippet,
+				Rule:     handshakeIconRule,
 			}
 		}
 

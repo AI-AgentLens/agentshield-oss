@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 
 	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
@@ -98,18 +100,38 @@ func ScanNotificationMessage(rawParams json.RawMessage) NotificationScanResult {
 		return result
 	}
 
+	// UseNumber, and tolerate a type error: `data` is interface{}, so a
+	// valid-but-unrepresentable number (1e400) inside it failed the decode,
+	// and a non-string `level` did the same — either way the notification
+	// went out unscanned (Codex review of #4059). A syntax error still fails
+	// open: the bytes are not JSON and the client will not act on them.
 	var params LoggingMessageParams
-	if err := json.Unmarshal(rawParams, &params); err != nil {
-		return result // fail open on parse error
+	dec := json.NewDecoder(bytes.NewReader(rawParams))
+	dec.UseNumber()
+	if err := dec.Decode(&params); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			return result // fail open on parse error
+		}
 	}
 
 	// Extract string representation of the data field
 	dataStr := extractNotificationDataString(params.Data)
 	loggerStr := params.Logger
 
-	// Scan the data field (primary injection surface)
+	// Scan the data field (primary injection surface). An object-valued data
+	// field is re-marshalled, and json.Marshal escapes `<`, `>`, `&` and
+	// newlines, so its decoded view is scanned too and the findings merged
+	// (see decodedJSONScanText).
 	if dataStr != "" {
 		scanNotificationField(&result, dataStr, "data")
+	}
+	if _, isString := params.Data.(string); !isString {
+		if alt, ok := decodedValueScanText(params.Data); ok {
+			var extra NotificationScanResult
+			scanNotificationField(&extra, alt, "data")
+			result.Findings = mergeNotificationFindings(result.Findings, extra.Findings)
+		}
 	}
 
 	// Scan the logger field (secondary injection surface — less common but possible)
@@ -279,4 +301,20 @@ func extractNotificationDataString(data interface{}) string {
 		}
 		return string(b)
 	}
+}
+
+// mergeNotificationFindings appends the findings of extra that base does not
+// already carry (same signal and detail).
+func mergeNotificationFindings(base, extra []NotificationFinding) []NotificationFinding {
+	seen := make(map[string]bool, len(base))
+	for _, f := range base {
+		seen[string(f.Signal)+"\x00"+f.Detail] = true
+	}
+	for _, f := range extra {
+		if key := string(f.Signal) + "\x00" + f.Detail; !seen[key] {
+			seen[key] = true
+			base = append(base, f)
+		}
+	}
+	return base
 }

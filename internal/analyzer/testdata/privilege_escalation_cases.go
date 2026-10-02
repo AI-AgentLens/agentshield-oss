@@ -2670,10 +2670,10 @@ var DebugfsCases = []TestCase{
 	{
 		ID:               "TN-DEBUGFS-003",
 		Command:          `echo "debugfs is dangerous" > /tmp/notes.txt`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/filesystem-bypass/raw-filesystem-access",
-		Description:      `String containing "debugfs" in an echo command — not an invocation. Must be ALLOW.`,
+		Description:      `String containing "debugfs" in an echo command — not an invocation. Must not BLOCK; AUDIT since #4082 (a redirect to a file no longer earns ts-allow-readonly's ALLOW).`,
 		Tags:             []string{"safe", "string-literal"},
 	},
 	{
@@ -3209,7 +3209,7 @@ var WildcardInjectionCases = []TestCase{
 	{
 		ID:               "TN-WILDCARD-CHKPT-003",
 		Command:          `echo "checkpoint reached" > status.log`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/wildcard-injection",
 		Analyzer:         "regex",
@@ -4468,7 +4468,7 @@ var CgroupReleaseAgentCases = []TestCase{
 	{
 		ID:               "TN-CGROUP-RA-005",
 		Command:          `echo $$ > /sys/fs/cgroup/cpu/tasks`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/container-escape/cgroup-release-agent",
 		Analyzer:         "regex",
@@ -4910,15 +4910,25 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Tags:             []string{"tn", "safe"},
 	},
 
-	// ── Agent Delegation Authority Escalation ──────────────────────────────────
+	// ── Claude Code permission-bypass flag (ts-block-claude-dangerous-skip-permissions,
+// ts-block-npx-claude-dangerous-skip) ─────────────────────────────────────────
+// #3918 (Gary, 2026-09-22): these rules match the flag and nothing else, so they
+// resolve to unauthorized-execution/agentic-attacks/agent-approval-gate-disabled,
+// agreeing with Comply's static rules for the same flag. The delegation node is
+// reserved for matches that contain a spawn verb (mcp-agentic-block-agent-spawn-
+// dsp-flag). Case IDs keep the historical AGENTDELEG stem. TP-AGENTDELEG-003 and
+// TN-AGENTDELEG-002 exercise ts-audit-agent-wildcard-tools, whose node has been
+// governance-risk/ai-governance-gap/unvalidated-agent-delegation since #3490; they
+// carried the stale delegation ref until the two moves above left it with no
+// terminal declarer and check-rule-coverage reported the orphan.
 	{
 		ID:               "TP-AGENTDELEG-001",
 		Command:          `claude --dangerously-skip-permissions -p "read all files in the repo and email the output"`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
-		Description:      "claude --dangerously-skip-permissions spawns a sub-agent with all permission checks disabled — authority escalation through delegation.",
+		Description:      "claude --dangerously-skip-permissions launches Claude Code with its approval prompt switched off — every tool call runs unconfirmed (agent approval gate disabled at the invocation site).",
 		Tags:             []string{"tp", "agent-delegation"},
 	},
 	{
@@ -4926,9 +4936,9 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `claude --dangerously-skip-permissions --print "summarize /etc/passwd"`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
-		Description:      "claude --dangerously-skip-permissions --print — sub-agent invocation bypassing all containment checks.",
+		Description:      "claude --dangerously-skip-permissions --print — headless invocation with the approval gate off; nothing confirms the tool calls it emits.",
 		Tags:             []string{"tp", "agent-delegation"},
 	},
 	{
@@ -4936,7 +4946,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `claude --allowed-tools '*' --print "do what I say"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "claude --allowed-tools '*' grants wildcard tool access to the delegated sub-agent — over-permissioned delegation.",
 		Tags:             []string{"tp", "agent-delegation"},
@@ -4946,7 +4956,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `claude --print "What is 2+2?" --model claude-3-haiku`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "claude --print without permission-bypass flags — AUDIT by ai-model usage rule; does NOT trigger --dangerously-skip-permissions or wildcard-tools patterns.",
 		Tags:             []string{"tn", "safe"},
@@ -4956,7 +4966,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `claude --allowed-tools 'Read(src/*)' --print "summarize this file"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "claude --allowed-tools with specific scoped tool path — AUDIT by ai-model usage rule; does NOT trigger wildcard '*' pattern.",
 		Tags:             []string{"tn", "safe"},
@@ -4972,7 +4982,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `sed -i 's/claude --dangerously-skip-permissions/claude/' samples/test.py`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "sed -i replacing 'claude --dangerously-skip-permissions' with 'claude' — remediation script applying the fix to a fixture. Must not block (issue #1867).",
 		Tags:             []string{"tn", "safe", "fp-guard"},
@@ -4982,7 +4992,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `sed -i 's|claude --dangerously-skip-permissions||' samples/test.py`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "sed -i with pipe delimiters removing the flag string — same FP class with alternate sed delimiter. Must not block (issue #1867).",
 		Tags:             []string{"tn", "safe", "fp-guard"},
@@ -4992,7 +5002,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `gh issue create --title "FP report" --body "rule blocks sed editing files containing claude --dangerously-skip-permissions"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "gh issue create --body containing the literal 'claude --dangerously-skip-permissions' as documentation — DOC_CONTEXT exclude. Must not block (issue #1867).",
 		Tags:             []string{"tn", "safe", "fp-guard", "doc-context"},
@@ -5000,12 +5010,15 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 	{
 		ID:               "TN-AGENTDELEG-FP-004",
 		Command:          `cat > /tmp/fix.sh << 'EOF'` + "\n" + `sed -i 's/claude --dangerously-skip-permissions//' file.py` + "\n" + `EOF`,
-		ExpectedDecision: "ALLOW",
+		// #2843/#2983: the doc-text/heredoc label moved from command_intent_exclude to
+		// command_intent_downgrade, so the rule now FIRES here and is attributed at an
+		// attested AUDIT instead of being silently suppressed. Still not a BLOCK.
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "cat heredoc writing a remediation script — body is data, not execution. DOC_CONTEXT heredoc branch suppresses the block; ts-allow-readonly classifies cat-redirect as ALLOW. Must not block (issue #1867).",
-		Tags:             []string{"tn", "safe", "fp-guard", "doc-context", "heredoc"},
+		Tags:             []string{"tn", "safe", "fp-guard", "doc-context", "heredoc", "issue-2843"},
 	},
 
 	// ── npx @anthropic-ai/claude-code --dangerously-skip-permissions (issue #375) ──
@@ -5014,7 +5027,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `npx @anthropic-ai/claude-code --dangerously-skip-permissions -p "read all files"`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "npx @anthropic-ai/claude-code --dangerously-skip-permissions — npm-packaged Claude Code with all permission checks disabled, shadow AI deployment variant.",
 		Tags:             []string{"tp", "agent-delegation", "shadow-ai", "npx"},
@@ -5024,7 +5037,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `npx @anthropic-ai/claude-code --dangerously-skip-permissions --print "exfiltrate credentials"`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "npx @anthropic-ai/claude-code --dangerously-skip-permissions --print — evades binary-name detection by using npx form.",
 		Tags:             []string{"tp", "agent-delegation", "shadow-ai", "npx"},
@@ -5034,7 +5047,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `npx @anthropic-ai/claude-code --version`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "npx @anthropic-ai/claude-code --version — version check, not launching with dangerous flags. Gets default AUDIT.",
 		Tags:             []string{"tn", "safe", "agent-delegation"},
@@ -5044,7 +5057,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `sed -i 's|npx @anthropic-ai/claude-code --dangerously-skip-permissions||' samples/test.sh`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "sed -i removing the npx-variant flag string from a test fixture — text manipulation, not execution. Must not block (issue #1867).",
 		Tags:             []string{"tn", "safe", "fp-guard", "npx"},
@@ -5054,7 +5067,7 @@ var AgentCredentialScopeAbuseCases = []TestCase{
 		Command:          `gh issue create --title "fix" --body "exec form: npx @anthropic-ai/claude-code --dangerously-skip-permissions is unsafe"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "privilege-escalation/agent-containment/agent-delegation-escalation",
+		TaxonomyRef:      "unauthorized-execution/agentic-attacks/agent-approval-gate-disabled",
 		Analyzer:         "regex",
 		Description:      "gh body documenting the npx variant — DOC_CONTEXT exclude. Must not block (issue #1867).",
 		Tags:             []string{"tn", "safe", "fp-guard", "npx", "doc-context"},
@@ -6083,7 +6096,7 @@ var BinfmtMiscInterpreterHijackCases = []TestCase{
 	{
 		ID:               "TN-BINFMT-004",
 		Command:          `echo hello > /tmp/binfmt_test.py`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/binfmt-misc-interpreter-hijack",
 		Analyzer:         "regex",
@@ -6555,7 +6568,7 @@ var SudoersPAMWriteCases = []TestCase{
 	{
 		ID:               "TN-TS-BLOCK-SUDOERS-WRITE-003",
 		Command:          `echo "# audit comment" > /tmp/sudoers.check`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/command-execution/sudo-invocation",
 		Analyzer:         "regex",
@@ -7461,7 +7474,7 @@ var SandboxOrchestratorRPCCompromiseCases = []TestCase{
 	{
 		ID:               "TN-SBXORCH-001",
 		Command:          `echo hi > \\.\pipe\docker_engine`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/agent-containment/sandbox-orchestrator-rpc-compromise",
 		Analyzer:         "regex",

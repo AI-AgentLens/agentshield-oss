@@ -259,3 +259,84 @@ func buildToolCallResultWithMeta(t *testing.T, content []ContentItem, meta inter
 	}
 	return data
 }
+
+// ── decode-idiom fail-open (issue #4064, item 1) ─────────────────────────────
+//
+// ScanStructuredContentRaw decoded with plain json.Unmarshal into
+// map[string]interface{}. A valid JSON number no float64 can hold (1e400) is
+// well-formed JSON that a JavaScript host parses as Infinity, but it failed
+// the Go decode, and the error path returned an empty result — so one extra
+// member beside the payload switched the whole `_meta` scan off. Same class,
+// same fix as ScanNotificationMessage in #4059: UseNumber, tolerate a
+// *json.UnmarshalTypeError.
+
+// TestScanStructuredContentRaw_UnrepresentableNumberStillScanned is the
+// regression test with its own control: the same object WITHOUT the number
+// must be poisoned for the row to mean anything.
+func TestScanStructuredContentRaw_UnrepresentableNumberStillScanned(t *testing.T) {
+	control := json.RawMessage(`{"note":"` + metaInj1 + `"}`)
+	if !ScanStructuredContentRaw(control).Poisoned {
+		t.Fatal("control: payload without the number was not poisoned — the row below measures nothing")
+	}
+	for name, raw := range map[string]string{
+		"1e400 beside the payload":      `{"note":"` + metaInj1 + `","n":1e400}`,
+		"negative 1e400 first":          `{"n":-1e400,"note":"` + metaInj1 + `"}`,
+		"1e400 nested under the leaf":   `{"trace":{"budget":1e400,"note":"` + metaInj1 + `"}}`,
+		"1e400 inside an array sibling": `{"samples":[1e400,2],"note":"` + metaInj1 + `"}`,
+	} {
+		if !ScanStructuredContentRaw(json.RawMessage(raw)).Poisoned {
+			t.Errorf("%s: _meta not poisoned — the decode failed and the scan switched off", name)
+		}
+	}
+}
+
+// TestScanStructuredContentRaw_NumberLeavesNeverFalsePoison: UseNumber turns
+// every number leaf into a json.Number, which is a string type. The walker
+// must not start reading numbers as prose, and a benign telemetry object
+// with an unrepresentable number stays clean.
+func TestScanStructuredContentRaw_NumberLeavesNeverFalsePoison(t *testing.T) {
+	raw := json.RawMessage(`{"trace_id":"req-8f3a2c1e","latency_ms":42,"budget":1e400,"ratio":0.25,"ok":true}`)
+	if r := ScanStructuredContentRaw(raw); r.Poisoned {
+		t.Errorf("benign _meta with an unrepresentable number was poisoned: %+v", r.Findings)
+	}
+}
+
+// TestScanStructuredContentRaw_TypeMismatchTolerated pins the tolerated
+// branch. The target is map[string]interface{}, whose interface{} leaves take
+// any JSON kind, so the only *json.UnmarshalTypeError this decode can raise
+// is a non-object at the top level. There is no partial object to keep in
+// that case: the result is empty, as the doc comment promises for non-object
+// JSON, and — the point of the row — the decoder no longer confuses that
+// tolerated type error with a syntax error. A syntax error still yields an
+// empty result.
+func TestScanStructuredContentRaw_TypeMismatchTolerated(t *testing.T) {
+	if r := ScanStructuredContentRaw(json.RawMessage(`["` + metaInj1 + `"]`)); r.Poisoned || len(r.Findings) != 0 {
+		t.Errorf("top-level array: expected the documented empty result, got %+v", r.Findings)
+	}
+	if r := ScanStructuredContentRaw(json.RawMessage(`{"note":"` + metaInj1 + `",`)); r.Poisoned || len(r.Findings) != 0 {
+		t.Errorf("syntax error: expected the fail-open empty result, got %+v", r.Findings)
+	}
+}
+
+// TestFilterToolCallResponse_MetaFieldInjection_BesideUnrepresentableNumber
+// proves it through the tools/call response path with hand-written JSON: the
+// envelope's `_meta` is json.RawMessage, so the 1e400 survives decodeLenient
+// and reaches ScanStructuredContentRaw, which is exactly where it used to
+// switch the scan off.
+func TestFilterToolCallResponse_MetaFieldInjection_BesideUnrepresentableNumber(t *testing.T) {
+	resp := []byte(`{"jsonrpc":"2.0","id":7,"result":{` +
+		`"content":[{"type":"text","text":"Sunny, 72F"}],` +
+		`"_meta":{"trace_id":"` + metaInj1 + `","latency_ms":1e400}}}`)
+	h := &MessageHandler{Stderr: io.Discard}
+	filtered := h.FilterToolCallResponse(resp)
+	if filtered == nil {
+		t.Fatal("expected replacement response: _meta injection beside a 1e400 was forwarded unscanned")
+	}
+	var msg Message
+	if err := json.Unmarshal(filtered, &msg); err != nil {
+		t.Fatalf("replacement is not valid JSON: %v", err)
+	}
+	if msg.Error == nil {
+		t.Errorf("expected error in replacement response, got result: %s", filtered)
+	}
+}

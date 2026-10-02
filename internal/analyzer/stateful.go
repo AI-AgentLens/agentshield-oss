@@ -47,12 +47,12 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// 1. Run built-in Go checks
 		// Check compound commands within this single evaluation
 		// (e.g., "curl -o x.sh && bash x.sh")
-		findings = append(findings, s.checkCompoundDownloadExecute(pc)...)
+		findings = append(findings, s.checkCompoundDownloadExecute(pc, writtenName)...)
 
 		// Check for the agentic-pentest decoy-payload pattern: a recon/exploit
 		// tool run against a target, followed by fetching an executable
 		// artifact FROM THAT SAME HOST, followed by running it (#3654).
-		findings = append(findings, s.checkPentestDecoyPayloadExecution(pc)...)
+		findings = append(findings, s.checkPentestDecoyPayloadExecution(pc, writtenName)...)
 
 		// 2. Run user-defined YAML stateful rules
 		for _, rule := range s.userRules {
@@ -73,7 +73,66 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		}
 	}
 
+	// A command word spelled as a path (#3991). The built-in chains are run a
+	// second time with their program RECOGNISERS (download tool, chmod, recon
+	// tool) reading the program name, and the new restricting findings kept —
+	// a union, because a chain takes the FIRST recognised recon tool and
+	// recognising an earlier one could otherwise lose a later match. Their
+	// FILE-IDENTITY comparisons (was the downloaded path the one executed?)
+	// keep reading the executable as written in both passes: `payload` is not
+	// the `/tmp/payload` that was downloaded. YAML chains get the
+	// program-name view under the same union, restricting rules only.
+	if pv := ctx.restrictView(); pv != nil {
+		have := map[string]bool{}
+		for _, f := range findings {
+			have[f.RuleID] = true
+		}
+		keep := func(fs []Finding) {
+			for _, f := range fs {
+				if restrictingDecision(f.Decision) && !have[f.RuleID] {
+					have[f.RuleID] = true
+					findings = append(findings, f)
+				}
+			}
+		}
+		for _, pc := range shellparse.AllParsedCommands(ctx.Parsed) {
+			keep(s.checkCompoundDownloadExecute(pc, programName))
+			keep(s.checkPentestDecoyPayloadExecution(pc, programName))
+		}
+		for _, pc := range shellparse.AllParsedCommands(pv) {
+			for _, rule := range s.userRules {
+				if !restrictingDecision(rule.Decision) || rule.Negate || have[rule.ID] || !MatchStatefulRule(pc, rule) {
+					continue
+				}
+				have[rule.ID] = true
+				f := Finding{
+					AnalyzerName: "stateful",
+					RuleID:       rule.ID,
+					Decision:     rule.Decision,
+					Confidence:   rule.Confidence,
+					Reason:       rule.Reason,
+					TaxonomyRef:  rule.Taxonomy,
+				}
+				if f.Confidence == 0 {
+					f.Confidence = 0.85
+				}
+				findings = append(findings, f)
+			}
+		}
+	}
+
 	return findings
+}
+
+// writtenName and programName select which spelling of a segment's executable
+// a built-in chain's program recognisers read — see Analyze (#3991).
+func writtenName(seg CommandSegment) string { return seg.Executable }
+
+func programName(seg CommandSegment) string {
+	if seg.Program != "" {
+		return seg.Program
+	}
+	return seg.Executable
 }
 
 // checkCompoundDownloadExecute detects download→execute chains within a single
@@ -82,7 +141,7 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 // Patterns:
 //   - curl/wget -o <file> && bash/sh/chmod <file>
 //   - curl/wget -O <file> && chmod +x <file> && ./<file>
-func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand) []Finding {
+func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, name func(CommandSegment) string) []Finding {
 	if parsed == nil {
 		return nil
 	}
@@ -96,7 +155,7 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand) [
 	var downloadSegIdx = -1
 
 	for i, seg := range parsed.Segments {
-		if !isDownloadCommand(seg.Executable) {
+		if !isDownloadCommand(name(seg)) {
 			continue
 		}
 
@@ -141,7 +200,7 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand) [
 
 	// Also check for chmod +x followed by execution of same file
 	for i, seg := range parsed.Segments {
-		if seg.Executable != "chmod" {
+		if name(seg) != "chmod" {
 			continue
 		}
 		chmodFile := pathnorm.StripShellQuotes(extractChmodTarget(seg))
@@ -212,7 +271,7 @@ var pentestReconTargetFlags = []string{"u", "url", "host", "h", "target", "rhost
 // must not match. Exact-host-match only (no subdomain/base-domain fuzzing) —
 // deliberately conservative for a BLOCK-tier finding; see #3654 PR notes for
 // the scope decision.
-func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedCommand) []Finding {
+func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedCommand, name func(CommandSegment) string) []Finding {
 	if parsed == nil || len(parsed.Segments) < 3 {
 		return nil
 	}
@@ -222,7 +281,7 @@ func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedComma
 	reconTool := ""
 	reconIdx := -1
 	for i, seg := range parsed.Segments {
-		if !pentestReconTools[seg.Executable] {
+		if !pentestReconTools[name(seg)] {
 			continue
 		}
 		if h := extractReconTargetHost(seg); h != "" {
@@ -241,7 +300,7 @@ func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedComma
 	downloadIdx := -1
 	for i := reconIdx + 1; i < len(parsed.Segments); i++ {
 		seg := parsed.Segments[i]
-		if !isDownloadCommand(seg.Executable) {
+		if !isDownloadCommand(name(seg)) {
 			continue
 		}
 		if extractDownloadURLHost(seg) != reconHost {
@@ -390,6 +449,11 @@ func isExecuteOfFile(seg CommandSegment, file string) bool {
 		if isSafeModuleInvocation(seg) {
 			return false
 		}
+		// Every operand is checked, not only the first. `python3 - F <<EOF`
+		// (F is sys.argv data) therefore BLOCKs: a pinned false positive
+		// (#3999). Two attempts to exempt it failed open (#4027): the segment
+		// does not record option arity, redirect fds, or whether stdin text
+		// is literal. See TestStateful_PythonStdinArgvDownloadIsPinnedFP.
 		for _, arg := range seg.Args {
 			a := pathnorm.StripShellQuotes(arg)
 			if a == file || strings.HasSuffix(a, "/"+file) {

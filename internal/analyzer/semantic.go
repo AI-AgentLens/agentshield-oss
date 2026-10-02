@@ -80,20 +80,73 @@ func (a *SemanticAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// "pip config set" substring until expanded (issue #3217).
 	braceFoldedRaw := shellparse.NormalizeBraceWordList(ctx.RawCommand)
 
+	// And once more for a backslash-spliced leading executable — "f\ind /etc
+	// -delete" runs exactly `find /etc -delete` (bash: a backslash before an
+	// alphanumeric outside quotes is a no-op), but contains no literal "find"
+	// substring, and "p\ython3 - <<'PY'" defeats sem-block-python-rmtree's
+	// regex-based heredoc-intro scan (interpreterHeredocIntroPattern) the same
+	// way. regex.go's whole-command BLOCK candidate already folds this position
+	// (#3848 class B); these strings.Contains(raw, ...)/regex-on-raw rules need
+	// their own copy of the same candidate (#3848 class E).
+	execFoldedRaw := shellparse.FoldLeadingExecWord(ctx.RawCommand)
+
 	// 1. Run built-in Go semantic rules (classifies intents into ctx.Intents)
+	// matchAny is the rule's whole match predicate over the raw command and
+	// its folded forms. One closure for the normal path and the excused-match
+	// probe below, so the two cannot disagree about what "fires" means.
+	matchAny := func(rule SemanticRule) bool {
+		if rule.Match(ctx.Parsed, ctx.RawCommand) {
+			return true
+		}
+		for _, form := range []string{ifsNormalizedRaw, unsetFoldedRaw, braceFoldedRaw, execFoldedRaw} {
+			if form != "" && rule.Match(ctx.Parsed, form) {
+				return true
+			}
+		}
+		return false
+	}
+	// matchProgram is the same rule read through the program-name view — a
+	// command word spelled as a path read as the program it runs (#3991).
+	// Restricting rules only, and only in the engine's ON evaluation (pv is
+	// nil otherwise). Used by the normal path and the excused-match probe
+	// alike, for the same reason matchAny is.
+	pv := ctx.restrictView()
+	matchProgram := func(rule SemanticRule) bool {
+		return pv != nil && restrictingDecision(rule.Decision) && rule.Match(pv, ctx.RawCommand)
+	}
+	var restrictIntents []CommandIntent
 	for _, rule := range a.rules {
 		if len(rule.IntentExclude) > 0 && ctx.CommandFacts.HasAny(rule.IntentExclude) {
+			// Attestation (#3995): a restricting rule whose pattern fires
+			// here, excused by its labels, leaves a note. Decision unchanged.
+			if (rule.Decision == "BLOCK" || rule.Decision == "REQUIRE_APPROVAL") && (matchAny(rule) || matchProgram(rule)) {
+				var held []string
+				for _, label := range rule.IntentExclude {
+					if ctx.CommandFacts.HasAny([]string{label}) {
+						held = append(held, label)
+					}
+				}
+				ctx.AddNote(NoteExcused, rule.ID, "intent:"+strings.Join(held, ","))
+			}
 			continue
 		}
-		matched := rule.Match(ctx.Parsed, ctx.RawCommand)
-		if !matched && ifsNormalizedRaw != "" {
-			matched = rule.Match(ctx.Parsed, ifsNormalizedRaw)
-		}
-		if !matched && unsetFoldedRaw != "" {
-			matched = rule.Match(ctx.Parsed, unsetFoldedRaw)
-		}
-		if !matched && braceFoldedRaw != "" {
-			matched = rule.Match(ctx.Parsed, braceFoldedRaw)
+		matched := matchAny(rule)
+		// A command word spelled as a path (#3991): a RESTRICTING rule also
+		// gets the program-name view. Its intent is kept out of ctx.Intents —
+		// an ALLOW user rule keyed on that intent must not fire for a binary
+		// planted at /tmp/x/<name> — and only restricting user rules see it.
+		if !matched && matchProgram(rule) {
+			findings = append(findings, Finding{
+				AnalyzerName: "semantic",
+				RuleID:       rule.ID,
+				Decision:     rule.Decision,
+				Confidence:   rule.Confidence,
+				Reason:       rule.Reason,
+				TaxonomyRef:  rule.TaxonomyRef,
+				Tags:         rule.Tags,
+			})
+			restrictIntents = append(restrictIntents, rule.Intent)
+			continue
 		}
 		if matched {
 			findings = append(findings, Finding{
@@ -111,7 +164,9 @@ func (a *SemanticAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 
 	// 2. Run user-defined YAML semantic rules against accumulated intents
 	for _, rule := range a.userRules {
-		if MatchSemanticRule(ctx.Intents, rule) {
+		if MatchSemanticRule(ctx.Intents, rule) ||
+			(len(restrictIntents) > 0 && restrictingDecision(rule.Decision) && !rule.Negate &&
+				MatchSemanticRule(append(append([]CommandIntent(nil), ctx.Intents...), restrictIntents...), rule)) {
 			f := Finding{
 				AnalyzerName: "semantic",
 				RuleID:       rule.ID,
@@ -179,7 +234,7 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 				for _, seg := range allSegments(parsed) {
 					if seg.Executable == "shred" {
 						for _, arg := range seg.Args {
-							if isBlockDevice(arg) {
+							if isShredTargetDevice(arg) {
 								return true
 							}
 						}
@@ -310,22 +365,7 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 		{
 			ID: "sem-allow-dns-safe",
 			Match: func(parsed *ParsedCommand, raw string) bool {
-				for _, seg := range allSegments(parsed) {
-					if seg.Executable == "dig" || seg.Executable == "nslookup" || seg.Executable == "host" {
-						for _, arg := range seg.Args {
-							lower := strings.ToLower(arg)
-							if strings.HasPrefix(lower, "_dmarc.") ||
-								strings.HasPrefix(lower, "_spf.") ||
-								strings.HasPrefix(lower, "_dkim.") ||
-								strings.HasPrefix(lower, "_domainkey.") ||
-								strings.HasPrefix(lower, "_acme-challenge.") ||
-								strings.HasPrefix(lower, "_mta-sts.") {
-								return true
-							}
-						}
-					}
-				}
-				return false
+				return safeDNSLookupOnly(parsed)
 			},
 			Decision:    "ALLOW",
 			Confidence:  0.90,
@@ -347,22 +387,7 @@ func (a *SemanticAnalyzer) buildRules() []SemanticRule {
 		{
 			ID: "sem-allow-dns-safe-recon",
 			Match: func(parsed *ParsedCommand, raw string) bool {
-				for _, seg := range allSegments(parsed) {
-					if seg.Executable == "dig" || seg.Executable == "nslookup" || seg.Executable == "host" {
-						for _, arg := range seg.Args {
-							lower := strings.ToLower(arg)
-							if strings.HasPrefix(lower, "_dmarc.") ||
-								strings.HasPrefix(lower, "_spf.") ||
-								strings.HasPrefix(lower, "_dkim.") ||
-								strings.HasPrefix(lower, "_domainkey.") ||
-								strings.HasPrefix(lower, "_acme-challenge.") ||
-								strings.HasPrefix(lower, "_mta-sts.") {
-								return true
-							}
-						}
-					}
-				}
-				return false
+				return safeDNSLookupOnly(parsed)
 			},
 			Decision:    "ALLOW",
 			Confidence:  0.90,

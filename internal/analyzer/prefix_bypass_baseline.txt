@@ -1,0 +1,58 @@
+# Rules a benign leading statement can switch OFF (#3901).
+#
+# Each line is a rule id whose own TP stops naming it once a harmless statement
+# is prefixed — `sed -n 1p notes.txt && <the TP>` and the like. The prefix does
+# no work; it exists only to satisfy an exclusion anchored to "this tool appears
+# in execution position", and `command_regex_exclude` suppresses the WHOLE rule
+# rather than the span it matched.
+#
+# Two outcomes, and the difference matters:
+#
+#   FAIL-OPEN   the decision itself drops to AUDIT. The command is not stopped.
+#   LAUNDERED   another rule still BLOCKs, so nothing gets through — but the
+#               audit event names that other rule, so the attestation resolves
+#               to a different taxonomy node than the attempt it describes.
+#
+# THIS FILE ONLY EVER SHRINKS. The test fails on a new entry, and fails again if
+# a baselined rule stops being bypassable without its line being removed.
+# Adding a line is admitting a fail-open and needs Gary + Kai sign-off.
+#
+# ── History ───────────────────────────────────────────────────────────────────
+#
+# 2026-09-19, first sweep: 13 of 73 tested (18%) — 10 fail-open, 3 laundered.
+# 2026-09-19, same day: down to 5, by making a rule carrying an exclusion
+#   position-sensitive so the per-statement retry runs for it
+#   (internal/analyzer/regex.go, isPositionSensitive). The optimization that
+#   skipped the retry rests on a rule's own pattern being monotonic over
+#   substrings — true for the MATCH, false for the EXCLUSION, which can match
+#   the whole command while matching no individual statement.
+#
+# Do NOT size this class with a grep. An early shape-scan put it at "33 rules"
+# and was wrong in both directions: many exclusions are already `^...$`-anchored
+# and therefore same-statement by construction. The ratchet is the instrument.
+#
+# ── Why each survivor survives ────────────────────────────────────────────────
+#
+# These are NOT the same defect as the ten that were fixed, and none is a
+# missing same-statement constraint. Measured with mvdan/sh directly:
+#
+#   PARSE FAILURE — the TP is not valid shell, so it splits into ZERO statements
+#     and there is no per-statement retry to run. The payload is LLM output or
+#     PowerShell, which is the point of those rules. Fixing this means deciding
+#     what a retry should even mean for text the shell parser rejects.
+#
+#   SPANS A SEPARATOR — the rule's own regex matches ACROSS a statement
+#     boundary by construction, so no single statement contains the match and no
+#     retry can recover it. `internal/analyzer/position.go` already documents
+#     this shape as "unexcludable by construction": the fix is to make the
+#     pattern express a position, not to add another label.
+#
+#   NOT YET DIAGNOSED — parses, one statement, should have been recovered.
+#     Worth a look; LAUNDERED, so the command is still stopped meanwhile.
+
+ts-block-jailbreak-compliance-prefix          echo  FAIL-OPEN  PARSE FAILURE (0 stmts; unterminated quote in the payload)
+ts-block-programdata-ai-config-plant          git   FAIL-OPEN  PARSE FAILURE (0 stmts; PowerShell payload)
+ts-block-printf-v-exec                        gh    FAIL-OPEN  SPANS A SEPARATOR (regex contains [;&|]+; TP is 2 stmts)
+ts-block-paramexp-prefix-enum-egress          git   LAUNDERED  SPANS A SEPARATOR (needs the `for ... in` header, and the splitter yields only the loop BODY)
+
+ts-block-pam-exec-script-injection            sed   LAUNDERED  NOT YET DIAGNOSED (parses, 1 stmt — should have been recovered)

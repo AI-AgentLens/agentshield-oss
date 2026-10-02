@@ -1,0 +1,8 @@
+name: shell-labels
+rules:
+- id: sh-lab-1
+  taxonomy: "k/c/l"
+data_labels:
+- id: label-not-a-rule
+  name: "fixture label"
+  decision: AUDIT

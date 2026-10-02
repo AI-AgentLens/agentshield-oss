@@ -74,6 +74,17 @@ func TestAuditChainStatus(t *testing.T) {
 			wantNoTick:  true,
 		},
 		{
+			name: "broken rotated predecessor is a failure and names the file",
+			result: logger.ChainVerifyResult{
+				State: logger.ChainStateBroken, Entries: 5, BrokenAt: 2, BrokenIn: "audit.jsonl.1",
+				Message: "audit.jsonl.1 entry 2: prev_hash mismatch (chain broken)",
+			},
+			wantPassed:  false,
+			wantCounted: true,
+			wantSubstr:  "broken in audit.jsonl.1 at entry 2",
+			wantNoTick:  true,
+		},
+		{
 			name:        "unreadable log is not a tampering claim, and not a pass",
 			result:      logger.ChainVerifyResult{State: logger.ChainStateUnreadable, BrokenAt: -1, Message: "cannot open file: permission denied"},
 			wantPassed:  false,
@@ -82,11 +93,65 @@ func TestAuditChainStatus(t *testing.T) {
 			wantNoTick:  true,
 		},
 		{
+			// #4133 pass 2: the two compositions a linked live log inherits
+			// from its predecessor render through the existing ⚠ rows.
+			name: "partial rotated predecessor behind a linked live log is a warning",
+			result: logger.ChainVerifyResult{
+				State: logger.ChainStatePartial, Entries: 4, BrokenAt: -1,
+				Message: "audit.jsonl.1 holds 3 pre-chain entries", Note: "linked to audit.jsonl.1",
+			},
+			wantPassed:  false,
+			wantCounted: true,
+			wantSubstr:  "partially protected — audit.jsonl.1 holds 3 pre-chain entries",
+			wantNoTick:  true,
+		},
+		{
+			name: "unreadable rotated predecessor behind a linked live log is a warning",
+			result: logger.ChainVerifyResult{
+				State: logger.ChainStateUnreadable, Entries: 4, BrokenAt: -1,
+				Message: "audit.jsonl.1 unreadable, not verified: read error after entry 0: is a directory",
+			},
+			wantPassed:  false,
+			wantCounted: true,
+			wantSubstr:  "cannot verify (audit.jsonl.1 unreadable",
+			wantNoTick:  true,
+		},
+		{
+			name:        "a log that rotated during every attempt is a warning, not a break",
+			result:      logger.ChainVerifyResult{State: logger.ChainStateUnreadable, BrokenAt: -1, Message: "cannot verify: the log rotated during every verification attempt; re-run"},
+			wantPassed:  false,
+			wantCounted: true,
+			wantSubstr:  "rotated during every verification attempt",
+			wantNoTick:  true,
+		},
+		{
 			name:        "fresh install with no entries asserts nothing either way",
 			result:      logger.ChainVerifyResult{State: logger.ChainStateEmpty, BrokenAt: -1, Message: "no audit log yet"},
 			wantPassed:  false,
 			wantCounted: false,
 			wantSubstr:  "no entries yet",
+			wantNoTick:  true,
+		},
+		{
+			name: "empty live log beside a verified rotated predecessor stays informational and names it",
+			result: logger.ChainVerifyResult{
+				State: logger.ChainStateEmpty, BrokenAt: -1,
+				Message: "empty log", Note: "audit.jsonl.1 verified (not linked)",
+			},
+			wantPassed:  false,
+			wantCounted: false,
+			wantSubstr:  "no entries yet; audit.jsonl.1 verified (not linked)",
+			wantNoTick:  true,
+		},
+		{
+			name: "empty live log beside a legacy rotated predecessor is a counted warning (#4133 round 4)",
+			result: logger.ChainVerifyResult{
+				State: logger.ChainStatePartial, Entries: 0, BrokenAt: -1,
+				Message: "audit.jsonl.1 holds 3 pre-chain entries",
+			},
+			wantPassed:  false,
+			wantCounted: true,
+			wantSubstr:  "partially protected — audit.jsonl.1 holds 3 pre-chain entries",
 			wantNoTick:  true,
 		},
 		{

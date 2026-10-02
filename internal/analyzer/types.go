@@ -54,6 +54,12 @@ type AnalysisContext struct {
 	// Empty when no substitution-derived paths are recoverable.
 	MaterializedPaths []string
 
+	// Notes records where the pipeline knowingly gave up or excused a match
+	// (#3995). An attestation record, never a decision input: nothing reads
+	// Notes to decide, and a note's absence is not evidence of anything.
+	// Appended through AddNote so duplicates from repeated probes collapse.
+	Notes []Note
+
 	// Assignments are the constant `NAME=value` bindings the Substitution
 	// analyzer resolved, in name order. Deliberately SEPARATE from
 	// MaterializedPaths: an assignment reads nothing, so a protected path
@@ -96,6 +102,81 @@ type AnalysisContext struct {
 	// needs this separately to fail closed on a parse-failure fallback
 	// instead of trusting whole-blob classification (#3467).
 	RawStatementsParsed bool
+
+	// ResolveProgramPaths turns on #3991's reading of path-spelled command
+	// words as the programs they run (`/usr/bin/rm` as `rm`): restrictView,
+	// the regex layer's restrict candidates, and guardian's archive check.
+	// Off, every analyzer behaves byte-for-byte as it did before #3991.
+	//
+	// It is set per evaluation by policy.Engine, never globally: the engine
+	// evaluates a path-spelled command both ways and keeps the ON result only
+	// when it is strictly more restrictive (policy.stricterResult). That max()
+	// is the safety guarantee. The restrict-only discipline below is
+	// precision — it keeps ON from inventing ALLOWs — not safety.
+	ResolveProgramPaths bool
+
+	// programView memoizes shellparse.ProgramView(Parsed) — see
+	// restrictView. Unexported: it is a restrict-only rendering and must
+	// not become something any analyzer reads by default.
+	programView     *ParsedCommand
+	programViewDone bool
+}
+
+// restrictView returns the program-name view of ctx.Parsed (#3991): every
+// segment's Executable replaced by the program it runs when it was spelled as
+// an absolute or home-anchored path, or nil when no segment was.
+//
+// RESTRICT-ONLY. Evaluate a rule or check against it only when a match there
+// makes the decision stricter — a BLOCK/AUDIT/REQUIRE_APPROVAL rule that is not
+// negated, a hard-coded detection — and only as a union with the match against
+// ctx.Parsed itself, so the result can gain findings and never lose one. Never
+// an ALLOW rule, an exemption, an intent label that an ALLOW rule could read,
+// or a file-identity comparison: a binary planted at /tmp/x/rm is not rm.
+//
+// When the raw command itself spells a command word as a path, the view is
+// built from a re-parse of the command with those words resolved, so that the
+// parser's own name-keyed decomposition applies too: `/usr/bin/bash -c '…'`
+// and `/usr/bin/su -c '…'` are only split into their inner commands when the
+// carrier is recognised, and the inner `rm --recursive --force /` is caught
+// only there. Remaining path-spelled words (inside a carrier body, say) are
+// then resolved segment by segment.
+func (ctx *AnalysisContext) restrictView() *ParsedCommand {
+	if !ctx.ResolveProgramPaths {
+		return nil
+	}
+	if !ctx.programViewDone {
+		ctx.programViewDone = true
+		base := ctx.Parsed
+		resolved := false
+		if rewritten := shellparse.BasenameCommandWord(ctx.RawCommand); rewritten != "" {
+			if rp := shellparse.Parse(rewritten, restrictViewParseDepth); rp != nil {
+				base, resolved = rp, true
+			}
+		}
+		pv := shellparse.ProgramView(base)
+		if pv == nil && resolved {
+			pv = base
+		}
+		ctx.programView = pv
+	}
+	return ctx.programView
+}
+
+// restrictViewParseDepth is the indirect-execution depth of restrictView's
+// re-parse: config.AnalyzerConfig's default. A deployment configured deeper
+// gets a shallower restrict view than its main parse — less coverage for the
+// path-spelled case, never a relaxation.
+const restrictViewParseDepth = 2
+
+// restrictingDecision reports whether a finding at decision d makes the
+// verdict stricter than doing nothing, i.e. whether a rule at d may be
+// matched against restrictView. ALLOW, and anything unrecognised, may not.
+func restrictingDecision(d string) bool {
+	switch d {
+	case "BLOCK", "AUDIT", "REQUIRE_APPROVAL":
+		return true
+	}
+	return false
 }
 
 // Assignment is one constant `NAME=value` binding resolved by the
@@ -161,4 +242,118 @@ type SessionState struct {
 	CommandCount  int
 	RiskScore     float64
 	AccessedPaths []string
+}
+
+// Note kinds (#3995). A bare default decision used to be indistinguishable
+// from an evaluated one: when a rule's pattern fired but its labels excused
+// it, when the shell parser gave up and the text was matched as one blob,
+// when the scope walker dropped a binding past its cap, or when text fed to
+// an executor could not be resolved, the event carried nothing. Every one of
+// those is a place the pipeline knows it is being lossy; a Note says so on
+// the audit event so a receipt can tell "nothing matched" from "something
+// matched and was excused" and from "we could not fully evaluate this".
+//
+// The decision never changes on account of a note (the 2026-09-06 rule:
+// only deny what you can justify). Kinds:
+const (
+	// NoteExcused: a restricting rule's pattern fires on this command and
+	// the rule's own exclusion removed it — intent labels (regex and
+	// semantic stages) or a position (regex stage). Rule names the rule;
+	// Detail names the exclusion. command_regex_exclude is NOT noted: it is
+	// part of the pattern itself (a match predicate, not an excusal).
+	NoteExcused = "excused"
+	// NoteDowngraded: a BLOCK/REQUIRE_APPROVAL match was downgraded to AUDIT
+	// by command_intent_downgrade (#2843). The AUDIT already names the rule;
+	// the note makes the downgrade machine-readable.
+	NoteDowngraded = "downgraded"
+	// NoteParseFallback: the shell parser failed, so per-statement
+	// attribution ran on the whole text as one statement (#3467).
+	NoteParseFallback = "parse_fallback"
+	// NoteScopeAlternatesCapped: the scope walker dropped a conditional
+	// binding past maxScopeAlternates (#3769 shape 5), so a protected read
+	// behind it may have reached the default decision unattributed.
+	NoteScopeAlternatesCapped = "scope_alternates_capped"
+	// NoteExecutedTextUnresolved: text handed to an executor carried an
+	// unexpanded `$` or backquote and was not retried (#3938). Detail is
+	// the count of such texts.
+	NoteExecutedTextUnresolved = "executed_text_unresolved"
+	// NotePolicyDegraded: a policy layer could not be loaded and evaluation
+	// ran without it (#4077: an unreadable disk packs directory, so premium
+	// and custom rules were absent). Written by the caller that loads the
+	// policy, not by an analyzer stage. Detail names the missing layer and
+	// what the decision was actually evaluated against, so the SaaS never
+	// attests a degraded evaluation as full enforcement.
+	NotePolicyDegraded = "policy_degraded"
+)
+
+// Note is one attestation record on an evaluation. See the kinds above.
+type Note struct {
+	Kind   string `json:"kind"`
+	Rule   string `json:"rule,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// AppendNote adds n to notes unless an identical note is already there.
+func AppendNote(notes []Note, n Note) []Note {
+	for _, have := range notes {
+		if have == n {
+			return notes
+		}
+	}
+	return append(notes, n)
+}
+
+// AddNote records a note on the context (nil-safe, deduplicated).
+func (ctx *AnalysisContext) AddNote(kind, rule, detail string) {
+	if ctx == nil {
+		return
+	}
+	ctx.Notes = AppendNote(ctx.Notes, Note{Kind: kind, Rule: rule, Detail: detail})
+}
+
+// MatchedIntentLabels returns the labels in want that hold on the command or
+// on any of its attribution statements — the ones that could have excused a
+// match — in want's order. A note's Detail names these rather than the
+// rule's whole configured list, so an auditor can tell "was a comment" from
+// "was self-management" (Opus review of #4005). Falls back to want when
+// nothing holds on that view (an excusal decided on a carrier-resolved or
+// heredoc-recovered statement), so the note is never empty.
+func MatchedIntentLabels(classifier *IntentClassifier, command string, statements []string, want []string) []string {
+	if classifier == nil || len(want) == 0 {
+		return want
+	}
+	facts := []CommandFacts{classifier.Classify(command)}
+	for _, s := range statements {
+		if s != command {
+			facts = append(facts, classifier.Classify(s))
+		}
+	}
+	var out []string
+	for _, label := range want {
+		for _, f := range facts {
+			if f.HasAny([]string{label}) {
+				out = append(out, label)
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return want
+	}
+	return out
+}
+
+// MatchedPositions returns the positions in want that on their own exclude
+// the match, in want's order; falls back to want if none does alone.
+func MatchedPositions(command string, want []string, foldCtx *StatementFoldContext, matches func(string) bool) []string {
+	var out []string
+	for _, p := range want {
+		if PositionExcluded(command, []string{p}, foldCtx, matches) {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return want
+	}
+	return out
 }

@@ -21,24 +21,32 @@ import (
 // segment behind an unquoted '?' must never LOWER the decision.
 func TestGlobEvasionParity(t *testing.T) {
 	t.Parallel()
-	// The one residual leak (1/183 at introduction) is a pre-existing,
-	// documented gap unrelated to glob evasion specifically —
-	// TP-COMPOUND-EVASION-009 (`{ cat ~/.ssh/id_rsa; git commit -m "notes";
-	// }`) degrades identically under the already-shipped brace/quote-splice
-	// fixes (`{ cat ~/.ss'h'/id_r'sa'; git commit -m "notes"; }` → AUDIT
-	// too, per TestBraceExpansionParity) — a pre-existing
-	// IntentExcludedForStatements gap that consults ctx.RawStatements (the
-	// original, untransformed statement text), so it doesn't know about ANY
-	// candidate-form transform, glob or not.
-	//
 	// This test's needle list only covers the credential/system-file shapes
 	// #3102 targets (RegexAnalyzer candidate-list injection). The
 	// structural + dataflow residual described in #3103 (disk-device
 	// destructive writes, chmod targets, dataflow source paths — the same
 	// architectural boundary ExpandBraces left for brace expansion) needs
 	// its own fitness function once that follow-up lands.
-	// Ratchet DOWN as gaps are fixed; never up without recording why.
-	const maxLeaks = 1
+	//
+	// #3927 (closed): substitutionReachesExecutor's per-body attribution
+	// check (`matchesStatement(body)`) used to test the rule's own pattern
+	// against the RAW substitution-body text — the same ctx.RawStatements-
+	// blind shape the pre-existing TP-COMPOUND-EVASION-009 leak came from
+	// (no visibility into ANY candidate-form transform, glob included). So
+	// `echo "$(cat ~/.?sh/id_ed25519)"` deglobbed to a BLOCKing candidate at
+	// the whole-command level, but the attribution check that decides
+	// whether to withdraw is_doc_text saw only the un-deglobbed body, found
+	// no match inside it, and never withdrew — decision stayed AUDIT. Fixed
+	// by running shellparse.DeglobSensitivePaths over every statement in
+	// StatementMatchCandidates (statement_forms.go) — the same generator
+	// statementMatcher and substitutionReachesExecutor both share, so the
+	// fix reaches every ctx.RawStatements-blind attribution site at once,
+	// not just command-substitution bodies. TP-COMPOUND-EVASION-009's own
+	// glob-masked derivative (constructed by this test) closed as a result;
+	// see TestGlobEvasion_SubstitutionBodyAttribution for the direct
+	// mechanism pin. Ratchet DOWN as gaps are fixed; never up without
+	// recording why.
+	const maxLeaks = 0
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 	engine, baseline := blockingBaseline(t)

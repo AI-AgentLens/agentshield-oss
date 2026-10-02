@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode"
@@ -148,4 +149,25 @@ func shannonEntropy(s string) float64 {
 		entropy -= p * math.Log2(p)
 	}
 	return entropy
+}
+
+// hashPrefixedShare matches a checksum-looking token: a sha256/384/512 label, a
+// separator, then a base64 body. ShareLock plants each Shamir share as such a
+// "checksum" inside an otherwise ordinary prose description (arXiv 2606.27027,
+// "entropy dilution"), so the whole-description fraction test in
+// ScanDescriptionForFragment never sees it.
+var hashPrefixedShare = regexp.MustCompile(`(?i)\bsha(?:256|384|512)[-:=]\s?([A-Za-z0-9+/_-]{32,}={0,2})`)
+
+// ScanDescriptionForEmbeddedShare reports whether a description carries a
+// hash-prefixed, high-entropy base64 token anywhere in its text, regardless of
+// how much prose surrounds it. AUDIT-grade: a legitimate SRI hash in a
+// CDN-fetch tool's description matches too, and the receipt is the response.
+// A token that decodes to nothing random (low entropy) is not reported.
+func ScanDescriptionForEmbeddedShare(desc string) bool {
+	for _, m := range hashPrefixedShare.FindAllStringSubmatch(desc, -1) {
+		if shannonEntropy(strings.TrimRight(m[1], "=")) >= 4.0 {
+			return true
+		}
+	}
+	return false
 }

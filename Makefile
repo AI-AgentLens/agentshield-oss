@@ -1,4 +1,4 @@
-.PHONY: build test test-perf lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-mcp-tool-symmetry check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest check-duplicate-rule-ids check-arg-map-lookups check-regex-anchors
+.PHONY: build test test-perf lint clean install help setup-hooks lint-fix coverage mcp-verify test-mcp compliance-indexes test-install test-install-oss test-cask test-oss-walkthrough check-rule-coverage check-mcp-tool-symmetry check-pack-taxonomy-fit check-testdata-taxonomy-fit premium-manifest check-duplicate-rule-ids check-arg-map-lookups check-regex-anchors replay-audit check-fail-open-budget
 
 VERSION ?= 0.1.0-dev
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -82,6 +82,10 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 
 LIVE_LINK ?= /opt/homebrew/bin/$(BINARY)
 
+HOURS ?= 24
+replay-audit: build ## Replay the last $(HOURS)h of real audit-log traffic through build/agentshield; print decision flips (#3995)
+	@bash scripts/replay-audit.sh --binary "$(BUILD_DIR)/$(BINARY)" --hours "$(HOURS)"
+
 deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@echo "Preparing binary..."
 	@# Apple Silicon: `go build -o $(BUILD_DIR)/$(BINARY)` rewrites the binary in
@@ -96,6 +100,15 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 			echo "  ⚠️  codesign failed — the binary may die with SIGKILL 137 on exec."; \
 		fi; \
 	fi
+	@# Real-traffic replay (#3995): every shell command the deployed hook
+	@# recorded in the last 24h is re-evaluated by the binary about to replace
+	@# it, and every decision flip is printed with the recorded and new rule
+	@# ids. Fixture authors share the fix author's blind spot; the audit log is
+	@# the corpus nobody authored (#3998 was on it twice, and no fixture had
+	@# it). ADVISORY: it never stops the deploy — only deny what you can
+	@# justify — so read the lines above the summary before trusting a green.
+	@# `make replay-audit HOURS=48` runs it on its own with a wider window.
+	@bash scripts/replay-audit.sh --binary "$(BUILD_DIR)/$(BINARY)" || true
 	@# The live-binary link is CREATED OR REPAIRED here, never assumed (#3141).
 	@# It ran before the pack copy on purpose: the failure mode that hid #3141
 	@# for months was a deploy that half-worked — packs refreshed, binary stale —
@@ -146,7 +159,12 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	fi
 	@agentshield scan > /dev/null 2>&1 && echo "✅ AgentShield deployed and verified" || echo "⚠️  Deploy done but scan failed"
 
-check: lint-fix test build check-rule-coverage check-duplicate-rule-ids check-arg-map-lookups ## Run full pre-commit check (lint, test, build, rule coverage, duplicate ids, arg-map lookups)
+# No lint here (#3975). It ran FIRST and aborted the gate before any test ran:
+# 5 lint-only breaks in 18 days (4 errcheck on deferred Close/Fprint, 1 De Morgan
+# rewrite), 0 real bugs, each green in CI, where `go vet ./...` already runs.
+# lint-fix also rewrote source inside a check. `make lint` stays for on-demand
+# use; revisit only if a real fail-open is traced to an ignored error.
+check: test build check-rule-coverage check-duplicate-rule-ids check-arg-map-lookups check-fail-open-budget ## Run full pre-commit check (test, build, rule coverage, duplicate ids, arg-map lookups, fail-open budget)
 
 check-rule-coverage: ## Enforce TP+TN test coverage on every terminal pack rule
 	go run ./cmd/check-rule-coverage -v
@@ -162,6 +180,10 @@ check-regex-anchors: ## Ratchet against command_regex with an unanchored leading
 
 check-arg-map-lookups: ## Forbid raw fixed-key arguments-map lookups in internal/mcp (#3720)
 	go run ./cmd/check-arg-map-lookups -v
+
+check-fail-open-budget: ## One number for the fail-open residue the parity sweeps permit; must not rise (#3995)
+	@bash scripts/check-fail-open-budget.sh
+
 
 # Semantic-fit of pack taxonomy refs (#3333). Needs the AI_risk_compliance
 # taxonomy tree, which this repo does not vendor — pass its path, the same

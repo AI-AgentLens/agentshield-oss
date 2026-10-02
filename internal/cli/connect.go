@@ -62,6 +62,8 @@ func connectCommand(cmd *cobra.Command, args []string) error {
 
 	// Pass version to enterprise package to avoid import cycle
 	enterprise.AgentVersion = Version
+	// Same cycle for the rule count: the loaders live on this side.
+	enterprise.RulesLoaded = func() int { return countLoadedRules(cfg) }
 
 	_, _ = fmt.Fprintf(cmd.OutOrStderr(), "[AgentShield] connect: starting managed agent daemon\n")
 

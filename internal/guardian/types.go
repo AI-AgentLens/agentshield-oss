@@ -46,6 +46,13 @@ type GuardianRequest struct {
 
 	// PriorSignals are tags/reasons from upstream analyzers.
 	PriorSignals []string
+
+	// ResolveProgramPaths lets detections read a path-spelled command word as
+	// the program it runs (`/usr/bin/tar` as `tar`, #3991). Mirrors
+	// analyzer.AnalysisContext.ResolveProgramPaths: set only in the engine's
+	// ON evaluation, whose result is kept only when strictly more
+	// restrictive. Exemption recognisers never read it.
+	ResolveProgramPaths bool
 }
 
 // GuardianResponse is the output from a GuardianProvider.

@@ -157,10 +157,32 @@ func resolveShellFile() error {
 
 // evaluateShellCommand loads the policy and evaluates a single command. Pure
 // computation — no os.Exit, no stdout — so tests can call it directly.
+// checkEngine is a loaded policy engine that `check` evaluates commands
+// against. Building one costs a config load, a policy + pack load and an
+// engine construction — about 150 ms, the same as a whole hook call — while
+// one evaluation on a built engine costs a few milliseconds. The engine holds
+// no per-evaluation state (the stateful analyzer runs compound-only here, as in
+// the hook), so fixture mode builds one engine and reuses it: a fixture of N
+// cases used to pay the load N times (400 real-traffic cases took 93 s in the
+// #3995 replay), which is what made replaying an audit log too slow to gate a
+// deploy on. TestRunFixtureFile_ReusedEngineMatchesFreshEngine pins the reuse
+// against a fresh build per command.
+type checkEngine struct {
+	engine *policy.Engine
+}
+
 func evaluateShellCommand(command, policyFileOverride string) (policy.EvalResult, error) {
-	pol, _, err := loadCheckPolicy(policyFileOverride)
+	ce, err := newCheckEngine(policyFileOverride)
 	if err != nil {
 		return policy.EvalResult{}, err
+	}
+	return ce.evaluate(command), nil
+}
+
+func newCheckEngine(policyFileOverride string) (*checkEngine, error) {
+	pol, _, err := loadCheckPolicy(policyFileOverride)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve enforcement mode the same way hook.go does so `check` is a
@@ -175,7 +197,7 @@ func evaluateShellCommand(command, policyFileOverride string) (policy.EvalResult
 
 	engine, err := policy.NewEngineWithAnalyzers(pol, defaultMaxParseDepth())
 	if err != nil {
-		return policy.EvalResult{}, fmt.Errorf("failed to create policy engine: %w", err)
+		return nil, fmt.Errorf("failed to create policy engine: %w", err)
 	}
 	if cfg != nil {
 		engine.SetMode(cfg.Mode)
@@ -185,7 +207,11 @@ func evaluateShellCommand(command, policyFileOverride string) (policy.EvalResult
 	// job (or with CI=true/GITHUB_ACTIONS=true set) exercises the same
 	// context-scoped tightening the live hook would apply there.
 	engine.SetExecContext(execenv.Detect(os.Getenv))
+	return &checkEngine{engine: engine}, nil
+}
 
+// evaluate runs one command through the loaded engine.
+func (ce *checkEngine) evaluate(command string) policy.EvalResult {
 	// Mirror the IDE hook's evaluation path exactly so `check` is a faithful
 	// dev-loop predictor of production behavior:
 	//   1. Use NormalizeCommand, which tokenizes internally (strings.Fields) so
@@ -197,8 +223,17 @@ func evaluateShellCommand(command, policyFileOverride string) (policy.EvalResult
 	// See hook.go's evaluateCommand — keep these two call sites in lock-step.
 	// The parity test in check_test.go (TestEvaluateShellCommand_HookParityFitnessFunction)
 	// enforces the invariant.
-	normalized := normalize.NormalizeCommand(command, "")
-	return engine.EvaluateWithParsed(command, normalized.Paths, normalized.Parsed), nil
+	//
+	// Use the process cwd, matching the hook (#4020). This used to pass ""
+	// deliberately: giving check a cwd resolves relative paths to absolute
+	// before protected_paths matching, which used to drop every relative
+	// protected_paths match. That gap is now closed in the engine itself
+	// (checkProtectedPaths also matches a path under cwd, made cwd-relative,
+	// against a relative pattern), so check and the hook agree either way —
+	// see TestEvaluateShellCommand_CwdParity.
+	cwd, _ := os.Getwd()
+	normalized := normalize.NormalizeCommand(command, cwd)
+	return ce.engine.EvaluateWithParsedCwd(command, normalized.Paths, normalized.Parsed, cwd)
 }
 
 func printShellResult(w io.Writer, r policy.EvalResult) {
@@ -209,6 +244,16 @@ func printShellResult(w io.Writer, r policy.EvalResult) {
 	for _, reason := range r.Reasons {
 		_, _ = fmt.Fprintf(w, "  Reason: %s\n", reason)
 	}
+	for _, n := range r.Notes {
+		_, _ = fmt.Fprintf(w, "  Note: %s%s%s\n", n.Kind, optField(" rule=", n.Rule), optField(" ", n.Detail))
+	}
+}
+
+func optField(prefix, v string) string {
+	if v == "" {
+		return ""
+	}
+	return prefix + v
 }
 
 func printShellResultJSON(w io.Writer, r policy.EvalResult) error {
@@ -396,6 +441,11 @@ func runFixtureFile(fixturePath, policyFileOverride string) (fixtureReport, erro
 		}
 	}
 
+	// One engine for the whole fixture (see checkEngine). A build failure is
+	// recorded on every case, exactly as the per-case build used to report it,
+	// so the report shape and the exit code are unchanged.
+	ce, engineErr := newCheckEngine(policyPathToUse)
+
 	for i, c := range fix.Cases {
 		line := 0
 		if i < len(caseLines) {
@@ -410,14 +460,14 @@ func runFixtureFile(fixturePath, policyFileOverride string) (fixtureReport, erro
 			continue
 		}
 
-		evalResult, err := evaluateShellCommand(c.Shell, policyPathToUse)
-		if err != nil {
+		if engineErr != nil {
 			report.results = append(report.results, fixtureCaseResult{
-				name: c.Name, line: line, expect: expectedDecision, err: err,
+				name: c.Name, line: line, expect: expectedDecision, err: engineErr,
 			})
 			report.failed++
 			continue
 		}
+		evalResult := ce.evaluate(c.Shell)
 
 		res := fixtureCaseResult{
 			name:    c.Name,

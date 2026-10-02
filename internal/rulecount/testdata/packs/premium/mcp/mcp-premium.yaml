@@ -1,0 +1,10 @@
+name: mcp-premium
+rules:
+  - id: mcp-p1
+    taxonomy: "k/c/p"
+    match: {tool_name_any: ["read_file"], argument_patterns: {path: "**/.fixture/a"}}
+  # Intra-file duplicate, ~the shape of mcp-sec-block-consul-token (#3660):
+  # two definitions, one id, both loaded, both counted; unique_ids counts one.
+  - id: mcp-p1
+    taxonomy: "k/c/p"
+    match: {tool_name_any: ["read_file"], argument_patterns: {path: "**/.fixture/b"}}

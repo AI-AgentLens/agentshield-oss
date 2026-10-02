@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
@@ -873,21 +874,104 @@ const base64MinSuspiciousLen = 512
 
 func scanResponseBase64(result *ResponseScanResult, text string) {
 	for _, m := range base64BlockRe.FindAllString(text, -1) {
-		if len(m) < base64MinSuspiciousLen {
-			continue
-		}
+		cleaned := strings.ReplaceAll(m, "\n", "")
 		// Attempt to decode — if it decodes cleanly it's more suspicious
-		decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(m, "\n", ""))
+		decoded, err := base64.StdEncoding.DecodeString(cleaned)
 		if err != nil {
 			// Try URL-safe variant
-			decoded, err = base64.URLEncoding.DecodeString(strings.ReplaceAll(m, "\n", ""))
+			decoded, err = base64.URLEncoding.DecodeString(cleaned)
 		}
-		if err == nil && len(decoded) > 256 {
+		if err != nil {
+			continue
+		}
+		// Signal 8a (size-based): a large opaque blob may smuggle exfiltrated
+		// data outbound. Unchanged threshold — this is the data-smuggling signal,
+		// not the injection one.
+		if len(m) >= base64MinSuspiciousLen && len(decoded) > 256 {
 			result.Findings = append(result.Findings, ResponsePoisonFinding{
 				Signal:  SignalResponseBase64Payload,
 				Detail:  "Large base64-encoded payload in tool response (possible data smuggling)",
 				Snippet: m[:64] + "...",
 			})
+		}
+		// Signal 8b (decode-then-rescan): a directive delivered as a base64 blob
+		// — the canonical shape being a resources/read `blob` with a text
+		// mimeType, which the host decodes and the model reads as instructions —
+		// is invisible to the raw-text pattern scan, which sees only base64
+		// characters. If the block decodes to readable text, rescan the DECODED
+		// text for injection. Gated on a real pattern match, so a legitimate blob
+		// that merely decodes to text (a JWT payload, a base64-wrapped document)
+		// produces no finding.
+		if decodedLooksLikeText(decoded) {
+			scanDecodedBase64Text(result, string(decoded))
+		}
+	}
+}
+
+// decodedLooksLikeText reports whether decoded base64 bytes are plausibly the
+// natural-language / markdown text a host would render and a model would read as
+// instructions — as opposed to the binary payload (image, archive, key material)
+// a legitimate blob normally carries. Requires valid UTF-8 and a high ratio of
+// printable runes, so a decoded JPEG or gzip stream is rejected before any
+// injection pattern runs.
+func decodedLooksLikeText(b []byte) bool {
+	if len(b) == 0 || !utf8.Valid(b) {
+		return false
+	}
+	// Sample the leading window rather than the whole blob: text-ness is a
+	// property of the byte distribution, and this bounds the cost on a large
+	// valid-UTF-8-but-non-printable blob. The subsequent regex scan (only reached
+	// when this returns true) is what does the real work.
+	const sampleRunes = 8192
+	printable, total := 0, 0
+	for _, r := range string(b) {
+		total++
+		// Printable = tab/newline/carriage-return, or any rune at/above U+0020
+		// that is not DEL. utf8.Valid already guarantees well-formed runes, so
+		// the only non-printables left are the C0 control block and DEL.
+		if r == '\n' || r == '\t' || r == '\r' || (r >= 0x20 && r != 0x7f) {
+			printable++
+		}
+		if total >= sampleRunes {
+			break
+		}
+	}
+	return total > 0 && printable*100/total >= 90
+}
+
+// scanDecodedBase64Text runs the response prose-injection pattern sets against
+// text recovered by base64-decoding a response content block. Findings reuse the
+// EXISTING response signals — so the signal→taxonomy mapping is unchanged and no
+// new taxonomy node is required — with a note recording that the payload arrived
+// base64-encoded. It deliberately does NOT re-invoke scanResponseBase64 (no
+// recursion into doubly-encoded blobs) or the markdown/terminal passes; it is the
+// prose-directive check only.
+func scanDecodedBase64Text(result *ResponseScanResult, decoded string) {
+	lower := strings.ToLower(decoded)
+	const note = " — recovered by base64-decoding a response content block; the directive " +
+		"was delivered as an opaque base64 blob (e.g. a resources/read blob with a text " +
+		"mimeType) and is invisible to the raw-text scan"
+	sets := []struct {
+		sig      ResponsePoisonSignal
+		patterns []responseSignalPattern
+	}{
+		{SignalResponsePromptInjection, responseInjectionPatterns},
+		{SignalResponseActionDirective, responseActionPatterns},
+		{SignalResponseExfilDirective, responseExfilPatterns},
+		{SignalResponseBehavioralOverride, responseBehavioralPatterns},
+		{SignalResponseReasoningHijack, responseReasoningHijackPatterns},
+		{SignalResponseEvalAwareness, responseEvalAwarenessPatterns},
+	}
+	for _, set := range sets {
+		for _, p := range set.patterns {
+			if loc := p.re.FindStringIndex(lower); loc != nil {
+				result.Findings = append(result.Findings, ResponsePoisonFinding{
+					Signal:  set.sig,
+					Detail:  p.description + note,
+					Snippet: safeSnippet(decoded, loc[0], 80),
+				})
+				break // one finding per set keeps the audit receipt legible
+			}
 		}
 	}
 }
@@ -1466,6 +1550,13 @@ var uiPasswordInputRe = regexp.MustCompile(`<input[^>]+type\s*=\s*["']?password`
 //      remediation framing used to disguise shell execution as a legitimate fix step
 //
 // Taxonomy: unauthorized-execution/agentic-attacks/error-tracking-telemetry-prompt-injection
+
+// npxScopedPattern matches `npx` followed by a scoped package (`@scope/name`), optionally
+// preceded by an auto-confirm flag. Shared by both pattern families below (and their
+// pentest-framing siblings) so the discriminator — scoped, not bare — stays in one place.
+// See the comment on the fix-framing entry below for why bare `npx` is excluded.
+const npxScopedPattern = `npx(?:\s+(?:-y|--yes))?\s+@[\w.-]+/[\w.-]+`
+
 var responseErrorTrackingInjectionPatterns = []responseSignalPattern{
 	// [AGENT: directive] — colon inside brackets with non-empty content.
 	// The existing responseCodeCommentInjectionPatterns catch [AGENT]: (colon after bracket);
@@ -1483,7 +1574,21 @@ var responseErrorTrackingInjectionPatterns = []responseSignalPattern{
 	// Attackers frame shell execution as a remediation recommendation in fake error reports.
 	// The preamble constraint ("fix with:", "suggested fix:", "to fix this error:") makes
 	// this pattern specific enough to avoid FPs in generic file content.
-	{regexp.MustCompile(`(?i)(fix\s+with|suggested\s+fix|to\s+fix\s+this|to\s+fix\s+the\s+(?:error|issue|bug|crash)|recommended\s+(?:fix|action|command))\s*[:\-]\s*(curl|wget|pip\s+install|npm\s+install|bash|sh\s+-c|python\d*\s+-c)`),
+	// npxScoped is in the executor list because it is the disclosed PoC's own mechanism, not
+	// a generic addition: Tenet Security's June 2026 "Agentjacking" writeup names the exact
+	// injected fix command as `npx @tenet-controlled-validation-package- -diagnose` inside a
+	// fabricated "## Resolution" Sentry section — npx runs a package immediately with no
+	// separate install step, so a curl/wget/npm-install-only executor list missed the
+	// attack's own published payload shape entirely.
+	//
+	// Scoped-package-only, NOT bare `npx`: an adversarial review after the bare-npx version
+	// merged (2026-09-21) found it matched ordinary JS/TS remediation prose — "suggested fix:
+	// npx tsc --noEmit", "fix with: npx eslint --fix ." — an idiom curl/wget/bash have no
+	// benign equivalent for. Scoped packages (`@scope/name`) are the actual PoC shape (an
+	// attacker publishing a plausibly-named validator under a namespace they control) and
+	// exclude every common unscoped toolchain binary (tsc/eslint/prettier/jest/jscodeshift/
+	// webpack/vite/...) without hand-maintaining a denylist of those names.
+	{regexp.MustCompile(`(?i)(fix\s+with|suggested\s+fix|to\s+fix\s+this|to\s+fix\s+the\s+(?:error|issue|bug|crash)|recommended\s+(?:fix|action|command))\s*[:\-]\s*(curl|wget|pip\s+install|npm\s+install|` + npxScopedPattern + `|bash|sh\s+-c|python\d*\s+-c)`),
 		"Agentjacking: fix-framed shell command injection in tool response — remediation context used to disguise execution directive"},
 }
 
@@ -1506,15 +1611,19 @@ var responsePentestReflectedCompromisePatterns = []responseSignalPattern{
 	// "to verify/confirm this [vulnerability|finding|exploit|CVE], run/execute:" followed
 	// by a command executor. The preamble constraint (verify/confirm + vuln-scan noun)
 	// keeps this specific to scan-result framing rather than generic prose.
-	{regexp.MustCompile(`(?i)to\s+(?:verify|confirm)\s+(?:this|the)\s+(?:vulnerability|finding|exploit|cve|patch|remediation)[^.\n]{0,40}[:\-]\s*(curl|wget|pip\s+install|npm\s+install|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s)`),
+	// npxScopedPattern added to all three executors below for the same reason as the
+	// fix-framing pattern above: it is the exact command the disclosed Agentjacking PoC
+	// used, and pentest/scan-result framing is the reflected-target variant of the same
+	// class. Scoped-only, not bare `npx` — see npxScopedPattern's doc comment.
+	{regexp.MustCompile(`(?i)to\s+(?:verify|confirm)\s+(?:this|the)\s+(?:vulnerability|finding|exploit|cve|patch|remediation)[^.\n]{0,40}[:\-]\s*(curl|wget|pip\s+install|npm\s+install|` + npxScopedPattern + `|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s)`),
 		"Pentest-reflected-compromise: verification-framed shell command in scan/exploit tool response — target crafted its response to trigger execution when the agent 'verifies' the finding"},
 
 	// "reproduce (this|the) (vulnerability|issue|finding|bug) with/by/using:" + executor.
-	{regexp.MustCompile(`(?i)reproduce\s+(?:this|the)\s+(?:vulnerability|issue|finding|bug|crash)\s+(?:with|by|using)\s*[:\-]?\s*(curl|wget|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s)`),
+	{regexp.MustCompile(`(?i)reproduce\s+(?:this|the)\s+(?:vulnerability|issue|finding|bug|crash)\s+(?:with|by|using)\s*[:\-]?\s*(curl|wget|` + npxScopedPattern + `|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s)`),
 		"Pentest-reflected-compromise: reproduction-framed shell command in tool response — disguises execution as a repro step for a reported vulnerability"},
 
 	// "exploit (command|code|payload|poc)" / "proof of concept" heading + executor.
-	{regexp.MustCompile(`(?i)(exploit\s+(?:command|code|payload)|proof[\s-]of[\s-]concept|\bpoc\b)\s*[:\-]\s*(curl|wget|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s|/bin/sh|/bin/bash)`),
+	{regexp.MustCompile(`(?i)(exploit\s+(?:command|code|payload)|proof[\s-]of[\s-]concept|\bpoc\b)\s*[:\-]\s*(curl|wget|` + npxScopedPattern + `|bash|sh\s+-c|python\d*\s+-c|nc\s|ncat\s|/bin/sh|/bin/bash)`),
 		"Pentest-reflected-compromise: exploit/PoC-framed shell command in tool response — attacker-controlled target data disguising execution as offensive tooling output"},
 }
 

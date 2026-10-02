@@ -46,6 +46,11 @@ const (
 	// shape is identical (template expands to credentials); the distinction is
 	// the response surface (resources/templates/list rather than resources/list).
 	SignalResourceTemplatesListSensitiveExpansion ResourceTemplatesListSignal = "resource_templates_list_sensitive_expansion"
+
+	// SignalResourceTemplatesListIconUnsafeSource indicates a template whose
+	// `icons[].src` (MCP 2025-11-25) is a script scheme, an NTLM-leak source or
+	// an active data: SVG; same check as the tools/list icon signal (#4062).
+	SignalResourceTemplatesListIconUnsafeSource ResourceTemplatesListSignal = "resource_templates_list_icon_unsafe_source"
 )
 
 // ResourceTemplatesListFinding records one detected threat in a
@@ -111,6 +116,13 @@ func ScanResourcesTemplatesListResponse(result *ResourcesTemplatesListResult) Re
 		out.Findings = append(out.Findings, checkTemplateVarnames(tmpl.URITemplate)...)
 		out.Findings = append(out.Findings, checkTemplateSensitiveExpansion(tmpl.URITemplate)...)
 		out.Findings = append(out.Findings, checkTemplateMetadata(tmpl.Name, tmpl.Description)...)
+		for _, f := range scanIconsFor("resource template", tmpl.Icons) {
+			out.Findings = append(out.Findings, ResourceTemplatesListFinding{
+				Signal:      SignalResourceTemplatesListIconUnsafeSource,
+				Detail:      f.Detail,
+				URITemplate: f.Snippet,
+			})
+		}
 	}
 	out.Blocked = len(out.Findings) > 0
 	return out

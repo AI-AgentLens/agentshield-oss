@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/regexlit"
@@ -80,9 +81,72 @@ type RegexAnalyzer struct {
 //     for exactly the mirror-image reason "^" rules miss behind a "cd &&".
 //   - Prefixes — strings.HasPrefix is anchored by definition.
 //   - Exact — equality against the whole input.
+//   - A RegexExclude that is itself POSITIONAL — see below (#3901).
+//
+// # The monotonicity argument holds for the MATCH and fails for the EXCLUSION
+//
+// The skip above rests on a rule's own pattern being monotonic over substrings:
+// match a statement and you necessarily match the whole command, so the
+// whole-command pass already found it. True, and it is why the optimization is
+// sound for matching.
+//
+// An exclusion inverts the direction. `command_regex_exclude` SUPPRESSES, and a
+// positional one can match the whole command while matching no individual
+// statement — the excused tool sits in a statement that merely PRECEDES the
+// malicious one:
+//
+//	sed -n 1p notes.txt && claude --dangerously-skip-permissions
+//
+// The whole-command pass sees `sed` in execution position, suppresses the rule,
+// and the per-statement retry that would have fired it cleanly on statement 2 is
+// skipped as "pure wasted work". Measured: 13 of 73 BLOCK rules carrying an
+// exclusion were switched off this way, 10 of them silently dropping to AUDIT.
+// Retrying them closes 8; the survivors are recorded in
+// prefix_bypass_baseline.txt with the reason each is a different defect.
+//
+// The tell is that `ts-block-ad-enum-tools` — whose exclusion is the sloppiest
+// in the corpus, a bare `\b(grep|rg|awk|sed)\b` — was NOT bypassable, purely
+// because its own regex carries a `^` and so was already being retried. The
+// exclusion's quality was never what protected it; the anchor was.
+//
+// # Why only POSITIONAL exclusions, and not every exclusion
+//
+// Exclusions come in two kinds and they want opposite scoping:
+//
+//   - POSITIONAL — "this benign tool is the thing being run here", written with
+//     an execution-position anchor (`^`, or post-&&/;/|). It is a claim about a
+//     STATEMENT, so it must be evaluated per statement.
+//   - GUARD CONDITION — "this command carries a safety property", e.g.
+//     ts-block-agent-orchestration-server-fail-open excluding on
+//     `AUTH_ENABLED=true` / `AUTH_TOKEN=...` / `--host 127.0.0.1`. It is a claim
+//     about the WHOLE command, and re-evaluating it per statement breaks it: the
+//     first cut of this fix made `AUTH_ENABLED=true AUTH_TOKEN=s3cr3t python
+//     api_server.py` BLOCK, because a candidate form of the statement no longer
+//     carried the assignment that proves auth is on. Caught by TN-ORCHFAILOPEN-002.
+//
+// The anchor is the discriminator, and it is the exclusion's own declaration of
+// intent rather than a guess about it: an author who wrote `(?:^|&&\s*|;\s*)` was
+// making a positional claim. A `^` inside a negated character class (`[^;&|]`) is
+// not an anchor, so those are stripped before looking.
+//
+// Cost: ~112 rules carry an exclusion, a subset of which are positional; that is
+// against ~1,100 rules total, not a doubling. Measured with SHIELD_PERF_BUDGET=1:
+// typical p95 744µs -> 758µs (+1.8%, budget 3ms), adversarial p95 15.94ms ->
+// 16.00ms (+0.3%, budget 55ms). The prefilter work (internal/regexlit) is what
+// makes the retried set affordable, which was its point.
 func isPositionSensitive(r RegexRule) bool {
 	return r.Exact != "" || len(r.Prefixes) > 0 ||
-		strings.ContainsAny(r.Regex, "^$")
+		strings.ContainsAny(r.Regex, "^$") ||
+		hasPositionalAnchor(r.RegexExclude)
+}
+
+// hasPositionalAnchor reports whether a pattern contains a real `^` anchor, as
+// opposed to a `^` that merely negates a character class.
+func hasPositionalAnchor(pat string) bool {
+	if pat == "" {
+		return false
+	}
+	return strings.Contains(strings.ReplaceAll(pat, "[^", "["), "^")
 }
 
 // NewRegexAnalyzer creates a regex analyzer from RegexRule definitions.
@@ -163,6 +227,18 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		}
 		addForm(dequotedCommand)
 		addForm(ifsNormalized)
+		// A backslash/quote splice on the FIRST statement's executable word
+		// defeats any cross-statement rule anchored on the ORIGINAL separator
+		// (";", "&&", "|"): dequotedCommand above re-renders the whole command
+		// through mvdan/sh's printer, which turns a top-level ";" into a
+		// newline, so "s\leep 120; curl ..." dequotes to "sleep 120\ncurl ...",
+		// and a rule pattern written with ";" between the two statements can
+		// never match a "\n" (#3848 class B). FoldLeadingExecWord only touches
+		// the first word's own bytes, leaving every separator exactly as
+		// written.
+		if leadingFolded := shellparse.FoldLeadingExecWord(ctx.RawCommand); leadingFolded != "" {
+			addForm(leadingFolded)
+		}
 		// Compose the two: DequoteCommand bails on ctx.RawCommand whole-sale
 		// the moment ANY word contains a ParamExp — including the ${IFS}/$IFS
 		// token itself — so a command combining an ${IFS} separator with an
@@ -366,6 +442,32 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		stmtForms[s] = f
 		return f
 	}
+	// restrictCandidates adds the program-name renderings of path-spelled
+	// command words (#3991) on top of statementCandidates. RESTRICT-ONLY: it
+	// feeds the per-statement retry below — closed to ALLOW rules — and
+	// nothing else. statementMatcher (attribution for intent excludes and
+	// downgrades) deliberately keeps statementCandidates: a match found only
+	// by reading /tmp/x/git as git must never earn a doc-text excuse.
+	restrictForms := map[string][]string{}
+	restrictCandidates := func(s string) []string {
+		if !ctx.ResolveProgramPaths {
+			return statementCandidates(s)
+		}
+		if f, ok := restrictForms[s]; ok {
+			return f
+		}
+		f := restrictCandidatesFrom(s, statementCandidates(s), statementCandidates)
+		restrictForms[s] = f
+		return f
+	}
+	// restrictFoldCtx is foldCtx with PositionExcluded's redacted forms
+	// widened to the restrict candidates. Handed ONLY to restricting rules: a
+	// surviving redacted match cancels an exclusion, which tightens a BLOCK
+	// rule and LOOSENS an ALLOW rule (Codex pass 2 on #3993, R1).
+	restrictFoldCtx := foldCtx
+	if ctx.ResolveProgramPaths {
+		restrictFoldCtx = foldCtx.withRestrictForms()
+	}
 
 	// statementMatcher builds the per-statement predicate that
 	// IntentExcludedForStatements uses to attribute a match to a statement.
@@ -404,6 +506,65 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// once per command (the packs carry ~1,100 rules, so rebuilding this per
 	// rule would blow the pipeline perf budget). Anything already covered by the
 	// two whole-command checks above is left out.
+	// Executed text (#3938) is reported once, eagerly, so the
+	// executed_text_unresolved note (#3995) depends on the command alone and
+	// not on whether some later rule happened to trigger the lazy retry.
+	executedBodies, unresolvedBodies := shellparse.ExecutedTextReport(ctx.RawCommand)
+	if unresolvedBodies > 0 {
+		ctx.AddNote(NoteExecutedTextUnresolved, "", strconv.Itoa(unresolvedBodies))
+	}
+
+	// programCandidates is every text the program-name reading produced that
+	// no as-written form contains: the restrict-only extras of each statement
+	// and executed-text body, plus the whole command read that way. Tried for
+	// every restricting rule, positional or not (Codex pass 2, G5): the
+	// positional retry below is an optimisation that relies on an unanchored
+	// pattern having already seen every substring of the raw text, and a
+	// program-name rendering is NEW text — `sudo\s+zzprobe` never saw
+	// "sudo zzprobe" in "sudo /tmp/x/zzprobe", and `\A` is not a "^".
+	var programForms []string
+	programFormsReady := false
+	programCandidates := func() []string {
+		if programFormsReady || !ctx.ResolveProgramPaths {
+			return programForms
+		}
+		programFormsReady = true
+		seen := map[string]bool{ctx.RawCommand: true}
+		for _, f := range wholeCommandForms {
+			seen[f] = true
+		}
+		add := func(f string) {
+			if f != "" && !seen[f] {
+				seen[f] = true
+				programForms = append(programForms, f)
+			}
+		}
+		if whole := shellparse.BasenameCommandWord(ctx.RawCommand); whole != "" {
+			add(whole)
+			add(shellparse.DequoteCommand(whole))
+		}
+		extras := func(s string) {
+			base := map[string]bool{}
+			for _, f := range statementCandidates(s) {
+				base[f] = true
+			}
+			for _, f := range restrictCandidates(s) {
+				if !base[f] {
+					add(f)
+				}
+			}
+		}
+		for _, st := range shellparse.SplitSequencedStatements(ctx.RawCommand) {
+			if st = strings.TrimRight(st, " \t\n;"); st != "" {
+				extras(st)
+			}
+		}
+		for _, body := range executedBodies {
+			extras(body)
+		}
+		return programForms
+	}
+
 	var candidates []string
 	candidatesReady := false
 	retryCandidates := func() []string {
@@ -431,7 +592,24 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			if s == "" {
 				continue
 			}
-			for _, f := range statementCandidates(s) {
+			for _, f := range restrictCandidates(s) {
+				if f == "" || seen[f] {
+					continue
+				}
+				seen[f] = true
+				candidates = append(candidates, f)
+			}
+		}
+		// Text the shell will RUN that is not a top-level statement (#3938):
+		// what an echo/printf/heredoc emits when the command pipes it into a
+		// shell or writes-then-executes it, and every substitution body. A
+		// leading-anchor alternation lists every separator but a quote, so
+		// `echo 'install -m 4755 x y' | bash` never matched at the raw level
+		// and the label withdrawals had nothing to act on — 291 fitness
+		// probes on 78 BLOCK rules. Retried as commands of their own, the
+		// same way a statement is, so "^" means start of what executes.
+		for _, body := range executedBodies {
+			for _, f := range restrictCandidates(body) {
 				if f == "" || seen[f] {
 					continue
 				}
@@ -440,6 +618,80 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			}
 		}
 		return candidates
+	}
+
+	// Parse fallback (#3467): the intent stage could not parse the command,
+	// so every per-statement attribution below runs on the whole text as one
+	// statement. Recorded once per evaluation (#3995); matching is unchanged.
+	if !ctx.RawStatementsParsed && len(ctx.RawStatements) > 0 {
+		ctx.AddNote(NoteParseFallback, "", "")
+	}
+
+	// matchAnyForm is the rule's whole match predicate: the raw command, its
+	// whole-command forms (dequoted, IFS-normalized, leading-exec-folded),
+	// and — for a restricting, position-sensitive rule — the per-statement
+	// retry candidates (#3045: 39 pack rules anchor with "^"; against the
+	// whole raw command any prefix defeats them, and "cd <project> &&" is the
+	// single most common prefix an agent writes. Retrying each top-level
+	// statement makes "^" mean "start of a command". An ALLOW rule keeps
+	// whole-command semantics: a fragment must never vouch for the whole
+	// command, or "<malicious>; history | grep git" launders itself.)
+	//
+	// One closure for both callers — the normal path and the excused-match
+	// probe (#3995) that asks whether a rule its labels just excused would
+	// have fired — so the two can never disagree about what "fires" means.
+	// #4088 pass 1 (Opus review): an ALLOW prefix rule is judged on the RAW
+	// command's write/indirect-execution verdict, never on a rewritten form's.
+	// Several forms below lose a redirect bash still performs, and without
+	// this the form that lost it earned the ALLOW. Asked only after such a
+	// rule has matched some form, and at most once per command, so commands
+	// no ALLOW prefix rule matches pay no extra parse.
+	rawAllowDisq, rawAllowDisqDone := false, false
+	rawAllowDisqualified := func() bool {
+		if !rawAllowDisqDone {
+			rawAllowDisq, rawAllowDisqDone = shellparse.AllowDisqualified(ctx.RawCommand), true
+		}
+		return rawAllowDisq
+	}
+	var matchAnyFormInner func(ruleIdx int, rule RegexRule) bool
+	matchAnyForm := func(ruleIdx int, rule RegexRule) bool {
+		if !matchAnyFormInner(ruleIdx, rule) {
+			return false
+		}
+		return !(rule.Decision == "ALLOW" && len(rule.Prefixes) > 0 && rawAllowDisqualified())
+	}
+	matchAnyFormInner = func(ruleIdx int, rule RegexRule) bool {
+		if a.matchRegexRule(ctx.RawCommand, rule) {
+			return true
+		}
+		for _, form := range wholeCommandForms {
+			if a.matchRegexRule(form, rule) {
+				return true
+			}
+		}
+		if rule.Decision != "ALLOW" && a.positionSensitive[ruleIdx] {
+			for _, cand := range retryCandidates() {
+				if a.matchRegexRule(cand, rule) {
+					return true
+				}
+			}
+		}
+		// Program-name renderings for every restricting rule (#3991, Codex
+		// pass 2 G5). Positional rules already got them through
+		// retryCandidates. Inside matchAnyForm so the excused-match probe
+		// and the normal path keep one definition of "fires"; empty unless
+		// this is the engine's ON evaluation.
+		if rule.Decision != "ALLOW" && !a.positionSensitive[ruleIdx] {
+			for _, cand := range programCandidates() {
+				if a.matchRegexRule(cand, rule) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	restricts := func(rule RegexRule) bool {
+		return rule.Decision == "BLOCK" || rule.Decision == "REQUIRE_APPROVAL"
 	}
 
 	for ruleIdx, rule := range a.rules {
@@ -458,59 +710,35 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		if len(rule.IntentExclude) > 0 {
 			excluded := IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, rule.IntentExclude, statementMatcher(rule))
 			if excluded {
+				// Attestation (#3995): a restricting rule whose pattern DOES
+				// fire here, excused entirely by its labels, leaves a note.
+				// The probe costs what an unexcused command already pays,
+				// and only on excused ones. The decision is unchanged.
+				if restricts(rule) && matchAnyForm(ruleIdx, rule) {
+					ctx.AddNote(NoteExcused, rule.ID, "intent:"+strings.Join(MatchedIntentLabels(classifier, ctx.RawCommand, ctx.RawStatements, rule.IntentExclude), ","))
+				}
 				continue
 			}
 		}
-		matched := a.matchRegexRule(ctx.RawCommand, rule)
-		for _, form := range wholeCommandForms {
-			if matched {
-				break
-			}
-			matched = a.matchRegexRule(form, rule)
-		}
-		// Per-statement retry (issue #3045). 39 pack rules anchor with "^"
-		// (e.g. "^(sudo\s+)?mkfs", "^(sudo\s+)?dd\s+.*if=/dev/(zero|urandom)").
-		// Anchored against the WHOLE raw command, any prefix defeats them —
-		// "cd /tmp && mkfs.ext4 /dev/sda1" and "echo hi; dd if=/dev/zero
-		// of=/dev/sda" both slipped to AUDIT/ALLOW. That is not just an
-		// adversarial evasion: prefixing with "cd <project> &&" is the single
-		// most common thing an agent does, so these were live false negatives.
-		//
-		// Retrying each top-level statement makes "^" mean "start of a
-		// command", which is what the rule authors intended and what keeps
-		// their FP-avoidance intent intact: "^avml" still will not match the
-		// statement "apt install avml", because that statement starts with
-		// "apt". Purely additive — the whole-command match above is unchanged,
-		// so cross-statement patterns still work.
-		//
-		// Restricted to rules that RESTRICT (BLOCK/AUDIT/REQUIRE_APPROVAL). An
-		// ALLOW rule must keep whole-command semantics: if an explicit ALLOW
-		// could be earned by a single sub-statement, an attacker could launder a
-		// malicious command by appending a benign one that trips an allowlist
-		// rule ("<malicious>; history | grep git"). Fail-safe — never let a
-		// fragment vouch for the whole command.
-		if !matched && rule.Decision != "ALLOW" && a.positionSensitive[ruleIdx] {
-			// Candidates include each statement, its dequoted form (quote-splice
-			// inside a wrapped statement: the whole-command dequote above
-			// reconstructs `{ cat ~/.gi'thub'/creden'tials'; }` with the braces
-			// still attached, so an anchored rule still misses — #2854), and the
-			// form with leading env assignments / "!" stripped (#3048).
-			for _, cand := range retryCandidates() {
-				if a.matchRegexRule(cand, rule) {
-					matched = true
-					break
-				}
-			}
-		}
+		matched := matchAnyForm(ruleIdx, rule)
 		// Positional exclusion (#3376). Applied after matching rather than
 		// before, because it needs the rule's own predicate to attribute the
 		// match to a position and it costs an AST parse — a rule that did not
 		// fire must not pay for it.
+		posFoldCtx := foldCtx
+		if restrictingDecision(rule.Decision) {
+			posFoldCtx = restrictFoldCtx
+		}
 		if matched && len(rule.PositionExclude) > 0 &&
-			PositionExcluded(ctx.RawCommand, rule.PositionExclude, foldCtx, func(s string) bool {
+			PositionExcluded(ctx.RawCommand, rule.PositionExclude, posFoldCtx, func(s string) bool {
 				return a.matchRegexRule(s, rule)
 			}) {
 			matched = false
+			if restricts(rule) {
+				ctx.AddNote(NoteExcused, rule.ID, "position:"+strings.Join(MatchedPositions(ctx.RawCommand, rule.PositionExclude, posFoldCtx, func(s string) bool {
+					return a.matchRegexRule(s, rule)
+				}), ","))
+			}
 		}
 		if matched {
 			decision := rule.Decision
@@ -533,6 +761,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 				IntentExcludedForStatements(classifier, ctx.RawCommand, ctx.RawStatements, ctx.RawStatementsParsed, UnionIntentLabels(rule.IntentDowngrade, rule.IntentExclude), statementMatcher(rule)) {
 				reason = reason + " [downgraded BLOCK→AUDIT: the sensitive pattern appears inside a documentation/message argument (gh/git --body/--message), not an executed access]"
 				decision = "AUDIT"
+				ctx.AddNote(NoteDowngraded, rule.ID, "intent:"+strings.Join(MatchedIntentLabels(classifier, ctx.RawCommand, ctx.RawStatements, UnionIntentLabels(rule.IntentDowngrade, rule.IntentExclude)), ","))
 			}
 			f := Finding{
 				AnalyzerName: "regex",

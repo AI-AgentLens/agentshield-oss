@@ -1063,3 +1063,260 @@ func TestMCPSequenceRule_ArchiveExtractExecuteCWDShadowChain(t *testing.T) {
 		}
 	})
 }
+
+// TestMCPSequenceRule_CalendarScopeEmailContactDrift validates the real
+// authored chain rule (mcp-gov-audit-calendar-scope-email-contact-drift,
+// #3959, taxonomy governance-risk/ai-governance-gap/ai-agent-scope-creep) —
+// the MCP session-level instantiation of "authorization drift" (Zhang et al.,
+// arXiv:2609.23498): a calendar-availability read followed by an email-search
+// read followed by an outbound email draft/send, through the live
+// history-aware evaluator.
+func TestMCPSequenceRule_CalendarScopeEmailContactDrift(t *testing.T) {
+	const ruleID = "mcp-gov-audit-calendar-scope-email-contact-drift"
+
+	rules := loadPremiumPackRules(t, "mcp-governance.yaml")
+	var chain *MCPRule
+	for i := range rules {
+		if rules[i].ID == ruleID {
+			chain = &rules[i]
+			break
+		}
+	}
+	if chain == nil {
+		t.Fatalf("rule %q not found in premium pack", ruleID)
+	}
+	if chain.Match.Sequence == nil {
+		t.Fatalf("rule %q has no sequence block — YAML unmarshal of match.sequence failed", ruleID)
+	}
+	if len(chain.Match.Sequence.Steps) != 3 {
+		t.Fatalf("expected 3 sequence steps, got %d", len(chain.Match.Sequence.Steps))
+	}
+
+	e := NewPolicyEvaluator(&MCPPolicy{
+		Defaults: MCPDefaults{Decision: policy.DecisionAllow},
+		Rules:    []MCPRule{*chain},
+	})
+
+	sendEmail := RecordedCall{
+		ToolName: "send_email",
+		Args:     map[string]interface{}{"to": "colleague@corp.com", "body": "Let's reschedule"},
+	}
+	fired := func(res MCPEvalResult) bool {
+		for _, id := range res.TriggeredRules {
+			if id == ruleID {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("calendar read, email search, send fires AUDIT", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "find_available_slots"},
+			{ToolName: "search_email", Args: map[string]interface{}{"query": "reschedule"}},
+			sendEmail,
+		}
+		res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+		if res.Decision != policy.DecisionAudit || !fired(res) {
+			t.Errorf("expected AUDIT + rule fired; got decision=%v rules=%v", res.Decision, res.TriggeredRules)
+		}
+	})
+
+	t.Run("variant calendar-read tool names fire", func(t *testing.T) {
+		for _, calTool := range []string{"list_calendar_events", "get_availability", "check_availability", "get_free_busy", "read_calendar_entries"} {
+			history := []RecordedCall{
+				{ToolName: calTool},
+				{ToolName: "list_emails"},
+				sendEmail,
+			}
+			res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+			if !fired(res) {
+				t.Errorf("calendar-read tool %q did not trigger the chain", calTool)
+			}
+		}
+	})
+
+	t.Run("variant email-read tool names fire", func(t *testing.T) {
+		for _, mailTool := range []string{"read_email", "get_messages", "search_inbox", "gmail_search", "list_inbox"} {
+			history := []RecordedCall{
+				{ToolName: "find_available_slots"},
+				{ToolName: mailTool},
+				sendEmail,
+			}
+			res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+			if !fired(res) {
+				t.Errorf("email-read tool %q did not trigger the chain", mailTool)
+			}
+		}
+	})
+
+	t.Run("variant outbound tool names fire", func(t *testing.T) {
+		for _, sendTool := range []string{"draft_email", "compose_email", "gmail_send", "outlook_send", "send_message"} {
+			history := []RecordedCall{
+				{ToolName: "find_available_slots"},
+				{ToolName: "search_email"},
+				{ToolName: sendTool},
+			}
+			res := e.EvaluateToolCallWithHistory(sendTool, nil, "", history)
+			if !fired(res) {
+				t.Errorf("outbound tool %q did not trigger the chain", sendTool)
+			}
+		}
+	})
+
+	t.Run("calendar read then direct send, no email search — does not fire", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "find_available_slots"},
+			sendEmail,
+		}
+		res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+		if fired(res) {
+			t.Errorf("chain requires an email-search/read step between calendar and send; fired without one")
+		}
+	})
+
+	t.Run("email search and send with no prior calendar read — does not fire", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "search_email"},
+			sendEmail,
+		}
+		res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+		if fired(res) {
+			t.Errorf("chain requires a prior calendar-read step; fired without one")
+		}
+	})
+
+	t.Run("calendar read and email search with no follow-on send — does not fire", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "find_available_slots"},
+			{ToolName: "search_email"},
+		}
+		res := e.EvaluateToolCallWithHistory("search_email", nil, "", history)
+		if fired(res) {
+			t.Errorf("chain requires a follow-on outbound send/draft step; fired on the search tail call")
+		}
+	})
+
+	t.Run("calendar write (create_event) — does not satisfy the calendar-read step", func(t *testing.T) {
+		history := []RecordedCall{
+			{ToolName: "create_event"},
+			{ToolName: "search_email"},
+			sendEmail,
+		}
+		res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+		if fired(res) {
+			t.Errorf("create_event (a write) should not match the read-only calendar-availability step")
+		}
+	})
+
+	t.Run("calendar read outside the within_calls window — does not fire", func(t *testing.T) {
+		history := []RecordedCall{{ToolName: "find_available_slots"}}
+		for i := 0; i < 14; i++ {
+			history = append(history, RecordedCall{ToolName: "read_file"})
+		}
+		history = append(history, RecordedCall{ToolName: "search_email"}, sendEmail)
+		res := e.EvaluateToolCallWithHistory("send_email", sendEmail.Args, "", history)
+		if fired(res) {
+			t.Errorf("within_calls window not enforced: calendar read is more than 15 calls before the send")
+		}
+	})
+}
+
+// TestMCPSequenceRule_WebFetchThenShellExecute validates the authored agent-as-C2
+// chain (register: atlas-t0108-agent-as-c2, #4119): a web-fetch tool call followed
+// within 4 calls by a shell-execution tool call. The sequence engine sees no
+// responses, so the "shell input derives from the fetched body" half is not
+// testable here, and the rule is AUDIT for that reason.
+func TestMCPSequenceRule_WebFetchThenShellExecute(t *testing.T) {
+	const ruleID = "mcp-agentic-audit-web-fetch-then-shell-exec-chain"
+
+	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
+	var chain *MCPRule
+	for i := range rules {
+		if rules[i].ID == ruleID {
+			chain = &rules[i]
+			break
+		}
+	}
+	if chain == nil {
+		t.Fatalf("rule %q not found in premium pack", ruleID)
+	}
+	if chain.Match.Sequence == nil || len(chain.Match.Sequence.Steps) != 2 {
+		t.Fatalf("rule %q: match.sequence did not unmarshal to 2 steps", ruleID)
+	}
+
+	e := NewPolicyEvaluator(&MCPPolicy{
+		Defaults: MCPDefaults{Decision: policy.DecisionAllow},
+		Rules:    []MCPRule{*chain},
+	})
+	fired := func(res MCPEvalResult) bool {
+		for _, id := range res.TriggeredRules {
+			if id == ruleID {
+				return true
+			}
+		}
+		return false
+	}
+	shellArgs := map[string]interface{}{"command": "echo hello"}
+	run := func(tool string, history []RecordedCall) MCPEvalResult {
+		return e.EvaluateToolCallWithHistory(tool, shellArgs, "", history)
+	}
+
+	t.Run("fetch_url then execute_command fires AUDIT", func(t *testing.T) {
+		res := run("execute_command", []RecordedCall{
+			{ToolName: "fetch_url", Args: map[string]interface{}{"url": "https://example.com/task.txt"}},
+			{ToolName: "execute_command", Args: shellArgs},
+		})
+		if !fired(res) || res.Decision != policy.DecisionAudit {
+			t.Errorf("expected AUDIT + rule fired; got %v %v", res.Decision, res.TriggeredRules)
+		}
+	})
+
+	t.Run("web_fetch, unrelated calls, then bash fires", func(t *testing.T) {
+		res := run("bash", []RecordedCall{
+			{ToolName: "web_fetch"}, {ToolName: "read_file"}, {ToolName: "read_file"},
+			{ToolName: "bash", Args: shellArgs},
+		})
+		if !fired(res) {
+			t.Errorf("gap between fetch and shell call must be permitted")
+		}
+	})
+
+	t.Run("shell then fetch (wrong order) does not fire", func(t *testing.T) {
+		res := run("fetch_url", []RecordedCall{
+			{ToolName: "execute_command", Args: shellArgs},
+			{ToolName: "fetch_url"},
+		})
+		if fired(res) {
+			t.Errorf("order not enforced: shell-then-fetch fired")
+		}
+	})
+
+	t.Run("fetch outside the 4-call window does not fire", func(t *testing.T) {
+		res := run("execute_command", []RecordedCall{
+			{ToolName: "fetch_url"}, {ToolName: "read_file"}, {ToolName: "read_file"},
+			{ToolName: "read_file"}, {ToolName: "execute_command", Args: shellArgs},
+		})
+		if fired(res) {
+			t.Errorf("within_calls window not enforced")
+		}
+	})
+
+	t.Run("shell with no preceding fetch does not fire", func(t *testing.T) {
+		res := run("execute_command", []RecordedCall{
+			{ToolName: "read_file"}, {ToolName: "execute_command", Args: shellArgs},
+		})
+		if fired(res) {
+			t.Errorf("fired with no fetch in history")
+		}
+	})
+
+	t.Run("fetch then a non-shell tool does not fire", func(t *testing.T) {
+		res := e.EvaluateToolCallWithHistory("write_file", nil, "", []RecordedCall{
+			{ToolName: "fetch_url"}, {ToolName: "write_file"},
+		})
+		if fired(res) {
+			t.Errorf("fired on a non-shell tail call")
+		}
+	})
+}

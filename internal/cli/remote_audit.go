@@ -32,6 +32,9 @@ import (
 //	original_decision                       when audit-only downgraded a BLOCK
 //	tool_name, arguments                    MCP events
 //	cwd, session_id, principal              when observable (identity plane)
+//	notes      []{kind,rule,detail}         when evaluation excused a match or
+//	                                        knowingly gave up (#3995); omitted
+//	                                        when empty, so the golden is unchanged
 //
 // Adding a key is backward compatible — the SaaS decodes with the standard
 // (lenient) json decoder. Renaming or removing one is not.
@@ -70,6 +73,11 @@ func buildAuditPayload(event *logger.AuditEvent) ([]byte, error) {
 		// Empty string is acceptable for the field-always-present invariant;
 		// downstream readers default to "enforce" on empty.
 		"mode": event.Mode,
+	}
+	// notes: attestation records (#3995). Present only when non-empty — an
+	// event with none must stay byte-identical to the contract golden.
+	if len(event.Notes) > 0 {
+		entry["notes"] = event.Notes
 	}
 	// signals carries the detector labels that are NOT rule ids — see
 	// splitTriggeredRules. Omitted when empty: its presence is the receiver's

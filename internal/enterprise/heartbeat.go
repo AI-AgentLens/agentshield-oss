@@ -72,6 +72,18 @@ var HeartbeatStats struct {
 // AgentVersion is set by the CLI package at startup to avoid import cycles.
 var AgentVersion = "unknown"
 
+// RulesLoaded reports how many rules the running install actually enforces —
+// shell + MCP, embedded + disk — and is set by the CLI package at startup
+// (internal/cli countLoadedRules), which owns the loaders. This package cannot
+// import them: internal/mcp depends on internal/enterprise.
+//
+// Until 2026-09-28 the heartbeat sent the number of YAML FILES in
+// ~/.agentshield/packs (about 9 on a real install) under the name
+// rules_loaded, so the SaaS fleet view showed every agent enforcing "9 rules".
+// A nil RulesLoaded reports 0, which is at least honestly wrong rather than
+// plausibly wrong.
+var RulesLoaded func() int
+
 var processStart = time.Now()
 
 // RunHeartbeat starts the background heartbeat loop. It blocks until the agent
@@ -124,7 +136,7 @@ func sendHeartbeat(client *http.Client, cfg *HeartbeatConf, configDir string) bo
 		Mode:            "managed",
 		CPUPercent:      0, // Go doesn't expose CPU% easily; leave at 0
 		MemoryMB:        int(memStats.Sys / 1024 / 1024),
-		RulesLoaded:     countRules(configDir),
+		RulesLoaded:     rulesLoaded(),
 		CommandsAudited: int(HeartbeatStats.CommandsAudited.Load()),
 		CommandsBlocked: int(HeartbeatStats.CommandsBlocked.Load()),
 		UptimeSeconds:   int(time.Since(processStart).Seconds()),
@@ -225,20 +237,10 @@ func DetectHooks() []string {
 	return hooks
 }
 
-// countRules counts YAML rule files in the packs directory.
-func countRules(configDir string) int {
-	packsDir := filepath.Join(configDir, "packs")
-	entries, err := os.ReadDir(packsDir)
-	if err != nil {
+// rulesLoaded calls RulesLoaded when the CLI has wired it, else reports 0.
+func rulesLoaded() int {
+	if RulesLoaded == nil {
 		return 0
 	}
-	count := 0
-	for _, e := range entries {
-		name := e.Name()
-		if !e.IsDir() && !strings.HasPrefix(name, "_") &&
-			(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
-			count++
-		}
-	}
-	return count
+	return RulesLoaded()
 }

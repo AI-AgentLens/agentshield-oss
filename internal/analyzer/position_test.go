@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 // shadowMatcher stands in for a rule whose signal is a literal path — the
@@ -315,5 +317,36 @@ func TestHeredocBodyPlaceholderMatchesNoShippedLiteral(t *testing.T) {
 	greedy := func(s string) bool { return strings.Contains(s, "sitecustomize.py") }
 	if !PositionExcluded(cmd, []string{LabelPosHeredocBody}, nil, greedy) {
 		t.Fatal("expected the heredoc body to be excluded")
+	}
+}
+
+// TestWordPositionsSurviveExecutorReach pins the deliberate NON-withdrawal in
+// positionAssertsDataText (#3976, from the #3968 adversarial review, where a
+// mutation adding search_needle and loop_wordlist to the withdrawal survived
+// every gate). A grep needle and a loop word are words on the invoking
+// command line: piping grep's OUTPUT, or the loop's output, into a shell runs
+// that output, not the word. Both must stay excused although the command
+// reaches an executor by pipe and by substitution.
+func TestWordPositionsSurviveExecutorReach(t *testing.T) {
+	matches := func(s string) bool { return strings.Contains(s, "zqword") }
+	cases := []struct {
+		name     string
+		command  string
+		position string
+	}{
+		{"needle, output piped to bash", `grep -rn 'zqword' . | bash`, LabelPosSearchNeedle},
+		{"needle, output run by bash -c", `bash -c "$(grep -rn 'zqword' .)"`, LabelPosSearchNeedle},
+		{"loop word unused, output piped to bash", `for p in 'zqword'; do echo hi; done | bash`, LabelPosLoopWordList},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if !shellparse.TextReachesExecutor(c.command) && len(shellparse.ExecutedSubstitutionBodies(c.command)) == 0 {
+				t.Fatalf("control: %q must reach an executor, or this row tests nothing", c.command)
+			}
+			fc := NewStatementFoldContext(c.command)
+			if !PositionExcluded(c.command, []string{c.position}, fc, matches) {
+				t.Errorf("%s no longer excused on executor reach — %s is a command-line word, not executed text", c.command, c.position)
+			}
+		})
 	}
 }

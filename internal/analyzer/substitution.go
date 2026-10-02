@@ -93,6 +93,9 @@ func (a *SubstitutionAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	ev := newScopeEval(syms)
 	ev.walk(file)
 	materialized := ev.out
+	if ev.alts != nil && ev.alts.capped {
+		ctx.AddNote(NoteScopeAlternatesCapped, "", "")
+	}
 
 	// Publish the resolved bindings before the materialized-path early
 	// return: `export KUBECONFIG=$HOME/.kube/config` has no CallExpr

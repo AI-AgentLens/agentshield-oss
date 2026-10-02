@@ -34,12 +34,63 @@ type ParsedCommand struct {
 	// Subcommands found via indirect execution parsing (depth > 0).
 	// E.g., for "bash -c 'rm -rf /'", the inner "rm -rf /" is a subcommand.
 	Subcommands []*ParsedCommand
+
+	// Substitutions lists every command substitution ($(...), `...`) and
+	// process substitution (<(...), >(...)) in this command's own text, at
+	// any nesting depth, in syntax.Walk order (#4030). It is a view, not new
+	// analysis: each entry's Parsed is the same walk that Subcommands already
+	// carries for that substitution, done with the WHOLE command's folds
+	// (IFS, unset-parameter, brace, assignment materialization) and symbol
+	// table, so `e=echo; echo "$($e cat f)"` resolves the body's executable
+	// to echo exactly as a real shell does. What it adds over
+	// Subcommands is (a) only substitutions — never a `bash -c` / eval body,
+	// whose paths the normalizer deliberately treats as inert text
+	// (agentshield-oss#9) — and (b) the entries Subcommands drops because
+	// they produced no segment: `$(<file)`, `$(export K=v)`, `$([[ -r f ]])`.
+	Substitutions []Substitution
+}
+
+// Substitution is one command or process substitution found in a parsed
+// command. See ParsedCommand.Substitutions.
+type Substitution struct {
+	// Parsed is the substitution's statements walked in the enclosing
+	// command's context. Never nil; may hold zero segments.
+	Parsed *ParsedCommand
+	// Body is the body's source text, trimmed, sliced from the text that was
+	// actually parsed (after the folds), so a caller tokenizing it sees the
+	// same context the AST walk did. Inside backquotes it keeps the escapes
+	// the backquotes require (a backslash before each nested backquote), so
+	// it must not be reparsed as a standalone program: that loses both the
+	// escapes' meaning and the enclosing bindings (#4051 Codex pass 1).
+	Body string
+	// BareRedirects are the redirects on the body's command-less statements.
+	// `$(<file)` — bash's read-file shorthand — parses to a statement with no
+	// command and one redirect, which the segment walk drops (walkStmt
+	// returns early on a nil Cmd). Kept here rather than in Parsed.Redirects
+	// so no existing consumer of ParsedCommand sees a redirect it never saw
+	// before.
+	BareRedirects []Redirect
 }
 
 // CommandSegment is a single command within a pipeline.
 type CommandSegment struct {
-	Raw        string            // original text of this segment
-	Executable string            // base command name (e.g., "rm", "curl")
+	Raw        string // original text of this segment
+	Executable string // base command name (e.g., "rm", "curl")
+	// Program is the program Executable runs when Executable is spelled as an
+	// absolute or home-anchored path ("/usr/bin/kubectl" -> "kubectl"), and
+	// equal to Executable otherwise (#3991).
+	//
+	// It exists so that RESTRICTING checks can see through a path, and ONLY
+	// those. Executable keeps its as-written value on purpose: a consumer that
+	// never opts in behaves exactly as before, so a missed consumer is at worst
+	// the pre-#3991 gap and never a new fail-open. Opt in only where a match
+	// makes the decision stricter — a BLOCK/AUDIT rule's executable condition,
+	// a hard-coded detection keyed on a program name. Never for an ALLOW rule,
+	// an exemption, a text/argument classification, a downgrade, or a
+	// file-identity comparison: each of those RELAXES on a match, and a binary
+	// an agent plants at /tmp/x/rm is not rm. (Codex pass 1 on #3993 found
+	// three regressions from doing this the other way round.)
+	Program    string
 	SubCommand string            // e.g., "install" for "npm install"
 	Args       []string          // positional arguments
 	Flags      map[string]string // normalized flags: key=flag name, value=flag value (or "")
@@ -185,7 +236,7 @@ func parseWithDepth(command string, depth, maxDepth int) *ParsedCommand {
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	file, err := parser.Parse(reader, "")
 	if err != nil {
-		return fallbackParse(command)
+		return fallbackParse(command, depth, maxDepth)
 	}
 
 	// Constant symbol table for indirect executable name resolution: scalar
@@ -221,34 +272,76 @@ func parseWithDepth(command string, depth, maxDepth int) *ParsedCommand {
 	// per-node-type switches in walkStmt/collectStmts could (and did, per
 	// #3045) — it already visits every CmdSubst/ProcSubst in the tree, at
 	// any nesting depth, with no enumeration to keep in sync.
-	for _, stmts := range findEmbeddedCommands(file) {
+	for _, emb := range findEmbeddedCommands(file, command) {
 		sub := &ParsedCommand{}
-		appendStmtSequence(sub, stmts, command, depth, maxDepth, syms)
+		appendStmtSequence(sub, emb.stmts, command, depth, maxDepth, syms)
 		if len(sub.Segments) > 0 || len(sub.Subcommands) > 0 {
 			pc.Subcommands = append(pc.Subcommands, sub)
 		}
+		pc.Substitutions = append(pc.Substitutions, Substitution{
+			Parsed:        sub,
+			Body:          emb.body,
+			BareRedirects: bareRedirects(emb.stmts),
+		})
 	}
 
 	return pc
 }
 
+// embeddedCommand is one command/process substitution: its statements and
+// its body text.
+type embeddedCommand struct {
+	stmts []*syntax.Stmt
+	body  string
+}
+
 // findEmbeddedCommands returns the statement list of every command
-// substitution and process substitution found anywhere in node's subtree.
-func findEmbeddedCommands(node syntax.Node) [][]*syntax.Stmt {
-	var out [][]*syntax.Stmt
+// substitution and process substitution found anywhere in node's subtree,
+// with each body's source text sliced from src (the text node was parsed
+// from). syntax.Walk descends into a substitution's own statements, so a
+// substitution nested inside another is returned as its own entry, at any
+// depth — there is no depth cap to fall off (#4051 Codex pass 1, item 2).
+func findEmbeddedCommands(node syntax.Node, src string) []embeddedCommand {
+	var out []embeddedCommand
 	syntax.Walk(node, func(n syntax.Node) bool {
 		switch v := n.(type) {
 		case *syntax.CmdSubst:
 			if len(v.Stmts) > 0 {
-				out = append(out, v.Stmts)
+				// `$(` is two bytes, a backquote one; Right is the closer.
+				open := 2
+				if v.Backquotes {
+					open = 1
+				}
+				body, _ := sliceBody(src, int(v.Left.Offset())+open, int(v.Right.Offset()))
+				out = append(out, embeddedCommand{stmts: v.Stmts, body: body})
 			}
 		case *syntax.ProcSubst:
 			if len(v.Stmts) > 0 {
-				out = append(out, v.Stmts)
+				// `<(` / `>(` are two bytes; Rparen is the closer.
+				body, _ := sliceBody(src, int(v.OpPos.Offset())+2, int(v.Rparen.Offset()))
+				out = append(out, embeddedCommand{stmts: v.Stmts, body: body})
 			}
 		}
 		return true
 	})
+	return out
+}
+
+// bareRedirects returns the redirects of every statement in stmts that has
+// no command — `<file`, `>file`. See Substitution.BareRedirects.
+func bareRedirects(stmts []*syntax.Stmt) []Redirect {
+	var out []Redirect
+	for _, stmt := range stmts {
+		if stmt == nil || stmt.Cmd != nil {
+			continue
+		}
+		for _, redir := range stmt.Redirs {
+			if redir.Word == nil {
+				continue
+			}
+			out = append(out, Redirect{Op: redirectOpString(redir), Path: WordToString(redir.Word)})
+		}
+	}
 	return out
 }
 
@@ -544,6 +637,7 @@ func callExprToSegment(call *syntax.CallExpr, raw string, syms *ExecSymbols) Com
 	// and dodge every structural rule keyed on the "rm" executable.
 	words = StripExecWrappers(words)
 	seg.Executable = NormalizeExecName(words[0])
+	seg.Program = ProgramName(seg.Executable)
 	remaining := words[1:]
 	seg.RawWords = remaining
 
@@ -884,7 +978,29 @@ func buildExecSymbols(file *syntax.File) *ExecSymbols {
 	scalars := make(map[string]string)
 	arrays := make(map[string][]string)
 	var positionals []string
-	sawShift := false
+	// #3876 (b): a shift bails positional resolution only when it
+	// actually moves the words a later use site reads. Recorded in document
+	// order with its literal count; evaluated after the walk against the
+	// `set --` that bound the words. `shift 0`, a count larger than the
+	// number of words (bash reports an error and shifts nothing), a shift
+	// inside a function body (function-local positionals), a shift before
+	// the `set --`, and a shift after the last positional use site all leave
+	// the resolved words untouched.
+	type shiftRec struct {
+		pos, count int
+		literal    bool
+	}
+	var shifts []shiftRec
+	var funcRanges [][2]int
+	setPos, lastUse := -1, -1
+	inFunc := func(off int) bool {
+		for _, r := range funcRanges {
+			if off >= r[0] && off < r[1] {
+				return true
+			}
+		}
+		return false
+	}
 	syntax.Walk(file, func(n syntax.Node) bool {
 		switch node := n.(type) {
 		case *syntax.CallExpr:
@@ -896,6 +1012,7 @@ func buildExecSymbols(file *syntax.File) *ExecSymbols {
 			// `set`'s option parsing (`set -e`, `set -o pipefail`) entirely.
 			if elems, ok := setPositionalElems(node); ok {
 				positionals = elems
+				setPos = int(node.Pos().Offset())
 			}
 			// `shift` removes/renumbers positional elements — an effect this
 			// whole-file, order-independent table cannot model (unlike a
@@ -904,7 +1021,30 @@ func buildExecSymbols(file *syntax.File) *ExecSymbols {
 			// as a global bail below rather than resolving a $1 read after a
 			// shift to a value that already moved on.
 			if isShiftCall(node) {
-				sawShift = true
+				rec := shiftRec{pos: int(node.Pos().Offset()), count: 1, literal: true}
+				if len(node.Args) > 1 {
+					if v, ok := literalWordValue(node.Args[1]); ok {
+						if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+							rec.count = n
+						} else {
+							rec.literal = false
+						}
+					} else {
+						rec.literal = false
+					}
+				}
+				shifts = append(shifts, rec)
+			}
+		case *syntax.FuncDecl:
+			funcRanges = append(funcRanges, [2]int{int(node.Pos().Offset()), int(node.End().Offset())})
+		case *syntax.ParamExp:
+			if lit := node.Param; lit != nil && !inFunc(int(node.Pos().Offset())) {
+				v := lit.Value
+				if v == "@" || v == "*" || (v != "" && v[0] >= '1' && v[0] <= '9') {
+					if off := int(node.Pos().Offset()); off > lastUse {
+						lastUse = off
+					}
+				}
 			}
 		case *syntax.DeclClause:
 			// `export x=rm`, `declare`, `local`, `readonly`, `typeset`.
@@ -942,8 +1082,18 @@ func buildExecSymbols(file *syntax.File) *ExecSymbols {
 		}
 		return true
 	})
-	if sawShift {
+	for _, sh := range shifts {
+		if inFunc(sh.pos) || sh.pos < setPos {
+			continue
+		}
+		if sh.literal && (sh.count == 0 || sh.count > len(positionals)) {
+			continue
+		}
+		if lastUse >= 0 && sh.pos > lastUse {
+			continue
+		}
 		positionals = nil
+		break
 	}
 	if len(scalars) == 0 && len(arrays) == 0 && len(positionals) == 0 {
 		return nil
@@ -1872,8 +2022,15 @@ func isStdinFD(n *syntax.Lit) bool {
 	return n == nil || n.Value == "0"
 }
 
+// maxFallbackPrefixLines bounds how many top-level lines cleanLinePrefix will
+// scan, so a pathological multi-thousand-line command with one broken
+// trailing line cannot turn a single failed parse into an unbounded reparse
+// loop (#4090). Ordinary agent-issued commands are nowhere near this long;
+// a read past the cap is a documented residual, not a new false BLOCK.
+const maxFallbackPrefixLines = 200
+
 // fallbackParse handles commands that mvdan.cc/sh can't parse.
-func fallbackParse(command string) *ParsedCommand {
+func fallbackParse(command string, depth, maxDepth int) *ParsedCommand {
 	pc := &ParsedCommand{}
 	parts := strings.Split(command, "|")
 	for i, part := range parts {
@@ -1887,6 +2044,7 @@ func fallbackParse(command string) *ParsedCommand {
 		seg := CommandSegment{
 			Raw:        part,
 			Executable: exe,
+			Program:    ProgramName(exe),
 			Flags:      make(map[string]string),
 			IsShell:    IsShellInterpreter(exe),
 			// Quote-blind here too (this whole path only runs when the real
@@ -1909,7 +2067,50 @@ func fallbackParse(command string) *ParsedCommand {
 			pc.Operators = append(pc.Operators, "|")
 		}
 	}
+
+	// Bash executes a script line by line: it runs line 1, reads a protected
+	// path inside a "$(...)" on it, and only fails once it reaches a broken
+	// LATER line. A trailing syntax error must not hide that earlier read
+	// (#4090). Recover the longest top-level-newline prefix that parses
+	// cleanly on its own and extract its substitutions/subcommands the normal
+	// way — a prefix can only ADD reads the naive segments above never saw,
+	// never remove one, so layering this on top is additive by construction.
+	if prefix := cleanLinePrefix(command); prefix != "" {
+		prefixPC := parseWithDepth(prefix, depth, maxDepth)
+		pc.Subcommands = append(pc.Subcommands, prefixPC.Subcommands...)
+		pc.Substitutions = append(pc.Substitutions, prefixPC.Substitutions...)
+	}
+
 	return pc
+}
+
+// cleanLinePrefix returns the longest strict prefix of command — cut only at
+// top-level "\n" bytes — that mvdan.cc/sh parses without error, or "" if no
+// such prefix exists. Only called after the whole command has already failed
+// to parse, so the full text is never a candidate and this cannot loop back
+// into itself: every candidate handed to parseWithDepth by the caller is
+// strictly shorter than command.
+func cleanLinePrefix(command string) string {
+	lines := strings.Split(command, "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	n := len(lines) - 1
+	if n > maxFallbackPrefixLines {
+		n = maxFallbackPrefixLines
+	}
+	for ; n >= 1; n-- {
+		candidate := strings.Join(lines[:n], "\n")
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		reader := strings.NewReader(candidate)
+		parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
+		if _, err := parser.Parse(reader, ""); err == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // SplitTopLevelStatements splits a raw command string into the literal source

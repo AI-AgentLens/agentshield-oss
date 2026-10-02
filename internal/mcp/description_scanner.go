@@ -822,7 +822,47 @@ type DescriptionScanResult struct {
 
 // ScanToolDescription checks a tool's description and input schema for
 // poisoning signals. Returns findings if any suspicious patterns are detected.
+//
+// The scan runs twice when the tool's inputSchema, outputSchema or _meta
+// carry a JSON escape: once over the raw bytes, exactly as always, and once
+// over a decoded view of them (decodedJSONScanText), with the findings merged.
+// The model reads the decoded strings; a regex over the raw bytes reads the
+// escapes, so one \u-escaped letter or an escaped newline between two words
+// took every text signal to zero on outputSchema and _meta. Two independent
+// scans, never one concatenated text: see decodedJSONScanText for the three
+// ways the alternatives went wrong.
 func ScanToolDescription(tool ToolDefinition) DescriptionScanResult {
+	result := scanToolDescriptionOnce(tool)
+	if view, ok := decodedToolView(tool); ok {
+		seen := make(map[string]bool, len(result.Findings))
+		for _, f := range result.Findings {
+			seen[string(f.Signal)+"\x00"+f.Detail] = true
+		}
+		for _, f := range scanToolDescriptionOnce(view).Findings {
+			if key := string(f.Signal) + "\x00" + f.Detail; !seen[key] {
+				seen[key] = true
+				result.Findings = append(result.Findings, f)
+			}
+		}
+		result.Poisoned = len(result.Findings) > 0
+	}
+	return result
+}
+
+// decodedToolView returns a copy of tool whose raw-JSON fields are replaced by
+// their decoded views, and whether any field had one.
+func decodedToolView(tool ToolDefinition) (ToolDefinition, bool) {
+	changed := false
+	for _, f := range []*json.RawMessage{&tool.InputSchema, &tool.OutputSchema, &tool.Meta} {
+		if v, ok := decodedJSONScanText(*f); ok {
+			*f = json.RawMessage(v)
+			changed = true
+		}
+	}
+	return tool, changed
+}
+
+func scanToolDescriptionOnce(tool ToolDefinition) DescriptionScanResult {
 	result := DescriptionScanResult{ToolName: tool.Name}
 
 	// Combine description + inputSchema + outputSchema text for scanning.
@@ -1263,6 +1303,9 @@ func ScanToolDescription(tool ToolDefinition) DescriptionScanResult {
 	// so a directive planted in the consent-dialog title is caught too.
 	result.Findings = append(result.Findings, detectToolPreferenceManipulation(seText)...)
 
+	// Signal 49: unsafe icon src (MCP 2025-11-25 SEP-973, #4062).
+	result.Findings = append(result.Findings, scanToolIcons(tool.Icons)...)
+
 	result.Poisoned = len(result.Findings) > 0
 	return result
 }
@@ -1325,8 +1368,12 @@ func (s schemaSurface) label() string {
 // by the text-level scan), rather than throwing an error from the proxy. The
 // `surface` parameter selects between input-side and output-side signal IDs.
 func scanSchemaStructure(raw json.RawMessage, surface schemaSurface) []PoisonFinding {
-	var root interface{}
-	if err := json.Unmarshal(raw, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(raw)
+	if !ok {
 		return nil
 	}
 	state := &schemaWalkState{
@@ -2981,8 +3028,12 @@ func detectInputSchemaPropertyInjection(rawSchema json.RawMessage) []PoisonFindi
 	if len(rawSchema) == 0 {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -3193,8 +3244,12 @@ func detectSchemaParamHarvest(toolName, description string, rawSchema json.RawMe
 	if len(rawSchema) == 0 {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -3243,8 +3298,12 @@ func detectSchemaReadVerbEgressSink(name string, rawSchema json.RawMessage) []Po
 	if classifyToolVerb(name) != "read" {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -3298,8 +3357,12 @@ func detectSchemaReadVerbCommandSink(name string, rawSchema json.RawMessage) []P
 	if classifyToolVerb(name) != "read" {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -3514,8 +3577,12 @@ func detectOutputSchemaResultSteering(toolName, description string, rawSchema js
 	if len(rawSchema) == 0 {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -3585,8 +3652,12 @@ func detectSchemaConsentAttestationParam(toolName, description string, rawSchema
 	if steeringDomainDeclared(steeringConsent, toolName, description) {
 		return nil
 	}
-	var root interface{}
-	if err := json.Unmarshal(rawSchema, &root); err != nil {
+	// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+	// number (1e400) anywhere in the schema cannot fail the decode and take
+	// every sibling finding with it (#4069). A syntax error still returns
+	// nothing: malformed JSON is already caught by the text-level scan.
+	root, ok := decodeJSONValue(rawSchema)
+	if !ok {
 		return nil
 	}
 	rootMap, ok := root.(map[string]interface{})
@@ -4219,7 +4290,20 @@ func detectToolPreferenceManipulation(text string) []PoisonFinding {
 }
 
 // safeSnippet extracts a context snippet around an index, capped at maxLen.
+//
+// The name was aspirational: only `end` was clamped, so an idx past the end of
+// text produced start > end and panicked (#3911). Callers across this package
+// pass an index found in a TRANSFORMED copy of text — a lowercased or
+// render-recovered form — and `strings.ToLower` is not length-preserving:
+// U+023A and U+023E each grow from 2 bytes to 3. ~96 of either in a tool
+// response was enough, and with no recover() anywhere in the tree the MCP
+// proxy died and took all mediation with it. Clamping both ends is the whole
+// fix; a snippet is diagnostic text in an audit reason, so a clipped one is
+// always preferable to a crash.
 func safeSnippet(text string, idx, maxLen int) string {
+	if idx > len(text) {
+		idx = len(text)
+	}
 	start := idx - 20
 	if start < 0 {
 		start = 0
@@ -4227,6 +4311,9 @@ func safeSnippet(text string, idx, maxLen int) string {
 	end := idx + maxLen
 	if end > len(text) {
 		end = len(text)
+	}
+	if end < start {
+		end = start
 	}
 	snippet := text[start:end]
 	if start > 0 {

@@ -9,9 +9,9 @@ package testdata
 // model inventory gaps, incident response gaps, and output accountability gaps.
 //
 // Subcategories covered:
-//   - ai-uncontrolled-invocations (AI-to-AI delegation / sub-agent privilege
-//     amplification only — see the node's "before adding a rule here" note;
-//     fine-tuning and model publishing moved out 2026-08-13)
+//   - unvalidated-agent-delegation (AI-to-AI delegation / sub-agent privilege
+//     amplification — re-homed off ai-uncontrolled-invocations 2026-09-20,
+//     #3933; fine-tuning and model publishing moved out 2026-08-13)
 //   - ai-model-inventory-gap (model weight downloads, endpoint deployment,
 //     fine-tuning job launch — each creates an AI asset the inventory lacks)
 //   - model-registry-autonomous-publish (push_to_hub / huggingface-cli upload /
@@ -188,7 +188,7 @@ var LLMAsAuthzCases = []TestCase{
 
 // ---------------------------------------------------------------------------
 // AI-to-AI Privilege Escalation (sub-agent granted expanded permissions)
-// Taxonomy: governance-risk/ai-governance-gap/ai-uncontrolled-invocations
+// Taxonomy: governance-risk/ai-governance-gap/unvalidated-agent-delegation
 // Rule: ts-audit-ai-privilege-escalation
 // ---------------------------------------------------------------------------
 
@@ -198,7 +198,7 @@ var AIPrivilegeEscalationCases = []TestCase{
 		Command:          `python3 -c "sub_agent.run(task, permissions=parent.permissions + ['admin'])"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "Sub-agent granted parent permissions plus admin — capability amplification.",
 		Tags:             []string{"tp", "governance", "ai-priv-escalation"},
@@ -208,7 +208,7 @@ var AIPrivilegeEscalationCases = []TestCase{
 		Command:          `python3 -c "agent.delegate(subtask, permissions=['*'])"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "Agent delegate with wildcard permissions=['*'] — exceeds least-privilege.",
 		Tags:             []string{"tp", "governance", "ai-priv-escalation"},
@@ -218,7 +218,7 @@ var AIPrivilegeEscalationCases = []TestCase{
 		Command:          `python3 -c "child.invoke(action, inherit_all=True, extra_perms=['root'])"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "Child agent with inherit_all=True and extra root permissions.",
 		Tags:             []string{"tp", "governance", "ai-priv-escalation"},
@@ -228,7 +228,7 @@ var AIPrivilegeEscalationCases = []TestCase{
 		Command:          `python3 -c "sub_agent.run(task, permissions=['read_files'])"`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "Sub-agent with scoped read-only permissions — no privilege escalation.",
 		Tags:             []string{"tn", "safe"},
@@ -238,7 +238,7 @@ var AIPrivilegeEscalationCases = []TestCase{
 		Command:          `python3 run_subagent.py --task summarize`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "governance-risk/ai-governance-gap/ai-uncontrolled-invocations",
+		TaxonomyRef:      "governance-risk/ai-governance-gap/unvalidated-agent-delegation",
 		Analyzer:         "regex",
 		Description:      "Running a sub-agent with no permission flags — not an escalation pattern.",
 		Tags:             []string{"tn", "safe"},
@@ -953,7 +953,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 	{
 		ID:               "TN-TS-AUDIT-AIMDP-001",
 		Command:          `echo "LANGCHAIN_TRACING_V2=true" >> .env`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
@@ -963,7 +963,7 @@ var AIMonitoringDisablePersistCases = []TestCase{
 	{
 		ID:               "TN-TS-AUDIT-AIMDP-002",
 		Command:          `echo "WANDB_PROJECT=my-project" >> .env`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/anti-forensics/cloud-ai-monitoring-disable",
 		Analyzer:         "regex",
@@ -2089,12 +2089,15 @@ var AIComplianceArtifactFabricationCases = []TestCase{
 	{
 		ID:               "TN-GR-AUDIT-GH-PR-SELF-APPROVE-004",
 		Command:          "echo 'use gh pr review --approve to approve a PR'",
-		ExpectedDecision: "ALLOW",
+		// #2843/#2983: the doc-text/heredoc label moved from command_intent_exclude to
+		// command_intent_downgrade, so the rule now FIRES here and is attributed at an
+		// attested AUDIT instead of being silently suppressed. Still not a BLOCK.
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "governance-risk/ai-governance-gap/agent-code-review-bypass",
 		Analyzer:         "regex",
 		Description:      "DOC_CONTEXT: echo statement explaining gh pr review --approve — documentation context must not trigger the audit rule (ts-allow-readonly gives ALLOW).",
-		Tags:             []string{"tn", "safe", "governance-risk", "doc-context"},
+		Tags:             []string{"tn", "safe", "governance-risk", "doc-context", "issue-2843"},
 	},
 }
 

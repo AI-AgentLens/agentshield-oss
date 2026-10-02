@@ -358,6 +358,11 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 
+	// Scan JSON-RPC error responses for injection in error.message/error.data
+	if filtered := hp.handler.FilterErrorResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
 	// Inspect initialize responses for handshake manipulation
 	if filtered := hp.handler.FilterInitializeResponse(respBody); filtered != nil {
 		respBody = filtered
@@ -403,6 +408,21 @@ func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
 		respBody = filtered
 	}
 
+	// Scan SEP-1686 tasks/get, tasks/result, and tasks/list responses for
+	// injection in the task status `error` field
+	if filtered := hp.handler.FilterTaskGetResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+	if filtered := hp.handler.FilterTaskListResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
+	// Scan SEP-2322 InputRequiredResult responses (embedded sampling/elicitation
+	// requests inside a tools/call, prompts/get, or resources/read result)
+	if filtered := hp.handler.FilterInputRequiredResponse(respBody); filtered != nil {
+		respBody = filtered
+	}
+
 	// Copy response headers (skip Content-Length — we may have changed the body)
 	for k, vs := range resp.Header {
 		if k == "Content-Length" {
@@ -428,8 +448,13 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 
-	// Copy response headers
+	// Copy response headers, except Content-Length: a Filter* replacement changes
+	// the body length, and a stale declared length truncates or aborts the
+	// stream (#4129).
 	for k, vs := range resp.Header {
+		if http.CanonicalHeaderKey(k) == "Content-Length" {
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
@@ -446,6 +471,13 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 		// SSE data lines start with "data: "
 		if strings.HasPrefix(line, "data: ") {
 			data := []byte(strings.TrimPrefix(line, "data: "))
+
+			// Scan JSON-RPC error responses for injection in error.message/error.data
+			if filtered := hp.handler.FilterErrorResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
 
 			// Inspect initialize responses for handshake manipulation
 			if filtered := hp.handler.FilterInitializeResponse(data); filtered != nil {
@@ -505,6 +537,27 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 
 			// Scan JSON-RPC data for completion/complete injection
 			if filtered := hp.handler.FilterCompletionResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan SEP-1686 tasks/get, tasks/result, and tasks/list responses for
+			// injection in the task status `error` field
+			if filtered := hp.handler.FilterTaskGetResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+			if filtered := hp.handler.FilterTaskListResponse(data); filtered != nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
+				flusher.Flush()
+				continue
+			}
+
+			// Scan SEP-2322 InputRequiredResult responses (embedded sampling/elicitation
+			// requests inside a tools/call, prompts/get, or resources/read result)
+			if filtered := hp.handler.FilterInputRequiredResponse(data); filtered != nil {
 				_, _ = fmt.Fprintf(w, "data: %s\n", filtered)
 				flusher.Flush()
 				continue

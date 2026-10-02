@@ -195,7 +195,7 @@ var RecursiveRootDeleteCases = []TestCase{
 	{
 		ID:               "TN-FSDESTR-004",
 		Command:          `printf '%s\n' "shutil.rmtree(p)" >> notes.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/fs-destruction/recursive-root-delete",
 		Analyzer:         "semantic",
@@ -441,6 +441,203 @@ var SystemDirectoryDeleteCases = []TestCase{
 	},
 }
 
+// HomeDirectoryDeleteCases tests detection of recursive delete of the user's
+// HOME directory root (issue #4022). Deliberately scoped to the root only —
+// ~, ~/, $HOME, ${HOME}, "$HOME", the literal shell globs ~/* and $HOME/*,
+// and the realized absolute forms /Users/<name> and /home/<name> (with an
+// optional trailing / or /*). A real subdirectory delete (~/dev/x/build,
+// ~/.cache/foo) must stay AUDIT — agents delete build/cache dirs legitimately
+// all the time, and this is the same "scope to the root, not the whole
+// filesystem" shape as recursive-root-delete (/) vs system-directory-delete
+// (/etc, /usr, ...), just one taxonomy level up in the user's own tree.
+// Taxonomy: destructive-ops/fs-destruction/home-directory-delete
+var HomeDirectoryDeleteCases = []TestCase{
+
+	// --- TRUE POSITIVES ---
+
+	{
+		ID:               "TP-HOMEROOT-001",
+		Command:          `rm -rf ~`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `Bare tilde home-root delete. No existing rule covered this —
+			ts-block-rm-root only matches a literal "/" argument, and
+			ts-struct-block-rm-system's args_any list has no home-directory
+			entry.`,
+		Tags: []string{"tp", "critical", "home-root"},
+	},
+	{
+		ID:               "TP-HOMEROOT-002",
+		Command:          `rm -rf $HOME`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `$HOME spelling of the home root.`,
+		Tags:             []string{"tp", "critical", "home-root", "env-var-spelling"},
+	},
+	{
+		ID:               "TP-HOMEROOT-003",
+		Command:          `rm -rf "$HOME"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Double-quoted $HOME — a distinct literal argv token from the bare form.`,
+		Tags:             []string{"tp", "critical", "home-root", "quoting"},
+	},
+	{
+		ID:               "TP-HOMEROOT-004",
+		Command:          `sudo rm -r -f ~`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `sudo-wrapped, separated short flags (-r -f). The structural
+			analyzer normalizes flag order/separation and sees through sudo —
+			a regex rule anchored on "-rf" as one token would miss this.`,
+		Tags: []string{"tp", "critical", "home-root", "flag-normalization", "sudo"},
+	},
+	{
+		ID:               "TP-HOMEROOT-005",
+		Command:          `rm --recursive --force ~`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Long-form flags. Regex analyzers keyed on "-rf" cannot catch this.`,
+		Tags:             []string{"tp", "critical", "home-root", "flag-normalization"},
+	},
+	{
+		ID:               "TP-HOMEROOT-006",
+		Command:          `rm -rf ~/*`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `The un-expanded shell glob "~/*" — every visible top-level entry
+			in home. Equivalent blast radius to deleting the root itself. Must
+			be distinguished from a real one-level subdirectory name like
+			"~/dev", which stays AUDIT (see TN-HOMEROOT-002).`,
+		Tags: []string{"tp", "critical", "home-root", "glob"},
+	},
+	{
+		ID:               "TP-HOMEROOT-007",
+		Command:          `rm -rf $HOME/*`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `$HOME spelling of the "delete everything in home" glob.`,
+		Tags:             []string{"tp", "critical", "home-root", "glob", "env-var-spelling"},
+	},
+	{
+		ID:               "TP-HOMEROOT-008",
+		Command:          `rm -rf /Users/alice`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Realized macOS home path, no tilde/env-var indirection at all.`,
+		Tags:             []string{"tp", "critical", "home-root", "absolute-path"},
+	},
+	{
+		ID:               "TP-HOMEROOT-009",
+		Command:          `rm -rf /home/deploy/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Realized Linux home path with a trailing slash — a distinct literal argv token from the no-slash form.`,
+		Tags:             []string{"tp", "critical", "home-root", "absolute-path"},
+	},
+	{
+		ID:               "TP-HOMEROOT-010",
+		Command:          `rm -rf /Users/alice/*`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `Realized absolute path plus the literal trailing glob — must not
+			be confused with a real subdirectory of the same user
+			(/Users/alice/dev, TN-HOMEROOT-005).`,
+		Tags: []string{"tp", "critical", "home-root", "absolute-path", "glob"},
+	},
+
+	// --- TRUE NEGATIVES ---
+
+	{
+		ID:               "TN-HOMEROOT-001",
+		Command:          `rm -rf ~/project/build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Ordinary subdirectory cleanup — agents do this legitimately all the time.`,
+		Tags:             []string{"tn", "subdirectory"},
+	},
+	{
+		ID:               "TN-HOMEROOT-002",
+		Command:          `rm -rf ~/dev/x/build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `The specific control for TP-HOMEROOT-006: a real one-level
+			subdirectory name ("~/dev") must not be caught by the same args_any
+			entry that catches the literal "~/*" glob.`,
+		Tags: []string{"tn", "subdirectory", "control"},
+	},
+	{
+		ID:               "TN-HOMEROOT-003",
+		Command:          `rm -rf "$HOME/.cache/x"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Quoted $HOME with a real subpath — distinct argv token from the bare quoted root (TP-HOMEROOT-003).`,
+		Tags:             []string{"tn", "subdirectory", "quoting"},
+	},
+	{
+		ID:               "TN-HOMEROOT-004",
+		Command:          `rm -rf ./build`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description:      `Relative-path project cleanup, no home-root spelling at all.`,
+		Tags:             []string{"tn", "unrelated"},
+	},
+	{
+		ID:               "TN-HOMEROOT-005",
+		Command:          `rm -rf /Users/alice/dev`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `The control for TP-HOMEROOT-010: a real subdirectory of the same
+			user must not be caught by the /Users/<name>/[*] literal-glob entry.`,
+		Tags: []string{"tn", "subdirectory", "control"},
+	},
+	{
+		ID:               "TN-HOMEROOT-006",
+		Command:          `echo 'rm -rf ~ wipes your home directory'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/fs-destruction/home-directory-delete",
+		Analyzer:         "structural",
+		Description: `Doc-text mention. A plain echo is caught by ts-allow-readonly,
+			so the full pipeline's real decision is ALLOW, not the bare default
+			AUDIT. The rule matches on a real "rm" executable segment, and
+			echo's argument is just a string — there is no rm
+			segment for the structural analyzer to see, so this can never
+			false-positive regardless of intent-label plumbing.`,
+		Tags: []string{"tn", "doc-text"},
+	},
+}
+
 // BulkCryptoDenialCases tests detection of agent-driven cryptographic denial
 // of access: bulk in-place encryption of an existing file tree via find -exec,
 // command-substitution over find/git ls-files, or a for-loop over a glob/file
@@ -603,7 +800,7 @@ var BulkCryptoDenialCases = []TestCase{
 	{
 		ID:               "TN-RANSOMNOTE-001",
 		Command:          `echo "Setup instructions" > README.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/fs-destruction/agent-driven-cryptographic-denial",
 		Analyzer:         "regex",
@@ -672,6 +869,95 @@ var DiskOverwriteCases = []TestCase{
 			Regex should match /dev/zero pattern regardless of target.`,
 		Tags: []string{"critical"},
 	},
+	// --- #3994: st-allow-dd-to-file granted ALLOW to every device a short
+	// list of Linux disk names missed, overriding ts-block-dd-zero. All four
+	// of these were ALLOW, with no record, on main dfcf5456. ---
+	{
+		ID:               "TP-DISKWR-005",
+		Command:          `dd if=/dev/zero of=/dev/disk0 bs=1m`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description: `macOS whole-disk overwrite. /dev/disk0 is the boot disk on
+			most Macs. The dd ALLOW must not treat "not on the Linux list" as
+			"not a device".`,
+		Tags: []string{"critical", "regression", "macos"},
+	},
+	{
+		ID:               "TP-DISKWR-006",
+		Command:          `dd if=/dev/zero of=/dev/rdisk2 bs=1m`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description:      `macOS raw-disk overwrite (rdiskN is the unbuffered, faster path to the same disk).`,
+		Tags:             []string{"critical", "regression", "macos"},
+	},
+	{
+		ID:               "TP-DISKWR-007",
+		Command:          `dd if=/dev/zero of=/dev/mmcblk0 bs=4M`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description:      `SD card / eMMC overwrite (Raspberry Pi and most ARM boards boot from mmcblk0).`,
+		Tags:             []string{"critical", "regression"},
+	},
+	{
+		ID:               "TP-DISKWR-008",
+		Command:          `dd if=/dev/zero of=/dev/mapper/vg0-root bs=1M`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description:      `Device-mapper volume overwrite (LVM root, or the opened dm-crypt volume).`,
+		Tags:             []string{"critical", "regression"},
+	},
+	{
+		ID:               "TP-DISKWR-009",
+		Command:          `dd if=/dev/zero of=/dev/sda; dd if=/dev/zero of=/tmp/out count=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description: `A harmless dd appended to a disk wipe. The combiner scopes the
+			structural ALLOW override by taxonomy, not statement, so the harmless
+			statement's ALLOW used to suppress the wipe's BLOCK (Codex review of #3997).`,
+		Tags: []string{"critical", "regression", "evasion"},
+	},
+	{
+		ID:               "TP-DISKWR-010",
+		Command:          `dd if=/dev/zero of=/tmp/out 'of=/dev/sda'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description:      `A whole-quoted later of= operand. GNU dd writes the last of=; the check used to read it with its quotes and miss it.`,
+		Tags:             []string{"critical", "regression", "evasion"},
+	},
+	{
+		ID:               "TP-DISKWR-011",
+		Command:          `dd if=/dev/zero of=/dev/fd/3 bs=1M 3>/dev/sda`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description:      `The of= operand names a descriptor that a redirect opens on the disk.`,
+		Tags:             []string{"critical", "regression", "evasion"},
+	},
+	{
+		ID:               "TP-DISKWR-012",
+		Command:          `dd if=/dev/zero >/dev/sda; dd if=/dev/zero "of=/tmp/x" count=0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "regex",
+		Description: `A dd with no of= writes stdout, redirected here onto a disk, next to
+			a harmless quoted dd. Codex pass 3 on #3997 found that reading operands
+			after quote removal let the second dd earn the ALLOW (BLOCK -> ALLOW).`,
+		Tags: []string{"critical", "regression", "evasion"},
+	},
 
 	// --- TRUE NEGATIVES ---
 
@@ -699,6 +985,17 @@ var DiskOverwriteCases = []TestCase{
 			(./test.img), not a block device. Current regex blocks all
 			dd if=/dev/zero regardless of output target. The structural
 			analyzer should distinguish file from block device targets.`,
+		Tags: []string{"common-dev-operation", "structural-required", "regression"},
+	},
+	{
+		ID:               "FP-DISKWR-003",
+		Command:          `dd if=/dev/zero of=/dev/shm/scratch.img bs=1M count=64`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "structural",
+		Description: `A scratch file on the /dev/shm tmpfs. It lives under /dev but is a
+			regular file, so the #3994 inversion must keep its ALLOW.`,
 		Tags: []string{"common-dev-operation", "structural-required", "regression"},
 	},
 
@@ -745,6 +1042,114 @@ var DiskOverwriteCases = []TestCase{
 			semantic analyzer should classify shred on a block device
 			as destructive.`,
 		Tags: []string{"known-gap"},
+	},
+
+	// --- shred device-name widening (#4006) ---
+	// sem-block-shred-device only recognized isBlockDevice's 8 Linux prefixes
+	// (sd, hd, nvme, vd, xvd, md, dm-, loop). shred on a device outside that
+	// list wasn't blocked by this rule. Widened for shred only (isShredTargetDevice
+	// in structural.go); sem-block-wipefs-device is deliberately unchanged — see
+	// #4006 for why wipefs's read-only listing mode makes that widening unsafe.
+
+	{
+		ID:               "TP-DISKWR-SHRED-MACOS-001",
+		Command:          `shred /dev/disk2`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `macOS whole-disk device name ("disk" prefix, no Linux equivalent). Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"macos", "device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-MACOS-002",
+		Command:          `shred /dev/rdisk0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `macOS raw-disk device name ("rdisk" prefix). Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"macos", "device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-MMCBLK-001",
+		Command:          `shred /dev/mmcblk0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `SD/eMMC device name. Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-MAPPER-001",
+		Command:          `shred /dev/mapper/vg0-root`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `device-mapper target (LVM/LUKS). Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-NBD-001",
+		Command:          `shred /dev/nbd0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `network block device. Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-ZD-001",
+		Command:          `shred /dev/zd0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `ZFS zvol device name. Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-BCACHE-001",
+		Command:          `shred /dev/bcache0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `bcache device name. Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TP-DISKWR-SHRED-RBD-001",
+		Command:          `shred /dev/rbd0`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `Ceph RBD device name. Was AUDIT-or-lower before #4006.`,
+		Tags:             []string{"device-widening"},
+	},
+	{
+		ID:               "TN-DISKWR-SHRED-001",
+		Command:          `shred ./disk0.img`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `A relative-path file whose name shares the "disk" substring, not a device under /dev. Must not match the widened prefix check (default AUDIT for shred with no rule match).`,
+		Tags:             []string{"regression", "device-widening"},
+	},
+	{
+		ID:               "TN-DISKWR-SHRED-002",
+		Command:          `shred mmcblk0`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/disk-ops/disk-overwrite",
+		Analyzer:         "semantic",
+		Description:      `A bare filename that happens to be spelled like an SD/eMMC device node but has no /dev/ path. Must not match (default AUDIT for shred with no rule match).`,
+		Tags:             []string{"regression", "device-widening"},
 	},
 }
 
@@ -1278,6 +1683,36 @@ var CloudCLIDestructiveCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      `AWS EC2 snapshot deletion. Removes backup/recovery point.`,
 		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-AWS-BACKUP-ASSET-DELETE-001",
+		Command:          `aws rds delete-db-snapshot --db-snapshot-identifier prod-final-2026`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-snapshot-delete",
+		Analyzer:         "regex",
+		Description:      `RDS snapshot deletion (#4109) - same recovery-asset harm as EBS snapshot deletion.`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TP-AWS-BACKUP-ASSET-DELETE-002",
+		Command:          `aws backup delete-recovery-point --backup-vault-name Default --recovery-point-arn arn:aws:backup:us-east-1:123456789012:recovery-point:abc`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-snapshot-delete",
+		Analyzer:         "regex",
+		Description:      `AWS Backup recovery-point deletion (#4109).`,
+		Tags:             []string{"critical", "cloud"},
+	},
+	{
+		ID:               "TN-AWS-BACKUP-ASSET-DELETE-001",
+		Command:          `aws rds describe-db-snapshots`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/aws-snapshot-delete",
+		Analyzer:         "regex",
+		Description:      `Read-only RDS snapshot listing must not block (#4109).`,
+		Tags:             []string{"tn", "cloud"},
 	},
 	{
 		ID:               "TP-CLOUDCLI-008",
@@ -2169,10 +2604,10 @@ var DiskFillCases = []TestCase{
 	{
 		ID:               "TN-DISKFILL-004",
 		Command:          `echo "fallocate -l 10G" > notes.txt`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/resource-exhaustion/disk-fill",
-		Description:      `String containing fallocate in echo — not an invocation. Must be ALLOW.`,
+		Description:      `String containing fallocate in echo — not an invocation. Must not BLOCK; AUDIT since #4082 (a redirect to a file no longer earns ts-allow-readonly's ALLOW).`,
 		Tags:             []string{"safe", "string-literal"},
 	},
 	{
@@ -3155,6 +3590,7 @@ func AllDestructiveOpsCases() []TestCase {
 	var all []TestCase
 	all = append(all, RecursiveRootDeleteCases...)
 	all = append(all, SystemDirectoryDeleteCases...)
+	all = append(all, HomeDirectoryDeleteCases...)
 	all = append(all, BulkCryptoDenialCases...)
 	all = append(all, DiskOverwriteCases...)
 	all = append(all, FilesystemFormatCases...)

@@ -36,6 +36,7 @@ var representativeResponses = map[string]string{
 	"prompts/list":            `{"jsonrpc":"2.0","id":7,"result":{"prompts":[{"name":"p"}]}}`,
 	"completion":              `{"jsonrpc":"2.0","id":8,"result":{"completion":{"values":["a"]}}}`,
 	"initialize":              `{"jsonrpc":"2.0","id":9,"result":{"protocolVersion":"2024-11-05","capabilities":{},"serverInfo":{"name":"s","version":"1"}}}`,
+	"tasks/get":               `{"jsonrpc":"2.0","id":13,"result":{"taskId":"t-1","status":"failed","keepAlive":30000,"error":"Tool execution failed: API rate limit exceeded"}}`,
 	"error":                   `{"jsonrpc":"2.0","id":10,"error":{"code":-32000,"message":"something failed"}}`,
 	"emptyResult":             `{"jsonrpc":"2.0","id":11,"result":{}}`,
 	"nullResult":              `{"jsonrpc":"2.0","id":12,"result":null}`,

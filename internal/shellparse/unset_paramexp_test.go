@@ -141,7 +141,8 @@ func TestNormalizeUnsetParamExp_LeavesAlone(t *testing.T) {
 		{"scalar assignment", "x=rm; ${x} -rf /"},
 		{"export assignment", "export CMD=rm; r${CMD}m -rf /"},
 		{"for-loop variable", "for f in *.log; do rm -rf $f; done"},
-		{"read binds the name", "read tgt; rm -rf $tgt"},
+		{"read from a plausible source binds the name", "read tgt </etc/hostname; r${tgt}m -rf /"},
+		{"read target as a standalone argument is not a splice", "read tgt; rm -rf $tgt"},
 
 		// Special and positional parameters are not "unset variables".
 		{"positional", `rm -rf "$1"`},
@@ -174,5 +175,103 @@ func TestNormalizeUnsetParamExp_LeavesAlone(t *testing.T) {
 				t.Errorf("NormalizeUnsetParamExp(%q) = %q, want %q (no-op)", tt.command, got, "")
 			}
 		})
+	}
+}
+
+// TestNormalizeUnsetParamExp_ReadSource covers #3876 (a): a `read`, `mapfile`
+// or `readarray` binds its target only when something can arrive on stdin.
+// At EOF — `</dev/null`, an empty literal here-string, or no stdin source at
+// all (the hook mediates non-interactive commands, so there is no terminal to
+// answer a bare `read`) — bash leaves the target EMPTY, which expands exactly
+// like unset, so the fold must stay on. Every "retained" row was checked in
+// bash: the payload runs as the folded form shows it.
+func TestNormalizeUnsetParamExp_ReadSource(t *testing.T) {
+	retained := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{"read from /dev/null", "read zqx </dev/null; r${zqx}m -rf /", "read zqx </dev/null; rm -rf /"},
+		{"read from an empty here-string", `read zqx <<< ""; r${zqx}m -rf /`, `read zqx <<< ""; rm -rf /`},
+		{"read from a whitespace-only here-string", `read zqx <<< "  "; r${zqx}m -rf /`, `read zqx <<< "  "; rm -rf /`},
+		{"read with no stdin source", "read zqx; r${zqx}m -rf /", "read zqx; rm -rf /"},
+		{"mapfile from /dev/null", "mapfile zqx </dev/null; r${zqx}m -rf /", "mapfile zqx </dev/null; rm -rf /"},
+		{"readarray with no stdin source", "readarray -t zqx; r${zqx}m -rf /", "readarray -t zqx; rm -rf /"},
+		{"spliced read spelling from /dev/null", `r\ead zqx </dev/null; r${zqx}m -rf /`, `r\ead zqx </dev/null; rm -rf /`},
+		{"redirect on a different descriptor is not stdin", "read zqx 3</etc/hostname; r${zqx}m -rf /", "read zqx 3</etc/hostname; rm -rf /"},
+	}
+	for _, tt := range retained {
+		t.Run("retained/"+tt.name, func(t *testing.T) {
+			if got := NormalizeUnsetParamExp(tt.command); got != tt.want {
+				t.Errorf("NormalizeUnsetParamExp(%q)\n got  %q\n want %q", tt.command, got, tt.want)
+			}
+		})
+	}
+
+	// A read with a plausible non-empty source may bind the name to anything,
+	// so the fold is switched off exactly as before (a).
+	disabled := []struct {
+		name    string
+		command string
+	}{
+		{"read from a file", "read zqx </etc/hostname; r${zqx}m -rf /"},
+		{"read from a non-literal here-string", `read zqx <<< "$x"; r${zqx}m -rf /`},
+		{"read from a non-empty here-string", `read zqx <<< "e"; r${zqx}m -rf /`},
+		{"read from a heredoc", "read zqx <<'EOF'\ne\nEOF\nr${zqx}m -rf /"},
+		{"read fed by a pipe", "echo e | read zqx; r${zqx}m -rf /"},
+		{"read fed by the middle of a pipeline", "echo e | read zqx | cat; r${zqx}m -rf /"},
+		{"read from another descriptor via -u", "read -u 3 zqx; r${zqx}m -rf /"},
+		{"read from a duplicated descriptor", "read zqx <&3; r${zqx}m -rf /"},
+		{"read from a non-literal file", "read zqx <$f; r${zqx}m -rf /"},
+		{"mapfile from a file", "mapfile -t zqx </etc/hostname; r${zqx}m -rf /"},
+		{"stdin redirected explicitly by descriptor", "read zqx 0</etc/hostname; r${zqx}m -rf /"},
+	}
+	for _, tt := range disabled {
+		t.Run("disabled/"+tt.name, func(t *testing.T) {
+			if got := NormalizeUnsetParamExp(tt.command); got != "" {
+				t.Errorf("NormalizeUnsetParamExp(%q) = %q, want %q (no-op: the read has a plausible source)", tt.command, got, "")
+			}
+		})
+	}
+
+	// A read at EOF leaves the name SET but empty, which is NOT unset for the
+	// non-colon operators: `${x-w}` and `${x=w}` expand to "" and `${x+w}`
+	// expands to w (Codex review of #3962; verified on bash 3.2 and 5.3:
+	// `read zq </dev/null; echo "[${zq-rm}] [${zq:-rm}] [${zq+rm}] [${zq:+rm}]
+	// [${zq=rm}]"` prints `[] [rm] [rm] [] []`). Folding `${zq-rm}` to `rm`
+	// here would assert a command bash never runs.
+	operators := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{"dash default expands empty when set-but-empty", "read zq </dev/null; ${zq-rm} -rf /", ""},
+		{"assign default expands empty when set-but-empty", "read zq </dev/null; ${zq=rm} -rf /", ""},
+		{"plus alternate expands the word when set-but-empty", "read zq </dev/null; ${zq+rm} -rf /", "read zq </dev/null; rm -rf /"},
+		{"colon-dash default still expands the word", "read zq </dev/null; ${zq:-rm} -rf /", "read zq </dev/null; rm -rf /"},
+		{"colon-assign default still expands the word", "read zq </dev/null; ${zq:=rm} -rf /", "read zq </dev/null; rm -rf /"},
+		{"colon-plus alternate still expands empty", "read zq </dev/null; ${zq:+rm} -rf /", ""},
+		{"bare splice still folds", "read zq </dev/null; r${zq}m -rf /", "read zq </dev/null; rm -rf /"},
+		// The same name via the statement context: a sibling statement's
+		// empty read must reach a per-statement fold too.
+		{"dash default via outer context", "${zq-rm} -rf /", ""},
+	}
+	for _, tt := range operators {
+		t.Run("set-but-empty/"+tt.name, func(t *testing.T) {
+			var got string
+			if tt.name == "dash default via outer context" {
+				got = NormalizeUnsetParamExpInContext(tt.command, nil, map[string]bool{"zq": true})
+			} else {
+				got = NormalizeUnsetParamExp(tt.command)
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeUnsetParamExp(%q)\n got  %q\n want %q", tt.command, got, tt.want)
+			}
+		})
+	}
+	// Control for the row above: without the context the same text folds as
+	// unset, so the context row measures the empty-bound path.
+	if got := NormalizeUnsetParamExpInContext("${zq-rm} -rf /", nil, nil); got != "rm -rf /" {
+		t.Errorf("control: NormalizeUnsetParamExpInContext(%q, nil, nil) = %q, want %q", "${zq-rm} -rf /", got, "rm -rf /")
 	}
 }

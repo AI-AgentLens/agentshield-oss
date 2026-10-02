@@ -10,8 +10,11 @@ import (
 
 // writePack writes a pack file with the given top-level section and raw rule
 // entries. Kept deliberately literal so a test reads as the YAML it exercises.
+// Files land in <dir>/community/ because the walk (internal/rulecount) reads
+// the four pack directories, not an arbitrary tree.
 func writePack(t *testing.T, dir, name, body string) {
 	t.Helper()
+	name = filepath.Join("community", name)
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +198,7 @@ func TestRealCorpusMatchesCheckedInBaseline(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("packs/ vs baseline.txt is out of date (exit %d):\n%s", code, out)
 	}
-	if !strings.Contains(out, "7 duplicated") {
+	if !strings.Contains(out, "2 duplicated") {
 		t.Logf("duplicate count changed; update this assertion deliberately:\n%s", out)
 	}
 }

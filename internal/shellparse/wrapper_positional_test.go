@@ -159,8 +159,16 @@ func TestWrapperPositionalOperandsScope(t *testing.T) {
 	}
 
 	// Every value-flag entry must name a real wrapper, or it is dead config
-	// that reads as coverage.
+	// that reads as coverage. "xargs" is the one deliberate exception (#3992):
+	// it is NOT in ExecWrappers (see that table's comment — every downstream
+	// layer would then read its static target as the whole command's
+	// executable, discarding xargs's dynamic stdin-item tail), so its entry
+	// is consulted directly by XargsPipeSinkTargets calling
+	// wrapperTargetIndex, bypassing the ExecWrappers gate entirely.
 	for name := range wrapperValueFlags {
+		if name == "xargs" {
+			continue
+		}
 		if !ExecWrappers[name] {
 			t.Errorf("wrapperValueFlags[%q] is never consulted: not an ExecWrapper", name)
 		}

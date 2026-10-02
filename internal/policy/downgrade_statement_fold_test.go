@@ -118,7 +118,10 @@ var foldDowngradeCases = []struct {
 		probe:        "N2",
 		name:         "default-value expansion whose name IS assigned in a sibling statement",
 		cmd:          `x=:; ${x:-systemd-run} --system /tmp/payload.sh; git commit -m "using systemd-run --system"`,
-		wantExcluded: true,
+		// #3798 strict purity: an expanded command word makes the line
+		// impure, so the doc-text exemption is void. Accepted cost (Gary,
+		// 2026-09-23); corpus mirror TN-SYSTEMD-RUN-017 is now FP.
+		wantExcluded: false,
 	},
 }
 

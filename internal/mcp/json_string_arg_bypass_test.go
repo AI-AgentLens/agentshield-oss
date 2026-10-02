@@ -191,3 +191,100 @@ func TestJSONStringArgBypass_CoexistsWithNativeForms(t *testing.T) {
 		t.Errorf("string-encoded JSON form must still block alongside an unrelated native nested object: got %v (rules=%v)", result.Decision, result.TriggeredRules)
 	}
 }
+
+// --- #4069: a valid-but-unrepresentable number beside the embedded document -
+//
+// resolveStringEncodedJSONField re-parses a top-level argument value that is
+// itself a JSON-encoded string (form 5). Before #4069 that second parse was a
+// plain json.Unmarshal into interface{}, which fails outright on 1e400 (a
+// float no float64 can hold) — so a `path` sibling to an unrelated
+// unrepresentable number anywhere in the SAME embedded document was silently
+// dropped along with it, exactly the class #4059/#4067 closed on the
+// notification and structuredContent surfaces. Each case pins its own
+// control (the payload alone must still block) so a regression is
+// distinguishable from the probe becoming vacuous.
+
+func TestJSONStringArgBypass_UnrepresentableNumberSiblingStillBlocks(t *testing.T) {
+	e := NewPolicyEvaluator(testPolicy())
+
+	control := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"payload": `{"path": "/home/user/.ssh/id_rsa"}`,
+	})
+	if control.Decision != policy.DecisionBlock {
+		t.Fatalf("control payload alone did not block — probe is invalid: got %v", control.Decision)
+	}
+
+	result := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"payload": `{"n":1e400,"path": "/home/user/.ssh/id_rsa"}`,
+	})
+	if result.Decision != policy.DecisionBlock {
+		t.Errorf("1e400 beside the path in the embedded document switched off form 5 — fail-open: got %v", result.Decision)
+	}
+}
+
+func TestJSONStringArgBypass_UnrepresentableNumberNestedStillBlocks(t *testing.T) {
+	e := NewPolicyEvaluator(testPolicy())
+
+	result := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"payload": `{"meta":{"budget":1e400},"path": "/home/user/.ssh/id_rsa"}`,
+	})
+	if result.Decision != policy.DecisionBlock {
+		t.Errorf("nested 1e400 sibling switched off form 5 — fail-open: got %v", result.Decision)
+	}
+}
+
+func TestJSONStringArgBypass_UnrepresentableNumberInArrayStillBlocks(t *testing.T) {
+	e := NewPolicyEvaluator(testPolicy())
+
+	control := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"body": `[{"path": "/workspace/README.md"}, {"path": "/home/user/.ssh/id_rsa"}]`,
+	})
+	if control.Decision != policy.DecisionBlock {
+		t.Fatalf("control array-of-objects payload alone did not block — probe is invalid: got %v", control.Decision)
+	}
+
+	result := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"body": `[1e400, {"path": "/workspace/README.md"}, {"path": "/home/user/.ssh/id_rsa"}]`,
+	})
+	if result.Decision != policy.DecisionBlock {
+		t.Errorf("1e400 array element switched off form 5 — fail-open: got %v", result.Decision)
+	}
+}
+
+// TestJSONStringArgBypass_UnrepresentableNumberStructuralArgsMatch locks the
+// same fix on the structural args_match evaluation path (matchStructural),
+// the sibling engine to the flat ArgumentPatterns path exercised above —
+// #3576 names wiring a fix to only one of the two engines this repo's
+// most-repeated latent trap.
+func TestJSONStringArgBypass_UnrepresentableNumberStructuralArgsMatch(t *testing.T) {
+	rule := MCPStructuralMatch{
+		ToolNameRegex: ".*",
+		ArgsMatch: map[string]ArgFieldMatch{
+			"path": {
+				PatternAny: []string{`\.ssh/.*`, `\.ssh/?$`},
+			},
+		},
+	}
+
+	args := map[string]interface{}{
+		"payload": `{"n":1e400,"path": "/home/user/.ssh/id_rsa"}`,
+	}
+	if !matchStructural("read_file", args, rule) {
+		t.Error("1e400 beside the path in the embedded document switched off structural form 5 matching — fail-open")
+	}
+}
+
+// TestJSONStringArgBypass_UnrepresentableNumberBenignValueDoesNotBlock locks
+// the other direction: a benign embedded document carrying an
+// unrepresentable number must still decode (via json.Number, not fail
+// outright) and must still resolve to AUDIT, not BLOCK.
+func TestJSONStringArgBypass_UnrepresentableNumberBenignValueDoesNotBlock(t *testing.T) {
+	e := NewPolicyEvaluator(testPolicy())
+
+	result := e.EvaluateToolCall("read_file", map[string]interface{}{
+		"payload": `{"n":1e400,"path": "/workspace/README.md"}`,
+	})
+	if result.Decision != policy.DecisionAudit {
+		t.Errorf("benign embedded document with an unrepresentable number sibling must not block: got %v (rules=%v)", result.Decision, result.TriggeredRules)
+	}
+}

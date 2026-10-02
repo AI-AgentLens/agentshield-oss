@@ -107,6 +107,15 @@ rules:
 
 The **Guardian** layer (prompt injection, obfuscation, secrets) runs automatically on all commands — no match rules needed.
 
+**`command_prefix` on an `ALLOW` rule is deliberately narrower** than on a restrictive one. An ALLOW says "this command is safe", so an ALLOW prefix rule fires only when all of these hold:
+
+- every statement starts with a listed prefix, so `grep -rn foo . && touch x` does not earn it;
+- the prefix ends on a token boundary, so `ls` does not match `lsyncd`;
+- nothing runs through `$(…)`, backticks or `<(…)`;
+- no statement redirects output to a file. `echo x >> ~/.zshenv` and `cat a > b` do not earn it. `> /dev/null`, `2>/dev/null`, `> /dev/stdout`, `> /dev/stderr` and fd dups such as `2>&1` do.
+
+A command that fails any of these gets no ALLOW from the rule. It falls through to the other rules, or to the default decision (`AUDIT` in the built-in policy, `REQUIRE_APPROVAL` in `configs/default_policy.yaml`). `BLOCK`, `AUDIT` and `REQUIRE_APPROVAL` prefix rules keep plain starts-with matching.
+
 Each match type is detailed below with full schema and examples.
 
 ### Regex Match Examples
@@ -550,11 +559,29 @@ Five `match` fields let a regex-family rule exclude or soften matches without wi
 |---|---|---|
 | `command_regex_exclude` | The rule does not fire when this regex also matches. It excludes the **whole rule**, not one alternative of the positive pattern. | — |
 | `command_intent_exclude` | Skip the rule when the Intent Classifier (stage 0) labels the statement's text: `is_bash_comment`, `is_doc_text`, `in_heredoc`, `is_self_mgmt`. Scoped per top-level statement, so it cannot excuse a match that only exists by spanning a statement separator. | `internal/analyzer/intent.go` |
-| `command_intent_downgrade` | Same labels, but a BLOCK becomes AUDIT instead of being skipped, so the event is still logged. Built for sensitive-string literals inside `gh`/`git` message and body arguments (#2843). | `internal/analyzer/intent.go` |
-| `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list) or `search_needle` (the pattern operand of a grep-family command). Implemented on both evaluation paths (pipeline and fallback engine). | `internal/analyzer/position.go` |
+| `command_intent_downgrade` | Same labels, but a BLOCK becomes AUDIT instead of being skipped, so the event is still logged and attributed to the rule — an attested receipt rather than a silent suppression. Built for sensitive-string literals inside `gh`/`git` message and body arguments (#2843). Since the #2983 sweep this is the shape every shell rule uses for `is_doc_text` / `in_heredoc` / `in_interpreter_heredoc`; `command_intent_exclude` keeps only `is_bash_comment` and `is_self_mgmt`. Assert the behaviour with an inline `tests.attested:` case (below). The labels are withdrawn when the text reaches an executor (#3797 pipe, #3801 write-then-execute, #3928 command substitution); `TestDocTextDowngradeCannotBeLaundered` probes every labelled rule's inline TPs through those channels. **Default for every BLOCK shell rule (#3963): `command_intent_downgrade: [is_doc_text, in_heredoc]`** — `TestBlockShellRulesCarryDocTextDowngrade` fails on a regex/prefix/exact BLOCK rule without it unless the rule is listed, with its reason, in `internal/policy/testdata/doctext_downgrade_unlabelled_baseline.txt` (typically because the text position IS the attack, e.g. an `echo` write into `/etc/sudoers`); `TestDocTextDowngradeKeepsInlineTPsAtBlock` fails if the label turns an inline `tp:` into AUDIT. Do not add `in_interpreter_heredoc` by default: it also excuses `cmd = "<payload>"; os.system(cmd)` inside a python heredoc (#3939) — use `command_position_exclude: [interp_heredoc_literal]` per rule instead. | `internal/analyzer/intent.go` |
+| `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list), `search_needle` (the pattern operand of a grep-family command), `heredoc_body` (the body of a `cat`/`tee` heredoc), `quoted_program_arg` (a wholly-quoted awk/sed/perl/jq program) or `interp_heredoc_literal` (a string literal in an exec-free python/node/ruby/perl heredoc). Implemented on both evaluation paths (pipeline and fallback engine). The three data-text positions (`heredoc_body`, `quoted_program_arg`, `interp_heredoc_literal`) are **withdrawn when the text reaches an executor** — piped into a shell or interpreter, or written to a path the command then runs or sources — the same `TextReachesExecutor` evidence that withdraws the inertness labels (#3967) — or when a substitution carrying it has its OUTPUT executed (`bash -c "$(…)"`, `eval "$(…)"`, `bash <(…)`, `x=$(…); eval "$x"`; #3976). `TestPositionExclusionCannotBeLaundered` probes every position-excluded rule's inline TPs through those channels. | `internal/analyzer/position.go` |
 | `context: {ci: true}` | Gate the rule on the execution environment; `ci` is detected by `internal/execenv`. Regex-family rules only — a context gate on a structural/dataflow/semantic/stateful rule fails policy load (#3291). | `internal/execenv` |
 
+**Strict purity (#3798, 2026-09-23).** The doc-text exemptions (the `is_doc_text` / `in_heredoc` / `in_interpreter_heredoc` labels, and the `heredoc_body` / `quoted_program_arg` / `interp_heredoc_literal` positions) apply only when **every command in the line** is on a closed list of commands that never run their input (`shellparse.CommandLineIsPure`): text utilities, file operations, listed `git`/`gh` subcommands, `sed`/`awk`/`find` without their execute constructs, and an interpreter reading an exec-free quoted heredoc on stdin. Any other command (a shell, `eval`, `source`, a wrapper, a build tool, a script path, an expanded command word) voids the exemption and the rule applies as written. Measured cost: 14 of 4,594 real agent commands newly BLOCK; the matching corpus rows are relabelled `FP` with the reason.
+
 Reach for these before adding another `pattern-not`-style alternative to the regex: they say *where* or *in what context* a match is inert, which is the information a wider pattern throws away.
+
+### Inline tests for a downgraded match: `tests.attested`
+
+A rule's inline `tests:` block has three lists. `tp:` commands must fire the rule, `tn:` commands must not, and `attested:` commands must fire **and** come out at `AUDIT` — the shape a `command_intent_downgrade` label produces for a doc-text or heredoc position:
+
+```yaml
+tests:
+  tp:
+  - vault read secret/prod
+  tn:
+  - vault status
+  attested:
+  - git commit -m 'docs: vault read secret/prod is how the runbook fetches it'
+```
+
+Both halves are asserted by `TestRuleYAMLTests`: a case that stops firing has lost its attribution, and one that stays at `BLOCK` is the false positive the label exists to prevent. An `attested:` case on a rule with no `command_intent_downgrade` is a load-time authoring error. Do not put a doc-text case under `tn:` — a `tn:` asserts non-firing, which is the silent suppression `command_intent_exclude` produced before the #2983 sweep; the whole point of `downgrade` is that the rule still fires.
 
 ## The Analyzer Pipeline
 

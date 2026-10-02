@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"io"
 	"os"
 	"path/filepath"
@@ -274,12 +275,33 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 
 	// Layer 1: embedded community shell packs (always available, no disk dep).
 	pol, embeddedInfos, _ := policy.LoadEmbeddedShellPacks(pol)
+	embeddedOnlyPolicy := pol
 
 	// Layer 2: disk-installed packs (premium from SaaS, user custom).
 	packsPath := filepath.Join(cfg.ConfigDir, "packs")
-	pol, diskInfos, err := policy.LoadPacks(packsPath, pol)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: packs load failed: %v\n", err)
+	pol, diskInfos, packsLoadErr := policy.LoadPacks(packsPath, pol)
+	if packsLoadErr != nil {
+		// #4071: LoadPacks returns (nil, nil, err) on anything but a missing
+		// directory (e.g. permission denied on the packs dir). Assigning that
+		// nil straight into pol used to reach NewEngineWithAnalyzers(nil, …)
+		// and panic before any command was evaluated — Go's panic exit status
+		// (2) reads as BLOCK to Claude Code/Codex, so a total enforcement
+		// outage looked like a decision instead of the crash it was, and
+		// harnesses expecting a JSON verdict got a stack trace. Restore the
+		// embedded-only policy already loaded above (the same fail-open shape
+		// `agentshield check` uses) and warn loudly; under managed
+		// fail_closed, refuse instead — an entirely unreadable disk layer is
+		// at least as degraded as the single-pack-parse-failure case below.
+		pol = embeddedOnlyPolicy
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: packs load failed: %v — evaluating with base, user and embedded packs only; disk (premium/custom) rules are NOT loaded\n", packsLoadErr)
+		if failClosedEnabled(cfg) {
+			return failSafeDecision(evalFailure{
+				stage: "packs load",
+				err:   fmt.Errorf("disk packs directory unreadable, enforcement would be degraded: %w", packsLoadErr),
+				cfg:   cfg,
+				log:   auditLogger,
+			}, cmdStr, cwd, source, sessionID)
+		}
 	}
 
 	// Issue #2188: a pack that fails to parse is dropped with RuleCount 0. For a
@@ -326,12 +348,26 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 		TriggeredRules:   evalResult.TriggeredRules,
 		Reasons:          evalResult.Reasons,
 		TaxonomyRefs:     evalResult.TaxonomyRefs,
+		Notes:            auditNotes(evalResult.Notes),
 		Mode:             cfg.Mode,
 		OriginalDecision: string(evalResult.OriginalDecision),
 		Source:           source,
 		SessionID:        sessionID,
 		Principal:        osPrincipal(),
 	}
+	// #4077 pass 1: the fallback above keeps evaluating, so the event must say
+	// it ran degraded. Without this note the SaaS receives an ordinary
+	// evaluation from a host that has lost every premium and custom rule —
+	// an attestation of full enforcement that did not happen. The decision is
+	// unchanged; the note is evidence, not a verdict.
+	if packsLoadErr != nil {
+		event.Notes = append(event.Notes, logger.Note{
+			Kind:   analyzer.NotePolicyDegraded,
+			Detail: "disk packs unreadable; evaluated with base, user and embedded packs only: " + packsLoadErr.Error(),
+		})
+	}
+
+	noteLockUnavailable(&event, auditLogger)
 
 	if evalResult.Decision == policy.DecisionBlock || evalResult.Decision == policy.DecisionAudit {
 		event.Flagged = true
@@ -580,10 +616,34 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		SessionID:        sessionID,
 		Principal:        osPrincipal(),
 	}
+	noteLockUnavailable(&event, auditLogger)
 	_ = auditLogger.Log(event)
 
 	// Send to SaaS
 	sendRemoteAudit(&event)
+}
+
+// lockNoteSource is the slice of the audit logger noteLockUnavailable needs.
+type lockNoteSource interface {
+	LockUnavailableNote() (logger.Note, bool)
+}
+
+// noteLockUnavailable appends the logger's audit_lock_unavailable note to
+// event when the logger runs without its cross-process lock (#4052 round 2).
+// Log stamps that note on the persisted line itself, but on a copy, so every
+// path that also POSTs the event to the SaaS calls this before Log and
+// sendRemoteAudit; otherwise the disk line carries a note the wire never saw
+// (the #4077 pass-2 class; Opus pass 2 on #4057 found the MCP and fail-safe
+// paths without it). Log deduplicates, so the line still carries it once.
+// A nil logger is a no-op, typed or untyped: the fail-safe boundary may hold
+// no logger at all.
+func noteLockUnavailable(event *logger.AuditEvent, l lockNoteSource) {
+	if l == nil {
+		return
+	}
+	if note, degraded := l.LockUnavailableNote(); degraded {
+		event.Notes = append(event.Notes, note)
+	}
 }
 
 // handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
@@ -623,4 +683,18 @@ func outputGeminiAllow() {
 	output := geminiHookOutput{Decision: "allow"}
 	data, _ := json.Marshal(output)
 	fmt.Println(string(data))
+}
+
+// auditNotes converts evaluation notes to their audit-event form (#3995).
+// The two types are identical by construction; the copy keeps the logger a
+// leaf package. nil in, nil out, so an event with no notes omits the key.
+func auditNotes(ns []analyzer.Note) []logger.Note {
+	if len(ns) == 0 {
+		return nil
+	}
+	out := make([]logger.Note, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, logger.Note{Kind: n.Kind, Rule: n.Rule, Detail: n.Detail})
+	}
+	return out
 }

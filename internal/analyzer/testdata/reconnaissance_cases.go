@@ -556,7 +556,7 @@ var LLMIntrospectionCases = []TestCase{
 	{
 		ID:               "TN-NE-AUDIT-TOKEN-BOUNDARY-002",
 		Command:          "cat > trim.py << 'EOF'\nimport tiktoken\nenc = tiktoken.get_encoding(\"cl100k_base\")\nwhile len(enc.encode(prompt)) > MAX_TOKENS:\n    prompt = prompt[:-100]\nEOF",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "reconnaissance/llm-introspection/context-window-token-probe",
 		Analyzer:         "regex",
@@ -2540,7 +2540,7 @@ var InotifySurveillanceCases = []TestCase{
 	{
 		ID:               "TN-NE-BLOCK-METASPLOIT-001",
 		Command:          `echo "metasploit is an exploitation framework" >> README.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/agentic-attacks/ai-powered-vulnerability-exploitation",
 		Analyzer:         "structural",

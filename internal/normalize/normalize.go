@@ -64,6 +64,29 @@ func NormalizeCommand(rawCmd string, cwd string) NormalizedCommand {
 	return normalize(strings.Fields(rawCmd), rawCmd, cwd)
 }
 
+// isCommentOnly reports whether cmd holds at least one bash comment line and
+// nothing else: every line is blank or starts, after leading spaces and tabs,
+// with `#`. A blank command is not comment-only.
+//
+// Only space and tab are trimmed, because those are the only blanks bash and
+// zsh skip before a word. strings.TrimSpace would also strip \r, \v, \f and
+// Unicode spaces, and `\r# $(cat …)` is not a comment: the shell runs a
+// command named `\r#` and executes the substitution (#4013 Codex pass 1).
+func isCommentOnly(cmd string) bool {
+	sawComment := false
+	for _, line := range strings.Split(cmd, "\n") {
+		line = strings.TrimLeft(line, " \t")
+		switch {
+		case line == "":
+		case strings.HasPrefix(line, "#"):
+			sawComment = true
+		default:
+			return false
+		}
+	}
+	return sawComment
+}
+
 func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	if len(args) == 0 {
 		return NormalizedCommand{Cwd: cwd}
@@ -92,12 +115,49 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	// args with a spec-aware state machine that knows which flags are text.
 	// This hybrid approach combines AST command identification with the
 	// reliable token-order-based flag-value tracking.
-	if nc.Parsed != nil && len(nc.Parsed.Segments) > 0 {
+	switch {
+	case nc.Parsed != nil && len(nc.Parsed.Segments) > 0:
 		nc.Paths, nc.Domains = astAwareExtract(nc.Parsed, cwd, homeDir)
-	} else {
-		// Fallback: original tokenizer (heredoc + textContentFlags)
+	case nc.Parsed != nil && isCommentOnly(nc.RawCommand):
+		// Every line is a bash comment (`# cat ~/.ssh/id_rsa`): nothing
+		// executes, so leave Paths/Domains empty (#4009). The naive tokenizer
+		// below does not know about `#`, and the built-in protected-path check
+		// runs on nc.Paths before intent labels like is_bash_comment apply.
+		//
+		// Keyed on the TEXT, not on the segment count: shellparse also returns
+		// zero segments for `export K=$(cat …)`, `local`/`declare`/`readonly`
+		// with a command substitution, `[[ … ]]`, and a bare `>`/`>>`
+		// redirect. Those execute or write, and their only path extraction is
+		// the fallback below (#4013 review).
+	default:
+		// Fallback: original tokenizer. Required for heredoc commands, where
+		// shellparse.Parse is deliberately not called (see hasHeredoc above),
+		// and for the zero-segment shapes listed in the case above.
 		nc.Paths, nc.Domains = fallbackExtract(args, cwd, homeDir)
 	}
+
+	// A command substitution's body is a shell program the outer command
+	// runs before, or while, doing whatever the outer statement does — a
+	// protected path read inside `$(...)` is as much a read as the same
+	// command standing alone (#4030). Neither branch above sees it: the
+	// AST-aware walker treats the whole `$(...)` word as one opaque dynamic
+	// token (it contains "/" so it can even get misclassified and mangled
+	// as a bogus literal path by expandPath), and the zero-segment fallback
+	// tokenizer only stumbles onto a path here by accident of where
+	// whitespace happens to split the substitution syntax. Walk every
+	// substitution body — regardless of which branch ran above — and
+	// extract its own paths/domains the same way a top-level command would.
+	//
+	// A heredoc command skips the parse above (nc.Parsed stays nil for the
+	// fallback tokenizer's sake), but an unquoted heredoc body still runs its
+	// substitutions, so parse it here for this walk only.
+	substParsed := nc.Parsed
+	if substParsed == nil {
+		substParsed = shellparse.Parse(nc.RawCommand, 2)
+	}
+	subPaths, subDomains := extractSubstitutionPaths(substParsed, cwd, homeDir)
+	nc.Paths = append(nc.Paths, subPaths...)
+	nc.Domains = append(nc.Domains, subDomains...)
 
 	// Handle git clone specially for SSH URLs
 	if nc.Executable == "git" && len(args) > 2 && args[1] == "clone" {
@@ -122,6 +182,26 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 // - Handles combined flags like -am by checking each char against spec
 // - Still falls back to universal textContentFlags for unknown commands
 func astAwareExtract(parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]string, []string) {
+	return astAwareExtractRedirs(parsed, cwd, homeDir, false)
+}
+
+// isDataRedirect reports whether a redirect's word is data the command reads
+// on stdin rather than a file it opens: a here-string's word (`<<<`) or a
+// heredoc's delimiter (`<<`, `<<-`).
+func isDataRedirect(op string) bool {
+	return op == "<<<" || op == "<<" || op == "<<-"
+}
+
+// astAwareExtractRedirs is astAwareExtract with a choice about data
+// redirects. The top-level call keeps them (skipData false), exactly as main
+// always has: `cat<<<'f'` extracts f there today, and removing that is a
+// separate narrowing, not part of #4030. The substitution walk skips them
+// (#4051 Opus pass 2, F1): `N=$(wc -l <<< 'f')` counts the characters of the
+// text "f" and opens nothing, and main never extracted it — the spaced `<<<`
+// sent main's whole command to the fallback tokenizer, whose heredoc state
+// machine swallows everything after the operator. (An unspaced word inside a
+// substitution is still extracted by the top-level walk, as on main.)
+func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string, skipData bool) ([]string, []string) {
 	var paths []string
 	var domains []string
 
@@ -139,12 +219,18 @@ func astAwareExtract(parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]s
 	// Also extract paths from AST redirects (these are always real paths)
 	for _, seg := range shellparse.AllSegments(parsed) {
 		for _, redir := range seg.Redirects {
+			if skipData && isDataRedirect(redir.Op) {
+				continue
+			}
 			if redir.Path != "" && looksLikePath(redir.Path) {
 				paths = append(paths, expandPath(redir.Path, cwd, homeDir))
 			}
 		}
 	}
 	for _, redir := range parsed.Redirects {
+		if skipData && isDataRedirect(redir.Op) {
+			continue
+		}
 		if redir.Path != "" && looksLikePath(redir.Path) {
 			paths = append(paths, expandPath(redir.Path, cwd, homeDir))
 		}
@@ -380,6 +466,115 @@ func findNestedShellCodeStart(args []string) int {
 		}
 	}
 	return earliest
+}
+
+// extractSubstitutionPaths extracts the paths and domains every command and
+// process substitution in parsed would touch when it runs.
+//
+// A substitution body always runs, whether or not the outer statement's
+// classification is doc-text-shaped or the substitution sits in a position
+// no rule would otherwise inspect (shellparse.SubstitutionBodies' own doc
+// comment, #3814) — the same reasoning applies one layer down, to path
+// extraction: `echo $(cat <protected>)` reads <protected> exactly as
+// `cat <protected>` alone would (#4030).
+//
+// # Why it walks the parsed substitutions instead of reparsing body text
+//
+// The first version sliced each body's raw text and parsed it as a program
+// of its own. Codex pass 1 on #4051 found, and a build confirmed, that this
+// loses the enclosing command twice over:
+//
+//   - Context. `e=echo; echo "$($e cat <protected>)"` prints `cat <path>`: a
+//     real shell has e bound when the body runs. Parsed alone, the body had
+//     no binding, NormalizeUnsetParamExp folded $e to nothing, the extractor
+//     saw `cat <protected>`, and a print-only command BLOCKed. The same loss
+//     hit array and positional bindings, and let a body fold `${IFS}` to a
+//     space after the outer command had reassigned IFS (`IFS=; …`).
+//   - Quoting. Inside backquotes a nested substitution opens and closes with
+//     a backslash-escaped backquote; the raw slice keeps the backslashes, so
+//     a standalone parse reads them as literal backquotes and never finds the
+//     inner read.
+//
+// parsed.Substitutions is the whole-command walk of each body — same folds,
+// same symbol table, the parser's own reading of the escapes — at every
+// nesting depth, so there is also no recursion here and no depth cap to fall
+// off (the first version stopped silently at level 9).
+//
+// # The model this mirrors, and where it stops
+//
+// Each body is extracted exactly as a top-level command would be: segments
+// through the AST-aware walker, and a body with no segment through the
+// fallback tokenizer over its text, as normalize() does for a zero-segment
+// top-level command. It therefore inherits the top-level model's limits
+// rather than adding new ones: an IFS reassignment still disables the IFS
+// fold (NormalizeIFS's documented residual — `IFS=x; echo $(cat${IFS}/abs/f)`
+// reads /abs/f on bash and is not seen, at top level or here; with a `~/f`
+// spelling bash reads nothing, because a mid-word ~ never expands), and a
+// `bash -c` body inside a substitution is not path-extracted, just as a
+// top-level one is not (agentshield-oss#9).
+//
+// One deliberate difference from the top-level walk: a here-string's word
+// and a heredoc's delimiter are skipped (skipData, and isDataRedirect on the
+// bare redirects). They are data on stdin. Main extracted one from a
+// substitution only when its top-level walk saw it — an unspaced or
+// fd-prefixed word in a command that parses to segments (`echo "$(cat<<<'f')"`,
+// `echo "$(cat 0<<<'f')"`), which still BLOCKs through that walk. A spaced
+// `<<<` sent main's whole command to the fallback tokenizer, which never
+// extracted it, so extracting it here would be a new false BLOCK
+// (`N=$(wc -l <<< 'f')`, #4051 Opus pass 2 F1). The top-level walk still
+// extracts the unspaced ones (`true; cat<<<'f'`); removing that is a separate
+// narrowing. A substitution inside the word still runs and is still walked.
+//
+// It also inherits the top-level model's over-approximations. Each of these
+// is a known false BLOCK — bash reads nothing — whose top-level analog main
+// already BLOCKs; they are pinned by
+// TestNormalizeCommand_Gap_CommandSubstitutionUnfoldedDefaultExecutable and
+// TestNormalizeCommand_Gap_CommandSubstitutionModelBoundaries:
+//
+//   - An unnamed executable. `e=echo; echo "$(${e:-cat} <protected>)"` prints
+//     the path, but the exec resolver deliberately does not fold a default
+//     operator on a bound variable (shellparse foldExpansionOp), so its
+//     path-shaped operand is extracted, as `e=echo; ${e:-cat} <protected>` is
+//     at top level. Closing it is a resolver change for every analyzer.
+//   - Conditional expansion. `x=1; echo "${x:-$(cat f)}"` never runs the
+//     substitution; the walk treats every substitution as run, as the model
+//     treats `true || cat f` at top level.
+//   - An uncalled function. `f() { echo "$(cat f)"; }` — as `f() { cat f; }`.
+//   - The zero-segment fallback. It skips the first token (the executable of
+//     a top-level command) and reads quoted text and heredoc/here-string data
+//     as paths: `echo "$(export M='cat f')"`, `echo "$(<<< 'f')"` — as
+//     `export M='cat f'` and `<<< 'f'` are at top level.
+func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]string, []string) {
+	if parsed == nil {
+		return nil, nil
+	}
+	var paths, domains []string
+	for _, s := range parsed.Substitutions {
+		switch {
+		case s.Parsed != nil && len(s.Parsed.Segments) > 0:
+			p, d := astAwareExtractRedirs(s.Parsed, cwd, homeDir, true)
+			paths = append(paths, p...)
+			domains = append(domains, d...)
+		default:
+			if bodyArgs := strings.Fields(s.Body); len(bodyArgs) > 0 {
+				p, d := fallbackExtract(bodyArgs, cwd, homeDir)
+				paths = append(paths, p...)
+				domains = append(domains, d...)
+			}
+		}
+		// `$(<file)`: a command-less statement whose redirect reads the file.
+		// The segment walk never sees it, and the fallback tokenizer misses
+		// it when no space follows the `<` (the idiomatic spelling).
+		for _, r := range s.BareRedirects {
+			if isDataRedirect(r.Op) {
+				continue
+			}
+			if r.Path != "" && looksLikePath(r.Path) {
+				paths = append(paths, expandPath(r.Path, cwd, homeDir))
+			}
+		}
+	}
+	return paths, domains
 }
 
 // fallbackExtract is the original tokenizer-based extraction with heredoc and

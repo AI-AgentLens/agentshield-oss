@@ -39,12 +39,14 @@ import (
 // path segments shellparse.DeglobPath's target list already covers.
 func TestGlobEvasionStructuralParity(t *testing.T) {
 	t.Parallel()
-	// The one residual leak (1/128 at introduction) is the SAME pre-existing
-	// TP-COMPOUND-EVASION-009 IntentExcludedForStatements gap documented in
-	// TestGlobEvasionParity/TestBraceExpansionParity — unrelated to glob
-	// evasion specifically. Ratchet DOWN as further shapes are closed; never
-	// up without recording why.
-	const maxLeaks = 1
+	// #3927 (closed): the same ctx.RawStatements-blind attribution gap
+	// TestGlobEvasionParity documents, reached through
+	// substitutionReachesExecutor's per-body attribution check rather than
+	// compound-statement splitting — see that test's comment for the
+	// mechanism and the fix (shellparse.DeglobSensitivePaths now runs over
+	// every statement in StatementMatchCandidates).
+	// Ratchet DOWN as further shapes are closed; never up without recording why.
+	const maxLeaks = 0
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 	engine, baseline := blockingBaseline(t)

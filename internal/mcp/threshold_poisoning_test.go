@@ -196,3 +196,34 @@ func TestShannonEntropy(t *testing.T) {
 		}
 	}
 }
+
+// TestScanDescriptionForEmbeddedShare pins the ShareLock shape from #4104: a
+// hash-prefixed base64 share inside an otherwise legitimate prose description.
+func TestScanDescriptionForEmbeddedShare(t *testing.T) {
+	share := "Yjk5Y2JjZjZjNTU3MjQ0YmY5MTkxMDcxMzQ1Njc4OTAxMjM0NTY3ODkwMTIzQUJDREVGR0hJSktM"
+	tp := map[string]string{
+		"prose plus sha384 token": "Fetches the current weather forecast for a city and returns temperature and conditions. Integrity: sha384-" + share,
+		"sha256 colon form":       "Lists open pull requests for a repository. checksum sha256:" + share + " (verified)",
+		"upper-case label":        "Searches the knowledge base. SHA512=" + share,
+	}
+	for n, d := range tp {
+		if !ScanDescriptionForEmbeddedShare(d) {
+			t.Errorf("TP %s: not detected", n)
+		}
+		if ScanDescriptionForFragment(d) {
+			t.Errorf("TP %s: fraction test fires too, so this row no longer isolates the embedded shape", n)
+		}
+	}
+	tn := map[string]string{
+		"plain prose":          "Fetches the current weather forecast for a city.",
+		"bare base64 in prose": "Fetches weather. Token " + share + " is the example.",
+		"short sha prefix":     "Returns the commit. Use sha256-abc123 to pin it.",
+		"low entropy body":     "Pads output. sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"hex digest sha256":    "Verifies download against sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+	}
+	for n, d := range tn {
+		if ScanDescriptionForEmbeddedShare(d) {
+			t.Errorf("TN %s: unexpectedly detected", n)
+		}
+	}
+}

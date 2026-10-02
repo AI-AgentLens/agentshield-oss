@@ -139,6 +139,17 @@ type IntentClassifier struct {
 	// that opts into an inertness label, always on the same command.
 	reach    shellparse.TextReach
 	reachSet bool
+
+	// pure / pureSet cache shellparse.CommandLineIsPure for the current
+	// evaluation (#3798) — same Memo-scoped lifetime as reach above.
+	pure    bool
+	pureSet bool
+
+	// substBodies caches shellparse.SubstitutionBodies per statement for
+	// the current evaluation (#3814). Keyed by statement text like memo,
+	// because the same labelled statement is attributed once per rule that
+	// opts into an inertness label. nil on the shared classifier.
+	substBodies map[string][]string
 }
 
 // Memo returns a copy of c that caches Classify results.
@@ -206,6 +217,25 @@ func (c *IntentClassifier) commandTextReach(command string) shellparse.TextReach
 	c.reach = shellparse.AnalyzeTextReach(command)
 	c.reachSet = true
 	return c.reach
+}
+
+// substitutionBodies lazily computes and caches
+// shellparse.SubstitutionBodies(stmt) (#3814). Keyed by statement text, so
+// unlike commandTextReach it is safe on the shared classifier too; the
+// cache simply does not exist there (memo == nil) and every call recomputes.
+func (c *IntentClassifier) substitutionBodies(stmt string) []string {
+	if c.memo == nil {
+		return shellparse.SubstitutionBodies(stmt)
+	}
+	if b, ok := c.substBodies[stmt]; ok {
+		return b
+	}
+	if c.substBodies == nil {
+		c.substBodies = make(map[string][]string, 4)
+	}
+	b := shellparse.SubstitutionBodies(stmt)
+	c.substBodies[stmt] = b
+	return b
 }
 
 // docTextAlternations are the per-shape regexes that together define the
@@ -281,7 +311,13 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 		InHeredoc:     c.heredoc.MatchString(cmd),
 
 		InInterpreterHeredoc: c.interpHered.MatchString(cmd),
-		IsSelfMgmt:           c.selfMgmt.MatchString(cmd),
+		// is_self_mgmt is a whole-statement fact, not an inertness label, so
+		// the executor-reach withdrawal below deliberately leaves it alone.
+		// The consequence, a self-management marker inside an executed body
+		// excusing the wrapper statement, is an accepted and documented gap
+		// (#3979, docs/architecture.md -> Known gaps): withdrawing the label
+		// here BLOCKs the rule's own harmless mcp-eval TN.
+		IsSelfMgmt: c.selfMgmt.MatchString(cmd),
 	}
 	// #3796 / #3800: the three inertness labels all assert "this text is
 	// never executed". Piped into a shell or interpreter (#3796), or written
@@ -300,6 +336,28 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 		f.InHeredoc = false
 		f.InInterpreterHeredoc = false
 	}
+	// #3964: `cat FILE <<EOF`/`cat FILE <<< x` reads FILE and ignores the
+	// heredoc/here-string entirely — cat only consumes stdin when given no
+	// operand or an explicit `-`. The heredoc regex above cannot see that
+	// distinction (`.*` before `<<` matches straight through a file path),
+	// so a live credential read was mislabelled "body is data written to a
+	// file, not execution" and downgraded to AUDIT on 17 shipped BLOCK
+	// rules. `tee` needs no equivalent check — see
+	// CatReadsFileOperandInsteadOfHeredoc's doc comment.
+	if f.InHeredoc && shellparse.CatReadsFileOperandInsteadOfHeredoc(cmd) {
+		f.InHeredoc = false
+	}
+	// #3970: the InInterpreterHeredoc twin of the #3964 gap above, scoped to
+	// here-strings only (see InterpreterOperandDefeatsHereString's doc
+	// comment for why a multi-line heredoc BODY is deliberately left alone).
+	// An interpreter given a script-file operand, or the value of a
+	// code-carrying flag (-c/-e/-m/...), never reads a trailing here-string
+	// as its program either — `python3 backup.py -c ~/.ssh/id_rsa <<< x`
+	// runs backup.py with argv ["-c", "~/.ssh/id_rsa"], and python3 itself
+	// never looks at stdin.
+	if f.InInterpreterHeredoc && shellparse.InterpreterOperandDefeatsHereString(cmd) {
+		f.InInterpreterHeredoc = false
+	}
 	return f
 }
 
@@ -307,6 +365,32 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 // executed" — the class #3796 withdraws when the text is piped into a shell
 // or interpreter and #3800 withdraws when it is written to a path the command
 // then executes.
+// withoutInertTextLabels returns labels minus the inertness labels, as a
+// new slice: the input is a rule's own field and must not be mutated.
+func withoutInertTextLabels(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if !isInertTextLabel(l) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// commandIsPure lazily computes and caches shellparse.CommandLineIsPure for
+// the command under evaluation (#3798). Memo-scoped for the same reason as
+// commandTextReach: the shared classifier is reused across commands.
+func (c *IntentClassifier) commandIsPure(command string) bool {
+	if c.memo == nil {
+		return shellparse.CommandLineIsPure(command, interpHeredocExecFree)
+	}
+	if !c.pureSet {
+		c.pure = shellparse.CommandLineIsPure(command, interpHeredocExecFree)
+		c.pureSet = true
+	}
+	return c.pure
+}
+
 func isInertTextLabel(label string) bool {
 	switch label {
 	case LabelIsDocText, LabelInHeredoc, LabelInInterpreterHeredoc:
@@ -572,13 +656,57 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 	}
 	var reach shellparse.TextReach
 	if inertRequested {
-		reach = classifier.commandTextReach(command)
+		// #3798 (Gary, 2026-09-23 — strict purity). An inertness label is
+		// honoured only on a command line whose every command is on the
+		// closed list of commands that never run their input
+		// (shellparse.CommandLineIsPure). Any other command voids the
+		// exemption, so an executor channel nobody has enumerated yet is
+		// closed by default instead of found by the next adversarial review.
+		// The rule still has to match: this removes an exception, it never
+		// creates a finding. The per-channel withdrawals below stay as
+		// defence in depth on pure lines.
+		if !classifier.commandIsPure(command) {
+			exclude = withoutInertTextLabels(exclude)
+			if len(exclude) == 0 {
+				return false
+			}
+			inertRequested = false
+		} else {
+			reach = classifier.commandTextReach(command)
+		}
 	}
+	return intentExcludedForStatements(classifier, command, statements, parsed, exclude, matchesStatement, wrapperFuncs, reach, inertRequested, 0)
+}
+
+// maxSubstitutionDepth bounds the re-entry into substitution bodies
+// (#3814): `echo "$(echo "$(…)")"` is depth 2. Three levels cover every
+// measured shape; a deeper nest is a contrived command and, past the
+// bound, the label is withdrawn rather than trusted — the same posture as
+// an unparseable statement.
+const maxSubstitutionDepth = 3
+
+// intentExcludedForStatements is IntentExcludedForStatements with its
+// command-wide inputs (the self-mgmt wrapper set, the text-reach analysis)
+// already computed, so substitutionReachesExecutor can re-enter it for a
+// substitution BODY as a command of its own. The body's reach is computed
+// fresh by the caller — commandTextReach is a single-slot cache for the
+// outer command and must not be consulted for a body. wrapperFuncs is
+// shared on purpose: a function defined in the outer command is visible in
+// the subshell that runs the substitution.
+func intentExcludedForStatements(classifier *IntentClassifier, command string, statements []string, parsed bool, exclude []string, matchesStatement func(string) bool, wrapperFuncs map[string]bool, reach shellparse.TextReach, inertRequested bool, depth int) bool {
 	withdrawAll := reach.PipesIntoExecutor || reach.CoarseCorrelated
 	labelMatches := func(stmt string) bool {
 		facts := classifier.Classify(stmt)
 		inertWithdrawn := withdrawAll ||
 			(len(reach.Correlated) > 0 && shellparse.StatementWritesAny(stmt, reach.Correlated))
+		// #3814: a substitution in the statement's own text is executed
+		// before the statement runs. If the rule's match lies inside one
+		// and the body is not itself inert, the label is withdrawn — but
+		// only then: `echo "note: <keyword> ($(date))"` keeps it.
+		if !inertWithdrawn && inertRequested &&
+			substitutionReachesExecutor(classifier, stmt, exclude, matchesStatement, wrapperFuncs, depth) {
+			inertWithdrawn = true
+		}
 		for _, label := range exclude {
 			if inertWithdrawn && isInertTextLabel(label) {
 				continue
@@ -624,4 +752,58 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 		}
 	}
 	return matchedAny
+}
+
+// substitutionReachesExecutor reports whether stmt carries a command or
+// process substitution whose body the rule matches and which is not itself
+// excused — text that RUNS, in the labelled statement's own words (#3814).
+//
+// # Why this is a third channel
+//
+// #3797 withdrew the inertness labels when text is piped into an executor;
+// #3800 when it is written to a path the command then runs. Neither sees
+// `echo "$(<payload>)"`: the statement is an echo, so it is doc-text-shaped,
+// but the payload runs in a subshell and only its output is echoed. The
+// backtick form and a `$(…)` inside an UNQUOTED-delimiter heredoc body
+// (`<<EOF`, which the shell expands; `<<'EOF'` stays literal) are the same
+// channel. Measured on main: a command_intent_downgrade rule dropped BLOCK
+// to AUDIT and a command_intent_exclude rule dropped to REQUIRE_APPROVAL
+// naming no rule.
+//
+// # Attribution — the trap this avoids
+//
+// Withdrawing on "a substitution exists somewhere in this statement" would
+// turn `echo "note: <keyword> ($(date))"` — genuine documentation carrying
+// a benign timestamp — into a BLOCK. So the rule's own predicate is applied
+// to each body: a body the rule does not match is not where the match lies,
+// and the label stands.
+//
+// # A matched body is a command, and gets the same question
+//
+// A body the rule matches is not automatically live either. The Claude
+// Code commit idiom `git commit -m "$(cat <<'EOF' … EOF)"` puts prose that
+// mentions a rule keyword inside a quoted-delimiter heredoc fed to cat: the
+// rule matches the body, and the body is exactly as inert as the same
+// heredoc at top level. So the body is re-attributed as a command of its
+// own — split into its statements, its own text-reach computed — under the
+// same labels. `$(cat ~/.ssh/id_rsa)` is a bare statement with no label and
+// withdraws; `$(cat <<'EOF' …)` is in_heredoc and keeps; `$(cat <<EOF
+// $(payload) EOF)` recurses one level further and withdraws. A body whose
+// split statements none individually match (a match spanning them) is not
+// excused — the fail-closed spanning-match posture of the caller — and
+// therefore withdraws. Past maxSubstitutionDepth the body is not trusted.
+func substitutionReachesExecutor(classifier *IntentClassifier, stmt string, exclude []string, matchesStatement func(string) bool, wrapperFuncs map[string]bool, depth int) bool {
+	for _, body := range classifier.substitutionBodies(stmt) {
+		if !matchesStatement(body) {
+			continue // the rule's match lies outside this substitution
+		}
+		if depth >= maxSubstitutionDepth {
+			return true
+		}
+		bodyStmts, parsed := AttributionStatements(body)
+		if !intentExcludedForStatements(classifier, body, bodyStmts, parsed, exclude, matchesStatement, wrapperFuncs, shellparse.AnalyzeTextReach(body), true, depth+1) {
+			return true
+		}
+	}
+	return false
 }

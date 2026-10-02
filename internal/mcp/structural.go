@@ -723,8 +723,14 @@ func resolveStringEncodedJSONField(arguments map[string]interface{}, fieldName s
 		if trimmed == "" || (trimmed[0] != '{' && trimmed[0] != '[') {
 			continue
 		}
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+		// number (1e400) beside the payload cannot fail the decode and take the
+		// whole embedded document with it (#4069, the same class #4059/#4067
+		// closed on other surfaces). Safe here because every downstream reader —
+		// resolveField (map traversal only) and valueToString (explicit
+		// json.Number case) — already handles json.Number values.
+		parsed, decOK := decodeJSONValue(json.RawMessage(trimmed))
+		if !decOK {
 			continue
 		}
 		switch pv := parsed.(type) {

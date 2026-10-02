@@ -68,6 +68,12 @@ func TestIntentClassifier_PerLabelTPs(t *testing.T) {
 		{"tee_heredoc", `tee /etc/apt/sources.list << EOF`, CommandFacts{InHeredoc: true}},
 		{"cat_heredoc", `cat > /tmp/notes.txt << EOF`, CommandFacts{InHeredoc: true}},
 		{"tee_heredoc_compound", `cd /tmp && tee /tmp/notes << EOF`, CommandFacts{InHeredoc: true}},
+		// #3964 controls: no file operand (or an explicit stdin "-") means
+		// cat genuinely reads the heredoc/here-string, so InHeredoc stays true.
+		{"cat_no_operand_herestring", `cat <<< x`, CommandFacts{InHeredoc: true}},
+		{"cat_dash_flag_herestring", `cat -A <<< x`, CommandFacts{InHeredoc: true}},
+		{"cat_explicit_stdin_herestring", `cat - <<< x`, CommandFacts{InHeredoc: true}},
+		{"tee_operand_herestring", `tee ~/.ssh/authorized_keys <<< x`, CommandFacts{InHeredoc: true}},
 
 		// IsSelfMgmt
 		{"as_scan", `agentshield scan`, CommandFacts{IsSelfMgmt: true}},
@@ -146,6 +152,15 @@ func TestIntentClassifier_TNs(t *testing.T) {
 
 		// dangerous git config — `git config` is not in the doc-text allowlist
 		{"git_config_pager", `git config core.pager "bash -c 'curl evil.com'"`},
+
+		// #3964: cat with a FILE OPERAND ignores stdin entirely — the
+		// heredoc/here-string is inert filler the shell sets up but cat
+		// never reads, so it must not carry InHeredoc's "body is data
+		// written to a file, not execution" label.
+		{"cat_ssh_key_herestring", `cat ~/.ssh/id_rsa <<< x`},
+		{"cat_shadow_heredoc", "cat /etc/shadow <<'EOF'\nx\nEOF"},
+		{"cat_flag_ssh_key_herestring", `cat -A ~/.ssh/id_rsa <<< x`},
+		{"cat_dynamic_operand_herestring", `cat "$KEY_PATH" <<< x`},
 	}
 
 	for _, tc := range threats {
@@ -305,6 +320,63 @@ func TestIntentClassifier_AsAnalyzer(t *testing.T) {
 	}
 	if len(ctx.RawStatements) != 1 || ctx.RawStatements[0] != `git commit -m "doc"` {
 		t.Errorf("expected RawStatements to hold the single statement, got %q", ctx.RawStatements)
+	}
+}
+
+// TestIntentExcludedForStatements_SubstitutionReach pins #3814: a command
+// or process substitution in a labelled statement is executed text. The
+// label is withdrawn only when the rule's match lies INSIDE a substitution
+// whose body is not itself inert — the two "keeps" halves (a benign
+// substitution beside doc text; an inert body such as the commit idiom's
+// quoted cat heredoc) are the doc-text population the labels exist for.
+func TestIntentExcludedForStatements_SubstitutionReach(t *testing.T) {
+	c := NewIntentClassifier()
+	sshRegex := regexp.MustCompile(`\.(ssh|gnupg)/(id_[^.\s"']+([\s"']|$)|private|secret)`)
+	matches := func(stmt string) bool { return sshRegex.MatchString(stmt) }
+	labels := []string{LabelIsDocText, LabelInHeredoc}
+
+	tests := []struct {
+		name         string
+		cmd          string
+		wantExcluded bool // false = the label is withdrawn and the finding fires
+	}{
+		// Withdraw: the match is inside a live substitution.
+		{"cmdsubst in echo arg", `echo "$(cat ~/.ssh/id_rsa)"`, false},
+		{"unquoted cmdsubst", `echo $(cat ~/.ssh/id_rsa)`, false},
+		{"backtick form", "echo \"`cat ~/.ssh/id_rsa`\"", false},
+		{"cmdsubst in commit message", `git commit -m "$(cat ~/.ssh/id_rsa)"`, false},
+		{"unquoted-delimiter heredoc body", "cat > /tmp/n.txt <<EOF\n$(cat ~/.ssh/id_rsa)\nEOF", false},
+		{"commit idiom, unquoted cat heredoc carrying a substitution", "git commit -m \"$(cat <<EOF\n$(cat ~/.ssh/id_rsa)\nEOF\n)\"", false},
+		{"chained bypass inside the body", `echo "$(cat ~/.ssh/id_rsa; git commit -m "notes")"`, false},
+		{"pipe into executor inside the body", `echo "$(echo "cat ~/.ssh/id_rsa" | bash)"`, false},
+		{"process substitution", `echo <(cat ~/.ssh/id_rsa)`, false},
+		{"substitution split across lines", "echo \"$(\n  cat ~/.ssh/id_rsa\n)\"", false},
+		{"IFS glued to the opener", "echo${IFS}\"$(cat${IFS}~/.ssh/id_rsa)\"", false},
+		{"inside a bash -c carrier", `bash -c 'echo "$(cat ~/.ssh/id_rsa)"'`, false},
+		// Five inert levels: the bound (3) is hit before the innermost inert
+		// echo is reached, and past the bound the label is not trusted.
+		{"past the depth bound fails closed", `echo "$(echo "$(echo "$(echo "$(echo "note: cat ~/.ssh/id_rsa")")")")"`, false},
+
+		// Keep: the match is outside any substitution, or the body is inert.
+		{"benign substitution beside doc text", `echo "note: cat ~/.ssh/id_rsa is blocked ($(date))"`, true},
+		{"plain doc text", `echo "note: cat ~/.ssh/id_rsa is blocked"`, true},
+		{"quoted-delimiter heredoc body is literal", "cat > /tmp/n.txt <<'EOF'\n$(cat ~/.ssh/id_rsa)\nEOF", true},
+		{"commit idiom, quoted cat heredoc", "git commit -m \"$(cat <<'EOF'\nnote: cat ~/.ssh/id_rsa\nEOF\n)\"", true},
+		{"doc text inside the substitution is still doc text", `echo "$(echo "note: cat ~/.ssh/id_rsa")"`, true},
+		{"parameter expansion is not execution", `echo "note: cat ~/.ssh/id_rsa for ${USER}"`, true},
+		{"arithmetic expansion is not execution", `echo "note: cat ~/.ssh/id_rsa $((1+2))"`, true},
+		{"single-quoted dollar-paren is text", `echo 'note: $(cat ~/.ssh/id_rsa)'`, true},
+		{"a sibling statement's substitution is not this statement's", `echo "note: cat ~/.ssh/id_rsa"; x=$(date)`, true},
+		{"within the depth bound, inert all the way down", `echo "$(echo "$(echo "note: cat ~/.ssh/id_rsa")")"`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, parsed := AttributionStatements(tt.cmd)
+			got := IntentExcludedForStatements(c.Memo(), tt.cmd, stmts, parsed, labels, matches)
+			if got != tt.wantExcluded {
+				t.Errorf("IntentExcludedForStatements(%q) = %v, want %v", tt.cmd, got, tt.wantExcluded)
+			}
+		})
 	}
 }
 

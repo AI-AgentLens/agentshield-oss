@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -123,8 +122,12 @@ func (t *GhostSpliceTracker) RecordToolSchemas(tools []ToolDefinition) {
 		if len(tool.InputSchema) == 0 {
 			continue
 		}
-		var root interface{}
-		if err := json.Unmarshal(tool.InputSchema, &root); err != nil {
+		// decodeJSONValue decodes with UseNumber, so a valid-but-unrepresentable
+		// number (1e400) anywhere in the schema cannot fail the decode and drop
+		// the tool's generically-named parameters from the cross-message
+		// correlation this tracker feeds (#4069).
+		root, ok := decodeJSONValue(tool.InputSchema)
+		if !ok {
 			continue
 		}
 		rootMap, ok := root.(map[string]interface{})

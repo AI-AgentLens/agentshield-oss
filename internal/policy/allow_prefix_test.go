@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,15 +84,20 @@ func TestAllowPrefixRejectsLaunderedCompounds(t *testing.T) {
 			false,
 			"search->xargs delete was the #3197 sink",
 		},
-		// --- redirects: deliberately OUT of scope (see matchCommandPrefix) ---
-		// These stay ALLOW. The sshd-config incident is this shape and is
-		// stopped by its own BLOCK rule; excluding redirects here costs 61
-		// accuracy-corpus TNs to close a *bounded* (target-path) risk that
-		// protected_paths already covers. Asserted rather than omitted so the
-		// scope decision is visible if someone changes it.
-		{"append redirect stays allow", "echo hello >> /tmp/probe_out", true, "redirect scope: out"},
-		{"truncating redirect stays allow", "echo hello > /tmp/probe_out", true, "redirect scope: out"},
-		{"fd merge stays allow", "ls /tmp 2>&1", true, "2>&1 is not even a file write"},
+		// --- redirects: a file write is not read-only (#4082) ---
+		// #3199 left redirects in scope for the ALLOW on the premise that a
+		// redirect's danger is its target path and protected_paths plus
+		// path-scoped BLOCK rules enumerate those. #4082 falsified the
+		// premise: `echo '<payload>' >> ~/.zshenv` earned ALLOW because no
+		// rule names that destination. The null device, the inherited
+		// streams and fd dups onto them write no file and keep the ALLOW.
+		{"append redirect loses allow", "echo hello >> /tmp/probe_out", false, "a file write (#4082)"},
+		{"truncating redirect loses allow", "echo hello > /tmp/probe_out", false, "a file write (#4082)"},
+		{"startup-file append loses allow", "echo 'export PATH=$PATH:/opt/bin' >> ~/.zshenv", false, "the #4082 carrier"},
+		{"stderr to a file loses allow", "grep -rn foo . 2> /tmp/probe_err", false, "n> to a path is a file write"},
+		{"fd merge stays allow", "ls /tmp 2>&1", true, "2>&1 is not a file write"},
+		{"null device stays allow", "echo hello > /dev/null", true, "the null device is not a file"},
+		{"stderr to null stays allow", "grep -rn foo . 2>/dev/null", true, "the null device is not a file"},
 
 		// --- indirect execution ---
 		{"command substitution", "echo $(date)", false, "substitution runs a command"},
@@ -246,6 +252,15 @@ func TestAllowPrefixEndToEnd(t *testing.T) {
 		t.Errorf("laundered compound should fall through to the AUDIT default, got %v",
 			laundered.Decision)
 	}
+
+	// #4082 through the engine: a redirect to a file falls to the AUDIT
+	// default; one to the null device keeps ALLOW.
+	if got := eng.Evaluate("echo 'export PATH=$PATH:/opt/bin' >> ~/.zshenv", nil); got.Decision != DecisionAudit {
+		t.Errorf("echo redirected to a startup file: got %v, want the AUDIT default", got.Decision)
+	}
+	if got := eng.Evaluate("echo hello > /dev/null", nil); got.Decision != DecisionAllow {
+		t.Errorf("echo redirected to /dev/null: got %v, want ALLOW", got.Decision)
+	}
 }
 
 func TestHasIndirectExecution(t *testing.T) {
@@ -262,8 +277,9 @@ func TestHasIndirectExecution(t *testing.T) {
 	direct := []string{
 		"echo hi", "grep -rn foo .", "wc -l < /etc/hosts", "wc -c <<< hello",
 		"cat a.txt | grep b | wc -l", "echo hi && date",
-		// Redirects are NOT indirect execution — deliberate scope, see
-		// matchCommandPrefix. A regression here would silently re-expand the fix.
+		// A redirect runs nothing, so it is NOT indirect execution. It is a
+		// separate disqualifier (shellparse.HasFileWriteRedirect, #4082);
+		// keeping the predicates apart keeps each name true.
 		"echo hi > /tmp/x", "echo hi >> /tmp/x", "ls /tmp 2>&1",
 	}
 	for _, cmd := range direct {
@@ -431,5 +447,109 @@ func TestNonAllowPrefixKeepsBareSubstringMatch(t *testing.T) {
 	// here).
 	if !matchCommandPrefix("setpriv --reuid 1000 bash", rule) {
 		t.Error("AUDIT prefix rule must keep bare-substring semantics — boundary narrowing is ALLOW-only")
+	}
+}
+
+// TestAllowPrefixRedirect_ShippedPolicies checks #4082 against the two
+// policies Shield ships, each on its own (no packs), through the analyzer
+// pipeline the binary uses. Both carry an ALLOW command_prefix rule of their
+// own — DefaultPolicy()'s allow-safe-readonly and the YAML template's
+// allow-readonly — with the same read-only-prefix shape as
+// ts-allow-readonly, so the redirect condition in PrefixRuleMatches has to
+// reach them too. The template matters separately because its default is
+// REQUIRE_APPROVAL: there a withheld ALLOW becomes a prompt, not an AUDIT.
+func TestAllowPrefixRedirect_ShippedPolicies(t *testing.T) {
+	tmpl, err := Load(filepath.Join("..", "..", "configs", "default_policy.yaml"))
+	if err != nil {
+		t.Fatalf("load shipped template: %v", err)
+	}
+	cases := []struct {
+		name         string
+		pol          *Policy
+		allowRuleID  string
+		readOnly     string
+		redirectOut  string
+		wantWithheld Decision
+	}{
+		{"DefaultPolicy", DefaultPolicy(), "allow-safe-readonly", "ls -la", "ls -la > files.txt", DecisionAudit},
+		{"configs/default_policy.yaml", tmpl, "allow-readonly", "echo hi", "echo 'export PATH=$PATH:/opt/bin' >> ~/.zshenv", DecisionRequireApproval},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			found := false
+			for _, r := range tc.pol.Rules {
+				if r.ID == tc.allowRuleID && r.Decision == DecisionAllow && len(r.Match.CommandPrefix) > 0 {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("precondition: %s no longer ships ALLOW prefix rule %q; re-point this test", tc.name, tc.allowRuleID)
+			}
+			eng, err := NewEngineWithAnalyzers(tc.pol, 2)
+			if err != nil {
+				t.Fatalf("NewEngineWithAnalyzers: %v", err)
+			}
+			if got := eng.Evaluate(tc.readOnly, nil); got.Decision != DecisionAllow {
+				t.Errorf("control %q: got %v %v, want ALLOW from %s", tc.readOnly, got.Decision, got.TriggeredRules, tc.allowRuleID)
+			}
+			if got := eng.Evaluate(tc.readOnly+" > /dev/null", nil); got.Decision != DecisionAllow {
+				t.Errorf("%q > /dev/null: got %v, want ALLOW (the null device is not a file)", tc.readOnly, got.Decision)
+			}
+			got := eng.Evaluate(tc.redirectOut, nil)
+			if got.Decision != tc.wantWithheld {
+				t.Errorf("%q: got %v %v, want %v (the policy default: the redirect must withhold %s's ALLOW)",
+					tc.redirectOut, got.Decision, got.TriggeredRules, tc.wantWithheld, tc.allowRuleID)
+			}
+		})
+	}
+}
+
+// TestAllowPrefixRawVerdictSurvivesRewrites pins #4088 pass 1 (Opus review,
+// finding F1). The write check ran on each rewritten form separately, and three
+// rewrites lose a redirect bash still performs: a ${V:-/dev/null} fold (bash
+// never uses the default when V is set by printf -v or is $_), a
+// line-continuation join that treats an ESCAPED backslash as a continuation,
+// and brace expansion offering a /dev/null alternative. Whichever form lost the
+// write earned the ALLOW. Both match paths are exercised: the analyzer
+// pipeline (the deployed one) and the regex-only engine fallback.
+func TestAllowPrefixRawVerdictSurvivesRewrites(t *testing.T) {
+	pol := DefaultPolicy()
+	pol.Rules = append([]Rule{{
+		ID:       "test-allow-readonly-4088",
+		Match:    Match{CommandPrefix: []string{"echo", "printf", "ls"}},
+		Decision: DecisionAllow,
+		Reason:   "mirrors ts-allow-readonly's shape",
+	}}, pol.Rules...)
+
+	laundered := []struct{ cmd, why string }{
+		{"echo x > ${X:-/dev/null}", "the PR body's own example: the fold picks the default"},
+		{"printf -v zqout '%s' out.txt; echo m > ${zqout:-/dev/null}", "printf -v sets the variable; bash writes out.txt"},
+		{"echo out.txt; echo m > ${_:-/dev/null}", "$_ is the last argument; bash writes out.txt"},
+		{"echo \\\\\n> out.txt echo content", "an escaped backslash before a newline is not a continuation; bash writes out.txt"},
+		{"echo m >> {out.txt,/dev/null}", "brace expansion in a redirect target (zsh MULTIOS writes out.txt)"},
+	}
+	controls := []string{"echo hi", "echo x > /dev/null", "ls -la >& /dev/null"}
+
+	engines := map[string]func() (*Engine, error){
+		"pipeline": func() (*Engine, error) { return NewEngineWithAnalyzers(pol, 2) },
+		"fallback": func() (*Engine, error) { return NewEngine(pol) },
+	}
+	for name, mk := range engines {
+		t.Run(name, func(t *testing.T) {
+			eng, err := mk()
+			if err != nil {
+				t.Fatalf("engine: %v", err)
+			}
+			for _, c := range controls {
+				if got := eng.Evaluate(c, nil); got.Decision != DecisionAllow {
+					t.Errorf("control %q: got %v %v, want ALLOW", c, got.Decision, got.TriggeredRules)
+				}
+			}
+			for _, tc := range laundered {
+				if got := eng.Evaluate(tc.cmd, nil); got.Decision == DecisionAllow {
+					t.Errorf("%q: got ALLOW %v — %s", tc.cmd, got.TriggeredRules, tc.why)
+				}
+			}
+		})
 	}
 }

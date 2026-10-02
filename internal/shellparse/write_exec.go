@@ -72,6 +72,7 @@ func AnalyzeTextReach(command string) TextReach {
 	r.PipesIntoExecutor = pipesIntoExecutorCmd(normalized, file)
 	c := newPathCollector()
 	c.collectFile(file, 0)
+	c.followExecutedContent()
 	for p := range c.executed {
 		if c.written[p] || c.coarseWritten[p] {
 			if r.Correlated == nil {
@@ -219,6 +220,16 @@ type pathCollector struct {
 	// so the write is real but never attributable to the labelled text.
 	pipeTargets     map[*syntax.CallExpr]bool
 	pipeTargetStmts map[*syntax.Stmt]bool
+	// content holds, per path an attributable statement writes, the static
+	// text it puts there — an echo/printf argument list or a cat/tee
+	// heredoc body. If that path is later executed the text is a program,
+	// and followExecutedContent walks it for what IT executes (#3814, one
+	// level of indirection).
+	content map[string][]string
+	// execOnly is set while walking executed CONTENT: the generated
+	// script's own writes belong to the script, not to any labelled
+	// statement, so only its executions are recorded.
+	execOnly bool
 }
 
 func newPathCollector() *pathCollector {
@@ -228,6 +239,45 @@ func newPathCollector() *pathCollector {
 		executed:        map[string]bool{},
 		pipeTargets:     map[*syntax.CallExpr]bool{},
 		pipeTargetStmts: map[*syntax.Stmt]bool{},
+		content:         map[string][]string{},
+	}
+}
+
+// followExecutedContent (#3814, one level of indirection): a path the
+// command both writes and executes is a program whose text the collector
+// already holds. Parse that text as shell and collect what IT executes, so
+//
+//	echo "<payload>" > lib.sh; echo '. lib.sh' > run.sh; bash run.sh
+//
+// correlates lib.sh — whose writer is the statement whose text actually
+// runs — and not only run.sh. Measured on main with a downgrade rule: the
+// payload statement kept its label (AUDIT) because the correlated write
+// was run.sh. Each round follows one more hop, maxInlineDepth rounds in
+// all. Content that is not statically known (`echo "$x" > run.sh`) is not
+// followed, which leaves that indirection where it was rather than guessed
+// at.
+func (c *pathCollector) followExecutedContent() {
+	followed := map[string]bool{}
+	c.execOnly = true
+	defer func() { c.execOnly = false }()
+	for round := 1; round <= maxInlineDepth; round++ {
+		var next []string
+		for p := range c.executed {
+			if !followed[p] && (c.written[p] || c.coarseWritten[p]) && len(c.content[p]) > 0 {
+				next = append(next, p)
+			}
+		}
+		if len(next) == 0 {
+			return
+		}
+		for _, p := range next {
+			followed[p] = true
+			for _, text := range c.content[p] {
+				if inner := parseBashFile(text); inner != nil {
+					c.collectFile(inner, round)
+				}
+			}
+		}
 	}
 }
 
@@ -273,11 +323,13 @@ func (c *pathCollector) collectFile(file *syntax.File, depth int) {
 			// from both (Codex, #3800 review pass 3 for the pipe case).
 			_, simple := n.Cmd.(*syntax.CallExpr)
 			attributable := simple && depth == 0 && !c.pipeTargetStmts[n]
+			var wrote []string
 			for _, r := range n.Redirs {
 				switch r.Op {
 				case syntax.RdrOut, syntax.AppOut, syntax.RdrClob, syntax.RdrAll, syntax.AppAll:
 					if p, ok := pathKey(r.Word); ok {
 						c.write(p, attributable)
+						wrote = append(wrote, p)
 					}
 				case syntax.DplOut:
 					// `>&word` with a non-numeric word is bash's `&>word`:
@@ -286,6 +338,7 @@ func (c *pathCollector) collectFile(file *syntax.File, depth int) {
 					if r.Word != nil && !isFdOperand(payloadValue(WordToString(r.Word))) {
 						if p, ok := pathKey(r.Word); ok {
 							c.write(p, attributable)
+							wrote = append(wrote, p)
 						}
 					}
 				case syntax.RdrIn, syntax.RdrInOut:
@@ -309,7 +362,28 @@ func (c *pathCollector) collectFile(file *syntax.File, depth int) {
 						// <> y.sh` correlate with itself.
 						if p, ok := pathKey(r.Word); ok {
 							c.write(p, attributable)
+							wrote = append(wrote, p)
 						}
+					}
+				}
+			}
+			// #3814: remember what an attributable statement writes, so a
+			// path that turns out to be executed can be walked as the
+			// program it is. `tee P <<'EOF'` carries its body on the
+			// statement's redirects and its target in the call's operands.
+			if attributable && !c.execOnly {
+				if text, ok := stmtEmittedText(n); ok {
+					call := n.Cmd.(*syntax.CallExpr)
+					words := peelExecWrappers(callWordsDequoted(call))
+					if len(words) > 0 && path.Base(NormalizeExecName(words[0])) == "tee" {
+						for _, w := range teeOperands(words[1:]) {
+							if p, ok := normalizePathKey(w); ok {
+								wrote = append(wrote, p)
+							}
+						}
+					}
+					for _, p := range wrote {
+						c.content[p] = append(c.content[p], text)
 					}
 				}
 			}
@@ -321,11 +395,107 @@ func (c *pathCollector) collectFile(file *syntax.File, depth int) {
 }
 
 func (c *pathCollector) write(p string, attributable bool) {
+	if c.execOnly {
+		return
+	}
 	if attributable {
 		c.written[p] = true
 	} else {
 		c.coarseWritten[p] = true
 	}
+}
+
+// stmtEmittedText returns the static text a simple statement writes to its
+// output: a heredoc body on the statement (cat/tee, quoted or unquoted
+// delimiter, as long as the body is literal), or the argument list of echo
+// / the operands of printf. Only text known statically qualifies — `echo
+// "$x" > run.sh` carries an unknown program and yields nothing.
+func stmtEmittedText(stmt *syntax.Stmt) (string, bool) {
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok {
+		return "", false
+	}
+	for _, r := range stmt.Redirs {
+		if (r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc) && r.Hdoc != nil {
+			return staticWordText(r.Hdoc)
+		}
+	}
+	words := peelExecWrappers(callWordsDequoted(call))
+	if len(words) < 2 {
+		return "", false
+	}
+	args := words[1:]
+	switch path.Base(NormalizeExecName(words[0])) {
+	case "echo":
+		for len(args) > 0 && isEchoOption(args[0]) {
+			args = args[1:]
+		}
+	case "printf":
+		if args[0] == "--" {
+			args = args[1:]
+		}
+		// bash decodes escapes in the FORMAT only. The newline is the one
+		// that separates statements in a generated script; the rest of the
+		// `\` family is left to DecodeEmittedSeparators' own concern.
+		if len(args) > 0 {
+			args[0] = strings.ReplaceAll(args[0], `\n`, "\n")
+		}
+	default:
+		return "", false
+	}
+	if len(args) == 0 {
+		return "", false
+	}
+	return strings.Join(args, " "), true
+}
+
+// isEchoOption reports whether w is an echo option cluster (-n, -e, -E, or
+// a bundle of them) rather than text to print.
+func isEchoOption(w string) bool {
+	if len(w) < 2 || w[0] != '-' {
+		return false
+	}
+	for _, r := range w[1:] {
+		if r != 'n' && r != 'e' && r != 'E' {
+			return false
+		}
+	}
+	return true
+}
+
+// peelExecWrappers strips leading exec wrappers (`sudo`, `env FOO=1`, …)
+// without recording them — for a caller that wants the wrapped command
+// only. collectCall keeps its own loop because it must record each hop.
+func peelExecWrappers(words []string) []string {
+	for len(words) > 1 && isExecWrapper(words[0]) {
+		target := wrapperTargetIndex(words)
+		if target >= len(words) {
+			break
+		}
+		words = words[target:]
+	}
+	return words
+}
+
+// teeOperands returns tee's file operands: every word past the options,
+// where `--` ends option processing so a later dash-word is an operand
+// (`tee -- -x.sh`; Codex, #3800 review pass 5).
+func teeOperands(args []string) []string {
+	var out []string
+	pastOptions := false
+	for _, w := range args {
+		if !pastOptions {
+			if w == "--" {
+				pastOptions = true
+				continue
+			}
+			if strings.HasPrefix(w, "-") {
+				continue // -a, --append, -i, -p …
+			}
+		}
+		out = append(out, w)
+	}
+	return out
 }
 
 // collectCall records the paths a call writes (tee operands) and the paths
@@ -361,19 +531,7 @@ func (c *pathCollector) collectCall(call *syntax.CallExpr, depth int) {
 		// it, which the splitter hands out as a separate statement — the
 		// write is real but not attributable to the labelled text.
 		attributable := !c.pipeTargets[call] && depth == 0
-		pastOptions := false
-		for _, w := range words[1:] {
-			if !pastOptions {
-				if w == "--" {
-					// Every later word is an operand, dash or not
-					// (`tee -- -x.sh`; Codex, #3800 review pass 5).
-					pastOptions = true
-					continue
-				}
-				if strings.HasPrefix(w, "-") {
-					continue // -a, --append, -i, -p …
-				}
-			}
+		for _, w := range teeOperands(words[1:]) {
 			if p, ok := normalizePathKey(w); ok {
 				c.write(p, attributable)
 			}

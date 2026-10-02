@@ -45,6 +45,19 @@ func TestSemanticAnalyzer_ShredDevice(t *testing.T) {
 		{"shred /dev/sda", "shred /dev/sda", true},
 		{"shred /dev/nvme0n1", "shred /dev/nvme0n1", true},
 		{"shred ./file.txt", "shred ./file.txt", false}, // regular file
+		// #4006: widened beyond isBlockDevice's 8 Linux prefixes, for shred only.
+		{"shred /dev/disk2 (macOS whole disk)", "shred /dev/disk2", true},
+		{"shred /dev/rdisk0 (macOS raw disk)", "shred /dev/rdisk0", true},
+		{"shred /dev/mmcblk0 (SD/eMMC)", "shred /dev/mmcblk0", true},
+		{"shred /dev/mapper/vg0-root (device-mapper)", "shred /dev/mapper/vg0-root", true},
+		{"shred /dev/nbd0 (network block device)", "shred /dev/nbd0", true},
+		{"shred /dev/zd0 (ZFS zvol)", "shred /dev/zd0", true},
+		{"shred /dev/bcache0 (bcache)", "shred /dev/bcache0", true},
+		{"shred /dev/rbd0 (Ceph RBD)", "shred /dev/rbd0", true},
+		// Negative controls: names that merely share a substring with a widened
+		// prefix but are not a /dev/ device.
+		{"shred ./disk0.img (relative file, not a device)", "shred ./disk0.img", false},
+		{"shred mmcblk0 (bare filename, no /dev/ path)", "shred mmcblk0", false},
 	}
 
 	for _, tt := range tests {
@@ -71,6 +84,12 @@ func TestSemanticAnalyzer_WipefsDevice(t *testing.T) {
 	}{
 		{"wipefs -a /dev/sda", "wipefs -a /dev/sda", true},
 		{"wipefs /dev/nvme0n1", "wipefs /dev/nvme0n1", true},
+		// #4006 deliberately does NOT widen wipefs: it has a read-only listing
+		// mode, so widening the device list here (without also parsing its
+		// erase-vs-list flag grammar) would spread a false BLOCK to every new
+		// name added. isBlockDevice stays untouched for this rule.
+		{"wipefs /dev/disk2 (macOS — deliberately still uncovered)", "wipefs /dev/disk2", false},
+		{"wipefs /dev/mmcblk0 (deliberately still uncovered)", "wipefs /dev/mmcblk0", false},
 	}
 
 	for _, tt := range tests {

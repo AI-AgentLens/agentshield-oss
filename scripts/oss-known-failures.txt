@@ -452,8 +452,6 @@ case:TN-MACOS-SEC-006
 case:TN-MACOS-SEC-007
 case:TN-MODELEXFIL-002
 case:TN-NE-ARPSPOOF-HEREDOC-2843
-case:TN-NE-BLOCK-ARP-DNS-TOOLS-001
-case:TN-NE-BLOCK-ARP-DNS-TOOLS-002
 case:TN-ORCHFAILOPEN-006
 case:TN-TS-AUDIT-AIMP-001
 case:TN-TS-AUDIT-TUNNEL-AI-PORT-001
@@ -468,7 +466,6 @@ case:TP-ACCTDB-WRITE-001
 case:TP-ACCTDB-WRITE-002
 case:TP-ACCTDB-WRITE-004
 case:TP-ADB-AM-START-INJECT-001
-case:TP-ADB-AM-START-INJECT-002
 case:TP-ADB-AM-START-INJECT-003
 case:TP-ADB-AM-START-INJECT-004
 case:TP-ADO-ADDATTACHMENT-001
@@ -570,7 +567,6 @@ case:TP-CLOUDCFG-ENV-004
 case:TP-CLOUDCFG-ENV-005
 case:TP-CLOUDCFG-FLAG-001
 case:TP-CLOUDCFG-FLAG-002
-case:TP-CMDSUBST-EVASION-011
 case:TP-CONSUL-TOKEN-001
 case:TP-CONSUL-TOKEN-002
 case:TP-CRYPTODENY-001
@@ -633,7 +629,6 @@ case:TP-ENDPTHIJACK-TYPESET-001
 case:TP-ENVENUM-001
 case:TP-ETBE-001
 case:TP-ETBE-002
-case:TP-EVPI-002
 case:TP-EXECIGNORE-001
 case:TP-EXECIGNORE-002
 case:TP-EXECIGNORE-003
@@ -688,8 +683,6 @@ case:TP-GHA-OIDC-003
 case:TP-GHA-OIDC-004
 case:TP-GHA-OIDC-DOWNGRADE-GUARD
 case:TP-GHA-OIDC-SHELL-HEREDOC-GUARD-001  # tier-split: community AUDITs via sec-audit-env-dump/-grep-secret, premium escalates to BLOCK (TestCommunityTierSeesGHAOIDCTokenRead)
-case:TP-GHENV-001
-case:TP-GHENV-002
 case:TP-GHPATH-001
 case:TP-GHPATH-002
 case:TP-GIST-CRED-EXFIL-002
@@ -863,7 +856,6 @@ case:TP-MODELEXTRACT-002
 case:TP-MODELEXTRACT-006
 case:TP-NE-AUDIT-ADMIN-PATH-001
 case:TP-NE-AUDIT-SYSPROMPT-003
-case:TP-NE-AUDIT-TOKEN-BOUNDARY-002
 case:TP-NE-BLOCK-ADMIN-EP-001
 case:TP-NE-BLOCK-ADMIN-EP-002
 case:TP-NE-BLOCK-ADMIN-EP-003
@@ -973,7 +965,6 @@ case:TP-NE-ENV-DUMP-NET-003
 case:TP-NE-ENV-DUMP-NET-004
 case:TP-NE-GIST-PASTE-002
 case:TP-NE-GIST-PASTE-007
-case:TP-NE-GIST-PASTE-008
 case:TP-NE-LLM-EXFIL-VERTEX-001
 case:TP-NE-LLMEXFIL-NODE-001
 case:TP-NE-LLMEXFIL-NODE-002
@@ -999,7 +990,6 @@ case:TP-NETSETUP-006
 case:TP-NOMAD-TOKEN-001
 case:TP-NOMAD-TOKEN-002
 case:TP-NUGETPUB-001
-case:TP-OAUTH-TUNNEL-004
 case:TP-ORCHFAILOPEN-001
 case:TP-ORCHFAILOPEN-002
 case:TP-ORCHFAILOPEN-003
@@ -1105,12 +1095,6 @@ case:TP-RUNNER-HOOK-002
 case:TP-RUNNER-HOOK-003
 case:TP-RUNNER-HOOK-004
 case:TP-RUNNER-HOOK-006
-case:TP-SC-AUDIT-COPYLEFT-SPDX-001
-case:TP-SC-AUDIT-COPYLEFT-SPDX-003
-case:TP-SC-AUDIT-GITHUB-OUTPUT-001
-case:TP-SC-AUDIT-GITHUB-OUTPUT-002
-case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-001
-case:TP-SC-AUDIT-GITHUB-STEP-SUMMARY-002
 case:TP-SC-BLOCK-GITURLS-001
 case:TP-SC-BLOCK-GITURLS-002
 case:TP-SC-BLOCK-GOFLAGS-TYPESET-001
@@ -1250,9 +1234,6 @@ case:TP-SC-SKILL-MARKET-003
 case:TP-SC-SKILL-SEMANTIC-001
 case:TP-SC-SKILL-SEMANTIC-002
 case:TP-SC-STDLIB-CWD-SHADOW-001
-case:TP-SC-SUBLIMINAL-006
-case:TP-SC-TEST-TRIVIAL-OVERWRITE-001
-case:TP-SC-TEST-TRIVIAL-OVERWRITE-002
 case:TP-SC-TORCH-LOAD-URL-001
 case:TP-SC-TORCH-LOAD-URL-002
 case:TP-SC-TRITON-REPO-MUTATION-001
@@ -1284,7 +1265,6 @@ case:TP-SODOS-002
 case:TP-SODOS-003
 case:TP-SSHD-CONF-001
 case:TP-SSHD-CONF-002
-case:TP-SSHD-CONF-003
 case:TP-SSHD-CONF-004
 case:TP-SSHD-CONF-005
 case:TP-SSHD-CONF-006
@@ -1426,7 +1406,6 @@ case:TP-ZIP-UNZIP-CMD-005
 case:TP-ZSHGLOB-001
 
 # --- 2026-09-14: 1 entry added by check-oss-baseline.sh --refresh ---
-test:TestEmittedEscapeParity
 
 # --- 2026-09-14 (#3823): 4 entries added by hand ---
 # TP-DEFEXFIL-017..020 are the BLOCK positive controls for the narrowed premium
@@ -1491,4 +1470,55 @@ case:TP-DEFEXFIL-027
 #     ne-audit-sleep-chain) that outrank it via most_restrictive_wins are all
 #     premium-only, so nothing raises it above ALLOW in the OSS build.
 case:TP-NE-DEFERREDEXFIL-EXECGUARD-3889
-case:TN-NE-DEFERREDEXFIL-DOCTEXT-3889
+
+# --- 2026-09-19: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestPrefixBypassRatchet
+
+# --- 2026-09-20: 2 entries added by check-oss-baseline.sh --refresh ---
+case:TP-HOSTTRUST-001
+case:TP-HOSTTRUST-002
+
+# --- 2026-09-21: 9 entries added by check-oss-baseline.sh --refresh ---
+case:TN-ADB-AM-START-INJECT-004
+case:TN-BROWSERSEC-002
+case:TN-FRIDA-SPAWN-001
+case:TN-MEMFORENSICS-002
+case:TN-NETSETUP-006
+case:TN-RRTS-004
+case:TN-SC-BENCHMARK-DL-002
+case:arg2-backslash
+test:TestDocTextDowngradeCannotBeLaundered
+
+# --- 2026-09-23: 4 entries added by check-oss-baseline.sh --refresh ---
+test:TestBlockShellRulesCarryDocTextDowngrade
+test:TestDocTextDowngradeKeepsInlineTPsAtBlock
+test:TestHeredocBodyExclusionWithdrawnWhenBodyExecutes
+test:TestPositionExclusionCannotBeLaundered
+
+# --- 2026-09-24: 6 entries added by check-oss-baseline.sh --refresh ---
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-005
+case:brace
+case:for
+case:if
+case:runuser-endopts
+case:sudo-endopts
+
+# --- 2026-09-25: 4 entries added by check-oss-baseline.sh --refresh ---
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-006
+case:TP-TS-BLOCK-TAR-EXEC-FLAGS-007
+test:TestNotes_DetailNamesTheLabelThatApplied
+test:TestNotes_ExcusedRuleIsNotedAndNotTriggered
+
+# --- 2026-09-26: 10 entries added by check-oss-baseline.sh --refresh ---
+case:TP-HOMEROOT-001
+case:TP-HOMEROOT-002
+case:TP-HOMEROOT-003
+case:TP-HOMEROOT-004
+case:TP-HOMEROOT-005
+case:TP-HOMEROOT-006
+case:TP-HOMEROOT-007
+case:TP-HOMEROOT-008
+case:TP-HOMEROOT-009
+case:TP-HOMEROOT-010
+case:TP-AWS-BACKUP-ASSET-DELETE-001
+case:TP-AWS-BACKUP-ASSET-DELETE-002

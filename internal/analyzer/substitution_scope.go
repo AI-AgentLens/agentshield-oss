@@ -214,12 +214,22 @@ type altBinding struct {
 // THIS shell, so a value it conditionally supersedes belongs on the same list.
 type altSet struct {
 	entries []altBinding
+	// capped is set the first time add drops an alternate past
+	// maxScopeAlternates. The walker's result does not change; the
+	// substitution analyzer turns this into NoteScopeAlternatesCapped on the
+	// context (#3995) so the event says the model gave up instead of nothing.
+	capped bool
 }
 
 func (a *altSet) add(name, val string) {
-	// Past maxScopeAlternates the alternate is dropped silently: a documented
-	// fail-open (#3769 shape 5). See the model boundary at the top of this file.
-	if a == nil || val == "" || len(a.entries) >= maxScopeAlternates {
+	// Past maxScopeAlternates the alternate is dropped: a documented
+	// fail-open (#3769 shape 5). See the model boundary at the top of this
+	// file. Since #3995 the drop is recorded rather than silent.
+	if a == nil || val == "" {
+		return
+	}
+	if len(a.entries) >= maxScopeAlternates {
+		a.capped = true
 		return
 	}
 	for _, e := range a.entries {
@@ -1317,6 +1327,13 @@ func (ev *scopeEval) carrier(call *syntax.CallExpr, prefixNames []string) {
 	child := ev.childScope(sameShell, prefixNames)
 	child.walk(parsed)
 	ev.out = append(ev.out, child.out...)
+	// A cap reached inside a separate-shell child (bash -c '…') is the same
+	// fail-open as one reached here, and the note (#3995) must not depend on
+	// which shell the padding ran in. Bindings stay separate; only the flag
+	// propagates. Codex review of #4005.
+	if child.alts != nil && child.alts.capped && ev.alts != nil {
+		ev.alts.capped = true
+	}
 }
 
 // childScope builds the table the carrier body evaluates against.

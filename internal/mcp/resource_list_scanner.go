@@ -59,6 +59,13 @@ const (
 	// agent makes an unintended request on the server's behalf to a target the
 	// host did not authorise.)
 	SignalResourceListDangerousScheme ResourceListSignal = "resource_list_dangerous_scheme"
+
+	// SignalResourceListIconUnsafeSource indicates a resources/list entry whose
+	// `icons[].src` (MCP 2025-11-25) is a script scheme, a UNC/smb:/remote-file
+	// NTLM-leak source, or an active data: SVG. Hosts render icons when they
+	// draw the list, with no user action (#4062). Shares scanIconsFor with the
+	// tools/list check.
+	SignalResourceListIconUnsafeSource ResourceListSignal = "resource_list_icon_unsafe_source"
 )
 
 // ResourceListFinding records a detected threat in a resources/list entry.
@@ -111,6 +118,13 @@ func ScanResourcesListResponse(result *ResourcesListResult) ResourceListScanResu
 		}
 		if f := checkResourceMimeMismatch(resource.URI, resource.MIMEType); f != nil {
 			scanResult.Findings = append(scanResult.Findings, *f)
+		}
+		for _, f := range scanIconsFor("resource", resource.Icons) {
+			scanResult.Findings = append(scanResult.Findings, ResourceListFinding{
+				Signal: SignalResourceListIconUnsafeSource,
+				Detail: f.Detail,
+				URI:    f.Snippet,
+			})
 		}
 		scanResult.Findings = append(scanResult.Findings, checkResourceEntryMetadata(resource.Name, resource.Description)...)
 	}

@@ -96,7 +96,7 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 	var findings []analyzer.Finding
 	seen := make(map[string]int) // signal ID -> index into findings
 	for _, form := range forms {
-		resp, err := g.provider.Analyze(GuardianRequest{RawCommand: form})
+		resp, err := g.provider.Analyze(GuardianRequest{RawCommand: form, ResolveProgramPaths: ctx.ResolveProgramPaths})
 		if err != nil {
 			// Guardian failure is non-fatal: skip this form and keep going.
 			// The deterministic pipeline still provides baseline protection.

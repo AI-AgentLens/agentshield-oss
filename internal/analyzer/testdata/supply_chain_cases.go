@@ -3526,11 +3526,11 @@ var MCPToolSchemaDriftCases = []TestCase{
 	{
 		ID:               "TN-SC-MCP-SCHEMA-WRITE-002",
 		Command:          `echo '{"version":"1.0"}' > package.json`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/config-tampering/mcp-tool-schema-drift",
 		Analyzer:         "regex",
-		Description:      "Writing to package.json — an unrelated JSON file. sc-audit-mcp-tool-schema-write matches only known MCP schema file names (mcp_settings.json, mcp-config.json, tools.json, tool-schema.*); package.json must not trigger it. ts-allow-readonly matches this as a safe write.",
+		Description:      "Writing to package.json — an unrelated JSON file. sc-audit-mcp-tool-schema-write matches only known MCP schema file names (mcp_settings.json, mcp-config.json, tools.json, tool-schema.*); package.json must not trigger it. Default AUDIT (#4082: the redirect withholds ts-allow-readonly's ALLOW).",
 		Tags:             []string{"tn", "safe", "mcp-schema-drift"},
 	},
 }
@@ -3766,7 +3766,7 @@ var ModelEndpointHijackingCases = []TestCase{
 	{
 		ID:               "TN-ENDPTHIJACK-003",
 		Command:          `echo 'DATABASE_URL=postgres://localhost:5432/mydb' >> .env`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/config-tampering/model-endpoint-hijacking",
 		Analyzer:         "regex",
@@ -6127,7 +6127,7 @@ var TestFileSabotageCases = []TestCase{
 	{
 		ID:               "TN-SC-TEST-TRIVIAL-OVERWRITE-001",
 		Command:          `echo "assert True is not sufficient for security validation" >> CONTRIBUTING.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/build-pipeline/ai-generated-test-sabotage",
 		Analyzer:         "regex",
@@ -6226,7 +6226,7 @@ var TestFileSabotageCases = []TestCase{
 	{
 		ID:               "TN-PROTECTED-PATH-M2-HEREDOC-002",
 		Command:          "cat > /tmp/test_vulnerable.py << 'EOF'\n# TP pattern: reading ~/.m2/settings.xml directly\nwith open(\"~/.m2/settings.xml\", \"r\") as f:\n    pass\nEOF",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/dependency-confusion/non-standard-registry",
 		Analyzer:         "regex",
@@ -8338,7 +8338,7 @@ var RepoAIInstructionFilePoisoningCases = []TestCase{
 	{
 		ID:               "TN-SC-INSTR-EXFIL-003",
 		Command:          `echo 'curl example: curl https://api.example.com/data' >> notes.md`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/ide-extension/repository-ai-instruction-file-poisoning",
 		Analyzer:         "regex",
@@ -9184,12 +9184,15 @@ var LLMBenchmarkContaminationCases = []TestCase{
 	{
 		ID:               "TN-SC-BENCHMARK-DL-002",
 		Command:          `echo "wget gsm8k test.parquet only after decontamination"`,
-		ExpectedDecision: "ALLOW",
+		// #2843/#2983: the doc-text/heredoc label moved from command_intent_exclude to
+		// command_intent_downgrade, so the rule now FIRES here and is attributed at an
+		// attested AUDIT instead of being silently suppressed. Still not a BLOCK.
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/model-poisoning/llm-benchmark-contamination",
 		Analyzer:         "regex",
 		Description:      "echo message mentioning a benchmark dataset download is doc text (is_doc_text) — the now-live command_intent_exclude must suppress sc-audit-benchmark-dataset-download (issue #2863).",
-		Tags:             []string{"tn", "safe", "doc-text", "intent-exclude"},
+		Tags:             []string{"tn", "safe", "doc-text", "intent-exclude", "issue-2843"},
 	},
 
 	// --- TRUE POSITIVES: sc-audit-benchmark-load-dataset-api ---
@@ -9499,7 +9502,7 @@ var AgentSkillScannerPayloadConcealmentCases = []TestCase{
 	{
 		ID:               "TN-SC-SKILL-CONCEAL-001",
 		Command:          "printf '%.0s\\n' {1..5} > spacer.txt",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "supply-chain/config-tampering/agent-skill-scanner-payload-concealment",
 		Analyzer:         "regex",

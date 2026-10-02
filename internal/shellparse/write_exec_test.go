@@ -247,6 +247,25 @@ func TestAnalyzeTextReachAttribution(t *testing.T) {
 		{"compound redirect is coarse", `{ echo "payload"; } > /tmp/x.sh; bash /tmp/x.sh`, []string{"/tmp/x.sh"}, true},
 		{"write inside -c string is coarse", `bash -c 'echo payload > /tmp/x.sh'; bash /tmp/x.sh`, []string{"/tmp/x.sh"}, true},
 		{"no execution", `echo "payload" > /tmp/notes.txt`, nil, false},
+
+		// #3814, one level of indirection: the executed script's own text
+		// sources a second written path, so that path's writer has handed
+		// its text to an executor too. Measured on main: only run.sh
+		// correlated, and the payload statement kept its label.
+		{"generated runner sources the lib", `echo "payload" > /tmp/lib.sh; echo '. /tmp/lib.sh' > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"generated runner runs the lib via bash", `echo "payload" > /tmp/lib.sh; echo 'bash /tmp/lib.sh' > /tmp/run.sh; sh /tmp/run.sh`, []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"printf runner", `echo "payload" > /tmp/lib.sh; printf 'source /tmp/lib.sh\n' > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"heredoc runner", "echo \"payload\" > /tmp/lib.sh; cat > /tmp/run.sh <<'EOF'\n. /tmp/lib.sh\nEOF\nbash /tmp/run.sh", []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"tee heredoc runner", "echo \"payload\" > /tmp/lib.sh; tee /tmp/run.sh <<'EOF'\nsource /tmp/lib.sh\nEOF\nbash /tmp/run.sh", []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"sudo tee heredoc runner", "echo \"payload\" > /tmp/lib.sh; sudo tee /tmp/run.sh <<'EOF'\n. /tmp/lib.sh\nEOF\nsudo bash /tmp/run.sh", []string{"/tmp/run.sh", "/tmp/lib.sh"}, false},
+		{"two hops", `echo "payload" > /tmp/a.sh; echo '. /tmp/a.sh' > /tmp/b.sh; echo 'bash /tmp/b.sh' > /tmp/c.sh; bash /tmp/c.sh`, []string{"/tmp/c.sh", "/tmp/b.sh", "/tmp/a.sh"}, false},
+		{"runner that only reads the lib", `echo "payload" > /tmp/lib.sh; echo 'cat /tmp/lib.sh' > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh"}, false},
+		{"runner content is not static", `echo "payload" > /tmp/lib.sh; echo "$X" > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh"}, false},
+		{"runner names a lib nobody wrote", `echo "payload" > /tmp/notes.txt; echo '. /tmp/lib.sh' > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh"}, false},
+		// The generated script's own write is the script's, not a labelled
+		// statement's: it neither correlates nor makes the command coarse.
+		{"runner that writes and runs its own script", `echo "payload" > /tmp/notes.txt; echo 'echo hi > /tmp/x.sh; bash /tmp/x.sh' > /tmp/run.sh; bash /tmp/run.sh`, []string{"/tmp/run.sh"}, false},
+		{"lib written but runner never executed", `echo "payload" > /tmp/lib.sh; echo '. /tmp/lib.sh' > /tmp/run.sh`, nil, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

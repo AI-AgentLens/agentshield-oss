@@ -199,11 +199,16 @@ func LoadEmbeddedMCPPacks(base *MCPPolicy) (*MCPPolicy, []MCPPackInfo, error) {
 	return result, infos, nil
 }
 
-// mcpPackRuleCount is the listing rule count for an MCP pack — the sum of all
-// enforceable entries across the pack's rule families.
+// mcpPackRuleCount is the listing rule count for an MCP pack: the sum of its
+// five id-bearing rule families (rules, structural_rules, value_limits,
+// resource_rules, semantic_rules). This is the ONE rule-count definition
+// (internal/rulecount, COVERAGE.md, the premium manifest's counts block), so
+// `pack list`, the MCP proxy's startup log and the heartbeat agree with them.
+// blocked_tools and data_labels are enforcement and configuration, not rules,
+// and are no longer counted here (they were until 2026-09-28, which made the
+// per-pack figures unreconcilable with every other count).
 func mcpPackRuleCount(p *MCPPack) int {
-	return len(p.Rules) + len(p.ResourceRules) + len(p.ValueLimits) + len(p.BlockedTools) +
-		len(p.StructuralRules) + len(p.SemanticRules) + len(p.DataLabels)
+	return len(p.Rules) + len(p.StructuralRules) + len(p.ValueLimits) + len(p.ResourceRules) + len(p.SemanticRules)
 }
 
 // mergeMCPPack merges a pack's contents into the target policy.
