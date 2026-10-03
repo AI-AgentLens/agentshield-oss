@@ -355,10 +355,17 @@ type ResourceReadResult struct {
 // A malicious server may register resources with RFC 6570 URI templates
 // ({variable} placeholders) that expand to sensitive credential paths.
 type ResourceEntry struct {
-	URI         string `json:"uri"`
-	Name        string `json:"name,omitempty"`
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+	// Title is the spec's display name (MCP 2025-06-18); scanned like Name
+	// and Description, since a host renders it (#4159).
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty"`
+	// Size is the spec's byte-count hint, typed so a kept entry round-trips
+	// whole when a sibling is hidden (#4159). A non-integer on the wire is a
+	// wire-shape anomaly, not a value.
+	Size *int64 `json:"size,omitempty"`
 	// Icons is the MCP 2025-11-25 icon list a host renders with the resource (#4062).
 	Icons []ToolIcon `json:"icons,omitempty"`
 	// Annotations carries the MCP `Annotations` object. Per the 2025-06-18 and
@@ -396,10 +403,18 @@ type ResourcesListResult struct {
 type ResourceTemplateEntry struct {
 	URITemplate string `json:"uriTemplate"`
 	Name        string `json:"name,omitempty"`
+	// Title is the spec's display name (MCP 2025-06-18); scanned like Name
+	// and Description, since a host renders it (#4159).
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	MIMEType    string `json:"mimeType,omitempty"`
 	// Icons is the MCP 2025-11-25 icon list a host renders with the template (#4062).
 	Icons []ToolIcon `json:"icons,omitempty"`
+	// Annotations is the spec's `Annotations` object, typed so a kept template
+	// round-trips whole when a sibling is hidden (#4159). The audience and
+	// ranking scanners read it on resources/list only; on this surface it is
+	// forwarded in typed form and not yet scanned.
+	Annotations *ContentAnnotations `json:"annotations,omitempty"`
 }
 
 // ResourcesTemplatesListResult is the JSON-RPC result for a
@@ -810,14 +825,24 @@ type GetPromptResult struct {
 // PromptArgument is one argument in a prompt template (from prompts/list).
 // The Description field is shown to the agent and is an injection surface.
 type PromptArgument struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// Title is the spec's display name (MCP 2025-06-18); scanned like
+	// Description, since a host renders it (#4159).
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }
 
 // PromptDefinition describes a single prompt template exposed by an MCP server.
+// A prompts/list rewrite re-emits kept prompts from this struct, never from the
+// wire bytes (#4159): what is not modelled here (an entry's own `_meta`) does
+// not survive a sibling being hidden, and what is modelled is what the
+// scanners read.
 type PromptDefinition struct {
-	Name        string           `json:"name"`
+	Name string `json:"name"`
+	// Title is the spec's display name (MCP 2025-06-18); scanned like
+	// Description, since a host renders it (#4159).
+	Title       string           `json:"title,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
 	// Icons is the MCP 2025-11-25 icon list a host renders with the prompt (#4062).

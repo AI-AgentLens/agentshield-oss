@@ -3,7 +3,9 @@ package mcp
 import (
 	"encoding/base64"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode/utf16"
 )
 
 // Icons (MCP 2025-11-25, SEP-973). A tool may carry `icons: [{src, mimeType,
@@ -26,18 +28,26 @@ import (
 // scanner applies, so `java\tscript:` is `javascript:`.
 //
 // Scope of this file: tools/list, initialize serverInfo, prompts/list,
-// resources/list and resources/templates/list (#4062). The AUDIT half of that issue (http(s) icons
-// to link-local / RFC1918 hosts) is deliberately not here: a finding on a tool
-// hides the tool, and an internal-network icon has a legitimate reading.
+// resources/list and resources/templates/list (#4062). On every listing
+// surface a finding hides only the entry that carries it, and that entry
+// gets its own receipt (MessageHandler.hideIconCarrier, #4159); serverInfo
+// has no entry to hide, so there the handshake is blocked. The AUDIT half of
+// #4062 (http(s) icons to link-local / RFC1918 hosts) is deliberately not
+// here: a finding hides the entry, and an internal-network icon has a
+// legitimate reading.
 
 // SignalIconUnsafeSource flags a tool icon whose src executes script or makes
 // the host resolve an SMB/remote-file path while rendering the list. BLOCK.
 const SignalIconUnsafeSource PoisonSignal = "icon_unsafe_source"
 
-// ToolIcon is one entry of an `icons` array.
+// ToolIcon is one entry of an `icons` array. Sizes and Theme are the spec's
+// two selector fields, typed so a kept entry's icons round-trip whole when a
+// sibling is hidden (#4159); neither carries prose, and neither is scanned.
 type ToolIcon struct {
-	Src      string `json:"src"`
-	MimeType string `json:"mimeType,omitempty"`
+	Src      string   `json:"src"`
+	MimeType string   `json:"mimeType,omitempty"`
+	Sizes    []string `json:"sizes,omitempty"`
+	Theme    string   `json:"theme,omitempty"`
 }
 
 // An element is matched by its LOCAL name: XML namespaces let `<s:script>` (with
@@ -51,13 +61,81 @@ var svgActiveContentRE = regexp.MustCompile(`(?is)<\s*(?:[a-z_][\w.-]*:)?(?:scri
 var svgEntityDeclRE = regexp.MustCompile(`(?is)<!ENTITY\s+\S+\s+(?:"([^"]*)"|'([^']*)')`)
 var svgEncodedLTRE = regexp.MustCompile(`(?i)&#0*60;|&#x0*3c;`)
 
+var svgNumRefRE = regexp.MustCompile(`(?i)&#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));`)
+var svgScriptSchemeRE = regexp.MustCompile(`(?i)(?:java|vb)script\s*:`)
+
+// svgDecodeNumRefs expands numeric character references, so an entity value
+// that spells a scheme with encoded letters (`&#106;avascript:`) reads as the
+// scheme (#4151).
+func svgDecodeNumRefs(s string) string {
+	return svgNumRefRE.ReplaceAllStringFunc(s, func(m string) string {
+		sub := svgNumRefRE.FindStringSubmatch(m)
+		var n int64
+		var err error
+		if sub[1] != "" {
+			n, err = strconv.ParseInt(sub[1], 16, 32)
+		} else {
+			n, err = strconv.ParseInt(sub[2], 10, 32)
+		}
+		if err != nil || n <= 0 || n > 0x10FFFF {
+			return m
+		}
+		return string(rune(n))
+	})
+}
+
 func svgEntityCarriesMarkup(body string) bool {
 	for _, m := range svgEntityDeclRE.FindAllStringSubmatch(body, -1) {
-		if svgEncodedLTRE.MatchString(m[1] + m[2]) {
+		v := m[1] + m[2]
+		if svgEncodedLTRE.MatchString(v) || svgScriptSchemeRE.MatchString(svgDecodeNumRefs(v)) {
 			return true
 		}
 	}
 	return false
+}
+
+// svgToUTF8 returns the payload as UTF-8 text. An XML parser honours a UTF-16
+// byte-order mark, but the regexps here are ASCII, so a UTF-16 body (NUL
+// between every character) matched nothing and the icon decided ALLOW (#4151).
+// Without a BOM, a body whose even or odd bytes are almost all NUL is read as
+// UTF-16 too: a declaration of encoding="UTF-16" does the same.
+func svgToUTF8(b []byte) string {
+	le := -1 // 1 = little endian, 0 = big endian
+	switch {
+	case len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE:
+		le, b = 1, b[2:]
+	case len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF:
+		le, b = 0, b[2:]
+	case len(b) >= 4:
+		var even, odd int
+		for i, c := range b {
+			if c == 0 {
+				if i%2 == 0 {
+					even++
+				} else {
+					odd++
+				}
+			}
+		}
+		half := len(b) / 2
+		if odd*10 >= half*9 {
+			le = 1
+		} else if even*10 >= half*9 {
+			le = 0
+		}
+	}
+	if le < 0 {
+		return string(b)
+	}
+	u := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		if le == 1 {
+			u = append(u, uint16(b[i])|uint16(b[i+1])<<8)
+		} else {
+			u = append(u, uint16(b[i+1])|uint16(b[i])<<8)
+		}
+	}
+	return string(utf16.Decode(u))
 }
 
 // scanToolIcons returns one finding per unsafe icon src.
@@ -141,9 +219,9 @@ func svgDataActive(rest string) bool {
 		if err != nil {
 			return false
 		}
-		body = string(b)
+		body = svgToUTF8(b)
 	} else {
-		body = pctDecodeLenient(payload, false)
+		body = svgToUTF8([]byte(pctDecodeLenient(payload, false)))
 	}
 	// The mime type is attacker-declared; judge by what the bytes are.
 	if !strings.Contains(meta, "svg") && !strings.Contains(strings.ToLower(body), "<svg") {

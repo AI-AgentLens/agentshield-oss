@@ -14,6 +14,25 @@ var (
 	iconSVGJS = `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`
 )
 
+func utf16URI(body string, le, bom bool) string {
+	var b []byte
+	if bom {
+		if le {
+			b = append(b, 0xFF, 0xFE)
+		} else {
+			b = append(b, 0xFE, 0xFF)
+		}
+	}
+	for _, r := range body {
+		if le {
+			b = append(b, byte(r), 0)
+		} else {
+			b = append(b, 0, byte(r))
+		}
+	}
+	return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(b)
+}
+
 func svgDataURI(body string) string {
 	return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(body))
 }
@@ -41,6 +60,13 @@ func TestScanToolIcons(t *testing.T) {
 		"svg prefix underscore": svgDataURI(`<svg xmlns:_s="http://www.w3.org/2000/svg"><_s:script>alert(1)</_s:script></svg>`),
 		"svg entity leading 0":  svgDataURI(`<!DOCTYPE svg [<!ENTITY x-y "&#060;script&#062;alert(1)">]><svg>&x-y;</svg>`),
 		"svg entity hex lt":     svgDataURI(`<!DOCTYPE svg [<!ENTITY x '&#x3C;script&#x3E;alert(1)'>]><svg>&x;</svg>`),
+		// #4151: UTF-16 bodies and entity-encoded scheme letters.
+		"svg utf16 le bom":      utf16URI(iconSVGJS, true, true),
+		"svg utf16 be bom":      utf16URI(iconSVGJS, false, true),
+		"svg utf16 le no bom":   utf16URI(iconSVGJS, true, false),
+		"svg utf16 be no bom":   utf16URI(iconSVGJS, false, false),
+		"svg entity scheme":     svgDataURI(`<!DOCTYPE svg [<!ENTITY j "&#106;ava` + `script:alert(1)">]><svg><a href="&j;"><text>x</text></a></svg>`),
+		"svg entity scheme hex": svgDataURI(`<!DOCTYPE svg [<!ENTITY j '&#x6A;ava` + `script:alert(1)'>]><svg><a href="&j;"/></svg>`),
 	}
 	for name, src := range tp {
 		if got := scanToolIcons([]ToolIcon{{Src: src}}); len(got) != 1 || got[0].Signal != SignalIconUnsafeSource {
@@ -59,6 +85,8 @@ func TestScanToolIcons(t *testing.T) {
 		"svg adobe doctype entity": svgDataURI(`<!DOCTYPE svg [<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">]><svg xmlns:x="&ns_extend;"><circle r="4"/></svg>`),
 		"svg entity predefined lt": svgDataURI(`<!DOCTYPE svg [<!ENTITY x "&lt;script&gt;alert(1)">]><svg><text>&x;</text></svg>`),
 		"svg prefixed benign":      svgDataURI(`<svg xmlns:s="http://www.w3.org/2000/svg"><s:circle r="4"/><s:scripture/></svg>`),
+		"svg utf16 benign":         utf16URI(`<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>`, true, true),
+		"svg entity num benign":    svgDataURI(`<!DOCTYPE svg [<!ENTITY c "&#169; 2026">]><svg><text>&c;</text></svg>`),
 	}
 	for name, src := range tn {
 		if got := scanToolIcons([]ToolIcon{{Src: src}}); len(got) != 0 {

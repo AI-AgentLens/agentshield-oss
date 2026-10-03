@@ -1893,14 +1893,23 @@ func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
 		return repl
 	}
 
-	// Filter out poisoned prompts
-	var clean []PromptDefinition
-	removed := 0
-	for _, prompt := range result.Prompts {
+	// Hide poisoned prompts. Two independent checks per prompt, each with its
+	// own receipt: an unsafe icon (the icon sentinel, #4159) and the
+	// description/identifier scan (the prompts-list receipt below). A prompt
+	// that trips both is hidden once and attested twice, so neither finding
+	// borrows the other's rule id.
+	total := len(result.Prompts)
+	clean := make([]PromptDefinition, 0, total)
+	hidden := make(map[int]bool)
+	for i, prompt := range result.Prompts {
+		if icon := scanIconsFor("prompt", prompt.Icons); len(icon) > 0 {
+			hidden[i] = true
+			h.hideIconCarrier("prompt", entryLabel(prompt.Name, "", MethodPromptsList), "mcp-proxy-prompts-scan", string(SignalPromptIconUnsafeSource), icon)
+		}
 		singleResult := &ListPromptsResult{Prompts: []PromptDefinition{prompt}}
 		scanResult := ScanPromptsListDescriptions(singleResult)
 		if scanResult.Poisoned {
-			removed++
+			hidden[i] = true
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED prompt hidden: %s (%d signals)\n",
 				prompt.Name, len(scanResult.Findings))
 			for _, f := range scanResult.Findings {
@@ -1924,30 +1933,21 @@ func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
 					TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-prompt-template-injection",
 				})
 			}
-			continue
 		}
-		clean = append(clean, prompt)
+		if !hidden[i] {
+			clean = append(clean, prompt)
+		}
 	}
 
-	if removed == 0 {
+	if len(hidden) == 0 {
 		return nil
 	}
 
 	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] prompts/list: %d/%d prompts passed, %d hidden\n",
-		len(clean), len(result.Prompts), removed)
+		len(clean), total, len(hidden))
 
 	result.Prompts = clean
-	newResult, err := json.Marshal(result)
-	if err != nil {
-		return nil
-	}
-
-	msg.Result = newResult
-	out, err := json.Marshal(msg)
-	if err != nil {
-		return nil
-	}
-	return out
+	return hideListEntries(&msg, result)
 }
 
 // FilterToolsListResponse checks if a response is a tools/list result.
@@ -2251,17 +2251,35 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 		scanResult := ScanToolDescription(tool)
 		if scanResult.Poisoned {
 			removed++
-			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED tool hidden: %s (%d signals)\n",
-				tool.Name, len(scanResult.Findings))
+			// An unsafe icon is its own receipt on every listing surface (#4159,
+			// decided 2026-10-02): the entry, the icon sentinel, the ssrf node.
+			// The description receipt below carries only the other findings, so
+			// a tool that trips both is hidden once and attested twice.
+			var icon, findings []PoisonFinding
 			for _, f := range scanResult.Findings {
+				if f.Signal == SignalIconUnsafeSource {
+					icon = append(icon, f)
+				} else {
+					findings = append(findings, f)
+				}
+			}
+			if len(icon) > 0 {
+				h.hideIconCarrier("tool", entryLabel(tool.Name, "", "tools/list"), "mcp-proxy-description-scan", string(SignalIconUnsafeSource), icon)
+			}
+			if len(findings) == 0 {
+				continue
+			}
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED tool hidden: %s (%d signals)\n",
+				tool.Name, len(findings))
+			for _, f := range findings {
 				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", f.Signal, f.Detail)
 			}
 
 			// Audit the poisoned tool
 			if h.OnAudit != nil {
-				reasons := make([]string, 0, len(scanResult.Findings))
+				reasons := make([]string, 0, len(findings))
 				triggeredRules := []string{"tool-description-poisoning"}
-				for _, f := range scanResult.Findings {
+				for _, f := range findings {
 					reasons = append(reasons, string(f.Signal)+": "+f.Detail)
 					if f.Signal == SignalEvalAwareness {
 						if sent := h.Evaluator.LookupSentinel("mcp-desc-eval-awareness"); sent != nil {
@@ -2405,11 +2423,6 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 					}
 					if f.Signal == SignalOutputSchemaValuePoisoning {
 						if sent := h.Evaluator.LookupSentinel("mcp-desc-output-schema-value-poisoning"); sent != nil {
-							triggeredRules = append(triggeredRules, sent.ID)
-						}
-					}
-					if f.Signal == SignalIconUnsafeSource {
-						if sent := h.Evaluator.LookupSentinel("mcp-desc-icon-unsafe-source"); sent != nil {
 							triggeredRules = append(triggeredRules, sent.ID)
 						}
 					}
@@ -3879,6 +3892,19 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 		return nil
 	}
 
+	// An unsafe icon hides the entry that carries it, with its own receipt
+	// (#4159). The list-level scans below still run on every decoded entry:
+	// a structural finding on a hidden entry blocks the list exactly as
+	// before, and an audience or ranking receipt is never lost to an icon.
+	total := len(listResult.Resources)
+	hidden := make(map[int]bool)
+	for i, r := range listResult.Resources {
+		if icon := scanIconsFor("resource", r.Icons); len(icon) > 0 {
+			hidden[i] = true
+			h.hideIconCarrier("resource", entryLabel(r.URI, r.Name, MethodResourcesList), "mcp-proxy-resource-list-scan", string(SignalResourceListIconUnsafeSource), icon)
+		}
+	}
+
 	scanResult := ScanResourcesListResponse(&listResult)
 	if scanResult.Blocked {
 		if repl := h.blockResourcesListStructuralFinding(msg.ID, scanResult); repl != nil {
@@ -3995,15 +4021,15 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 		// out-of-range priority on a user-visible block are AUDIT.
 	}
 
-	return nil
+	if len(hidden) == 0 {
+		return nil
+	}
+	listResult.Resources = withoutHidden(listResult.Resources, hidden)
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] resources/list: %d/%d resources passed, %d hidden\n",
+		len(listResult.Resources), total, len(hidden))
+	return hideListEntries(&msg, listResult)
 }
 
-// blockResourcesListStructuralFinding builds and returns the BLOCK
-// replacement for a resources/list response flagged by ScanResourcesListResponse
-// (URI template, dangerous scheme, MIME mismatch, authority spoofing, internal
-// network, scheme evasion, metadata smuggling, or prose metadata injection).
-// Split out of FilterResourceListResponse so the audience-channel scan below
-// can still run when this structural scan found nothing.
 // iconSentinelID resolves the one sentinel every icon finding cites, whatever
 // listing surface carried it (one detection, one node).
 func (h *MessageHandler) iconSentinelID() string {
@@ -4013,6 +4039,102 @@ func (h *MessageHandler) iconSentinelID() string {
 	return "mcp-desc-icon-unsafe-source"
 }
 
+// iconTaxonomyRef is the node the icon sentinel points at
+// (packs/premium/mcp/mcp-sentinel.yaml); the receipt names it even when no
+// pack is loaded.
+const iconTaxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
+
+// hideIconCarrier records one listing entry hidden because an icon it carries
+// is unsafe (#4159, decided 2026-10-02): the same receipt on every surface,
+// naming the entry by its own name or URI and citing the icon sentinel and
+// its node. The surface's other findings keep their own receipts; this one is
+// never merged into them, so an icon block attests as what it is and not as
+// whatever the sibling finding happened to be (the C1/C2 class in #4159).
+func (h *MessageHandler) hideIconCarrier(surface, entry, source, signal string, findings []PoisonFinding) {
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] UNSAFE ICON %s hidden: %s (%d finding(s))\n",
+		surface, entry, len(findings))
+	reasons := make([]string, 0, len(findings))
+	for _, f := range findings {
+		_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s\n", signal, f.Detail)
+		reasons = append(reasons, signal+": "+f.Detail)
+	}
+	if h.OnAudit == nil {
+		return
+	}
+	h.OnAudit(AuditEntry{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		ToolName:       entry,
+		Decision:       "BLOCK",
+		Flagged:        true,
+		TriggeredRules: []string{h.iconSentinelID()},
+		Reasons:        reasons,
+		Source:         source,
+		ServerName:     h.ServerName,
+		TaxonomyRef:    iconTaxonomyRef,
+	})
+}
+
+// withoutHidden returns entries minus the hidden indices, as a non-nil slice
+// so an emptied list marshals as `[]`.
+func withoutHidden[T any](entries []T, hidden map[int]bool) []T {
+	kept := make([]T, 0, len(entries))
+	for i, e := range entries {
+		if !hidden[i] {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+// hideListEntries re-emits a list response from typed, the already-filtered
+// result the scanners saw. Only a scanned form is forwarded (the #4157 rule):
+// a kept entry is rebuilt from its typed view, so a fold-variant duplicate
+// key (`icons` beside `ICONS`, which encoding/json resolves last-wins and a
+// JS host reads by exact spelling), a field the structs do not model, or a
+// malformed icon the lenient decode dropped never rides out beside the entry
+// the scanners cleared. main's prompts/list rewrite already did this, by
+// accident; the first cut of #4163 copied kept entries verbatim and the Opus
+// pass found it weaker than main on 23 witnesses. The MCP-spec fields a
+// client needs (title, size, annotations, an icon's sizes and theme) are
+// typed, and scanned where they carry prose, so they come through; an
+// entry's own `_meta` is not modelled and does not. A result-level key the
+// surface does not declare is dropped too — a `prompts` result that also
+// carries a poisoned `completion` must not ride out on the rewrite (R50). A
+// list with nothing left is `[]`, never `null`: `{"prompts":null}` is not
+// schema-valid and a validating client may reject the whole result.
+func hideListEntries(msg *Message, typed any) []byte {
+	newResult, err := json.Marshal(typed)
+	if err != nil {
+		return nil
+	}
+	msg.Result = newResult
+	out, err := json.Marshal(msg)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// entryLabel names a hidden entry in its receipt: the surface's identifier
+// (prompt or tool name, resource uri, template uriTemplate), else the entry's
+// name, else the method — a receipt never names nothing (#4163 F2).
+func entryLabel(id, name, method string) string {
+	if id != "" {
+		return id
+	}
+	if name != "" {
+		return name
+	}
+	return method
+}
+
+// blockResourcesListStructuralFinding builds and returns the BLOCK
+// replacement for a resources/list response flagged by ScanResourcesListResponse
+// (URI template, dangerous scheme, MIME mismatch, authority spoofing, internal
+// network, scheme evasion, metadata smuggling, or prose metadata injection).
+// Split out of FilterResourceListResponse so the audience-channel scan below
+// can still run when this structural scan found nothing. Icon findings never
+// arrive here: they hide their entry and write their own receipt (#4159).
 func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage, scanResult ResourceListScanResult) []byte {
 	reason := "resources/list contains injection in URI template or resource metadata"
 	if len(scanResult.Findings) > 0 {
@@ -4041,7 +4163,6 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 		hasInternalNetworkFinding := false
 		hasSchemeEvasionFinding := false
 		hasMetadataSmugglingFinding := false
-		hasIconFinding := false
 		for _, f := range scanResult.Findings {
 			loc := f.URI
 			if f.Field != "" {
@@ -4063,8 +4184,6 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 				hasSchemeEvasionFinding = true
 			case SignalResourceListMetadataSmuggling:
 				hasMetadataSmugglingFinding = true
-			case SignalResourceListIconUnsafeSource:
-				hasIconFinding = true
 			}
 			reasons = append(reasons, string(f.Signal)+": "+f.Detail+" ("+loc+")")
 		}
@@ -4123,10 +4242,6 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 			} else {
 				triggeredRules = append(triggeredRules, "mcp-resource-list-metadata-smuggling")
 			}
-			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
-		}
-		if hasIconFinding {
-			triggeredRules = append(triggeredRules, h.iconSentinelID())
 			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
 		}
 		h.OnAudit(AuditEntry{
@@ -4204,9 +4319,26 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		return nil
 	}
 
+	// An unsafe icon hides the template that carries it, with its own receipt
+	// (#4159); the list-level scan below still runs on every decoded entry.
+	total := len(listResult.ResourceTemplates)
+	hidden := make(map[int]bool)
+	for i, t := range listResult.ResourceTemplates {
+		if icon := scanIconsFor("resource template", t.Icons); len(icon) > 0 {
+			hidden[i] = true
+			h.hideIconCarrier("resource template", entryLabel(t.URITemplate, t.Name, MethodResourcesTemplatesList), "mcp-proxy-resource-templates-list-scan", string(SignalResourceTemplatesListIconUnsafeSource), icon)
+		}
+	}
+
 	scanResult := ScanResourcesTemplatesListResponse(&listResult)
 	if !scanResult.Blocked {
-		return nil
+		if len(hidden) == 0 {
+			return nil
+		}
+		listResult.ResourceTemplates = withoutHidden(listResult.ResourceTemplates, hidden)
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] resources/templates/list: %d/%d templates passed, %d hidden\n",
+			len(listResult.ResourceTemplates), total, len(hidden))
+		return hideListEntries(&msg, listResult)
 	}
 
 	reason := "resources/templates/list contains injection in template variable name or metadata"
@@ -4234,12 +4366,9 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		hasVarnameFinding := false
 		hasMetadataFinding := false
 		hasSensitiveFinding := false
-		hasIconFinding := false
 		for _, f := range scanResult.Findings {
 			loc := f.URITemplate
 			switch {
-			case f.Signal == SignalResourceTemplatesListIconUnsafeSource:
-				hasIconFinding = true
 			case f.Varname != "":
 				loc = "varname:" + f.Varname
 				hasVarnameFinding = true
@@ -4260,12 +4389,6 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		}
 		if hasMetadataFinding && !hasVarnameFinding && !hasSensitiveFinding {
 			taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-metadata-injection"
-		}
-		if hasIconFinding {
-			triggeredRules = append(triggeredRules, h.iconSentinelID())
-			if !hasVarnameFinding && !hasMetadataFinding && !hasSensitiveFinding {
-				taxonomyRef = "unauthorized-execution/agentic-attacks/mcp-resource-uri-ssrf"
-			}
 		}
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -4510,12 +4633,15 @@ func recoverErrorCode(data []byte) int {
 // dominated proxy latency (observed as Claude Desktop slowness in a pilot
 // deployment).
 //
-// DispatchServerResponse parses the envelope once (done by the caller) and
-// routes to the single scanner whose result shape matches.
+// DispatchServerResponse parses the envelope once (done by the caller),
+// routes to the single scanner whose result shape matches, and then scans
+// the result-level `_meta` object itself, so that scan is not something a
+// route can skip.
 //
 // Safety invariant: we only ever SKIP a scanner we can prove is irrelevant.
 // If the result shape is ambiguous (zero or more than one known discriminator
-// key), we fall back to running the full ordered chain — so a misclassification
+// key present exactly, or any key that matches one only under case folding),
+// we fall back to running the full ordered chain — so a misclassification
 // can only cost time, never silently drop a security scan.
 
 // responseFilterChain is the canonical ordered list of server→client response
@@ -4538,16 +4664,44 @@ func (h *MessageHandler) responseFilterChain() []func([]byte) []byte {
 	}
 }
 
-// runResponseFilterChain runs every response scanner in order and returns the
-// first non-nil (transformed/blocked) result, or nil if none applied. This is
+// runResponseFilterChain runs every response scanner in order, feeding each
+// scanner's rewritten body to the next, and returns the final body if any
+// scanner transformed/blocked the message, or nil if none applied. This is
 // the safe fallback when the response shape can't be uniquely classified.
+//
+// The chain COMPOSES rather than stopping at the first rewrite. It only runs
+// on envelopes that carry more than one (or no) known result shape, and such
+// an envelope can carry a poisoned surface per shape: a result with both a
+// tasks/get body and a `tasks` array had its outer `error` sanitized and the
+// nested one forwarded when the chain returned on the first non-nil (Codex
+// pass 1 on #4053, finding 2 — the old HTTP JSON relay composed, the stdio
+// proxy and the old SSE relay did not). A scanner that BLOCKS returns an
+// error envelope, which every later scanner rejects, so composition cannot
+// un-block.
+//
+// Known residual (#4165): composition can PRE-EMPT a block. A scanner that
+// rewrites re-marshals its typed result struct, which drops every surface
+// that struct does not model, so a later scanner never sees them and the
+// BLOCK it would have raised on one of them never happens — nor is the
+// attempt audited. Witness: `{"content":[poison],"nextCursor":P,"Tools":[
+// {…,"_meta":{poison}}]}` — fold-only `Tools` sends it here, tools/list
+// hides the tool and drops `content`, and the client gets
+// `{"tools":null,"nextCursor":P}` where main's stdio BLOCKed the message.
+// Only `nextCursor`, which no scanner reads, leaks; the loss is evidence.
+// Accepted as a documented residual (Gary, 2026-10-02; Opus pass 3 on
+// #4053) and pinned by the `residual/…` row in
+// http_proxy_dispatch_parity_test.go. The fix that closes the class is to
+// run every scanner's detection on the ORIGINAL body and let any BLOCK win
+// before composing rewrites — that is #4165, not a chain-order change,
+// which only moves the pre-emption onto other key pairs.
 func (h *MessageHandler) runResponseFilterChain(data []byte) []byte {
+	var out []byte
 	for _, f := range h.responseFilterChain() {
-		if out := f(data); out != nil {
-			return out
+		if next := f(data); next != nil {
+			data, out = next, next
 		}
 	}
-	return nil
+	return out
 }
 
 // DispatchServerResponse routes an already-parsed server→client JSON-RPC
@@ -4557,8 +4711,13 @@ func (h *MessageHandler) runResponseFilterChain(data []byte) []byte {
 //
 // Callers must only invoke this for responses (msg.Method == "").
 func (h *MessageHandler) DispatchServerResponse(msg *Message, data []byte) []byte {
-	// Error responses: only the error-message scanner applies.
-	if msg.Error != nil {
+	// Error responses: only the error-message scanner applies — provided the
+	// envelope is a well-formed error response. JSON-RPC forbids `error` and
+	// `result` together, but a server can send both, and FilterErrorResponse
+	// deliberately rejects that shape; routing it to the error scanner alone
+	// forwarded a poisoned `result.tools` unscanned (Codex pass 1 on #4053,
+	// finding 3a). A malformed envelope is an ambiguous one: run the chain.
+	if msg.Error != nil && msg.Result == nil {
 		return h.FilterErrorResponse(data)
 	}
 	// A response with no result carries nothing to scan.
@@ -4569,57 +4728,155 @@ func (h *MessageHandler) DispatchServerResponse(msg *Message, data []byte) []byt
 	// Shallow-parse the result's top-level keys to discriminate the response
 	// type. Values stay as RawMessage (no deep decode) so this is cheap.
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(msg.Result, &fields); err != nil || len(fields) == 0 {
-		// Result is null, empty, or not an object — nothing shape-keyed to scan.
-		// Fall back to the chain so we never skip a scan that should have run.
+	if err := json.Unmarshal(msg.Result, &fields); err != nil || len(fields) == 0 || msg.Error != nil {
+		// Result is null, empty, or not an object — nothing shape-keyed to
+		// scan — or the envelope also carries `error` (see above). Fall back
+		// to the chain so we never skip a scan that should have run.
 		return h.runResponseFilterChain(data)
 	}
 
-	has := func(k string) bool { _, ok := fields[k]; return ok }
-	var matched []func([]byte) []byte
+	// A discriminator key counts only when it is present EXACTLY. A key that
+	// matches one only under case folding makes the whole envelope ambiguous.
+	//
+	// Both halves matter. The scanners decode with encoding/json, which
+	// matches struct fields case-insensitively, so FilterToolCallResponse
+	// accepts a result keyed `Content`; an exact-only discriminator let
+	// `{"tools":[],"Content":[poison]}` pick tools/list alone and forward the
+	// tool-call poison (Codex pass 1 on #4053, finding 3b). But folding the
+	// discriminator itself — treating `Tools` as `tools` — went too far the
+	// other way: a zero-discriminator envelope such as `{"Tools":[],"_meta":…}`
+	// used to run the full chain and now picked tools/list alone (Opus pass 2,
+	// finding 2). And strings.ToLower is not encoding/json's fold: it leaves
+	// U+017F (ſ) and U+212A (K) alone while the decoder, which uses
+	// bytes.EqualFold semantics, matches `ſtructuredContent` to
+	// StructuredContent (finding 3). strings.EqualFold applies the same simple
+	// Unicode folding, so a fold-only key is exactly a key some scanner would
+	// accept that the typed route cannot vouch for — hence the chain.
+	exact := func(k string) bool { _, ok := fields[k]; return ok }
+	foldOnly := func(d string) bool {
+		for k := range fields {
+			if k != d && strings.EqualFold(k, d) {
+				return true
+			}
+		}
+		return false
+	}
+	ambiguous := false
+	var matched []responseRoute
+	for _, r := range h.responseRoutes() {
+		all := true
+		for _, k := range r.keys {
+			if foldOnly(k) {
+				ambiguous = true
+			}
+			if !exact(k) {
+				all = false
+			}
+		}
+		if all {
+			matched = append(matched, r)
+		}
+	}
+	// FilterToolCallResponse has two discriminators; both routes point at it,
+	// so seeing both is one match, not two.
+	if len(matched) == 2 && matched[0].surface == matched[1].surface {
+		matched = matched[:1]
+	}
 
-	if has("protocolVersion") {
-		matched = append(matched, h.FilterInitializeResponse)
-	}
-	if has("tools") {
-		matched = append(matched, h.FilterToolsListResponse)
-	}
-	if has("content") || has("structuredContent") {
-		matched = append(matched, h.FilterToolCallResponse)
-	}
-	if has("contents") {
-		matched = append(matched, h.FilterResourceReadResponse)
-	}
-	if has("resources") {
-		matched = append(matched, h.FilterResourceListResponse)
-	}
-	if has("resourceTemplates") {
-		matched = append(matched, h.FilterResourceTemplatesListResponse)
-	}
-	if has("messages") {
-		matched = append(matched, h.FilterPromptsGetResponse)
-	}
-	if has("prompts") {
-		matched = append(matched, h.FilterPromptsListResponse)
-	}
-	if has("completion") {
-		matched = append(matched, h.FilterCompletionResponse)
-	}
-	if has("taskId") && has("status") {
-		matched = append(matched, h.FilterTaskGetResponse)
-	}
-	if has("tasks") {
-		matched = append(matched, h.FilterTaskListResponse)
-	}
-	if has("inputRequests") {
-		matched = append(matched, h.FilterInputRequiredResponse)
+	var out []byte
+	surface := "response"
+	if !ambiguous && len(matched) == 1 {
+		// Exactly one discriminator → scan with just that filter (the hot path).
+		out = matched[0].filter(data)
+		surface = matched[0].surface + "-response"
+	} else {
+		// Zero, multiple, or fold-only candidates → run the full ordered chain.
+		out = h.runResponseFilterChain(data)
 	}
 
-	// Exactly one discriminator → scan with just that filter (the hot path).
-	if len(matched) == 1 {
-		return matched[0](data)
+	// Result-level `_meta` is scanned here, once, for every result shape.
+	// Six scanners scan it themselves (#4072), and when main's HTTP relays
+	// still ran all thirteen filters on every message one of them always
+	// reached it; the typed route above skips those six for a tools/list,
+	// initialize, completion, tasks or input_required result, which forwarded
+	// `{"tools":[…],"_meta":{poison}}` on every transport (Opus pass 2,
+	// finding 1). The scan runs on what the route PRODUCED: a scanner that
+	// already blocked returned an error envelope with no result, so nothing is
+	// recorded twice; a scanner that rewrote the body left `_meta` in the
+	// rewrite, which is what the client would receive; a scanner that found
+	// nothing left the original, whose keys are already in hand.
+	metaFields := fields
+	if out != nil {
+		metaFields = shallowResultFields(out)
 	}
+	if repl := h.scanDispatchedMeta(metaFields, msg.ID, surface); repl != nil {
+		return repl
+	}
+	return out
+}
 
-	// Zero or multiple candidates → ambiguous; run the full ordered chain.
-	return h.runResponseFilterChain(data)
+// responseRoute pairs a result-shape discriminator with the one scanner that
+// owns that shape. Every key in keys must be present exactly for the route to
+// match. surface names the shape in audit entries written by the dispatcher
+// itself (the `_meta` scan); the scanners name their own.
+type responseRoute struct {
+	surface string
+	keys    []string
+	filter  func([]byte) []byte
+}
+
+// responseRoutes is the discriminator table DispatchServerResponse routes on.
+// A shape that is not here is not typed and always runs the chain.
+func (h *MessageHandler) responseRoutes() []responseRoute {
+	return []responseRoute{
+		{"initialize", []string{"protocolVersion"}, h.FilterInitializeResponse},
+		{MethodToolsList, []string{"tools"}, h.FilterToolsListResponse},
+		{MethodToolsCall, []string{"content"}, h.FilterToolCallResponse},
+		{MethodToolsCall, []string{"structuredContent"}, h.FilterToolCallResponse},
+		{MethodResourcesRead, []string{"contents"}, h.FilterResourceReadResponse},
+		{MethodResourcesList, []string{"resources"}, h.FilterResourceListResponse},
+		{MethodResourcesTemplatesList, []string{"resourceTemplates"}, h.FilterResourceTemplatesListResponse},
+		{MethodPromptsGet, []string{"messages"}, h.FilterPromptsGetResponse},
+		{MethodPromptsList, []string{"prompts"}, h.FilterPromptsListResponse},
+		{MethodCompletionComplete, []string{"completion"}, h.FilterCompletionResponse},
+		{MethodTasksGet, []string{"taskId", "status"}, h.FilterTaskGetResponse},
+		{"tasks/list", []string{"tasks"}, h.FilterTaskListResponse},
+		{"input_required", []string{"inputRequests"}, h.FilterInputRequiredResponse},
+	}
+}
+
+// shallowResultFields returns the top-level keys of body's result object, or
+// nil when body is not a JSON-RPC envelope whose result is an object (an
+// error envelope, a null result, an array).
+func shallowResultFields(body []byte) map[string]json.RawMessage {
+	var env struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil || len(env.Result) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(env.Result, &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
+// scanDispatchedMeta runs the shared result-level `_meta` scan over every
+// key encoding/json would decode into a Meta field — `_meta` exactly, and any
+// case-fold variant of it — and returns the BLOCK replacement on the first
+// poisoned one. The rule id is the surface-agnostic one main's chain attributed
+// these blocks to (FilterToolCallResponse decodes any result object, so it
+// was the scanner that reached `_meta` first); surface names the shape that
+// was actually on the wire.
+func (h *MessageHandler) scanDispatchedMeta(fields map[string]json.RawMessage, msgID *json.RawMessage, surface string) []byte {
+	for k, v := range fields {
+		if !strings.EqualFold(k, "_meta") {
+			continue
+		}
+		if repl := h.scanResultLevelMeta(v, msgID, surface, "mcp-response-meta-field-injection", "mcp-proxy-response-meta-scan"); repl != nil {
+			return repl
+		}
+	}
+	return nil
 }

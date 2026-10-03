@@ -64,7 +64,9 @@ const (
 	// `icons[].src` (MCP 2025-11-25) is a script scheme, a UNC/smb:/remote-file
 	// NTLM-leak source, or an active data: SVG. Hosts render icons when they
 	// draw the list, with no user action (#4062). Shares scanIconsFor with the
-	// tools/list check.
+	// tools/list check. Unlike every other signal in this block it is raised
+	// per entry by FilterResourceListResponse, not by ScanResourcesListResponse:
+	// it hides the carrying entry instead of blocking the list (#4159).
 	SignalResourceListIconUnsafeSource ResourceListSignal = "resource_list_icon_unsafe_source"
 )
 
@@ -119,14 +121,14 @@ func ScanResourcesListResponse(result *ResourcesListResult) ResourceListScanResu
 		if f := checkResourceMimeMismatch(resource.URI, resource.MIMEType); f != nil {
 			scanResult.Findings = append(scanResult.Findings, *f)
 		}
-		for _, f := range scanIconsFor("resource", resource.Icons) {
-			scanResult.Findings = append(scanResult.Findings, ResourceListFinding{
-				Signal: SignalResourceListIconUnsafeSource,
-				Detail: f.Detail,
-				URI:    f.Snippet,
-			})
-		}
+		// `icons` is not scanned here: every finding above blocks the whole
+		// list, while an unsafe icon hides the one entry that carries it, with
+		// its own receipt, in FilterResourceListResponse (#4159).
 		scanResult.Findings = append(scanResult.Findings, checkResourceEntryMetadata(resource.Name, resource.Description)...)
+		// Title is display text a host renders beside the name (#4159).
+		if f := scanMetadataField("title", resource.Title); f != nil {
+			scanResult.Findings = append(scanResult.Findings, *f)
+		}
 	}
 
 	scanResult.Blocked = len(scanResult.Findings) > 0

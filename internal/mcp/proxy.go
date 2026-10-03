@@ -159,6 +159,12 @@ func (p *Proxy) proxyClientToServer(clientReader io.Reader, serverWriter io.Writ
 		if IsBatch(line) {
 			msgs, err := ParseBatch(line)
 			if err != nil {
+				// Unparseable batch: nesting past the decoder limit is blocked,
+				// anything else is forwarded with a receipt (#4158).
+				if blocked, errResp := p.handler.ScreenParseFailure(parseTransportStdio, parseDirClientToServer, line, err); blocked {
+					writeLineToWriter(clientWriter, errResp)
+					continue
+				}
 				_, _ = fmt.Fprintf(p.stderr, "[AgentShield MCP] warning: failed to parse batch, forwarding: %v\n", err)
 				writeLineToWriter(serverWriter, line)
 				continue
@@ -174,7 +180,12 @@ func (p *Proxy) proxyClientToServer(clientReader io.Reader, serverWriter io.Writ
 
 		msg, kind, err := ParseMessage(line)
 		if err != nil {
-			// Can't parse — forward as-is (fail open)
+			// Can't parse: nesting past the decoder limit is blocked, anything
+			// else is forwarded as-is (fail open) with a receipt (#4158).
+			if blocked, errResp := p.handler.ScreenParseFailure(parseTransportStdio, parseDirClientToServer, line, err); blocked {
+				writeLineToWriter(clientWriter, errResp)
+				continue
+			}
 			_, _ = fmt.Fprintf(p.stderr, "[AgentShield MCP] warning: failed to parse message, forwarding: %v\n", err)
 			writeLineToWriter(serverWriter, line)
 			continue
@@ -259,7 +270,13 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 
 		msg, kind, err := ParseMessage(line)
 		if err != nil {
-			// Unparseable — forward as-is (fail open), matching legacy behavior.
+			// Unparseable: nesting past the decoder limit is replaced by a
+			// parse error, anything else is forwarded as-is (fail open) with a
+			// receipt when the line is shaped like a message (#4158).
+			if blocked, errResp := p.handler.ScreenRelayedParseFailure(parseTransportStdio, parseDirServerToClient, line, err); blocked {
+				writeLineToWriter(clientWriter, errResp)
+				continue
+			}
 			writeLineToWriter(clientWriter, line)
 			continue
 		}

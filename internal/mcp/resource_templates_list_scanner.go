@@ -50,6 +50,9 @@ const (
 	// SignalResourceTemplatesListIconUnsafeSource indicates a template whose
 	// `icons[].src` (MCP 2025-11-25) is a script scheme, an NTLM-leak source or
 	// an active data: SVG; same check as the tools/list icon signal (#4062).
+	// Raised per entry by FilterResourceTemplatesListResponse, not by
+	// ScanResourcesTemplatesListResponse: it hides the carrying template
+	// instead of blocking the list (#4159).
 	SignalResourceTemplatesListIconUnsafeSource ResourceTemplatesListSignal = "resource_templates_list_icon_unsafe_source"
 )
 
@@ -116,13 +119,13 @@ func ScanResourcesTemplatesListResponse(result *ResourcesTemplatesListResult) Re
 		out.Findings = append(out.Findings, checkTemplateVarnames(tmpl.URITemplate)...)
 		out.Findings = append(out.Findings, checkTemplateSensitiveExpansion(tmpl.URITemplate)...)
 		out.Findings = append(out.Findings, checkTemplateMetadata(tmpl.Name, tmpl.Description)...)
-		for _, f := range scanIconsFor("resource template", tmpl.Icons) {
-			out.Findings = append(out.Findings, ResourceTemplatesListFinding{
-				Signal:      SignalResourceTemplatesListIconUnsafeSource,
-				Detail:      f.Detail,
-				URITemplate: f.Snippet,
-			})
+		// Title is display text a host renders beside the name (#4159).
+		if f := scanTemplateMetadataField("title", tmpl.Title); f != nil {
+			out.Findings = append(out.Findings, *f)
 		}
+		// `icons` is not scanned here: every finding above blocks the whole
+		// list, while an unsafe icon hides the one template that carries it,
+		// with its own receipt, in FilterResourceTemplatesListResponse (#4159).
 	}
 	out.Blocked = len(out.Findings) > 0
 	return out

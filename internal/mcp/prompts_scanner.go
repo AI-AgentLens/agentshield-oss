@@ -93,15 +93,13 @@ func ScanPromptsListDescriptions(result *ListPromptsResult) PromptsScanResult {
 		// instruction tag injects directly into the listing context the LLM reads.
 		scanPromptIdentifier(&scanResult, prompt.Name, "prompt["+prompt.Name+"].name")
 
-		for _, f := range scanIconsFor("prompt", prompt.Icons) {
-			scanResult.Findings = append(scanResult.Findings, PromptFinding{
-				Signal:  SignalPromptIconUnsafeSource,
-				Detail:  f.Detail,
-				Field:   "prompt[" + prompt.Name + "].icons",
-				Snippet: f.Snippet,
-			})
-		}
+		// `icons` is not scanned here: an unsafe icon hides the one prompt that
+		// carries it, with its own receipt, in FilterPromptsListResponse (#4159).
 
+		// Title is display text a host renders beside the name (#4159).
+		if prompt.Title != "" {
+			scanPromptsField(&scanResult, prompt.Title, "prompt["+prompt.Name+"].title")
+		}
 		if prompt.Description != "" {
 			field := "prompt[" + prompt.Name + "].description"
 			scanPromptsField(&scanResult, prompt.Description, field)
@@ -112,6 +110,9 @@ func ScanPromptsListDescriptions(result *ListPromptsResult) PromptsScanResult {
 			// Argument NAMES are identifiers the agent binds values to; a confusable
 			// or invisible char here lets a malicious server shadow a benign argument.
 			scanPromptIdentifier(&scanResult, arg.Name, "prompt["+prompt.Name+"].arguments["+arg.Name+"].name")
+			if arg.Title != "" {
+				scanPromptsField(&scanResult, arg.Title, "prompt["+prompt.Name+"].arguments["+arg.Name+"].title")
+			}
 			if arg.Description != "" {
 				field := "prompt[" + prompt.Name + "].arguments[" + arg.Name + "].description"
 				scanPromptsField(&scanResult, arg.Description, field)
