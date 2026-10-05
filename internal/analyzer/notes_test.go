@@ -6,6 +6,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -162,6 +163,7 @@ func TestNotes_ExcusedProbeDoesNotFire(t *testing.T) {
 // TriggeredRules, and the decision must not be BLOCK. A bash comment naming
 // an MCP config write is the excused shape (is_bash_comment).
 func TestNotes_ExcusedRuleIsNotedAndNotTriggered(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	engine := newPipelineEngine(t)
 	const rule = "sc-block-mcp-config-injection"
 	cmd := "# echo x > ~/.cursor/" + "mcp" + ".json"
@@ -230,6 +232,7 @@ func TestNotes_FallbackExcusalOnNormalizedForm(t *testing.T) {
 // not the rule's whole configured list — an auditor must be able to tell
 // "was a comment" from "was self-management".
 func TestNotes_DetailNamesTheLabelThatApplied(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	engine := newPipelineEngine(t)
 	cases := []struct {
 		name, cmd, rule, kind, detail string

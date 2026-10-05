@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer/testdata"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestWrapperValueFlagParity is the fitness function for issue #3221, the
@@ -25,6 +26,7 @@ import (
 // touching anything — a rise in BOTH is a wrapper-transparency regression
 // (#3057's problem), a rise in only the value-flag column is this one.
 func TestWrapperValueFlagParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	// The residue is the same multi-statement residue TestExecWrapperParity
 	// documents: a prefix wraps only the FIRST statement, so for

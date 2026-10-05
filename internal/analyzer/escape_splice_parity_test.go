@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestEscapeSpliceParity is the fitness function for issue #3208: a
@@ -38,6 +40,7 @@ import (
 // tilde exclusion in TestUnsetParamExpParity guard against: the mutation
 // changes what the command DOES, so it isn't evidence of anything.
 func TestEscapeSpliceParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

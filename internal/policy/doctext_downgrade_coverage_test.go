@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // doctextDowngradeBaseline is the residue file for
@@ -94,6 +96,7 @@ func readDoctextDowngradeBaseline(t *testing.T, path string) map[string]bool {
 // The baseline only shrinks: an unlabelled rule missing from it fails, and so
 // does a baseline line whose rule is now labelled or no longer exists.
 func TestBlockShellRulesCarryDocTextDowngrade(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	// Pack rules only: the built-in DefaultPolicy rules (block-rm-root,
 	// block-pipe-to-shell) are Go-defined and outside the pack corpus #3963
 	// measured.
@@ -155,6 +158,7 @@ func TestBlockShellRulesCarryDocTextDowngrade(t *testing.T) {
 // file, where the echo argument IS the attack) passes it silently. A case that
 // is meant to fire-then-downgrade belongs in tests.attested:, not tp:.
 func TestDocTextDowngradeKeepsInlineTPsAtBlock(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadAllRules(t)
 	engine, err := NewEngine(&Policy{Rules: rules})
 	if err != nil {

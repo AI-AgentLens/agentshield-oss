@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -68,6 +69,7 @@ func TestExtractFetchResource_ArgNameSeparatorEvasion(t *testing.T) {
 // against the built binary (5 enumerable fetches BLOCK with an ASCII `url`
 // key, and were merely AUDITed with one trailing U+00A0 before this fix).
 func TestHandleToolCall_FetchEnumerablePattern_ArgNameSeparatorEvasion(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	names := []string{"char-a", "char-p", "char-i", "char-e", "char-r"}
 	if len(names) != fetchDiversityEnumerableThreshold {
 		t.Fatalf("test setup: need exactly %d names, got %d", fetchDiversityEnumerableThreshold, len(names))
@@ -247,6 +249,7 @@ func TestArgString_ArgNameSeparatorEvasion(t *testing.T) {
 // live before the fix (agentshield mcp-proxy, fetch_url → extract_zip →
 // ipython): BLOCK with an ASCII `url` key, AUDIT with one trailing U+00A0.
 func TestMCPSequenceRule_ArchiveChain_ArgNameSeparatorEvasion(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
 
 	rules := loadPremiumPackRules(t, "mcp-supply-chain-premium.yaml")
@@ -461,6 +464,7 @@ func TestArgFieldRecovered_CollisionReturnsAllCandidatesDeterministically(t *tes
 // — a silent behaviour change (#3727 finding 1). The narrow resolver restores
 // exact-only ASCII behaviour: `URL` must NOT fire the chain.
 func TestSequenceArchiveChain_ASCIICaseDoesNotActivate(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
 	rules := loadPremiumPackRules(t, "mcp-supply-chain-premium.yaml")
 	chain := findRuleByID(t, rules, ruleID)
@@ -497,6 +501,7 @@ func TestSequenceArchiveChain_ASCIICaseDoesNotActivate(t *testing.T) {
 // step predicate now tests EVERY resolved candidate, the chain fires on the
 // malicious spelling regardless of which the map yields first, on every run.
 func TestSequenceArchiveChain_CollisionFiresDeterministically(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
 	rules := loadPremiumPackRules(t, "mcp-supply-chain-premium.yaml")
 	chain := findRuleByID(t, rules, ruleID)
@@ -573,6 +578,7 @@ func TestArgFieldRecovered_DisguisePreservesCaseAndConvention(t *testing.T) {
 // archive-chain BLOCK (the pass-2 regression), while a disguised exact `url`+ZWJ
 // and a pure `url`+NBSP still MUST.
 func TestSequenceArchiveChain_DisguisedCaseDoesNotActivate(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
 	rules := loadPremiumPackRules(t, "mcp-supply-chain-premium.yaml")
 	chain := findRuleByID(t, rules, ruleID)

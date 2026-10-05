@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -32,6 +33,7 @@ import (
 // never lower one. Probes whose quoting would change the command's meaning are
 // skipped and counted, so the denominator is printed rather than implied.
 func TestDocTextDowngradeCannotBeLaundered(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	engine := newPipelineEngine(t)
 	pol := loadTestPolicy(t)

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Install configs and hosts are assembled at runtime; the hook reads test
@@ -193,6 +195,7 @@ func TestElicitationURL_BenignTraffic(t *testing.T) {
 // decision, the sentinel rule id, the taxonomy node on the event, and the url
 // and mode in the receipt.
 func TestElicitationURL_HandlerAttributionAndReceipt(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	var events []AuditEntry
 	h := &MessageHandler{
 		Evaluator: NewPolicyEvaluator(&MCPPolicy{Rules: loadPremiumPackRules(t, "mcp-sentinel.yaml")}),
@@ -378,6 +381,7 @@ func TestElicitationURL_OpusReviewFindings(t *testing.T) {
 // request BLOCKs, an AUDIT-tier sentinel that also fired is not attributed on
 // the event (Opus review of #4061, surviving mutation M2).
 func TestElicitationURL_BlockEventCarriesNoAuditSentinel(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	var events []AuditEntry
 	h := &MessageHandler{
 		Evaluator: NewPolicyEvaluator(&MCPPolicy{Rules: loadPremiumPackRules(t, "mcp-sentinel.yaml")}),
@@ -400,5 +404,64 @@ func TestElicitationURL_BlockEventCarriesNoAuditSentinel(t *testing.T) {
 	}
 	if !install || weak {
 		t.Errorf("rules %v: want the install sentinel and not the weak one", events[0].TriggeredRules)
+	}
+}
+
+// TestElicitationURL_NestingBeyondCapAudits (#4065 item 3): the install-link
+// search follows maxDeeplinkNesting levels. A target nested deeper used to
+// decide ALLOW, so the cap was a free bypass; it now leaves an AUDIT receipt.
+func TestElicitationURL_NestingBeyondCapAudits(t *testing.T) {
+	nest := func(levels int) string {
+		u := "https://example.com/done"
+		for i := 0; i < levels; i++ {
+			u = "https://example.com/r?next=" + url.QueryEscape(u)
+		}
+		return u
+	}
+	within := ScanElicitationCreate(urlElicitation(nest(maxDeeplinkNesting)))
+	if within.Blocked || within.Audited {
+		t.Errorf("nesting at the cap must stay ALLOW: %+v", within)
+	}
+	beyond := ScanElicitationCreate(urlElicitation(nest(maxDeeplinkNesting + 2)))
+	if beyond.Blocked || !beyond.Audited || len(findingsBySignal(beyond, SignalElicitationURLWeakTarget)) == 0 {
+		t.Errorf("nesting beyond the cap: want AUDIT with %s, got %+v", SignalElicitationURLWeakTarget, beyond)
+	}
+	// An install link inside the cap still BLOCKs, not downgraded to the audit.
+	inner := "vscode:mcp/install?" + url.QueryEscape(evilStdioCfg)
+	u := inner
+	for i := 0; i < maxDeeplinkNesting; i++ {
+		u = "https://example.com/r?next=" + url.QueryEscape(u)
+	}
+	if r := ScanElicitationCreate(urlElicitation(u)); !r.Blocked {
+		t.Errorf("install link at depth %d must BLOCK: %+v", maxDeeplinkNesting, r)
+	}
+}
+
+// TestElicitationURL_NestingCapCannotPreemptUnsafeTarget: the cap AUDIT from
+// #4190 was returned before the unsafe-target checks, so padding a BLOCK-tier
+// target's query with nested URLs past the cap decided AUDIT and attested to
+// the weak-target sentinel. The scheme and userinfo verdicts do not depend on
+// what the query nests, so they must win.
+func TestElicitationURL_NestingCapCannotPreemptUnsafeTarget(t *testing.T) {
+	pad := "https://example.com/done"
+	for i := 0; i < maxDeeplinkNesting+2; i++ {
+		pad = "https://example.com/r?next=" + url.QueryEscape(pad)
+	}
+	pad = url.QueryEscape(pad)
+	for _, base := range []string{
+		"javascript:void(0)//?next=",
+		"data:text/html,hi?next=",
+		"file://attacker.example/share/x?next=",
+		"smb://attacker.example/share?next=",
+		"https://github.com@auth-github.example/login?next=",
+	} {
+		control := ScanElicitationCreate(urlElicitation(base + "x"))
+		if !control.Blocked {
+			t.Fatalf("control %q must BLOCK unpadded: %+v", base, control)
+		}
+		r := ScanElicitationCreate(urlElicitation(base + pad))
+		if !r.Blocked || len(findingsBySignal(r, SignalElicitationURLUnsafeTarget)) == 0 {
+			t.Errorf("%q padded past the nesting cap: want BLOCK with %s, got %+v", base, SignalElicitationURLUnsafeTarget, r)
+		}
 	}
 }

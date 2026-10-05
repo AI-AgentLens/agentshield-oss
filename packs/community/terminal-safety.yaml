@@ -7288,7 +7288,7 @@ rules:
     tn:
     - curl https://api.slack.com/api/conversations.list
 - id: ts-block-base64-decode-pipe-shell
-  taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  taxonomy: unauthorized-execution/obfuscation/interpreter-encoding-evasion
   match:
     command_regex: base64\s+(--decode|-d)\s*\|\s*(ba?sh|zsh|ksh|dash|sh\b)|\|\s*base64\s+(--decode|-d)\s*\|\s*(ba?sh|zsh|ksh|dash|sh\b)
     command_intent_downgrade: [is_doc_text, in_heredoc]
@@ -7302,7 +7302,7 @@ rules:
     tn:
     - base64 -d < encoded.txt > decoded.bin
 - id: ts-block-eval-base64-substitution
-  taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  taxonomy: unauthorized-execution/obfuscation/interpreter-encoding-evasion
   match:
     command_regex: eval\s+["']?\$\(\s*(echo\s+.*\||cat\s+\S+\s+\|)?\s*base64\s+(--decode|-d)
     command_intent_downgrade: [is_doc_text, in_heredoc]
@@ -7316,7 +7316,7 @@ rules:
     tn:
     - base64 -d < file.b64 > output.bin
 - id: ts-block-xxd-hex-pipe-shell
-  taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  taxonomy: unauthorized-execution/obfuscation/interpreter-encoding-evasion
   match:
     command_regex: \bxxd\s+(-r\s+-p|-p\s+-r|--reverse).*\|\s*(ba?sh|zsh|ksh|dash|sh\b|fish)|\|\s*xxd\s+(-r\s+-p|-p\s+-r|--reverse)\s*\|\s*(ba?sh|zsh|ksh|dash|sh\b|fish)
     command_intent_downgrade: [is_doc_text, in_heredoc]
@@ -7330,7 +7330,7 @@ rules:
     tn:
     - xxd -r -p input.hex > output.bin
 - id: ts-block-openssl-decode-pipe-shell
-  taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+  taxonomy: unauthorized-execution/obfuscation/interpreter-encoding-evasion
   match:
     command_regex: openssl\s+(enc\s+)?(-[a-z0-9-]+\s+)*-d\b.*\|\s*(ba?sh|zsh|ksh|dash|sh\b|fish)|\|\s*openssl\s+(enc\s+)?(-[a-z0-9-]+\s+)*-d\b.*\|\s*(ba?sh|zsh|ksh|dash|sh\b|fish)
     command_intent_downgrade: [is_doc_text, in_heredoc]

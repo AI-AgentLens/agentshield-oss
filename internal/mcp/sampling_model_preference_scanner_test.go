@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Injection-shaped fixtures are assembled from fragments rather than written
@@ -324,6 +326,7 @@ func TestModelPreferences_MalformedShapesProduceNothing(t *testing.T) {
 // with no sentinel rule produces an audit event with no rule id and no
 // taxonomy ref, the one shape the attestation chain cannot represent.
 func TestModelPreferenceSignalsHaveSentinels(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	engine := NewPolicyEvaluator(&MCPPolicy{Rules: loadPremiumPackRules(t, "mcp-sentinel.yaml")})
 	for _, sig := range []ModelPreferenceSignal{
 		SignalSamplingUnalignedModelHint,
@@ -351,6 +354,7 @@ func TestModelPreferenceSignalsHaveSentinels(t *testing.T) {
 // because a scanner nothing calls is a failure mode this repo has shipped
 // before.
 func TestHandleSampling_ModelPreferencesReachTheDecision(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	newHandler := func(onAudit func(AuditEntry)) *MessageHandler {
 		return &MessageHandler{
 			Evaluator: NewPolicyEvaluator(&MCPPolicy{Rules: loadPremiumPackRules(t, "mcp-sentinel.yaml")}),

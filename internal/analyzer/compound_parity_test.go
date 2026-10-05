@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestCompoundWrappingParity is a fitness function for issue #3045.
@@ -24,6 +25,7 @@ import (
 // whatever passes today. Ratchet it DOWN as the remaining cases are fixed;
 // never up without recording why here.
 func TestCompoundWrappingParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	// Both items of prior known residue are now resolved (#3047):
 	//   - "cat /dev/zero > /dev/sda" under `if` was fixed at the root: the

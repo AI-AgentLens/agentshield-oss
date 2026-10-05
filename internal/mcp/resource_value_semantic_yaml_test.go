@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // loadMCPPolicyFromDir parses every pack YAML file in dir into an MCPPolicy
@@ -98,6 +100,7 @@ func TestMCPResourceRuleYAMLTests(t *testing.T) {
 // TestPremiumMCPResourceRuleYAMLTests mirrors TestMCPResourceRuleYAMLTests for
 // packs/premium/mcp.
 func TestPremiumMCPResourceRuleYAMLTests(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	runResourceRuleYAMLTests(t, loadResourceRulesFromDir(t, premiumMCPPacksDir()), knownResourceValueSemanticTestGaps)
 }
 
@@ -153,6 +156,7 @@ func TestMCPValueLimitRuleYAMLTests(t *testing.T) {
 // TestPremiumMCPValueLimitRuleYAMLTests mirrors TestMCPValueLimitRuleYAMLTests
 // for packs/premium/mcp.
 func TestPremiumMCPValueLimitRuleYAMLTests(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	runValueLimitRuleYAMLTests(t, loadValueLimitsFromDir(t, premiumMCPPacksDir()), knownResourceValueSemanticTestGaps)
 }
 
@@ -209,6 +213,7 @@ func TestMCPSemanticRuleYAMLTests(t *testing.T) {
 // TestPremiumMCPSemanticRuleYAMLTests mirrors TestMCPSemanticRuleYAMLTests for
 // packs/premium/mcp.
 func TestPremiumMCPSemanticRuleYAMLTests(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	runSemanticRuleYAMLTests(t, loadSemanticRulesFromDir(t, premiumMCPPacksDir()), knownResourceValueSemanticTestGaps)
 }
 

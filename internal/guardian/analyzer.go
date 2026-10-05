@@ -203,9 +203,10 @@ func signalToTaxonomy(sig Signal) string {
 		return "persistence-evasion/defense-evasion/security-tool-tampering"
 	case "obfuscated_base64", "obfuscated_hex", "obfuscated_decoder_eval":
 		// Closest real node for "encoded payload shape that hides intent from
-		// static/regex detection" (its own worked examples are pack('H*')/
-		// bytes.fromhex() reconstruction, not literal base64 — an approximation,
-		// not an exact fit; no node covers the bare encoding-presence signal).
+		// static/regex detection". Its prose covers decode-then-execute
+		// (interpreter APIs, base64/xxd/openssl decoders piped into a shell,
+		// JSFuck); these signals fire on encoding PRESENCE, so this is still an
+		// approximation — no node covers the bare encoding-presence signal.
 		return "unauthorized-execution/obfuscation/interpreter-encoding-evasion"
 	case "eval_risk":
 		// matchesEvalRisk fires specifically on eval(/exec( inside an

@@ -3,6 +3,7 @@ package mcp
 import (
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -133,6 +134,7 @@ func TestIsInfraMutationTool(t *testing.T) {
 // rule (mcp-agentic-audit-lateral-write-after-untrusted-ingest) resolves to
 // AUDIT when the tracker injects the synthetic tool name.
 func TestLateralWriteRule_EvaluatesAudit(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-lateral-write-after-untrusted-ingest"
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
 	var rule *MCPRule

@@ -1,0 +1,28 @@
+# CI for the public agentshield-oss repo. Ships there via OSS_INCLUDES in
+# scripts/oss-excludes.sh; in this repo the job-level guard skips it.
+#
+# GitHub-hosted runners only. The org's self-hosted runners are on the SaaS VM,
+# and a public repo must never be able to reach them.
+name: OSS CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.repository == 'AI-AgentLens/agentshield-oss'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./... -count=1 -timeout 30m

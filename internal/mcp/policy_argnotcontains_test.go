@@ -3,6 +3,7 @@ package mcp
 import (
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -83,6 +84,7 @@ func TestArgumentNotContains_ArraySerialization(t *testing.T) {
 // it fails if argument_not_contains is removed/broken, which the decision-level
 // scenario harness (AUDIT either way, dominated by the all-sends rule) cannot catch.
 func TestBulkEmailUndisclosed_InSitu(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	handler := newTestMCPHandler(t)
 	evaluator := handler.Evaluator
 	if evaluator == nil {

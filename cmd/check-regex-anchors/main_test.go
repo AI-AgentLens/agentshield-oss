@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // ---------------------------------------------------------------------------
@@ -312,6 +314,7 @@ func TestWriteBaseline_RoundTrips(t *testing.T) {
 // length. The corpus held 1377 command_regex values on introduction
 // (2026-09-15); the floor is deliberately well below that.
 func TestLiveCorpusMatchesCheckedInBaseline(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	sites, err := collect("../../packs")
 	if err != nil {
 		t.Fatalf("collect: %v", err)

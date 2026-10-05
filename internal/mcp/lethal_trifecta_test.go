@@ -3,6 +3,7 @@ package mcp
 import (
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -106,6 +107,7 @@ func TestClassifyTrifectaCaps(t *testing.T) {
 // rule (mcp-agentic-audit-lethal-trifecta-session-composite) resolves to AUDIT
 // when the tracker injects the synthetic tool name.
 func TestLethalTrifectaRule_EvaluatesAudit(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-lethal-trifecta-session-composite"
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
 	var rule *MCPRule

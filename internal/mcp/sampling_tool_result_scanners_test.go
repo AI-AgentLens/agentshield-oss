@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Payloads are assembled at runtime for the same reason as in
@@ -30,6 +31,7 @@ import (
 // and two AUDIT-tier rows so widening the tier to r.Found goes red.
 // Control-first: every block row must block on tools/call.
 func TestSamplingToolResultRunsTypedScanners(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h := newSamplingToolLoopHandler(t, nil)
 	keyID := "AKIA" + "Z3MHQ7RLPD5WX2KJ"
 	secret := "wJalrXUtnFEMI" + "/K7MDENG/bPxRfiCYzK9vQ2mN8pA"
@@ -97,6 +99,7 @@ func TestSamplingToolResultRunsTypedScanners(t *testing.T) {
 // this table being updated, which is the design change #4130 asks for and
 // should be recorded as such.
 func TestSamplingToolResultKnownGaps4130(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	keyID := "AKIA" + "Z3MHQ7RLPD5WX2KJ"
 	secret := "wJalrXUtnFEMI" + "/K7MDENG/bPxRfiCYzK9vQ2mN8pA"
 	plain := func() *MessageHandler { return newSamplingToolLoopHandler(t, nil) }

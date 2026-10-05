@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/base64"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,9 +33,12 @@ import (
 // surface a finding hides only the entry that carries it, and that entry
 // gets its own receipt (MessageHandler.hideIconCarrier, #4159); serverInfo
 // has no entry to hide, so there the handshake is blocked. The AUDIT half of
-// #4062 (http(s) icons to link-local / RFC1918 hosts) is deliberately not
-// here: a finding hides the entry, and an internal-network icon has a
-// legitimate reading.
+// #4062 (http(s) icons to link-local / RFC1918 hosts, scanIconsInternal) is a
+// receipt only on tools, prompts, resources and templates: a finding never
+// hides the entry, because an internal-network icon has a legitimate reading.
+// serverInfo gets the receipt on the initialize event
+// (FilterInitializeResponse). Not covered yet: resource_link (no receipt-only
+// path there).
 
 // SignalIconUnsafeSource flags a tool icon whose src executes script or makes
 // the host resolve an SMB/remote-file path while rendering the list. BLOCK.
@@ -232,3 +236,99 @@ func svgDataActive(rest string) bool {
 
 // SignalPromptIconUnsafeSource is the prompts/list form of the icon check.
 const SignalPromptIconUnsafeSource NotificationSignal = "prompt_icon_unsafe_source"
+
+// internalIconHost returns the host of an http(s) icon src that names the
+// user's own network: a link-local or cloud-metadata address, an RFC1918 or
+// unique-local address, or the GCP metadata name. The host fetches it from the
+// user's machine when it renders the list, so a server can probe the internal
+// network by GET (#4062). Loopback is excluded: a local stdio server may
+// legitimately serve its own icons. AUDIT only — the entry is never hidden,
+// because an internal icon has a legitimate reading (a corporate icon CDN).
+func internalIconHost(src string) string {
+	s := normalizeElicitationURL(src)
+	m := urlSchemeRE.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	if sc := strings.ToLower(m[1]); sc != "http" && sc != "https" {
+		return ""
+	}
+	host := splitWebURL(s[len(m[0]):]).host
+	if host == "metadata.google.internal" {
+		return host
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		ip = whatwgIPv4(host)
+	}
+	if ip == nil || ip.IsLoopback() {
+		return ""
+	}
+	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return host
+	}
+	return ""
+}
+
+// scanIconsInternal returns one AUDIT-tier finding per icon src that names an
+// internal-network host. Findings reuse SignalIconUnsafeSource's sentinel for
+// attribution but are never a reason to hide an entry.
+func scanIconsInternal(owner string, icons []ToolIcon) []PoisonFinding {
+	var out []PoisonFinding
+	for _, ic := range icons {
+		if host := internalIconHost(ic.Src); host != "" {
+			out = append(out, PoisonFinding{
+				Signal:  SignalIconUnsafeSource,
+				Detail:  owner + " icon src fetches from internal-network host " + host + " when the list renders (a GET from the user's machine into its own network)",
+				Snippet: truncateURL(normalizeElicitationURL(ic.Src)),
+			})
+		}
+	}
+	return out
+}
+
+// whatwgIPv4 parses a host the way a browser's URL parser does when it ends in
+// a number: 1-4 dot-separated parts, each decimal, 0x-hex or 0-leading octal,
+// the last part filling the remaining bytes (`2852039166`, `0xa9fea9fe`,
+// `169.254.43774`, `0251.0376.0251.0376`). net.ParseIP accepts only the
+// dotted-decimal form, so every other spelling of an internal address read as
+// a hostname (#4062). Returns nil when the host is not a number.
+func whatwgIPv4(host string) net.IP {
+	parts := strings.Split(host, ".")
+	if len(parts) > 1 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) == 0 || len(parts) > 4 {
+		return nil
+	}
+	nums := make([]uint64, len(parts))
+	for i, p := range parts {
+		base := 10
+		switch {
+		case len(p) >= 2 && (p[:2] == "0x" || p[:2] == "0X"):
+			p, base = p[2:], 16
+			if p == "" {
+				p = "0"
+			}
+		case len(p) >= 2 && p[0] == '0':
+			p, base = p[1:], 8
+		}
+		n, err := strconv.ParseUint(p, base, 32)
+		if err != nil {
+			return nil
+		}
+		nums[i] = n
+	}
+	last := len(nums) - 1
+	if nums[last] >= 1<<(8*uint(4-last)) {
+		return nil
+	}
+	v := nums[last]
+	for i, n := range nums[:last] {
+		if n > 255 {
+			return nil
+		}
+		v += n << (8 * uint(3-i))
+	}
+	return net.IPv4(byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}

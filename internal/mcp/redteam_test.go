@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"gopkg.in/yaml.v3"
 )
@@ -79,6 +80,7 @@ func redTeamPolicy() *MCPPolicy {
 }
 
 func TestRedTeamMCP(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	cases := loadMCPRedTeamCases(t)
 	evaluator := NewPolicyEvaluator(redTeamPolicy())
 

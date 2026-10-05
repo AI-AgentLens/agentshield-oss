@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer/testdata"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestWrapperPositionalParity is the fitness function for issue #3227, the
@@ -38,6 +39,7 @@ import (
 // floor, the exclusion stopped being real and the comment explaining it is now
 // a lie.
 func TestWrapperPositionalParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	// Same multi-statement residue TestExecWrapperParity and
 	// TestWrapperValueFlagParity document: a prefix wraps only the FIRST
 	// statement, so for "P1=~/.ssh; cat $P1/id_rsa" the prefixed form genuinely

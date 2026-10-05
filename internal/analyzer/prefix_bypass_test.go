@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -75,6 +76,7 @@ const prefixBypassBaselineFile = "prefix_bypass_baseline.txt"
 const prefixBypassFloor = 40
 
 func TestPrefixBypassRatchet(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 
 	pol := loadTestPolicy(t)

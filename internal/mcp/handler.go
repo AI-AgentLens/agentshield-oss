@@ -1902,6 +1902,7 @@ func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
 	clean := make([]PromptDefinition, 0, total)
 	hidden := make(map[int]bool)
 	for i, prompt := range result.Prompts {
+		h.auditInternalIcons("prompt", entryLabel(prompt.Name, "", MethodPromptsList), "mcp-proxy-prompts-scan", prompt.Icons)
 		if icon := scanIconsFor("prompt", prompt.Icons); len(icon) > 0 {
 			hidden[i] = true
 			h.hideIconCarrier("prompt", entryLabel(prompt.Name, "", MethodPromptsList), "mcp-proxy-prompts-scan", string(SignalPromptIconUnsafeSource), icon)
@@ -2248,6 +2249,7 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	var clean []ToolDefinition
 	removed := 0
 	for _, tool := range listResult.Tools {
+		h.auditInternalIcons("tool", entryLabel(tool.Name, "", "tools/list"), "mcp-proxy-description-scan", tool.Icons)
 		scanResult := ScanToolDescription(tool)
 		if scanResult.Poisoned {
 			removed++
@@ -2674,6 +2676,13 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 	}
 
 	scan := ScanInitializeResponse(&result)
+
+	// Receipt only (#4062): serverInfo icons that fetch from the internal
+	// network. The handshake decision is untouched, and a BLOCK already
+	// carries its own event.
+	if result.ServerInfo != nil && scan.Decision != "BLOCK" {
+		h.auditInternalIcons("serverInfo", "initialize", "mcp-proxy-handshake-scanner", result.ServerInfo.Icons)
+	}
 
 	if scan.Decision == "ALLOW" {
 		return nil
@@ -3280,8 +3289,17 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 			if sent := h.Evaluator.LookupSentinel("mcp-response-non-text-content"); sent != nil {
 				triggeredRules = append(triggeredRules, sent.ID)
 			}
+			taxRef := h.sentinelTaxonomyRef("mcp-response-non-text-content")
 			for _, f := range ntResult.Findings {
 				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+				// An icon finding is the same detection as on the listing
+				// surfaces: cite their sentinel and node (one detection, one node).
+				if f.Signal == SignalNonTextIconUnsafeSource {
+					if sent := h.Evaluator.LookupSentinel("mcp-desc-icon-unsafe-source"); sent != nil {
+						triggeredRules = append(triggeredRules, sent.ID)
+						taxRef = h.sentinelTaxonomyRef("mcp-desc-icon-unsafe-source")
+					}
+				}
 			}
 			h.OnAudit(AuditEntry{
 				Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -3292,12 +3310,20 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 				Reasons:        reasons,
 				Source:         "mcp-proxy-non-text-content-scan",
 				ServerName:     h.ServerName,
-				TaxonomyRef:    h.sentinelTaxonomyRef("mcp-response-non-text-content"),
+				TaxonomyRef:    taxRef,
 			})
 		}
 		replacement, replErr := NewBlockResponse(msg.ID, reason)
 		if replErr == nil {
 			return replacement
+		}
+	} else {
+		// Receipt only (#4062): a resource_link icon that fetches from the
+		// internal network. The result is forwarded unchanged.
+		for _, item := range callResult.Content {
+			if item.Type == "resource_link" {
+				h.auditInternalIcons("resource_link", entryLabel(item.URI, item.Name, "tools/call"), "mcp-proxy-non-text-content-scan", item.Icons)
+			}
 		}
 	}
 
@@ -3899,6 +3925,7 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 	total := len(listResult.Resources)
 	hidden := make(map[int]bool)
 	for i, r := range listResult.Resources {
+		h.auditInternalIcons("resource", entryLabel(r.URI, r.Name, MethodResourcesList), "mcp-proxy-resource-list-scan", r.Icons)
 		if icon := scanIconsFor("resource", r.Icons); len(icon) > 0 {
 			hidden[i] = true
 			h.hideIconCarrier("resource", entryLabel(r.URI, r.Name, MethodResourcesList), "mcp-proxy-resource-list-scan", string(SignalResourceListIconUnsafeSource), icon)
@@ -4065,6 +4092,36 @@ func (h *MessageHandler) hideIconCarrier(surface, entry, source, signal string, 
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		ToolName:       entry,
 		Decision:       "BLOCK",
+		Flagged:        true,
+		TriggeredRules: []string{h.iconSentinelID()},
+		Reasons:        reasons,
+		Source:         source,
+		ServerName:     h.ServerName,
+		TaxonomyRef:    iconTaxonomyRef,
+	})
+}
+
+// auditInternalIcons records an AUDIT receipt for icons that make the host
+// fetch from its own network (#4062). Receipt only: the entry is forwarded
+// unchanged, so this can never lower a decision.
+func (h *MessageHandler) auditInternalIcons(surface, entry, source string, icons []ToolIcon) {
+	findings := scanIconsInternal(surface, icons)
+	if len(findings) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT internal-network icon on %s: %s (%d finding(s))\n",
+		surface, entry, len(findings))
+	if h.OnAudit == nil {
+		return
+	}
+	reasons := make([]string, 0, len(findings))
+	for _, f := range findings {
+		reasons = append(reasons, "icon_internal_network: "+f.Detail)
+	}
+	h.OnAudit(AuditEntry{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		ToolName:       entry,
+		Decision:       "AUDIT",
 		Flagged:        true,
 		TriggeredRules: []string{h.iconSentinelID()},
 		Reasons:        reasons,
@@ -4324,6 +4381,7 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 	total := len(listResult.ResourceTemplates)
 	hidden := make(map[int]bool)
 	for i, t := range listResult.ResourceTemplates {
+		h.auditInternalIcons("resource template", entryLabel(t.URITemplate, t.Name, MethodResourcesTemplatesList), "mcp-proxy-resource-templates-list-scan", t.Icons)
 		if icon := scanIconsFor("resource template", t.Icons); len(icon) > 0 {
 			hidden[i] = true
 			h.hideIconCarrier("resource template", entryLabel(t.URITemplate, t.Name, MethodResourcesTemplatesList), "mcp-proxy-resource-templates-list-scan", string(SignalResourceTemplatesListIconUnsafeSource), icon)

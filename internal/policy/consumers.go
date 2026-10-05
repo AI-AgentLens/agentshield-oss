@@ -102,6 +102,12 @@ func defaultProtectedPathConsumers() []ProtectedPathConsumer {
 // what makes the table's contents a coverage decision instead of a noise
 // decision.
 func (e *Engine) ProtectedEnvAssignment(assignments []analyzer.Assignment) (string, bool) {
+	return e.protectedEnvAssignment(assignments, false)
+}
+
+// protectedEnvAssignment is ProtectedEnvAssignment with #4194's folded
+// reading selectable (see isProtectedToken).
+func (e *Engine) protectedEnvAssignment(assignments []analyzer.Assignment, foldCase bool) (string, bool) {
 	consumers := e.policy.Defaults.ProtectedPathConsumers
 	if len(consumers) == 0 || len(assignments) == 0 {
 		return "", false
@@ -110,7 +116,7 @@ func (e *Engine) ProtectedEnvAssignment(assignments []analyzer.Assignment) (stri
 		if a.Name == "" || !envIsCredentialSlot(consumers, a.Name) {
 			continue
 		}
-		if e.isProtectedToken(a.Value) {
+		if e.isProtectedToken(a.Value, foldCase) {
 			return a.Name, true
 		}
 		// A credential slot can hold a LIST. KUBECONFIG is documented as
@@ -126,7 +132,7 @@ func (e *Engine) ProtectedEnvAssignment(assignments []analyzer.Assignment) (stri
 			if part == "" {
 				continue
 			}
-			if e.isProtectedToken(part) {
+			if e.isProtectedToken(part, foldCase) {
 				return a.Name, true
 			}
 		}
@@ -154,7 +160,7 @@ func envIsCredentialSlot(consumers []ProtectedPathConsumer, name string) bool {
 // Anything that cannot be classified counts against the command: a segment
 // whose words cannot be tokenized, a redirect target, a path reached through
 // a variable the consumer slot does not spell out.
-func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.ParsedCommand) (ok bool, exe string) {
+func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.ParsedCommand, foldCase bool) (ok bool, exe string) {
 	consumers := e.policy.Defaults.ProtectedPathConsumers
 	if len(consumers) == 0 {
 		return false, ""
@@ -176,14 +182,14 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 				// Could not tokenize in order: fall back to the flattened view,
 				// where no flag position is known, so nothing is a consumer slot.
 				for _, a := range seg.Args {
-					if e.isProtectedToken(a) {
+					if e.isProtectedToken(a, foldCase) {
 						otherHits++
 					}
 				}
 				continue
 			}
 			for i := 1; i < len(words); i++ {
-				if !e.isProtectedToken(words[i]) {
+				if !e.isProtectedToken(words[i], foldCase) {
 					continue
 				}
 				if c != nil && isConsumerSlot(c, words, i) {
@@ -202,13 +208,13 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 			// word and matches no glob.
 			if mountspec.IsContainerRuntime(seg.Executable) {
 				for _, src := range mountspec.Sources(words[1:]) {
-					if e.isProtectedToken(src) {
+					if e.isProtectedToken(src, foldCase) {
 						otherHits++
 					}
 				}
 			}
 			for _, r := range seg.Redirects {
-				if e.isProtectedToken(r.Path) {
+				if e.isProtectedToken(r.Path, foldCase) {
 					otherHits++
 				}
 			}
@@ -280,7 +286,13 @@ func containsFlag(flags []string, f string) bool {
 // substitution analyzer folds the same), ~ expanded — and reports whether it
 // falls under a protected_paths glob. Relative words are not candidates: every
 // shipped glob is anchored at the home directory or the filesystem root.
-func (e *Engine) isProtectedToken(word string) bool {
+//
+// foldCase (#4194) compares with ASCII letter case folded on both sides. Set
+// only inside EvaluateCaseFold's folded evaluation, so the consumer table can
+// recognise a case-variant credential slot there (a variant `ssh -i <key>`
+// stays AUDIT, as its canonical is) without ever acting on the as-written
+// evaluation, where widening a BLOCK-to-AUDIT exemption could lower a verdict.
+func (e *Engine) isProtectedToken(word string, foldCase bool) bool {
 	cand := word
 	if strings.HasPrefix(cand, "-") {
 		eq := strings.IndexByte(cand, '=')
@@ -297,8 +309,15 @@ func (e *Engine) isProtectedToken(word string) bool {
 		return false
 	}
 	expanded = filepath.Clean(expanded)
+	if foldCase {
+		expanded = pathnorm.FoldASCII(expanded)
+	}
 	for _, pattern := range e.policy.Defaults.ProtectedPaths {
-		if matchGlob(expanded, e.expandPath(pattern)) {
+		expandedPattern := e.expandPath(pattern)
+		if foldCase {
+			expandedPattern = pathnorm.FoldASCII(expandedPattern)
+		}
+		if matchGlob(expanded, expandedPattern) {
 			return true
 		}
 	}

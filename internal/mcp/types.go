@@ -82,6 +82,9 @@ type ContentItem struct {
 	MIMEType    string               `json:"mimeType,omitempty"`
 	Data        string               `json:"data,omitempty"`
 	Resource    *ResourceContentItem `json:"resource,omitempty"`
+	// Icons is a resource_link's SEP-973 icon list; a host fetches each src
+	// when it renders the result (#4062).
+	Icons []ToolIcon `json:"icons,omitempty"`
 	// Annotations carries the MCP `Annotations` object that every content
 	// block may attach. Until it was added here json.Unmarshal dropped it
 	// silently, so `audience` — the field by which a server declares a block

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestWireShapeFailOpenParity is the fitness function for wire_shape.go.
@@ -29,6 +31,7 @@ import (
 // leaked and reads as success (see assertProbeNotVacuous in the analyzer
 // package for the same lesson learned the hard way).
 func TestWireShapeFailOpenParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h := func() *MessageHandler {
 		return &MessageHandler{
 			Evaluator: NewPolicyEvaluator(&MCPPolicy{Rules: append(

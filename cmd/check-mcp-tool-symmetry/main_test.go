@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // ---------------------------------------------------------------------------
@@ -192,6 +194,7 @@ func TestMissingBaselineIsEmptyNotAnError(t *testing.T) {
 // new). Running it here means a pack edit that reintroduces the asymmetry
 // fails `go test` too, not only the CI step.
 func TestLiveBaselineMatchesLiveCorpus(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	dirs := []string{"../../packs/community/mcp", "../../packs/premium/mcp"}
 	findings, examined, err := scanPacks(dirs)
 	if err != nil {

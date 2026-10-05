@@ -3,6 +3,7 @@ package mcp
 import (
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -80,7 +81,7 @@ func TestCompoSkillTracker_UnattributedCallsNeverFire(t *testing.T) {
 func TestCompoSkillTracker_ThreeDistinctSkillsNoFalsePositive(t *testing.T) {
 	tr := NewCompoSkillTracker()
 	tr.Scan("read_file", map[string]interface{}{"path": "/workspace/README.md", "skill_id": "skill-a"}) // benign, non-secret
-	tr.Scan("list_directory", map[string]interface{}{"path": "/workspace", "skill_id": "skill-b"})       // no capability class
+	tr.Scan("list_directory", map[string]interface{}{"path": "/workspace", "skill_id": "skill-b"})      // no capability class
 	if sig := tr.Scan("get_status", map[string]interface{}{"id": "1", "skill_id": "skill-c"}); sig != "" {
 		t.Error("no skill exercised a read/ingest or egress capability — must not fire")
 	}
@@ -90,10 +91,10 @@ func TestCompoSkillTracker_ThreeDistinctSkillsNoFalsePositive(t *testing.T) {
 // two recognized conventions and confirms unattributable calls are rejected.
 func TestExtractSkillIdentity(t *testing.T) {
 	tests := []struct {
-		name     string
-		tool     string
-		args     map[string]interface{}
-		wantID   string
+		name      string
+		tool      string
+		args      map[string]interface{}
+		wantID    string
 		wantFound bool
 	}{
 		{"explicit skill_id on any tool", "read_file", map[string]interface{}{"path": "/x", "skill_id": "Data-Extract"}, "data-extract", true},
@@ -120,6 +121,7 @@ func TestExtractSkillIdentity(t *testing.T) {
 // to AUDIT when the tracker injects the synthetic tool name, and that
 // ordinary skill invocations without the cross-skill chain do not match it.
 func TestCompoSkillRule_EvaluatesAudit(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-composkill-cross-skill-composition-chain"
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
 	var rule *MCPRule

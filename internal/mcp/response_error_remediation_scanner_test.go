@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Coverage for the MCP `isError` remediation-steering channel.
@@ -319,6 +321,7 @@ func TestErrorRemediation_FlaggedModelOnly(t *testing.T) {
 // ID and no taxonomy ref -- the one shape the attestation chain cannot
 // represent.
 func TestErrorRemediationSentinelsResolve(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	engine := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 	signals := []ErrorRemediationSignal{
@@ -349,6 +352,7 @@ func TestErrorRemediationSentinelsResolve(t *testing.T) {
 // --- end-to-end through the proxy path -------------------------------------
 
 func TestErrorRemediation_EndToEndBlocksAndAudits(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	// Without an Evaluator, LookupSentinel yields nothing and the audit entry
 	// reaches the log with no rule id and no taxonomy ref -- the shape the
 	// attestation chain cannot represent. The assertions below are what make

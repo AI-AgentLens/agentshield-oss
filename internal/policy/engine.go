@@ -10,6 +10,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/execenv"
+	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/regexlit"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	unicheck "github.com/AI-AgentLens/agentshield/internal/unicode"
@@ -143,9 +144,162 @@ func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *anal
 //
 // It is the single evaluation entry point: the hook (cli/hook.go), `check`,
 // `scan` and shield-server all arrive here, which is why #3991's safety
-// guarantee lives here — see EvaluateProgramPaths.
+// guarantee lives here — see EvaluateProgramPaths — and #4194's too, see
+// EvaluateCaseFold.
 func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string) EvalResult {
-	return e.EvaluateProgramPaths(command, paths, parsed, cwd, ProgramPathsStricter)
+	return e.EvaluateCaseFold(command, paths, parsed, cwd, CaseFoldStricter)
+}
+
+// CaseFoldMode selects how an evaluation treats the letter case of paths
+// (#4194).
+type CaseFoldMode int
+
+const (
+	// CaseFoldStricter is production: evaluate as written and, for a command
+	// whose path spans change under pathnorm.FoldPathCase, again on the folded
+	// reading; keep the folded result only when STRICTLY more restrictive, or
+	// at an equal decision when its record strictly extends the as-written one
+	// (caseFoldResult).
+	CaseFoldStricter CaseFoldMode = iota
+	// CaseFoldOff evaluates as written only — byte-for-byte pre-#4194.
+	CaseFoldOff
+	// CaseFoldOn is the folded evaluation alone. Diagnostics and tests only:
+	// on its own it carries no guarantee of being at least as strict as Off.
+	CaseFoldOn
+)
+
+// EvaluateCaseFold is EvaluateWithParsedCwd with the #4194 mode explicit.
+// Production uses CaseFoldStricter through EvaluateWithParsedCwd; the other
+// modes exist so the parity sweep can compare Off, On and the result.
+//
+// # The bypass
+//
+// macOS's default volume format (APFS) and NTFS are case-insensitive, so
+// `cat ~/.SSH/ID_RSA` reads the same key as `cat ~/.ssh/id_rsa`. Every layer
+// that decides on a path compared it case-sensitively — pack regex literals,
+// structural args_any globs, dataflow's source classifier, protected_paths
+// and the consumer table — and 73% of home-path BLOCKs dropped when a path's
+// letter case changed, 48 of them to an ALLOW that ts-allow-readonly vouched
+// for.
+//
+// # The guarantee, and where it comes from
+//
+// Same construction as #3991, and for the same reason. Folding case anywhere
+// a match RELAXES the verdict — an ALLOW rule, a regex/position/intent
+// exclusion, the consumer table's BLOCK-to-AUDIT, a doc-text downgrade —
+// would let a case change switch something off, and no per-layer audit of
+// the combiner can prove it never does. So the fold is never applied to the
+// as-written evaluation at all. It runs as a second, independent evaluation of
+// the folded text (pathnorm.FoldPathCase), with protected-path globs compared
+// case-insensitively inside it, and its result replaces the as-written one
+// only when strictly more restrictive (stricterResult; at an equal decision,
+// only to carry a strictly larger record — caseFoldResult). The returned decision
+// is therefore never below the as-written decision, whatever any layer does
+// with the folded text; exclusions, ALLOWs and the consumer table only ever
+// act INSIDE the folded reading, where they cannot reach the as-written one.
+//
+// Inside the folded reading a case variant is the canonical spelling, so it
+// decides as the canonical does, including where the canonical is AUDIT on
+// purpose (`ssh -i <key>` is a designated consumer, recorded and not blocked;
+// its variant stays AUDIT, never a new BLOCK).
+//
+// # On every OS
+//
+// The fold is not gated on the filesystem. On a case-sensitive volume the
+// variant names a different file; one that differs from a credential path
+// only by letter case is vanishingly rare, so blocking it there costs almost
+// nothing, and the alternative (asking the volume) would make the verdict
+// depend on the machine evaluating it.
+//
+// # Cost
+//
+// The folded evaluation runs only when FoldPathCase changes the text — a path
+// span carries an upper-case ASCII letter that is not part of the macOS
+// layout's own spelling (`/Users`, `~/Library`). Commands without one pay a
+// byte scan. Measured 2026-10-05: one developer's macOS audit log, 2,536 of
+// 5,386 commands (47%, mostly project directories with capitals); for those
+// the evaluation roughly doubles (~0.5 ms to ~1.0 ms on the embedded packs).
+//
+// What the record carries: when the as-written result is returned, exactly the
+// pre-#4194 decision, rules, reasons and taxonomy refs. When the folded result
+// is returned, its own — the rules that fired once the path was read the way
+// the filesystem reads it, which is the evidence for the stricter (or, at a
+// tie, strictly richer: see caseFoldResult) verdict. The two are never merged.
+func (e *Engine) EvaluateCaseFold(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode CaseFoldMode) EvalResult {
+	if mode == CaseFoldOff {
+		return e.evaluateProgramPaths(command, paths, parsed, cwd, ProgramPathsStricter, false)
+	}
+	folded := pathnorm.FoldPathCase(command)
+	if mode == CaseFoldOn {
+		if folded == "" {
+			return e.evaluateProgramPaths(command, paths, parsed, cwd, ProgramPathsStricter, true)
+		}
+		return e.evaluateProgramPaths(folded, paths, nil, cwd, ProgramPathsStricter, true)
+	}
+	asWritten := e.evaluateProgramPaths(command, paths, parsed, cwd, ProgramPathsStricter, false)
+	if folded == "" {
+		return asWritten
+	}
+	// paths are the as-written argv paths (normalize ran on the raw command);
+	// the folded reading compares them to protected_paths case-insensitively,
+	// which is the same answer folding them would give. parsed is dropped: it
+	// is the tree of the as-written text, and every analyzer re-parses.
+	return caseFoldResult(asWritten, e.evaluateProgramPaths(folded, paths, nil, cwd, ProgramPathsStricter, true))
+}
+
+// caseFoldResult picks between the as-written and the folded evaluation. The
+// folded one wins when stricterResult says it is strictly more restrictive —
+// the whole safety argument — and, at an EQUAL decision, when its record is a
+// strict superset of the as-written one: every rule and note the as-written
+// evaluation carries, plus more.
+//
+// The tie case exists for the consumer table. `ssh -i <key>` with the key
+// path in a different case decides AUDIT either way, but only the folded
+// reading recognises the designated consumer and carries the
+// protected-path-consumer record its canonical spelling carries. The decision
+// is identical by construction, so this can only add evidence to a receipt,
+// never change a verdict or drop a rule the as-written evaluation named.
+func caseFoldResult(asWritten, folded EvalResult) EvalResult {
+	ra, rf := preDowngradeRank(asWritten), preDowngradeRank(folded)
+	if ra >= 0 && rf > ra {
+		return folded // == stricterResult(asWritten, folded)
+	}
+	if ra < 0 || rf != ra || folded.Decision != asWritten.Decision {
+		return asWritten
+	}
+	if !strictSuperset(folded.TriggeredRules, asWritten.TriggeredRules) {
+		return asWritten
+	}
+	for _, n := range asWritten.Notes {
+		if !containsNote(folded.Notes, n) {
+			return asWritten
+		}
+	}
+	return folded
+}
+
+func strictSuperset(big, small []string) bool {
+	have := make(map[string]bool, len(big))
+	for _, s := range big {
+		have[s] = true
+	}
+	need := make(map[string]bool, len(small))
+	for _, s := range small {
+		if !have[s] {
+			return false
+		}
+		need[s] = true
+	}
+	return len(have) > len(need)
+}
+
+func containsNote(notes []analyzer.Note, n analyzer.Note) bool {
+	for _, have := range notes {
+		if have == n {
+			return true
+		}
+	}
+	return false
 }
 
 // ProgramPathMode selects how an evaluation treats a command word spelled as a
@@ -193,19 +347,27 @@ const (
 // — the rules that fired once the program name was read, which is the evidence
 // for the stricter verdict. The two are never merged.
 func (e *Engine) EvaluateProgramPaths(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode ProgramPathMode) EvalResult {
+	return e.evaluateProgramPaths(command, paths, parsed, cwd, mode, false)
+}
+
+// evaluateProgramPaths is EvaluateProgramPaths with #4194's folded reading
+// selectable: foldCase compares protected_paths and the consumer table's
+// tokens case-insensitively. Only EvaluateCaseFold sets it, and only for the
+// folded text.
+func (e *Engine) evaluateProgramPaths(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode ProgramPathMode, foldCase bool) EvalResult {
 	switch mode {
 	case ProgramPathsOff:
-		return e.evaluate(command, paths, parsed, cwd, false)
+		return e.evaluate(command, paths, parsed, cwd, false, foldCase)
 	case ProgramPathsOn:
-		return e.evaluate(command, paths, parsed, cwd, true)
+		return e.evaluate(command, paths, parsed, cwd, true, foldCase)
 	}
-	off := e.evaluate(command, paths, parsed, cwd, false)
+	off := e.evaluate(command, paths, parsed, cwd, false, foldCase)
 	// The regex-only fallback (no registry) reads no program names, so ON
 	// would equal OFF; do not pay for it twice.
 	if e.registry == nil || !mayHaveProgramPaths(command, parsed) {
 		return off
 	}
-	on := e.evaluate(command, paths, parsed, cwd, true)
+	on := e.evaluate(command, paths, parsed, cwd, true, foldCase)
 	return stricterResult(off, on)
 }
 
@@ -227,30 +389,32 @@ func (e *Engine) EvaluateProgramPaths(command string, paths []string, parsed *an
 // because the downgrade is monotone, the returned Decision still never falls
 // below OFF's.
 func stricterResult(off, on EvalResult) EvalResult {
-	rank := func(d Decision) int {
-		switch d {
-		case DecisionAllow:
-			return 0
-		case DecisionAudit:
-			return 1
-		case DecisionRequireApproval:
-			return 2
-		case DecisionBlock:
-			return 3
-		}
-		return -1
-	}
-	preDowngrade := func(r EvalResult) Decision {
-		if r.OriginalDecision != "" {
-			return r.OriginalDecision
-		}
-		return r.Decision
-	}
-	ro, rn := rank(preDowngrade(off)), rank(preDowngrade(on))
+	ro, rn := preDowngradeRank(off), preDowngradeRank(on)
 	if ro < 0 || rn <= ro {
 		return off
 	}
 	return on
+}
+
+// preDowngradeRank is stricterResult's order: ALLOW < AUDIT <
+// REQUIRE_APPROVAL < BLOCK on the decision before any audit-only downgrade,
+// -1 for anything outside it.
+func preDowngradeRank(r EvalResult) int {
+	d := r.Decision
+	if r.OriginalDecision != "" {
+		d = r.OriginalDecision
+	}
+	switch d {
+	case DecisionAllow:
+		return 0
+	case DecisionAudit:
+		return 1
+	case DecisionRequireApproval:
+		return 2
+	case DecisionBlock:
+		return 3
+	}
+	return -1
 }
 
 // mayHaveProgramPaths is the cheap test for "is there a path-spelled command
@@ -403,7 +567,10 @@ func pathCommandWordBehindPrefixes(text string) bool {
 
 // evaluate is one evaluation, with #3991's program-name reading on (resolve)
 // or off. Off, it is byte-for-byte the pre-#3991 EvaluateWithParsedCwd.
-func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve bool) EvalResult {
+// foldCase is #4194's folded reading: protected_paths and the consumer
+// table compare case-insensitively (see EvaluateCaseFold); false is
+// byte-for-byte the pre-#4194 evaluation.
+func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase bool) EvalResult {
 	// Every return path goes through finish() so the issue #1952 mode
 	// downgrade and the explanation-building are applied uniformly. Doing
 	// this inside the function (rather than at each return site) is what
@@ -424,7 +591,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		if consumerNote != "" {
 			return true
 		}
-		ok, exe := e.protectedPathConsumerOnly(command, parsed)
+		ok, exe := e.protectedPathConsumerOnly(command, parsed, foldCase)
 		if ok {
 			consumerNote = fmt.Sprintf("Protected credential path used by its designated consumer (%s) — recorded, not blocked", exe)
 		}
@@ -529,7 +696,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		}
 	}
 
-	if blocked, rule := e.checkProtectedPaths(paths, cwd); blocked && !consumerOnly() {
+	if blocked, rule := e.checkProtectedPaths(paths, cwd, foldCase); blocked && !consumerOnly() {
 		result.Decision = DecisionBlock
 		result.TriggeredRules = append(result.TriggeredRules, "protected-path")
 		result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
@@ -567,7 +734,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		// after the AST walk. We override to BLOCK on a hit because
 		// protected paths are non-negotiable — combiner severity doesn't
 		// apply when the policy explicitly named the path off-limits.
-		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths, cwd); blocked && !consumerOnly() {
+		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths, cwd, foldCase); blocked && !consumerOnly() {
 			result.Decision = DecisionBlock
 			result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
 			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
@@ -578,7 +745,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		// (`export KUBECONFIG=~/.kube/config`) is recorded, never blocked.
 		// Deliberately does not feed checkProtectedPaths — see
 		// AnalysisContext.Assignments and ProtectedEnvAssignment.
-		if env, ok := e.ProtectedEnvAssignment(ctx.Assignments); ok {
+		if env, ok := e.protectedEnvAssignment(ctx.Assignments, foldCase); ok {
 			envConsumerNote = fmt.Sprintf("Protected credential path assigned to %s, a designated consumer's environment credential slot — recorded, not blocked", env)
 		}
 
@@ -1063,11 +1230,26 @@ func (e *Engine) compiledRegex(pattern string) *regexlit.Matcher {
 //     path, rather than joining cwd onto the pattern, keeps cwd out of glob
 //     syntax: a cwd such as /work/project[1] would otherwise become a
 //     character class. See relativeToCwd for what it refuses.
-func (e *Engine) checkProtectedPaths(paths []string, cwd string) (bool, string) {
+//
+// foldCase (#4194) compares path, pattern and cwd with ASCII letter case
+// folded on all three, the reading a case-insensitive volume gives them. It is
+// set only inside EvaluateCaseFold's folded evaluation, whose verdict can only
+// ever raise the as-written one; the as-written evaluation passes false and is
+// byte-for-byte unchanged.
+func (e *Engine) checkProtectedPaths(paths []string, cwd string, foldCase bool) (bool, string) {
+	if foldCase {
+		cwd = pathnorm.FoldASCII(cwd)
+	}
 	for _, path := range paths {
 		expandedPath := e.expandPath(path)
+		if foldCase {
+			expandedPath = pathnorm.FoldASCII(expandedPath)
+		}
 		for _, pattern := range e.policy.Defaults.ProtectedPaths {
 			expandedPattern := e.expandPath(pattern)
+			if foldCase {
+				expandedPattern = pathnorm.FoldASCII(expandedPattern)
+			}
 			if matchGlob(expandedPath, expandedPattern) {
 				return true, pattern
 			}

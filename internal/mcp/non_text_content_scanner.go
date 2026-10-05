@@ -49,6 +49,11 @@ const (
 	// shape — the host routes the block through its image-rendering path
 	// while the bytes are interpreted by the model as text/script.
 	SignalNonTextMIMEMismatch NonTextContentSignal = "non_text_mime_mismatch"
+
+	// SignalNonTextIconUnsafeSource fires when a resource_link's icons[].src is
+	// a script scheme, an SMB/UNC/remote-file path or an active data: SVG: the
+	// in-result twin of the listing-surface icon check (#4062).
+	SignalNonTextIconUnsafeSource NonTextContentSignal = "non_text_icon_unsafe_source"
 )
 
 // NonTextContentFinding records one detection.
@@ -92,6 +97,17 @@ func scanOneNonTextBlock(result *NonTextContentScanResult, idx int, item Content
 	}
 	if uri != "" {
 		scanURI(result, idx, item.Type, uri)
+	}
+
+	// Icons: same sources, same verdict as every listing surface.
+	for _, f := range scanIconsFor("resource_link", item.Icons) {
+		result.Findings = append(result.Findings, NonTextContentFinding{
+			Signal:       SignalNonTextIconUnsafeSource,
+			Detail:       f.Detail,
+			ContentType:  item.Type,
+			ContentIndex: idx,
+			Snippet:      f.Snippet,
+		})
 	}
 
 	// Name and description are scanned for prompt-injection markers. These

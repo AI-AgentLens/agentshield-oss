@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // ---------------------------------------------------------------------------
@@ -241,6 +243,7 @@ func TestMissingBaselineIsEmptyNotAnError(t *testing.T) {
 // means a pack edit that changes a taxonomy ref fails in `go test` too, not
 // only in the CI step.
 func TestLiveBaselineMatchesLiveCorpus(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	corpus, total, err := scanPacks("../../packs")
 	if err != nil {
 		t.Fatalf("scan live packs: %v", err)

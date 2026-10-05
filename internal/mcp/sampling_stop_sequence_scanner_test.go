@@ -3,6 +3,8 @@ package mcp
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Coverage for stop-sequence output-space suppression.
@@ -249,6 +251,7 @@ func TestStopSequence_HomoglyphIsNotAnExploit(t *testing.T) {
 // --- pack wiring -----------------------------------------------------------
 
 func TestStopSequenceSentinelsResolve(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	engine := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 	for _, sig := range []StopSequenceSignal{

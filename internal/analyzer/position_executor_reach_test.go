@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -74,6 +75,7 @@ func named(res policy.EvalResult, id string) bool {
 // and the analyzer pipeline both call analyzer.PositionExcluded; #3232/#3234
 // are the times a match field worked on one path only).
 func TestHeredocBodyExclusionWithdrawnWhenBodyExecutes(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	pol := loadTestPolicy(t)
 	pipeline, err := policy.NewEngineWithAnalyzers(pol, 2)

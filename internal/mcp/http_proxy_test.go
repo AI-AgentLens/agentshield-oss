@@ -36,7 +36,7 @@ func testHTTPProxyPolicy() *MCPPolicy {
 }
 
 // newTestHTTPProxy creates an HTTPProxy pointed at the given upstream URL.
-func newTestHTTPProxy(upstreamURL string, pol *MCPPolicy, audited *[]AuditEntry, mu *sync.Mutex) *HTTPProxy {
+func newTestHTTPProxy(t *testing.T, upstreamURL string, pol *MCPPolicy, audited *[]AuditEntry, mu *sync.Mutex) *HTTPProxy {
 	evaluator := NewPolicyEvaluator(pol)
 	return NewHTTPProxy(HTTPProxyConfig{
 		UpstreamURL: upstreamURL,
@@ -47,6 +47,8 @@ func newTestHTTPProxy(upstreamURL string, pol *MCPPolicy, audited *[]AuditEntry,
 			*audited = append(*audited, e)
 		},
 		Stderr: io.Discard,
+		// Isolate the schema drift cache from the real ~/.agentshield (#4156).
+		SchemaDriftCacheDir: t.TempDir(),
 	})
 }
 
@@ -180,7 +182,7 @@ func TestHTTPProxy_BlockedToolCall(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	// Use httptest to avoid needing a real listener
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
@@ -225,7 +227,7 @@ func TestHTTPProxy_AllowedToolCall(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -259,7 +261,7 @@ func TestHTTPProxy_BlockedByRule(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -286,7 +288,7 @@ func TestHTTPProxy_ToolsListPoisoningFiltered(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -314,7 +316,7 @@ func TestHTTPProxy_SSEResponsePoisoningFiltered(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -350,7 +352,7 @@ func TestHTTPProxy_SessionHeaderPassthrough(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -388,7 +390,7 @@ func TestHTTPProxy_MethodNotAllowed(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -409,7 +411,7 @@ func TestHTTPProxy_UpstreamUnreachable(t *testing.T) {
 	var audited []AuditEntry
 	var mu sync.Mutex
 	// Point to a dead upstream
-	hp := newTestHTTPProxy("http://127.0.0.1:1", testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, "http://127.0.0.1:1", testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -446,7 +448,7 @@ func TestHTTPProxy_ValueLimitBlocked(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, pol, &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, pol, &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -475,7 +477,7 @@ func TestHTTPProxy_ListenAndServe(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 	hp.cfg.ListenAddr = "127.0.0.1:0"
 
 	// Start proxy in background
@@ -590,7 +592,7 @@ func TestHTTPProxy_SSERelayBlocksNotificationInjection(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
@@ -645,6 +647,7 @@ func TestHTTPProxy_SSERelayDropsUpstreamContentLength(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Mcp-Session-Id", "sess-4156")
 		// No Flush: net/http derives Content-Length from the buffered body.
 		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\nevent: ping\n\n", benign, notif)
 	}))
@@ -652,7 +655,7 @@ func TestHTTPProxy_SSERelayDropsUpstreamContentLength(t *testing.T) {
 
 	var audited []AuditEntry
 	var mu sync.Mutex
-	hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+	hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 	ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 	defer ts.Close()
 
@@ -666,6 +669,14 @@ func TestHTTPProxy_SSERelayDropsUpstreamContentLength(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// Header preservation (#4156): the client needs the media type to parse
+	// the stream and the session id to keep the session.
+	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("relaySSE must keep upstream Content-Type, got %q", got)
+	}
+	if got := resp.Header.Get("Mcp-Session-Id"); got != "sess-4156" {
+		t.Errorf("relaySSE must keep upstream Mcp-Session-Id, got %q", got)
+	}
 	if resp.Header.Get("Content-Length") != "" {
 		t.Errorf("relaySSE must not forward upstream Content-Length, got %q", resp.Header.Get("Content-Length"))
 	}

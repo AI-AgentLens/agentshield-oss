@@ -187,7 +187,7 @@ func TestHTTPProxy_FloatErrorCodeSanitizedWithCodePreserved(t *testing.T) {
 
 			var mu sync.Mutex
 			var audited []AuditEntry
-			hp := newTestHTTPProxy(upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
+			hp := newTestHTTPProxy(t, upstream.URL, testHTTPProxyPolicy(), &audited, &mu)
 			ts := httptest.NewServer(http.HandlerFunc(hp.handleMCP))
 			defer ts.Close()
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -227,6 +228,7 @@ func TestPromptsAudienceSentinelEngine(t *testing.T) {
 // rather than mcp-tool-response-poisoning — the deliberate taxonomy split
 // documented in mcp-sentinel.yaml.
 func TestPromptsAudienceSentinelsResolve(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	e := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 

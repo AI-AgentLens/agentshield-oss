@@ -3,6 +3,8 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Non-ASCII written numerically so this file stays ASCII-only (writing a
@@ -21,6 +23,7 @@ func homoglyphHost(host string) string {
 // Each row asserts its ASCII control does NOT block first — otherwise the row
 // would pass for a reason unrelated to the host.
 func TestMCPIDNHomoglyphHostParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	e := renderEvasionEvaluator(t)
 
 	rows := []struct {
@@ -63,6 +66,7 @@ func TestMCPIDNHomoglyphHostParity(t *testing.T) {
 // TestMCPIDNHomoglyphHostFPBoundary pins that the detection is scoped to the
 // HOST. A non-ASCII path or query is ordinary and must survive.
 func TestMCPIDNHomoglyphHostFPBoundary(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	e := renderEvasionEvaluator(t)
 
 	kanji := string([]rune{0x65E5, 0x672C})

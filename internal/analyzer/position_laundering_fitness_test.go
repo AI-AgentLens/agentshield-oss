@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -35,6 +36,7 @@ import (
 // ratchet as the label test: a new leak fails, and a recorded leak that stops
 // leaking must be deleted in the PR that fixed it.
 func TestPositionExclusionCannotBeLaundered(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	engine := newPipelineEngine(t)
 	pol := loadTestPolicy(t)

@@ -207,7 +207,11 @@ echo "=== [4/5] Run unit tests ==="
 # this used to pass was itself a guaranteed failure -- another one the
 # swallowed status was hiding. Headroom is deliberate: a slow CI box must not
 # turn this gate red for a reason that has nothing to do with the OSS build.
-go test ./internal/policy/ ./internal/analyzer/ -count=1 -timeout 1800s
+# AGENTSHIELD_OSS_MEASURE_GAP keeps the premium-sized tests running here. In a
+# plain clone they SKIP (internal/ossbuild.SkipPremiumSized); here their failures
+# are the free-tier gap scripts/oss-known-failures.txt records, and skipping them
+# would empty that file on the next --refresh.
+AGENTSHIELD_OSS_MEASURE_GAP=1 go test ./internal/policy/ ./internal/analyzer/ -count=1 -timeout 1800s
 echo "Tests: OK"
 
 echo ""

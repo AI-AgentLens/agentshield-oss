@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"gopkg.in/yaml.v3"
 )
@@ -16,6 +17,7 @@ import (
 // authored YAML end-to-end.
 func loadPremiumPackRules(t *testing.T, packFile string) []MCPRule {
 	t.Helper()
+	ossbuild.SkipPremiumSized(t) // every caller loads packs/premium/
 	_, filename, _, _ := runtime.Caller(0)
 	path := filepath.Join(filepath.Dir(filename), "..", "..", "packs", "premium", "mcp", packFile)
 	data, err := os.ReadFile(path)
@@ -34,6 +36,7 @@ func loadPremiumPackRules(t *testing.T, packFile string) []MCPRule {
 // unmarshals and that it fires only on the full OSINT → generation → undisclosed
 // bulk-send trajectory, through the live history-aware evaluator.
 func TestMCPSequenceRule_OSINTBulkSendChain(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-excessive-agency-osint-bulk-send-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-excessive-agency.yaml")
@@ -146,6 +149,7 @@ func TestMCPSequenceRule_OSINTBulkSendChain(t *testing.T) {
 // followed within the call window by an outbound communication call, through
 // the live history-aware evaluator.
 func TestMCPSequenceRule_MemoryRecallExfilChain(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-persist-audit-memory-recall-exfil-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-persistence.yaml")
@@ -250,6 +254,7 @@ func TestMCPSequenceRule_MemoryRecallExfilChain(t *testing.T) {
 // carrying a numeric `segment_index` argument, through the live
 // history-aware evaluator.
 func TestMCPSequenceRule_ResourceAmplificationSegmentLoop(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-fake-continuation-segment-loop"
 
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
@@ -334,6 +339,7 @@ func TestMCPSequenceRule_ResourceAmplificationSegmentLoop(t *testing.T) {
 // action has no fresh screenshot/accessibility/DOM-snapshot call in the
 // immediately preceding calls, through the live history-aware evaluator.
 func TestMCPSequenceRule_HighImpactClickWithoutPrecheck(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-computer-use-audit-highimpact-click-no-precheck"
 
 	rules := loadPremiumPackRules(t, "mcp-computer-use.yaml")
@@ -412,6 +418,7 @@ func TestMCPSequenceRule_HighImpactClickWithoutPrecheck(t *testing.T) {
 // authored negative-lookback rule (mcp-computer-use-audit-highimpact-action-no-precheck,
 // #2785), the dedicated-tool-name companion to the generic click rule above.
 func TestMCPSequenceRule_HighImpactActionWithoutPrecheck(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-computer-use-audit-highimpact-action-no-precheck"
 
 	rules := loadPremiumPackRules(t, "mcp-computer-use.yaml")
@@ -477,6 +484,7 @@ func TestMCPSequenceRule_HighImpactActionWithoutPrecheck(t *testing.T) {
 // above, reusing the same action_step/precheck_step negative-lookback
 // primitive.
 func TestMCPSequenceRule_AutomatedDecisionNoRecourse(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-gov-audit-automated-decision-no-recourse"
 
 	rules := loadPremiumPackRules(t, "mcp-governance.yaml")
@@ -564,6 +572,7 @@ func TestMCPSequenceRule_AutomatedDecisionNoRecourse(t *testing.T) {
 // single-call AUDIT/BLOCK siblings in the same pack cover each stage in
 // isolation; this test validates the composite ordering signal only.
 func TestMCPSequenceRule_SandboxBoundaryWidenThenOverwrite(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-ide-trust-block-sandbox-boundary-widen-then-overwrite-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-ide-workspace-trust.yaml")
@@ -675,6 +684,7 @@ func TestMCPSequenceRule_SandboxBoundaryWidenThenOverwrite(t *testing.T) {
 // custom-code/tool-config write call is followed within the call window by
 // an outbound network call, through the live history-aware evaluator.
 func TestMCPSequenceRule_CrossTenantRuntimeImplantChain(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-privesc-audit-cross-tenant-runtime-implant-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-privilege-escalation.yaml")
@@ -790,6 +800,7 @@ func TestMCPSequenceRule_CrossTenantRuntimeImplantChain(t *testing.T) {
 // call window by a payment-send/transfer/escrow-release call, through the
 // live history-aware evaluator.
 func TestMCPSequenceRule_WalletResolutionThenPay(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-fin-wep-audit-wallet-resolution-then-pay-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-financial-weaponization.yaml")
@@ -931,6 +942,7 @@ func TestMCPSequenceRule_WalletResolutionThenPay(t *testing.T) {
 // call, tiered to BLOCK when the archive was freshly fetched from an
 // archive-extension URL in the same short call window.
 func TestMCPSequenceRule_ArchiveExtractExecuteCWDShadowChain(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const auditRuleID = "mcp-sc-audit-archive-extract-execute-cwd-shadow"
 	const blockRuleID = "mcp-sc-block-archive-download-extract-execute-cwd-shadow"
 
@@ -1072,6 +1084,7 @@ func TestMCPSequenceRule_ArchiveExtractExecuteCWDShadowChain(t *testing.T) {
 // read followed by an outbound email draft/send, through the live
 // history-aware evaluator.
 func TestMCPSequenceRule_CalendarScopeEmailContactDrift(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-gov-audit-calendar-scope-email-contact-drift"
 
 	rules := loadPremiumPackRules(t, "mcp-governance.yaml")
@@ -1228,6 +1241,7 @@ func TestMCPSequenceRule_CalendarScopeEmailContactDrift(t *testing.T) {
 // responses, so the "shell input derives from the fetched body" half is not
 // testable here, and the rule is AUDIT for that reason.
 func TestMCPSequenceRule_WebFetchThenShellExecute(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-web-fetch-then-shell-exec-chain"
 
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")

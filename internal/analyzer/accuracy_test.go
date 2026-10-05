@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer/testdata"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -201,6 +202,7 @@ func TestAccuracy_EnvDump(t *testing.T) {
 // ===========================================================================
 
 func TestAccuracy_ReverseShell(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runTestCases(t, testdata.ReverseShellCases)
 }
@@ -215,6 +217,7 @@ func TestAccuracy_DNSTunneling(t *testing.T) {
 // ===========================================================================
 
 func TestAccuracy_PipeToShell(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runTestCases(t, testdata.PipeToShellCases)
 }
@@ -242,6 +245,7 @@ func TestAccuracy_CrontabModification(t *testing.T) {
 // ===========================================================================
 
 func TestAccuracy_NonStandardRegistry(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runTestCases(t, testdata.NonStandardRegistryCases)
 }
@@ -266,6 +270,7 @@ func TestAccuracy_GHAuthToken(t *testing.T) {
 }
 
 func TestAccuracy_GitHubActionsEnvInjection(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runTestCases(t, testdata.GitHubActionsEnvInjectionCases)
 }
@@ -275,6 +280,7 @@ func TestAccuracy_GitHubActionsEnvInjection(t *testing.T) {
 // ===========================================================================
 
 func TestAccuracy_AllKingdoms(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runTestCases(t, testdata.AllTestCases())
 }
@@ -335,6 +341,7 @@ func runPipelineTestCases(t *testing.T, cases []testdata.TestCase) {
 }
 
 func TestPipeline_AllKingdoms(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	t.Parallel()
 	runPipelineTestCases(t, testdata.AllTestCases())
 }

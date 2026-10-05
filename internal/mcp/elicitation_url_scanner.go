@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -220,6 +221,13 @@ func classifyElicitationURL(raw string) []ElicitationFinding {
 		return finding(SignalElicitationURLWeakTarget, "URL-mode elicitation target has no host")
 	}
 	var out []ElicitationFinding
+	// The nesting cap is checked only after every BLOCK-tier verdict above:
+	// those depend on the scheme and authority, not on what the query nests,
+	// and returning the cap AUDIT first let padding downgrade them. Every
+	// earlier return is already BLOCK or AUDIT, so nothing else needs it.
+	if _, _, capped := installDeeplinkScan(s, 0); capped {
+		out = append(out, ElicitationFinding{Signal: SignalElicitationURLWeakTarget, Detail: "URL-mode elicitation target nests URLs deeper than the install-link search follows (" + strconv.Itoa(maxDeeplinkNesting) + " levels); an install link at the bottom would not be seen", Snippet: snip})
+	}
 	if scheme == "http" && !isLoopbackHost(w.host) {
 		out = append(out, ElicitationFinding{Signal: SignalElicitationURLWeakTarget, Detail: "URL-mode elicitation target is cleartext http:// to a non-loopback host; the spec asks servers to use HTTPS outside development", Snippet: snip})
 	}
@@ -402,13 +410,24 @@ var installRedirectRoutes = map[string]*regexp.Regexp{
 // host-application scheme, on an install-redirect page, or nested in the
 // query or fragment of any URL — and summarises what it installs.
 func installDeeplinkDetail(s string, depth int) (string, bool) {
-	if depth > 4 {
-		return "", false
+	detail, ok, _ := installDeeplinkScan(s, depth)
+	return detail, ok
+}
+
+// maxDeeplinkNesting is how many URLs deep installDeeplinkScan looks.
+const maxDeeplinkNesting = 4
+
+// installDeeplinkScan is installDeeplinkDetail plus a flag that is true when
+// the nesting cap ended the search while a further URL was still pending, so
+// the caller can record that the answer "no install link" is not complete.
+func installDeeplinkScan(s string, depth int) (detail string, found, capped bool) {
+	if depth > maxDeeplinkNesting {
+		return "", false, true
 	}
 	s = normalizeElicitationURL(s)
 	m := urlSchemeRE.FindStringSubmatch(s)
 	if m == nil {
-		return "", false
+		return "", false, false
 	}
 	scheme := strings.ToLower(m[1])
 	rest := s[len(m[0]):]
@@ -429,13 +448,13 @@ func installDeeplinkDetail(s string, depth int) (string, bool) {
 			break
 		}
 		if installRouteRE.MatchString(route) || (scheme == "goose" && strings.TrimRight(route, "/") == "extension") {
-			return describeInstall(scheme, query), true
+			return describeInstall(scheme, query), true, false
 		}
 	case scheme == "http" || scheme == "https":
 		w := splitWebURL(rest)
 		query, frag = w.query, w.fragment
 		if re, ok := installRedirectRoutes[w.host]; ok && re.MatchString(strings.ToLower(w.path)) {
-			return describeInstall(w.host, query), true
+			return describeInstall(w.host, query), true, false
 		}
 	default:
 		if i := strings.IndexByte(rest, '#'); i >= 0 {
@@ -464,12 +483,14 @@ func installDeeplinkDetail(s string, depth int) (string, bool) {
 		// leading C0 control or a tab inside the scheme is stripped by the
 		// browser that follows the redirect (Opus review of #4061).
 		if urlSchemeRE.MatchString(normalizeElicitationURL(v)) {
-			if detail, ok := installDeeplinkDetail(v, depth+1); ok {
-				return "nested inside " + scheme + ": URL — " + detail, true
+			d, ok, c := installDeeplinkScan(v, depth+1)
+			if ok {
+				return "nested inside " + scheme + ": URL — " + d, true, false
 			}
+			capped = capped || c
 		}
 	}
-	return "", false
+	return "", false, capped
 }
 
 // describeInstall summarises an install link's configuration for the audit

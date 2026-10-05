@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // TestPermissionBypassFlagShape pins the "split by shape" resolution of #3918
@@ -67,6 +69,7 @@ import (
 // asserted present as a positive control, so a walker or regex regression
 // cannot pass vacuously.
 func TestPermissionBypassFlagShape(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	packs := filepath.Join("..", "..", "packs")
 	if _, err := os.Stat(packs); err != nil {
 		t.Fatalf("packs dir: %v", err)

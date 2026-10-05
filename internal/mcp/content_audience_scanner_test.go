@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -492,6 +493,7 @@ func TestContentAudienceSentinelEngine(t *testing.T) {
 // finding reaches the audit log with no rule ID, which is how a signal ends up
 // invisible in the attestation even though the block worked.
 func TestContentAudienceSentinelsResolve(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	e := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 

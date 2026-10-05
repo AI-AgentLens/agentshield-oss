@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Coverage for the tool-response secret-overexposure scanner (issue #3807).
@@ -159,6 +161,7 @@ func TestResponseSecret_TrueNegatives(t *testing.T) {
 }
 
 func TestResponseSecretSentinelsResolve(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	engine := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 	signals := []ResponseSecretSignal{
@@ -185,6 +188,7 @@ func TestResponseSecretSentinelsResolve(t *testing.T) {
 // --- end-to-end through the proxy path -------------------------------------
 
 func TestResponseSecret_EndToEndBlocksAndAudits(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	evaluator := NewPolicyEvaluator(&MCPPolicy{Rules: loadPremiumPackRules(t, "mcp-sentinel.yaml")})
 
 	build := func(t *testing.T, structured map[string]interface{}) []byte {

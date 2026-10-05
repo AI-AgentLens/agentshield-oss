@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -349,12 +350,6 @@ func (e *PolicyEvaluator) EvaluateToolCallWithHistory(toolName string, arguments
 // (oldest-first, including the current call) enables sequence rules; pass nil
 // for stateless evaluation.
 func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall) MCPEvalResult {
-	result := MCPEvalResult{
-		Decision:       e.policy.Defaults.Decision,
-		TriggeredRules: []string{},
-		Reasons:        []string{},
-	}
-
 	// Check blocked tools list first (highest priority)
 	for _, blocked := range e.policy.BlockedTools {
 		if matchToolName(toolName, blocked) {
@@ -364,6 +359,34 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 				Reasons:        []string{fmt.Sprintf("Tool %q is in the blocked tools list", toolName)},
 			}, e.mode)
 		}
+	}
+
+	// Case-folded path reading (#4194). The rules below compare argument
+	// values case-sensitively, and on a case-insensitive volume (APFS, NTFS)
+	// `/Users/u/.SSH/id_rsa` is the same file as `/Users/u/.ssh/id_rsa`. So the
+	// rule set runs a second time on a copy of the arguments with their path
+	// spans case-folded, and that verdict replaces the as-written one only
+	// when STRICTLY more restrictive — the shell engine's construction (see
+	// policy.Engine.EvaluateCaseFold). Exclusions, ALLOW rules and
+	// exclude_when only act inside the folded reading, where they cannot
+	// lower the as-written verdict.
+	result := e.evaluateArguments(toolName, arguments, toolDescription, history, false)
+	if folded, ok := foldPathArguments(arguments); ok {
+		result = stricterMCPResult(result, e.evaluateArguments(toolName, folded, toolDescription, history, true))
+	}
+	return applyMCPModeDowngrade(result, e.mode)
+}
+
+// evaluateArguments is one pass of the argument-dependent rule set — every
+// check evaluate runs after the blocked-tools list — WITHOUT the audit-only
+// downgrade, which evaluate applies once to the chosen reading so the
+// stricter comparison ranks undowngraded decisions. foldCase marks the
+// #4194 folded reading, in which path globs compare case-insensitively.
+func (e *PolicyEvaluator) evaluateArguments(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall, foldCase bool) MCPEvalResult {
+	result := MCPEvalResult{
+		Decision:       e.policy.Defaults.Decision,
+		TriggeredRules: []string{},
+		Reasons:        []string{},
 	}
 
 	// Go-based alternative-form IPv4 SSRF check (#3675) — reuses the decoder
@@ -400,7 +423,7 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 		if rule.Match.Sequence != nil {
 			matched = matchSequence(rule.Match.Sequence, history)
 		} else {
-			matched = e.matchRule(toolName, arguments, rule)
+			matched = e.matchRuleFold(toolName, arguments, rule, foldCase)
 		}
 		if matched {
 			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
@@ -451,7 +474,71 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 
 	dedupeRulesAndReasons(&result)
 	result.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(result.TaxonomyRefs)
-	return applyMCPModeDowngrade(result, e.mode)
+	return result
+}
+
+// stricterMCPResult returns folded when its decision is STRICTLY more
+// restrictive than asWritten's, and asWritten otherwise — ties keep the
+// as-written record (#4194). The MCP twin of policy.stricterResult; both
+// inputs are pre-downgrade, so decisionSeverity ranks what the rules decided.
+func stricterMCPResult(asWritten, folded MCPEvalResult) MCPEvalResult {
+	if decisionSeverity(folded.Decision) > decisionSeverity(asWritten.Decision) {
+		return folded
+	}
+	return asWritten
+}
+
+// foldPathArguments returns a deep copy of arguments with the path spans of
+// every string value case-folded (pathnorm.FoldPathValue: a value that IS a
+// path folds whole, spaces included; prose folds only the paths it
+// mentions), and whether any value changed. Keys are left alone: they are
+// names the server declared, not filesystem paths. The input is never
+// mutated.
+func foldPathArguments(arguments map[string]interface{}) (map[string]interface{}, bool) {
+	changed := false
+	var fold func(v interface{}) interface{}
+	fold = func(v interface{}) interface{} {
+		switch t := v.(type) {
+		case string:
+			if f := pathnorm.FoldPathValue(t); f != "" {
+				changed = true
+				return f
+			}
+			return t
+		case map[string]interface{}:
+			out := make(map[string]interface{}, len(t))
+			for k, x := range t {
+				out[k] = fold(x)
+			}
+			return out
+		case []interface{}:
+			out := make([]interface{}, len(t))
+			for i, x := range t {
+				out[i] = fold(x)
+			}
+			return out
+		case []string:
+			out := make([]string, len(t))
+			for i, x := range t {
+				if f := pathnorm.FoldPathValue(x); f != "" {
+					changed = true
+					out[i] = f
+				} else {
+					out[i] = x
+				}
+			}
+			return out
+		}
+		return v
+	}
+	out := make(map[string]interface{}, len(arguments))
+	for k, v := range arguments {
+		out[k] = fold(v)
+	}
+	if !changed {
+		return nil, false
+	}
+	return out, true
 }
 
 // firstTaxonomy starts a fresh taxonomy set for a rule that outranked
@@ -515,6 +602,21 @@ func dedupeRulesAndReasons(r *MCPEvalResult) {
 }
 
 func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interface{}, rule MCPRule) bool {
+	return e.matchRuleFold(toolName, arguments, rule, false)
+}
+
+// matchRuleFold is matchRule with #4194's folded reading selectable: when
+// foldCase is set, argument_patterns / argument_patterns_any /
+// exclude_argument_patterns globs compare with ASCII letter case folded on
+// both sides, so a mixed-case pattern (`**/Library/Keychains/**`) still meets
+// a case-folded value. Only evaluate's folded pass sets it; its verdict can
+// raise the as-written one and never lower it, which is why the exclusion
+// side may fold too.
+func (e *PolicyEvaluator) matchRuleFold(toolName string, arguments map[string]interface{}, rule MCPRule, foldCase bool) bool {
+	glob := matchGlob
+	if foldCase {
+		glob = matchGlobFoldCase
+	}
 	// Sentinel rules are claimed by Go engines, not pattern-matched.
 	if rule.Engine != "" {
 		return false
@@ -608,7 +710,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 			}
 			matched := false
 			for _, valStr := range values {
-				if matchGlob(valStr, pattern) {
+				if glob(valStr, pattern) {
 					matched = true
 					break
 				}
@@ -631,7 +733,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 			anyMatched := false
 			for _, valStr := range values {
 				for _, pattern := range patterns {
-					if matchGlob(valStr, pattern) {
+					if glob(valStr, pattern) {
 						anyMatched = true
 						break
 					}
@@ -695,7 +797,7 @@ func (e *PolicyEvaluator) matchRule(toolName string, arguments map[string]interf
 			}
 			for _, valStr := range values {
 				for _, excludePattern := range patterns {
-					if matchGlob(valStr, excludePattern) {
+					if glob(valStr, excludePattern) {
 						return false
 					}
 				}
@@ -761,6 +863,14 @@ func matchToolName(name, pattern string) bool {
 		return true
 	}
 	return normalizeSeparators(name) == normalizeSeparators(pattern)
+}
+
+// matchGlobFoldCase is matchGlob with ASCII letter case folded on both the
+// value and the pattern — the comparison a case-insensitive volume makes
+// (#4194). ASCII only: see pathnorm.FoldPathCase for why a Unicode fold is
+// the wrong tool even on the restricting side.
+func matchGlobFoldCase(value, pattern string) bool {
+	return matchGlob(pathnorm.FoldASCII(value), pathnorm.FoldASCII(pattern))
 }
 
 // matchGlob matches a value against a glob pattern.

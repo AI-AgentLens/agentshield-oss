@@ -4303,14 +4303,17 @@ var PrintfHexConstructionCases = []TestCase{
 }
 
 // GuardrailEvasionEncodingCases tests detection of base64/encoding-based guardrail evasion.
-// Taxonomy: unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding
+// Taxonomy: unauthorized-execution/obfuscation/interpreter-encoding-evasion
+// (moved off agentic-attacks/guardrail-evasion-via-encoding on 2026-10-04: a
+// shell decodes these payloads, not a model, so that node's LLM01/jailbreak
+// mappings never held for them. IDs kept stable.)
 var GuardrailEvasionEncodingCases = []TestCase{
 	{
 		ID:               "TP-GUARDRAIL-ENC-001",
 		Command:          `echo "cm0gLXJmIC8=" | base64 -d | bash`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "Base64-encoded 'rm -rf /' piped through base64 -d to bash — encoding evades string-based guardrails.",
 		Tags:             []string{"tp", "guardrail-evasion", "base64", "encoding"},
@@ -4320,7 +4323,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `eval "$(echo 'aWZjb25maWcgZXRoMCA+IC90bXAvbmV0LnR4dA==' | base64 --decode)"`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "eval of base64 --decode command substitution — executes runtime-decoded payload invisible to static analysis.",
 		Tags:             []string{"tp", "guardrail-evasion", "eval", "base64"},
@@ -4330,7 +4333,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `cat encoded_data.txt | base64 -d > decoded_output.bin`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "base64 decode to a file (not to a shell) — data decoding without execution is legitimate.",
 		Tags:             []string{"tn", "safe"},
@@ -4340,7 +4343,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `openssl base64 -d -in cert.b64 -out cert.pem`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "openssl base64 decode to .pem file — certificate decoding, no shell execution; ts-block-base64-decode-pipe-shell should NOT trigger.",
 		Tags:             []string{"tn", "safe"},
@@ -4351,7 +4354,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `echo "726d202d7266202f" | xxd -r -p | bash`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "Hex-encoded 'rm -rf /' decoded by xxd -r -p and piped to bash — guardrail evasion via hex encoding. ts-block-xxd-hex-pipe-shell.",
 		Tags:             []string{"tp", "guardrail-evasion", "xxd", "hex-encoding"},
@@ -4361,7 +4364,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `cat hex_payload.txt | xxd -r -p | bash`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "cat hex file decoded by xxd -r -p piped to bash — file-based hex payload execution. ts-block-xxd-hex-pipe-shell.",
 		Tags:             []string{"tp", "guardrail-evasion", "xxd", "hex-encoding"},
@@ -4372,7 +4375,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `echo "cm0gLXJmIC8=" | openssl enc -d -base64 | bash`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "openssl enc -d -base64 decoding piped to bash — guardrail evasion using OpenSSL instead of base64 binary. ts-block-openssl-decode-pipe-shell.",
 		Tags:             []string{"tp", "guardrail-evasion", "openssl", "encoding"},
@@ -4382,7 +4385,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `openssl enc -d -aes-256-cbc -in payload.enc | sh`,
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "openssl enc -d -aes-256-cbc decrypting file piped to sh — AES-encrypted payload executed via shell. ts-block-openssl-decode-pipe-shell.",
 		Tags:             []string{"tp", "guardrail-evasion", "openssl", "aes", "encoding"},
@@ -4393,7 +4396,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `xxd -r -p hex_data.txt > output.bin`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "xxd -r -p decoding hex to a binary file — legitimate data conversion without shell execution; ts-block-xxd-hex-pipe-shell should NOT trigger (no pipe to shell). Default AUDIT from policy.",
 		Tags:             []string{"tn", "safe", "xxd"},
@@ -4404,7 +4407,7 @@ var GuardrailEvasionEncodingCases = []TestCase{
 		Command:          `openssl enc -d -aes-256-cbc -in encrypted.bin -out decrypted.txt`,
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		TaxonomyRef:      "unauthorized-execution/agentic-attacks/guardrail-evasion-via-encoding",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
 		Analyzer:         "regex",
 		Description:      "openssl enc -d decrypting to a file — legitimate file decryption without shell execution; ts-block-openssl-decode-pipe-shell should NOT trigger (no pipe to shell). Default AUDIT from policy.",
 		Tags:             []string{"tn", "safe", "openssl"},

@@ -8,6 +8,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -59,7 +60,12 @@ type HTTPProxy struct {
 	// card); relayClient serves the mediated MCP traffic, see NewHTTPProxy.
 	client      *http.Client
 	relayClient *http.Client
-	server      *http.Server
+	// relayTimeout bounds a non-streaming relay end to end (the old
+	// Client.Timeout); streamIdleTimeout bounds an SSE stream by silence
+	// instead, so a stream that keeps delivering is never cut (#4181).
+	relayTimeout      time.Duration
+	streamIdleTimeout time.Duration
+	server            *http.Server
 	stderr      io.Writer
 	listener    net.Listener
 	mu          sync.Mutex
@@ -93,10 +99,13 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 		// deleted the whole declaration once it had decoded, so a second line
 		// was invisible to the scanners. forwardPost asks for gzip explicitly.
 		// The discovery interceptors keep client and its transparent decoding.
+		// No Client.Timeout: it includes reading the body and cut every SSE
+		// stream at 5 minutes (#4181). beginRelay carries the bounds.
 		relayClient: &http.Client{
-			Timeout:   5 * time.Minute,
 			Transport: relayTransport,
 		},
+		relayTimeout:      5 * time.Minute,
+		streamIdleTimeout: 5 * time.Minute,
 	}
 }
 
@@ -119,7 +128,7 @@ func (hp *HTTPProxy) ListenAndServe() error {
 	hp.server = &http.Server{
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 5 * time.Minute, // long writes for SSE streaming
+		WriteTimeout: 5 * time.Minute, // non-streaming; relaySSE replaces it with a per-write idle deadline (#4181)
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -353,7 +362,9 @@ func (hp *HTTPProxy) handlePost(w http.ResponseWriter, r *http.Request) {
 // forwardPost forwards a POST request to the upstream MCP server and relays
 // the response back to the client. Handles both plain JSON and SSE responses.
 func (hp *HTTPProxy) forwardPost(w http.ResponseWriter, origReq *http.Request, body []byte) {
-	req, err := http.NewRequestWithContext(origReq.Context(), http.MethodPost, hp.cfg.UpstreamURL, bytes.NewReader(body))
+	ctx, rd := hp.beginRelay(origReq.Context())
+	defer rd.stop()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hp.cfg.UpstreamURL, bytes.NewReader(body))
 	if err != nil {
 		_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] error creating upstream request: %v\n", err)
 		http.Error(w, "Internal proxy error", http.StatusBadGateway)
@@ -375,10 +386,9 @@ func (hp *HTTPProxy) forwardPost(w http.ResponseWriter, origReq *http.Request, b
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	ct := resp.Header.Get("Content-Type")
-
-	if strings.Contains(ct, "text/event-stream") {
+	if responseIsSSE(resp) {
 		// SSE response — stream events, scanning tools/list responses
+		rd.idleIfStreamable(w, resp, hp.streamIdleTimeout)
 		hp.relaySSE(w, resp)
 	} else {
 		// Plain JSON response — scan and forward
@@ -398,7 +408,13 @@ func (hp *HTTPProxy) forwardPost(w http.ResponseWriter, origReq *http.Request, b
 // evidence either way: a scanner hit on any form counts, and a form the proxy
 // could not decode is forwarded under its declared headers with a receipt
 // only when no scanner acted on it.
+//
+// The Content-Type goes out as this relay's label, application/json, when the
+// upstream's was ambiguous (#4174, labelJSON): a client whose header parser
+// read the upstream's spelling as SSE would otherwise parse events this relay
+// never scanned. An unambiguous label is forwarded as sent.
 func (hp *HTTPProxy) relayJSON(w http.ResponseWriter, resp *http.Response) {
+	labelJSON(resp.Header) // every writer below copies resp.Header
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] error reading upstream response: %v\n", err)
@@ -555,19 +571,92 @@ func (hp *HTTPProxy) screenRelayedJSON(w http.ResponseWriter, resp *http.Respons
 	return false
 }
 
+// filterBatch applies one to every member of a JSON-RPC batch array (#4070).
+// Every scanner rejects a non-object, so a poisoned member of an array reached
+// the client unread, and the clients that read batches deliver each member as a
+// message of its own. ok is false when data is not a non-empty array, leaving
+// it to the single-message path. A member one replaces is replaced in place; a
+// member one suppresses (nil, true) is dropped; hit is false when none acted.
+func filterBatch(data []byte, one func([]byte) ([]byte, bool)) (out []byte, hit, ok bool) {
+	trimmed := bytes.TrimLeft(data, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, false, false
+	}
+	var members []json.RawMessage
+	if err := json.Unmarshal(trimmed, &members); err != nil || len(members) == 0 {
+		return nil, false, false
+	}
+	kept := make([]json.RawMessage, 0, len(members))
+	for _, m := range members {
+		r, acted := one(m)
+		switch {
+		case !acted:
+			kept = append(kept, m)
+		case r == nil:
+			hit = true
+		default:
+			hit = true
+			kept = append(kept, r)
+		}
+	}
+	if !hit {
+		return nil, false, true
+	}
+	if len(kept) == 0 {
+		return nil, true, true
+	}
+	b, err := json.Marshal(kept)
+	if err != nil {
+		return nil, false, true
+	}
+	return b, true, true
+}
+
 // filterJSONResponse routes one JSON body through the shared response-filter
 // dispatch (dispatchServerData) and reports whether any scanner acted. A body
 // that does not parse, or that carries a method, runs the full chain rather
 // than being skipped; every scanner in it rejects a methodful message itself.
 func (hp *HTTPProxy) filterJSONResponse(body []byte) ([]byte, bool) {
-	msg, _, perr := ParseMessage(body)
+	out, acted := hp.filterJSONOne(body)
+	if acted && out == nil {
+		out = []byte("[]") // the JSON path replaces, never suppresses
+	}
+	return out, acted
+}
+
+// filterJSONOne is filterJSONResponse for one message or batch member: a
+// server-initiated message the shared handling suppresses returns (nil, true),
+// which filterBatch drops from its array and filterJSONResponse turns into an
+// empty batch.
+func (hp *HTTPProxy) filterJSONOne(body []byte) ([]byte, bool) {
+	// Scan the form the client reads (#4162): WHATWG .json() strips one
+	// leading BOM, Go's decoder rejects it. Unchanged bytes are still
+	// what goes out; a scanner's replacement carries no BOM.
+	scanned := stripOneBOM(body)
+	if out, hit, ok := filterBatch(scanned, hp.filterJSONOne); ok {
+		if !hit {
+			return body, false
+		}
+		return out, true
+	}
+	msg, kind, perr := ParseMessage(scanned)
 	if perr != nil || !isServerResponse(msg) {
+		if perr == nil && hp.serverInitiatedSuppressed(msg, kind) {
+			return nil, true
+		}
 		msg = nil
 	}
-	if filtered := hp.dispatchServerData(msg, body); filtered != nil {
+	if filtered := hp.dispatchServerData(msg, scanned); filtered != nil {
 		return filtered, true
 	}
 	return body, false
+}
+
+// stripOneBOM removes a single leading UTF-8 BOM, as a WHATWG UTF-8 decode
+// does before Response.json() parses. Exactly one: a second BOM is not
+// stripped there and the client's parse fails on it.
+func stripOneBOM(b []byte) []byte {
+	return bytes.TrimPrefix(b, utf8BOM)
 }
 
 // filterSSEData routes one event's data through the shared response-filter
@@ -589,6 +678,10 @@ func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
 	if blocked, errResp := hp.handler.ScreenRelayedPayload(parseTransportHTTP, parseDirServerToClient, data); blocked {
 		return errResp, true
 	}
+	data = stripOneBOM(data) // #4162: scan the form the client reads
+	if out, hit, ok := filterBatch(data, hp.filterSSEData); ok {
+		return out, hit
+	}
 	msg, kind, perr := ParseMessage(data)
 	if perr != nil || isServerResponse(msg) {
 		// A methodless message — a response, whatever its id — or a body we
@@ -604,29 +697,41 @@ func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
 		return nil, false
 	}
 	// A message with a method is never a response; every response scanner
-	// rejects it, so only the server-initiated handling below applies.
+	// rejects it, so only the server-initiated handling applies.
+	if hp.serverInitiatedSuppressed(msg, kind) {
+		return nil, true
+	}
+	return nil, false
+}
+
+// serverInitiatedSuppressed runs the handling that only applies to a
+// server→client message carrying a method (sampling/createMessage,
+// elicitation/create, notifications/*) and reports whether it must not reach
+// the client. SSE and a plain JSON response body deliver these identically to
+// the SDK clients, so both relays call it (#4070 notification-parity row).
+func (hp *HTTPProxy) serverInitiatedSuppressed(msg *Message, kind MessageKind) bool {
 	switch kind {
 	case KindSamplingCreateMessage:
 		if blocked, _ := hp.handler.HandleSamplingCreateMessage(msg); blocked {
-			return nil, true
+			return true
 		}
 	case KindElicitationCreate:
 		if blocked, _ := hp.handler.HandleElicitationCreate(msg); blocked {
-			return nil, true
+			return true
 		}
 	case KindNotification:
 		if hp.handler.HandleNotificationMessage(msg) {
-			return nil, true
+			return true
 		}
 		if hp.handler.HandleResourcesUpdatedNotification(msg) {
-			return nil, true
+			return true
 		}
 		hp.handler.HandleToolsListChangedNotification(msg)
 		if hp.handler.HandleProgressNotification(msg) {
-			return nil, true
+			return true
 		}
 	}
-	return nil, false
+	return false
 }
 
 // relaySSE streams Server-Sent Events from upstream to the client, routing
@@ -644,14 +749,26 @@ func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
 // dropped up front whenever a decoder exists — whichever form is relayed,
 // the client receives it as identity, the bytes the scanners saw. A coding
 // the proxy cannot decode keeps its header and gets the raw line scan.
+//
+// The Content-Type goes out as exactly text/event-stream, this relay's label
+// (#4174, labelSSE), whatever the upstream's spelling: the client must read
+// the stream as the stream the scanners read. The header copy below carries
+// it out.
 func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
+	labelSSE(resp.Header)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] warning: ResponseWriter does not support flushing\n")
-		// Fall back to buffered relay
+		// Fall back to buffered relay. relayJSON scans the body as one JSON
+		// document and relabels it as such, so a client cannot read events
+		// that relay never scanned.
 		hp.relayJSON(w, resp)
 		return
 	}
+
+	// The server's WriteTimeout is a whole-response deadline; a stream gets a
+	// deadline per write instead, so only a client that stops reading is cut.
+	w = newStreamWriter(w, flusher, hp.streamIdleTimeout)
 
 	contentEncoding := declaredContentEncoding(resp.Header)
 	codings := contentCodings(contentEncoding)
@@ -682,6 +799,8 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 	}
 
 	rec := newRecordingReader(resp.Body)
+	// One head per response, whichever form ends up relayed (sseHeadGuard).
+	head := &sseHeadGuard{w: w}
 	var acted bool
 	var lastErr error
 	multiMember := false
@@ -694,7 +813,7 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 		var written, events int
 		if err == nil {
 			var a bool
-			written, events, a, err = hp.relaySSEStream(w, flusher, dec, rec.stop)
+			written, events, a, err = hp.relaySSEStream(head, flusher, dec, rec.stop)
 			acted = acted || a
 		}
 		multiMember = multiMember || probe.multiMember
@@ -706,6 +825,9 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 		// not a message either. Both get a receipt.
 		if written > 0 || events > 0 || rec.overflowed {
 			switch {
+			case err != nil && relayEndedByContext(err):
+				// The client hung up or a relay deadline fired: nothing
+				// unscanned went out, so no fail-open happened (#4181).
 			case err != nil:
 				hp.auditUnscannableEncoding(contentEncoding, fmt.Sprintf(
 					"%s stream failed after %d bytes were relayed (%d events seen), remainder not forwarded: %v", d.label, written, events, err))
@@ -728,7 +850,7 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 	// proxy relayed without having read them in the form the label names;
 	// a scanner that acted has already written its own record, and a body
 	// that carried no bytes needs none.
-	written, _, a, err := hp.relaySSEStream(w, flusher, rec.rewound(), nil)
+	written, _, a, err := hp.relaySSEStream(head, flusher, rec.rewound(), nil)
 	acted = acted || a
 	if err != nil {
 		_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] upstream SSE stream ended with error: %v\n", err)
@@ -744,9 +866,18 @@ func (hp *HTTPProxy) relaySSE(w http.ResponseWriter, resp *http.Response) {
 // any scanner acted, and the error that ended the stream, if any. onCommit,
 // when set, runs once, as soon as the form has proved readable: at the first
 // data line, or before the first byte goes out, whichever comes first.
-func (hp *HTTPProxy) relaySSEStream(w http.ResponseWriter, flusher http.Flusher, r io.Reader, onCommit func()) (written, events int, acted bool, err error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+//
+// The stream is framed as the client SDKs frame it (sseLineSplitter: CRLF, LF
+// or bare CR ends a line, one leading BOM is not content, #4178/#4070), and
+// every line goes out in the proxy's own framing — LF-terminated, the one
+// spec BOM gone — whatever ended it upstream. w is the response's
+// sseHeadGuard, so a first line that itself begins with a BOM (content, to
+// the proxy) goes out behind one more, and no client strips its way to a
+// line the proxy did not read (#4182). So the client receives the stream in
+// exactly the framing the scanners read, the principle #4154 (decode, relay
+// identity) and #4174 (one canonical label) apply to the body and its label.
+func (hp *HTTPProxy) relaySSEStream(w io.Writer, flusher http.Flusher, r io.Reader, onCommit func()) (written, events int, acted bool, err error) {
+	scanner := newSSELineScanner(r)
 	commit := func() {
 		if onCommit != nil {
 			onCommit()
@@ -760,28 +891,84 @@ func (hp *HTTPProxy) relaySSEStream(w http.ResponseWriter, flusher http.Flusher,
 		flusher.Flush()
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// SSE data lines start with "data: "
-		if strings.HasPrefix(line, "data: ") {
+	// An SSE event is every line up to the next blank line, and the client
+	// reassembles its payload by joining the data fields with "\n", with one
+	// optional space after the colon (#4070). Scanning a physical line hands a
+	// payload split over two data lines to the filters as two fragments that
+	// neither parse, and a "data:{...}" line was never a candidate at all. So
+	// the event is held until it is complete and scanned as the client reads it.
+	var pending []string
+	flushEvent := func(terminated bool) {
+		if len(pending) == 0 {
+			return
+		}
+		lines := pending
+		pending = nil
+		var payload, rest []string
+		for _, l := range lines {
+			if v, ok := strings.CutPrefix(l, "data:"); ok {
+				payload = append(payload, strings.TrimPrefix(v, " "))
+			} else {
+				rest = append(rest, l)
+			}
+		}
+		if len(payload) > 0 {
 			events++
 			commit()
-			data := []byte(strings.TrimPrefix(line, "data: "))
-			if out, hit := hp.filterSSEData(data); hit {
+			if out, hit := hp.filterSSEData([]byte(strings.Join(payload, "\n"))); hit {
 				acted = true
+				for _, l := range rest {
+					emit("%s\n", l)
+				}
 				if out != nil {
-					emit("data: %s\n", out)
+					for _, l := range strings.Split(string(out), "\n") {
+						emit("data: %s\n", l)
+					}
 				} else {
 					flusher.Flush()
 				}
-				continue
+				if terminated {
+					emit("\n")
+				}
+				return
 			}
 		}
-
-		// Forward the line as-is (including event:, id:, retry:, and empty lines)
-		emit("%s\n", line)
+		// The joined payload decided nothing. A server that omits the blank
+		// line between messages makes one "event" of several, which no client
+		// reads as one message; each data line keeps the scan it always had.
+		// Everything else is forwarded as it came (event:, id:, retry:, comments).
+		for _, l := range lines {
+			if v, ok := strings.CutPrefix(l, "data:"); ok && len(payload) > 1 {
+				if out, hit := hp.filterSSEData([]byte(strings.TrimPrefix(v, " "))); hit {
+					acted = true
+					if out != nil {
+						emit("data: %s\n", out)
+					} else {
+						flusher.Flush()
+					}
+					continue
+				}
+			}
+			emit("%s\n", l)
+		}
+		if terminated {
+			emit("\n")
+		}
 	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if len(pending) == 0 {
+				emit("\n")
+			} else {
+				flushEvent(true)
+			}
+			continue
+		}
+		pending = append(pending, line)
+	}
+	flushEvent(false)
 	return written, events, acted, scanner.Err()
 }
 
@@ -834,17 +1021,36 @@ func (hp *HTTPProxy) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // proxyPassthrough forwards a request to the upstream server with no
-// message-level inspection (used for GET/DELETE and other non-POST methods).
+// message-level inspection (used for GET/DELETE and other non-POST methods),
+// with one exception: the response the client reads as messages. A 2xx answer
+// to a GET is the server-initiated SSE stream to the client whatever its
+// Content-Type (getStreamToClient, #4175), so it goes through relaySSE, which
+// scans every event and labels the stream text/event-stream. Every other
+// response — a non-2xx GET (the 405 "no stream" answer, a 401), a DELETE — is
+// relayed as it arrives: the SDKs read its status, not its body.
 func (hp *HTTPProxy) proxyPassthrough(w http.ResponseWriter, origReq *http.Request) {
-	req, err := http.NewRequestWithContext(origReq.Context(), origReq.Method, hp.cfg.UpstreamURL, origReq.Body)
+	ctx, rd := hp.beginRelay(origReq.Context())
+	defer rd.stop()
+	req, err := http.NewRequestWithContext(ctx, origReq.Method, hp.cfg.UpstreamURL, origReq.Body)
 	if err != nil {
 		http.Error(w, "Internal proxy error", http.StatusBadGateway)
 		return
 	}
 	copyHeaders(req.Header, origReq.Header)
 
-	// No Accept-Encoding of the proxy's own here: the non-SSE branch below
-	// relays the body as it is, so it must arrive as the client can read it.
+	// No Accept-Encoding of the proxy's own on any of these methods (the
+	// client's is withheld by copyHeaders, #4154), so a compliant upstream
+	// sends identity. On GET that is deliberate even though relaySSE now
+	// reads the body: asking for gzip, as forwardPost does, made a benign
+	// upstream that compresses only on request (an Express `compression()`
+	// front) gzip the long-lived GET stream, and every ordinary end of that
+	// stream — a client cancel, an upstream close after comments only, the
+	// relay client's timeout — then wrote a false mcp-response-encoding-fail-open
+	// receipt (#4179 review, class (c)). An identity stream ends silently. A
+	// coding the upstream sends unsolicited still takes relaySSE's #4154 path
+	// on a 2xx GET: decoded and scanned when the proxy can, relayed under its
+	// label with a receipt when it cannot. Non-2xx and non-GET bodies are
+	// relayed as they arrive, so they must arrive as the client can read them.
 	resp, err := hp.relayClient.Do(req)
 	if err != nil {
 		_, _ = fmt.Fprintf(hp.stderr, "[AgentShield MCP-HTTP] upstream %s failed: %v\n", origReq.Method, err)
@@ -853,8 +1059,8 @@ func (hp *HTTPProxy) proxyPassthrough(w http.ResponseWriter, origReq *http.Reque
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	ct := resp.Header.Get("Content-Type")
-	if strings.Contains(ct, "text/event-stream") {
+	if getStreamToClient(origReq.Method, resp.StatusCode) || responseIsSSE(resp) {
+		rd.idleIfStreamable(w, resp, hp.streamIdleTimeout)
 		hp.relaySSE(w, resp)
 	} else {
 		// Copy headers and body
@@ -866,6 +1072,22 @@ func (hp *HTTPProxy) proxyPassthrough(w http.ResponseWriter, origReq *http.Reque
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
 	}
+}
+
+// getStreamToClient reports whether the client reads this response as the
+// server-initiated SSE stream whatever its Content-Type: any 2xx answer to a
+// GET (#4175). @modelcontextprotocol/sdk 1.29.0 and 1.30.0 open that stream by
+// default and check only response.ok before handing the body to the SSE parser
+// (_startOrAuthSse, dist/esm/client/streamableHttp.js:78-107 and :79-108); a
+// non-2xx body is cancelled unread. Python mcp 2.3.0 (handle_get_stream,
+// mcp/client/streamable_http.py:224-273) raises on a non-2xx status and reads
+// the stream only under exactly text/event-stream (httpx2 2.13.1
+// EventSource._check_content_type, httpx2/_sse.py:205-208), which is the label
+// relaySSE forwards — so both clients read the stream the proxy scanned. Same
+// principle as #4174: scan what the client will read, label it as what was
+// scanned.
+func getStreamToClient(method string, status int) bool {
+	return method == http.MethodGet && status >= 200 && status < 300
 }
 
 // copyHeaders copies selected headers from src to dst, preserving
@@ -886,6 +1108,12 @@ func copyHeaders(dst, src http.Header) {
 		"Accept",
 		"Content-Type",
 		"X-",
+		// SSE resumption (#4180): a reconnecting client names the last event
+		// it received so the server can replay what it missed. Without it the
+		// stream restarts from scratch and events sent in the gap are lost.
+		// Forwarding it widens nothing: replayed events arrive on a stream
+		// relaySSE scans like any other.
+		"Last-Event-Id",
 	}
 
 	for key, values := range src {
@@ -1241,7 +1469,9 @@ func (d decoder) decodeAll(raw []byte) decodeAttempt {
 // whatever the decoder said about its container: a container cut before its
 // trailer still carried the message, and every client's decoder is lenient
 // about that. Bytes that merely survived a decoder are not a message.
-func (a decodeAttempt) complete() bool { return len(a.out) > 0 && json.Valid(a.out) }
+// complete is json.Valid on the form a client parses: one leading BOM is
+// stripped there (#4162), so a BOM-prefixed document is still a message.
+func (a decodeAttempt) complete() bool { return len(a.out) > 0 && json.Valid(stripOneBOM(a.out)) }
 
 // maxSSEFallbackBytes bounds what recordingReader keeps for a fallback. The
 // fallback exists for a decoder that rejects the stream before it has
@@ -1288,3 +1518,82 @@ func (rr *recordingReader) stop() {
 func (rr *recordingReader) rewound() io.Reader {
 	return io.MultiReader(bytes.NewReader(rr.buf), rr.r)
 }
+
+// relayEndedByContext reports whether a stream error is the relay's own
+// cancellation (client gone, idle or overall deadline) rather than unreadable
+// upstream bytes. Only the latter leaves a remainder the scanners never read.
+// Every relay deadline cancels a WithCancel context, so Canceled is the only
+// error it can produce (#4185 item 5).
+func relayEndedByContext(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+// relayDeadline bounds one upstream relay. Until the response proves to be a
+// stream it is an overall deadline (what Client.Timeout was); idle() swaps it
+// for a silence timer that every body read resets (#4181).
+type relayDeadline struct {
+	cancel context.CancelFunc
+	total  *time.Timer
+	quiet  *time.Timer
+}
+
+func (hp *HTTPProxy) beginRelay(parent context.Context) (context.Context, *relayDeadline) {
+	ctx, cancel := context.WithCancel(parent)
+	return ctx, &relayDeadline{cancel: cancel, total: time.AfterFunc(hp.relayTimeout, cancel)}
+}
+
+func (d *relayDeadline) stop() {
+	d.total.Stop()
+	if d.quiet != nil {
+		d.quiet.Stop()
+	}
+	d.cancel()
+}
+
+// idleIfStreamable swaps in the idle bound only when relaySSE will really
+// stream. Without a Flusher it falls back to the buffered relayJSON, which
+// must keep the overall deadline (#4185 item 3).
+func (d *relayDeadline) idleIfStreamable(w http.ResponseWriter, resp *http.Response, after time.Duration) {
+	if _, ok := w.(http.Flusher); ok {
+		d.idle(resp, after)
+	}
+}
+
+// idle replaces the overall deadline on resp with an idle one.
+func (d *relayDeadline) idle(resp *http.Response, after time.Duration) {
+	d.total.Stop()
+	d.quiet = time.AfterFunc(after, d.cancel)
+	resp.Body = &idleBody{ReadCloser: resp.Body, t: d.quiet, after: after}
+}
+
+type idleBody struct {
+	io.ReadCloser
+	t     *time.Timer
+	after time.Duration
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.t.Reset(b.after)
+	}
+	return n, err
+}
+
+// streamWriter extends the connection's write deadline before every write,
+// replacing the server's whole-response WriteTimeout on an SSE stream.
+type streamWriter struct {
+	http.ResponseWriter
+	flusher http.Flusher
+	rc      *http.ResponseController
+	idle    time.Duration
+}
+
+func newStreamWriter(w http.ResponseWriter, f http.Flusher, idle time.Duration) *streamWriter {
+	return &streamWriter{ResponseWriter: w, flusher: f, rc: http.NewResponseController(w), idle: idle}
+}
+
+func (s *streamWriter) extend() { _ = s.rc.SetWriteDeadline(time.Now().Add(s.idle)) }
+
+func (s *streamWriter) Write(p []byte) (int, error) { s.extend(); return s.ResponseWriter.Write(p) }
+func (s *streamWriter) Flush()                      { s.extend(); s.flusher.Flush() }

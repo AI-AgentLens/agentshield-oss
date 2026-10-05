@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -281,6 +282,7 @@ func TestFetchDiversityTracker_NilSafe(t *testing.T) {
 // synthetic-tool rules resolve to their intended decision and do not match an
 // unrelated real tool call.
 func TestFetchDiversityRules_EvaluateCorrectDecisions(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-agentic-attacks.yaml")
 	burstRule := findRuleByID(t, rules, "mcp-agentic-audit-fetch-diversity-burst")
 	enumerableRule := findRuleByID(t, rules, "mcp-agentic-block-fetch-enumerable-pattern")
@@ -337,6 +339,7 @@ func newFetchDiversityTestHandler(t *testing.T) (*MessageHandler, *strings.Build
 // repos under one namespace) and confirms the call that completes the
 // threshold is BLOCKed.
 func TestHandleToolCall_FetchEnumerablePattern_Blocks(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newFetchDiversityTestHandler(t)
 	names := []string{"char-a", "char-p", "char-i", "char-e", "char-r"}
 	if len(names) != fetchDiversityEnumerableThreshold {
@@ -367,6 +370,7 @@ func TestHandleToolCall_FetchEnumerablePattern_Blocks(t *testing.T) {
 // cardinality-only signal reaches AUDIT (not BLOCK) end-to-end when resource
 // names do not look enumerable.
 func TestHandleToolCall_FetchDiversityBurst_Audits(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newFetchDiversityTestHandler(t)
 	names := []string{"llama-3-8b-instruct", "mistral-7b-v0.3", "gemma-2-9b-it", "phi-3-medium",
 		"qwen2-7b-chat", "falcon-40b-instruct", "starcoder2-15b", "codellama-34b"}
@@ -391,6 +395,7 @@ func TestHandleToolCall_FetchDiversityBurst_Audits(t *testing.T) {
 // number of ordinary WebFetch calls to different, unrelated hosts is never
 // flagged — the common case must stay quiet.
 func TestHandleToolCall_FetchDiversity_OrdinaryUsageNotFlagged(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newFetchDiversityTestHandler(t)
 	urls := []string{
 		"https://docs.python.org/3/library/os.html",

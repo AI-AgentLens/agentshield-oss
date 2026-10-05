@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -93,6 +94,7 @@ func TestTaskAmplificationTracker_BelowThresholdNoFire(t *testing.T) {
 // resolves to AUDIT for the tracker's synthetic tool name, and does not
 // match an unrelated real tool call.
 func TestTaskAmplificationBurstRule_EvaluatesAudit(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	const ruleID = "mcp-agentic-audit-task-amplification-unpolled-burst"
 	rule := findRuleByID(t, loadPremiumPackRules(t, "mcp-agentic-attacks.yaml"), ruleID)
 
@@ -118,6 +120,7 @@ func TestTaskAmplificationBurstRule_EvaluatesAudit(t *testing.T) {
 // LookupSentinel using the exact engine keys HandleToolCall and
 // HandleSamplingCreateMessage pass at runtime.
 func TestTaskAmplificationSentinels_ResolveViaLookupSentinel(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	e := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 
@@ -201,6 +204,7 @@ func toolCallMessage(t *testing.T, name string, args map[string]interface{}, tas
 // task-augmented call to an already-flagged tool surfaces the expensive-wrap
 // sentinel in the audit trail.
 func TestHandleToolCall_TaskAugmentedExpensiveWrap_Escalates(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newTaskAmplificationTestHandler(t)
 	msg := toolCallMessage(t, "expensive_tool", map[string]interface{}{"scope": "entire_dataset"}, json.RawMessage("true"))
 
@@ -218,6 +222,7 @@ func TestHandleToolCall_TaskAugmentedExpensiveWrap_Escalates(t *testing.T) {
 // expensive-wrap treatment — matches taxonomy's own "good" example (a small,
 // bounded task-wrapped read stays quiet).
 func TestHandleToolCall_TaskAugmentedAllowedTool_NoEscalation(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newTaskAmplificationTestHandler(t)
 	msg := toolCallMessage(t, "read_file", map[string]interface{}{"path": "/workspace/project/data.csv"}, json.RawMessage("true"))
 
@@ -235,6 +240,7 @@ func TestHandleToolCall_TaskAugmentedAllowedTool_NoEscalation(t *testing.T) {
 // the session opens enough task-augmented calls with no polls, and stays
 // quiet when a poll is recorded in between.
 func TestHandleToolCall_TaskAmplificationBurst_FiresOnUnpolledVolume(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newTaskAmplificationTestHandler(t)
 
 	for i := 0; i < taskAmplificationBurstThreshold-1; i++ {
@@ -259,6 +265,7 @@ func TestHandleToolCall_TaskAmplificationBurst_FiresOnUnpolledVolume(t *testing.
 // tasks/get poll recorded via HandleTaskPollRequest (the real client→server
 // dispatch path) suppresses the burst signal even at threshold volume.
 func TestHandleToolCall_TaskAmplificationBurst_SuppressedByPoll(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	h, buf := newTaskAmplificationTestHandler(t)
 
 	h.HandleTaskPollRequest(&Message{JSONRPC: "2.0", ID: mustRequestID(t), Method: MethodTasksGet})
@@ -276,6 +283,7 @@ func TestHandleToolCall_TaskAmplificationBurst_SuppressedByPoll(t *testing.T) {
 // the taxonomy's own worked example: a task-augmented sampling request with a
 // very high maxTokens surfaces the expensive-sampling sentinel.
 func TestHandleSamplingCreateMessage_TaskAugmentedHighMaxTokens_Audited(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	var buf bytes.Buffer
 	h := &MessageHandler{
 		Evaluator: NewPolicyEvaluator(&MCPPolicy{
@@ -305,6 +313,7 @@ func TestHandleSamplingCreateMessage_TaskAugmentedHighMaxTokens_Audited(t *testi
 // TestHandleSamplingCreateMessage_TaskAugmentedLowMaxTokens_NotFlagged
 // ensures an ordinary small task-wrapped completion is not flagged.
 func TestHandleSamplingCreateMessage_TaskAugmentedLowMaxTokens_NotFlagged(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	var buf bytes.Buffer
 	h := &MessageHandler{
 		Evaluator: NewPolicyEvaluator(&MCPPolicy{

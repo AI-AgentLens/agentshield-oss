@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Attack strings are assembled at runtime: the hook reads test sources as commands.
@@ -140,6 +142,7 @@ func TestToolDefinitionDecodesIconsFromWire(t *testing.T) {
 
 // The sentinel the handler looks up must exist in the shipped pack.
 func TestIconSentinelShipped(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	b, err := os.ReadFile("../../packs/premium/mcp/mcp-sentinel.yaml")
 	if err != nil {
 		t.Fatal(err)

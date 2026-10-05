@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/mcp/scenarios"
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // newTestMCPEvaluator builds a PolicyEvaluator with all MCP packs loaded,
@@ -65,6 +66,7 @@ func newTestMCPHandler(t *testing.T) *MessageHandler {
 // TestMCPScenarios runs all labeled MCP test scenarios through the policy
 // engine and reports accuracy metrics (TP, TN, FP, FN, precision, recall).
 func TestMCPScenarios(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	evaluator := newTestMCPEvaluator(t)
 	allScenarios := scenarios.AllScenarios()
 

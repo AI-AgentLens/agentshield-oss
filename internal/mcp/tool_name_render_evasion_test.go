@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // Non-ASCII is expressed numerically so this file stays ASCII-only: writing a
@@ -101,6 +103,7 @@ func renderEvasionEvaluator(t *testing.T) *PolicyEvaluator {
 // Every row asserts its ASCII control BLOCKs first: a row whose control is
 // silent is NOT MEASURED, not clean.
 func TestToolNameRenderEvasionParity(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	e := renderEvasionEvaluator(t)
 
 	controls := []struct {

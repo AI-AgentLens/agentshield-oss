@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // helper to build a chat-like MCP call arguments map
@@ -17,6 +19,7 @@ func chatArgs(extra map[string]interface{}) map[string]interface{} {
 // ValueLimitRule from packs/premium/mcp/mcp-llm-inference.yaml. ValueLimitRule has no
 // Tests field (silently ignored by YAML), so this is the only automated gate for that rule.
 func TestLLMInferencePack_ExtremeTemperature(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	base := DefaultMCPPolicy()
 	merged, _, err := LoadMCPPacks("../../packs/premium/mcp", base)
 	if err != nil {
@@ -111,6 +114,7 @@ func TestLLMInferencePack_ExtremeTemperature(t *testing.T) {
 
 // TestLLMInferencePack_ExtremeTopP validates mcp-llminf-audit-extreme-top-p (issue #1551).
 func TestLLMInferencePack_ExtremeTopP(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	base := DefaultMCPPolicy()
 	merged, _, err := LoadMCPPacks("../../packs/premium/mcp", base)
 	if err != nil {
@@ -152,6 +156,7 @@ func TestLLMInferencePack_ExtremeTopP(t *testing.T) {
 // TestLLMInferencePack_ExtremePenalties validates presence_penalty and frequency_penalty
 // rules (issue #1551).
 func TestLLMInferencePack_ExtremePenalties(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	base := DefaultMCPPolicy()
 	merged, _, err := LoadMCPPacks("../../packs/premium/mcp", base)
 	if err != nil {
@@ -213,6 +218,7 @@ func TestLLMInferencePack_ExtremePenalties(t *testing.T) {
 // These rules detect unbounded result-limit parameters in vector search tool calls
 // that enable systematic corpus enumeration (top_k/k/n_results/nResults/limit > 100).
 func TestVectorDBEnumeration(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	base := DefaultMCPPolicy()
 	merged, _, err := LoadMCPPacks("../../packs/premium/mcp", base)
 	if err != nil {

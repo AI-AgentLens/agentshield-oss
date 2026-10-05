@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -180,6 +181,7 @@ func TestFilterResourceReadResponse_TaxonomyAttribution(t *testing.T) {
 // without it, LookupSentinel("mcp-error-tracking-injection") always
 // returned nil and the signal never got a rule ID in TriggeredRules.
 func TestErrorTrackingInjectionSentinel_Resolves(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadPremiumPackRules(t, "mcp-sentinel.yaml")
 	e := NewPolicyEvaluator(&MCPPolicy{Rules: rules})
 

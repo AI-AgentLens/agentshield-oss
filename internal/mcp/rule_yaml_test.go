@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
 
 // mcpPacksDir returns the absolute path to the authoritative MCP packs
@@ -121,6 +123,7 @@ func loadAllMCPStructuralRules(t *testing.T) []MCPStructuralRule {
 // fires as claimed — see issue #2865).
 func loadAllPremiumMCPRules(t *testing.T) []MCPRule {
 	t.Helper()
+	ossbuild.SkipPremiumSized(t) // every caller loads packs/premium/
 	return loadMCPRulesFromDir(t, premiumMCPPacksDir())
 }
 
@@ -128,6 +131,7 @@ func loadAllPremiumMCPRules(t *testing.T) []MCPRule {
 // premium pack YAML files.
 func loadAllPremiumMCPStructuralRules(t *testing.T) []MCPStructuralRule {
 	t.Helper()
+	ossbuild.SkipPremiumSized(t) // every caller loads packs/premium/
 	return loadMCPStructuralRulesFromDir(t, premiumMCPPacksDir())
 }
 
@@ -317,6 +321,7 @@ var knownPremiumMCPStructuralTestGaps = map[string]string{}
 // (description_scanner_test.go et al.) — matchRule always returns false
 // for them by design, so they're skipped here rather than counted as gaps.
 func TestPremiumMCPRuleYAMLTests(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadAllPremiumMCPRules(t)
 	evaluator := &PolicyEvaluator{}
 
@@ -368,6 +373,7 @@ func TestPremiumMCPRuleYAMLTests(t *testing.T) {
 // TestPremiumMCPStructuralRuleYAMLTests mirrors TestMCPStructuralRuleYAMLTests
 // but for packs/premium/mcp structural_rules:.
 func TestPremiumMCPStructuralRuleYAMLTests(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
 	rules := loadAllPremiumMCPStructuralRules(t)
 
 	tested := 0
