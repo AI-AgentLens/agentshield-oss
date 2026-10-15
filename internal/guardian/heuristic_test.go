@@ -139,6 +139,23 @@ func TestHeuristicProvider_DisableSecurityTruePositives(t *testing.T) {
 		{"AGENTSHIELD_DISABLE env var", `AGENTSHIELD_DISABLE=1 rm -rf /tmp/data`},
 		{"AGENTSHIELD_DISABLE in echo", `echo AGENTSHIELD_DISABLE=1`},
 		{"no-verify flag", `git push --no-verify`},
+		{"wget no-check-certificate", `wget --no-check-certificate https://example.com/x.sh`},
+		// #4265 review: every suffix of the named-skip --no-check pattern has a case.
+		{"debootstrap no-check-gpg", `debootstrap --no-check-gpg bookworm /mnt http://deb.example.org/debian`},
+		{"yt-dlp no-check-certificates (plural)", `yt-dlp --no-check-certificates https://example.com/v`},
+		{"wget no-check-cert (getopt_long abbreviation)", `wget --no-check-cert https://example.com/x.sh`},
+		{"wget2 no-check-hostname", `wget2 --no-check-hostname https://example.com/x.sh`},
+		{"nix copy no-check-sigs", `nix copy --no-check-sigs --from https://cache.example.org /nix/store/abc-pkg`},
+		{"spack no-check-signature", `spack buildcache install --no-check-signature zlib`},
+		{"spack no-checksum", `spack install --no-checksum zlib`},
+		{"opam no-checksums", `opam install --no-checksums lwt`},
+		{"no-check-ssl suffix", `fetchtool --no-check-ssl https://example.com/x.sh`},
+		{"no-check-tls suffix", `fetchtool --no-check-tls https://example.com/x.sh`},
+		{"nocheck-certificate (no hyphen after no)", `wget --nocheck-certificate https://example.com/x.sh`},
+		// Accepted FP, pinned so dropping it is deliberate: rclone's checksum flag is not a
+		// trust bypass, but main fired on it before #4247 and the checksum-skip class
+		// (spack, opam) is worth the cost.
+		{"rclone no-checksum (accepted, pinned)", `rclone copy --no-checksum src: dst:`},
 	}
 
 	for _, tt := range tps {
@@ -2975,4 +2992,25 @@ func signalIDs(signals []Signal) []string {
 		ids[i] = s.ID
 	}
 	return ids
+}
+
+// #4247: bare no-check is zstd's frame checksum / rpmbuild's %check stage, not a trust bypass.
+func TestHeuristicProvider_DisableSecurityBareNoCheckFP4247(t *testing.T) {
+	p := NewHeuristicProvider()
+	for _, cmd := range []string{
+		"zstd -d -q -c -" + "-no-check archive.zst",
+		"cat a.zst | zstd -" + "-no-check -c > out.zst",
+		"rpmbuild -" + "-nocheck -ba pkg.spec",
+		"dpkg-buildpackage -" + "-no-check-builddeps -us -uc",
+		"composer validate -" + "-no-check-all",
+		"git clone -" + "-no-checkout https://example.com/repo.git",
+	} {
+		resp, err := p.Analyze(GuardianRequest{RawCommand: cmd})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasSignal(resp.Signals, "disable_security") {
+			t.Errorf("FP: disable_security fired on %q", cmd)
+		}
+	}
 }

@@ -54,6 +54,17 @@ Both MCP transport mechanisms are supported:
    - `BLOCK` → proxy returns a JSON-RPC error to the IDE; the request never reaches the server.
    - `AUDIT` → request is forwarded to the server; the decision is logged.
    - `ALLOW` → request is forwarded silently.
+
+   **Audit-only mode** (the default for a new install, #4337; set by `mode:` or
+   `default_mode:` in `~/.agentshield/agentshield.yaml`, the org's
+   `enforcement_mode:`, or `--mode`): a `tools/call` that would be `BLOCK`ed
+   is forwarded and logged as `AUDIT` with `"original_decision": "BLOCK"` and
+   `"mode": "audit-only"`, whichever step above decided it. The hook records
+   the same call the same way. The **config file guard** (step 6) still blocks
+   in audit-only mode: it is the proxy's self-protection. Audit-only covers
+   `tools/call` only; `resources/read`, `resources/subscribe`, `prompts/get`
+   and `completion/complete` requests, and the server-to-client filters below
+   (tool description scanning, response scanning), behave as in enforce mode.
 8. **Tool description scanning** — when the server returns a `tools/list` response, AgentShield scans each tool’s description for poisoning signals. Poisoned tools are silently removed from the list before it reaches the IDE.
 9. All other MCP messages (`initialize`, notifications) pass through transparently.
 
@@ -241,6 +252,7 @@ rules:
 |---|---|---|
 | `tool_name` | Exact/glob | Single tool name pattern |
 | `tool_name_regex` | Regex | Regex against tool name |
+| `tool_name_regex_exclude` | Regex | Carve-out: the rule does **not** fire when the wire tool name matches. Use it to keep a broad positive pattern and exclude an enumerated set of names that are not the threat (it reaches past `mcp__<server>__` prefixes, unlike `tool_name_not_prefix_any`). ASCII names only; a non-ASCII name or an invalid regex skips the carve-out, so the rule still fires. |
 | `tool_name_any` | List | Match if any name in list matches |
 | `argument_patterns` | Map | Glob patterns matched against argument values |
 

@@ -3,6 +3,7 @@ package guardian
 import (
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
+	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // GuardianAnalyzer adapts a GuardianProvider to the analyzer.Analyzer interface
@@ -93,10 +94,37 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 		forms = append(forms, resolved)
 	}
 
+	// Prose forms (#4290): every form above with Unicode separators (U+00A0
+	// and the other Zs/Zl/Zp characters RE2's ASCII-only `\s` misses) folded
+	// to a space. The prose signals match words with `\s`, so one NBSP between
+	// the words of an injected instruction dropped them, while the LLM that
+	// later reads AGENTS.md or a server.json description sees ordinary words.
+	// These forms run prose signals only (GuardianRequest.ProseOnly): bash
+	// does not split on NBSP, so the structural signals would see word
+	// boundaries the shell never does. The MCP side closed the same class with
+	// the same fold (internal/mcp/prose_forms.go).
+	var proseForms []string
+	for _, form := range forms {
+		if folded, changed := pkgunicode.FoldUnicodeSeparators(form); changed {
+			proseForms = append(proseForms, folded)
+		}
+	}
+
 	var findings []analyzer.Finding
 	seen := make(map[string]int) // signal ID -> index into findings
+	type candidate struct {
+		text      string
+		proseOnly bool
+	}
+	candidates := make([]candidate, 0, len(forms)+len(proseForms))
 	for _, form := range forms {
-		resp, err := g.provider.Analyze(GuardianRequest{RawCommand: form, ResolveProgramPaths: ctx.ResolveProgramPaths})
+		candidates = append(candidates, candidate{text: form})
+	}
+	for _, form := range proseForms {
+		candidates = append(candidates, candidate{text: form, proseOnly: true})
+	}
+	for _, c := range candidates {
+		resp, err := g.provider.Analyze(GuardianRequest{RawCommand: c.text, ResolveProgramPaths: ctx.ResolveProgramPaths, ProseOnly: c.proseOnly})
 		if err != nil {
 			// Guardian failure is non-fatal: skip this form and keep going.
 			// The deterministic pipeline still provides baseline protection.

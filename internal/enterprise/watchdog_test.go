@@ -279,3 +279,139 @@ func TestWatchdog_HealthyGeminiAndCodexPass(t *testing.T) {
 		}
 	}
 }
+
+// TestWatchdog_CopilotHookFile (#4251 review, finding 2): the watchdog reads
+// the Copilot CLI hook file (honouring COPILOT_HOME) and flags it when the
+// agentshield hook is gone; an intact file passes.
+func TestWatchdog_CopilotHookFile(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	copilotHome := filepath.Join(tmpHome, "custom-copilot")
+	t.Setenv("COPILOT_HOME", copilotHome)
+	hooksDir := filepath.Join(copilotHome, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(tmpHome, ".agentshield")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hookFile := filepath.Join(hooksDir, "agentshield.json")
+	status := func() (found, passed bool) {
+		for _, c := range RunWatchdogOnce(configDir) {
+			if c.Name == "hook-copilot-cli" {
+				return true, c.Passed
+			}
+		}
+		return false, false
+	}
+
+	if err := os.WriteFile(hookFile, []byte(`{"version":1,"hooks":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, passed := status(); !found || passed {
+		t.Errorf("tampered Copilot hook file: found=%v passed=%v, want a failing hook-copilot-cli check", found, passed)
+	}
+	intact := `{"version":1,"hooks":{"PreToolUse":[{"type":"command","bash":"/opt/homebrew/bin/agentshield hook"}]}}`
+	if err := os.WriteFile(hookFile, []byte(intact), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if found, passed := status(); found && !passed {
+		t.Error("an intact Copilot hook file was flagged")
+	}
+}
+
+// claudeCodeHookChecks writes settings as ~/.claude/settings.json in a fresh
+// HOME and returns every hook-claude-code check the watchdog reports. All of
+// them, not the first: a second, failing check behind a passing one is still
+// a false alarm on every interval.
+func claudeCodeHookChecks(t *testing.T, settings string) []WatchdogCheck {
+	t.Helper()
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	claudeDir := filepath.Join(tmpHome, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(tmpHome, ".agentshield")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var found []WatchdogCheck
+	for _, c := range RunWatchdogOnce(configDir) {
+		if c.Name == "hook-claude-code" {
+			found = append(found, c)
+		}
+	}
+	if len(found) == 0 {
+		t.Fatal("watchdog reported no hook-claude-code check for an existing settings file")
+	}
+	return found
+}
+
+// TestWatchdog_ClaudeCodeHookIsStructural (#4292): setup now writes the Claude
+// Code hook in exec form, where "agentshield" and "hook" are separate JSON
+// strings. The check parses the file and requires a PreToolUse hook object
+// the shared recognizer accepts. On main the exec-form entry was flagged as
+// tampered, and the broken lookalikes below passed the substring check.
+func TestWatchdog_ClaudeCodeHookIsStructural(t *testing.T) {
+	cases := []struct {
+		name     string
+		settings string
+		pass     bool
+	}{
+		{"exec form", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook"]}]}]}}`, true},
+		{"shell form, existing installs", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}}`, true},
+		{"ours beside another hook", `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/usr/local/bin/lint"},{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook"]}]}]}}`, true},
+
+		{"exec form with args removed", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield"}]}]}}`, false},
+		{"exec form with --help appended", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook","--help"]}]}]}}`, false},
+		{"exec form pointing at a lookalike", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/tmp/agentshield-evil","args":["hook"]}]}]}}`, false},
+		{"echo replacing the hook", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"echo \"agentshield was here\""}]}]}}`, false},
+		{"shell string with args (never runs on 2.1.296)", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook","args":[]}]}]}}`, false},
+		{"our command moved to PostToolUse", `{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}}`, false},
+		{"our command as free text", `{"note":"/opt/homebrew/bin/agentshield hook","hooks":{}}`, false},
+		{"file no longer parses", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}`, false},
+
+		// Claude Code loads a settings file that starts with a UTF-8 BOM
+		// (measured on 2.1.296 and 2.1.138), so the watchdog must too (C2).
+		{"UTF-8 BOM, exec form", "\xef\xbb\xbf" + `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook"]}]}]}}`, true},
+		{"UTF-8 BOM, shell form", "\xef\xbb\xbf" + `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}}`, true},
+		{"UTF-8 BOM, hook removed", "\xef\xbb\xbf" + `{"hooks":{"PreToolUse":[]}}`, false},
+		// Claude Code rejects a double BOM (#4314 pass 2), so the file no longer
+		// loads its hooks and the watchdog must flag it.
+		{"double BOM, exec form", "\xef\xbb\xbf\xef\xbb\xbf" + `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook"]}]}]}}`, false},
+		{"triple BOM, shell form", "\xef\xbb\xbf\xef\xbb\xbf\xef\xbb\xbf" + `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}}`, false},
+		{"BOM only", "\xef\xbb\xbf", false},
+		{"partial BOM, exec form", "\xef\xbb" + `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield","args":["hook"]}]}]}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			checks := claudeCodeHookChecks(t, tc.settings)
+			if len(checks) != 1 {
+				t.Errorf("hook-claude-code checks = %d; want exactly 1: %+v", len(checks), checks)
+			}
+			// Every check, not the first: a valid install must raise no
+			// failing hook-claude-code check at all, and a tampered one at
+			// least one.
+			anyFailed := false
+			for _, c := range checks {
+				if !c.Passed {
+					anyFailed = true
+					if c.Message == "" {
+						t.Error("a failing check must say why")
+					}
+					if tc.pass {
+						t.Errorf("valid install flagged: %s", c.Message)
+					}
+				}
+			}
+			if !tc.pass && !anyFailed {
+				t.Errorf("tampered install passed every hook-claude-code check: %+v", checks)
+			}
+		})
+	}
+}

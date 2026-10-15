@@ -106,9 +106,19 @@ func mcpRulesetDegraded(cfgErr error, loaded *loadedMCPPolicy) string {
 // a plain return with the warning. No audit logger exists yet either; the
 // event still goes to the SaaS through sendRemoteAudit.
 func hookInputFailure(stage string, err error) error {
+	// The dialect is unknown, but a harness that names itself through
+	// AGENTSHIELD_AGENT_ID still gets its own verdict format (#4251).
+	return hookInputFailureFor(hookSourceFor(hookInput{}, "hook"), stage, err)
+}
+
+// hookInputFailureFor is hookInputFailure for a caller that already knows
+// which harness sent the payload — Copilot CLI's native dialect is
+// recognisable before its toolArgs fail to decode.
+func hookInputFailureFor(source, stage string, err error) error {
 	res, _ := failSafeDecision(evalFailure{stage: stage, err: err}, "<unparseable hook input>", "", "hook", "")
 	if res.Decision == policy.DecisionBlock {
 		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n   Reason: %s\n", res.Explanation)
+		emitCopilotDeny(source, "this command", res.TriggeredRules, []string{res.Explanation})
 		os.Exit(2)
 	}
 	return nil

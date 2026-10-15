@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 )
 
@@ -32,5 +34,19 @@ func init() {
 }
 
 func Execute() error {
+	// A bare `agentshield` carrying a hook payload on stdin runs as
+	// `agentshield hook` (#4292). Every other invocation is untouched.
+	//
+	// This backstop must outlive every exec-form hook entry setup has ever
+	// written. Claude Code 2.1.138 and earlier drop "args" and run the entry's
+	// program bare; without this branch that prints help and exits 0, which
+	// Claude Code reads as allow, so every migrated install on those versions
+	// would fail open with no evaluation and no audit record (#4292, #4314).
+	if len(os.Args) == 1 {
+		if in, ok := bareHookInput(os.Stdin); ok {
+			hookStdin = in
+			rootCmd.SetArgs([]string{hookCmd.Name()})
+		}
+	}
 	return rootCmd.Execute()
 }

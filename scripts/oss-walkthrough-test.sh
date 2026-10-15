@@ -26,6 +26,10 @@ PASSED=0
 FAILED=0
 SKIPPED=0
 FAILURES=""
+# AgentShield's Claude Code hook command in settings.json, in either form
+# (#4292): exec "command": "/path/agentshield" (with "args": ["hook"]) or
+# shell "command": "... agentshield hook".
+AS_CLAUDE_HOOK_RE='"command": *"([^"]*/)?agentshield( hook)?"'
 
 # ── HOME sandbox guard ─────────────────────────────────────────────────────
 # This script writes to $HOME/.claude/settings.json and $HOME/.agentshield/policy.yaml.
@@ -135,6 +139,34 @@ fi
 SCAN_OUT=$(agentshield scan 2>&1)
 echo "$SCAN_OUT" | grep -q "All 17 tests passed"     && pass "scan: 17/17 self-tests pass" || fail "scan self-tests did not all pass"
 
+step "STEP 4a — README: a new install starts in audit-only"
+expect "setup says audit-only; check reports AUDIT with the enforce-mode decision BLOCK (exit 0)"
+# The container had no AgentShield state beyond the packs the formula's
+# post_install copies, so setup made it a new install (#4337). `check` is what
+# the README shows and it never writes the audit log, which STEP 6 expects
+# empty. A release that predates #4337 has neither the notice nor the help
+# line, and enforces from the start; skip rather than fail it, so the nightly
+# run against the published tap stays meaningful across the release.
+if agentshield setup --help 2>&1 | grep -q "starts in audit-only"; then
+    echo "$SETUP_OUT" | grep -q "starts in audit-only mode" && pass "setup: says the new install starts in audit-only" || fail "setup: no audit-only notice for a new install"
+    grep -q '^default_mode: audit-only' "$HOME/.agentshield/agentshield.yaml" 2>/dev/null \
+        && pass "setup: wrote default_mode: audit-only" || fail "setup: agentshield.yaml has no default_mode: audit-only"
+    CHECK_OUT=$(agentshield check --shell "rm -rf /" 2>&1); rc=$?
+    if [ $rc -eq 0 ] && echo "$CHECK_OUT" | head -1 | grep -q '^AUDIT' && echo "$CHECK_OUT" | grep -q 'Enforce mode: BLOCK'; then
+        pass "audit-only: rm -rf / is AUDIT, enforce mode would BLOCK (exit 0)"
+    else
+        fail "audit-only: check rm -rf / gave exit $rc: $(echo "$CHECK_OUT" | head -2 | tr '\n' ' ')"
+    fi
+else
+    skip "new-install audit-only checks (installed release predates #4337)"
+fi
+
+step "STEP 4b — README: one line turns on enforcement"
+expect "after mode: enforce, rm -rf / is BLOCK (exit 2)"
+echo "mode: enforce" >> "$HOME/.agentshield/agentshield.yaml"
+agentshield check --shell "rm -rf /" >/dev/null 2>&1; rc=$?
+[ $rc -eq 2 ] && pass "enforce: rm -rf / blocked (exit 2)" || fail "enforce: rm -rf / gave exit $rc, expected 2"
+
 step "STEP 5 — Add A Local Rule"
 expect "BLOCK on psql prod.db with custom rule"
 cat > "$HOME/.agentshield/policy.yaml" <<EOF
@@ -162,7 +194,8 @@ step "STEP 7 — disable hook (cleanup path from README)"
 expect "hook removed cleanly"
 agentshield setup claude-code --disable >/dev/null 2>&1
 SETTINGS=$(cat "$HOME/.claude/settings.json" 2>/dev/null)
-echo "$SETTINGS" | grep -q "agentshield hook" && fail "hook still present after disable" || pass "hook removed cleanly"
+# Either form (#4292): exec "command": "/path/agentshield" + "args": ["hook"], or shell "... agentshield hook".
+echo "$SETTINGS" | grep -qE "$AS_CLAUDE_HOOK_RE" && fail "hook still present after disable" || pass "hook removed cleanly"
 agentshield setup claude-code >/dev/null 2>&1   # re-enable for steps 9-12
 
 step "STEP 8 — README links"
@@ -230,7 +263,7 @@ agentshield setup claude-code >/dev/null 2>&1
 MERGED=$(cat "$HOME/.claude/settings.json")
 echo "$MERGED" | grep -q "my-existing-server"      && pass "existing MCP server preserved"      || fail "MCP server was dropped"
 echo "$MERGED" | grep -q "my-prior-hook"           && pass "existing PreToolUse hook preserved" || fail "prior PreToolUse hook was dropped"
-echo "$MERGED" | grep -q "agentshield hook"        && pass "agentshield hook added"             || fail "agentshield hook was not added"
+echo "$MERGED" | grep -qE "$AS_CLAUDE_HOOK_RE"    && pass "agentshield hook added"             || fail "agentshield hook was not added"
 
 step "STEP 11 — Custom rule auto-loads via the hook (not just --policy)"
 expect "psql prod.db blocked when policy.yaml exists at default path"

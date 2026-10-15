@@ -538,16 +538,42 @@ func scanArgumentValue(result *ContentScanResult, argName, text string) {
 // ── Compiled patterns ──────────────────────────────────────────────────────
 
 var (
-	privateKeyRe    = regexp.MustCompile(`-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----`)
-	awsAccessKeyRe  = regexp.MustCompile(`AKIA[0-9A-Z]{16}`)
-	awsSecretRe     = regexp.MustCompile(`(?i)(aws_secret_access_key|aws_access_key_id|aws_session_token)\s*[=:]\s*\S{16,}`)
+	privateKeyRe   = regexp.MustCompile(`-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----`)
+	awsAccessKeyRe = regexp.MustCompile(`AKIA[0-9A-Z]{16}`)
+	awsSecretRe    = regexp.MustCompile(`(?i)(aws_secret_access_key|aws_access_key_id|aws_session_token)\s*[=:]\s*\S{16,}`)
 	// Covers classic tokens (ghp_, ghs_), Actions tokens (gha_), refresh tokens
 	// (ghr_), and fine-grained PATs introduced in 2022 (github_pat_...).
 	// Fine-grained PATs are typically 93+ chars after the prefix; use {80,} to
 	// handle any minor length variations GitHub may introduce.
 	githubTokenRe = regexp.MustCompile(`gh[psar]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{80,}`)
-	bearerTokenRe   = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_\-.]{20,}`)
-	basicAuthRe     = regexp.MustCompile(`https?://[^:]+:[^@]+@`)
+	bearerTokenRe = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_\-.]{20,}`)
+	// basicAuthRe matches user:password userinfo in an http(s) URL. Neither
+	// part may hold whitespace or '/': a URL's authority ends at the first
+	// '/', and no URL holds whitespace, so a match that crosses one is two
+	// unrelated pieces of text, not a credential. The pre-#4270
+	// `[^:]+:[^@]+@` ran from any URL to the next ':' and the next '@'
+	// anywhere later in the text — 4,122 characters across cobra's README,
+	// and 35 of 289 benign corpus docs BLOCKed as tool results.
+	//
+	// The user part may hold '@' (pass 1 of the #4270 review): an e-mail or
+	// UPN username written raw — `http://jane@corp.com:pw@proxy:8080` — is
+	// what corporate proxy and Atlassian e-mail+token URLs look like, and Go
+	// net/http, Python and Node all send it as Basic auth. It may not hold
+	// ':' (that ends it), '"', '<', '>' or '`': those are not URL characters
+	// (RFC 3986 requires them encoded) and are what delimits a URL in JSON,
+	// HTML and Markdown, so `"https://host","email":"me@` in minified JSON is
+	// not userinfo. Beyond whitespace and '/', the password part excludes only
+	// '@' (that ends it) and '"' — `{"u":"https://h:8080","e":"a@b"}` — and
+	// keeps every other character the old pattern allowed.
+	//
+	// The user part is bounded at 256; the password part is deliberately not:
+	// a JWT used as a URL password (an Entra ID access token is 1.5–2.5 KB)
+	// is a real credential the old pattern caught, and the excluded set
+	// already confines a match to one whitespace-free token. Neither part
+	// sits behind a leading .*, so there is no bounded-repetition blowup
+	// (#2551). Every string this matches, the old pattern matched: it only
+	// narrows.
+	basicAuthRe     = regexp.MustCompile("https?://[^\\s/:\"<>`]{1,256}:[^\\s/@\"]+@")
 	slackTokenRe    = regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`)
 	stripeKeyRe     = regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24}`)
 	genericSecretRe = regexp.MustCompile(`(?i)(api_key|apikey|api-key|secret_key|secretkey|secret-key|access_token|auth_token|private_key)\s*[=:]\s*['"]?[A-Za-z0-9_\-/+=]{16,}['"]?`)

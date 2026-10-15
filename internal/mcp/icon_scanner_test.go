@@ -39,8 +39,9 @@ func svgDataURI(body string) string {
 	return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(body))
 }
 
-func TestScanToolIcons(t *testing.T) {
-	tp := map[string]string{
+// iconBlockTierSources is every BLOCK-tier icon src the scanner is pinned
+// against; the monotonicity invariant (#4204) is generated from it.
+var iconBlockTierSources = map[string]string{
 		"script scheme":          iconJS,
 		"script scheme tab":      "java\tscript:alert(1)",
 		"vbscript":               "vb" + "script:msgbox(1)",
@@ -69,7 +70,10 @@ func TestScanToolIcons(t *testing.T) {
 		"svg utf16 be no bom":   utf16URI(iconSVGJS, false, false),
 		"svg entity scheme":     svgDataURI(`<!DOCTYPE svg [<!ENTITY j "&#106;ava` + `script:alert(1)">]><svg><a href="&j;"><text>x</text></a></svg>`),
 		"svg entity scheme hex": svgDataURI(`<!DOCTYPE svg [<!ENTITY j '&#x6A;ava` + `script:alert(1)'>]><svg><a href="&j;"/></svg>`),
-	}
+}
+
+func TestScanToolIcons(t *testing.T) {
+	tp := iconBlockTierSources
 	for name, src := range tp {
 		if got := scanToolIcons([]ToolIcon{{Src: src}}); len(got) != 1 || got[0].Signal != SignalIconUnsafeSource {
 			t.Errorf("TP %s: want one %s finding, got %+v", name, SignalIconUnsafeSource, got)

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
 )
@@ -811,6 +812,49 @@ type PoisonFinding struct {
 	Signal  PoisonSignal `json:"signal"`
 	Detail  string       `json:"detail"`
 	Snippet string       `json:"snippet,omitempty"`
+	// Surface names the tool-definition field the match STARTED in, for the
+	// signals whose receipt depends on it (today: SignalHiddenInstructions,
+	// whose description and outputSchema placements are two sentinel rules
+	// attesting to two taxonomy nodes, #4269). Empty means the scanner did not
+	// record one, which reads as the description surface. Attribution only:
+	// no decision reads it, and it is not part of the finding's JSON shape.
+	Surface ToolTextSurface `json:"-"`
+}
+
+// ToolTextSurface is one of the tool-definition fields scanToolDescriptionOnce
+// folds into its combined text.
+type ToolTextSurface string
+
+const (
+	SurfaceDescription  ToolTextSurface = "description"
+	SurfaceInputSchema  ToolTextSurface = "inputSchema"
+	SurfaceOutputSchema ToolTextSurface = "outputSchema"
+	SurfaceMeta         ToolTextSurface = "_meta"
+)
+
+// toolTextSpan is the half-open byte range [start, end) one surface occupies
+// in the LOWER-CASED combined text the text-pattern signals match against.
+type toolTextSpan struct {
+	surface    ToolTextSurface
+	start, end int
+}
+
+// surfaceAt returns the surface whose span holds offset off of the lower-cased
+// combined text. A match that starts on a joining space reads as the surface
+// before it; an offset past every span (impossible for a real match) reads as
+// the description, which is the pre-#4269 attribution.
+func surfaceAt(spans []toolTextSpan, off int) ToolTextSurface {
+	for _, sp := range spans {
+		if off >= sp.start && off < sp.end {
+			return sp.surface
+		}
+	}
+	for i := len(spans) - 1; i >= 0; i-- {
+		if off >= spans[i].start {
+			return spans[i].surface
+		}
+	}
+	return SurfaceDescription
 }
 
 // DescriptionScanResult is the result of scanning a single tool's description.
@@ -880,29 +924,50 @@ func scanToolDescriptionOnce(tool ToolDefinition) DescriptionScanResult {
 	// the outputSchema tree; this text pass covers the description/title leaf strings
 	// that walkSchemaNode deliberately skips (they flow through here instead).
 	text := tool.Description
+	// spans records where each surface sits in the LOWER-CASED text, so a
+	// finding can say which field it came from (#4269). strings.ToLower maps
+	// rune by rune and every joiner is an ASCII space, so lower-casing each
+	// part and summing the lengths gives the same offsets as lower-casing the
+	// whole — even where ToLower changes a part's byte length.
+	lowerLen := len(strings.ToLower(tool.Description))
+	spans := []toolTextSpan{{SurfaceDescription, 0, lowerLen}}
+	addSurface := func(surface ToolTextSurface, raw json.RawMessage) {
+		text += " " + string(raw)
+		start := lowerLen + 1
+		lowerLen = start + len(strings.ToLower(string(raw)))
+		spans = append(spans, toolTextSpan{surface, start, lowerLen})
+	}
 	if len(tool.InputSchema) > 0 {
-		text += " " + string(tool.InputSchema)
+		addSurface(SurfaceInputSchema, tool.InputSchema)
 	}
 	if len(tool.OutputSchema) > 0 {
-		text += " " + string(tool.OutputSchema)
+		addSurface(SurfaceOutputSchema, tool.OutputSchema)
 	}
 	// _meta (MCP reserved metadata field) is folded in the same way — it is
 	// otherwise invisible to every text-pattern signal below, making it a
 	// registration-time injection surface that bypasses Description/InputSchema/
 	// OutputSchema scanning entirely.
 	if len(tool.Meta) > 0 {
-		text += " " + string(tool.Meta)
+		addSurface(SurfaceMeta, tool.Meta)
 	}
 
 	lower := strings.ToLower(text)
+	if len(lower) != lowerLen {
+		// Unreachable while ToLower maps rune by rune; if that ever changes,
+		// attribute to the description rather than to a wrong span.
+		spans = nil
+	}
 
-	// Signal 1: Hidden instruction markers
+	// Signal 1: Hidden instruction markers. The finding records the surface
+	// its match starts in: a marker in outputSchema attests to the
+	// outputSchema sentinel and node, anywhere else to the description one.
 	for _, pattern := range hiddenInstructionPatterns {
 		if loc := pattern.re.FindStringIndex(lower); loc != nil {
 			result.Findings = append(result.Findings, PoisonFinding{
 				Signal:  SignalHiddenInstructions,
 				Detail:  pattern.description,
 				Snippet: safeSnippet(text, loc[0], 80),
+				Surface: surfaceAt(spans, loc[0]),
 			})
 		}
 	}
@@ -1258,6 +1323,7 @@ func scanToolDescriptionOnce(tool ToolDefinition) DescriptionScanResult {
 	// injection routing the agent through a trusted-looking tool name into a
 	// side-channel operation.
 	result.Findings = append(result.Findings, detectToolVerbDescriptionMismatch(tool.Name, tool.Description)...)
+	result.Findings = append(result.Findings, detectVerbMismatchEvasion(tool.Name, tool.Description)...)
 
 	// Signals 32/33/34: consent-gate / reasoning-exfiltration / audit-evasion social
 	// engineering. These target the host's approval mechanism, the agent's own private
@@ -2245,6 +2311,9 @@ func detectInvisibleControls(text string) []PoisonFinding {
 	for _, threat := range scan.Threats {
 		switch threat.Category {
 		case "zero-width", "bidi-override":
+			if directionMarkInRTLProse(text, threat) {
+				continue
+			}
 			if seen[threat.Category] {
 				continue
 			}
@@ -2379,6 +2448,47 @@ var proseDetectorsForFold = []struct {
 }{
 	{detectReasoningExfiltration, "chain-of-thought / system-prompt exfiltration directive"},
 	{detectAuditLogEvasion, "audit-log / telemetry evasion directive"},
+	// #4298: these six were in neither list, so a soft hyphen or NBSP beside
+	// a space split them and the description scanned clean (12/12 on main).
+	{detectMemoryPersistenceInjection, "memory-persistence directive"},
+	{detectComplianceFramedPrivilegeGrant, "compliance-framed privilege grant"},
+	{detectToolPreferenceManipulation, "tool-preference manipulation"},
+	{detectToolChainOrchestration, "tool-chain orchestration directive"},
+	{detectInspectionEvasionDirective, "inspection-evasion directive"},
+	{detectMarkdownExfil, "markdown image exfiltration reference"},
+	// #4299: measured evading on main for NBSP, ideographic, fullwidth,
+	// fullwidth+NBSP and soft-hyphen renderings. detectToolVerbDescriptionMismatch
+	// is handled by detectVerbMismatchEvasion because it also needs the tool name.
+	{detectCredentialPathDeclaration, "credential-path declaration"},
+	{detectExcessiveCapabilityDeclaration, "excessive-capability declaration"},
+}
+
+// detectVerbMismatchEvasion is the fold pass for detectToolVerbDescriptionMismatch,
+// the one description detector keyed on the tool NAME as well as the prose, and so
+// not expressible in proseDetectorsForFold (func(string)). It recovers what a
+// reader sees (RecoverRenderedText: separators, compatibility and confusable
+// letters, invisible formatters) and reports only a mismatch present in the
+// recovered text and absent from the raw text, so it can only add findings.
+// Measured 5/5 evading on main before this existed (#4299).
+func detectVerbMismatchEvasion(name, description string) []PoisonFinding {
+	if name == "" || description == "" {
+		return nil
+	}
+	recovered, changed := pkgunicode.RecoverRenderedText(description)
+	if !changed {
+		return nil
+	}
+	recovered = foldSeparatorRuns(recovered)
+	if len(detectToolVerbDescriptionMismatch(name, recovered)) == 0 ||
+		len(detectToolVerbDescriptionMismatch(name, description)) > 0 {
+		return nil
+	}
+	return []PoisonFinding{{
+		Signal: SignalRenderedTextEvasion,
+		Detail: "Codepoint-level disguises (Unicode separators, compatibility letters or invisible " +
+			"formatters) conceal a read-only-name / mutation-description mismatch,",
+		Snippet: truncateForSnippet(description, 80),
+	}}
 }
 
 // foldedOnlyFindings re-runs the plaintext prose detectors against a normalized
@@ -4323,4 +4433,76 @@ func safeSnippet(text string, idx, maxLen int) string {
 		snippet = snippet + "..."
 	}
 	return snippet
+}
+
+// directionMarkInRTLProse reports whether a threat is an ordinary directional
+// mark (LRM U+200E, RLM U+200F, ALM U+061C) in right-to-left prose, which is
+// how Hebrew and Arabic are written correctly (#4064 item 2). It is a per-mark
+// exemption, so any other invisible character in the same text still fires.
+//
+// The exemption is deliberately narrow, because a direction mark is also the
+// classic two-symbol steganographic alphabet (LRM=0, RLM=1):
+//   - the text must be at least half RTL-script letters;
+//   - the mark must not touch an ASCII letter or digit, so it cannot split an
+//     English token such as "ig<RLM>nore" to evade a plaintext matcher, and
+//     must not sit between two ASCII punctuation characters, so it cannot
+//     split a literal signature such as "<|" or "](";
+//   - the mark may not be adjacent to another invisible mark (a run encodes
+//     bits), and marks must be sparse: at most one per eight RTL letters.
+func directionMarkInRTLProse(text string, t pkgunicode.Threat) bool {
+	if t.Category != "zero-width" {
+		return false
+	}
+	pos := t.Position
+	if pos < 0 || pos >= len(text) {
+		return false
+	}
+	r, size := utf8.DecodeRuneInString(text[pos:])
+	if !isDirectionMark(r) {
+		return false
+	}
+	prev, _ := utf8.DecodeLastRuneInString(text[:pos])
+	next, _ := utf8.DecodeRuneInString(text[pos+size:])
+	// Between two ASCII punctuation characters the mark splits an ASCII
+	// signature (`<|im_start|>`, `](https:`, `//`, `==`) that the role-token,
+	// tool-call, markdown and base64 detectors match literally and no fold
+	// pass re-checks (#4287 pass 1: 28 fixture-derived rows hid on main and
+	// passed here). RTL prose puts a mark beside ONE neutral character, next
+	// to a letter or a space, so this costs the exemption nothing it is for.
+	if isASCIIGraphic(prev) && isASCIIGraphic(next) {
+		return false
+	}
+	for _, n := range []rune{prev, next} {
+		if n == utf8.RuneError {
+			continue
+		}
+		if n < 0x80 && (unicode.IsLetter(n) || unicode.IsDigit(n)) {
+			return false
+		}
+		if isDirectionMark(n) || unicode.Is(unicode.Cf, n) {
+			return false
+		}
+	}
+	letters, rtl, marks := 0, 0, 0
+	for _, c := range text {
+		switch {
+		case isDirectionMark(c):
+			marks++
+		case unicode.IsLetter(c):
+			letters++
+			if unicode.In(c, unicode.Hebrew, unicode.Arabic, unicode.Syriac, unicode.Thaana) {
+				rtl++
+			}
+		}
+	}
+	return letters > 0 && rtl*2 >= letters && marks*8 <= rtl
+}
+
+func isDirectionMark(r rune) bool {
+	return r == '\u200E' || r == '\u200F' || r == '\u061C'
+}
+
+// isASCIIGraphic reports a printable, non-space ASCII character.
+func isASCIIGraphic(r rune) bool {
+	return r > 0x20 && r < 0x7f
 }

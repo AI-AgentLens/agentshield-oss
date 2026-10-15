@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +26,10 @@ var mcpHTTPProxyCmd = &cobra.Command{
 	Long: `Starts a transparent MCP HTTP reverse proxy that sits between the IDE (client)
 and a remote MCP server using Streamable HTTP transport. The proxy intercepts
 tools/call requests, evaluates them against AgentShield's MCP policy, and blocks
-dangerous tool calls before they reach the upstream server.
+dangerous tool calls before they reach the upstream server. In audit-only mode
+(the default for new installs) a tool call enforce mode would block is
+forwarded and recorded as AUDIT with original_decision BLOCK; the config-file
+guard still blocks.
 
 Tools/list responses from the upstream server are scanned for tool description
 poisoning — poisoned tools are silently hidden before reaching the IDE.
@@ -116,7 +121,20 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	evaluator := mcp.NewPolicyEvaluator(mcpPolicy)
+	// The evaluator stays in enforce mode (""): the proxy's handler applies
+	// audit-only itself, once per tools/call, after its own scanners have
+	// run, so a would-be block from any of them is recorded with its
+	// original decision and the config guard keeps blocking (#4337, #4324
+	// row 1). Passing the mode here as well would downgrade the evaluator's
+	// verdicts on other message types the proxy still enforces.
+	evaluator := assembly.MCPEvaluator(mcpPolicy, "")
+	proxyMode := ""
+	if cfg != nil {
+		proxyMode = cfg.Mode
+	}
+	if proxyMode == config.ModeAuditOnly {
+		fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] mode: audit-only (%s) — tool calls enforce mode would block are forwarded and recorded; the config-file guard still blocks\n", cfg.ModeSource)
+	}
 
 	// Set up audit logging
 	auditPath := ""
@@ -185,6 +203,11 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		Stderr:           os.Stderr,
 		ServerName:       deriveServerNameFromURL(httpUpstreamURL),
 		DataLabelScanner: dlScanner,
+		ManagedHost:      enterprise.ManagedHost,
+		Mode:             proxyMode,
+		// The shell's managed self-protection rules, applied to
+		// execute_command-style arguments on a managed host (#4337 B1).
+		SelfProtectCommand: enterprise.MatchSelfProtectCommand,
 	})
 
 	// Handle graceful shutdown on SIGINT/SIGTERM

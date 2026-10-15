@@ -47,6 +47,17 @@ type HTTPProxyConfig struct {
 
 	// DataLabelScanner is an optional data label scanner for customer-defined PII patterns.
 	DataLabelScanner *DataLabelScanner
+
+	// ManagedHost reports whether this machine is centrally managed; it shapes
+	// only the BLOCK hint on stderr. The CLI passes enterprise.ManagedHost.
+	// nil means unmanaged (#4321).
+	ManagedHost func() bool
+
+	// Mode is the enforcement mode, as ProxyConfig.Mode (#4337).
+	Mode string
+
+	// SelfProtectCommand is MessageHandler.SelfProtectCommand.
+	SelfProtectCommand func(cmd string) (ruleID string, matched bool)
 }
 
 // HTTPProxy is a transparent MCP Streamable HTTP reverse proxy that intercepts
@@ -82,13 +93,16 @@ func NewHTTPProxy(cfg HTTPProxyConfig) *HTTPProxy {
 	}
 	relayTransport := http.DefaultTransport.(*http.Transport).Clone()
 	relayTransport.DisableCompression = true
+	handler := newMessageHandler(cfg.Evaluator, cfg.OnAudit, stderr, cfg.ServerName, cfg.SchemaDriftCacheDir, cfg.DataLabelScanner, cfg.ManagedHost)
+	handler.Mode = cfg.Mode
+	handler.SelfProtectCommand = cfg.SelfProtectCommand
 	return &HTTPProxy{
 		cfg:    cfg,
 		stderr: stderr,
 		// Single shared handler ⇒ tracker/call history crosses sessions here
 		// until keyed by Mcp-Session-Id (deferred); the stdio proxy is the
 		// exact path (one handler == one agent == one session).
-		handler: newMessageHandler(cfg.Evaluator, cfg.OnAudit, stderr, cfg.ServerName, cfg.SchemaDriftCacheDir, cfg.DataLabelScanner),
+		handler: handler,
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // generous timeout for long-running tool calls
 		},

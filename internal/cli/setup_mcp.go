@@ -146,7 +146,7 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 		fmt.Println("How it works:")
 		fmt.Println("  1. IDE sends MCP tool calls (tools/call) to the server")
 		fmt.Println("  2. AgentShield proxy intercepts and evaluates each call")
-		fmt.Println("  3. If BLOCK: tool call is rejected with a JSON-RPC error")
+		fmt.Println("  3. If BLOCK (enforce mode): tool call is rejected with a JSON-RPC error")
 		fmt.Println("  4. If ALLOW/AUDIT: tool call is forwarded to the real server")
 		fmt.Println("  5. All decisions are logged to ~/.agentshield/audit.jsonl")
 		fmt.Println()

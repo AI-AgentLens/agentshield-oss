@@ -10,11 +10,20 @@ import (
 
 // CheckDisableAllowed returns an error if managed mode blocks hook removal.
 func CheckDisableAllowed() error {
-	cfg := LoadManagedConfig()
-	if cfg != nil && cfg.Managed {
+	if ManagedHost() {
 		return fmt.Errorf("cannot disable hooks in managed mode — contact your IT administrator")
 	}
 	return nil
+}
+
+// ManagedHost reports whether this machine is centrally managed, by the same
+// reading of managed.json that CheckDisableAllowed enforces. Callers pass it to
+// the BLOCK hints in internal/policy/remediation, which take it as a parameter
+// so the engine never reads enterprise config itself (#4321). Keeping one
+// definition here is what stops the hint and the enforcement from drifting.
+func ManagedHost() bool {
+	cfg := LoadManagedConfig()
+	return cfg != nil && cfg.Managed
 }
 
 // LoadManagedConfig loads managed.json from the default config directory.

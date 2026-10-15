@@ -399,9 +399,14 @@ func scanSamplingToolLoop(msg SamplingMessage) []SamplingFinding {
 // toolLoopOverridePatterns are the override directives that have no reading
 // on a DATA surface other than an attempt to take over the model. Both
 // tool-loop halves share them (Codex review of #4058, pass 2, finding 2): the
-// response scanner's override pattern accepts a single verb, so the same
+// response scanner's override pattern accepted a single verb, so the same
 // directive with "discard" in its place passed a tool_result, and the
-// tool_use half had no disable-safety check at all.
+// tool_use half had no disable-safety check at all. The override row is the
+// shared overrideEarlierInstructionsRE (#4060). On the tools/call surface the
+// same value runs in ScanToolCallResponseForOverrideDirective at AUDIT unless
+// an agent-directed cue corroborates it; here it stays BLOCK for bare prose
+// (a pre-existing FP class on this path — aligning it is a NARROWING
+// decision, not made in #4073).
 //
 // Deliberately narrower than a2aHardInjectionPatterns, which it is drawn from.
 // Tool data is where ordinary prose lives, and several members of that set
@@ -411,7 +416,7 @@ func scanSamplingToolLoop(msg SamplingMessage) []SamplingFinding {
 // reader rather than a product setting, and omits "security" ("temporarily
 // disable your security software" is install-guide boilerplate).
 var toolLoopOverridePatterns = []signalPattern{
-	{regexp.MustCompile(`(ignore|disregard|discard|forget)\s+(all\s+)?(of\s+)?(the\s+|your\s+)?(previous|prior|earlier|above|preceding)\s+(instructions?|prompts?|messages?|rules?|directives?)`), "instruction override (disregard earlier instructions)"},
+	{overrideEarlierInstructionsRE, "instruction override (disregard earlier instructions)"},
 	{regexp.MustCompile(`(disable|bypass|circumvent|turn\s+off|ignore)\s+your\s+(safety|guardrails?|filters?|restrictions?|guidelines?|content\s+polic(y|ies))`), "behavioral takeover (disable your safety controls)"},
 	{regexp.MustCompile(`your\s+(new|real|true|actual)\s+(role|instructions?|goal|objective|task)\s+(is|are)\b`), "behavioral takeover (role reassignment)"},
 }
@@ -538,6 +543,16 @@ func structuredObject(raw json.RawMessage) map[string]interface{} {
 // decodeTextBlob base64-decodes a resource blob and returns it when it is
 // readable text (the same test the tools/call base64 re-scan uses).
 func decodeTextBlob(s string) (string, bool) {
+	b, ok := decodeBase64Lenient(s)
+	if !ok || !decodedLooksLikeText(b) {
+		return "", false
+	}
+	return string(b), true
+}
+
+// decodeBase64Lenient decodes a resource blob with whitespace removed, in the
+// first of the standard, URL-safe and unpadded alphabets that accepts it.
+func decodeBase64Lenient(s string) ([]byte, bool) {
 	cleaned := strings.Map(func(r rune) rune {
 		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
 			return -1
@@ -546,13 +561,10 @@ func decodeTextBlob(s string) (string, bool) {
 	}, s)
 	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.RawURLEncoding} {
 		if b, err := enc.DecodeString(cleaned); err == nil {
-			if decodedLooksLikeText(b) {
-				return string(b), true
-			}
-			return "", false
+			return b, true
 		}
 	}
-	return "", false
+	return nil, false
 }
 
 // samplingStringLeaves returns every non-empty string value in raw, at any

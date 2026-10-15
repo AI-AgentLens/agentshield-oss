@@ -41,12 +41,25 @@ func runHookClient(t *testing.T, env map[string]string, payload map[string]inter
 	if err != nil {
 		t.Fatal(err)
 	}
-	stdin, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
+	code, _, stderr := runClientProcess(t, []string{python3(t), scriptPath}, env, payload)
+	return code, stderr
+}
+
+// runClientProcess runs one thin-client process (argv) with payload on stdin
+// — a []byte is sent verbatim, anything else JSON-encoded — and returns the
+// exit code, stdout and stderr. Shared by the Python and PowerShell clients so
+// both are held to one harness contract.
+func runClientProcess(t *testing.T, argv []string, env map[string]string, payload interface{}) (int, string, string) {
+	t.Helper()
+	stdin, ok := payload.([]byte)
+	if !ok {
+		var err error
+		if stdin, err = json.Marshal(payload); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	cmd := exec.Command(python3(t), scriptPath)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin = bytes.NewReader(stdin)
 	// Minimal, explicit environment: the client must work from nothing but
 	// its documented variables (plus HOME for getpass on some platforms).
@@ -54,17 +67,18 @@ func runHookClient(t *testing.T, env map[string]string, payload map[string]inter
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	code := 0
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		code = exitErr.ExitCode()
 	} else if err != nil {
 		t.Fatalf("running client: %v (stderr: %s)", err, stderr.String())
 	}
-	return code, stderr.String()
+	return code, stdout.String(), stderr.String()
 }
 
 // claudeBashPayload mirrors the PreToolUse JSON Claude Code sends for a Bash

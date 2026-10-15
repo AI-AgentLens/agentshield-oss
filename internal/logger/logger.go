@@ -65,6 +65,18 @@ func appendNote(notes []Note, n Note) []Note {
 	return append(append(make([]Note, 0, len(notes)+1), notes...), n)
 }
 
+// IdentityContext records collector-supplied attribution and its provenance.
+// It is evidence metadata, not authentication performed by the policy engine.
+type IdentityContext struct {
+	TenantID        string `json:"tenant_id,omitempty"`
+	UserID          string `json:"user_id,omitempty"`
+	UserDisplayName string `json:"user_display_name,omitempty"`
+	DeviceID        string `json:"device_id,omitempty"`
+	PeerPublicKey   string `json:"peer_public_key,omitempty"`
+	IdentitySource  string `json:"identity_source,omitempty"`
+	HarnessSource   string `json:"harness_source,omitempty"`
+}
+
 type AuditEvent struct {
 	Timestamp      string   `json:"timestamp"`
 	Command        string   `json:"command"`
@@ -108,14 +120,52 @@ type AuditEvent struct {
 	// which is worse than an honest empty field. Empty for harnesses that
 	// don't send one (Cursor today) and for direct CLI invocations.
 	SessionID string `json:"session_id,omitempty"`
-	// Principal is the OS user the agent process acted as. It is the only
-	// identity AgentShield can observe first-hand at hook time — the agent
-	// runs in-process with the developer's shell, so there is no separate
-	// agent credential to report.
+	// Principal is the OS user at hook time, or the gateway-supplied enrolled
+	// user for remote evaluation. Identity records remote attribution's source;
+	// the policy engine does not itself authenticate the originating human.
 	Principal string `json:"principal,omitempty"`
+	// AgentID identifies the reported harness, not a SaaS numeric device ID.
+	AgentID    string           `json:"agent_id,omitempty"`
+	RequestID  string           `json:"request_id,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Identity   *IdentityContext `json:"identity,omitempty"`
 	// MCP-specific fields (present when source starts with "mcp-proxy")
 	ToolName     string                 `json:"tool_name,omitempty"`
 	MCPArguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+// Redacted returns a copy of e with secrets replaced by [REDACTED] in every
+// field that carries agent-supplied text: the command, its args, the reasons,
+// the error text and the MCP arguments.
+//
+// It is the one redaction every copy of an event passes through before it
+// leaves the process: Log calls it for the audit.jsonl line, and the hook's
+// SaaS payload builder (internal/cli/remote_audit.go) calls it for the wire.
+// Before #4332 the redaction lived inline in Log, which takes the event by
+// value, so the hook POSTed the unredacted original. Redact here, not at a
+// call site, and the two copies cannot drift.
+//
+// Reasons are included because they quote agent input: the fail-safe reason
+// embeds the error text, and analyzer reasons name paths and URLs from the
+// command. Rule ids, taxonomy refs, notes and identity fields are not
+// agent-supplied text and are left as they are. The slices and the arguments
+// map are fresh copies; e itself is never modified, because the caller still
+// holds it (and its slices) after logging.
+func (e AuditEvent) Redacted() AuditEvent {
+	e.Command = redact.Redact(e.Command)
+	// Unconditional, as before #4332: RedactArgs turns nil into an empty
+	// list, so an event without args keeps writing "args":[] rather than null.
+	e.Args = redact.RedactArgs(e.Args)
+	if e.Reasons != nil {
+		reasons := make([]string, len(e.Reasons))
+		for i, r := range e.Reasons {
+			reasons[i] = redact.Redact(r)
+		}
+		e.Reasons = reasons
+	}
+	e.Error = redact.Redact(e.Error)
+	e.MCPArguments = redact.RedactArguments(e.MCPArguments)
+	return e
 }
 
 // IsMCP returns true if this event came from the MCP proxy.
@@ -526,12 +576,9 @@ func (l *AuditLogger) Log(event AuditEvent) error {
 
 	l.resyncHead()
 
-	// Redact sensitive data before logging
-	event.Command = redact.Redact(event.Command)
-	event.Args = redact.RedactArgs(event.Args)
-	if event.Error != "" {
-		event.Error = redact.Redact(event.Error)
-	}
+	// Redact sensitive data before logging. The SaaS payload goes through
+	// the same Redacted, so the line and the wire cannot disagree (#4332).
+	event = event.Redacted()
 
 	// Hash after redaction: the chain has to cover exactly the bytes that land
 	// on disk. Hashing the pre-redaction event would make every entry fail

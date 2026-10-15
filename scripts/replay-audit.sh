@@ -97,7 +97,7 @@ START=$(date +%s)
 cat "${LOGS[@]}" 2>/dev/null \
   | jq -c --arg cutoff "$CUTOFF" '
       select(type == "object")
-      | select((.source // "") | test("^(claude-code-hook|codex-hook)$"))
+      | select((.source // "") | test("^(claude-code-hook|codex-hook|copilot-cli-hook)$"))
       | select((.timestamp // "") >= $cutoff)
       | select(((.command // "") | length) > 0)
       | select((.decision // "") | test("^(ALLOW|AUDIT|BLOCK)$"))

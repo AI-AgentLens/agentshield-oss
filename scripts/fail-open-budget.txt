@@ -36,6 +36,7 @@ paramop_fold:maxLeaksExecSlice 21
 paramop_fold:maxLeaksArgReplace 525
 procsubst_echo:maxLeaks 86
 procsubst_echo:maxLeaks#2 88
+quoted_flag:maxLeaks 0
 set_positional:maxLeaksIndex 20
 set_positional:maxLeaksSplat 3
 shell_source_carrier:maxLeaks 43

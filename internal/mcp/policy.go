@@ -187,6 +187,7 @@ type MCPMatch struct {
 	ExcludeArgumentPatterns map[string][]string `yaml:"exclude_argument_patterns,omitempty"` // key=arg name, value=list of glob patterns to exclude (if any match, rule does NOT fire)
 	ArgumentNotContains     map[string][]string `yaml:"argument_not_contains,omitempty"`     // key=arg name, value=literal substrings (case-insensitive). Negative/absence predicate: rule fires only if the arg value contains NONE of them. Absent arg ⇒ satisfied. Use for "argument does NOT contain marker X" (e.g. AI-disclosure footers) where regexp negative-lookahead and filepath.Match bracket-globs both fail.
 	ToolNameNotPrefixAny    []string            `yaml:"tool_name_not_prefix_any,omitempty"`  // negative tool-name predicate: rule fires only if the tool name starts with NONE of these prefixes. Go's regexp has no negative lookahead, so this is the tool-name equivalent of ArgumentNotContains — prefix (not regex) semantics, cheap and immune to RE2 bounded-repetition perf issues. Use to scope a rule to a namespace (e.g. tool_name_regex: "^mcp__") and then exclude a known-good allowlist within it (issue #2816, declared-baseline / capability-drift enforcement).
+	ToolNameRegexExclude    string              `yaml:"tool_name_regex_exclude,omitempty"`   // negative tool-name REGEX predicate (#4241): the rule does NOT fire if the wire tool name matches. The regex twin of tool_name_not_prefix_any, for carve-outs that sit after a namespace prefix (mcp__<server>__send_message) where a prefix test cannot reach. Lets a rule keep a broad positive pattern and exclude an ENUMERATED set of names that are not the threat, instead of shrinking the positive side to an allowlist that open-ended names (new coin tickers) outrun. Same contract as MCPSemanticMatch.ToolNameRegexExclude: wire name only, ASCII-gated, invalid regex disables only the carve-out.
 	IdentifierRenderEvasion bool                `yaml:"identifier_render_evasion,omitempty"` // call-time render-evasion presence check (#3578): fires if the tool NAME or any argument KEY shows a Unicode confusable/invisible/fullwidth render-evasion signature (identifierRenderEvasion in namematch.go) — regardless of whether the recovered form matches any other rule. The call-time counterpart of mcp-desc-tool-name-confusable-sentinel for surfaces that never observe a tools/list response (mcp-eval, shield-server /v1/evaluate).
 	Structural              *MCPStructuralMatch `yaml:"structural,omitempty"`                // structural match predicates
 	Semantic                *MCPSemanticMatch   `yaml:"semantic,omitempty"`                  // semantic intent match predicates
@@ -270,6 +271,85 @@ type PolicyEvaluator struct {
 	// downgrades BLOCK/REQUIRE_APPROVAL to AUDIT with OriginalDecision set.
 	// Issue #1952.
 	mode string
+	// selfProtect caches IsSelfProtectionRule's index; nil (an evaluator
+	// built as a literal) computes it on every call.
+	selfProtect *selfProtectIndex
+}
+
+// selfProtectIndex is the lazily built set of self-protection rule ids. It
+// is built on first use, not in NewPolicyEvaluator, because only the proxies'
+// audit-only path asks, and the hook builds an evaluator per call.
+type selfProtectIndex struct {
+	once sync.Once
+	ids  map[string]bool
+}
+
+// selfProtectionTaxonomy is the taxonomy node of a rule that guards a
+// security tool against tampering.
+const selfProtectionTaxonomy = "persistence-evasion/defense-evasion/security-tool-tampering"
+
+// IsSelfProtectionRule reports whether ruleID is a self-protection rule of
+// this evaluator's policy: a BLOCK rule (flat, structural or semantic) whose
+// match names one of the files AgentShield's enforcement depends on (its
+// configuration directory or an agent hook file, selfProtectionMarkers),
+// whose id names agentshield, or whose taxonomy is security-tool-tampering.
+// Audit-only mode never lowers such a rule's BLOCK on the proxies (#4337
+// review B1).
+//
+// The set is derived from each rule's own content and the config guard's
+// file list, not kept as a list of ids, so a new rule that protects those
+// files is in it the moment it names them. TestSelfProtectionRules_EmbeddedPacks
+// pins the rules known today and bounds the set's size.
+func (e *PolicyEvaluator) IsSelfProtectionRule(ruleID string) bool {
+	if e == nil || e.policy == nil || ruleID == "" {
+		return false
+	}
+	if e.selfProtect == nil {
+		return selfProtectionRuleIDs(e.policy)[ruleID]
+	}
+	e.selfProtect.once.Do(func() { e.selfProtect.ids = selfProtectionRuleIDs(e.policy) })
+	return e.selfProtect.ids[ruleID]
+}
+
+func selfProtectionRuleIDs(p *MCPPolicy) map[string]bool {
+	ids := map[string]bool{}
+	add := func(id string, d policy.Decision, taxonomy string, match interface{}) {
+		if d == policy.DecisionBlock && isSelfProtectionRule(id, taxonomy, match) {
+			ids[id] = true
+		}
+	}
+	for _, r := range p.Rules {
+		add(r.ID, r.Decision, r.Taxonomy, r.Match)
+	}
+	for _, r := range p.StructuralRules {
+		add(r.ID, r.Decision, r.Taxonomy, r.Match)
+	}
+	for _, r := range p.SemanticRules {
+		add(r.ID, r.Decision, r.Taxonomy, r.Match)
+	}
+	return ids
+}
+
+// isSelfProtectionRule is the per-rule test. The match is read as its JSON
+// with backslashes removed, so a regex spelling (`\\.claude/settings\\.json`)
+// reads as the path it matches. A match that cannot be serialised counts as
+// self-protection: the cost is a BLOCK kept in audit-only mode, the
+// alternative a guard silently lowered.
+func isSelfProtectionRule(id, taxonomy string, match interface{}) bool {
+	if taxonomy == selfProtectionTaxonomy || strings.Contains(strings.ToLower(id), "agentshield") {
+		return true
+	}
+	b, err := json.Marshal(match)
+	if err != nil {
+		return true
+	}
+	text := strings.ToLower(strings.ReplaceAll(string(b), `\`, ""))
+	for _, m := range selfProtectionMarkers() {
+		if strings.Contains(text, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetMode sets the enforcement mode. See policy.Engine.SetMode for
@@ -312,7 +392,7 @@ func NewPolicyEvaluator(p *MCPPolicy) *PolicyEvaluator {
 			sentinels[p.Rules[i].Engine] = &p.Rules[i]
 		}
 	}
-	return &PolicyEvaluator{policy: p, SentinelRules: sentinels}
+	return &PolicyEvaluator{policy: p, SentinelRules: sentinels, selfProtect: &selfProtectIndex{}}
 }
 
 // LookupSentinel returns the sentinel rule for the given engine name, or nil if not found.
@@ -361,6 +441,15 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 		}
 	}
 
+	result := e.evaluateReadings(toolName, arguments, toolDescription, history)
+	result = e.attributeHarnessRead(result, toolName, arguments)
+	return applyMCPModeDowngrade(result, e.mode)
+}
+
+// evaluateReadings runs the argument-dependent rule set under every reading of
+// the arguments — as written, case-folded (#4194), separator-normalised
+// (#4243) — and keeps the strictest, WITHOUT the audit-only downgrade.
+func (e *PolicyEvaluator) evaluateReadings(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall) MCPEvalResult {
 	// Case-folded path reading (#4194). The rules below compare argument
 	// values case-sensitively, and on a case-insensitive volume (APFS, NTFS)
 	// `/Users/u/.SSH/id_rsa` is the same file as `/Users/u/.ssh/id_rsa`. So the
@@ -374,7 +463,83 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 	if folded, ok := foldPathArguments(arguments); ok {
 		result = stricterMCPResult(result, e.evaluateArguments(toolName, folded, toolDescription, history, true))
 	}
-	return applyMCPModeDowngrade(result, e.mode)
+	// Separator-normalised reading (#4243). A native Windows agent sends
+	// `C:\Users\u\.ssh\id_rsa`, and the args_match regexes are authored with
+	// forward slashes (`\.ssh/.*`), so the tool-name-agnostic catch-all that
+	// covers a harness's own file tools (Claude Code Read, Copilot view)
+	// returned AUDIT for a file it BLOCKs in POSIX spelling. #3610 retried the
+	// GLOB matcher with folded separators; this is the same retry for every
+	// other argument comparison. Same raise-only construction as the case fold
+	// above, so it can never lower a verdict, and the backslash-literal
+	// patterns of #3601/#3604 keep matching in the as-written reading.
+	if slashed, ok := slashWindowsPathArguments(arguments); ok {
+		if folded, ok := foldPathArguments(slashed); ok {
+			slashed = folded
+		}
+		result = stricterMCPResult(result, e.evaluateArguments(toolName, slashed, toolDescription, history, true))
+	}
+	return result
+}
+
+// harnessReadTools maps a harness's own file-read tool onto the MCP tool name
+// the read rules are written for (#4248). Claude Code sends Read{file_path};
+// Copilot CLI sends view{path} natively and Read{path} in its
+// Claude-compatible dialect (captured live, 1.0.93).
+var harnessReadTools = map[string]string{
+	"Read": "read_file",
+	"view": "read_file",
+}
+
+// attributeHarnessRead records — never enforces — the read rules a harness
+// file tool's call would trigger as an MCP read (#4248, option (c), Gary
+// 2026-10-07). Most credential-read BLOCK rules match MCP tool names
+// (read_file, cat_file, ...) only, so Claude Code's Read of a credential file
+// decided AUDIT with no rule and no taxonomy: Shield recorded the attempt but
+// attested nothing. Blocking those reads outright would put ~1,360 new BLOCKs
+// in front of every Claude Code user; this instead attaches the equivalent
+// rules and taxonomy to the AUDIT so the receipt maps to its control.
+//
+// The decision is never changed: it applies only when the call already
+// decided AUDIT, and it leaves OriginalDecision empty, because the SaaS reads
+// AUDIT + original BLOCK as "enforce mode would have blocked" (audit-only
+// mode) and that is not true here. Each attributed rule gets its own reason
+// (rules and reasons are index-paired), prefixed so a reader of the receipt
+// cannot mistake it for a block.
+func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName string, arguments map[string]interface{}) MCPEvalResult {
+	mcpName, ok := harnessReadTools[toolName]
+	if !ok || result.Decision != policy.DecisionAudit {
+		return result
+	}
+	equivArgs := make(map[string]interface{}, len(arguments)+1)
+	for k, v := range arguments {
+		equivArgs[k] = v
+	}
+	// resolveField, not a raw index: an argument NAME is attacker-declared, so
+	// "file_path" + U+00A0 must still resolve (check-arg-map-lookups, #3720).
+	if _, has := resolveField(arguments, "path"); !has {
+		if fp, ok := resolveField(arguments, "file_path"); ok {
+			equivArgs["path"] = fp
+		}
+	}
+	// No description and no history: the equivalence is about the path
+	// alone, so semantic and sequence rules have nothing to say here.
+	equiv := e.evaluateReadings(mcpName, equivArgs, "", nil)
+	if equiv.Decision != policy.DecisionBlock || len(equiv.TriggeredRules) == 0 {
+		return result
+	}
+	out := result
+	out.TriggeredRules = append([]string{}, result.TriggeredRules...)
+	out.Reasons = append([]string{}, result.Reasons...)
+	for i, rule := range equiv.TriggeredRules {
+		why := ""
+		if i < len(equiv.Reasons) {
+			why = " — " + equiv.Reasons[i]
+		}
+		out.TriggeredRules = append(out.TriggeredRules, rule)
+		out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (#4248): as %s this call matches the BLOCK rule %s%s", mcpName, rule, why))
+	}
+	out.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(append(append([]string{}, result.TaxonomyRefs...), equiv.AllTaxonomyRefs()...))
+	return out
 }
 
 // evaluateArguments is one pass of the argument-dependent rule set — every
@@ -491,16 +656,37 @@ func stricterMCPResult(asWritten, folded MCPEvalResult) MCPEvalResult {
 // foldPathArguments returns a deep copy of arguments with the path spans of
 // every string value case-folded (pathnorm.FoldPathValue: a value that IS a
 // path folds whole, spaces included; prose folds only the paths it
-// mentions), and whether any value changed. Keys are left alone: they are
-// names the server declared, not filesystem paths. The input is never
-// mutated.
+// mentions), and whether any value changed.
 func foldPathArguments(arguments map[string]interface{}) (map[string]interface{}, bool) {
+	return mapArgumentStrings(arguments, pathnorm.FoldPathValue)
+}
+
+// slashWindowsPathArguments returns a deep copy of arguments with the
+// backslash separators of every Windows-style path value turned into forward
+// slashes (#4243), and whether any value changed. Gated on isWindowsStylePath
+// exactly as #3598/#3610 are, so a POSIX value that legitimately contains a
+// backslash is never rewritten.
+func slashWindowsPathArguments(arguments map[string]interface{}) (map[string]interface{}, bool) {
+	return mapArgumentStrings(arguments, func(s string) string {
+		if !isWindowsStylePath(s) || !strings.Contains(s, `\`) {
+			return ""
+		}
+		return strings.ReplaceAll(s, `\`, "/")
+	})
+}
+
+// mapArgumentStrings returns a deep copy of arguments with every string value
+// replaced by rewrite(value) — rewrite returns "" to leave a value unchanged —
+// and whether any value changed. Keys are left alone: they are names the
+// server declared, not filesystem paths. The input is never mutated: the
+// proxy forwards the caller's arguments verbatim.
+func mapArgumentStrings(arguments map[string]interface{}, rewrite func(string) string) (map[string]interface{}, bool) {
 	changed := false
 	var fold func(v interface{}) interface{}
 	fold = func(v interface{}) interface{} {
 		switch t := v.(type) {
 		case string:
-			if f := pathnorm.FoldPathValue(t); f != "" {
+			if f := rewrite(t); f != "" {
 				changed = true
 				return f
 			}
@@ -520,7 +706,7 @@ func foldPathArguments(arguments map[string]interface{}) (map[string]interface{}
 		case []string:
 			out := make([]string, len(t))
 			for i, x := range t {
-				if f := pathnorm.FoldPathValue(x); f != "" {
+				if f := rewrite(x); f != "" {
 					changed = true
 					out[i] = f
 				} else {
@@ -674,6 +860,22 @@ func (e *PolicyEvaluator) matchRuleFold(toolName string, arguments map[string]in
 			if prefix != "" && strings.HasPrefix(toolName, prefix) {
 				return false
 			}
+		}
+	}
+
+	// Negative tool-name regex predicate (#4241) — an independent AND
+	// constraint like tool_name_not_prefix_any, with regex semantics so a
+	// carve-out can sit after a namespace prefix. Evaluated on the WIRE name
+	// only: negative predicates never see the recovered rendering, because
+	// folding an exclusion widens it (toolNameForms). Gated on
+	// asciiOnlyWireName exactly like the semantic-rule twin: `(?i)` is a
+	// Unicode fold, so a U+017F/U+212A spelling could satisfy the carve-out
+	// while the positive side does not (#3771). A non-ASCII name therefore
+	// skips the carve-out and the rule still fires, and so does a rule whose
+	// exclude regex fails to compile: both fail toward the finding.
+	if m.ToolNameRegexExclude != "" && asciiOnlyWireName(toolName) {
+		if re, err := cachedRegexp(m.ToolNameRegexExclude); err == nil && re.MatchString(toolName) {
+			return false
 		}
 	}
 
@@ -843,7 +1045,7 @@ func (e *PolicyEvaluator) matchRuleFold(toolName string, arguments map[string]in
 
 	// If we had name matchers and they matched (or no name matchers were specified)
 	// AND all argument patterns matched, the rule matches.
-	return nameSpecified || len(m.ArgumentPatterns) > 0 || len(m.ArgumentPatternsAny) > 0 || len(m.ArgumentRegexPatterns) > 0 || len(m.ArgumentValueRegexAny) > 0 || len(m.ArgumentNotContains) > 0 || len(m.ToolNameNotPrefixAny) > 0 || m.IdentifierRenderEvasion
+	return nameSpecified || len(m.ArgumentPatterns) > 0 || len(m.ArgumentPatternsAny) > 0 || len(m.ArgumentRegexPatterns) > 0 || len(m.ArgumentValueRegexAny) > 0 || len(m.ArgumentNotContains) > 0 || len(m.ToolNameNotPrefixAny) > 0 || m.ToolNameRegexExclude != "" || m.IdentifierRenderEvasion
 }
 
 // matchToolName checks if a tool name matches a pattern.
@@ -1126,31 +1328,24 @@ func globMatch(value, pattern []string) bool {
 	return vi == len(value)
 }
 
-// splitPath splits a file path into its directory components.
+// splitPath splits a file path into its components, after filepath.Clean.
+//
+// Linear in len(p) (#4255). It used to walk the path backwards with
+// filepath.Split, re-Clean the remaining directory on every step and PREPEND
+// each component — O(depth²) per call, and matchGlobLiteral calls it once per
+// path-glob rule, so one 4,000-character path cost ~15 s of evaluation.
+// filepath.Clean already leaves no empty, "." or interior ".." components to
+// skip, so one split of the cleaned path yields exactly the components the old
+// walk collected — including the relative-path case (#3423), where the walk's
+// "." sentinel never became a component. TestSplitPathMatchesQuadraticReference
+// pins the equivalence against the old implementation.
 func splitPath(p string) []string {
 	p = filepath.Clean(p)
 	if p == "/" || p == "." {
 		return nil
 	}
-	var parts []string
-	for {
-		dir, file := filepath.Split(p)
-		if file != "" {
-			parts = append([]string{file}, parts...)
-		}
-		dir = filepath.Clean(dir)
-		// dir == p: no more progress (reached root, e.g. "/").
-		// dir == ".": the walk exhausted every separator in a value that
-		// never had a leading "/" (a relative path, URL, or scheme:value
-		// like "https://example.com"). "." here is Split's "no directory
-		// left" sentinel, not a real path component — stop before the next
-		// iteration turns it into a spurious leading "." part (#3423).
-		if dir == p || dir == "." {
-			break
-		}
-		p = dir
-	}
-	return parts
+	sep := string(filepath.Separator)
+	return strings.Split(strings.TrimPrefix(p, sep), sep)
 }
 
 // splitPathPattern splits a glob pattern into components, preserving "**".

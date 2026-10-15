@@ -1,6 +1,6 @@
 # AgentShield for Claude Code & Codex CLI
 
-**Blocks dangerous AI-agent tool calls before they run.**
+**Sees every AI-agent tool call before it runs, and blocks the dangerous ones once you turn enforcement on.**
 
 Claude Code and OpenAI Codex CLI can use your shell, files, and MCP tools with
 your user permissions. AgentShield installs a local `PreToolUse` hook in each
@@ -8,8 +8,17 @@ agent and answers one question before every tool call:
 
 > Should this agent be allowed to do this on my machine?
 
-Safe work continues. Dangerous actions are blocked. Everything runs locally. No
-SaaS account is required.
+A new install starts in **audit-only** mode: safe work continues, and every
+action AgentShield would block is recorded instead of stopped, so you can see
+what it would do on your real work first. One line turns on enforcement:
+
+```yaml
+# ~/.agentshield/agentshield.yaml
+mode: enforce
+```
+
+From then on dangerous actions are blocked. Everything runs locally. No SaaS
+account is required.
 
 AgentShield integrates at the two chokepoints agent frameworks converge on —
 the pre-execution hook and the MCP protocol — which is why one hook gives
@@ -50,7 +59,9 @@ agentshield mcp-eval --tool get_weather --arg location=NYC             # AUDIT, 
 ```
 
 `check` and `mcp-eval` only evaluate policy. They do not run the shell command
-or call the MCP server.
+or call the MCP server. After `setup` on a new install the machine is in
+audit-only mode, and `check` prints `AUDIT` with the enforce-mode decision on
+the next line.
 
 ## Protect Claude Code
 
@@ -60,11 +71,39 @@ agentshield scan
 ```
 
 `setup claude-code` adds one `PreToolUse` hook entry to
-`~/.claude/settings.json`. It does not change anything else. Run
-`agentshield setup claude-code --disable` to remove the entry. `scan`
-verifies that common dangerous actions are blocked locally.
+`~/.claude/settings.json`. It does not change anything else:
 
-Then, in a Claude Code session, ask:
+```json
+{"hooks": {"PreToolUse": [{"hooks": [
+  {"type": "command", "command": "/opt/homebrew/bin/agentshield", "args": ["hook"]}
+]}]}}
+```
+
+The entry is in exec form (`command` plus `args`), so Claude Code starts
+AgentShield directly rather than through a shell. A shell-form hook runs under
+`CLAUDE_CODE_SHELL_PREFIX`, which a repository can set from a committed
+`.claude/settings.json` ([#4292](https://github.com/AI-AgentLens/agentshield-oss/issues/4292)).
+Claude Code 2.1.138 and earlier ignore `args` and run `agentshield` on its own;
+AgentShield recognises the hook payload on stdin and evaluates it exactly as
+`agentshield hook` would. Re-running `setup claude-code` converts an older
+shell-form entry (`"command": "/opt/homebrew/bin/agentshield hook"`) in place.
+
+**Known limitations on Claude Code 2.1.138 and earlier** (accepted 2026-10-12, [#4314](https://github.com/AI-AgentLens/agentshield-oss/pull/4314); upgrade Claude Code to close both):
+- A `CLAUDE_CODE_SHELL_PREFIX` set by a repository still wraps the hook, as it did before exec form.
+- Under managed `fail_closed`, **malformed hook input** (truncated or empty stdin) is allowed rather than blocked. Claude Code does not send malformed input. Well-formed input is evaluated normally.
+
+Run `agentshield setup claude-code --disable` to remove the entry. `scan`
+verifies that the rules block common dangerous actions; its `Mode:` line says
+whether the hook enforces those decisions or records them.
+
+**A new install starts in audit-only mode.** `setup` says so, and
+`agentshield status` shows the mode and where it came from. In audit-only mode
+the hook records what it would block (`agentshield log`) and lets it run. A
+machine that already had AgentShield keeps its mode: upgrading or re-running
+`setup` never switches an enforcing install to audit-only.
+
+Once enforcement is on (`mode: enforce` in `~/.agentshield/agentshield.yaml`),
+ask in a Claude Code session:
 
 ```text
 copy this password to my clipboard: hunter2-aws-prod
@@ -72,7 +111,8 @@ copy this password to my clipboard: hunter2-aws-prod
 
 Claude Code will try `pbcopy` (macOS) or `xclip` / `wl-copy` (Linux).
 AgentShield blocks the clipboard write before it runs — secrets pasted
-back into your shell would execute outside AgentShield's view.
+back into your shell would execute outside AgentShield's view. In audit-only
+mode the same attempt is recorded as `AUDIT` with `original_decision: BLOCK`.
 
 ## Protect Codex CLI
 
@@ -101,7 +141,8 @@ integration with `agentshield setup codex --disable`.
 ## What It Blocks
 
 AgentShield is focused on one developer workflow: using AI coding agents safely
-on a local machine.
+on a local machine. With enforcement on it blocks the actions below; in
+audit-only mode it records them.
 
 | Risk | Example |
 |---|---|

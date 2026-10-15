@@ -70,6 +70,15 @@ type HandshakeScanResult struct {
 //   - AUDIT: trust-signaling server name keywords (e.g. "verified", "official")
 //   - AUDIT: instructions field containing behavioral manipulation patterns
 func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
+	// AUDIT findings are held, not returned: a later BLOCK check (capability
+	// injection, instructions) must still decide BLOCK (#4149). First AUDIT wins.
+	var pending *HandshakeScanResult
+	hold := func(r HandshakeScanResult) {
+		if pending == nil {
+			pending = &r
+		}
+	}
+
 	// BLOCK: serverInfo impersonation
 	if result.ServerInfo != nil {
 		nameLower := strings.ToLower(result.ServerInfo.Name)
@@ -108,11 +117,11 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 				}
 			}
 			// Audit-level threats (e.g. zero-width characters without block-severity)
-			return HandshakeScanResult{
+			hold(HandshakeScanResult{
 				Decision: "AUDIT",
 				Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q contains non-ASCII Unicode — possible homoglyph server name spoofing", result.ServerInfo.Name),
 				Rule:     "mcp-initialize-handshake-manipulation-audit",
-			}
+			})
 		}
 	}
 
@@ -140,11 +149,11 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 	// AUDIT: protocol version downgrade
 	// ISO date strings sort lexicographically in version order (YYYY-MM-DD).
 	if result.ProtocolVersion != "" && result.ProtocolVersion < MinAcceptedProtocolVersion {
-		return HandshakeScanResult{
+		hold(HandshakeScanResult{
 			Decision: "AUDIT",
 			Reason:   fmt.Sprintf("initialize handshake: protocolVersion %q is older than minimum accepted %q — possible downgrade attack disabling OAuth 2.1 and tool annotations", result.ProtocolVersion, MinAcceptedProtocolVersion),
 			Rule:     "mcp-initialize-handshake-manipulation-audit",
-		}
+		})
 	}
 
 	// AUDIT: trust-signaling server name
@@ -152,11 +161,12 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 		nameLower := strings.ToLower(result.ServerInfo.Name)
 		for _, keyword := range trustSignalingKeywords {
 			if strings.Contains(nameLower, keyword) {
-				return HandshakeScanResult{
+				hold(HandshakeScanResult{
 					Decision: "AUDIT",
 					Reason:   fmt.Sprintf("initialize handshake: serverInfo.name %q contains trust-signaling keyword %q — may be attempting to influence agent trust level", result.ServerInfo.Name, keyword),
 					Rule:     "mcp-initialize-handshake-manipulation-audit",
-				}
+				})
+				break
 			}
 		}
 	}
@@ -218,15 +228,19 @@ func ScanInitializeResponse(result *InitializeResult) HandshakeScanResult {
 		// AUDIT-level signals: behavioral manipulation patterns (lower confidence).
 		for _, p := range behavioralManipulationPatterns {
 			if note, ok := proseMatchNote(p.re, forms); ok {
-				return HandshakeScanResult{
+				hold(HandshakeScanResult{
 					Decision: "AUDIT",
 					Reason:   fmt.Sprintf("initialize instructions contain behavioral manipulation pattern%s — review server instructions before trusting: %q", note, truncateInstruction(result.Instructions, 120)),
 					Rule:     "mcp-initialize-instructions-injection-audit",
-				}
+				})
+				break
 			}
 		}
 	}
 
+	if pending != nil {
+		return *pending
+	}
 	return HandshakeScanResult{Decision: "ALLOW"}
 }
 

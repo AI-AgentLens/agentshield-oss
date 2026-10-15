@@ -53,6 +53,12 @@ type GuardianRequest struct {
 	// ON evaluation, whose result is kept only when strictly more
 	// restrictive. Exemption recognisers never read it.
 	ResolveProgramPaths bool
+
+	// ProseOnly marks RawCommand as a Unicode-separator-folded candidate form
+	// (#4290): text an LLM reads as ordinary words, but whose word boundaries
+	// bash never sees. Providers must run only their prose signals on it and
+	// skip every signal that depends on shell word structure.
+	ProseOnly bool
 }
 
 // GuardianResponse is the output from a GuardianProvider.

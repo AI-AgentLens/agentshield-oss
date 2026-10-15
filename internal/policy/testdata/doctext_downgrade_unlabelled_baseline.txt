@@ -173,5 +173,3 @@ ts-block-llm-eval-stdin-pipe	partial-label (pre-existing: [in_heredoc])	packs/pr
 ts-block-best-of-n-jailbreak-meta	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
 ts-block-authority-framed-env-exfil-telemetry	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
 ts-block-programdata-ai-config-plant	partial-label (pre-existing: [in_interpreter_heredoc])	packs/premium/terminal-safety-advanced.yaml
-ts-block-home-redirect	deliberate-no-downgrade (#3793 in-pack comment; decision held on draft PR #3813)	packs/community/terminal-safety.yaml
-ts-block-home-redirect-inline	deliberate-no-downgrade (#3793 in-pack comment; decision held on draft PR #3813)	packs/community/terminal-safety.yaml

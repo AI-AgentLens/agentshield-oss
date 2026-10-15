@@ -93,6 +93,7 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 				IntentExclude:   r.Match.CommandIntentExclude,
 				IntentDowngrade: r.Match.CommandIntentDowngrade,
 				PositionExclude: r.Match.CommandPositionExclude,
+				FoldSeparators:  r.Match.CommandFoldSeparators,
 				RequireCI:       contextRequireCI(r.Match),
 			})
 		}

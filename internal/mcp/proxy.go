@@ -26,6 +26,14 @@ type AuditEntry struct {
 	// TaxonomyRef links the audit event to a taxonomy entry.
 	// Populated for Go-implemented intercepts (e.g. roots/list guard).
 	TaxonomyRef string `json:"taxonomy_ref,omitempty"`
+	// Mode is the enforcement mode the proxy ran in ("enforce" or
+	// "audit-only"). Set on tools/call records, the ones audit-only applies
+	// to (#4337); empty when the proxy was given no mode.
+	Mode string `json:"mode,omitempty"`
+	// OriginalDecision is the decision enforce mode would have made, set when
+	// audit-only mode downgraded it (#1952, #4337) — the shell hook's field,
+	// under the same name. Empty when no downgrade happened.
+	OriginalDecision string `json:"original_decision,omitempty"`
 }
 
 // AuditFunc is a callback for logging audit entries.
@@ -59,6 +67,19 @@ type ProxyConfig struct {
 	// DataLabelScanner is an optional data label scanner for customer-defined PII patterns.
 	// When nil, data label scanning is disabled.
 	DataLabelScanner *DataLabelScanner
+
+	// ManagedHost reports whether this machine is centrally managed; it shapes
+	// only the BLOCK hint on stderr. The CLI passes enterprise.ManagedHost.
+	// nil means unmanaged (#4321).
+	ManagedHost func() bool
+
+	// Mode is the enforcement mode (config.Config.Mode). "audit-only" forwards
+	// a tools/call that would be blocked and records it as AUDIT with the
+	// original decision (#4337); see MessageHandler.Mode. "" means enforce.
+	Mode string
+
+	// SelfProtectCommand is MessageHandler.SelfProtectCommand.
+	SelfProtectCommand func(cmd string) (ruleID string, matched bool)
 }
 
 // Proxy is a transparent MCP stdio proxy that intercepts tools/call requests.
@@ -75,10 +96,13 @@ func NewProxy(cfg ProxyConfig) *Proxy {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+	handler := newMessageHandler(cfg.Evaluator, cfg.OnAudit, stderr, cfg.ServerName, cfg.SchemaDriftCacheDir, cfg.DataLabelScanner, cfg.ManagedHost)
+	handler.Mode = cfg.Mode
+	handler.SelfProtectCommand = cfg.SelfProtectCommand
 	return &Proxy{
 		cfg:     cfg,
 		stderr:  stderr,
-		handler: newMessageHandler(cfg.Evaluator, cfg.OnAudit, stderr, cfg.ServerName, cfg.SchemaDriftCacheDir, cfg.DataLabelScanner),
+		handler: handler,
 	}
 }
 
@@ -268,67 +292,85 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
-		msg, kind, err := ParseMessage(line)
-		if err != nil {
-			// Unparseable: nesting past the decoder limit is replaced by a
-			// parse error, anything else is forwarded as-is (fail open) with a
-			// receipt when the line is shaped like a message (#4158).
-			if blocked, errResp := p.handler.ScreenRelayedParseFailure(parseTransportStdio, parseDirServerToClient, line, err); blocked {
-				writeLineToWriter(clientWriter, errResp)
-				continue
+		// A JSON-RPC batch array: every scanner rejects a non-object, and the
+		// clients that read batches deliver each member as a message of its
+		// own, so each member gets the screening a single line gets (#4070,
+		// the HTTP proxy's filterBatch). A line that is not a non-empty array
+		// takes the single-message path below.
+		if out, hit, ok := filterBatch(line, p.screenServerLine); ok {
+			switch {
+			case !hit:
+				writeLineToWriter(clientWriter, line)
+			case out != nil:
+				writeLineToWriter(clientWriter, out)
 			}
-			writeLineToWriter(clientWriter, line)
 			continue
 		}
 
-		// Responses (id, no method): route to the single applicable scanner.
-		if msg.Method == "" {
-			if filtered := p.handler.DispatchServerResponse(msg, line); filtered != nil {
-				writeLineToWriter(clientWriter, filtered)
-				continue
-			}
+		if out, acted := p.screenServerLine(line); !acted {
 			writeLineToWriter(clientWriter, line)
-			continue
+		} else if out != nil {
+			writeLineToWriter(clientWriter, out)
 		}
-
-		// Server-initiated requests / notifications.
-		switch kind {
-		case KindSamplingCreateMessage:
-			blocked, blockResp := p.handler.HandleSamplingCreateMessage(msg)
-			if blocked {
-				writeLineToWriter(clientWriter, blockResp)
-				continue
-			}
-		case KindElicitationCreate:
-			blocked, blockResp := p.handler.HandleElicitationCreate(msg)
-			if blocked {
-				writeLineToWriter(clientWriter, blockResp)
-				continue
-			}
-		case KindNotification:
-			// Drop notifications/message payloads containing injection patterns.
-			// Notifications have no ID so we cannot send a JSON-RPC error back —
-			// we simply suppress the notification to prevent it reaching the client.
-			if p.handler.HandleNotificationMessage(msg) {
-				continue
-			}
-			// Drop notifications/resources/updated if the URI matches a blocked resource.
-			// A compromised server can redirect update notifications to credential paths.
-			if p.handler.HandleResourcesUpdatedNotification(msg) {
-				continue
-			}
-			// Record pending capability expansion check when server signals tool list changed.
-			p.handler.HandleToolsListChangedNotification(msg)
-			// Drop notifications/progress if the message field contains injection patterns.
-			// A compromised server can embed adversarial instructions in progress messages
-			// that arrive without a prior tool call, bypassing argument-level scanning.
-			if p.handler.HandleProgressNotification(msg) {
-				continue
-			}
-		}
-
-		writeLineToWriter(clientWriter, line)
 	}
+}
+
+// screenServerLine screens one server-to-client message (a stdio line or one
+// member of a batch). acted is false when the message goes out as it came;
+// (out, true) replaces it with out (a scanner's filtered form or a JSON-RPC
+// error); (nil, true) suppresses it.
+func (p *Proxy) screenServerLine(line []byte) (out []byte, acted bool) {
+	msg, kind, err := ParseMessage(line)
+	if err != nil {
+		// Unparseable: nesting past the decoder limit is replaced by a
+		// parse error, anything else is forwarded as-is (fail open) with a
+		// receipt when the line is shaped like a message (#4158).
+		if blocked, errResp := p.handler.ScreenRelayedParseFailure(parseTransportStdio, parseDirServerToClient, line, err); blocked {
+			return errResp, true
+		}
+		return nil, false
+	}
+
+	// Responses (id, no method): route to the single applicable scanner.
+	if msg.Method == "" {
+		if filtered := p.handler.DispatchServerResponse(msg, line); filtered != nil {
+			return filtered, true
+		}
+		return nil, false
+	}
+
+	// Server-initiated requests / notifications.
+	switch kind {
+	case KindSamplingCreateMessage:
+		if blocked, blockResp := p.handler.HandleSamplingCreateMessage(msg); blocked {
+			return blockResp, true
+		}
+	case KindElicitationCreate:
+		if blocked, blockResp := p.handler.HandleElicitationCreate(msg); blocked {
+			return blockResp, true
+		}
+	case KindNotification:
+		// Drop notifications/message payloads containing injection patterns.
+		// Notifications have no ID so we cannot send a JSON-RPC error back —
+		// we simply suppress the notification to prevent it reaching the client.
+		if p.handler.HandleNotificationMessage(msg) {
+			return nil, true
+		}
+		// Drop notifications/resources/updated if the URI matches a blocked resource.
+		// A compromised server can redirect update notifications to credential paths.
+		if p.handler.HandleResourcesUpdatedNotification(msg) {
+			return nil, true
+		}
+		// Record pending capability expansion check when server signals tool list changed.
+		p.handler.HandleToolsListChangedNotification(msg)
+		// Drop notifications/progress if the message field contains injection patterns.
+		// A compromised server can embed adversarial instructions in progress messages
+		// that arrive without a prior tool call, bypassing argument-level scanning.
+		if p.handler.HandleProgressNotification(msg) {
+			return nil, true
+		}
+	}
+	return nil, false
 }
 
 // NOTE: evaluateToolCall, evaluateResourceRead, and filterToolsListResponse

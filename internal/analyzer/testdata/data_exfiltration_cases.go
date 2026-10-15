@@ -7953,4 +7953,36 @@ var CredentialFileNetworkExfiltrationCases = []TestCase{
 			pack TN, not this row.`,
 		Tags: []string{"tn", "safe", "bucket-hijack"},
 	},
+	{
+		ID:               "TP-UNAUTH-AIDEVSERVER-001",
+		Command:          `jupyter lab --ip=0.0.0.0 --NotebookApp.token='' --NotebookApp.password=''`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/unauthenticated-ai-dev-tool-server",
+		Analyzer:         "regex",
+		Description:      "Jupyter on every interface with an empty token: no login, kernel API runs code. AUDIT receipt (ne-audit-jupyter-empty-token-all-interfaces); the discriminating assertion is the inline pack TP/TN.",
+		Tags:             []string{"tp", "unauth-ai-dev-server"},
+	},
+	{
+		ID:               "TP-UNAUTH-AIDEVSERVER-002",
+		Command:          `mlflow server --host 0.0.0.0 --port 5000`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/unauthenticated-ai-dev-tool-server",
+		Analyzer:         "regex",
+		Description:      "MLflow tracking server on every interface without --app-name basic-auth (ne-audit-mlflow-server-all-interfaces-no-auth).",
+		Tags:             []string{"tp", "unauth-ai-dev-server"},
+	},
+	{
+		ID:               "TN-UNAUTH-AIDEVSERVER-001",
+		Command:          `mlflow server --host 0.0.0.0 --app-name basic-auth`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "data-exfiltration/llm-data-flow/unauthenticated-ai-dev-tool-server",
+		Analyzer:         "regex",
+		Description: `Authenticated MLflow on every interface. Expected AUDIT is the engine default, so this row cannot
+			tell "rule stayed quiet" from "rule fired"; the inline pack TN in packs/premium/network-egress.yaml evaluates
+			the rule in isolation and is the discriminating assertion.`,
+		Tags: []string{"tn", "safe", "unauth-ai-dev-server"},
+	},
 }

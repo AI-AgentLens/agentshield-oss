@@ -128,7 +128,6 @@ ts-audit-vercel-ai-sdk-node-inline
 ts-audit-vercel-ai-sdk-provider-install
 ts-audit-zero-width-char-source-injection
 ts-block-agent-hook-injection
-ts-block-agent-memory-copy-overwrite
 ts-block-agent-settings-write
 ts-block-agent-state-serial-archive
 ts-block-agent-state-serial-exfil

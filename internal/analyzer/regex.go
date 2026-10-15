@@ -7,6 +7,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/regexlit"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
+	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // RegexRule is a simplified rule representation for the regex analyzer.
@@ -37,6 +38,9 @@ type RegexRule struct {
 	// where the match landed in the parsed command. Checked only after a match
 	// has fired, because it costs an AST parse.
 	PositionExclude []string
+	// FoldSeparators also matches the command with Unicode separators folded
+	// to a space (#4310). Prose-matching rules only; see policy.Match.
+	FoldSeparators bool
 	// RequireCI gates the rule on the runtime CI/CD execution context (issue
 	// #3291). nil = no gate (rule always applies). *true = rule applies ONLY
 	// when ctx.ExecContext.CI is true (tighten posture for attacker-facing CI
@@ -783,6 +787,18 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 // matchRegexRule checks if a command matches a single rule (exact, prefix, or regex).
 // Uses pre-compiled regexes from the cache for performance.
 func (a *RegexAnalyzer) matchRegexRule(command string, rule RegexRule) bool {
+	if a.matchRegexRuleForm(command, rule) {
+		return true
+	}
+	if rule.FoldSeparators {
+		if folded, changed := pkgunicode.FoldUnicodeSeparators(command); changed {
+			return a.matchRegexRuleForm(folded, rule)
+		}
+	}
+	return false
+}
+
+func (a *RegexAnalyzer) matchRegexRuleForm(command string, rule RegexRule) bool {
 	// RegexExclude applies to EVERY match kind, not just the regex one. It used
 	// to be consulted only inside the rule.Regex branch below, so a rule
 	// combining Prefixes (or Exact) with RegexExclude had an exclude that

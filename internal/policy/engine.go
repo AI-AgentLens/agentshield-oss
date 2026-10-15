@@ -145,9 +145,93 @@ func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *anal
 // It is the single evaluation entry point: the hook (cli/hook.go), `check`,
 // `scan` and shield-server all arrive here, which is why #3991's safety
 // guarantee lives here — see EvaluateProgramPaths — and #4194's too, see
-// EvaluateCaseFold.
+// EvaluateCaseFold, and #4289's, see EvaluateQuotedFlags.
 func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string) EvalResult {
-	return e.EvaluateCaseFold(command, paths, parsed, cwd, CaseFoldStricter)
+	return e.EvaluateQuotedFlags(command, paths, parsed, cwd, QuotedFlagsStricter)
+}
+
+// QuotedFlagsMode selects how an evaluation treats a command argument that is
+// a quoted plain flag token, `rm "-rf" /etc` (#4289).
+type QuotedFlagsMode int
+
+const (
+	// QuotedFlagsStricter is production: evaluate as written and, for a
+	// command with a quoted flag token, again with those words written bare
+	// (shellparse.UnquoteFlagWords); keep the bare reading only when strictly
+	// more restrictive (stricterResult).
+	QuotedFlagsStricter QuotedFlagsMode = iota
+	// QuotedFlagsOff evaluates as written only — byte-for-byte pre-#4289.
+	QuotedFlagsOff
+)
+
+// EvaluateQuotedFlags is EvaluateWithParsedCwd with the #4289 mode explicit.
+//
+// # The bypass
+//
+// Bash removes whole-word quotes before the program sees argv, so
+// `rm "-rf" /etc` runs exactly `rm -rf /etc`. Both rule surfaces missed it:
+// the parser classifies a flag on the printed word (`"-rf"` starts with a
+// quote, so it lands in Args and every flags_* predicate stops matching), and
+// DequoteCommand leaves whole-argument quotes alone on purpose, so no regex
+// candidate ever contains `rm -rf`. Measured on the corpus (2026-10-11): 637
+// of the 1570 BLOCKs that carry a flag token fell to AUDIT or ALLOW with the
+// tokens quoted.
+//
+// # The guarantee, and where it comes from
+//
+// Reading a quoted token as a flag is not additive by itself. Flags also feed
+// the paths that LOWER a decision: ALLOW rules, flags_none and
+// pipe_to_flags_none predicates, the structural pipe-to-interpreter -c/-e/-m
+// exemption. Measured on the corpus, teaching the parser and DequoteCommand
+// the quoted form lowered 17 commands below main (`rm "-rf" /tmp/x` AUDIT to
+// ALLOW via ts-allow-rm-tmp, `curl … | python3 "-c" …` BLOCK to AUDIT), each
+// to exactly its bare twin's decision. The bare twin is the same argv, so
+// none is a bypass; but they are lower than main, and no per-layer audit can
+// prove the next one away.
+//
+// So the construction is #3991's and #4194's: the as-written evaluation is
+// untouched, the bare reading runs as a second, independent evaluation, and
+// its result replaces the as-written one only when strictly more restrictive
+// (stricterResult). The returned decision is never below the as-written one,
+// and never below the bare twin's. Unlike #4194 there is no tie rule: at an
+// equal decision the as-written record is kept. The bare reading can name a
+// rule the quoted token does not earn (`git commit -m "--no-verify"` is a
+// message, yet bare it reads as the flag), and a receipt should not gain a
+// rule that no decision needed.
+//
+// What the record carries: when the as-written result is returned, exactly
+// the pre-#4289 decision, rules, reasons and taxonomy refs. When the bare
+// result is returned, its own, which is the evidence for the stricter
+// verdict. The two are never merged.
+//
+// What it leaves: where main decides the quoted form MORE strictly than its
+// bare twin, it still does (`ssh "-i" <key> host` BLOCKs while `ssh -i <key>
+// host` is a designated consumer, AUDIT). Closing that lowers a decision, so
+// it is pinned by a test, not changed here.
+//
+// # Cost
+//
+// The bare reading runs only when the command has a quoted flag token.
+// Commands without a quote directly before a dash pay one byte scan; those
+// with one pay a parse, and the second evaluation only if a token is found.
+// Measured on a 72 h replay of one developer's real traffic (2026-10-11):
+// 492 of 7,316 unique commands paid the parse, and none carried a token.
+//
+// Both evaluation paths get it, because the rewrite is text: the analyzer
+// pipeline and the regex-only fallback (an engine with no registry).
+func (e *Engine) EvaluateQuotedFlags(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode QuotedFlagsMode) EvalResult {
+	asWritten := e.EvaluateCaseFold(command, paths, parsed, cwd, CaseFoldStricter)
+	if mode == QuotedFlagsOff {
+		return asWritten
+	}
+	bare := shellparse.UnquoteFlagWords(command)
+	if bare == "" {
+		return asWritten
+	}
+	// parsed is the tree of the as-written text; every analyzer re-parses.
+	// paths stay the as-written argv paths: the rewrite touches no path word,
+	// and this reading can only raise the result.
+	return stricterResult(asWritten, e.EvaluateCaseFold(bare, paths, nil, cwd, CaseFoldStricter))
 }
 
 // CaseFoldMode selects how an evaluation treats the letter case of paths
@@ -700,6 +784,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		result.Decision = DecisionBlock
 		result.TriggeredRules = append(result.TriggeredRules, "protected-path")
 		result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
+		result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule)
 		return finish(result)
 	}
 
@@ -738,6 +823,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 			result.Decision = DecisionBlock
 			result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
 			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
+			result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule)
 		}
 
 		// Assignment half of the consumer table (#3630): naming a protected
@@ -1146,6 +1232,18 @@ func (e *Engine) statementMatcher(command string, rule Rule) func(string) bool {
 // mirrors the pipeline's (analyzer.RegexAnalyzer.matchRegexRule is likewise
 // exclude-free) rather than being confounded by the rule's own exclude labels.
 func (e *Engine) matchRulePattern(command string, rule Rule) bool {
+	if e.matchRulePatternForm(command, rule) {
+		return true
+	}
+	if rule.Match.CommandFoldSeparators {
+		if folded, changed := unicheck.FoldUnicodeSeparators(command); changed {
+			return e.matchRulePatternForm(folded, rule)
+		}
+	}
+	return false
+}
+
+func (e *Engine) matchRulePatternForm(command string, rule Rule) bool {
 	if rule.Match.CommandExact != "" && command == rule.Match.CommandExact {
 		return !e.regexExcluded(command, rule.Match.CommandRegexExclude)
 	}

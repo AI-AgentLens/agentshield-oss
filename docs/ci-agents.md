@@ -86,6 +86,11 @@ jobs:
       - name: Enable AgentShield hook
         run: agentshield setup claude-code
 
+      # 2b. CI runners start in audit-only like any new install; this step
+      #     turns enforcement on
+      - name: Turn on AgentShield enforcement
+        run: echo "mode: enforce" >> ~/.agentshield/agentshield.yaml
+
       # 3. Prove the hook is CI-aware BEFORE running the agent (fail fast)
       - name: AgentShield CI-context smoke test
         run: |
@@ -100,9 +105,15 @@ jobs:
         run: claude -p "Review the PR diff and suggest fixes"
 ```
 
-Steps 1–2 install and arm Shield; step 3 is the **scripted smoke test** that
-asserts the CI-context tightening is live on this runner before the agent gets a
-turn; step 4 runs the agent with the hook mediating every shell command it emits.
+Steps 1–2 install and arm Shield. **CI runners start in audit-only like any new
+install; step 2b turns enforcement on.** A fresh runner has no AgentShield state,
+so `setup` writes `default_mode: audit-only`, and without step 2b the hook would
+record the agent's would-be blocks instead of stopping them (AgentShield has no
+CI detection for the mode, by design: a runner is configured like any machine).
+Step 3 is the **scripted smoke test** that asserts the CI-context tightening is
+live on this runner before the agent gets a turn; it fails if step 2b is
+missing, because `check` then reports AUDIT. Step 4 runs the agent with the hook
+mediating every shell command it emits.
 
 ### Verifying locally
 

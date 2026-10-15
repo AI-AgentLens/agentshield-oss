@@ -1522,3 +1522,7 @@ case:TP-HOMEROOT-009
 case:TP-HOMEROOT-010
 case:TP-AWS-BACKUP-ASSET-DELETE-001
 case:TP-AWS-BACKUP-ASSET-DELETE-002
+case:TP-UNAUTH-AIDEVSERVER-001
+
+# --- 2026-10-13: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestProseRulesSurviveNBSP

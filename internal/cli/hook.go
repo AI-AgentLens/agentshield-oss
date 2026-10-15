@@ -2,17 +2,19 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
-	"github.com/AI-AgentLens/agentshield/internal/execenv"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
@@ -31,13 +33,33 @@ import (
 //	so handleClaudeCodeHook evaluates it unchanged; turn_id is used for source labeling.
 //
 // Gemini CLI sends:  {"hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": {"command": "..."}}
+//
+// GitHub Copilot CLI sends one of two dialects, chosen by the event-name casing
+// in its hook config (captured live from 1.0.93, #4251):
+//
+//	"PreToolUse" (Claude-compatible): the Claude Code shape plus "timestamp" (an
+//	  ISO string); tools are mapped to Claude names, but argument names are not
+//	  (Read carries "path"). Edits through apply_patch put the raw patch TEXT in
+//	  tool_input.
+//	"preToolUse" (native): {"sessionId", "timestamp": <int ms>, "cwd",
+//	  "toolName", "toolArgs"} with runtime tool names (bash, view, apply_patch).
 type hookInput struct {
 	// Windsurf fields
 	AgentActionName string   `json:"agent_action_name"`
 	TrajectoryID    string   `json:"trajectory_id"`
 	ExecutionID     string   `json:"execution_id"`
-	Timestamp       string   `json:"timestamp"`
 	ToolInfo        toolInfo `json:"tool_info"`
+
+	// Timestamp is metadata no handler reads. It is held raw because harnesses
+	// disagree on its type — Windsurf and Copilot's compat dialect send a
+	// string, Copilot's native dialect a number — and a typed field turned the
+	// number into a parse failure of the WHOLE payload (#4251).
+	Timestamp json.RawMessage `json:"timestamp"`
+
+	// Copilot CLI native dialect (#4251). It carries no event name, so
+	// toolName is what identifies it; toolArgs is read raw (rawHookInput).
+	ToolNameNative  string `json:"toolName"`
+	SessionIDNative string `json:"sessionId"`
 
 	// Cursor fields
 	Command string `json:"command"`
@@ -69,12 +91,37 @@ type toolInfo struct {
 type claudeToolInput struct {
 	Command string `json:"command"`
 	DirPath string `json:"dir_path,omitempty"` // Gemini CLI also sends dir_path
+
+	// IsText is set when tool_input was a JSON string rather than an object
+	// (see UnmarshalJSON). The shell path refuses such input instead of
+	// reading it as an empty command.
+	IsText bool `json:"-"`
+}
+
+// UnmarshalJSON additionally accepts a tool_input that is a JSON STRING:
+// Copilot CLI's apply_patch edits send the raw patch text there (#4251), and
+// rejecting it failed the parse of the whole payload. The string is not kept
+// here — handleClaudeCodeMCPCall reads it from the raw tool_input. Every other
+// shape keeps the strict decode, so a malformed shell command (a non-string
+// "command") still fails the parse and takes the fail-safe path, as before.
+func (c *claudeToolInput) UnmarshalJSON(data []byte) error {
+	if trimmed := strings.TrimSpace(string(data)); strings.HasPrefix(trimmed, `"`) {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		c.IsText = true
+		return nil
+	}
+	type strict claudeToolInput // drops this method, so no recursion
+	return json.Unmarshal(data, (*strict)(c))
 }
 
 // rawHookInput is used for a second-pass parse to capture tool_input as raw JSON
 // (needed for MCP tool calls where arguments are arbitrary key-value pairs).
 type rawHookInput struct {
 	ToolInput json.RawMessage `json:"tool_input"`
+	ToolArgs  json.RawMessage `json:"toolArgs"` // Copilot CLI native dialect
 }
 
 // cursorHookOutput is the JSON response Cursor expects from hook scripts.
@@ -127,7 +174,7 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		managedCfg := enterprise.LoadManagedConfig()
 		if managedCfg == nil || !managedCfg.Managed {
 			// Non-managed mode: honor the bypass
-			data, _ := io.ReadAll(os.Stdin)
+			data, _ := io.ReadAll(hookStdinReader())
 			var input hookInput
 			if err := json.Unmarshal(data, &input); err == nil && input.Command != "" {
 				outputCursorAllow()
@@ -146,7 +193,7 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	data, err := io.ReadAll(os.Stdin)
+	data, err := io.ReadAll(hookStdinReader())
 	if err != nil {
 		return hookInputFailure("hook input read", err)
 	}
@@ -165,6 +212,15 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 	var raw rawHookInput
 	_ = json.Unmarshal(data, &raw)
 
+	// A string tool_input is accepted for ONE shape: a Claude-shaped
+	// PreToolUse call to a non-shell tool (Copilot CLI's apply_patch edits,
+	// #4251). For every other harness and shape it fails the parse exactly as
+	// before — a Gemini run_shell_command or a Bash call whose input is a
+	// string would otherwise read as an empty command and pass unevaluated.
+	if input.ToolInput.IsText && (input.HookEventName != "PreToolUse" || input.ToolName == "Bash") {
+		return hookInputFailure("hook input parse", errors.New("tool_input is a string where an object is required"))
+	}
+
 	// Auto-detect IDE format based on input fields.
 	// Claude Code sends {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {...}}.
 	// Codex CLI sends   the same shape plus turn_id/model — handled by handleClaudeCodeHook,
@@ -175,6 +231,13 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 	if input.HookEventName == "BeforeTool" {
 		return handleGeminiCLIHook(input)
 	}
+	// Cursor's documented payload carries hook_event_name on every event
+	// (#4261); for the shell hook it is "beforeShellExecution" with the
+	// command at the top level and no tool_name. Without this the Claude branch
+	// below saw an empty tool name and never evaluated the command.
+	if input.HookEventName == "beforeShellExecution" && input.ToolName == "" {
+		return handleCursorHook(input)
+	}
 	if input.HookEventName != "" {
 		return handleClaudeCodeHook(input, raw.ToolInput)
 	}
@@ -183,13 +246,19 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		return handleCursorHook(input)
 	}
 
-	switch input.AgentActionName {
-	case "pre_run_command":
+	if input.AgentActionName == "pre_run_command" {
 		return handleWindsurfHook(input)
-	default:
-		// Unsupported hook events pass through
-		return nil
 	}
+
+	// Copilot CLI's native dialect has no event name; toolName identifies it.
+	// Checked LAST, so a stray toolName key on a Cursor or Windsurf payload
+	// cannot reroute it away from its own handler (#4251 review).
+	if input.ToolNameNative != "" {
+		return handleCopilotNativeHook(input, raw.ToolArgs)
+	}
+
+	// Unsupported hook events pass through
+	return nil
 }
 
 // evaluateCommand is the shared policy evaluation logic for all IDE hooks.
@@ -235,6 +304,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 				SessionID:      sessionID,
 				Principal:      osPrincipal(),
 			}
+			recordSelfProtectBlock(&event)
 			return &blockedResult, &event
 		}
 	}
@@ -322,20 +392,14 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 		}, cmdStr, cwd, source, sessionID)
 	}
 
-	engine, err := policy.NewEngineWithAnalyzers(pol, cfg.Analyzer.MaxParseDepth)
+	// The mode (#1952) and the CI execution context (#3291) are applied in
+	// assembly.ShellEngine. The context is detected from this process's
+	// environment: the hook binary runs inside the CI runner, so its own
+	// environment is the ground truth.
+	engine, err := assembly.ShellEngine(pol, cfg.Analyzer.MaxParseDepth, cfg.Mode)
 	if err != nil {
 		return failSafeDecision(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger}, cmdStr, cwd, source, sessionID)
 	}
-	// Issue #1952: audit-only mode downgrades happen inside the engine, so
-	// every caller (shell hook, MCP hook, agentshield check, scan) gets the
-	// same behavior without duplicating the downgrade logic at each call site.
-	engine.SetMode(cfg.Mode)
-	// Issue #3291: detect CI/CD execution context so context-scoped rules
-	// (match.context.ci) can tighten posture when the agent is attacker-facing.
-	// Detected here, at the live evaluation site, from the process environment
-	// the runner set — the hook binary runs inside the CI runner, so its own
-	// environment is the ground truth.
-	engine.SetExecContext(execenv.Detect(os.Getenv))
 
 	evalResult := engine.EvaluateWithParsedCwd(cmdStr, normalized.Paths, normalized.Parsed, cwd)
 
@@ -380,6 +444,26 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 	sendRemoteAudit(&event)
 
 	return &evalResult, &event
+}
+
+// recordSelfProtectBlock writes a pre-eval (self-protect / bypass-guard) BLOCK
+// to the local audit chain and the SaaS (#4333). The block returns before the
+// main path opens the logger, and every caller discards the returned event, so
+// without this the attempt to tamper with AgentShield was recorded nowhere.
+// Best effort: a failure to record never changes the decision.
+func recordSelfProtectBlock(event *logger.AuditEvent) {
+	if cfg, err := config.Load(policyPath, logPath, mode); err != nil {
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: config load: %v\n", err)
+	} else if l, err := logger.New(cfg.LogPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: %v\n", err)
+	} else {
+		noteLockUnavailable(event, l)
+		if err := l.Log(*event); err != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
+		}
+		_ = l.Close()
+	}
+	sendRemoteAudit(event)
 }
 
 // buildMiddlewareChain assembles the middleware chain based on enterprise config.
@@ -457,15 +541,45 @@ func outputCursorAllow() {
 // Only Bash tool calls are evaluated; other tools pass through.
 // Block → print reason to stderr + exit 2. Allow/Audit → exit 0.
 func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
-	// turn_id is a Codex-only field. Use it to label the audit source so the
-	// dashboard can distinguish Codex from Claude Code traffic.
-	source := "claude-code-hook"
-	if input.TurnID != "" {
-		source = "codex-hook"
-	}
+	return handlePreToolUse(input, rawToolInput, hookSourceFor(input, "claude-code-hook"))
+}
 
+// handleCopilotNativeHook adapts GitHub Copilot CLI's native "preToolUse"
+// dialect (#4251) onto the Claude-shaped core. The shell tools (bash, and
+// powershell on Windows) become Bash; every other runtime tool name is kept
+// and goes through MCP policy — the same mapping as the agentless PowerShell
+// client. toolArgs is decoded exactly as tool_input is, so a malformed shell
+// command takes the fail-safe path in both dialects.
+func handleCopilotNativeHook(input hookInput, rawToolArgs json.RawMessage) error {
+	adapted := hookInput{
+		HookEventName: "preToolUse",
+		ToolName:      input.ToolNameNative,
+		SessionID:     input.SessionIDNative,
+		Cwd:           input.Cwd,
+	}
+	if adapted.ToolName == "bash" || adapted.ToolName == "powershell" {
+		adapted.ToolName = "Bash"
+	}
+	if len(rawToolArgs) > 0 {
+		if err := json.Unmarshal(rawToolArgs, &adapted.ToolInput); err != nil {
+			return hookInputFailureFor(hookSourceFor(adapted, "copilot-cli-hook"), "hook input parse", err)
+		}
+	}
+	return handlePreToolUse(adapted, rawToolArgs, hookSourceFor(adapted, "copilot-cli-hook"))
+}
+
+// handlePreToolUse is the shared core for every Claude-shaped PreToolUse
+// payload: Claude Code, Codex CLI, and both Copilot CLI dialects.
+func handlePreToolUse(input hookInput, rawToolInput json.RawMessage, source string) error {
 	// Shell commands (Bash tool) → evaluate through the analyzer pipeline
 	if input.ToolName == "Bash" {
+		// A string tool_input is accepted for edits (apply_patch), never for
+		// a shell call: no client sends one, and reading it as an empty
+		// command would pass the call unevaluated and unrecorded. Before
+		// #4251 the shape failed the parse; it still takes the fail-safe path.
+		if input.ToolInput.IsText {
+			return hookInputFailureFor(source, "hook input parse", errors.New("shell tool_input is a string, not an object"))
+		}
 		cmdStr := input.ToolInput.Command
 		if cmdStr == "" {
 			return nil
@@ -479,26 +593,110 @@ func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
 			for _, reason := range evalResult.Reasons {
 				fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 			}
-			fmt.Fprint(os.Stderr, remediation.SuggestForShell(evalResult.TriggeredRules, cmdStr))
+			fmt.Fprint(os.Stderr, remediation.SuggestForShell(evalResult.TriggeredRules, cmdStr, enterprise.ManagedHost()))
+			emitCopilotDeny(source, "this command", evalResult.TriggeredRules, evalResult.Reasons)
 			os.Exit(2)
 		}
 		return nil
 	}
 
 	// MCP tool calls → evaluate through MCP policy
-	return handleClaudeCodeMCPCall(input.ToolName, rawToolInput, source, sessionIDFor(input))
+	return handleClaudeCodeMCPCall(input.ToolName, rawToolInput, source, sessionIDFor(input), input.Cwd)
+}
+
+// agentIDPattern bounds AGENTSHIELD_AGENT_ID to a plain label, so the value
+// that lands in every audit event's source cannot carry anything else.
+var agentIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+// agentIDFromEnv returns AGENTSHIELD_AGENT_ID when it is a plain label, else "".
+func agentIDFromEnv() string {
+	if id := os.Getenv("AGENTSHIELD_AGENT_ID"); agentIDPattern.MatchString(id) {
+		return id
+	}
+	return ""
+}
+
+// hookSourceFor labels the audit source of a Claude-shaped payload.
+// AGENTSHIELD_AGENT_ID, set in the harness's own hook config (`agentshield
+// setup copilot-cli` writes it), names the harness when the payload cannot:
+// Copilot CLI's Claude-compatible dialect is otherwise indistinguishable from
+// Claude Code's. turn_id is Codex-only, as before. The same variable names the
+// agent on the agentless clients' verdicts.
+func hookSourceFor(input hookInput, fallback string) string {
+	if id := agentIDFromEnv(); id != "" {
+		return id + "-hook"
+	}
+	if input.TurnID != "" {
+		return "codex-hook"
+	}
+	return fallback
+}
+
+// emitCopilotDeny writes GitHub Copilot CLI's deny verdict to stdout (#4251).
+// Copilot treats exit 2 as a deny and shows permissionDecisionReason to the
+// agent; without it the agent learns only that a hook refused. It is written
+// for a Copilot source only, so Claude Code and Codex output is unchanged.
+func emitCopilotDeny(source, what string, rules, reasons []string) {
+	if !strings.HasPrefix(source, "copilot-cli") {
+		return
+	}
+	parts := []string{"AgentShield BLOCKED " + what}
+	if len(rules) > 0 {
+		parts = append(parts, "Rule: "+strings.Join(rules, ", "))
+	}
+	for _, r := range reasons {
+		parts = append(parts, "Reason: "+r)
+	}
+	out, _ := json.Marshal(map[string]string{
+		"permissionDecision":       "deny",
+		"permissionDecisionReason": strings.Join(parts, " | "),
+	})
+	fmt.Fprintln(os.Stdout, string(out))
+}
+
+// stringToolInputArguments gives a tool_input that is a JSON string an
+// argument map the MCP rules can read, instead of the empty map a failed
+// object decode leaves: an apply_patch body ("*** Begin Patch") under "patch",
+// anything else under "input" — the keys the agentless PowerShell client
+// forwards (#4252). Evaluating each patched file is #4253.
+func stringToolInputArguments(raw json.RawMessage) (map[string]interface{}, bool) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, false
+	}
+	key := "input"
+	if strings.HasPrefix(s, "*** Begin Patch") {
+		key = "patch"
+	}
+	return map[string]interface{}{key: s}, true
 }
 
 // handleClaudeCodeMCPCall evaluates an MCP tool call against MCP policy packs.
 // source identifies the calling agent ("claude-code-hook" or "codex-hook"); it
 // is recorded on the audit event and forwarded to SaaS telemetry. sessionID is
 // the harness session identifier, carried onto the same audit event so shell
-// and MCP evaluations from one session correlate (issue #3111).
-func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, source, sessionID string) error {
+// and MCP evaluations from one session correlate (issue #3111). cwd is the
+// payload's session directory, against which a relative write target resolves.
+func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, source, sessionID, cwd string) error {
 	// Parse tool_input as map for MCP evaluation
 	var arguments map[string]interface{}
+	fromText := false
 	if len(rawToolInput) > 0 {
-		_ = json.Unmarshal(rawToolInput, &arguments)
+		if textArgs, ok := stringToolInputArguments(rawToolInput); ok {
+			arguments, fromText = textArgs, true
+		} else {
+			_ = json.Unmarshal(rawToolInput, &arguments)
+		}
+	}
+
+	// #4260: on a managed host a harness's own write tool may not touch the
+	// config directory. Checked first, like the shell path's SelfProtect
+	// middleware: it needs no policy, so a broken ruleset cannot switch it off.
+	if result, blocked := managedConfigToolWrite(toolName, arguments, fromText, cwd); blocked {
+		auditMCPCall(toolName, arguments, result, source, "managed", sessionID)
+		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED tool call: %s\n   Rule: %s\n   Reason: %s\n", toolName, strings.Join(result.TriggeredRules, ", "), result.Reasons[0])
+		emitCopilotDeny(source, "tool call: "+toolName, result.TriggeredRules, result.Reasons)
+		os.Exit(2)
 	}
 
 	loaded := loadDeployedMCPPolicy("")
@@ -529,14 +727,23 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 			}
 			auditMCPCall(toolName, arguments, result, source, "managed", sessionID)
 			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n   Reason: %s\n", toolName, result.Reasons[0])
+			emitCopilotDeny(source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
 			os.Exit(2)
 		}
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: MCP ruleset degraded (%s) — evaluated against what loaded (fail-safe default, not enforced as configured)\n", degraded)
 	}
 
-	evaluator := mcp.NewPolicyEvaluator(loaded.Policy)
-	evaluator.SetMode(modeForAudit)
+	evaluator := assembly.MCPEvaluator(loaded.Policy, modeForAudit)
 	result := evaluator.EvaluateToolCall(toolName, arguments)
+
+	// #4351: Claude Code names an MCP server's tool mcp__<server>__<tool>, and
+	// the pack rules are authored against the bare <tool> (write_file, ...), so
+	// the wire name alone missed them all. Evaluate the bare name too; the
+	// second reading can only ADD a block, or under audit-only the record of
+	// one. shield-server applies the same rule through the same helper.
+	if bare, ok := mcp.BareToolName(toolName); ok {
+		result = mcp.PreferBlockingBareResult(result, evaluator.EvaluateToolCall(bare, arguments))
+	}
 
 	// Audit log
 	auditMCPCall(toolName, arguments, result, source, modeForAudit, sessionID)
@@ -549,7 +756,8 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 		for _, reason := range result.Reasons {
 			fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 		}
-		fmt.Fprint(os.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		fmt.Fprint(os.Stderr, remediation.SuggestForMCP(result.TriggeredRules, enterprise.ManagedHost()))
+		emitCopilotDeny(source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
 		os.Exit(2)
 	}
 
@@ -586,9 +794,11 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 	}
 	defer func() { _ = auditLogger.Close() }()
 
+	// "<agent>-hook" becomes "<agent>-mcp-hook" (claude-code, codex,
+	// copilot-cli, …), so one harness's shell and MCP events share a prefix.
 	source := "claude-code-mcp-hook"
-	if hookSource == "codex-hook" {
-		source = "codex-mcp-hook"
+	if agent, ok := strings.CutSuffix(hookSource, "-hook"); ok && agent != "" {
+		source = agent + "-mcp-hook"
 	}
 
 	cwd, _ := os.Getwd()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
-	"github.com/AI-AgentLens/agentshield/internal/execenv"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
@@ -128,12 +129,10 @@ func (s *Server) loadShellEngine(cfg *config.Config, policyOverride string) erro
 		s.warnings = append(s.warnings, fmt.Sprintf("pack %q failed to parse — its rules are NOT loaded: %v", fp.Path, fp.LoadError))
 	}
 
-	engine, err := policy.NewEngineWithAnalyzers(pol, cfg.Analyzer.MaxParseDepth)
+	engine, err := assembly.ShellEngine(pol, cfg.Analyzer.MaxParseDepth, cfg.Mode)
 	if err != nil {
 		return fmt.Errorf("create policy engine: %w", err)
 	}
-	engine.SetMode(cfg.Mode)
-	engine.SetExecContext(execenv.Detect(os.Getenv))
 	s.engine = engine
 	return nil
 }
@@ -185,8 +184,7 @@ func (s *Server) loadMCPEvaluator(cfg *config.Config, policyOverride string) {
 		}
 	}
 
-	s.mcpEval = mcp.NewPolicyEvaluator(mcpPolicy)
-	s.mcpEval.SetMode(cfg.Mode)
+	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, cfg.Mode)
 }
 
 // Close releases the audit logger. Safe on a nil logger.
@@ -207,15 +205,18 @@ func (s *Server) Close() {
 // issue #3111): the server side is exactly where identity data appears, and
 // retrofitting it onto an evidence schema later is brutal.
 type evaluateRequest struct {
-	Command         string                 `json:"command,omitempty"`
-	Cwd             string                 `json:"cwd,omitempty"`
-	ToolName        string                 `json:"tool_name,omitempty"`
-	Arguments       map[string]interface{} `json:"arguments,omitempty"`
-	ToolDescription string                 `json:"tool_description,omitempty"`
-	SessionID       string                 `json:"session_id,omitempty"`
-	AgentID         string                 `json:"agent_id,omitempty"`
-	Principal       string                 `json:"principal,omitempty"`
-	Source          string                 `json:"source,omitempty"`
+	Command         string                  `json:"command,omitempty"`
+	Cwd             string                  `json:"cwd,omitempty"`
+	ToolName        string                  `json:"tool_name,omitempty"`
+	Arguments       map[string]interface{}  `json:"arguments,omitempty"`
+	ToolDescription string                  `json:"tool_description,omitempty"`
+	SessionID       string                  `json:"session_id,omitempty"`
+	AgentID         string                  `json:"agent_id,omitempty"`
+	Principal       string                  `json:"principal,omitempty"`
+	Source          string                  `json:"source,omitempty"`
+	RequestID       string                  `json:"request_id,omitempty"`
+	ToolCallID      string                  `json:"tool_call_id,omitempty"`
+	Identity        *logger.IdentityContext `json:"identity,omitempty"`
 }
 
 type evaluateResponse struct {
@@ -340,7 +341,7 @@ func (s *Server) evaluateShell(req evaluateRequest) evaluateResponse {
 		Explanation:      result.Explanation,
 		Notes:            result.Notes,
 		OriginalDecision: string(result.OriginalDecision),
-		Remediation:      remediation.SuggestForShell(result.TriggeredRules, req.Command),
+		Remediation:      remediation.SuggestForShell(result.TriggeredRules, req.Command, enterprise.ManagedHost()),
 	}
 }
 
@@ -363,6 +364,17 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 	}
 
 	result := s.mcpEval.EvaluateToolCallWithHistory(req.ToolName, args, req.ToolDescription, history)
+
+	// #4351, in lock-step with the hook: Claude Code names an MCP server's
+	// tool mcp__<server>__<tool>, and pack rules are authored against the bare
+	// <tool>. The enterprise gateway sends the wire name here, so evaluate the
+	// bare name too and keep it only when it blocks or would block. History
+	// stays keyed by the wire name, so a sequence rule written against bare
+	// names does not see earlier namespaced calls.
+	if bare, ok := mcp.BareToolName(req.ToolName); ok {
+		result = mcp.PreferBlockingBareResult(result,
+			s.mcpEval.EvaluateToolCallWithHistory(bare, args, req.ToolDescription, history))
+	}
 
 	// value_limits rules are a separate numeric-threshold pass merged after
 	// the rule matcher, gated on not-already-BLOCKed — kept in lock-step with
@@ -403,7 +415,7 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 		Reasons:          result.Reasons,
 		Taxonomy:         result.AllTaxonomyRefs(), // both Go-intercept and YAML-rule refs (#3111)
 		OriginalDecision: string(result.OriginalDecision),
-		Remediation:      remediation.SuggestForMCP(result.TriggeredRules),
+		Remediation:      remediation.SuggestForMCP(result.TriggeredRules, enterprise.ManagedHost()),
 	}
 }
 
@@ -430,6 +442,10 @@ func (s *Server) logAudit(req evaluateRequest, resp evaluateResponse) {
 		Source:           source,
 		SessionID:        req.SessionID,
 		Principal:        req.Principal,
+		AgentID:          req.AgentID,
+		RequestID:        req.RequestID,
+		ToolCallID:       req.ToolCallID,
+		Identity:         req.Identity,
 		ToolName:         req.ToolName,
 		MCPArguments:     req.Arguments,
 	})

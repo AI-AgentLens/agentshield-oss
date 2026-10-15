@@ -3071,6 +3071,62 @@ var HomeRedirectCases = []TestCase{
 		Description:      `Setting XDG_CONFIG_HOME to the standard default location — not a redirect to writable/volatile path.`,
 		Tags:             []string{"tn", "legitimate", "xdg"},
 	},
+
+	// --- TN: the value as TEXT, downgraded to AUDIT by #3793 ---------------
+	// These cannot be inline `tn:` entries on the rule. TestRuleYAMLTests
+	// grades matchRule (the regex) alone, and a downgraded case still MATCHES
+	// the regex - it fires and is attested, only the decision drops. The
+	// downgrade is a pipeline behaviour, so it is graded here.
+	{
+		ID:               "TN-HOMEDIR-DOCTEXT-006",
+		Command:          "cat > /tmp/notes.txt <<'EOF'\nfor tests, set HOME=/tmp/fakehome before running\nEOF",
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `A DATA heredoc: the body is written to notes.txt and never executed, so the value is prose, not an assignment. in_heredoc downgrades BLOCK to AUDIT (#3793). Safe only because #3800 withdraws the label when the written path is later executed - contrast TP-HOMEDIR-PIPE-SHELL-009, which is the same heredoc shape plus a bash of the target and stays BLOCK.`,
+		Tags:             []string{"tn", "doc-text", "heredoc", "issue-3793"},
+	},
+	{
+		ID:               "TN-HOMEDIR-DOCTEXT-007",
+		Command:          `echo "tests expect HOME=/tmp/fakehome"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `The value is an echo argument - text on stdout, nothing assigns it. is_doc_text downgrades BLOCK to AUDIT (#3793). Safe only because #3797 withdraws the label when the echo is piped into a shell - contrast TP-HOMEDIR-PIPE-SHELL-006, which is this command plus | bash and stays BLOCK.`,
+		Tags:             []string{"tn", "doc-text", "echo", "issue-3793"},
+	},
+	{
+		ID:               "TN-HOMEDIR-DOCTEXT-008",
+		Command:          `git commit -m "docs: explain HOME=/tmp/fakehome in tests"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `The value is inside a commit message. This is the anti-pattern docs/architecture.md names: a rule firing on git commit -m / gh pr create --body content. is_doc_text downgrades BLOCK to AUDIT (#3793). NOTE: "still attested" holds only while this rule is the top finding - the combiner keeps findings at the winning severity, so a sibling rule above AUDIT drops this one and its taxonomy ref from the record.`,
+		Tags:             []string{"tn", "doc-text", "commit-message", "issue-3793"},
+	},
+	{
+		ID:               "TN-HOMEDIR-DOCTEXT-009",
+		Command:          `echo "docs: HOME=/tmp/fakehome ssh example.com is the repro"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `Doc text in which a TOOL WORD follows the value, so ts-block-home-redirect-inline matches too. Without this case the -inline half of the #3793 change has zero coverage: cases 006-008 put no tool word after the value, so dropping the downgrade from -inline alone is a mutation the suite does not catch. Found by adversarial review of #3813.`,
+		Tags:             []string{"tn", "doc-text", "inline-rule", "issue-3793", "mutation-gap"},
+	},
+	{
+		ID:               "TP-HOMEDIR-INTERP-013",
+		Command:          "python3 - <<'PYEOF'\nimport subprocess\nsubprocess.run(\"HOME=/tmp/evil ssh example.com\", shell=True)\nPYEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `An interpreter heredoc body EXECUTES, so the value handed to a subprocess is a real redirect. in_interpreter_heredoc is deliberately absent from the #3793 downgrade list and this case pins that intent. Caveat recorded honestly: this case also passes via the #3697 recovery of the subprocess.run literal as an unlabelled statement, so it does NOT discriminate a mutation that ADDS in_interpreter_heredoc to the list. The only shape that would discriminate it is an inert doc-prose body, which is exactly the false positive #3809 is open to fix - pinning it would cement a known FP, so it is deliberately left unpinned.`,
+		Tags:             []string{"tp", "interpreter-heredoc", "issue-3793", "issue-3697"},
+	},
 }
 
 // ---------------------------------------------------------------------------

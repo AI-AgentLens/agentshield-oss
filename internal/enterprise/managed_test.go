@@ -387,3 +387,14 @@ func TestSelfProtect_UnsetParamExp_AllowsOrdinaryParameterization(t *testing.T) 
 		}
 	}
 }
+
+// The Copilot CLI hook file is protected like every other harness's hook
+// config (#4251 review, finding 2).
+func TestSelfProtect_BlockDeleteCopilotHook(t *testing.T) {
+	mw := SelfProtect()
+	ctx := &EvalContext{Command: "rm ~/.copilot/hooks/agentshield.json"}
+	mw(ctx, func() { t.Error("next() should not be called when blocked") })
+	if !ctx.Blocked {
+		t.Error("expected deleting the Copilot CLI hook file to be blocked")
+	}
+}

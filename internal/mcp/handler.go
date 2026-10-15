@@ -38,6 +38,156 @@ type MessageHandler struct {
 	FetchDiversity       *FetchDiversityTracker       // optional; nil disables public-metadata side-channel exfiltration detection (#3453)
 	CompoSkill           *CompoSkillTracker           // optional; nil disables cross-skill composition-chain detection (#3499)
 	StagedTrust          *StagedTrustTracker          // optional; nil disables TrustShift staged trust attack detection (#3519, arXiv 2608.23763)
+
+	// ManagedHost reports whether this machine is centrally managed. It shapes
+	// only the BLOCK hint printed to Stderr, never a decision. The CLI passes
+	// enterprise.ManagedHost; nil means unmanaged. It is a function rather than
+	// a bool so a long-running proxy reads managed.json at hint time, as it did
+	// before the engine stopped reading enterprise config itself (#4321).
+	ManagedHost func() bool
+
+	// Mode is the enforcement mode (#1952). In "audit-only" a tools/call that
+	// enforce mode would block is forwarded and recorded as AUDIT with
+	// OriginalDecision BLOCK, as the hook does for the same call (#4337). The
+	// config guard keeps blocking in either mode: it is the proxy's
+	// self-protection. Every other message type, and the server-to-client
+	// filters (tools/list hiding, response scanning), are unaffected. ""
+	// means enforce. The Evaluator stays in enforce mode, so every decision
+	// below is computed as enforce would compute it, and audit-only is
+	// applied once, at the end of HandleToolCall.
+	Mode string
+
+	// SelfProtectCommand matches command text against the managed-host
+	// self-protection rules the shell hook applies (sp-*). The CLI passes
+	// enterprise.MatchSelfProtectCommand; nil disables it. It is consulted
+	// only on a managed host, for command-text arguments (execute_command
+	// and the like), so that an MCP route to a shell cannot do what the
+	// shell hook refuses in every mode (#4337 review B1).
+	SelfProtectCommand func(cmd string) (ruleID string, matched bool)
+}
+
+// managedHost is the nil-safe reading of ManagedHost.
+func (h *MessageHandler) managedHost() bool {
+	return h.ManagedHost != nil && h.ManagedHost()
+}
+
+// configGuard is the proxy's self-protection check for a tools/call: the
+// config guard (spelling-proof for AgentShield's own directory) and, on a
+// managed host, the shell's self-protection rules over command-text
+// arguments. It blocks in every mode.
+func (h *MessageHandler) configGuard(toolName string, arguments map[string]interface{}) ConfigGuardResult {
+	result := CheckConfigGuard(toolName, arguments)
+	if h.SelfProtectCommand == nil || !h.managedHost() {
+		return result
+	}
+	for argName, argValue := range arguments {
+		if !isCommandArg(toolName, argName) {
+			continue
+		}
+		for _, v := range stringLeaves(argValue) {
+			if id, ok := h.SelfProtectCommand(v); ok {
+				result.Findings = append(result.Findings, ConfigGuardFinding{
+					Path:     v,
+					Pattern:  id,
+					Category: "agentshield-self-protect",
+					Reason:   "Matches the managed self-protection rule " + id + ".",
+					ArgName:  argName,
+				})
+				break
+			}
+		}
+	}
+	result.Blocked = len(result.Findings) > 0
+	return result
+}
+
+// selfProtectionRuleFired reports whether any of rules is a self-protection
+// rule of the evaluator's policy (PolicyEvaluator.IsSelfProtectionRule).
+func (h *MessageHandler) selfProtectionRuleFired(rules []string) bool {
+	for _, id := range rules {
+		if h.Evaluator.IsSelfProtectionRule(id) {
+			return true
+		}
+	}
+	return false
+}
+
+// auditOnly reports whether tools/call BLOCKs are recorded instead of
+// enforced (#4337).
+func (h *MessageHandler) auditOnly() bool {
+	return h.Mode == "audit-only"
+}
+
+// holdForAuditOnly is the audit-only branch of a session-composite BLOCK in
+// HandleToolCall (#4337). In enforce mode it reports false and the caller
+// returns the block as before. In audit-only mode it keeps the composite's
+// verdict for the call's record and reports true, so the call is evaluated
+// on and the verdict decides the call's original decision at the end.
+func (h *MessageHandler) holdForAuditOnly(held *[]MCPEvalResult, r MCPEvalResult, label, toolName string) bool {
+	if !h.auditOnly() {
+		return false
+	}
+	*held = append(*held, r)
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT %s (audit-only; enforce mode would block): %s\n", label, toolName)
+	return true
+}
+
+// applyToolCallMode applies audit-only mode to a tools/call verdict computed
+// as enforce mode computes it (#4337). held are the session composites that
+// would have blocked the call before it was evaluated; their findings lead
+// the record, because enforce mode would have reported them first. A BLOCK
+// becomes AUDIT with OriginalDecision BLOCK unless self-protection blocks the
+// call, which it does in either mode: the guard (configGuard), a
+// self-protection rule among the rules that decided the BLOCK (#4337 review
+// B1: the premium rules guard spellings the guard alone missed, and the OSS
+// build has only the guard), or a call that names AgentShield's config or an
+// agent hook file in any spelling (argsNameSelfProtectTarget, review pass 2).
+// The last only keeps a BLOCK enforce mode already made, so it reads broadly:
+// any path-shaped value, command words, and a relative path by its tail. guardBlocked says whether the guard already
+// blocked in the scan chain; when an earlier scanner blocked first the guard
+// has not run, so it runs here. REQUIRE_APPROVAL is recorded the same way, as the evaluator's
+// own downgrade does. In enforce mode the verdict is returned unchanged.
+func (h *MessageHandler) applyToolCallMode(result MCPEvalResult, held []MCPEvalResult, guardBlocked bool, toolName string, arguments map[string]interface{}) MCPEvalResult {
+	if !h.auditOnly() {
+		return result
+	}
+	if len(held) > 0 {
+		var rules, reasons, taxonomy []string
+		for _, c := range held {
+			rules = append(rules, c.TriggeredRules...)
+			reasons = append(reasons, c.Reasons...)
+			taxonomy = append(taxonomy, c.AllTaxonomyRefs()...)
+		}
+		result.Decision = policy.DecisionBlock
+		result.TriggeredRules = append(rules, result.TriggeredRules...)
+		result.Reasons = append(reasons, result.Reasons...)
+		result.TaxonomyRefs = append(taxonomy, result.TaxonomyRefs...)
+	}
+	switch result.Decision {
+	case policy.DecisionBlock:
+		if !guardBlocked {
+			if g := h.configGuard(toolName, arguments); g.Blocked {
+				// The guard is why this call still blocks, so it leads:
+				// the block response carries Reasons[0].
+				guardBlocked = true
+				reasons := make([]string, 0, len(g.Findings)+len(result.Reasons))
+				for _, f := range g.Findings {
+					reasons = append(reasons, "["+f.Category+"] "+f.Reason+" (path: "+f.Path+")")
+				}
+				result.TriggeredRules = append([]string{"config-file-guard"}, result.TriggeredRules...)
+				result.Reasons = append(reasons, result.Reasons...)
+			}
+		}
+		if guardBlocked || h.selfProtectionRuleFired(result.TriggeredRules) || argsNameSelfProtectTarget(toolName, arguments) {
+			return result
+		}
+		result.OriginalDecision = result.Decision
+		result.Decision = policy.DecisionAudit
+	case policy.DecisionRequireApproval:
+		result.OriginalDecision = result.Decision
+		result.Decision = policy.DecisionAudit
+	}
+	return result
 }
 
 // newMessageHandler builds a fully wired MessageHandler with fresh per-session
@@ -45,9 +195,11 @@ type MessageHandler struct {
 // self-test harness so the tracker wiring cannot drift between entry points.
 //
 // cacheDir overrides the schema-drift/tool-registry cache directory; empty
-// means the default (~/.agentshield). onAudit and dataLabels may be nil.
-func newMessageHandler(evaluator *PolicyEvaluator, onAudit AuditFunc, stderr io.Writer, serverName, cacheDir string, dataLabels *DataLabelScanner) *MessageHandler {
+// means the default (~/.agentshield). onAudit, dataLabels and managedHost may
+// be nil.
+func newMessageHandler(evaluator *PolicyEvaluator, onAudit AuditFunc, stderr io.Writer, serverName, cacheDir string, dataLabels *DataLabelScanner, managedHost func() bool) *MessageHandler {
 	return &MessageHandler{
+		ManagedHost:          managedHost,
 		Evaluator:            evaluator,
 		OnAudit:              onAudit,
 		Stderr:               stderr,
@@ -213,6 +365,10 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	}
 	h.auditWireShape(MethodToolsCall, shape)
 
+	// Session composites that would have blocked this call, held for its
+	// record in audit-only mode instead of returned (#4337).
+	var held []MCPEvalResult
+
 	// Approval-fatigue detection — scan BEFORE recording so "prior" history is correct.
 	if h.ApprovalFatigue != nil {
 		afSignals := h.ApprovalFatigue.Scan(params.Name)
@@ -226,7 +382,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			}
 			if syntheticTool != "" {
 				syntheticResult := h.Evaluator.EvaluateToolCall(syntheticTool, params.Arguments)
-				if syntheticResult.Decision == "BLOCK" {
+				if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "approval-fatigue ("+string(sig)+")", params.Name) {
 					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by approval-fatigue (%s): %s\n", sig, params.Name)
 					blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 					if err != nil {
@@ -249,7 +405,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 		// Stateless: check delegation tool content for dangerous task/goal patterns.
 		if sig, argName := h.SubAgentTracker.ScanDelegationContent(params.Name, params.Arguments); sig != "" {
 			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticSubAgentTaskEscalation, params.Arguments)
-			if syntheticResult.Decision == "BLOCK" {
+			if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "sub-agent task escalation (arg: "+argName+")", params.Name) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by sub-agent task escalation (arg: %s): %s\n", argName, params.Name)
 				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 				if err != nil {
@@ -272,7 +428,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			}
 			if syntheticTool != "" {
 				syntheticResult := h.Evaluator.EvaluateToolCall(syntheticTool, params.Arguments)
-				if syntheticResult.Decision == "BLOCK" {
+				if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "sub-agent scope widening", params.Name) {
 					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by sub-agent scope widening: %s\n", params.Name)
 					blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 					if err != nil {
@@ -297,7 +453,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	if h.LethalTrifecta != nil {
 		if sig := h.LethalTrifecta.Scan(params.Name, params.Arguments); sig != "" {
 			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticLethalTrifecta, params.Arguments)
-			if syntheticResult.Decision == "BLOCK" {
+			if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "lethal-trifecta session composite", params.Name) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by lethal-trifecta session composite: %s\n", params.Name)
 				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 				if err != nil {
@@ -320,7 +476,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	if h.CompoSkill != nil {
 		if sig := h.CompoSkill.Scan(params.Name, params.Arguments); sig != "" {
 			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticCompoSkillChain, params.Arguments)
-			if syntheticResult.Decision == "BLOCK" {
+			if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "cross-skill composition-chain composite", params.Name) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by cross-skill composition-chain composite: %s\n", params.Name)
 				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 				if err != nil {
@@ -344,7 +500,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	if h.LateralWrite != nil {
 		if sig := h.LateralWrite.Scan(params.Name, params.Arguments); sig != "" {
 			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticLateralWriteAfterIngest, params.Arguments)
-			if syntheticResult.Decision == "BLOCK" {
+			if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "lateral-write-after-ingest session composite", params.Name) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by lateral-write-after-ingest session composite: %s\n", params.Name)
 				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 				if err != nil {
@@ -366,7 +522,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	if h.BrowserGameJailbreak != nil {
 		if sig := h.BrowserGameJailbreak.Scan(params.Name, params.Arguments); sig != "" {
 			syntheticResult := h.Evaluator.EvaluateToolCall(syntheticBrowserGameJailbreak, params.Arguments)
-			if syntheticResult.Decision == "BLOCK" {
+			if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "browser game jailbreak composite", params.Name) {
 				_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by browser game jailbreak composite: %s\n", params.Name)
 				blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 				if err != nil {
@@ -398,7 +554,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			}
 			if syntheticTool != "" {
 				syntheticResult := h.Evaluator.EvaluateToolCall(syntheticTool, params.Arguments)
-				if syntheticResult.Decision == "BLOCK" {
+				if syntheticResult.Decision == "BLOCK" && !h.holdForAuditOnly(&held, syntheticResult, "fetch-diversity composite ("+string(sig)+")", params.Name) {
 					_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by fetch-diversity composite (%s): %s\n", sig, params.Name)
 					blockResp, err := NewBlockResponse(msg.ID, syntheticResult.Reasons[0])
 					if err != nil {
@@ -764,9 +920,11 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	}
 
 	// If still not blocked, check for config file write attempts
+	guardBlocked := false
 	if result.Decision != "BLOCK" {
-		guardResult := CheckConfigGuard(params.Name, params.Arguments)
+		guardResult := h.configGuard(params.Name, params.Arguments)
 		if guardResult.Blocked {
+			guardBlocked = true
 			result.Decision = "BLOCK"
 			result.TriggeredRules = append(result.TriggeredRules, "config-file-guard")
 			for _, f := range guardResult.Findings {
@@ -819,19 +977,26 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 		h.TaskAmplification.RecordCreate()
 	}
 
+	// Audit-only mode (#4337): the verdict above is enforce mode's; record it
+	// as AUDIT with the original decision and forward the call, unless the
+	// config guard blocks it.
+	result = h.applyToolCallMode(result, held, guardBlocked, params.Name, params.Arguments)
+
 	// Log the audit entry
 	if h.OnAudit != nil {
 		h.OnAudit(AuditEntry{
-			Timestamp:      time.Now().UTC().Format(time.RFC3339),
-			ToolName:       params.Name,
-			Arguments:      params.Arguments,
-			Decision:       string(result.Decision),
-			Flagged:        result.Decision == "BLOCK" || result.Decision == "AUDIT",
-			TriggeredRules: result.TriggeredRules,
-			Reasons:        result.Reasons,
-			Source:         "mcp-proxy",
-			ServerName:     h.ServerName,
-			TaxonomyRef:    result.TaxonomyRef,
+			Timestamp:        time.Now().UTC().Format(time.RFC3339),
+			ToolName:         params.Name,
+			Arguments:        params.Arguments,
+			Decision:         string(result.Decision),
+			Flagged:          result.Decision == "BLOCK" || result.Decision == "AUDIT",
+			TriggeredRules:   result.TriggeredRules,
+			Reasons:          result.Reasons,
+			Source:           "mcp-proxy",
+			ServerName:       h.ServerName,
+			TaxonomyRef:      result.TaxonomyRef,
+			Mode:             h.Mode,
+			OriginalDecision: string(result.OriginalDecision),
 		})
 	}
 
@@ -841,7 +1006,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED tool call: %s — %s\n", params.Name, reason)
-		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules, h.managedHost()))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -852,7 +1017,11 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 	}
 
 	if result.Decision == "AUDIT" {
-		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool call: %s\n", params.Name)
+		if result.OriginalDecision != "" {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool call (audit-only; enforce mode would %s): %s\n", result.OriginalDecision, params.Name)
+		} else {
+			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool call: %s\n", params.Name)
+		}
 	}
 
 	return false, nil
@@ -892,7 +1061,7 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resource read: %s — %s\n", params.URI, reason)
-		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules, h.managedHost()))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -963,7 +1132,7 @@ func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED resource subscribe: %s — %s\n", params.URI, reason)
-		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules, h.managedHost()))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -1074,7 +1243,7 @@ func (h *MessageHandler) HandlePromptsGetRequest(msg *Message) (bool, []byte) {
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED prompts/get: %s — %s\n", params.Name, reason)
-		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules, h.managedHost()))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -1186,7 +1355,7 @@ func (h *MessageHandler) HandleCompletionCompleteRequest(msg *Message) (bool, []
 			reason = result.Reasons[0]
 		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED completion/complete: %s — %s\n", params.Argument.Name, reason)
-		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules))
+		_, _ = fmt.Fprint(h.Stderr, remediation.SuggestForMCP(result.TriggeredRules, h.managedHost()))
 
 		blockResp, err := NewBlockResponse(msg.ID, reason)
 		if err != nil {
@@ -2304,7 +2473,7 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 						}
 					}
 					if f.Signal == SignalHiddenInstructions {
-						if sent := h.Evaluator.LookupSentinel("mcp-desc-hidden-instructions"); sent != nil {
+						if sent := h.Evaluator.LookupSentinel(hiddenInstructionsSentinelEngine(f)); sent != nil {
 							triggeredRules = append(triggeredRules, sent.ID)
 						}
 					}
@@ -2479,7 +2648,7 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 						}
 					}
 					if f.Signal == SignalInputSchemaPropDescInjection {
-						if sent := h.Evaluator.LookupSentinel("mcp-tool-inputschema-injection"); sent != nil {
+						if sent := h.Evaluator.LookupSentinel(inputSchemaPropInjectionSentinelEngine); sent != nil {
 							triggeredRules = append(triggeredRules, sent.ID)
 						}
 					}
@@ -2824,6 +2993,11 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	}
 	h.auditWireShape(MethodToolsCall+"-response", shape)
 
+	// What the text scanners below read: the wire items, then the text each
+	// embedded resource carries (#4296). Scanners that judge the kind or the
+	// annotations of every block keep callResult.Content.
+	scanContent := withEmbeddedResourceText(callResult.Content)
+
 	// _meta field scan — the MCP spec's reserved `_meta` field can carry
 	// arbitrary implementation-specific metadata on a tool call result and is
 	// invisible to every scanner below (which all key off Content or
@@ -2920,7 +3094,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// classified as "poisoned" injection. AUDIT-level findings are logged
 	// but do not replace the response.
 	if h.DataLabelScanner != nil {
-		for _, item := range callResult.Content {
+		for _, item := range scanContent {
 			if item.Type != "text" || item.Text == "" {
 				continue
 			}
@@ -2983,7 +3157,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// value AUDITs — the tier that catches a disclosed value with no
 	// recognized vendor shape, e.g. CVE-2026-67357's ArcadeDB cluster token.
 	// Taxonomy: data-exfiltration/llm-data-flow/mcp-tool-response-secret-overexposure
-	if rsResult := ScanToolCallResponseForSecrets(callResult.Content, callResult.StructuredContent); rsResult.Found {
+	if rsResult := ScanToolCallResponseForSecrets(scanContent, callResult.StructuredContent); rsResult.Found {
 		decision := "AUDIT"
 		if rsResult.Blocked {
 			decision = "BLOCK"
@@ -3025,7 +3199,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// Traceback / stack-trace detection (AUDIT only — info-disclosure + indirect
 	// prompt-injection risk; does not block the response).
 	// Taxonomy: data-exfiltration/llm-data-flow/llm-context-injection
-	if tbResult := ScanToolCallResponseForTracebacks(callResult.Content); tbResult.Found {
+	if tbResult := ScanToolCallResponseForTracebacks(scanContent); tbResult.Found {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response contains %d traceback(s)\n",
 			len(tbResult.Findings))
 		if h.OnAudit != nil {
@@ -3055,7 +3229,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// Skill-delivered verification-protocol token-drain detection (AUDIT only —
 	// resource-abuse / denial-of-wallet signal, not credential or data theft).
 	// Taxonomy: unauthorized-execution/ai-resource-abuse/skill-verification-protocol-token-drain
-	if vlResult := ScanToolCallResponseForVerificationLoop(callResult.Content); vlResult.Found {
+	if vlResult := ScanToolCallResponseForVerificationLoop(scanContent); vlResult.Found {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response contains %d verification-loop token-drain signal(s)\n",
 			len(vlResult.Findings))
 		if h.OnAudit != nil {
@@ -3089,7 +3263,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// gated for the response surface by whether the directive is addressed to
 	// the agent and not merely quoted or discussed. See issue #3435 and
 	// response_indirect_directive_scanner.go for the discourse-gate rationale.
-	if idResult := ScanToolCallResponseForIndirectDirectives(callResult.Content); idResult.Found {
+	if idResult := ScanToolCallResponseForIndirectDirectives(scanContent); idResult.Found {
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response contains %d indirect-directive signal(s)\n",
 			len(idResult.Findings))
 		reasons := make([]string, 0, len(idResult.Findings))
@@ -3116,6 +3290,117 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		// Fall through — indirect-directive signals are AUDIT, not a block.
 	}
 
+	// Addressee markers (AUDIT only; AI_risk_compliance#4554). Text that
+	// addresses the model AS the assistant ("Assistant instruction: ...", a
+	// role tag, "Note to the AI") and gives it an imperative on the same line.
+	// It sits beside the indirect-directive scan and, like it, never replaces
+	// the response. It only adds a receipt. See
+	// response_addressee_marker_scanner.go.
+	if amResult := ScanToolCallResponseForAddresseeMarkers(scanContent); amResult.Found {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response addresses the model in %d content item(s)\n",
+			len(amResult.Findings))
+		if h.OnAudit != nil {
+			reasons := make([]string, 0, len(amResult.Findings))
+			for _, f := range amResult.Findings {
+				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			}
+			triggeredRules := []string{responseAddresseeMarkerGenericRuleID}
+			if sent := h.Evaluator.LookupSentinel(responseAddresseeMarkerSentinelEngine); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-response-addressee-marker-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(responseAddresseeMarkerSentinelEngine),
+			})
+		}
+		// Fall through: an addressee marker is AUDIT, never a block.
+	}
+
+	// EchoLeak-shaped template carrier (AUDIT only; #4279): an image whose query
+	// value is a placeholder, plus prose asking the assistant to fill it. See
+	// response_template_carrier_scanner.go.
+	if tcResult := ScanToolCallResponseForTemplateCarrier(scanContent); tcResult.Found {
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] AUDIT tool response carries a fill-in image URL template in %d content item(s)\n",
+			len(tcResult.Findings))
+		if h.OnAudit != nil {
+			reasons := make([]string, 0, len(tcResult.Findings))
+			for _, f := range tcResult.Findings {
+				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			}
+			triggeredRules := []string{responseTemplateCarrierGenericRuleID}
+			taxonomyRef := responseTemplateCarrierTaxonomy
+			if sent := h.Evaluator.LookupSentinel(responseTemplateCarrierSentinelEngine); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+				if sent.Taxonomy != "" {
+					taxonomyRef = sent.Taxonomy
+				}
+			}
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-response-template-carrier-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    taxonomyRef,
+			})
+		}
+		// Fall through: a template carrier is AUDIT, never a block.
+	}
+
+	// Widened earlier-instructions override vocabulary (#4060; Codex pass 1 on
+	// #4073). The one-verb original stays a BLOCK row in responseInjectionPatterns
+	// and fires below; the four-verb / five-noun vocabulary records at AUDIT and
+	// BLOCKs only with a corroborating agent-directed cue, downgraded to AUDIT
+	// again when the match is quoted or attributed (#3911).
+	if odResult := ScanToolCallResponseForOverrideDirective(scanContent); odResult.Found {
+		decision := "AUDIT"
+		if odResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s tool response carries %d earlier-instructions override signal(s)\n",
+			decision, len(odResult.Findings))
+		reasons := make([]string, 0, len(odResult.Findings))
+		triggeredRules := []string{"mcp-response-override-directive"}
+		for _, f := range odResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(overrideDirectiveSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "tools/call-response",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-override-directive-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(overrideDirectiveSentinelEngine(odResult.Findings[0].Signal)),
+			})
+		}
+		if odResult.Blocked {
+			reason := string(odResult.Findings[0].Signal) + ": " + odResult.Findings[0].Detail
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — a bare or attributed match
+		// is AUDIT and does not replace the response.
+	}
+
 	// Content-block audience-channel scan — reads `annotations.audience`, the
 	// MCP routing field by which a server declares a content block is for the
 	// model and NOT for the user. A block the human is not shown is both an
@@ -3124,7 +3409,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// only approximate. Mixed tier: concealment directives, escalated
 	// agent-directed directives and audience-partitioned divergence BLOCK;
 	// latent (third-person) directives AUDIT. See content_audience_scanner.go.
-	if caResult := ScanContentAudienceChannel(callResult.Content); caResult.Found {
+	if caResult := ScanContentAudienceChannel(scanContent); caResult.Found {
 		decision := "AUDIT"
 		if caResult.Blocked {
 			decision = "BLOCK"
@@ -3227,7 +3512,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// concealment and the isError+audience composition BLOCK; security-control
 	// disablement and exfil redirect AUDIT.
 	// See response_error_remediation_scanner.go.
-	if erResult := ScanToolResultErrorRemediation(callResult.Content, callResult.IsError); erResult.Found {
+	if erResult := ScanToolResultErrorRemediation(scanContent, callResult.IsError); erResult.Found {
 		decision := "AUDIT"
 		if erResult.Blocked {
 			decision = "BLOCK"
@@ -3332,7 +3617,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// gadget when the user/agent exports the result to CSV or XLSX and
 	// opens it in Excel, LibreOffice, or Google Sheets. Detection is
 	// line-anchored to avoid matching mid-line code expressions.
-	if fiResult := ScanFormulaInjection(callResult.Content); fiResult.Blocked {
+	if fiResult := ScanFormulaInjection(scanContent); fiResult.Blocked {
 		reason := "tool response contains CSV formula injection payload"
 		if len(fiResult.Findings) > 0 {
 			reason = string(fiResult.Findings[0].Signal) + ": " + fiResult.Findings[0].Detail
@@ -3417,7 +3702,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 	// role delimiters or tool-invocation syntax in its result to forge a turn or
 	// an unsanctioned tool call. BLOCK on a corroborated token; bare tokens AUDIT
 	// and fall through (code/docs legitimately contain this syntax).
-	if repl := h.filterResponseControlTokens(callResult.Content, msg.ID, "tools/call-response", "mcp-proxy-response-control-token-scan"); repl != nil {
+	if repl := h.filterResponseControlTokens(scanContent, msg.ID, "tools/call-response", "mcp-proxy-response-control-token-scan"); repl != nil {
 		return repl
 	}
 
@@ -3454,21 +3739,43 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		}
 	}
 
-	scanResult := ScanToolCallResponse(callResult.Content)
+	scanResult := ScanToolCallResponse(scanContent)
 	if h.GhostSplice != nil {
-		if fragFindings := h.GhostSplice.Scan(callResult.Content); len(fragFindings) > 0 {
+		if fragFindings := h.GhostSplice.Scan(scanContent); len(fragFindings) > 0 {
 			scanResult.Findings = append(scanResult.Findings, fragFindings...)
 			scanResult.Poisoned = true
 		}
 	}
 	if !scanResult.Poisoned {
+		// AUDIT-tier findings only (response_markdown_exfil_url, #4280): record
+		// a receipt and forward the response.
+		if len(scanResult.Findings) > 0 && h.OnAudit != nil {
+			reasons := make([]string, 0, len(scanResult.Findings))
+			for _, f := range scanResult.Findings {
+				reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			}
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "unknown",
+				Decision:       "AUDIT",
+				Flagged:        true,
+				TriggeredRules: []string{"tool-response-poisoning"},
+				Reasons:        reasons,
+				Source:         "mcp-proxy-response-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    signalTaxonomyRef(scanResult.Findings[0].Signal),
+			})
+		}
 		return nil
 	}
 
-	// Build human-readable reason from the first finding
+	// Build human-readable reason from the finding that blocked. The markdown
+	// URL signal is AUDIT-only here (#4280), so a BLOCK it merely accompanies
+	// is attributed to the signal that caused it.
 	reason := "tool response contains injected instructions"
-	if len(scanResult.Findings) > 0 {
-		reason = string(scanResult.Findings[0].Signal) + ": " + scanResult.Findings[0].Detail
+	blocking, hasBlocking := blockingResponseFinding(scanResult.Findings)
+	if hasBlocking {
+		reason = string(blocking.Signal) + ": " + blocking.Detail
 	}
 
 	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] POISONED tool response blocked (%d signals)\n",
@@ -3518,7 +3825,7 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 			Reasons:        reasons,
 			Source:         "mcp-proxy-response-scan",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    signalTaxonomyRef(scanResult.Findings[0].Signal),
+			TaxonomyRef:    signalTaxonomyRef(blocking.Signal),
 		})
 	}
 
@@ -3733,6 +4040,50 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 		// Fall through — indirect-directive signals are AUDIT, not a block.
 	}
 
+	// Widened earlier-instructions override vocabulary (#4060; Codex pass 1 on
+	// #4073). The one-verb original stays a BLOCK row in responseInjectionPatterns
+	// and fires below; the four-verb / five-noun vocabulary records at AUDIT and
+	// BLOCKs only with a corroborating agent-directed cue, downgraded to AUDIT
+	// again when the match is quoted or attributed (#3911).
+	if odResult := ScanToolCallResponseForOverrideDirective(items); odResult.Found {
+		decision := "AUDIT"
+		if odResult.Blocked {
+			decision = "BLOCK"
+		}
+		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s resources/read response carries %d earlier-instructions override signal(s)\n",
+			decision, len(odResult.Findings))
+		reasons := make([]string, 0, len(odResult.Findings))
+		triggeredRules := []string{"mcp-response-override-directive"}
+		for _, f := range odResult.Findings {
+			_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s (idx=%d)\n", f.Signal, f.Detail, f.ContentIndex)
+			reasons = append(reasons, string(f.Signal)+": "+f.Detail)
+			if sent := h.Evaluator.LookupSentinel(overrideDirectiveSentinelEngine(f.Signal)); sent != nil {
+				triggeredRules = append(triggeredRules, sent.ID)
+			}
+		}
+		if h.OnAudit != nil {
+			h.OnAudit(AuditEntry{
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				ToolName:       "resources/read",
+				Decision:       decision,
+				Flagged:        true,
+				TriggeredRules: triggeredRules,
+				Reasons:        reasons,
+				Source:         "mcp-proxy-resource-override-directive-scan",
+				ServerName:     h.ServerName,
+				TaxonomyRef:    h.sentinelTaxonomyRef(overrideDirectiveSentinelEngine(odResult.Findings[0].Signal)),
+			})
+		}
+		if odResult.Blocked {
+			reason := string(odResult.Findings[0].Signal) + ": " + odResult.Findings[0].Detail
+			if replacement, replErr := NewBlockResponse(msg.ID, reason); replErr == nil {
+				return replacement
+			}
+		}
+		// Fall through when nothing blocking fired — a bare or attributed match
+		// is AUDIT and does not replace the response.
+	}
+
 	// Forged control-token scan on resource content (same model as the tool-call
 	// response path): BLOCK a corroborated chat-template / tool-invocation token,
 	// AUDIT a bare one and fall through.
@@ -3741,7 +4092,11 @@ func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
 	}
 
 	scanResult := ScanToolCallResponse(items)
-	if !scanResult.Poisoned {
+	// Every finding blocks here, as before #4280. That issue's AUDIT tier is
+	// scoped to tools/call results; this path never gained an AUDIT receipt,
+	// so reading Poisoned alone forwarded a markdown-URL resource with no
+	// record at all (#4286 pass 1).
+	if !scanResult.Poisoned && len(scanResult.Findings) == 0 {
 		return nil
 	}
 

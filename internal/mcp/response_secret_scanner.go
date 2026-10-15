@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
@@ -71,6 +72,9 @@ func ScanToolCallResponseForSecrets(content []ContentItem, structuredContent map
 			finding.ContentIndex = i
 			finding.Blocking = true
 			result.Findings = append(result.Findings, finding)
+		} else if finding, ok := matchBasicAuthHeader(item.Text); ok {
+			finding.ContentIndex = i
+			result.Findings = append(result.Findings, finding)
 		}
 	}
 
@@ -101,6 +105,12 @@ const (
 	// opaque/token-shaped rather than a short enum, boolean, or prose word.
 	// AUDIT — the field name is a strong but not certain signal on its own.
 	SignalResponseSecretFieldName ResponseSecretSignal = "response_secret_field_name"
+	// SignalResponseSecretBasicAuthHeader fires when a response carries an
+	// `Authorization: Basic <base64(user:password)>` header whose payload
+	// decodes to user:password. AUDIT (#4273): a tool result that echoes
+	// request headers or a curl command is the shape, and documentation
+	// examples use the same text.
+	SignalResponseSecretBasicAuthHeader ResponseSecretSignal = "response_secret_basic_auth_header"
 )
 
 // ResponseSecretFinding records one detected secret-shaped value in a tool
@@ -144,6 +154,11 @@ func scanStructuredContentForSecrets(result *ResponseSecretScanResult, path stri
 		if finding, ok := matchKnownSecretShapeForResponse(val); ok {
 			finding.Field = path
 			finding.Blocking = true
+			result.Findings = append(result.Findings, finding)
+			return
+		}
+		if finding, ok := matchBasicAuthHeader(val); ok {
+			finding.Field = path
 			result.Findings = append(result.Findings, finding)
 			return
 		}
@@ -306,7 +321,40 @@ func responseSecretSentinelEngine(signal ResponseSecretSignal) string {
 		return "mcp-response-secret-confirmed-pattern"
 	case SignalResponseSecretFieldName:
 		return "mcp-response-secret-field-name"
+	case SignalResponseSecretBasicAuthHeader:
+		return "mcp-response-secret-basic-auth-header"
 	default:
 		return ""
 	}
+}
+
+// basicAuthHeaderRe matches an `Authorization: Basic <base64>` header. The
+// credential is one bounded token of the base64 alphabet, so unlike the
+// pre-#4270 URL pattern it cannot span unrelated text.
+var basicAuthHeaderRe = regexp.MustCompile(`(?i)\bauthorization["']?\s*[:=]\s*["']?basic\s+([A-Za-z0-9+/_-]{4,1000}={0,2})`)
+
+// matchBasicAuthHeader reports an Authorization: Basic header whose payload
+// decodes to `user:password`. Requiring the colon after decoding drops
+// placeholder text such as "Basic <credentials>" and "Basic base64string".
+// The finding is non-blocking (#4273): AUDIT first, per "only BLOCK what you
+// can justify".
+func matchBasicAuthHeader(text string) (ResponseSecretFinding, bool) {
+	for _, m := range basicAuthHeaderRe.FindAllStringSubmatch(text, -1) {
+		tok := strings.TrimRight(m[1], "=")
+		var raw []byte
+		var err error
+		if strings.ContainsAny(tok, "-_") {
+			raw, err = base64.RawURLEncoding.DecodeString(tok)
+		} else {
+			raw, err = base64.RawStdEncoding.DecodeString(tok)
+		}
+		if err != nil || !strings.Contains(string(raw), ":") {
+			continue
+		}
+		return ResponseSecretFinding{
+			Signal: SignalResponseSecretBasicAuthHeader,
+			Detail: "Authorization: Basic header carrying user:password in tool response",
+		}, true
+	}
+	return ResponseSecretFinding{}, false
 }

@@ -167,6 +167,7 @@ func TestResponseSecretSentinelsResolve(t *testing.T) {
 	signals := []ResponseSecretSignal{
 		SignalResponseSecretConfirmedPattern,
 		SignalResponseSecretFieldName,
+		SignalResponseSecretBasicAuthHeader,
 	}
 	for _, sig := range signals {
 		key := responseSecretSentinelEngine(sig)

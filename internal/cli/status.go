@@ -49,6 +49,7 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 		configDir = cfg.ConfigDir
 	}
 	fmt.Printf("  Config:    %s\n", configDir)
+	fmt.Printf("  Mode:      %s\n", modeSummary(cfg))
 
 	// 3. Login state
 	creds, _ := auth.Load()

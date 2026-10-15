@@ -36,6 +36,17 @@ const (
 	ModeAuditOnly = "audit-only"
 )
 
+// Where Config.Mode came from, one value per resolution rung. `status`, `scan`
+// and `setup` print it, so a user who sees AUDIT where they expected BLOCK can
+// tell which line to change.
+const (
+	ModeSourceFlag           = "--mode flag"
+	ModeSourceConfigFile     = "agentshield.yaml mode"
+	ModeSourcePolicyFile     = "policy.yaml enforcement_mode"
+	ModeSourceInstallDefault = "new-install default"
+	ModeSourceBuiltIn        = "built-in default"
+)
+
 type Config struct {
 	PolicyPath string
 	LogPath    string
@@ -46,16 +57,23 @@ type Config struct {
 	//   2. YAML config file (~/.agentshield/agentshield.yaml, key "mode")
 	//   3. SaaS-pushed policy.yaml's top-level `enforcement_mode:` field
 	//      (written by the enterprise sync from /api/policy/yaml)
-	//   4. ModeEnforce
+	//   4. The new-install default (agentshield.yaml, key "default_mode"),
+	//      which `agentshield setup` writes on a machine with no prior
+	//      AgentShield state (#4337). Ignored on a managed host, where the
+	//      organisation's policy governs exactly as before #4337.
+	//   5. ModeEnforce
 	// An unrecognized value is coerced to ModeEnforce with a stderr warning —
 	// we deliberately prefer fail-safe (keep enforcing) over fail-loud (refuse
 	// to start), because a typo in a YAML config should never silently turn
 	// the gateway into a passive logger. Documented in the test
 	// TestConfig_InvalidMode.
-	Mode      string
-	ConfigDir string
-	Analyzer  AnalyzerConfig
-	Managed   *ManagedConfig
+	Mode string
+	// ModeSource names the rung Mode was resolved from (the ModeSource*
+	// constants). Informational only: no decision reads it.
+	ModeSource string
+	ConfigDir  string
+	Analyzer   AnalyzerConfig
+	Managed    *ManagedConfig
 }
 
 // ManagedConfig represents the enterprise managed configuration loaded from managed.json.
@@ -90,6 +108,11 @@ func DefaultAnalyzerConfig() AnalyzerConfig {
 // safe zero values so a partial/old file keeps working.
 type fileConfig struct {
 	Mode string `yaml:"mode,omitempty"`
+	// DefaultMode is the new-install default (#4337): rung 4 of the mode
+	// resolution, below the SaaS-pushed policy.yaml, so an organisation that
+	// later enrolls this machine still decides its mode. `mode:` is the line
+	// a user writes; this one only `agentshield setup` writes.
+	DefaultMode string `yaml:"default_mode,omitempty"`
 }
 
 // policyFileMode is a minimal subset of policy.yaml — just the top-level
@@ -133,15 +156,22 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 		return nil, err
 	}
 
+	// Load managed.json first: whether the host is managed decides whether
+	// the new-install default (rung 4) applies.
+	managed := LoadManaged(configDir)
+
 	// Mode resolution (issue #1952): CLI flag wins, then agentshield.yaml,
 	// then the SaaS-pushed policy.yaml's `enforcement_mode:` field, then the
-	// enforce default. Local overrides (CLI / agentshield.yaml) always beat
-	// the SaaS push so a developer can break-glass back to enforce without
-	// waiting for the SaaS toggle to flip.
-	resolvedMode := mode
+	// new-install default (#4337), then the enforce default. Local overrides
+	// (CLI / agentshield.yaml mode) always beat the SaaS push so a developer
+	// can break-glass back to enforce without waiting for the SaaS toggle to
+	// flip.
+	resolvedMode, modeSource := mode, ModeSourceFlag
+	var fc *fileConfig
 	if resolvedMode == "" {
-		if fc := loadFileConfig(configDir); fc != nil && fc.Mode != "" {
-			resolvedMode = fc.Mode
+		fc = loadFileConfig(configDir)
+		if fc != nil && fc.Mode != "" {
+			resolvedMode, modeSource = fc.Mode, ModeSourceConfigFile
 		}
 	}
 	if resolvedMode == "" {
@@ -150,8 +180,18 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 			policyResolved = filepath.Join(configDir, DefaultPolicyFile)
 		}
 		if pm := loadPolicyEnforcementMode(policyResolved); pm != "" {
-			resolvedMode = pm
+			resolvedMode, modeSource = pm, ModeSourcePolicyFile
 		}
+	}
+	// #4337: the new-install default sits below the organisation's push, and
+	// a managed host ignores it, so enrolling a machine that started in
+	// audit-only hands the decision to the organisation, as on any managed
+	// host before #4337.
+	if resolvedMode == "" && fc != nil && fc.DefaultMode != "" && !(managed != nil && managed.Managed) {
+		resolvedMode, modeSource = fc.DefaultMode, ModeSourceInstallDefault
+	}
+	if resolvedMode == "" {
+		modeSource = ModeSourceBuiltIn
 	}
 	canonicalMode, ok := NormalizeMode(resolvedMode)
 	if !ok {
@@ -161,9 +201,10 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		ConfigDir: configDir,
-		Mode:      canonicalMode,
-		Analyzer:  DefaultAnalyzerConfig(),
+		ConfigDir:  configDir,
+		Mode:       canonicalMode,
+		ModeSource: modeSource,
+		Analyzer:   DefaultAnalyzerConfig(),
 	}
 
 	if policyPath != "" {
@@ -178,8 +219,7 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 		cfg.LogPath = filepath.Join(configDir, DefaultLogFile)
 	}
 
-	// Load managed.json if present
-	cfg.Managed = LoadManaged(configDir)
+	cfg.Managed = managed
 
 	// In managed mode, ignore --policy and --log overrides
 	if cfg.Managed != nil && cfg.Managed.Managed {

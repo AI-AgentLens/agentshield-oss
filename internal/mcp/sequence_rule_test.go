@@ -1334,3 +1334,66 @@ func TestMCPSequenceRule_WebFetchThenShellExecute(t *testing.T) {
 		}
 	})
 }
+
+// TestMCPSequenceRule_TicketingPagingCollection validates the #4225 paging rules:
+// a collection walked a page at a time (each call under the per-call bulk limit)
+// fires only once five continuation calls are in the session history.
+func TestMCPSequenceRule_TicketingPagingCollection(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
+	rules := loadPremiumPackRules(t, "mcp-llm-data-flow.yaml")
+	byID := map[string]MCPRule{}
+	for _, r := range rules {
+		byID[r.ID] = r
+	}
+	cases := []struct {
+		id, key string
+		val     func(i int) interface{}
+	}{
+		{"mcp-llmdf-audit-ticketing-paging-collection-startat", "startAt", func(i int) interface{} { return i * 100 }},
+		{"mcp-llmdf-audit-ticketing-paging-collection-token", "nextPageToken", func(i int) interface{} { return "tok" + string(rune('a'+i)) }},
+	}
+	for _, c := range cases {
+		rule, ok := byID[c.id]
+		if !ok || rule.Match.Sequence == nil {
+			t.Fatalf("rule %q missing or has no sequence block", c.id)
+		}
+		e := NewPolicyEvaluator(&MCPPolicy{Defaults: MCPDefaults{Decision: policy.DecisionAllow}, Rules: []MCPRule{rule}})
+		fires := func(tool string, h []RecordedCall) bool {
+			res := e.EvaluateToolCallWithHistory(tool, h[len(h)-1].Args, "", h)
+			for _, id := range res.TriggeredRules {
+				if id == c.id {
+					return res.Decision == policy.DecisionAudit
+				}
+			}
+			return false
+		}
+		paged := func(tool string, n int) []RecordedCall {
+			var h []RecordedCall
+			for i := 1; i <= n; i++ {
+				h = append(h, RecordedCall{ToolName: tool, Args: map[string]interface{}{"jql": "project = SEC", "maxResults": 100, c.key: c.val(i)}})
+			}
+			return h
+		}
+		t.Run(c.id, func(t *testing.T) {
+			if !fires("searchJiraIssuesUsingJql", paged("searchJiraIssuesUsingJql", 5)) {
+				t.Errorf("five paged Atlassian searches should fire")
+			}
+			if !fires("jira_search", paged("jira_search", 6)) {
+				t.Errorf("six paged jira_search calls should fire")
+			}
+			if fires("searchJiraIssuesUsingJql", paged("searchJiraIssuesUsingJql", 4)) {
+				t.Errorf("four pages must not fire (min_count=5)")
+			}
+			if fires("read_file", paged("read_file", 8)) {
+				t.Errorf("non-ticketing tool must not fire")
+			}
+			var h []RecordedCall
+			for i := 0; i < 8; i++ {
+				h = append(h, RecordedCall{ToolName: "searchJiraIssuesUsingJql", Args: map[string]interface{}{"jql": "key = SEC-" + string(rune('1'+i)), "maxResults": 20}})
+			}
+			if fires("searchJiraIssuesUsingJql", h) {
+				t.Errorf("unpaged searches must not fire")
+			}
+		})
+	}
+}

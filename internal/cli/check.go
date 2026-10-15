@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"github.com/AI-AgentLens/agentshield/internal/config"
-	"github.com/AI-AgentLens/agentshield/internal/execenv"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
@@ -195,18 +195,17 @@ func newCheckEngine(policyFileOverride string) (*checkEngine, error) {
 	// (resolution rung 3) flows through here.
 	cfg, _ := config.Load(policyPath, logPath, mode)
 
-	engine, err := policy.NewEngineWithAnalyzers(pol, defaultMaxParseDepth())
+	checkMode := ""
+	if cfg != nil {
+		checkMode = cfg.Mode
+	}
+	// assembly.ShellEngine is what the hook uses, so `agentshield check` is a
+	// faithful predictor of production behaviour, including the CI-context
+	// tightening (#3291) when run inside a CI job or with CI=true set.
+	engine, err := assembly.ShellEngine(pol, defaultMaxParseDepth(), checkMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create policy engine: %w", err)
 	}
-	if cfg != nil {
-		engine.SetMode(cfg.Mode)
-	}
-	// Issue #3291: mirror the hook's CI-context detection so `agentshield check`
-	// is a faithful predictor of production behaviour — running it inside a CI
-	// job (or with CI=true/GITHUB_ACTIONS=true set) exercises the same
-	// context-scoped tightening the live hook would apply there.
-	engine.SetExecContext(execenv.Detect(os.Getenv))
 	return &checkEngine{engine: engine}, nil
 }
 
@@ -238,6 +237,11 @@ func (ce *checkEngine) evaluate(command string) policy.EvalResult {
 
 func printShellResult(w io.Writer, r policy.EvalResult) {
 	_, _ = fmt.Fprintf(w, "%s\n", r.Decision)
+	if r.OriginalDecision != "" {
+		// Audit-only mode (#1952), the default for new installs (#4337):
+		// without this line a would-be block reads as a plain AUDIT.
+		_, _ = fmt.Fprintf(w, "  Enforce mode: %s (this machine runs in audit-only mode)\n", r.OriginalDecision)
+	}
 	if len(r.TriggeredRules) > 0 {
 		_, _ = fmt.Fprintf(w, "  Rules: %s\n", strings.Join(r.TriggeredRules, ", "))
 	}

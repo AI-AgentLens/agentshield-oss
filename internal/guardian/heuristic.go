@@ -30,6 +30,15 @@ type heuristicRule struct {
 	// whose VALUE has no credential shape is still worth an audit record, but
 	// not a block.
 	refine func(req GuardianRequest, sig *Signal)
+
+	// shellStructural marks a rule whose match depends on shell word
+	// structure (argv shape, operators, payload tokens) rather than on prose
+	// an LLM reads. Such a rule never runs on a ProseOnly request: folding
+	// U+00A0 to a space would invent word boundaries bash never sees (#4290).
+	// The default is false on purpose, so a new rule receives the folded form
+	// unless someone decides otherwise; a missed prose fold is a silent
+	// bypass, a missed structural mark is a loud FP on an inert command.
+	shellStructural bool
 }
 
 // NewHeuristicProvider creates a heuristic guardian with built-in detection rules.
@@ -46,13 +55,50 @@ func (p *HeuristicProvider) Analyze(req GuardianRequest) (GuardianResponse, erro
 	var signals []Signal
 	bestDecision := "ALLOW"
 
+	// Statement texts, split lazily: most commands match nothing and are one
+	// statement, so they never pay for the parse.
+	var statements []string
+	split := false
+
 	for _, r := range p.rules {
-		if !r.match(req) {
+		if req.ProseOnly && r.shellStructural {
 			continue
+		}
+		matched := req
+		if !r.match(req) {
+			// A prose rule's FP exemptions (a leading git/gh, a file-write
+			// heredoc anywhere) are decided on the whole command, so one
+			// such statement in front used to switch them on for every
+			// statement after it: `git status; echo '<payload>' >> AGENTS.md`
+			// went BLOCK -> AUDIT (#4291). Judge each top-level statement on
+			// its own too. This only adds: it runs when the whole command did
+			// not match, and an exempt statement stays exempt by itself.
+			// Structural rules keep their own segmentation.
+			if r.shellStructural {
+				continue
+			}
+			if !split {
+				statements = shellparse.SplitTopLevelStatements(req.RawCommand)
+				split = true
+			}
+			ok := false
+			if len(statements) > 1 {
+				for _, s := range statements {
+					sreq := req
+					sreq.RawCommand = s
+					if r.match(sreq) {
+						matched, ok = sreq, true
+						break
+					}
+				}
+			}
+			if !ok {
+				continue
+			}
 		}
 		sig := r.signal
 		if r.refine != nil {
-			r.refine(req, &sig)
+			r.refine(matched, &sig)
 		}
 		signals = append(signals, sig)
 		bestDecision = mostRestrictive(bestDecision, r.escalate)
@@ -151,7 +197,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			match: func(req GuardianRequest) bool {
 				return isBase64Payload(req.RawCommand)
 			},
-			escalate: "AUDIT",
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Obfuscation: hex escape sequences ---
@@ -166,7 +213,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			match: func(req GuardianRequest) bool {
 				return hexEscapePattern.MatchString(req.RawCommand)
 			},
-			escalate: "AUDIT",
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Obfuscation: decoder-fed file-reader (#1699 companion) ---
@@ -184,8 +232,9 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 				Confidence:  0.75,
 				Description: "File-reader argument is a decoder pipeline with a non-constant source — likely path obfuscation",
 			},
-			match:    matchesObfuscatedDecoderEval,
-			escalate: "AUDIT",
+			match:           matchesObfuscatedDecoderEval,
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Eval risk: dynamic code execution ---
@@ -200,7 +249,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			match: func(req GuardianRequest) bool {
 				return matchesEvalRisk(req.RawCommand)
 			},
-			escalate: "AUDIT",
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Bulk exfiltration: archive + upload ---
@@ -215,7 +265,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			match: func(req GuardianRequest) bool {
 				return matchesBulkExfil(req.RawCommand, req.ResolveProgramPaths)
 			},
-			escalate: "BLOCK",
+			escalate:        "BLOCK",
+			shellStructural: true,
 		},
 
 		// --- Secrets in command: inline API keys/tokens ---
@@ -248,7 +299,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 					sig.Description = "Command assigns a credential-named variable whose value has no credential shape (no known token prefix, no token charset, low entropy) — recorded for audit, not blocked"
 				}
 			},
-			escalate: "AUDIT",
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Indirect injection: embedded instructions in data ---
@@ -308,7 +360,8 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 			match: func(req GuardianRequest) bool {
 				return matchesCodeSteganography(req.RawCommand)
 			},
-			escalate: "AUDIT",
+			escalate:        "AUDIT",
+			shellStructural: true,
 		},
 
 		// --- Roleplay/persona jailbreak: activation phrases ---
@@ -424,7 +477,13 @@ var promptExfilPatterns = compilePatterns([]string{
 var disableSecurityTextPatterns = compilePatterns([]string{
 	`(?i)(disable|turn\s+off|bypass|skip|ignore)\s+(agentshield|security|guard|policy|policies)`,
 	`(?i)(remove|delete|uninstall)\s+(agentshield|security\s+guard)`,
-	`(?i)--no-?(verify|check|security|guard|policy)`,
+	`(?i)--no-?(verify|security|guard|policy)`,
+	// --no-check is a trust bypass only when it names what it skips: a certificate, TLS
+	// hostname, GPG key, signature or checksum. Prefixes, not whole words, so getopt_long
+	// abbreviations (wget --no-check-cert) and plurals still match. Bare --no-check/--nocheck
+	// is zstd's frame checksum or rpmbuild's %check stage (#4247). Accepted: rclone's
+	// checksum flag still fires, as it did before #4247.
+	`(?i)--no-?check-?(cert|ssl|tls|gpg|sig|hostname|sum)`,
 })
 
 // agentshieldDisableRe matches the AGENTSHIELD_DISABLE env var, which is a direct
@@ -553,6 +612,20 @@ var ghStdinHeredocOpenerRe = regexp.MustCompile(
 // Single-quoted strings in POSIX shell are always literal (no escape sequences).
 var stripQuotedRe = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'[^']*'`)
 
+// quotedFlagWordRe matches a whole shell word that is a quoted flag token
+// (`"--no-verify"`, `'-n'`). The token has no spaces or metacharacters, so
+// unquoting it cannot join or split words.
+var quotedFlagWordRe = regexp.MustCompile(`(^|\s)(?:"(-{1,2}[A-Za-z0-9][-A-Za-z0-9=._]*)"|'(-{1,2}[A-Za-z0-9][-A-Za-z0-9=._]*)')(\s|$)`)
+
+// unquoteFlagWords removes the quotes around whole-word quoted flags. Two
+// passes, because adjacent flags share the separator a single pass consumes.
+func unquoteFlagWords(cmd string) string {
+	for i := 0; i < 2; i++ {
+		cmd = quotedFlagWordRe.ReplaceAllString(cmd, "$1$2$3$4")
+	}
+	return cmd
+}
+
 // matchesDisableSecurity returns true if the command contains a security-bypass signal.
 //
 // Context-aware to reduce false positives:
@@ -571,7 +644,10 @@ func matchesDisableSecurity(cmd string) bool {
 	}
 	if safeCallerRe.MatchString(cmd) {
 		// Strip quoted string content — these are argument values sent to external APIs.
-		stripped := stripQuotedRe.ReplaceAllString(cmd, "")
+		// A whole-word quoted FLAG is not a value: bash removes the quotes and
+		// git sees `--no-verify` exactly as if it were unquoted (#4291), so it is
+		// unquoted first rather than stripped.
+		stripped := stripQuotedRe.ReplaceAllString(unquoteFlagWords(cmd), "")
 		// Strip heredoc body if present (the marker and body are data, not commands).
 		if idx := strings.Index(stripped, "<<"); idx != -1 {
 			stripped = stripped[:idx]

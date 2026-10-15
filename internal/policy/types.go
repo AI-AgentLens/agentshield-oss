@@ -131,11 +131,21 @@ type Match struct {
 	// answer "is this path a filesystem target or a string being searched
 	// for?". Valid labels are defined in internal/analyzer/position.go;
 	// unknown labels fail policy load.
-	CommandPositionExclude []string         `yaml:"command_position_exclude,omitempty"`
-	Structural             *StructuralMatch `yaml:"structural,omitempty"`
-	Dataflow               *DataflowMatch   `yaml:"dataflow,omitempty"`
-	Semantic               *SemanticMatch   `yaml:"semantic,omitempty"`
-	Stateful               *StatefulMatch   `yaml:"stateful,omitempty"`
+	CommandPositionExclude []string `yaml:"command_position_exclude,omitempty"`
+	// CommandFoldSeparators makes the rule ALSO match the command with
+	// Unicode separators (U+00A0 and the other Zs/Zl/Zp characters) folded to a
+	// space (#4310). For rules whose pattern matches PROSE an LLM later reads
+	// (an AGENTS.md line, a PR body, a tool description): RE2's `\s` is
+	// ASCII-only, so one NBSP between the words of the directive drops the
+	// rule, while the model reads ordinary words. Additive: the raw reading is
+	// always tried first. Never set it on a rule that matches shell syntax —
+	// NBSP is not a word separator to bash, so folding it would invent a command
+	// the shell never runs. Same split as guardian's ProseOnly (#4294).
+	CommandFoldSeparators bool             `yaml:"command_fold_separators,omitempty"`
+	Structural            *StructuralMatch `yaml:"structural,omitempty"`
+	Dataflow              *DataflowMatch   `yaml:"dataflow,omitempty"`
+	Semantic              *SemanticMatch   `yaml:"semantic,omitempty"`
+	Stateful              *StatefulMatch   `yaml:"stateful,omitempty"`
 	// Context gates a rule on the runtime execution environment (issue #3291).
 	// It is a precondition, not a matcher: it decides whether the rule APPLIES,
 	// not what text it matches, so it must be combined with a command_regex /

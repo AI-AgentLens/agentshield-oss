@@ -88,7 +88,7 @@ var selfProtectRules = []struct {
 	},
 	{
 		ID:      "sp-block-delete-hooks",
-		Pattern: regexp.MustCompile(`rm\s+.*(\.(claude|cursor|windsurf|codeium|gemini|codex|openclaw)/(settings\.json|hooks\.json|hooks/))`),
+		Pattern: regexp.MustCompile(`rm\s+.*(\.(claude|cursor|windsurf|codeium|gemini|codex|openclaw|copilot)/(settings\.json|hooks\.json|hooks/))`),
 	},
 	{
 		// Narrowed 2026-09-02 (#3620): the verb list used to be
@@ -232,6 +232,20 @@ func matchesSelfProtectRule(cmd string) (ruleID string, matched bool) {
 		}
 	}
 	return "", false
+}
+
+// PlainReadPattern returns plainReadRe's source. internal/mcp keeps a copy
+// (it may not import this package); a test in internal/cli pins the two equal.
+func PlainReadPattern() string {
+	return plainReadRe.String()
+}
+
+// MatchSelfProtectCommand reports whether cmd matches a self-protection rule,
+// with the same raw, dequoted and unset-param-folded readings SelfProtect
+// uses. The MCP proxies apply it to command-text arguments on a managed host
+// (#4337 review B1), so execute_command cannot do what the shell hook refuses.
+func MatchSelfProtectCommand(cmd string) (ruleID string, matched bool) {
+	return matchesSelfProtectRule(cmd)
 }
 
 // SelfProtectRuleCount returns the number of active self-protection rules.

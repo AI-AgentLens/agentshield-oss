@@ -28,6 +28,9 @@ type ToolCollision struct {
 	ToolName      string
 	CurrentServer string
 	OtherServer   string
+	// ShadowedBy is set for a prefix-shadow collision (ASI02): ToolName is a
+	// strict prefix of ShadowedBy on OtherServer. Empty for an exact-name collision.
+	ShadowedBy string
 }
 
 // CollisionResult holds the outcome of a collision check.
@@ -106,10 +109,65 @@ func (r *ToolRegistry) Register(serverName string, tools []ToolDefinition) *Coll
 		}
 	}
 
+	collisions = append(collisions, prefixShadowCollisions(serverName, entries, all)...)
+
 	if len(collisions) == 0 {
 		return nil
 	}
 	return &CollisionResult{Collisions: collisions}
+}
+
+// minShadowLen keeps short generic verbs ("get", "run") from pairing with
+// every longer name. A prefix-shadow is AUDIT-only, so this trades recall on
+// very short names for a quieter receipt.
+const minShadowLen = 4
+
+// prefixShadowCollisions reports tools whose name is a strict prefix of another
+// server's tool at a word boundary ("report" vs "report_finance"), in either
+// direction. A near-name that a model resolves first misroutes the call. Exact
+// matches are reported by Register, not here.
+func prefixShadowCollisions(serverName string, mine []ToolRegistryEntry, all allServersRegistry) []ToolCollision {
+	var out []ToolCollision
+	seen := map[string]bool{}
+	add := func(short, long, other string) {
+		key := short + "\x00" + long + "\x00" + other
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, ToolCollision{ToolName: short, CurrentServer: serverName, OtherServer: other, ShadowedBy: long})
+	}
+	others := make([]string, 0, len(all))
+	for name := range all {
+		if name != serverName {
+			others = append(others, name)
+		}
+	}
+	sort.Strings(others)
+	for _, other := range others {
+		for _, o := range all[other].Tools {
+			for _, m := range mine {
+				switch {
+				case isWordPrefix(m.Name, o.Name):
+					add(m.Name, o.Name, other)
+				case isWordPrefix(o.Name, m.Name):
+					add(o.Name, m.Name, other)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func isWordPrefix(short, long string) bool {
+	if len(short) < minShadowLen || len(long) <= len(short) || !strings.HasPrefix(long, short) {
+		return false
+	}
+	switch long[len(short)] {
+	case '_', '-', '.', '/', ':':
+		return true
+	}
+	return false
 }
 
 // ListServers returns all registered servers and their tools.
@@ -174,6 +232,10 @@ func (cr *CollisionResult) CollisionSummary() string {
 	}
 	parts := make([]string, len(cr.Collisions))
 	for i, c := range cr.Collisions {
+		if c.ShadowedBy != "" {
+			parts[i] = fmt.Sprintf("%q is a name prefix of %q (servers %s and %s)", c.ToolName, c.ShadowedBy, c.CurrentServer, c.OtherServer)
+			continue
+		}
 		parts[i] = fmt.Sprintf("%q (on %s and %s)", c.ToolName, c.CurrentServer, c.OtherServer)
 	}
 	return "tool name collisions: " + strings.Join(parts, ", ")

@@ -7,9 +7,8 @@
 
 # Enforcement mode (issue #1952).
 #
-#   enforce     — Default. BLOCK rules block. REQUIRE_APPROVAL rules prompt.
-#                 Existing AgentShield users get this behavior by default; no
-#                 file needed.
+#   enforce     — The built-in default. BLOCK rules block. REQUIRE_APPROVAL
+#                 rules prompt. A machine with no mode set anywhere runs this.
 #
 #   audit-only  — BLOCK and REQUIRE_APPROVAL decisions are downgraded to
 #                 AUDIT. The original (pre-downgrade) decision is captured on
@@ -21,3 +20,11 @@
 # Override at the command line with `agentshield --mode <value> ...`. The CLI
 # flag wins over this file — handy as a kill-switch.
 mode: enforce
+
+# New-install default (#4337). `agentshield setup` writes this line, and only
+# this line, on a machine with no AgentShield state, so a new install starts in
+# audit-only mode. It applies only when nothing else sets the mode: no `mode:`
+# line above, no --mode flag, and no `enforcement_mode:` in the organisation's
+# policy.yaml. A managed host ignores it.
+#
+# default_mode: audit-only

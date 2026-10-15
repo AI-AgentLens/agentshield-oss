@@ -90,6 +90,14 @@ contains "new BLOCK counts codex-hook traffic too"     "$TMP/o4.txt" "AUDIT -> B
 contains "snippet shows the command"                   "$TMP/o4.txt" "echo 'prose' FLIP2BLOCK"
 contains "summary counts both classes"                 "$TMP/o4.txt" "flips 2 (BLOCK lost 1, new BLOCK 1, other 0)"
 
+# ── 4b. Copilot CLI shell traffic is replayed too (#4251) ──────────────────
+LOG="$TMP/l4b.jsonl"
+{ ev copilot-cli-hook AUDIT "echo copilot FLIP2BLOCK" '[]'
+  ev copilot-cli-mcp-hook AUDIT "mcp FLIP2BLOCK" ; } > "$LOG"
+run --log "$LOG" > "$TMP/o4b.txt" 2>&1; check "copilot shell flip -> exit 10" 10 $?
+contains "copilot-cli-hook traffic is replayed"        "$TMP/o4b.txt" "echo copilot FLIP2BLOCK"
+contains "copilot MCP events are not shell commands"   "$TMP/o4b.txt" "flips 1 (BLOCK lost 0, new BLOCK 1, other 0)"
+
 # ── 5. cap keeps every BLOCK and the most recent N others ───────────────────
 LOG="$TMP/l5.jsonl"
 { ev claude-code-hook BLOCK "old block" '["r"]' "2024-01-01T00:00:00Z"

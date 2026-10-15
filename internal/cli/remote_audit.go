@@ -38,7 +38,17 @@ import (
 //
 // Adding a key is backward compatible — the SaaS decodes with the standard
 // (lenient) json decoder. Renaming or removing one is not.
-func buildAuditPayload(event *logger.AuditEvent) ([]byte, error) {
+//
+// Redaction (#4332): the payload is built from event.Redacted(), the same
+// redaction AuditLogger.Log applies to the audit.jsonl line. Log works on a
+// copy, so the event the hook hands here is still the original; before this,
+// command, arguments and the fail-safe reason went to /api/audit verbatim
+// while the local line read [REDACTED]. Redact here, the one function every
+// sender goes through, never at a call site.
+func buildAuditPayload(original *logger.AuditEvent) ([]byte, error) {
+	redacted := original.Redacted()
+	event := &redacted
+
 	// Use tool name as command for MCP calls
 	command := event.Command
 	if command == "" && event.ToolName != "" {

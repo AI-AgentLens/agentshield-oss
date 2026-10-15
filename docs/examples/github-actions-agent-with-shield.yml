@@ -8,6 +8,8 @@
 # What it demonstrates (issue #3291):
 #   - Installing AgentShield in a GitHub Actions runner.
 #   - Arming the PreToolUse shell hook for a coding agent.
+#   - Turning on enforcement. A CI runner is a new install, so `setup` starts it
+#     in audit-only mode like any other (#4337); one line turns enforcement on.
 #   - A scripted smoke test that asserts AgentShield's CI-context tightening is
 #     live (a full environment dump BLOCKs in CI but only AUDITs on a laptop).
 #   - Running the agent with every shell command mediated by the hook.
@@ -43,6 +45,15 @@ jobs:
       #    swap for `cursor` / `windsurf` / `gemini-cli` / `codex` as needed).
       - name: Enable AgentShield hook
         run: agentshield setup claude-code
+
+      # 2b. Turn on enforcement. CI runners start in audit-only like any new
+      #     install: `setup` records would-be blocks instead of stopping them.
+      #     This step turns enforcement on before the agent runs. Without it the
+      #     smoke test below fails, because `check` reports AUDIT, not BLOCK.
+      - name: Turn on AgentShield enforcement
+        run: |
+          echo "mode: enforce" >> ~/.agentshield/agentshield.yaml
+          agentshield status | grep "Mode:"
 
       # 3. Scripted smoke test: prove the CI-context tightening is live on THIS
       #    runner before the agent runs. `agentshield check --shell` applies the

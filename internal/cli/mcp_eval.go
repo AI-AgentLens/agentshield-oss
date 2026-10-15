@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
@@ -85,7 +86,9 @@ func mcpEvalRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Evaluate.
-	evaluator := mcp.NewPolicyEvaluator(loaded.Policy)
+	// Mode "": mcp-eval does not apply audit-only mode, unlike the hook's tool
+	// path it predicts (#4324 row 6).
+	evaluator := assembly.MCPEvaluator(loaded.Policy, "")
 	result := evaluator.EvaluateToolCall(mcpEvalTool, arguments)
 
 	// value_limits rules are a separate check (numeric threshold on an

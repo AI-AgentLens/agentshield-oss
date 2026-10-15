@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 )
 
@@ -89,14 +90,19 @@ func RunWatchdog(cfg *ManagedConfig, configDir string) {
 	}
 }
 
-// hookCommandMarker is the exact substring the watchdog looks for in every
-// IDE hook configuration file to confirm AgentShield is still wired in.
-// Matches what setup.go writes: agentshieldHookEntry() / Cursor / Windsurf /
-// Gemini / Codex hook templates all emit "agentshield hook" as the command.
-// Checking the full two-token form (vs. the bare word "agentshield") prevents
-// a trivial bypass where an attacker replaces the hook command with e.g.
-// `echo "agentshield was here"` — the file would still contain the bare word
-// but no longer invoke the binary on PreToolUse.
+// hookCommandMarker is the exact substring the watchdog looks for in the
+// Windsurf, Cursor, Gemini, Codex and Copilot hook files to confirm
+// AgentShield is still wired in: their setup templates all emit
+// "agentshield hook" as the command. Checking the full two-token form (vs. the
+// bare word "agentshield") prevents a trivial bypass where an attacker
+// replaces the hook command with e.g. `echo "agentshield was here"` — the file
+// would still contain the bare word but no longer invoke the binary on
+// PreToolUse.
+//
+// Claude Code's settings.json is checked structurally instead
+// (checkClaudeCodeHookFile): setup writes it in exec form (#4292), where the
+// two tokens are separate JSON strings and no substring check can tell a
+// working entry from a broken one.
 const hookCommandMarker = "agentshield hook"
 
 func checkHookFiles() []WatchdogCheck {
@@ -120,6 +126,10 @@ func checkHookFiles() []WatchdogCheck {
 		{"cursor", filepath.Join(home, ".cursor", "hooks.json")},
 		{"gemini-cli", filepath.Join(home, ".gemini", "settings.json")},
 		{"codex", filepath.Join(home, ".codex", "hooks.json")},
+		// GitHub Copilot CLI: AgentShield's own file in the user hooks dir
+		// (internal/cli/setup_copilot.go; COPILOT_HOME overrides ~/.copilot,
+		// mirrored here because this package cannot import cli).
+		{"copilot-cli", filepath.Join(copilotHomeFor(home), "hooks", "agentshield.json")},
 	}
 
 	var checks []WatchdogCheck
@@ -127,6 +137,10 @@ func checkHookFiles() []WatchdogCheck {
 		data, err := os.ReadFile(hp.path)
 		if err != nil {
 			// Hook file doesn't exist — not necessarily a tamper (IDE might not be set up)
+			continue
+		}
+		if hp.name == "claude-code" {
+			checks = append(checks, checkClaudeCodeHookFile(hp.path, data))
 			continue
 		}
 		if !strings.Contains(string(data), hookCommandMarker) {
@@ -144,6 +158,34 @@ func checkHookFiles() []WatchdogCheck {
 	}
 
 	return checks
+}
+
+// checkClaudeCodeHookFile passes only when the Claude Code settings file
+// parses and holds, under hooks.PreToolUse[*].hooks[*], a hook object the
+// shared recognizer accepts: shell form ("… agentshield hook") or exec form
+// (".../agentshield" with args exactly ["hook"]). The anti-bypass property of
+// hookCommandMarker holds and tightens: an `echo "agentshield was here"`
+// command fails, and so does our command appearing anywhere but a PreToolUse
+// hook, an exec-form entry whose args were removed or extended, and a file
+// that no longer parses (Claude Code would not load its hooks either).
+func checkClaudeCodeHookFile(path string, data []byte) WatchdogCheck {
+	const name = "hook-claude-code"
+	ok, err := hookentry.SettingsHasPreToolUseHook(data)
+	switch {
+	case err != nil:
+		return WatchdogCheck{
+			Name:    name,
+			Passed:  false,
+			Message: fmt.Sprintf("hook file %s does not parse as JSON (%v) — AgentShield hook may have been disabled or replaced", path, err),
+		}
+	case !ok:
+		return WatchdogCheck{
+			Name:    name,
+			Passed:  false,
+			Message: fmt.Sprintf("hook file %s has no PreToolUse hook that runs `agentshield hook` — AgentShield hook may have been disabled or replaced", path),
+		}
+	}
+	return WatchdogCheck{Name: name, Passed: true}
 }
 
 func checkPolicyFile(configDir string) WatchdogCheck {
@@ -217,4 +259,13 @@ func sendWatchdogAlert(webhookURL string, check WatchdogCheck) {
 		return
 	}
 	_ = resp.Body.Close()
+}
+
+// copilotHomeFor mirrors GitHub Copilot CLI's config-directory resolution:
+// COPILOT_HOME, else ~/.copilot.
+func copilotHomeFor(home string) string {
+	if h := os.Getenv("COPILOT_HOME"); h != "" {
+		return h
+	}
+	return filepath.Join(home, ".copilot")
 }

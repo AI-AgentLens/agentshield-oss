@@ -15,7 +15,8 @@
 //   - The disable hint told every user to run `agentshield rule disable <id>`
 //     and then, two lines later, that disabling is not allowed in managed
 //     mode. Exactly one of those sentences applies to any given machine, and
-//     the text never said which. Now it reads managed.json and prints one.
+//     the text never said which. Now the caller says whether the machine is
+//     managed, and the hint prints one.
 //   - The replay hint rendered `agentshield check --shell "<blocked command>"`,
 //     which puts the flagged text back in argv. For a text-matching rule —
 //     most of the corpus — running it re-triggers the same block, so the
@@ -25,35 +26,26 @@ package remediation
 import (
 	"fmt"
 	"strings"
-
-	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 )
 
-// managedMode reports whether this machine is centrally managed.
-//
-// Indirected through a variable so both branches are testable without writing
-// to a real ~/.agentshield — and deliberately delegating to
-// enterprise.LoadManagedConfig rather than re-reading managed.json here. A
-// second definition of "managed" that drifts from the one CheckDisableAllowed
-// uses would put the hint and the enforcement back out of step, which is the
-// defect this file is fixing.
-var managedMode = func() bool {
-	cfg := enterprise.LoadManagedConfig()
-	return cfg != nil && cfg.Managed
-}
+// Whether the machine is managed is a parameter, not something this package
+// reads (#4321). The engine calls these functions, and the engine must not
+// read enterprise config itself (internal/archtest/layering_test.go). Callers
+// pass enterprise.ManagedHost(), the same reading of managed.json that
+// CheckDisableAllowed enforces, so the hint and the enforcement cannot drift.
 
 // SuggestForShell renders the BLOCK self-help text for a shell command that
 // got blocked through a PreToolUse hook. `command` is the shell command that
 // got blocked; pass "" when the caller doesn't have it and the hint will
 // render a placeholder instead of a runnable invocation.
-func SuggestForShell(triggeredRules []string, command string) string {
+func SuggestForShell(triggeredRules []string, command string, managed bool) string {
 	if len(triggeredRules) == 0 {
 		return ""
 	}
 	first := triggeredRules[0]
 
 	var sb strings.Builder
-	writeDisableHint(&sb, first)
+	writeDisableHint(&sb, first, managed)
 
 	sb.WriteString("To see why this triggered:\n")
 	if command != "" {
@@ -76,20 +68,20 @@ func SuggestForShell(triggeredRules []string, command string) string {
 // got blocked. There is no shell-command replay equivalent for an MCP call,
 // so we omit the `agentshield check --shell` line and only render the disable
 // hint. The user can see what tool and args got rejected from the BLOCK header.
-func SuggestForMCP(triggeredRules []string) string {
+func SuggestForMCP(triggeredRules []string, managed bool) string {
 	if len(triggeredRules) == 0 {
 		return ""
 	}
 	first := triggeredRules[0]
 
 	var sb strings.Builder
-	writeDisableHint(&sb, first)
+	writeDisableHint(&sb, first, managed)
 	return sb.String()
 }
 
-func writeDisableHint(sb *strings.Builder, ruleID string) {
+func writeDisableHint(sb *strings.Builder, ruleID string, managed bool) {
 	sb.WriteString("\n")
-	if managedMode() {
+	if managed {
 		// Naming the rule is still useful — it is what the administrator needs
 		// in order to act — but the local `rule disable` invocation is not
 		// printed, because on this machine it is guaranteed to be refused.

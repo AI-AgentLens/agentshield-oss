@@ -351,6 +351,8 @@ func signalTaxonomyRef(signal ResponsePoisonSignal) string {
 // ScanToolCallResponse scans the text content items of a tool call response for
 // prompt injection, action directives, exfiltration instructions, and encoded payloads.
 // It only processes ContentItems with type "text"; other types are ignored.
+// FilterToolCallResponse projects embedded resource text into text items
+// before calling it (withEmbeddedResourceText, #4296).
 func ScanToolCallResponse(items []ContentItem) ResponseScanResult {
 	var result ResponseScanResult
 
@@ -370,8 +372,39 @@ func ScanToolCallResponse(items []ContentItem) ResponseScanResult {
 		scanResponseRenderRecovered(&result, item.Text)
 	}
 
-	result.Poisoned = len(result.Findings) > 0
+	result.Poisoned = hasBlockingResponseFinding(result.Findings)
 	return result
+}
+
+// hasBlockingResponseFinding reports whether any finding is at BLOCK tier.
+// response_markdown_exfil_url is AUDIT-only on a tool result (#4280): the
+// EchoLeak shape has the assistant's rendered output carry the victim's data,
+// and an inbound result cannot arrive pre-filled with it, so a long query value
+// there is a tracking id. The finding stays in Findings (the caller records
+// it); it just no longer replaces the response.
+func hasBlockingResponseFinding(findings []ResponsePoisonFinding) bool {
+	for _, f := range findings {
+		if f.Signal != SignalResponseMarkdownExfilURL {
+			return true
+		}
+	}
+	return false
+}
+
+// blockingResponseFinding returns the first finding that can block a tool
+// result on its own, for attributing a BLOCK. ok is false when none can, which
+// happens only when a caller forced Poisoned (GhostSplice appends its own
+// findings, so it is never empty then) or the findings are all AUDIT-tier.
+func blockingResponseFinding(findings []ResponsePoisonFinding) (ResponsePoisonFinding, bool) {
+	for _, f := range findings {
+		if f.Signal != SignalResponseMarkdownExfilURL {
+			return f, true
+		}
+	}
+	if len(findings) > 0 {
+		return findings[0], true
+	}
+	return ResponsePoisonFinding{}, false
 }
 
 // scanResponseSeparatorFolded re-runs the whole response scan against a
@@ -1075,13 +1108,46 @@ type responseSignalPattern struct {
 	description string
 }
 
+// ignorePreviousInstructionsRE is the one-verb earlier-instructions override
+// row of responseInjectionPatterns, unchanged since before #4060. It is named
+// so ScanToolCallResponseForOverrideDirective can recognise a span this BLOCK
+// row already covers and not record it a second time.
+var ignorePreviousInstructionsRE = regexp.MustCompile(`ignore\s+(all\s+)?previous\s+instructions`)
+
+// overrideEarlierInstructionsRE is the earlier-instructions override directive
+// in the vocabulary the description-side sets and a2aHardInjectionPatterns
+// already use: four verbs, five adjectives, five instruction nouns. It is ONE
+// compiled value shared by the sampling tool loop's toolLoopOverridePatterns
+// (#4058, BLOCK tier there) and ScanToolCallResponseForOverrideDirective
+// (#4060; tools/call and resources/read), so the two spellings cannot drift
+// apart again.
+//
+// It is deliberately NOT a row of responseInjectionPatterns. That set is
+// BLOCK by construction (Poisoned = any finding), and the widened nouns —
+// rules, messages, prompts, directives — carry ordinary data meanings in
+// changelogs, mail clients and installer docs. The Codex pass on #4073 (pass
+// 1) showed five such sentences blocking outright when this value sat in the
+// set. The row that blocks without context is therefore still the one-verb
+// original, ignorePreviousInstructionsRE; the widened vocabulary records at
+// AUDIT and is promoted to BLOCK only with a corroborating agent-directed cue
+// — see response_override_directive_scanner.go.
+//
+// The value is byte-for-byte the pattern main's sampling tool loop used before
+// #4060, so every sampling decision stays exactly main's. It has NO trailing
+// noun boundary on purpose: Opus pass 2 on #4073 showed that a `\b` here also
+// dropped "_..._" Markdown emphasis, digit-glued and zero-width-glued nouns on
+// all three sampling surfaces, which main blocks. The "rulesets is not an
+// instruction noun" boundary is enforced only where it narrows something new:
+// inside ScanToolCallResponseForOverrideDirective (overrideNounRunsOn).
+var overrideEarlierInstructionsRE = regexp.MustCompile(`(ignore|disregard|discard|forget)\s+(all\s+)?(of\s+)?(the\s+|your\s+)?(previous|prior|earlier|above|preceding)\s+(instructions?|prompts?|messages?|rules?|directives?)`)
+
 // responseInjectionPatterns detects classic prompt-injection markers in response text.
 var responseInjectionPatterns = []responseSignalPattern{
 	{regexp.MustCompile(`<important>`), "Hidden <IMPORTANT> tag in tool response"},
 	{regexp.MustCompile(`<system>`), "Hidden <SYSTEM> tag in tool response"},
 	{regexp.MustCompile(`<instruction>`), "Hidden <INSTRUCTION> tag in tool response"},
 	{regexp.MustCompile(`\[system\]`), "Hidden [SYSTEM] marker in tool response"},
-	{regexp.MustCompile(`ignore\s+(all\s+)?previous\s+instructions`), "Prompt injection: ignore previous instructions"},
+	{ignorePreviousInstructionsRE, "Prompt injection: ignore previous instructions"},
 	{regexp.MustCompile(`ignore\s+(all\s+)?safety`), "Prompt injection: ignore safety directives"},
 	{regexp.MustCompile(`override\s+(all\s+)?(previous|system)\s+(instructions?|prompt)`), "Prompt injection: override system instructions"},
 	{regexp.MustCompile(`new\s+instructions?\s+from\s+(the\s+)?(user|admin|system|owner)`), "Prompt injection: fake authority instructions"},

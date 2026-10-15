@@ -11,6 +11,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/spf13/cobra"
 )
 
@@ -87,6 +88,17 @@ var setupCmd = &cobra.Command{
 	Short: "Set up AgentShield for your environment",
 	Long: `Set up AgentShield integration with IDE agents and install default policy packs.
 
+A new install starts in audit-only mode: nothing is blocked, and every action
+enforce mode would block is recorded in ~/.agentshield/audit.jsonl. One line
+turns on enforcement:
+
+  # ~/.agentshield/agentshield.yaml
+  mode: enforce
+
+A machine that already has AgentShield state (anything in ~/.agentshield besides packs/, or a
+hook in an agent's configuration) keeps the mode it has. 'agentshield status'
+shows the current mode.
+
 IDE-specific setup:
   agentshield setup claude-code           # install Claude Code PreToolUse hook
   agentshield setup claude-code --disable # remove Claude Code hook
@@ -94,6 +106,8 @@ IDE-specific setup:
   agentshield setup gemini-cli --disable  # remove Gemini CLI hook
   agentshield setup codex                 # install Codex CLI hooks
   agentshield setup codex --disable       # remove Codex CLI hooks
+  agentshield setup copilot-cli           # install GitHub Copilot CLI PreToolUse hook
+  agentshield setup copilot-cli --disable # remove Copilot CLI hook
   agentshield setup windsurf              # install Cascade Hooks
   agentshield setup windsurf --disable    # remove Cascade Hooks
   agentshield setup cursor                # install Cursor Hooks
@@ -128,6 +142,9 @@ func init() {
 	setupCmd.AddCommand(setupClaudeCodeCmd)
 	setupCmd.AddCommand(setupGeminiCLICmd)
 	setupCmd.AddCommand(setupCodexCmd)
+	// Runs for `setup` and every `setup <target>` (no subcommand defines its
+	// own): new installs start in audit-only (#4337).
+	setupCmd.PersistentPreRunE = setupPreRun
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -182,6 +199,11 @@ func runAutoSetup(cmd *cobra.Command) error {
 			detect:    func(h string) bool { return dirExists(filepath.Join(h, ".codex")) },
 			setupFunc: setupCodexCommand,
 		},
+		{
+			name:      "GitHub Copilot CLI",
+			detect:    func(h string) bool { return dirExists(copilotHome()) },
+			setupFunc: setupCopilotCLICommand,
+		},
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -209,6 +231,7 @@ func runAutoSetup(cmd *cobra.Command) error {
 		fmt.Println("  agentshield setup openclaw")
 		fmt.Println("  agentshield setup gemini-cli")
 		fmt.Println("  agentshield setup codex")
+		fmt.Println("  agentshield setup copilot-cli")
 		return nil
 	}
 
@@ -373,9 +396,7 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 		if err == nil && strings.Contains(string(data), "agentshield hook") {
 			fmt.Printf("✅ Cascade Hook already configured: %s\n", hooksPath)
 			fmt.Println()
-			fmt.Println("AgentShield is active. Test it by asking Cascade to run:")
-			fmt.Println("  rm -rf /")
-			fmt.Println("  cat ~/.ssh/id_ed25519")
+			printTestHint("Cascade")
 			fmt.Println()
 			fmt.Println("To disable: agentshield setup windsurf --disable")
 			fmt.Println()
@@ -422,13 +443,13 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("  1. Cascade (Windsurf's AI) tries to run a command")
 	fmt.Println("  2. The pre_run_command hook calls `agentshield hook`")
 	fmt.Println("  3. AgentShield evaluates the command against your policy")
-	fmt.Println("  4. If BLOCK: Cascade is prevented from running the command")
+	fmt.Println("  4. If BLOCK (enforce mode): Cascade is prevented from running the command")
 	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup windsurf --disable")
 	fmt.Println()
-	fmt.Println("Restart Windsurf to activate the hook, then test by asking")
-	fmt.Println("Cascade to run: rm -rf /")
+	fmt.Println("Restart Windsurf to activate the hook.")
+	printTestHint("Cascade")
 	fmt.Println()
 	printStatus()
 	return nil
@@ -467,9 +488,7 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 		if err == nil && strings.Contains(string(data), "agentshield hook") {
 			fmt.Printf("✅ Cursor Hook already configured: %s\n", hooksPath)
 			fmt.Println()
-			fmt.Println("AgentShield is active. Test by asking Agent to run:")
-			fmt.Println("  rm -rf /")
-			fmt.Println("  cat ~/.ssh/id_ed25519")
+			printTestHint("Cursor's Agent")
 			fmt.Println()
 			fmt.Println("To disable: agentshield setup cursor --disable")
 			fmt.Println()
@@ -515,13 +534,13 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("  1. Cursor's Agent tries to run a command")
 	fmt.Println("  2. The beforeShellExecution hook calls `agentshield hook`")
 	fmt.Println("  3. AgentShield evaluates the command against your policy")
-	fmt.Println("  4. If BLOCK: Agent is prevented from running the command")
+	fmt.Println("  4. If BLOCK (enforce mode): Agent is prevented from running the command")
 	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup cursor --disable")
 	fmt.Println()
-	fmt.Println("Restart Cursor to activate the hook, then test by asking")
-	fmt.Println("Agent to run: rm -rf /")
+	fmt.Println("Restart Cursor to activate the hook.")
+	printTestHint("Cursor's Agent")
 	fmt.Println()
 	printStatus()
 	return nil
@@ -650,7 +669,7 @@ func setupOpenClawCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("     tool call to AgentShield for evaluation — the agent does not")
 	fmt.Println("     wrap commands itself (AgentShield is evaluation-only).")
 	fmt.Println("  4. Each command is evaluated by the 7-layer security pipeline")
-	fmt.Println("  5. Dangerous commands are blocked before the host executes them")
+	fmt.Println("  5. In enforce mode, dangerous commands are blocked before the host executes them")
 	fmt.Println()
 	fmt.Println("Restart the OpenClaw gateway to activate the hook.")
 	fmt.Println()
@@ -687,29 +706,80 @@ func disableOpenClawHook(hookDir string) error {
 
 // ─── Claude Code Setup ───────────────────────────────────────────────────────
 
-// agentshieldHookEntry builds the hook object with the absolute binary path.
-// Using absolute path prevents conflicts when multiple versions exist in PATH.
-func agentshieldHookEntry() map[string]interface{} {
-	binPath := resolveAgentShieldPath()
-	return map[string]interface{}{
-		"hooks": []interface{}{
-			map[string]interface{}{
-				"type":    "command",
-				"command": binPath + " hook",
-			},
-		},
+// claudeCodeHook is AgentShield's hook object for Claude Code and the form it
+// takes (#4292).
+//
+// With exec true it is exec form, {"command": binPath, "args": ["hook"]}.
+// Claude Code 2.1.139 and later spawn it directly, so a CLAUDE_CODE_SHELL_PREFIX
+// set from a committed project .claude/settings.json cannot wrap it. Claude
+// Code 2.1.138 and earlier drop "args" and run binPath bare; the bare-invocation
+// backstop (bare_hook.go) routes that to `agentshield hook`. Otherwise it is
+// today's shell form. execFormBlocker decides which.
+func claudeCodeHook(binPath string, exec bool) (map[string]interface{}, hookentry.Form) {
+	if exec {
+		return hookentry.ExecHook(binPath), hookentry.Exec
 	}
+	return hookentry.ShellHook(binPath), hookentry.Shell
+}
+
+// selfExecutable is the binary running setup. A variable so tests can pin it.
+var selfExecutable = os.Executable
+
+// execFormBlocker returns "" when the hook may name binPath in exec form, and
+// otherwise the one-line reason it must stay in shell form.
+//
+// Exec form is safe only because of the bare-invocation backstop: Claude Code
+// 2.1.138 and earlier run binPath bare. So binPath must be the binary running
+// setup, which has the backstop. setup writes resolveAgentShieldPath(), which
+// prefers /opt/homebrew/bin and /usr/local/bin over the running binary; an
+// older copy there would print help and exit 0 when run bare, an allow of
+// everything, where the shell form it had before still evaluated (#4292 review
+// pass 1, C1). The comparison resolves symlinks, so the brew link to the
+// running Cellar or Caskroom binary counts as the same binary.
+//
+// A binPath that is not absolute (only the "agentshield" fallback of
+// resolveAgentShieldPath) also stays in shell form: an exec-form program name
+// that is not a path leaves the lookup to Claude Code, which is unmeasured.
+func execFormBlocker(binPath string) string {
+	if !filepath.IsAbs(binPath) {
+		return fmt.Sprintf("agentshield path %q is not absolute, so the hook stays in shell form, which a project-set CLAUDE_CODE_SHELL_PREFIX can wrap (#4292)", binPath)
+	}
+	exe, err := selfExecutable()
+	if err == nil && sameBinary(binPath, exe) {
+		return ""
+	}
+	if err != nil {
+		exe = "unknown: " + err.Error()
+	}
+	return fmt.Sprintf("agentshield at %s is not the binary running setup (%s); keeping shell form — update or remove %s, or re-run setup with it once it is current", binPath, exe, binPath)
+}
+
+// sameBinary reports whether a and b name the same file once symlinks are
+// resolved. Any resolution error counts as different.
+func sameBinary(a, b string) bool {
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		return false
+	}
+	return ra == rb
+}
+
+// agentShieldPathCandidates are the install locations resolveAgentShieldPath
+// prefers. A variable so tests can keep the real ones out of reach.
+var agentShieldPathCandidates = []string{
+	"/opt/homebrew/bin/agentshield",
+	"/usr/local/bin/agentshield",
 }
 
 // resolveAgentShieldPath returns the absolute path to the agentshield binary.
 // Prefers /opt/homebrew/bin (brew cask), then LookPath, then current executable.
 func resolveAgentShieldPath() string {
 	// Prefer the brew location
-	candidates := []string{
-		"/opt/homebrew/bin/agentshield",
-		"/usr/local/bin/agentshield",
-	}
-	for _, c := range candidates {
+	for _, c := range agentShieldPathCandidates {
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}
@@ -721,6 +791,81 @@ func resolveAgentShieldPath() string {
 		return p
 	}
 	return "agentshield"
+}
+
+// claudeHookInstall reports what installClaudeCodeHook did.
+type claudeHookInstall struct {
+	// Form is the form of the AgentShield entry the settings file now holds
+	// (exec form when it holds entries of both forms).
+	Form hookentry.Form
+	// Added is true when the file held no AgentShield entry and one was appended.
+	Added bool
+	// Migrated holds the command of each shell-form AgentShield entry that was
+	// rewritten to exec form in place.
+	Migrated []string
+}
+
+// installClaudeCodeHook makes the Claude Code settings file at settingsPath
+// hold AgentShield's PreToolUse hook for binPath, and writes the file only
+// when something changed. execOK says whether binPath may be written in exec
+// form (execFormBlocker).
+//
+//   - No AgentShield entry: append one, in exec form when execOK, else shell.
+//   - A shell-form AgentShield entry and execOK: rewrite that hook object to
+//     exec form in place. Its other keys (a timeout, say), its matcher group
+//     and the hooks beside it are left as they are. Without execOK it stays.
+//   - Otherwise the file already holds our entry: change nothing.
+//
+// It never adds a second entry, never downgrades exec form to shell form, and
+// never touches a hook object that is not AgentShield's.
+func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHookInstall, error) {
+	var res claudeHookInstall
+	settings, err := readClaudeSettings(settingsPath)
+	if err != nil {
+		return res, err
+	}
+	hooks := getOrCreateMap(settings, "hooks")
+	preToolUse := getOrCreateSlice(hooks, "PreToolUse")
+	want, wantForm := claudeCodeHook(binPath, execOK)
+
+	found := false
+	for _, group := range preToolUse {
+		gm, ok := group.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		subHooks, _ := gm["hooks"].([]interface{})
+		for _, h := range subHooks {
+			form := hookentry.Classify(h)
+			if form == hookentry.None {
+				continue
+			}
+			found = true
+			if form == hookentry.Shell && wantForm == hookentry.Exec {
+				hm := h.(map[string]interface{}) // Classify accepts only objects
+				res.Migrated = append(res.Migrated, hm["command"].(string))
+				hm["command"] = binPath
+				hm["args"] = []interface{}{hookentry.Subcommand}
+				form = hookentry.Exec
+			}
+			if res.Form != hookentry.Exec {
+				res.Form = form
+			}
+		}
+	}
+
+	if !found {
+		hooks["PreToolUse"] = append(preToolUse, map[string]interface{}{
+			"hooks": []interface{}{want},
+		})
+		res.Added = true
+		res.Form = wantForm
+	}
+	if !res.Added && len(res.Migrated) == 0 {
+		return res, nil
+	}
+	settings["hooks"] = hooks
+	return res, writeClaudeSettings(settingsPath, settings)
 }
 
 func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
@@ -746,51 +891,49 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
 
-	// Read or initialise settings.json
-	settings, err := readClaudeSettings(settingsPath)
+	hookPath := resolveAgentShieldPath()
+	blocker := execFormBlocker(hookPath)
+	res, err := installClaudeCodeHook(settingsPath, hookPath, blocker == "")
 	if err != nil {
 		return err
 	}
+	if res.Form == hookentry.Shell && blocker != "" {
+		fmt.Printf("⚠  %s\n", blocker)
+	}
 
-	// Navigate to hooks → PreToolUse
-	hooks := getOrCreateMap(settings, "hooks")
-	preToolUse := getOrCreateSlice(hooks, "PreToolUse")
-
-	// Check whether our entry is already present
-	for _, entry := range preToolUse {
-		if isAgentShieldHookEntry(entry) {
-			fmt.Printf("✅ Claude Code hook already configured: %s\n", settingsPath)
-			fmt.Println()
-			fmt.Println("AgentShield is active. Test it by asking Claude Code to run:")
-			fmt.Println("  rm -rf /")
-			fmt.Println()
-			fmt.Println("To disable: agentshield setup claude-code --disable")
-			fmt.Println()
-			printStatus()
-			return nil
+	switch {
+	case res.Added:
+		fmt.Printf("✅ PreToolUse hook installed in %s: %s\n", res.Form, settingsPath)
+	case len(res.Migrated) > 0:
+		fmt.Printf("✅ PreToolUse hook migrated from shell form to exec form: %s\n", settingsPath)
+		for _, was := range res.Migrated {
+			fmt.Printf("   was: %q\n", was)
 		}
+	default:
+		fmt.Printf("✅ Claude Code hook already configured (%s): %s\n", res.Form, settingsPath)
+		fmt.Println()
+		printTestHint("Claude Code")
+		fmt.Println()
+		fmt.Println("To disable: agentshield setup claude-code --disable")
+		fmt.Println()
+		printStatus()
+		return nil
 	}
-
-	hooks["PreToolUse"] = append(preToolUse, agentshieldHookEntry())
-	settings["hooks"] = hooks
-
-	if err := writeClaudeSettings(settingsPath, settings); err != nil {
-		return err
+	if res.Form == hookentry.Exec {
+		fmt.Printf("   \"command\": %q, \"args\": [\"hook\"] — Claude Code runs it directly, not through a shell\n", hookPath)
 	}
-
-	fmt.Printf("✅ PreToolUse hook installed: %s\n", settingsPath)
 	fmt.Println()
 	fmt.Println("How it works:")
 	fmt.Println("  1. Claude Code is about to run any tool call (Bash, MCP, etc.)")
 	fmt.Println("  2. The PreToolUse hook calls `agentshield hook`")
 	fmt.Println("  3. Bash calls → shell analyzer pipeline (6-layer)")
 	fmt.Println("     MCP calls → MCP policy evaluator (packs + content scanner)")
-	fmt.Println("  4. If BLOCK: Claude Code is prevented from running the tool")
+	fmt.Println("  4. If BLOCK (enforce mode): Claude Code is prevented from running the tool")
 	fmt.Println("  5. If ALLOW/AUDIT: the tool runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup claude-code --disable")
 	fmt.Println()
-	fmt.Println("Test: ask Claude Code to run 'rm -rf /' (shell) or use a blocked MCP tool")
+	printTestHint("Claude Code")
 	fmt.Println()
 	printStatus()
 	return nil
@@ -814,17 +957,9 @@ func disableClaudeCodeHook(settingsPath string) error {
 	}
 
 	preToolUse, _ := hooks["PreToolUse"].([]interface{})
-	filtered := preToolUse[:0]
-	removed := false
-	for _, entry := range preToolUse {
-		if isAgentShieldHookEntry(entry) {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
+	filtered, removed := removeAgentShieldHooks(preToolUse)
 
-	if !removed {
+	if removed == 0 {
 		fmt.Println("ℹ  AgentShield hook not found in Claude Code settings — nothing to disable.")
 		return nil
 	}
@@ -851,21 +986,39 @@ func disableClaudeCodeHook(settingsPath string) error {
 	return nil
 }
 
-// isAgentShieldHookEntry returns true if the hook entry contains our command.
-func isAgentShieldHookEntry(entry interface{}) bool {
-	m, ok := entry.(map[string]interface{})
-	if !ok {
-		return false
-	}
-	subHooks, _ := m["hooks"].([]interface{})
-	for _, h := range subHooks {
-		if hm, ok := h.(map[string]interface{}); ok {
-			if cmd, ok := hm["command"].(string); ok && strings.HasSuffix(cmd, "agentshield hook") {
-				return true
+// removeAgentShieldHooks removes every AgentShield hook object, in shell or
+// exec form, from a list of PreToolUse matcher groups and returns the groups
+// left and how many objects it removed. Other hook objects stay in their
+// group; a group that held only AgentShield hooks is dropped.
+func removeAgentShieldHooks(groups []interface{}) ([]interface{}, int) {
+	kept := make([]interface{}, 0, len(groups))
+	removed := 0
+	for _, group := range groups {
+		gm, isMap := group.(map[string]interface{})
+		subHooks, isList := gm["hooks"].([]interface{})
+		if !isMap || !isList {
+			kept = append(kept, group)
+			continue
+		}
+		rest := make([]interface{}, 0, len(subHooks))
+		for _, h := range subHooks {
+			if hookentry.IsAgentShieldHook(h) {
+				removed++
+				continue
 			}
+			rest = append(rest, h)
+		}
+		switch {
+		case len(rest) == len(subHooks):
+			kept = append(kept, group)
+		case len(rest) == 0:
+			// The group held only AgentShield hooks.
+		default:
+			gm["hooks"] = rest
+			kept = append(kept, gm)
 		}
 	}
-	return false
+	return kept, removed
 }
 
 func readClaudeSettings(path string) (map[string]interface{}, error) {
@@ -1000,8 +1153,7 @@ func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
 		if isAgentShieldGeminiHookEntry(entry) {
 			fmt.Printf("✅ Gemini CLI hook already configured: %s\n", settingsPath)
 			fmt.Println()
-			fmt.Println("AgentShield is active. Test it by asking Gemini CLI to run:")
-			fmt.Println("  rm -rf /")
+			printTestHint("Gemini CLI")
 			fmt.Println()
 			fmt.Println("To disable: agentshield setup gemini-cli --disable")
 			fmt.Println()
@@ -1023,12 +1175,12 @@ func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("  1. Gemini CLI is about to run a shell command")
 	fmt.Println("  2. The BeforeTool hook calls `agentshield hook`")
 	fmt.Println("  3. AgentShield evaluates the command against your policy")
-	fmt.Println("  4. If BLOCK: Gemini CLI is prevented from running the command")
+	fmt.Println("  4. If BLOCK (enforce mode): Gemini CLI is prevented from running the command")
 	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup gemini-cli --disable")
 	fmt.Println()
-	fmt.Println("Test by asking Gemini CLI to run: rm -rf /")
+	printTestHint("Gemini CLI")
 	fmt.Println()
 	printStatus()
 	return nil
@@ -1272,12 +1424,13 @@ func setupCodexCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("  1. Codex is about to run a Bash tool call")
 	fmt.Println("  2. The PreToolUse hook calls `agentshield hook`")
 	fmt.Println("  3. The command flows through the 7-layer analyzer pipeline")
-	fmt.Println("  4. If BLOCK: Codex prevents the command from running (exit 2)")
+	fmt.Println("  4. If BLOCK (enforce mode): Codex prevents the command from running (exit 2)")
 	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup codex --disable")
 	fmt.Println()
-	fmt.Println("Test (after approving via /hooks): ask Codex to run 'rm -rf /' or 'cat ~/.ssh/id_rsa'")
+	fmt.Println("After approving the hook via /hooks:")
+	printTestHint("Codex")
 	fmt.Println()
 	printStatus()
 	return nil
@@ -1554,6 +1707,7 @@ func printStatus() {
 		}
 	}
 
+	fmt.Printf("  Mode:    %s\n", modeSummary(cfg))
 	fmt.Println()
 }
 

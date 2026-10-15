@@ -11,6 +11,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
@@ -58,6 +59,11 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("═══════════════════════════════════════════════════════")
 	fmt.Println("  AgentShield Self-Test")
 	fmt.Println("═══════════════════════════════════════════════════════")
+	fmt.Println()
+	// The self-test reports what the rules decide. In audit-only mode the
+	// hooks record those decisions instead of enforcing them (#4337), so say
+	// which mode this machine runs in before listing BLOCKs.
+	fmt.Printf("Mode: %s\n", modeSummary(cfg))
 	fmt.Println()
 
 	// ── Shell command tests ──────────────────────────────────────
@@ -330,15 +336,20 @@ func printIntegrationHooks() {
 	// Claude Code and Codex CLI use the same JSON hook schema (PreToolUse
 	// entries with a "hooks" array containing a command). Walk both files with
 	// the same probe so coverage stays in sync as either upstream evolves.
+	//
+	// Each surface brings its own test for "this hook object is ours". Claude
+	// Code's is the shared recognizer, which also accepts the exec form setup
+	// writes (#4292); Codex keeps its command-suffix check.
 	preToolUseSurfaces := []struct {
-		label string
-		path  string
+		label    string
+		path     string
+		describe func(hook map[string]interface{}) (string, bool)
 	}{
-		{"Claude Code", filepath.Join(home, ".claude", "settings.json")},
-		{"Codex CLI", filepath.Join(home, ".codex", "hooks.json")},
+		{"Claude Code", filepath.Join(home, ".claude", "settings.json"), describeClaudeCodeHook},
+		{"Codex CLI", filepath.Join(home, ".codex", "hooks.json"), describeCodexHook},
 	}
 	for _, s := range preToolUseSurfaces {
-		if detectPreToolUseHook(s.label, s.path) {
+		if detectPreToolUseHook(s.label, s.path, s.describe) {
 			found = true
 		}
 	}
@@ -373,10 +384,33 @@ func printIntegrationHooks() {
 	}
 }
 
+// describeClaudeCodeHook recognises AgentShield's Claude Code hook object in
+// either form, with the recognizer setup and the watchdog use, and returns the
+// command as scan prints it. A shell-form entry gets a pointer to the
+// migration (#4292): a re-run of setup rewrites it to exec form.
+func describeClaudeCodeHook(hook map[string]interface{}) (string, bool) {
+	cmd, _ := hook["command"].(string)
+	switch hookentry.Classify(hook) {
+	case hookentry.Exec:
+		return cmd + " " + hookentry.Subcommand + " (exec form)", true
+	case hookentry.Shell:
+		return cmd + " (shell form: run `agentshield setup claude-code` to switch to exec form, #4292)", true
+	}
+	return "", false
+}
+
+// describeCodexHook is the Codex check, unchanged: the command ends with
+// "agentshield hook".
+func describeCodexHook(hook map[string]interface{}) (string, bool) {
+	cmd, _ := hook["command"].(string)
+	return cmd, strings.HasSuffix(cmd, "agentshield hook")
+}
+
 // detectPreToolUseHook reads a settings.json-shaped file (Claude Code or
-// Codex) and reports whether it contains an AgentShield PreToolUse entry.
-// Returns true if at least one matching entry was printed.
-func detectPreToolUseHook(label, path string) bool {
+// Codex) and reports whether it contains an AgentShield PreToolUse entry,
+// as judged by describe, which also returns the command to print. Returns
+// true if at least one matching entry was printed.
+func detectPreToolUseHook(label, path string, describe func(hook map[string]interface{}) (string, bool)) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -408,8 +442,7 @@ func detectPreToolUseHook(label, path string) bool {
 			if !ok {
 				continue
 			}
-			cmd, _ := hMap["command"].(string)
-			if strings.HasSuffix(cmd, "agentshield hook") {
+			if cmd, ok := describe(hMap); ok {
 				matcher, _ := entryMap["matcher"].(string)
 				if matcher == "" {
 					matcher = "*"

@@ -273,7 +273,10 @@ func evaluateScenarioFromDef(ev *PolicyEvaluator, sc scenarios.Scenario) string 
 			items = append(items, ContentItem{Type: "text", Text: text})
 		}
 		scanResult := ScanToolCallResponse(items)
-		if scanResult.Poisoned {
+		// The live resources/read handler blocks on any finding, not only a
+		// blocking one (handler.go: `!Poisoned && len(Findings) == 0`), so
+		// the harness grades the same way (#4297).
+		if scanResult.Poisoned || len(scanResult.Findings) > 0 {
 			return string(policy.DecisionBlock)
 		}
 		return "ALLOW"

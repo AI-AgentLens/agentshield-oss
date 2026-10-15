@@ -27,6 +27,12 @@ type protectedConfigPattern struct {
 	pattern  string
 	category string
 	reason   string
+	// rel is the pattern relative to $HOME, lower case, without a trailing
+	// glob (".claude/settings.json", ".agentshield"); dir marks a "/**"
+	// pattern, a directory. selfProtectTargets and selfProtectionMarkers read
+	// them.
+	rel string
+	dir bool
 }
 
 // protectedConfigs is the list of config paths that should never be written by MCP tools.
@@ -39,7 +45,7 @@ func init() {
 		home = "/root"
 	}
 
-	templates := []protectedConfigPattern{
+	templates := []struct{ pattern, category, reason string }{
 		// AgentShield's own config (tampering disables all protection)
 		{"~/.agentshield/**", "agentshield-config", "Writing to AgentShield config could disable security protections."},
 		{"~/.agentshield/policy.yaml", "agentshield-config", "Writing to AgentShield policy file could disable security protections."},
@@ -53,6 +59,10 @@ func init() {
 		{"~/.openclaw/hooks/agentshield/**", "ide-hooks", "Writing to OpenClaw hooks could disable AgentShield command interception."},
 		{"~/.gemini/settings.json", "ide-hooks", "Writing to Gemini CLI settings could remove AgentShield command interception hooks."},
 		{"~/.codex/config.json", "ide-hooks", "Writing to Codex CLI config could remove AgentShield command interception hooks."},
+		// The files `agentshield setup codex` and `setup copilot-cli` write
+		// (#4337 review B1: the list above predates both hooks).
+		{"~/.codex/hooks.json", "ide-hooks", "Writing to Codex CLI hooks could remove AgentShield command interception hooks."},
+		{"~/.copilot/hooks/agentshield.json", "ide-hooks", "Writing to the Copilot CLI hook file could remove AgentShield command interception."},
 
 		// IDE MCP config (can inject malicious MCP servers)
 		{"~/.cursor/mcp.json", "ide-mcp-config", "Writing to Cursor MCP config could inject malicious MCP servers."},
@@ -102,12 +112,36 @@ func init() {
 
 	for _, t := range templates {
 		expanded := strings.Replace(t.pattern, "~", home, 1)
+		rel := strings.TrimPrefix(t.pattern, "~/")
+		rel = strings.TrimSuffix(strings.TrimSuffix(rel, "/**"), "/*")
 		protectedConfigs = append(protectedConfigs, protectedConfigPattern{
 			pattern:  expanded,
 			category: t.category,
 			reason:   t.reason,
+			rel:      strings.ToLower(rel),
+			dir:      strings.HasSuffix(t.pattern, "/**"),
 		})
 	}
+}
+
+// selfProtectionMarkers are the HOME-relative paths of AgentShield's own
+// configuration (the guard's agentshield-config entries). A BLOCK rule whose
+// match names one of them is a self-protection rule
+// (PolicyEvaluator.IsSelfProtectionRule), so the list has one source.
+//
+// Hook files are not markers here (#4337 review pass 2, follow-up 3): a rule
+// such as mcp-persist-block-ide-settings-write also covers VS Code, Cursor and
+// Zed settings, and counting the whole rule kept those writes BLOCKed in
+// audit-only mode. A hook file is protected by path instead: the audit-only
+// keep rule (argsNameSelfProtectTarget) keeps a BLOCK whose call names one.
+func selfProtectionMarkers() []string {
+	var out []string
+	for _, c := range protectedConfigs {
+		if c.category == "agentshield-config" {
+			out = append(out, c.rel)
+		}
+	}
+	return out
 }
 
 // CheckConfigGuard scans tool call arguments for attempts to write to
@@ -134,8 +168,37 @@ func CheckConfigGuard(toolName string, arguments map[string]interface{}) ConfigG
 		}
 	}
 
+	// Self-protection by identity, in any spelling (#4337 review, #4352):
+	// path arguments of write-, delete- and exec-shaped tools, and
+	// HOME-anchored words in command text. The reading above is main's,
+	// unchanged, so this one only adds the spellings it missed.
+	if !result.Blocked && len(result.Findings) == 0 {
+		result.Findings = append(result.Findings, selfProtectFindings(toolName, arguments)...)
+	}
 	result.Blocked = len(result.Findings) > 0
 	return result
+}
+
+// stringLeaves returns every string in an argument value, recursing into
+// objects and arrays.
+func stringLeaves(v interface{}) []string {
+	switch val := v.(type) {
+	case string:
+		return []string{val}
+	case map[string]interface{}:
+		var out []string
+		for _, nested := range val {
+			out = append(out, stringLeaves(nested)...)
+		}
+		return out
+	case []interface{}:
+		var out []string
+		for _, item := range val {
+			out = append(out, stringLeaves(item)...)
+		}
+		return out
+	}
+	return nil
 }
 
 // extractPaths finds file-path-like strings in an argument value.
@@ -188,6 +251,10 @@ func extractPathsFromString(s string) []string {
 	return paths
 }
 
+// firmlinkPrefix is the APFS data-volume path at which every file under / is
+// also reachable on macOS: /System/Volumes/Data/Users/u/x is /Users/u/x.
+const firmlinkPrefix = "/System/Volumes/Data"
+
 // looksLikePath returns true if the string looks like a file path.
 func looksLikePath(s string) bool {
 	if s == "" {
@@ -213,6 +280,9 @@ func expandHome(path string) string {
 
 // matchConfigPath checks if a path matches a protected config pattern.
 // Supports ** for recursive directory matching and * for single level.
+// Case-sensitive, as on main: the spellings of a self-protection target that
+// name it on a case-insensitive volume are selfProtectFindings' job, which
+// asks the filesystem rather than assuming.
 func matchConfigPath(path, pattern string) bool {
 	// Clean both for consistent comparison
 	path = filepath.Clean(path)

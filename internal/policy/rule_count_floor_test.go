@@ -96,55 +96,56 @@ func TestEmbeddedMCPPacks_RuleCountFloor(t *testing.T) {
 		// Premium MCP packs (included in full build, absent in OSS build).
 		// The test handles missing premium packs gracefully — it only fails
 		// if a pack IS present but below its floor.
-		"mcp-sentinel.yaml":                    12, // actual: ~16
-		"mcp-reconnaissance.yaml":              39, // actual: ~49
-		"mcp-cloud-storage.yaml":               4,  // actual: ~6
-		"mcp-response-integrity.yaml":          11, // actual: ~14
-		"mcp-database-ops.yaml":                12, // actual: ~16
-		"mcp-content-integrity.yaml":           24, // actual: ~31
-		"mcp-llm-data-flow.yaml":               40, // actual: ~50
-		"mcp-payment-creds.yaml":               8,  // actual: ~10
-		"mcp-ide-workspace-trust.yaml":         5,  // actual: ~7
-		"mcp-file-transfer.yaml":               6,  // actual: ~8
-		"mcp-supply-chain-premium.yaml":        11, // actual: ~14
-		"mcp-cloud-functions.yaml":             4,  // actual: ~6
-		"mcp-devtool-creds.yaml":               107, // actual: ~134
-		"mcp-governance.yaml":                  22, // actual: ~28
-		"mcp-computer-use.yaml":                18, // actual: ~23
-		"mcp-llm-inference.yaml":               8,  // actual: ~10
-		"mcp-agent-platform-creds.yaml":        8,  // actual: ~11
-		"mcp-social-media-weaponization.yaml":  3,  // actual: ~4
-		"mcp-package-registry-redirect.yaml":   5,  // actual: ~7
-		"mcp-vc-secret-weaponization.yaml":     7,  // actual: ~9
-		"mcp-agentic-attacks.yaml":             4,  // actual: ~116 (post issue #2660)
-		"mcp-persistence.yaml":                 36, // actual: ~46
-		"mcp-knowledge-base.yaml":              4,  // actual: ~5
-		"mcp-privilege-escalation.yaml":        26, // actual: ~33
-		"mcp-excessive-agency.yaml":            4,  // actual: ~6
-		"mcp-financial-weaponization.yaml":     4,  // actual: ~6
-		"mcp-supply-chain.yaml":                31, // actual: ~39
-		"mcp-financial.yaml":                   10, // actual: ~13
-		"mcp-ticket-injection.yaml":            5,  // actual: 7 (premium pack, issue #1911)
-		"mcp-calendar-event-prompt-injection.yaml":       4, // actual: 6 (premium pack, issue #2174)
-		"mcp-llm-context-summarization-injection.yaml":   2, // actual: 3 (premium pack, issue #2175)
-		"mcp-deepfake-auth-bypass.yaml":                          1, // actual: 2 (premium pack, issue #2234)
-		"mcp-package-registry-metadata-injection.yaml":           4, // actual: 5 (premium pack, issue #2215)
-		"mcp-oauth-consent.yaml":                                  3, // actual: 4 (premium pack, issue #2250)
-		"mcp-payment-mandate-forgery.yaml":                        3, // actual: 4 (premium pack, issue #2271)
-		"mcp-reasoning-monitor-evasion.yaml":                      1, // actual: 2 (premium pack, issue #2271)
-		"mcp-agentic-browser-session-hijack.yaml":                 3, // actual: 4 (premium pack, issue #2272)
-		"mcp-alt-path-arg-credential-access.yaml":                 5, // actual: 7 (premium pack, issue #2306)
-		"mcp-messaging-channel-prompt-injection.yaml":             6, // actual: 8 (premium pack, issue #2535)
-		"mcp-code-review-prompt-injection.yaml":                   4, // actual: 5 (premium pack, issue #2537)
-		"mcp-sre-monitoring-integrity.yaml":                       3, // actual: 4 (premium pack, issue #2540)
-		"mcp-merge-conflict-prompt-injection.yaml":                1, // actual: 1 (premium pack, issue #2545)
-		"mcp-accessibility-tree-poisoning.yaml":                   4, // actual: 5 (premium pack, issue #2601)
-		"mcp-ml-privacy-enforcement.yaml":                         1, // actual: 2 (premium pack, issue #2615)
-		"mcp-build-script-injection.yaml":                         5, // actual: 7 (premium pack, issues #2647, #2658)
-		"mcp-notebook-ci-hook-injection.yaml":                     3, // actual: 4 (premium pack, issue #2655)
-		"mcp-cms-content-weaponization.yaml":                      5, // actual: 7 (premium pack, issues #2673, #2706)
-		"mcp-iot-platform-weaponization.yaml":                     6, // actual: 8 (premium pack, issue #2704)
-		"mcp-agentic-commerce-ranking-manipulation.yaml":          4, // actual: 5 (premium pack, issue #2909)
+		"mcp-sentinel.yaml":                              12,  // actual: ~16
+		"mcp-reconnaissance.yaml":                        39,  // actual: ~49
+		"mcp-cloud-storage.yaml":                         4,   // actual: ~6
+		"mcp-response-integrity.yaml":                    11,  // actual: ~14
+		"mcp-database-ops.yaml":                          12,  // actual: ~16
+		"mcp-content-integrity.yaml":                     24,  // actual: ~31
+		"mcp-llm-data-flow.yaml":                         40,  // actual: ~50
+		"mcp-payment-creds.yaml":                         8,   // actual: ~10
+		"mcp-ide-workspace-trust.yaml":                   5,   // actual: ~7
+		"mcp-file-transfer.yaml":                         6,   // actual: ~8
+		"mcp-supply-chain-premium.yaml":                  11,  // actual: ~14
+		"mcp-cloud-functions.yaml":                       4,   // actual: ~6
+		"mcp-devtool-creds.yaml":                         107, // actual: ~134
+		"mcp-governance.yaml":                            22,  // actual: ~28
+		"mcp-computer-use.yaml":                          18,  // actual: ~23
+		"mcp-llm-inference.yaml":                         8,   // actual: ~10
+		"mcp-agent-platform-creds.yaml":                  8,   // actual: ~11
+		"mcp-social-media-weaponization.yaml":            3,   // actual: ~4
+		"mcp-package-registry-redirect.yaml":             5,   // actual: ~7
+		"mcp-vc-secret-weaponization.yaml":               7,   // actual: ~9
+		"mcp-agentic-attacks.yaml":                       4,   // actual: ~116 (post issue #2660)
+		"mcp-persistence.yaml":                           36,  // actual: ~46
+		"mcp-knowledge-base.yaml":                        4,   // actual: ~5
+		"mcp-privilege-escalation.yaml":                  26,  // actual: ~33
+		"mcp-excessive-agency.yaml":                      4,   // actual: ~6
+		"mcp-financial-weaponization.yaml":               4,   // actual: ~6
+		"mcp-supply-chain.yaml":                          31,  // actual: ~39
+		"mcp-financial.yaml":                             10,  // actual: ~13
+		"mcp-ticket-injection.yaml":                      5,   // actual: 7 (premium pack, issue #1911)
+		"mcp-credential-solicitation-outbound.yaml":      3,   // actual: 4 (premium pack, #4216)
+		"mcp-calendar-event-prompt-injection.yaml":       4,   // actual: 6 (premium pack, issue #2174)
+		"mcp-llm-context-summarization-injection.yaml":   2,   // actual: 3 (premium pack, issue #2175)
+		"mcp-deepfake-auth-bypass.yaml":                  1,   // actual: 2 (premium pack, issue #2234)
+		"mcp-package-registry-metadata-injection.yaml":   4,   // actual: 5 (premium pack, issue #2215)
+		"mcp-oauth-consent.yaml":                         3,   // actual: 4 (premium pack, issue #2250)
+		"mcp-payment-mandate-forgery.yaml":               3,   // actual: 4 (premium pack, issue #2271)
+		"mcp-reasoning-monitor-evasion.yaml":             1,   // actual: 2 (premium pack, issue #2271)
+		"mcp-agentic-browser-session-hijack.yaml":        3,   // actual: 4 (premium pack, issue #2272)
+		"mcp-alt-path-arg-credential-access.yaml":        5,   // actual: 7 (premium pack, issue #2306)
+		"mcp-messaging-channel-prompt-injection.yaml":    6,   // actual: 8 (premium pack, issue #2535)
+		"mcp-code-review-prompt-injection.yaml":          4,   // actual: 5 (premium pack, issue #2537)
+		"mcp-sre-monitoring-integrity.yaml":              3,   // actual: 4 (premium pack, issue #2540)
+		"mcp-merge-conflict-prompt-injection.yaml":       1,   // actual: 1 (premium pack, issue #2545)
+		"mcp-accessibility-tree-poisoning.yaml":          4,   // actual: 5 (premium pack, issue #2601)
+		"mcp-ml-privacy-enforcement.yaml":                1,   // actual: 2 (premium pack, issue #2615)
+		"mcp-build-script-injection.yaml":                5,   // actual: 7 (premium pack, issues #2647, #2658)
+		"mcp-notebook-ci-hook-injection.yaml":            3,   // actual: 4 (premium pack, issue #2655)
+		"mcp-cms-content-weaponization.yaml":             5,   // actual: 7 (premium pack, issues #2673, #2706)
+		"mcp-iot-platform-weaponization.yaml":            6,   // actual: 8 (premium pack, issue #2704)
+		"mcp-agentic-commerce-ranking-manipulation.yaml": 4,   // actual: 5 (premium pack, issue #2909)
 	}
 
 	mcpFiles := packs.MCPFiles()
@@ -210,4 +211,3 @@ func fileNames(m map[string][]byte) []string {
 	}
 	return names
 }
-

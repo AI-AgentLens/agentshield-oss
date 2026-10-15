@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -199,5 +200,76 @@ func TestFilterToolsListResponse_Collision_AuditEmitted(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected collision audit entry, none found")
+	}
+}
+
+// ASI02 (OWASP Agentic): a tool named "report" resolves before "report_finance".
+// Source example: 'report' vs 'report_finance'.
+func TestToolRegistry_PrefixShadow(t *testing.T) {
+	cases := []struct {
+		name       string
+		first      string
+		second     string
+		wantShort  string
+		wantLong   string
+		wantNoFlag bool
+	}{
+		{name: "source example, shadow arrives second", first: "report_finance", second: "report", wantShort: "report", wantLong: "report_finance"},
+		{name: "source example, shadow arrives first", first: "report", second: "report_finance", wantShort: "report", wantLong: "report_finance"},
+		{name: "dash boundary", first: "send-email", second: "send", wantShort: "send", wantLong: "send-email"},
+		{name: "no word boundary (read vs reader)", first: "reader", second: "read", wantNoFlag: true},
+		{name: "too short (get vs get_user)", first: "get_user", second: "get", wantNoFlag: true},
+		{name: "unrelated", first: "list_issues", second: "create_issue", wantNoFlag: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestRegistry(t)
+			r.Register("srv-a", []ToolDefinition{{Name: tc.first}})
+			res := r.Register("srv-b", []ToolDefinition{{Name: tc.second}})
+			if tc.wantNoFlag {
+				if res != nil {
+					t.Fatalf("expected no collision, got %s", res.CollisionSummary())
+				}
+				return
+			}
+			if res == nil || len(res.Collisions) != 1 {
+				t.Fatalf("expected 1 collision, got %v", res)
+			}
+			c := res.Collisions[0]
+			if c.ToolName != tc.wantShort || c.ShadowedBy != tc.wantLong || c.OtherServer != "srv-a" {
+				t.Errorf("unexpected collision %+v", c)
+			}
+		})
+	}
+}
+
+func TestToolRegistry_PrefixShadow_SameServerIgnored(t *testing.T) {
+	r := newTestRegistry(t)
+	// One server legitimately exposes both "report" and "report_finance".
+	res := r.Register("srv-a", []ToolDefinition{{Name: "report"}, {Name: "report_finance"}})
+	if res != nil {
+		t.Fatalf("same-server prefix pair must not flag, got %s", res.CollisionSummary())
+	}
+	if res = r.Register("srv-a", []ToolDefinition{{Name: "report"}, {Name: "report_finance"}}); res != nil {
+		t.Fatalf("re-registration must not flag, got %s", res.CollisionSummary())
+	}
+}
+
+func TestToolRegistry_PrefixShadow_ExactStillReportedOnce(t *testing.T) {
+	r := newTestRegistry(t)
+	r.Register("srv-a", []ToolDefinition{{Name: "read_file"}})
+	res := r.Register("srv-b", []ToolDefinition{{Name: "read_file"}})
+	if res == nil || len(res.Collisions) != 1 || res.Collisions[0].ShadowedBy != "" {
+		t.Fatalf("exact collision must stay a single exact entry, got %v", res)
+	}
+}
+
+func TestCollisionSummary_PrefixShadowNamesBoth(t *testing.T) {
+	cr := &CollisionResult{Collisions: []ToolCollision{{ToolName: "report", ShadowedBy: "report_finance", CurrentServer: "b", OtherServer: "a"}}}
+	got := cr.CollisionSummary()
+	for _, want := range []string{`"report"`, `"report_finance"`, "prefix"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("summary %q missing %q", got, want)
+		}
 	}
 }

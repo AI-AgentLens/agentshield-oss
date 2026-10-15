@@ -50,6 +50,28 @@ hook_eval() {
     echo $?
 }
 
+# bare_eval is hook_eval for a bare `agentshield`, the way Claude Code 2.1.138
+# and earlier run an exec-form hook (they drop "args", #4292).
+bare_eval() {
+    local json="$1"
+    printf '%s' "$json" | agentshield > /tmp/_hook_stdout 2> /tmp/_hook_stderr
+    echo $?
+}
+
+# claude_hooks counts AgentShield commands in ~/.claude/settings.json, in
+# either form (#4292): exec form "command": "/path/agentshield" with
+# "args": ["hook"], or shell form "command": "... agentshield hook".
+claude_hooks() {
+    n=$(grep -cE '"command": *"([^"]*/)?agentshield( hook)?"' "$HOME/.claude/settings.json" 2>/dev/null)
+    echo "${n:-0}"
+}
+
+# claude_exec_form succeeds when setup wrote the exec form.
+claude_exec_form() {
+    grep -qE '"command": *"[^"]*/agentshield"' "$HOME/.claude/settings.json" 2>/dev/null && \
+        grep -q '"hook"' "$HOME/.claude/settings.json"
+}
+
 # --- Build ---
 echo "=== [1/6] Build from source ==="
 apk add --no-cache bash git > /dev/null 2>&1
@@ -69,10 +91,10 @@ echo "=== [2/6] Claude Code setup ==="
 # 2a: Setup into empty settings
 mkdir -p "$HOME/.claude"
 agentshield setup claude-code > /dev/null 2>&1 || true
-if [ -f "$HOME/.claude/settings.json" ] && grep -q "agentshield hook" "$HOME/.claude/settings.json"; then
-    pass "claude-code: hook installed"
+if [ "$(claude_hooks)" -eq 1 ] && claude_exec_form; then
+    pass "claude-code: hook installed (exec form)"
 else
-    fail "claude-code: hook not found in settings.json"
+    fail "claude-code: exec-form hook not found in settings.json"
 fi
 
 # 2b: Setup with pre-existing settings (must not destroy them)
@@ -89,7 +111,7 @@ SETTINGS
 agentshield setup claude-code > /dev/null 2>&1
 if grep -q '"allow"' "$HOME/.claude/settings.json" && \
    grep -q "PostToolUse" "$HOME/.claude/settings.json" && \
-   grep -q "agentshield hook" "$HOME/.claude/settings.json"; then
+   [ "$(claude_hooks)" -ge 1 ]; then
     pass "claude-code: merged without destroying existing settings"
 else
     fail "claude-code: merge destroyed existing settings"
@@ -97,7 +119,7 @@ fi
 
 # 2c: Idempotent re-run (no duplicate entries)
 agentshield setup claude-code > /dev/null 2>&1
-COUNT=$(grep -c "agentshield hook" "$HOME/.claude/settings.json")
+COUNT=$(claude_hooks)
 if [ "$COUNT" -eq 1 ]; then
     pass "claude-code: idempotent (no duplicate)"
 else
@@ -111,6 +133,27 @@ if [ "$EXIT" = "0" ]; then
 else
     fail "claude-code: hook returned exit $EXIT for safe command"
 fi
+
+# 2d2: This container had no AgentShield state, so setup made it a new
+# install: audit-only (#4337). rm -rf / is recorded as AUDIT with the
+# decision enforce mode would have made, and the hook lets it through.
+if grep -q '^default_mode: audit-only' "$HOME/.agentshield/agentshield.yaml" 2>/dev/null; then
+    pass "new install: setup wrote default_mode: audit-only"
+else
+    fail "new install: agentshield.yaml has no default_mode: audit-only"
+fi
+EXIT=$(hook_eval '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')
+LAST=$(tail -n 1 "$HOME/.agentshield/audit.jsonl" 2>/dev/null)
+if [ "$EXIT" = "0" ] && echo "$LAST" | grep -q '"decision":"AUDIT"' && \
+   echo "$LAST" | grep -q '"original_decision":"BLOCK"'; then
+    pass "new install: rm -rf / recorded as AUDIT with original_decision BLOCK (exit 0)"
+else
+    fail "new install: rm -rf / gave exit $EXIT, record: $LAST"
+fi
+
+# 2d3: One line turns on enforcement; every BLOCK assertion below runs in
+# enforce mode.
+echo "mode: enforce" >> "$HOME/.agentshield/agentshield.yaml"
 
 # 2e: Hook payload routing — dangerous command (should block)
 EXIT=$(hook_eval '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')
@@ -128,9 +171,24 @@ else
     fail "claude-code: hook crashed on MCP tool call (exit $EXIT)"
 fi
 
+# 2f2: Bare invocation — what Claude Code <= 2.1.138 runs for an exec-form
+# hook — decides exactly as `agentshield hook` (#4292).
+EXIT=$(bare_eval '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}')
+if [ "$EXIT" = "2" ]; then
+    pass "claude-code: bare agentshield with a hook payload blocks (exit 2)"
+else
+    fail "claude-code: bare agentshield returned exit $EXIT for rm -rf / (expected 2)"
+fi
+EXIT=$(bare_eval '')
+if [ "$EXIT" = "0" ] && grep -q "Usage:" /tmp/_hook_stdout; then
+    pass "claude-code: bare agentshield with empty stdin still prints help"
+else
+    fail "claude-code: bare agentshield with empty stdin: exit $EXIT, no help"
+fi
+
 # 2g: Disable — removes our hook, preserves others
 agentshield setup claude-code --disable > /dev/null 2>&1
-if grep -q "agentshield hook" "$HOME/.claude/settings.json" 2>/dev/null; then
+if [ "$(claude_hooks)" -ne 0 ]; then
     fail "claude-code: disable did not remove hook"
 else
     if grep -q "PostToolUse" "$HOME/.claude/settings.json" && \
@@ -139,6 +197,17 @@ else
     else
         fail "claude-code: disable damaged other settings"
     fi
+fi
+
+# 2h: A shell-form install from an older release migrates to exec form in place
+cat > "$HOME/.claude/settings.json" <<SETTINGS
+{"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "/usr/local/bin/agentshield hook"}]}]}}
+SETTINGS
+agentshield setup claude-code > /dev/null 2>&1
+if [ "$(claude_hooks)" -eq 1 ] && claude_exec_form; then
+    pass "claude-code: shell-form entry migrated to exec form (one entry)"
+else
+    fail "claude-code: shell-form migration ($(claude_hooks) entries)"
 fi
 echo ""
 

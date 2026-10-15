@@ -61,24 +61,46 @@ AgentShield has a runtime-wide enforcement mode that controls whether interrupti
 
 | Mode | BLOCK | REQUIRE_APPROVAL | AUDIT | ALLOW |
 |------|-------|------------------|-------|-------|
-| **`enforce`** (default) | blocks | prompts | logs | runs |
+| **`enforce`** (built-in default) | blocks | prompts | logs | runs |
 | **`audit-only`** | logs as AUDIT (with `original_decision: "BLOCK"`) | logs as AUDIT (with `original_decision: "REQUIRE_APPROVAL"`) | logs | runs |
 
-Set via either:
+**A new install starts in audit-only** (#4337). `agentshield setup` on a machine
+with no AgentShield state (nothing in `~/.agentshield` beyond the `packs/` a Homebrew install copies there, and no agent
+configuration that mentions AgentShield) writes the new-install default:
 
 ```yaml
 # ~/.agentshield/agentshield.yaml
-mode: audit-only
+default_mode: audit-only
 ```
 
-or `agentshield --mode audit-only ...` (CLI flag wins over YAML).
+Every other machine keeps its mode; the built-in default is still `enforce`, so
+upgrading changes nothing. One line turns on enforcement:
+
+```yaml
+# ~/.agentshield/agentshield.yaml
+mode: enforce
+```
+
+The mode is resolved in this order, first match wins:
+
+1. `agentshield --mode <value> ...` (one invocation only)
+2. `mode:` in `~/.agentshield/agentshield.yaml`
+3. `enforcement_mode:` in `~/.agentshield/policy.yaml` (the organisation's, pushed by the SaaS)
+4. `default_mode:` in `~/.agentshield/agentshield.yaml` (the new-install default; ignored on a managed host, so the organisation decides)
+5. `enforce`
+
+`agentshield status` prints the mode and which rung set it.
+
+On a managed host, `fail_closed` and the self-protection rules block in either
+mode. In the MCP proxies, audit-only applies to `tools/call`, and the
+config-file guard still blocks (see [MCP mediation](mcp-mediation.md)).
 
 Every audit-log entry carries the `mode` field. When a downgrade happens, the original decision is captured as `original_decision` so dashboards can show "would have blocked." Typical workflow:
 
 1. Roll out new rules with `mode: audit-only` to a pilot team.
 2. Watch the dashboard for entries with `original_decision` set — those are the shadow blocks.
 3. Tune false positives by disabling or rewriting rules.
-4. Flip to `mode: enforce` (or remove the line) when the FP rate is low enough.
+4. Set `mode: enforce` when the FP rate is low enough. (Removing a `mode: audit-only` line is not enough on a new install: `default_mode: audit-only` still applies.)
 
 ## Rule Syntax
 
@@ -561,6 +583,7 @@ Five `match` fields let a regex-family rule exclude or soften matches without wi
 | `command_intent_exclude` | Skip the rule when the Intent Classifier (stage 0) labels the statement's text: `is_bash_comment`, `is_doc_text`, `in_heredoc`, `is_self_mgmt`. Scoped per top-level statement, so it cannot excuse a match that only exists by spanning a statement separator. | `internal/analyzer/intent.go` |
 | `command_intent_downgrade` | Same labels, but a BLOCK becomes AUDIT instead of being skipped, so the event is still logged and attributed to the rule — an attested receipt rather than a silent suppression. Built for sensitive-string literals inside `gh`/`git` message and body arguments (#2843). Since the #2983 sweep this is the shape every shell rule uses for `is_doc_text` / `in_heredoc` / `in_interpreter_heredoc`; `command_intent_exclude` keeps only `is_bash_comment` and `is_self_mgmt`. Assert the behaviour with an inline `tests.attested:` case (below). The labels are withdrawn when the text reaches an executor (#3797 pipe, #3801 write-then-execute, #3928 command substitution); `TestDocTextDowngradeCannotBeLaundered` probes every labelled rule's inline TPs through those channels. **Default for every BLOCK shell rule (#3963): `command_intent_downgrade: [is_doc_text, in_heredoc]`** — `TestBlockShellRulesCarryDocTextDowngrade` fails on a regex/prefix/exact BLOCK rule without it unless the rule is listed, with its reason, in `internal/policy/testdata/doctext_downgrade_unlabelled_baseline.txt` (typically because the text position IS the attack, e.g. an `echo` write into `/etc/sudoers`); `TestDocTextDowngradeKeepsInlineTPsAtBlock` fails if the label turns an inline `tp:` into AUDIT. Do not add `in_interpreter_heredoc` by default: it also excuses `cmd = "<payload>"; os.system(cmd)` inside a python heredoc (#3939) — use `command_position_exclude: [interp_heredoc_literal]` per rule instead. | `internal/analyzer/intent.go` |
 | `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list), `search_needle` (the pattern operand of a grep-family command), `heredoc_body` (the body of a `cat`/`tee` heredoc), `quoted_program_arg` (a wholly-quoted awk/sed/perl/jq program) or `interp_heredoc_literal` (a string literal in an exec-free python/node/ruby/perl heredoc). Implemented on both evaluation paths (pipeline and fallback engine). The three data-text positions (`heredoc_body`, `quoted_program_arg`, `interp_heredoc_literal`) are **withdrawn when the text reaches an executor** — piped into a shell or interpreter, or written to a path the command then runs or sources — the same `TextReachesExecutor` evidence that withdraws the inertness labels (#3967) — or when a substitution carrying it has its OUTPUT executed (`bash -c "$(…)"`, `eval "$(…)"`, `bash <(…)`, `x=$(…); eval "$x"`; #3976). `TestPositionExclusionCannotBeLaundered` probes every position-excluded rule's inline TPs through those channels. | `internal/analyzer/position.go` |
+| `command_fold_separators` | `true` makes the rule ALSO match the command with Unicode separators (U+00A0 and other Zs/Zl/Zp) folded to a space (#4310). For rules matching **prose an LLM later reads** (an AGENTS.md line, a PR body, a tool description): RE2's `\s` is ASCII-only, so one NBSP dropped the rule while the model read ordinary words. Additive; the raw reading is tried first, on both evaluation paths. Never set it on a rule that matches shell, SQL or config syntax: NBSP is not a separator to bash. `TestProseRulesSurviveNBSP` pins the ten rules that carry it. | `internal/analyzer/regex.go` |
 | `context: {ci: true}` | Gate the rule on the execution environment; `ci` is detected by `internal/execenv`. Regex-family rules only — a context gate on a structural/dataflow/semantic/stateful rule fails policy load (#3291). | `internal/execenv` |
 
 **Strict purity (#3798, 2026-09-23).** The doc-text exemptions (the `is_doc_text` / `in_heredoc` / `in_interpreter_heredoc` labels, and the `heredoc_body` / `quoted_program_arg` / `interp_heredoc_literal` positions) apply only when **every command in the line** is on a closed list of commands that never run their input (`shellparse.CommandLineIsPure`): text utilities, file operations, listed `git`/`gh` subcommands, `sed`/`awk`/`find` without their execute constructs, and an interpreter reading an exec-free quoted heredoc on stdin. Any other command (a shell, `eval`, `source`, a wrapper, a build tool, a script path, an expanded command word) voids the exemption and the rule applies as written. Measured cost: 14 of 4,594 real agent commands newly BLOCK; the matching corpus rows are relabelled `FP` with the reason.
@@ -1098,6 +1121,7 @@ value_limits:
 |---|---|---|
 | `tool_name` | Exact/glob | Single tool name pattern |
 | `tool_name_regex` | Regex | Regex against tool name |
+| `tool_name_regex_exclude` | Regex | Carve-out: the rule does **not** fire when the wire tool name matches. Use it to keep a broad positive pattern and exclude an enumerated set of names that are not the threat (it reaches past `mcp__<server>__` prefixes, unlike `tool_name_not_prefix_any`). ASCII names only; a non-ASCII name or an invalid regex skips the carve-out, so the rule still fires. |
 | `tool_name_any` | List | Match if any name in list matches |
 | `argument_patterns` | Map | Glob patterns matched against argument values |
 
