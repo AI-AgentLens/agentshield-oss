@@ -156,6 +156,17 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 		analyzers = append(analyzers, art)
 	}
 
+	// Opt-in outbound destination allowlist (#4437). Registered only when the
+	// operator's policy says `network.enforce_allowlist: true`; absent, false
+	// or an invalid value registers nothing, so every decision is exactly what
+	// it was before the switch existed. An invalid value is a config warning
+	// (Policy.ConfigWarnings), never an error here: an error from this
+	// function makes every command an eval-error AUDIT. Runs after structural,
+	// whose ctx.Parsed it reads.
+	if egress := egressAllowlistAnalyzer(pol); egress != nil {
+		analyzers = append(analyzers, egress)
+	}
+
 	// Conditionally add data label analyzer (Layer 7) when labels are configured.
 	// Zero cost when DataLabels is empty — no analyzer instantiated.
 	if len(pol.DataLabels) > 0 {
@@ -329,4 +340,20 @@ func NewEngineWithAnalyzers(p *Policy, maxParseDepth int) (*Engine, error) {
 	}
 	engine.SetRegistry(registry)
 	return engine, nil
+}
+
+// DataLabelScrubber returns a function that replaces every span a data label
+// in pol matches with "[LABEL:<id>]" (#4448), for AuditEvent.WithScrubber. It
+// returns nil when pol declares no labels or the labels do not compile; the
+// pipeline reports a compile failure itself (BuildAnalyzerPipeline), and a
+// scrubber that cannot be built must not stop an audit event from being written.
+func DataLabelScrubber(pol *Policy) func(string) string {
+	if pol == nil || len(pol.DataLabels) == 0 {
+		return nil
+	}
+	engine, err := datalabel.NewEngine(convertDataLabels(pol.DataLabels))
+	if err != nil || engine == nil {
+		return nil
+	}
+	return engine.Scrub
 }

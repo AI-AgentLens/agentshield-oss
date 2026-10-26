@@ -31,7 +31,7 @@ Embedded community packs (shipped inside the binary via //go:embed)
   ↓ extended by
 ~/.agentshield/packs/*.yaml (on-disk packs: premium from SaaS, user custom)
   ↓ evaluated by
-Analyzer Pipeline (8 stages, 2 more conditional) → Final Decision
+Analyzer Pipeline (8 stages, 3 more conditional) → Final Decision
 ```
 
 Because the community packs are embedded in the binary, a fresh `brew install`
@@ -91,9 +91,18 @@ The mode is resolved in this order, first match wins:
 
 `agentshield status` prints the mode and which rung set it.
 
-On a managed host, `fail_closed` and the self-protection rules block in either
-mode. In the MCP proxies, audit-only applies to `tools/call`, and the
-config-file guard still blocks (see [MCP mediation](mcp-mediation.md)).
+Self-protection blocks in either mode, on every surface: in audit-only mode a
+BLOCK that a self-protection rule decided (a BLOCK rule whose id names
+agentshield, whose taxonomy is `security-tool-tampering`, or whose match names
+`~/.agentshield`) stays BLOCK, and so does a BLOCK on a call or command that
+changes AgentShield's state or an agent's hook or MCP configuration file. A
+read of those files, or a change to another protected file (shell startup
+files; git or SSH configuration), is recorded as AUDIT. The MCP proxies keep a
+wider set: their whole config-file guard, and any call whose arguments name
+AgentShield's configuration or a hook file. Only a BLOCK enforce mode makes is
+kept; the record has no `original_decision`. On a managed host, `fail_closed` and the managed
+self-protection rules also block in either mode. In the MCP proxies, audit-only
+applies to `tools/call` (see [MCP mediation](mcp-mediation.md)).
 
 Every audit-log entry carries the `mode` field. When a downgrade happens, the original decision is captured as `original_decision` so dashboards can show "would have blocked." Typical workflow:
 
@@ -573,6 +582,88 @@ the use are routinely separate commands, separate scripts, or separate shells,
 so there is nothing to correlate against. The `executable` on those entries is
 documentation of whose credential slot it is.
 
+### Outbound destination allowlist (`network.enforce_allowlist`)
+
+Off by default. With `enforce_allowlist: true`, a network command whose
+destination Shield can name is stopped when the host is not on your
+`allow_domains` list (subdomains included); destinations Shield cannot name
+are recorded, not stopped.
+
+```yaml
+network:
+  enforce_allowlist: true
+  allow_domains:
+    - github.com           # also api.github.com, gist.github.com, ...
+    - "*.internal.example" # subdomains only, not internal.example itself
+    - 192.0.2.10           # an IP address matches only itself
+```
+
+- **The list is exactly yours.** Only the `allow_domains` written in your
+  policy file count. The built-in defaults (`github.com`, `pypi.org`,
+  `registry.npmjs.org`, ...) and domains that packs add do not: if agents may
+  reach `pypi.org`, list it. The merged list those defaults feed is unchanged
+  for everything else that reads it. Packs can neither turn the switch on nor
+  off.
+- **Matching.** Case-insensitive. Ports, userinfo, a trailing dot and IPv6
+  brackets are ignored, so `https://github.com@paste.example/` is a request to
+  `paste.example`. An entry `github.com` matches `github.com` and any
+  subdomain, and does not match `github.com.evil.example`, `evilgithub.com`,
+  `github.io` or `githubusercontent.com`. An entry written as a URL or with a
+  port (`https://github.com/`, `github.com:443`) is read for its host. An IP
+  address matches only when that address is listed; another spelling of it
+  (`127.1`) is an unlisted name.
+- **Loopback is never blocked.** A request to this machine is not egress, so
+  `localhost`, any `*.localhost` name, `127.0.0.0/8` and `::1` pass without
+  being listed. `0.0.0.0` and `[::]` ("all interfaces") are not exempt, and
+  neither is another spelling of a loopback address such as `127.1`: those are
+  blocked unless listed.
+- **Decision.** `BLOCK` with rule `ne-block-unlisted-destination` and taxonomy
+  `data-exfiltration/network-egress/network-http-request`; the reason names the
+  host. In audit-only mode it is recorded as a would-block `AUDIT`, like every
+  other BLOCK.
+- **What Shield reads** (the stage lives in `internal/analyzer/egress_allowlist.go`;
+  the tool set there is closed and enumerated):
+  - `curl`: URL operands and `--url`, plus where the bytes actually go:
+    proxies (`-x`/`--proxy`, `--preproxy`, `--socks4`/`--socks5`/...),
+    `--doh-url`, and the targets of `--connect-to` and `--resolve` entries
+    that apply to a URL in the same command. These count as destinations in
+    their own right, so a proxy or connection target named on the command line
+    must be on your list too, even when the URL's host is. An entry applies by
+    curl's own rule: `--resolve HOST:PORT:…` when a URL (or proxy) has that
+    host and port, `--connect-to HOST1:PORT1:…` when it has that host and port,
+    with an empty HOST1 or PORT1 matching any; entries after `--next` apply only
+    to the URLs after it. An entry that applies to nothing is ignored.
+  - `wget`: URL operands.
+  - `git clone`, `fetch`, `pull`, `push` and `ls-remote` with the repository
+    written as an `http://`, `https://` or `git://` URL, plus a
+    `-c url.<base>.insteadOf=…` rewrite base and a `-c …proxy=…` setting
+    (global, or `clone -c`). Options are bound to their values first, so in
+    `git ls-remote -o <url> <repo>` the repository is `<repo>`.
+  - The same commands run through `bash -c '…'`, `$(…)`, `sudo`, `env`,
+    `timeout` or an absolute path such as `/usr/bin/curl`.
+- **Recorded, not stopped.** The allowlist adds nothing for these; your other
+  rules and the default decision apply:
+  - a host in a variable or command substitution (`curl "$API_URL"`), or an
+    argument list that starts with one (`curl $OPTS …`);
+  - an option Shield's tables do not know, including an abbreviated long
+    option, because its next word might be its value;
+  - URLs read from a file (`curl -K`, `wget -i`), wgetrc commands
+    (`wget -e`), and proxies or `insteadOf` rewrites set in the environment
+    or in git config files;
+  - `curl --unix-socket` (the destination is a local socket);
+  - hosts reached only through a redirect (`curl -L`), and a curl routing
+    entry whose match depends on a port Shield cannot work out (a scheme-less
+    URL under an unrecognised `--proto-default`);
+  - ssh, scp, rsync and sftp, and scp-style or `ssh://` git remotes: the host
+    there may be an `~/.ssh/config` alias, not a host name;
+  - every other tool: `nc`, httpie, `python -c` / `node -e` one-liners,
+    package managers, `gh`, and URLs inside MCP tool-call arguments.
+- **A bad value never breaks the policy.** Any value other than a YAML
+  `true` or `false` (`yes`, `"true"`, `1`) leaves the allowlist off and prints
+  an `[AgentShield] warning:` line to stderr whenever the engine loads; so does
+  an `allow_domains` entry that is not a host, `*.host` or IP address. With the
+  switch absent or `false`, no decision changes.
+
 ## Rule-level false-positive controls
 
 Five `match` fields let a regex-family rule exclude or soften matches without widening its pattern. Every label is validated when the policy loads: an unknown label fails the load instead of silently doing nothing (`internal/policy/pipeline.go`).
@@ -582,7 +673,7 @@ Five `match` fields let a regex-family rule exclude or soften matches without wi
 | `command_regex_exclude` | The rule does not fire when this regex also matches. It excludes the **whole rule**, not one alternative of the positive pattern. | — |
 | `command_intent_exclude` | Skip the rule when the Intent Classifier (stage 0) labels the statement's text: `is_bash_comment`, `is_doc_text`, `in_heredoc`, `is_self_mgmt`. Scoped per top-level statement, so it cannot excuse a match that only exists by spanning a statement separator. | `internal/analyzer/intent.go` |
 | `command_intent_downgrade` | Same labels, but a BLOCK becomes AUDIT instead of being skipped, so the event is still logged and attributed to the rule — an attested receipt rather than a silent suppression. Built for sensitive-string literals inside `gh`/`git` message and body arguments (#2843). Since the #2983 sweep this is the shape every shell rule uses for `is_doc_text` / `in_heredoc` / `in_interpreter_heredoc`; `command_intent_exclude` keeps only `is_bash_comment` and `is_self_mgmt`. Assert the behaviour with an inline `tests.attested:` case (below). The labels are withdrawn when the text reaches an executor (#3797 pipe, #3801 write-then-execute, #3928 command substitution); `TestDocTextDowngradeCannotBeLaundered` probes every labelled rule's inline TPs through those channels. **Default for every BLOCK shell rule (#3963): `command_intent_downgrade: [is_doc_text, in_heredoc]`** — `TestBlockShellRulesCarryDocTextDowngrade` fails on a regex/prefix/exact BLOCK rule without it unless the rule is listed, with its reason, in `internal/policy/testdata/doctext_downgrade_unlabelled_baseline.txt` (typically because the text position IS the attack, e.g. an `echo` write into `/etc/sudoers`); `TestDocTextDowngradeKeepsInlineTPsAtBlock` fails if the label turns an inline `tp:` into AUDIT. Do not add `in_interpreter_heredoc` by default: it also excuses `cmd = "<payload>"; os.system(cmd)` inside a python heredoc (#3939) — use `command_position_exclude: [interp_heredoc_literal]` per rule instead. | `internal/analyzer/intent.go` |
-| `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list), `search_needle` (the pattern operand of a grep-family command), `heredoc_body` (the body of a `cat`/`tee` heredoc), `quoted_program_arg` (a wholly-quoted awk/sed/perl/jq program) or `interp_heredoc_literal` (a string literal in an exec-free python/node/ruby/perl heredoc). Implemented on both evaluation paths (pipeline and fallback engine). The three data-text positions (`heredoc_body`, `quoted_program_arg`, `interp_heredoc_literal`) are **withdrawn when the text reaches an executor** — piped into a shell or interpreter, or written to a path the command then runs or sources — the same `TextReachesExecutor` evidence that withdraws the inertness labels (#3967) — or when a substitution carrying it has its OUTPUT executed (`bash -c "$(…)"`, `eval "$(…)"`, `bash <(…)`, `x=$(…); eval "$x"`; #3976). `TestPositionExclusionCannotBeLaundered` probes every position-excluded rule's inline TPs through those channels. | `internal/analyzer/position.go` |
+| `command_position_exclude` | Skip when the rule's **own match** landed in an inert syntactic position: `loop_wordlist` (a `for … in` word list), `search_needle` (the pattern operand of a grep-family command), `heredoc_body` (the body of a `cat`/`tee` heredoc), `quoted_program_arg` (a wholly-quoted awk/sed/perl/jq program) or `interp_heredoc_literal` (a string literal in an exec-free python/node/ruby/perl heredoc). Implemented on both evaluation paths (pipeline and fallback engine). The three data-text positions (`heredoc_body`, `quoted_program_arg`, `interp_heredoc_literal`) are **withdrawn when the text reaches an executor** — piped into a shell or interpreter, or written to a path the command then runs or sources — the same `TextReachesExecutor` evidence that withdraws the inertness labels (#3967) — or when a substitution carrying it has its OUTPUT executed (`bash -c "$(…)"`, `eval "$(…)"`, `bash <(…)`, `x=$(…); eval "$x"`; #3976). `search_needle` is withdrawn when grep's **output** is executed — the same executor and substitution channels, plus xargs (with a target other than echo/printf) and a `while read` loop that acts on the line — because every line a needle selects contains it (#4468). `TestPositionExclusionCannotBeLaundered` probes every position-excluded rule's inline TPs through those channels. | `internal/analyzer/position.go` |
 | `command_fold_separators` | `true` makes the rule ALSO match the command with Unicode separators (U+00A0 and other Zs/Zl/Zp) folded to a space (#4310). For rules matching **prose an LLM later reads** (an AGENTS.md line, a PR body, a tool description): RE2's `\s` is ASCII-only, so one NBSP dropped the rule while the model read ordinary words. Additive; the raw reading is tried first, on both evaluation paths. Never set it on a rule that matches shell, SQL or config syntax: NBSP is not a separator to bash. `TestProseRulesSurviveNBSP` pins the ten rules that carry it. | `internal/analyzer/regex.go` |
 | `context: {ci: true}` | Gate the rule on the execution environment; `ci` is detected by `internal/execenv`. Regex-family rules only — a context gate on a structural/dataflow/semantic/stateful rule fails policy load (#3291). | `internal/execenv` |
 

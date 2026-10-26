@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 )
@@ -45,6 +46,11 @@ var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)--(?:password|passwd|pwd|token|secret|api-key|apikey)\s+['"]?[^\s'"-][^\s'"]*['"]?`),
 	// curl -u / --user user:pass; without a colon there is no password to hide.
 	regexp.MustCompile(`(?i)(?:^|\s)(?:-u|--user)\s+['"]?[^\s:'"]+:[^\s'"]+['"]?`),
+
+	// A bare token name: TOKEN=<v>, "token":"<v>", X-Token: <v>, deploy_token=<v>
+	// (#4340). The value must be 12+ credential characters, so prose
+	// ("token: refresh"), counters ("token=42") and "tokens"/"token-url" stay readable.
+	regexp.MustCompile(`(?i)(?:\b|_)token['"]?\s*[=:]\s*['"]?[A-Za-z0-9_.~+/=-]{12,}['"]?`),
 
 	// Provider keys that are bare (no "key=" name beside them) (#4340).
 	regexp.MustCompile(`sk-(?:ant|proj)-[A-Za-z0-9_-]{20,}`),
@@ -190,6 +196,12 @@ func redactJSONValue(key string, v interface{}, parentKey string) interface{} {
 			out[i] = redactJSONValue(key, e, parentKey)
 		}
 		return out
+	case float64, json.Number, int, int64:
+		// A number under a secret key is the secret (a PIN, a numeric password).
+		if inheritedKey(key, parentKey) != "" {
+			return redactedPlaceholder
+		}
+		return v
 	default:
 		return v
 	}

@@ -68,7 +68,7 @@ func hasPrefixWithBoundary(s, prefix string) bool {
 // ALLOW on this falls through to the AUDIT default rather than granting an
 // affirmative "this was safe" it could not verify.
 func HasIndirectExecution(command string) bool {
-	indirect, _ := scanAllowDisqualifiers(command)
+	indirect, _, _ := scanAllowDisqualifiers(command)
 	return indirect
 }
 
@@ -103,7 +103,7 @@ func HasIndirectExecution(command string) bool {
 //
 // Fails closed: an unparseable command returns true.
 func HasFileWriteRedirect(command string) bool {
-	_, write := scanAllowDisqualifiers(command)
+	_, write, _ := scanAllowDisqualifiers(command)
 	return write
 }
 
@@ -121,8 +121,25 @@ func HasFileWriteRedirect(command string) bool {
 // Deciding once on the raw text errs toward withholding the ALLOW, never
 // toward granting it.
 func AllowDisqualified(command string) bool {
-	indirect, write := scanAllowDisqualifiers(command)
-	return indirect || write
+	indirect, write, glob := scanAllowDisqualifiers(command)
+	return indirect || write || glob
+}
+
+// HasUnresolvedGlobWord reports whether any word of command carries an
+// unquoted pathname-expansion character ('*', '?', or a '[...]' class) where
+// the shell will expand it (#4410). An ALLOW prefix rule must not vouch for
+// such a word: the file the shell hands the command is chosen by the
+// filesystem, not by the text the rule read, so `cat /etc/shado?` (and every
+// protected name no deglob table lists) was ALLOWed while the literal
+// spelling BLOCKs. The withheld ALLOW falls to the default AUDIT, so the
+// command is recorded and nothing is blocked by this.
+//
+// Not reported, because the shell does not glob there: quoted words, a
+// variable assignment value, a heredoc body, a here-string. Fails closed on
+// an unparseable command, like its siblings.
+func HasUnresolvedGlobWord(command string) bool {
+	_, _, glob := scanAllowDisqualifiers(command)
+	return glob
 }
 
 // scanAllowDisqualifiers parses command once and reports the two things that
@@ -133,22 +150,33 @@ func AllowDisqualified(command string) bool {
 // parsed twice to answer one question.
 //
 // A blank command reports neither; an unparseable one reports both.
-func scanAllowDisqualifiers(command string) (indirect, write bool) {
+func scanAllowDisqualifiers(command string) (indirect, write, glob bool) {
 	if strings.TrimSpace(command) == "" {
-		return false, false
+		return false, false, false
 	}
 
 	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
-		return true, true
+		return true, true, true
 	}
 
+	// Words the shell never globs: an assignment value, a heredoc body and a
+	// here-string operand.
+	noGlob := make(map[*syntax.Word]bool)
 	syntax.Walk(file, func(node syntax.Node) bool {
-		if indirect && write {
+		if indirect && write && glob {
 			return false
 		}
 		switch n := node.(type) {
+		case *syntax.Assign:
+			if n.Value != nil {
+				noGlob[n.Value] = true
+			}
+		case *syntax.Word:
+			if !glob && !noGlob[n] && wordHasUnquotedGlob(n) {
+				glob = true
+			}
 		case *syntax.CmdSubst:
 			// Covers both $(...) and `...` — Backquotes is a field on
 			// CmdSubst, not a distinct node type.
@@ -156,6 +184,12 @@ func scanAllowDisqualifiers(command string) (indirect, write bool) {
 		case *syntax.ProcSubst:
 			indirect = true
 		case *syntax.Redirect:
+			if n.Hdoc != nil {
+				noGlob[n.Hdoc] = true
+			}
+			if n.Op == syntax.WordHdoc && n.Word != nil {
+				noGlob[n.Word] = true
+			}
 			if redirectMayWriteFile(n) {
 				write = true
 			}
@@ -163,7 +197,46 @@ func scanAllowDisqualifiers(command string) (indirect, write bool) {
 		return true
 	})
 
-	return indirect, write
+	return indirect, write, glob
+}
+
+// wordHasUnquotedGlob reports whether a top-level literal part of w holds a
+// pathname-expansion character. Only a bare Lit counts, as in
+// DeglobSensitivePaths: single-quoted, double-quoted and parameter parts are
+// not globbed. A '[' counts only when a closing ']' follows it.
+func wordHasUnquotedGlob(w *syntax.Word) bool {
+	for _, part := range w.Parts {
+		lit, ok := part.(*syntax.Lit)
+		if !ok {
+			continue
+		}
+		if litHasGlob(lit.Value) {
+			return true
+		}
+	}
+	return false
+}
+
+// litHasGlob scans an unquoted literal for a live glob character. A
+// backslash makes the next byte literal (`\*.go` is the name "*.go"). A '['
+// counts only when an unescaped ']' follows it.
+func litHasGlob(v string) bool {
+	open := false
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '\\':
+			i++
+		case '*', '?':
+			return true
+		case '[':
+			open = true
+		case ']':
+			if open {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // harmlessOutputTargets are the only literal paths an output redirect may
@@ -332,7 +405,7 @@ func PrefixRuleMatches(command string, prefixes []string, allowRule bool) bool {
 		return true
 	}
 
-	if indirect, write := scanAllowDisqualifiers(command); indirect || write {
+	if indirect, write, glob := scanAllowDisqualifiers(command); indirect || write || glob {
 		return false
 	}
 	return AllStatementsHavePrefix(command, prefixes)

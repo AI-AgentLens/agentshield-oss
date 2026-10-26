@@ -46,6 +46,9 @@ func TestRuleSchema_StaysInSyncWithGoTypes(t *testing.T) {
 		// own schema, which is what an editor validates a user's policy with.
 		// #3630 added `env` and hit exactly that (2026-09-06).
 		{[]string{"$defs", "defaults", "properties", "protected_path_consumers", "items"}, reflect.TypeOf(ProtectedPathConsumer{})},
+		// network.enforce_allowlist (#4437) is an opt-in an operator types by
+		// hand; intellisense must know it exists.
+		{[]string{"$defs", "network"}, reflect.TypeOf(Network{})},
 	}
 
 	for _, tt := range tests {

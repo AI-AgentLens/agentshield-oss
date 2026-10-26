@@ -113,6 +113,9 @@ func TestNormalize_IgnoresFlags(t *testing.T) {
 // mentions protected paths like ~/.ssh/id_rsa.
 // Reproduces: https://github.com/AI-AgentLens/agentshield-oss/issues/17
 func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
+	// Hermetic cwd: a bare word such as `pr` must not collide with an entry in
+	// a shared /tmp (bare operands resolve against cwd when they exist, #4381).
+	cwd := t.TempDir()
 	homeDir, _ := os.UserHomeDir()
 	_ = homeDir // used indirectly via filepath.Join
 
@@ -140,7 +143,7 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 			// org/repo follows --repo (not text-content) → extracted as relative path.
 			args:          []string{"gh", "issue", "create", "--body", "see:", "~/.ssh/id_rsa", "--repo", "org/repo"},
 			wantPathCount: 1,
-			wantPaths:     []string{"/tmp/org/repo"},
+			wantPaths:     []string{filepath.Join(cwd, "org/repo")},
 		},
 		{
 			name:          "normal cat of ssh key — path IS extracted",
@@ -170,7 +173,7 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nc := Normalize(tt.args, "/tmp")
+			nc := Normalize(tt.args, cwd)
 			if len(nc.Paths) != tt.wantPathCount {
 				t.Errorf("expected %d paths, got %d: %v", tt.wantPathCount, len(nc.Paths), nc.Paths)
 			}

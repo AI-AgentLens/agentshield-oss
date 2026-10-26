@@ -153,11 +153,16 @@ func applyNewInstallDefault(home string) (written bool, evidence string, err err
 
 // setupPreRun runs before every `agentshield setup` command and applies the
 // new-install default (#4337). A --disable run installs nothing, so it never
-// writes the default. A failure to write it is reported and setup continues:
-// the machine then runs in enforce mode, today's behaviour.
+// writes the default. Neither do the Claude Code managed-settings runs
+// (#4292): --managed writes nothing at all, and --write-managed usually runs
+// under sudo, where the default would land root-owned in the user's
+// ~/.agentshield. A failure to write it is reported and setup continues: the
+// machine then runs in enforce mode, today's behaviour.
 func setupPreRun(cmd *cobra.Command, _ []string) error {
-	if f := cmd.Flags().Lookup("disable"); f != nil && f.Value.String() == "true" {
-		return nil
+	for _, name := range []string{"disable", "managed", "write-managed"} {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Value.String() == "true" {
+			return nil
+		}
 	}
 	home := os.Getenv("HOME")
 	if home == "" {

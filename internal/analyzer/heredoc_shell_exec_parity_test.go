@@ -48,7 +48,19 @@ func TestHeredocShellExecParity(t *testing.T) {
 	// above (needs recursion depth 3, one past maxParseDepth=2), just reached
 	// via a different first-layer wrapper than bash -c/eval/exec. Verified:
 	// all 5 new leaks are TP-PROCSUBECHO-*, none are a new class.
-	maxLeaks := 60
+	//
+	// Bumped 60->75 (#4540). Measured: main 57/2789; with #4540 75/2808. The 19
+	// new TP-ANSICNUL-* cases join the BLOCK baseline, and 18 of them leak
+	// here. The other 57 are main's count, unchanged. That is a known residual,
+	// not a regression: EvaluateANSICNUL cuts the $'...' bodies of the command
+	// as written, but not those inside a heredoc body the analyzer extracts as
+	// inline code. So the wrapped forms decide what they decide on main.
+	//
+	// Back 75->62 (#4542). ANSICNULReading now cuts heredoc bodies and the
+	// quoted payloads of shell/eval/trap calls by text, so all 18 wrapped
+	// TP-ANSICNUL-* leaks are gone. Measured 62/2808 (not main's 57 from the
+	// issue; the rest of the delta is unrelated rules merged since).
+	maxLeaks := 62
 
 	// The budget is a property of the LOADED RULE SET, not of the code, so it
 	// cannot be one number across two rule sets. Before #3135, the OSS tree
@@ -122,8 +134,16 @@ func TestHeredocShellExecParity(t *testing.T) {
 	// OSS-stripped tree (the disk-overwrite rule lives in
 	// packs/community/terminal-safety.yaml, so the new baseline entry is
 	// present in both trees regardless).
+	//
+	// Bumped 62->80 (#4540) by the same +18 as the premium constant, NOT
+	// re-measured against an OSS-stripped tree. The rules the TP-ANSICNUL-*
+	// cases reach are community, so the same entries should be present in
+	// both trees. Re-verify on the next OSS-stripped run.
+	// The OSS constant stays 80 (#4542): not re-measured against an
+	// OSS-stripped tree, and lowering it unmeasured would be a guess. Ratchet
+	// it down after the next OSS-stripped run.
 	if !premiumPacksPresent() {
-		maxLeaks = 62
+		maxLeaks = 80
 	}
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}

@@ -25,8 +25,8 @@ escape_splice:punct-escape-slash 9
 exec_wrapper:maxLeaks 46
 glob_evasion:maxLeaks 0
 glob_evasion_structural:maxLeaks 0
-heredoc_shell_exec:maxLeaks 60
-heredoc_shell_exec:maxLeaks#2 62
+heredoc_shell_exec:maxLeaks 62
+heredoc_shell_exec:maxLeaks#2 80
 ifs_separator:maxLeaks 0
 indirect_exec_name:maxLeaksScalarVar 21
 indirect_exec_name:maxLeaksCmdSubst 18
@@ -34,6 +34,7 @@ line_continuation:maxLeaks 20
 paramop_fold:maxLeaksExecReplace 24
 paramop_fold:maxLeaksExecSlice 21
 paramop_fold:maxLeaksArgReplace 525
+private_alias:maxLeaksTmpAlias 117
 procsubst_echo:maxLeaks 86
 procsubst_echo:maxLeaks#2 88
 quoted_flag:maxLeaks 0
@@ -46,9 +47,9 @@ stdin_source:maxLeaks 86
 stdin_source:maxLeaks#2 88
 su_inline_code:maxLeaks 44
 trap:maxLeaks 26
-unset_paramexp:maxLeaks 52
+unset_paramexp:maxLeaks 53
 wrapper_positional:maxLeaks 46
 wrapper_positional:maxLeaks#2 47
 wrapper_value_flag:maxLeaks 46
 wrapper_value_flag:maxLeaks#2 47
-TOTAL 1885
+TOTAL 2023

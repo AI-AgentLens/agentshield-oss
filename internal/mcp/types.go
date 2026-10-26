@@ -60,6 +60,12 @@ type CallToolResult struct {
 	// entirely. Kept as raw JSON (not a typed map) so ScanStructuredContentRaw can walk
 	// it the same way it walks StructuredContent, without speculative parsing here.
 	Meta json.RawMessage `json:"_meta,omitempty"`
+	// LegacyToolResult is the pre-2024-11-05 result shape (`toolResult`). The TS
+	// SDK's compatibility schema models it and Claude Code shows it to the model
+	// in place of `content` and `structuredContent` (#4551), so it is as much a
+	// payload channel as `content`. Kept raw: any JSON type is stringified by the
+	// client.
+	LegacyToolResult json.RawMessage `json:"toolResult,omitempty"`
 }
 
 // ContentItem is one piece of content in a tool result. The MCP 2025-06-18

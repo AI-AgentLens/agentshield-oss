@@ -16,6 +16,9 @@ import (
 type InterpreterHeredocSpan struct {
 	Lang       string
 	Start, End int
+	// BodyEnd excludes a delimiter included in Lit.End() at end of input.
+	// End is retained for consumers that must preserve historical checks.
+	BodyEnd int
 }
 
 // InterpreterHeredocLiteralSpans walks command for every heredoc fed to a
@@ -80,7 +83,7 @@ func InterpreterHeredocLiteralSpans(command string) []InterpreterHeredocSpan {
 				if s < 0 || e > len(command) || s >= e {
 					continue
 				}
-				out = append(out, InterpreterHeredocSpan{Lang: name, Start: s, End: e})
+				out = append(out, InterpreterHeredocSpan{Lang: name, Start: s, End: e, BodyEnd: min(e, s+len(lit.Value))})
 			}
 		}
 		return true

@@ -179,7 +179,7 @@ func TestAuditRedaction_WirePayloadAndDiskLine(t *testing.T) {
 				t.Fatalf("fixture does not carry the secret; the test would be vacuous: %s", before)
 			}
 
-			payload, err := buildAuditPayload(&ev)
+			payload, err := buildAuditPayload(&ev, "")
 			if err != nil {
 				t.Fatalf("buildAuditPayload: %v", err)
 			}
@@ -295,7 +295,7 @@ func TestAuditRedaction_EveryHookSenderRedacts(t *testing.T) {
 				auditMCPCall("postgres_connect",
 					map[string]interface{}{"host": "db.internal", "password": testPassword()},
 					mcp.MCPEvalResult{Decision: policy.DecisionAudit, TriggeredRules: []string{"test-rule"}, Reasons: []string{"test"}},
-					"claude-code-hook", "enforce", "sess-4332")
+					"claude-code-hook", "enforce", "sess-4332", "", nil)
 			},
 		},
 		{

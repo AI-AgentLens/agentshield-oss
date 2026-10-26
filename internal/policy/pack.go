@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"github.com/AI-AgentLens/agentshield/packs"
 	"gopkg.in/yaml.v3"
 )
@@ -128,7 +129,7 @@ func LoadPacks(packsDir string, base *Policy) (*Policy, []PackInfo, error) {
 			Stem:  strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
 			Path:  path,
 			Label: path,
-			Read:  func() ([]byte, error) { return os.ReadFile(path) },
+			Read:  func() ([]byte, error) { return safefile.ReadFile(path) },
 		}
 		infos = append(infos, LoadPackSources([]PackSource{src}, diskHooks)...)
 	}
@@ -271,6 +272,12 @@ func clonePolicy(p *Policy) *Policy {
 
 	clone.Network.AllowDomains = make([]string, len(p.Network.AllowDomains))
 	copy(clone.Network.AllowDomains, p.Network.AllowDomains)
+	// The opt-in allowlist (#4437) and the operator's own list must survive
+	// the clone LoadEmbeddedShellPacks and LoadPacks start from, or the switch
+	// is silently dropped for everyone (the ProtectedPathConsumers trap).
+	// Packs never write either: mergePackInto touches AllowDomains only.
+	clone.Network.EnforceAllowlist = p.Network.EnforceAllowlist
+	clone.Network.operatorAllowDomains = append([]string(nil), p.Network.operatorAllowDomains...)
 
 	clone.Rules = make([]Rule, len(p.Rules))
 	copy(clone.Rules, p.Rules)

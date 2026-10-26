@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 )
 
 // Engine is the core data label detection engine. It holds pre-compiled
@@ -222,6 +224,89 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 	}
 
 	return matches
+}
+
+// Scrub returns text with every span a configured label matches replaced by
+// "[LABEL:<id>]" (#4448). It is the audit-record counterpart of ScanText: a
+// label BLOCK must not deliver the value it stopped to the audit log or the
+// SaaS, so the record keeps the label id and drops the bytes.
+//
+// Differences from ScanText, each deliberate:
+//   - every match is replaced, not the first per label (a command carrying two
+//     customer ids leaks the second if only one is removed);
+//   - scope is ignored: scope decides what is DETECTED, and over-redacting a
+//     tool outside a label's scope costs a placeholder, while under-redacting
+//     costs the value;
+//   - no max-scan-bytes cap: a cap here would leave the tail unredacted.
+//
+// Overlapping spans merge; the earliest label's id names the merged span.
+// A nil Engine returns text unchanged.
+func (e *Engine) Scrub(text string) string {
+	if e == nil || len(e.labels) == 0 || text == "" {
+		return text
+	}
+
+	type span struct {
+		start, end int
+		label      string
+	}
+	var spans []span
+
+	if e.keywordAutomaton != nil {
+		for _, hit := range e.keywordAutomaton.Search(text) {
+			owner := e.keywordIndex[hit.PatternID]
+			spans = append(spans, span{hit.Start, hit.End, e.labels[owner.labelIdx].config.ID})
+		}
+	}
+
+	for i := range e.labels {
+		cl := &e.labels[i]
+		for j, re := range cl.regexes {
+			if re == nil {
+				continue
+			}
+			for _, loc := range re.FindAllStringIndex(text, -1) {
+				if loc[1] <= loc[0] {
+					continue
+				}
+				if cl.contextRegexes[j] != nil &&
+					!cl.contextRegexes[j].MatchString(contextWindow(text, loc[0], loc[1])) {
+					continue
+				}
+				if v := cl.config.Patterns[j].Validator; v != "" && !Validate(v, text[loc[0]:loc[1]]) {
+					continue
+				}
+				spans = append(spans, span{loc[0], loc[1], cl.config.ID})
+			}
+		}
+	}
+
+	if len(spans) == 0 {
+		return text
+	}
+
+	sort.SliceStable(spans, func(a, b int) bool { return spans[a].start < spans[b].start })
+
+	var out strings.Builder
+	pos := 0
+	for i := 0; i < len(spans); {
+		s := spans[i]
+		end := s.end
+		i++
+		for i < len(spans) && spans[i].start < end {
+			if spans[i].end > end {
+				end = spans[i].end
+			}
+			i++
+		}
+		if s.start > pos {
+			out.WriteString(text[pos:s.start])
+		}
+		out.WriteString("[LABEL:" + s.label + "]")
+		pos = end
+	}
+	out.WriteString(text[pos:])
+	return out.String()
 }
 
 // contextWindow returns a slice of text covering ±contextWindowBytes around

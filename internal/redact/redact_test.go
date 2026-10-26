@@ -206,16 +206,13 @@ func TestRedactArguments(t *testing.T) {
 	}
 }
 
-// TestRedactArguments_BareTokenKeyIsAKnownGap pins a gap rather than hiding
-// it: the patterns name access_token, auth_token, github_token and friends,
-// but not a key called just "token", so its value is kept unless the value is
-// itself key-shaped. Closing this widens the pattern set, which is a separate
-// decision from #4332 (redaction parity between the log and the wire).
-func TestRedactArguments_BareTokenKeyIsAKnownGap(t *testing.T) {
+// TestRedactArguments_BareTokenKey: a key called just "token" is redacted
+// like access_token and auth_token (#4340; this was a pinned gap until then).
+func TestRedactArguments_BareTokenKey(t *testing.T) {
 	v := "opaque" + "Value" + "Lk4332" + "abcdef"
 	got := RedactArguments(map[string]interface{}{"token": v})
-	if got["token"] != v {
-		t.Errorf("bare token key is now redacted (%#v): the gap is closed, update this test and its follow-up", got["token"])
+	if got["token"] != "[REDACTED]" {
+		t.Errorf("bare token key kept its value: %#v", got["token"])
 	}
 }
 
@@ -247,5 +244,29 @@ func TestRedact_JSONQuotedKeys_BenignUnchanged(t *testing.T) {
 		if got := Redact(in); got != in {
 			t.Errorf("Redact(%q) = %q, expected unchanged", in, got)
 		}
+	}
+}
+
+// TestRedactArguments_ArrayIsADeepCopy pins that redacting an array never
+// writes through to the caller's slice (#4340 follow-up): the input is
+// documented as unmodified, and an `out := t` shortcut would alias it.
+func TestRedactArguments_ArrayIsADeepCopy(t *testing.T) {
+	pw := "hunter2" + "hunter2"
+	in := map[string]interface{}{
+		"password": []interface{}{pw, map[string]interface{}{"password": pw}},
+	}
+	got := RedactArguments(in)
+
+	arr := in["password"].([]interface{})
+	if arr[0] != pw || arr[1].(map[string]interface{})["password"] != pw {
+		t.Fatalf("input array was modified: %#v", arr)
+	}
+	out := got["password"].([]interface{})
+	if out[0] != "[REDACTED]" || out[1].(map[string]interface{})["password"] != "[REDACTED]" {
+		t.Fatalf("array elements not redacted: %#v", out)
+	}
+	out[0] = "changed"
+	if arr[0] != pw {
+		t.Fatalf("output shares storage with input")
 	}
 }

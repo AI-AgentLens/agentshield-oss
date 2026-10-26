@@ -31,6 +31,8 @@ func TestPreferBlockingBareResult(t *testing.T) {
 	wouldBlock := MCPEvalResult{Decision: policy.DecisionAudit, OriginalDecision: policy.DecisionBlock, TriggeredRules: []string{"bare-rule"}}
 	wireBlock := MCPEvalResult{Decision: policy.DecisionBlock, TriggeredRules: []string{"wire-rule"}}
 	wireWouldBlock := MCPEvalResult{Decision: policy.DecisionAudit, OriginalDecision: policy.DecisionBlock, TriggeredRules: []string{"wire-rule"}}
+	bareAudit := MCPEvalResult{Decision: policy.DecisionAudit, TriggeredRules: []string{"bare-audit"}, TaxonomyRefs: []string{"k/s/n"}}
+	wireAudit := MCPEvalResult{Decision: policy.DecisionAudit, TriggeredRules: []string{"wire-audit"}}
 	approval := MCPEvalResult{Decision: policy.DecisionRequireApproval, TriggeredRules: []string{"wire-rule"}}
 
 	for _, c := range []struct {
@@ -46,6 +48,10 @@ func TestPreferBlockingBareResult(t *testing.T) {
 		{"wire would-block is kept", wireWouldBlock, wouldBlock, wireWouldBlock},
 		{"bare audit never lowers wire require-approval", approval, audit, approval},
 		{"bare allow never lowers wire audit", audit, allow, audit},
+		{"same AUDIT: bare rule match keeps the receipt (#4379)", audit, bareAudit, bareAudit},
+		{"same AUDIT: wire's own rule match is kept", wireAudit, bareAudit, wireAudit},
+		{"bare AUDIT rule never replaces wire require-approval", approval, bareAudit, approval},
+		{"audit-only: wire would-block is not replaced by bare plain audit", wireWouldBlock, bareAudit, wireWouldBlock},
 	} {
 		if got := PreferBlockingBareResult(c.wire, c.bare); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)

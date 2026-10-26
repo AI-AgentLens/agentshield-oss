@@ -36,6 +36,12 @@ func TestPipesIntoExecutor(t *testing.T) {
 		{"mksh", `echo "hello" | mksh`, true},
 		{"ash", `echo "hello" | ash`, true},
 		{"rbash", `echo "hello" | rbash`, true},
+		// #4386: versioned and restricted names run stdin as their base shell.
+		{"zsh5", `echo "hello" | zsh5`, true},
+		{"rzsh", `echo "hello" | rzsh`, true},
+		{"rksh93", `echo "hello" | rksh93`, true},
+		{"zsh-5.9 errexit still executes stdin", `echo "hello" | zsh-5.9 -e`, true},
+		{"rsh is the remote-shell client, not a shell", `echo "hello" | rsh`, false},
 		{"tclsh", `echo "hello" | tclsh`, true},
 		{"osascript", `echo "hello" | osascript`, true},
 

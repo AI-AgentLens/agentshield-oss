@@ -121,7 +121,7 @@ func TestEvaluateCommand_AuditEventCarriesTaxonomyAndIdentity(t *testing.T) {
 	}
 
 	// And through the wire builder, end to end.
-	payload, err := buildAuditPayload(event)
+	payload, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestAuditMCPCall_EventCarriesTaxonomyAndIdentity(t *testing.T) {
 	}
 
 	auditMCPCall("read_file", map[string]interface{}{"path": "/home/dev/.ssh/id_rsa"},
-		result, "claude-code-hook", "enforce", sessionID)
+		result, "claude-code-hook", "enforce", sessionID, "", nil)
 
 	logged := readAuditEventsForTest(t, home)
 	if len(logged) != 1 {
@@ -181,7 +181,7 @@ func TestAuditMCPCall_EventCarriesTaxonomyAndIdentity(t *testing.T) {
 	}
 
 	// The MCP wire payload must split the synthetic label out of rule_ids.
-	payload, err := buildAuditPayload(&e)
+	payload, err := buildAuditPayload(&e, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload: %v", err)
 	}

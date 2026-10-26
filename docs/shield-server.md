@@ -28,6 +28,20 @@ Flags: `--addr`, `--policy` (shell policy override; skips disk packs, same
 semantics as `agentshield check --policy`, #3030), `--mcp-policy`, `--log`,
 `--mode enforce|audit-only`, `--token`, `--version`.
 
+`--mode` is normalised exactly as `agentshield.yaml`'s `mode:` is: only the
+exact values `enforce` and `audit-only` are recognised, and anything else
+enforces with a startup warning and is reported as `"mode": "enforce"`
+(#4356; before, the unrecognised string itself was reported). In
+`audit-only` mode the downgrade applies to the final verdict, after every
+block source including `value_limits`: a call enforce mode would block
+answers `AUDIT` with `original_decision`, and with the same `rules`,
+`reasons` and `taxonomy` enforce mode reports. The exception is
+self-protection: a BLOCK that a self-protection rule decided, or a BLOCK on a
+call or command that changes AgentShield's state or an agent's hook or MCP
+configuration file (shell and MCP alike), is answered `BLOCK` in either mode,
+exactly as enforce mode answers it, with no `original_decision`. A read of
+those files is not a change and is answered `AUDIT`.
+
 Policy resolution matches a local install: embedded community packs always
 apply; `~/.agentshield/packs` and `~/.agentshield/mcp-packs` (premium / custom)
 layer on top. TLS is out of scope — run a reverse proxy in front.

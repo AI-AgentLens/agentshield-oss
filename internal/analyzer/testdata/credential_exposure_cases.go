@@ -7582,6 +7582,95 @@ var KeyctlKernelKeyringCases = []TestCase{
 		Description:      "Copy of a KeePassXC database file to /tmp — exfiltration setup, must be blocked.",
 		Tags:             []string{"tp", "keepassxc", "password-manager"},
 	},
+
+	// #4400 fix round: a search needle that ITSELF matches the rule, beside a
+	// real read. The first three read through a variable assigned in a SIBLING
+	// statement, which only the matcher's whole-command MaterializeAssignments
+	// form (#3249) resolves; PositionExcluded's subtraction check lacked that
+	// form, so the needle was the only match it could see and the command
+	// decided AUDIT. Marked "pipeline" because the bug and the fix live on
+	// the analyzer path: TestPipeline_AllKingdoms runs these, and
+	// TestAccuracy_AllKingdoms skips them.
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-SIBLING-003",
+		Command:          `git log -S'cat a.kdbx' && x=~/Passwords.kdbx && cat "$x"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 1: a git pickaxe needle naming the rule's own pattern, then a real read of the database through a variable assigned in a sibling statement. Blocked without the needle; with it, subtraction could not see the materialized read and the command decided AUDIT. Fixed by adding the whole-command MaterializeAssignments forms to redactedForms.`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-SIBLING-004",
+		Command:          `git log --oneline -S'cp a.kdbx b'; f=~/Passwords.kdbx; cp "$f" /tmp/x`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 1, the ";"/cp spelling: the pickaxe needle names the pattern, then a separate statement assigns the path and a third copies it. Must BLOCK on the copy. The needle leads so the exec-wrapper parity sweeps keep the command meaning the same: a wrapper prefixed to a leading assignment turns it into a program name (TestPositionExcludedSubtractionWholeCommandForms pins the assignment-first order).`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-SIBLING-005",
+		Command:          `grep -rn 'cat a.kdbx' docs/ && x=~/Passwords.kdbx && cat "$x"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 1, the grep-needle twin: the same sibling-assignment read behind a grep pattern operand instead of a pickaxe string. Same root cause, same fix.`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-LITERAL-006",
+		Command:          `git log -S'cat a.kdbx' --oneline && cat ~/Passwords.kdbx`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "regex",
+		Description:      `#4400: the needle matches the rule and a literal read follows, so the exclusion's subtraction half is what keeps the BLOCK. A mutant that skips subtraction turns this into a pass, and TestPipeline_AllKingdoms is the test that catches it. TestAccuracy_AllKingdoms also runs it but does not discriminate that mutant: the regex-only engine still blocks the command by this rule through another route. The rule's inline TP of the same command does (TestRuleYAMLTests calls the position check directly).`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "issue-4400"},
+	},
+	{
+		ID:               "TN-SEC-BLOCK-KDBX-NEEDLE-ASSIGN-007",
+		Command:          `x=~/Passwords.kdbx && git log -S'cat a.kdbx' --oneline && echo "$x"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 over-reach guard: the variable is assigned and echoed but never read by a file tool, so the materialized form adds no read and the needle stays the only match. The rule must stay excluded. AUDIT is the default for the unrecognised echo, not this rule.`,
+		Tags:             []string{"tn", "keepassxc", "search-needle", "subtraction", "issue-4400"},
+	},
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-FOLD-008",
+		Command:          `git log -S'cat a.kdbx' --oneline; x=~/Passwords.kdbx; ca${zqx}t "$x"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 2: a sibling-assigned read whose program word carries an unset-parameter splice. It matches only once the splice is folded and THEN the assignment is materialized, the composition the matcher's whole-command builder performs. A hand-kept redactedForms ran the two in separate places and missed it; sharing buildWholeCommandForms closes it.`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-SEC-BLOCK-KDBX-NEEDLE-FOLD-009",
+		Command:          `git log -S'cat a.kdbx' --oneline; x=~/Passwords.kdbx; $(echo cat) "$x"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-manager/keepassxc-config-access",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 2: the same read through an indirect executable name, which resolves before the assignment is materialized. Same root cause and fix as TP-SEC-BLOCK-KDBX-NEEDLE-FOLD-008.`,
+		Tags:             []string{"tp", "keepassxc", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-ETC-SHADOW-NEEDLE-FOLD-001",
+		Command:          `git log -S'/etc/shadow' --oneline; a=/etc; b=sha${zqx}dow; cat $a/$b`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "pipeline",
+		Description:      `#4400 pass 2 on sec-block-etc-shadow: a path split across sibling assignments, one half carrying an unset-parameter splice, behind a pickaxe needle naming the path. Same composition as TP-SEC-BLOCK-KDBX-NEEDLE-FOLD-008.`,
+		Tags:             []string{"tp", "shadow", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
 	{
 		ID:               "TP-SEC-BLOCK-KEEPASSXC-CFG-001",
 		Command:          "cat ~/.config/keepassxc/keepassxc.ini",
@@ -9468,6 +9557,56 @@ var FridaProcessAttachCoverageCases = []TestCase{
 			so it cannot see "frida -n chrome" as its own statement. Same shape as
 			TP-COMPOUND-EVASION-007 (ts-block-mkfs's own anchor-evasion case).`,
 		Tags: []string{"tp", "frida", "search-needle", "issue-3382"},
+	},
+	{
+		ID:               "TP-FRIDA-SEARCHNEEDLE-002",
+		Command:          `git log -S'frida -n Foo' --oneline; echo 'frida -n Safari' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "pipeline",
+		Description: `A pickaxe needle naming the rule, then a real attach the shell runs from
+			a pipe. The anchored rule matches the payload only as executed text
+			(#3938), so subtraction has to retry the executed-text bodies of the
+			redacted command too. Without that, the needle excused the whole command:
+			BLOCK on main, AUDIT on #4400 before fix round 2.`,
+		Tags: []string{"tp", "frida", "search-needle", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-FRIDA-SEARCHNEEDLE-003",
+		Command:          `grep 'frida -n Foo' notes.txt && echo 'frida -n Safari' | bash`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "pipeline",
+		Description: `The grep twin of TP-FRIDA-SEARCHNEEDLE-002. Main decided AUDIT here (the
+			grep needle was already a search_needle); the executed-text forms in
+			redactedForms close it with the pickaxe case (#4400 fix round 2).`,
+		Tags: []string{"tp", "frida", "search-needle", "issue-4400"},
+	},
+	{
+		ID:               "TP-FRIDA-SEARCHNEEDLE-004",
+		Command:          "git log -S'frida -n Foo' --oneline; python3 - <<'EOF'\nimport os\nos.system(\"frida -n Safari\")\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "pipeline",
+		Description: `A pickaxe needle, then an interpreter heredoc whose os.system call runs
+			the attach. The payload matches only as an InterpreterHeredocExecStatements
+			literal (#3697), so redactedForms needs that form as well (#4400 fix round 2).`,
+		Tags: []string{"tp", "frida", "search-needle", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TN-FRIDA-SEARCHNEEDLE-005",
+		Command:          `grep 'frida -n Foo' notes.txt; echo 'frida -n Safari' > notes2.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/process-credential/ptrace-process-attach",
+		Analyzer:         "pipeline",
+		Description: `Over-reach guard for the executed-text forms: the echo writes the text to
+			a file and nothing executes it, so the needle exclusion still holds and the
+			rule must not fire. AUDIT is the default for the unmatched redirect.`,
+		Tags: []string{"tn", "frida", "search-needle", "issue-4400"},
 	},
 
 	// --- CROSS-STATEMENT, CROSS-TOOL SPAN (issue #3936) ---

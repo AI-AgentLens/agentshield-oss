@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // loadMCPPolicyFromDir parses every pack YAML file in dir into an MCPPolicy
@@ -180,6 +182,12 @@ func runValueLimitRuleYAMLTests(t *testing.T, rules []ValueLimitRule, knownGaps 
 						return
 					}
 					t.Errorf("TP failed — value limit rule %s should fire on tool=%q args=%v", rule.ID, tc.Tool, args)
+				}
+				// The verdict every surface reports carries the rule's
+				// taxonomy node, so its receipt attests to the node.
+				verdict, _ := evaluator.ApplyValueLimits(MCPEvalResult{Decision: policy.DecisionAudit}, tc.Tool, args)
+				if rule.Taxonomy != "" && len(result.Findings) > 0 && !reflect.DeepEqual(verdict.TaxonomyRefs, []string{rule.Taxonomy}) {
+					t.Errorf("value limit rule %s: verdict taxonomy %v, want [%s]", rule.ID, verdict.TaxonomyRefs, rule.Taxonomy)
 				}
 			})
 		}

@@ -35,9 +35,45 @@ import "strings"
 // and a conservative choice here: an unrecognized sequence never disappears,
 // it just stays unresolved, so this function can only ever reveal MORE text,
 // never hide any.
+//
+// An escape that decodes to byte 0 is written as a NUL byte, here and only
+// here. bash ends the body at that escape instead (see ANSICNULIndex); that
+// reading is evaluated separately, never in place of this one (#4540).
 func DecodeANSICEscapes(body string) (string, bool) {
+	out, changed, _ := decodeANSIC(body, false)
+	return out, changed
+}
+
+// ANSICNULIndex returns the byte offset in body (the text between $' and the
+// closing quote) of the first escape that bash decodes to byte 0, or -1.
+//
+// bash assembles the decoded $'...' text as a C string, so the body ENDS at
+// that escape: r$'\0'm runs rm, and $'rm\0zz' runs rm (#4540). Text after the
+// closing quote is not affected. Verified on bash 3.2.57 and 5.3.9 with
+// printf and od, every spelling that yields byte 0:
+//
+//	\0 \00 \000   octal, and \400, which bash keeps to its low 8 bits
+//	\x0 \x00      hex (\x0b is one escape, 0x0b, not \x0 then b)
+//	\u0 \u0000    \U0 \U00000000 (bash 4.2+; bash 3.2 leaves \u literal)
+//	\cX           when X&0x1f is 0: \c@, \c`, \c and a space, and the bytes
+//	              0x80, 0xA0, 0xC0, 0xE0. bash computes \cX as X&0x1f, which
+//	              DecodeANSICEscapes's XOR does not reproduce for these.
+//
+// zsh does not end the body: it keeps the NUL inside the string. An external
+// command still sees the word cut at the NUL (argv is a C string), but zsh's
+// own eval, trap, alias and source see the text after it and run it. So
+// neither reading is the truth on its own, and the caller evaluates both.
+func ANSICNULIndex(body string) int {
+	_, _, at := decodeANSIC(body, true)
+	return at
+}
+
+// decodeANSIC is DecodeANSICEscapes's loop. With stopAtNUL it stops at the
+// first escape bash decodes to byte 0 and returns that escape's offset last;
+// otherwise the offset is -1 and the rest is exactly DecodeANSICEscapes's.
+func decodeANSIC(body string, stopAtNUL bool) (string, bool, int) {
 	if !strings.Contains(body, `\`) {
-		return body, false
+		return body, false, -1
 	}
 
 	var b strings.Builder
@@ -105,6 +141,9 @@ func DecodeANSICEscapes(body string) (string, bool) {
 			changed = true
 		case 'x':
 			if v, consumed, ok := readHexDigits(body[i+2:], 2); ok {
+				if stopAtNUL && v == 0 {
+					return b.String(), true, i
+				}
 				b.WriteByte(byte(v))
 				i += 2 + consumed
 				changed = true
@@ -114,6 +153,9 @@ func DecodeANSICEscapes(body string) (string, bool) {
 			}
 		case 'u':
 			if v, consumed, ok := readHexDigits(body[i+2:], 4); ok {
+				if stopAtNUL && v == 0 {
+					return b.String(), true, i
+				}
 				b.WriteRune(rune(v))
 				i += 2 + consumed
 				changed = true
@@ -123,6 +165,9 @@ func DecodeANSICEscapes(body string) (string, bool) {
 			}
 		case 'U':
 			if v, consumed, ok := readHexDigits(body[i+2:], 8); ok {
+				if stopAtNUL && v == 0 {
+					return b.String(), true, i
+				}
 				b.WriteRune(rune(v))
 				i += 2 + consumed
 				changed = true
@@ -133,10 +178,20 @@ func DecodeANSICEscapes(body string) (string, bool) {
 		case 'c':
 			if i+2 < n {
 				ctrl := body[i+2]
+				if stopAtNUL && ctrl&0x1f == 0 {
+					return b.String(), true, i
+				}
 				if ctrl >= 'a' && ctrl <= 'z' {
 					ctrl -= 'a' - 'A'
 				}
-				b.WriteByte(ctrl ^ 0x40)
+				// bash masks (X & 0x1f) for every X; only \c? is the DEL
+				// special case. XOR 0x40 agrees on letters and @[\]^_ but
+				// turns \c* (newline) and \c) (tab) into letters (#4543).
+				if ctrl == '?' {
+					b.WriteByte(0x7f)
+				} else {
+					b.WriteByte(ctrl & 0x1f)
+				}
 				i += 3
 				changed = true
 			} else {
@@ -146,6 +201,9 @@ func DecodeANSICEscapes(body string) (string, bool) {
 		default:
 			if next >= '0' && next <= '7' {
 				if v, consumed, ok := readOctalDigits(body[i+1:], 3); ok {
+					if stopAtNUL && byte(v) == 0 {
+						return b.String(), true, i
+					}
 					b.WriteByte(byte(v))
 					i += 1 + consumed
 					changed = true
@@ -160,9 +218,9 @@ func DecodeANSICEscapes(body string) (string, bool) {
 	}
 
 	if !changed {
-		return body, false
+		return body, false, -1
 	}
-	return b.String(), true
+	return b.String(), true, -1
 }
 
 // decodeDollarQuotedSpans finds every $'...' span in s — honoring backslash
@@ -182,27 +240,14 @@ func decodeDollarQuotedSpans(s string) (string, bool) {
 	n := len(s)
 	i := 0
 	for i < n {
-		if s[i] == '$' && i+1 < n && s[i+1] == '\'' {
-			j := i + 2
-			for j < n {
-				if s[j] == '\\' && j+1 < n {
-					j += 2
-					continue
-				}
-				if s[j] == '\'' {
-					break
-				}
-				j++
-			}
-			if j < n && s[j] == '\'' {
-				decoded, _ := DecodeANSICEscapes(s[i+2 : j])
-				b.WriteString(decoded)
-				i = j + 1
-				changed = true
-				continue
-			}
-			// Unterminated $'... — no closing quote; fall through and copy
-			// the "$" literally rather than guess at a boundary.
+		// An unterminated $'... (no closing quote) is not a span: the "$" is
+		// copied literally rather than guessing at a boundary.
+		if j := dollarQuotedSpanEnd(s, i); j >= 0 {
+			decoded, _ := DecodeANSICEscapes(s[i+2 : j])
+			b.WriteString(decoded)
+			i = j + 1
+			changed = true
+			continue
 		}
 		b.WriteByte(s[i])
 		i++
@@ -212,6 +257,64 @@ func decodeDollarQuotedSpans(s string) (string, bool) {
 		return s, false
 	}
 	return b.String(), true
+}
+
+// dollarQuotedSpanEnd returns the offset of the quote that closes the $'...'
+// span starting at s[i], or -1 when s[i:] does not start one or it is never
+// closed. A backslash escapes the next byte, so \' does not close the span.
+func dollarQuotedSpanEnd(s string, i int) int {
+	n := len(s)
+	if i+1 >= n || s[i] != '$' || s[i+1] != '\'' {
+		return -1
+	}
+	for j := i + 2; j < n; j++ {
+		if s[j] == '\\' && j+1 < n {
+			j++
+			continue
+		}
+		if s[j] == '\'' {
+			return j
+		}
+	}
+	return -1
+}
+
+// CutDollarQuotedSpansAtNUL is the text-only form of
+// shellparse.ANSICNULReading, for a command the parser rejects (an
+// unterminated heredoc, a quoted reserved word): every $'...' span found by
+// StripShellQuotes's boundary rule has its body cut at the first escape bash
+// decodes to byte 0 (ANSICNULIndex). Returns "" when nothing is cut.
+//
+// Without quote context a $' inside single or double quotes is cut too. That
+// only touches the stricter-only second reading (policy.Engine.
+// EvaluateANSICNUL), never the as-written text.
+func CutDollarQuotedSpansAtNUL(s string) string {
+	if !strings.Contains(s, "$'") {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	cut := false
+	for i := 0; i < len(s); {
+		j := dollarQuotedSpanEnd(s, i)
+		if j < 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if at := ANSICNULIndex(s[i+2 : j]); at >= 0 {
+			b.WriteString(s[i : i+2+at])
+			b.WriteByte('\'')
+			cut = true
+		} else {
+			b.WriteString(s[i : j+1])
+		}
+		i = j + 1
+	}
+	if !cut {
+		return ""
+	}
+	return b.String()
 }
 
 func readHexDigits(s string, maxDigits int) (value int, consumed int, ok bool) {

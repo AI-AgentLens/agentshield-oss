@@ -114,4 +114,30 @@ func TestPositionExclusionWithdrawnWhenTextReachesExecutor(t *testing.T) {
 			{"python output redirected to a file nothing runs stays excused", "python3 - <<'PY' > out.txt\nprint(\"zqxinterp go now\")\nPY", DecisionAudit},
 		})
 	})
+
+	// #4468: search_needle is not a data-text position, but its premise
+	// ("searching for a name is not using it") fails the same way once
+	// grep's OUTPUT runs, because every selected line contains the needle.
+	t.Run("search_needle", func(t *testing.T) {
+		pol := &Policy{Defaults: Defaults{Decision: DecisionAudit}, Rules: []Rule{
+			positionRule("test-search-needle", `zqxneedle\s+run`, analyzer.LabelPosSearchNeedle),
+		}}
+		g := `grep -F 'zqxneedle run' cmds.txt`
+		testPositionExcludeParity(t, pol, []struct {
+			name    string
+			command string
+			want    Decision
+		}{
+			{"control: bare", `zqxneedle run now`, DecisionBlock},
+			{"control: a search nothing runs", g, DecisionAudit},
+			{"piped into bash", g + " | bash", DecisionBlock},
+			{"eval of a command substitution", `eval "$(` + g + `)"`, DecisionBlock},
+			{"process substitution run by bash", "bash <(" + g + ")", DecisionBlock},
+			{"xargs runs each line", g + " | xargs -L1 env", DecisionBlock},
+			{"read loop evals each line", g + ` | while read -r l; do eval "$l"; done`, DecisionBlock},
+			{"piped into a counter stays excused", g + " | wc -l", DecisionAudit},
+			{"captured, never run, stays excused", "x=$(" + g + "); echo done", DecisionAudit},
+			{"read loop that prints stays excused", g + ` | while read -r l; do echo "$l"; done`, DecisionAudit},
+		})
+	})
 }

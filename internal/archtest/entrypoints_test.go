@@ -57,7 +57,7 @@ var directConstructionSites = map[string]entryPoint{
 // until it is registered, and an enforcing one must also get a parity row.
 var registeredEntryPoints = map[string]entryPoint{
 	// Decide live agent actions.
-	"internal/cli/hook.go:evaluateCommand":                   {surface: "shell hook (every harness's shell tool)", enforcing: true, calls: 1},
+	"internal/cli/hook.go:evaluateCommandNoted":              {surface: "shell hook (every harness's shell tool)", enforcing: true, calls: 1},
 	"internal/cli/hook.go:handleClaudeCodeMCPCall":           {surface: "hook tool path (built-in tools and mcp__* via PreToolUse)", enforcing: true, calls: 1},
 	"internal/cli/mcp_proxy.go:mcpProxyCommand":              {surface: "stdio MCP proxy", enforcing: true, calls: 1},
 	"internal/cli/mcp_http_proxy.go:mcpHTTPProxyCommand":     {surface: "HTTP MCP proxy", enforcing: true, calls: 1},

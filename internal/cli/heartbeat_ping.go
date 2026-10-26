@@ -41,7 +41,7 @@ func sendOpportunisticHeartbeat() {
 	hostname := stableHostname()
 	payload, _ := json.Marshal(map[string]any{
 		"hostname":      hostname,
-		"machine_id":    enterprise.MachineID(),
+		"machine_id":    refreshingMachineID(enterprise.MachineID),
 		"os":            runtime.GOOS,
 		"arch":          runtime.GOARCH,
 		"agent_version": Version,

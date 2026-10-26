@@ -21,6 +21,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 const (
@@ -28,9 +30,6 @@ const (
 	BinaryName = "agentshield"
 	// Subcommand is the one argument an exec-form entry must pass.
 	Subcommand = "hook"
-	// shellSuffix is what a shell-form command must end with. It is the check
-	// every caller used before #4292, kept as it was.
-	shellSuffix = BinaryName + " " + Subcommand
 )
 
 // Form says how a hook object invokes AgentShield, if it does.
@@ -85,10 +84,87 @@ func Classify(hook interface{}) Form {
 		}
 		return None
 	}
-	if strings.HasSuffix(cmd, shellSuffix) {
+	if isShellInvocation(cmd) {
 		return Shell
 	}
 	return None
+}
+
+// isShellInvocation reports whether a shell-form command is, parsed as shell,
+// exactly one simple command whose program is the agentshield binary and whose
+// only argument is "hook" (#4326). A suffix test let `echo agentshield hook`
+// and `cmd; agentshield hook` through: the entry counted as installed while
+// every tool call ran unevaluated.
+// Every word must be literal, since an expansion decides at run time what runs;
+// assignments, redirects and background are refused for the same reason.
+func isShellInvocation(cmd string) bool {
+	// mvdan/sh reads \r as a blank and stops at NUL; bash passes "hook\r" as the
+	// argument and a spawn rejects NUL, so neither runs the hook. mvdan/sh also
+	// ends a # comment at a backslash-newline and continues the command, where
+	// every real shell ends it only at the newline: `agentshield #x\<NL>hook`
+	// parses as `agentshield hook` but runs `agentshield` with no argument
+	// (#4330 pass 2). setup never writes a continuation, so refuse them all.
+	if strings.ContainsAny(cmd, "\r\x00") || strings.Contains(cmd, "\\\n") {
+		return false
+	}
+	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	if err != nil || len(f.Stmts) != 1 {
+		return false
+	}
+	st := f.Stmts[0]
+	if st.Background || st.Coprocess || st.Negated || len(st.Redirs) > 0 {
+		return false
+	}
+	call, ok := st.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Assigns) > 0 || len(call.Args) != 2 {
+		return false
+	}
+	prog, ok1 := literalWord(call.Args[0])
+	arg, ok2 := literalWord(call.Args[1])
+	if !ok1 || !ok2 || arg != Subcommand {
+		return false
+	}
+	return prog == BinaryName || strings.HasSuffix(prog, "/"+BinaryName)
+}
+
+// literalWord returns the value of a word made only of literal text and quotes
+// with no expansion in them.
+func literalWord(w *syntax.Word) (string, bool) {
+	var sb strings.Builder
+	for i, p := range w.Parts {
+		switch n := p.(type) {
+		case *syntax.Lit:
+			// Unquoted glob and brace characters, and a leading tilde, expand at run time.
+			if strings.ContainsAny(n.Value, "*?[{") || (i == 0 && strings.HasPrefix(n.Value, "~")) {
+				return "", false
+			}
+			sb.WriteString(n.Value)
+		case *syntax.SglQuoted:
+			if n.Dollar {
+				return "", false
+			}
+			sb.WriteString(n.Value)
+		case *syntax.DblQuoted:
+			if n.Dollar {
+				return "", false
+			}
+			for _, q := range n.Parts {
+				l, ok := q.(*syntax.Lit)
+				if !ok {
+					return "", false
+				}
+				sb.WriteString(l.Value)
+			}
+		default:
+			return "", false
+		}
+	}
+	v := sb.String()
+	// A backslash in an unquoted Lit is an escape the parser leaves in place.
+	if strings.Contains(v, `\`) {
+		return "", false
+	}
+	return v, true
 }
 
 // IsAgentShieldHook reports whether one hook object invokes `agentshield hook`.
@@ -135,6 +211,40 @@ func SettingsHasPreToolUseHook(data []byte) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// ManagedSettingsPath is Claude Code's file-based managed settings path for
+// the operating system goos (a runtime.GOOS value). A hook registered there
+// survives a repository's committed .claude/settings.json setting
+// "disableAllHooks": true; a user-scope hook does not. That was measured for a
+// SessionStart hook on Claude Code 2.1.296 with the Linux path (2026-10-12,
+// #4292); for PreToolUse, the event AgentShield registers, it is documented,
+// not measured.
+//
+// Paths are from Claude Code's "Deploy managed settings" page,
+// https://code.claude.com/docs/en/managed-settings ("Place the file on each
+// machine" and "Where each mechanism stores the policy"), read 2026-10-19:
+//
+//   - macOS: /Library/Application Support/ClaudeCode/managed-settings.json
+//   - Linux and WSL: /etc/claude-code/managed-settings.json
+//   - Windows: C:\Program Files\ClaudeCode\managed-settings.json
+//
+// The same page says Claude Code doesn't read the legacy Windows path
+// C:\ProgramData\ClaudeCode\managed-settings.json, which #4292's issue body
+// still named. Only the Linux path has been measured; the macOS and Windows
+// paths are documented, not measured.
+//
+// Any other goos gets the Linux path: Claude Code ships for macOS, Linux and
+// Windows only, and WSL reports linux.
+func ManagedSettingsPath(goos string) string {
+	switch goos {
+	case "darwin":
+		return "/Library/Application Support/ClaudeCode/managed-settings.json"
+	case "windows":
+		return `C:\Program Files\ClaudeCode\managed-settings.json`
+	default:
+		return "/etc/claude-code/managed-settings.json"
+	}
 }
 
 // ExecHook is the exec-form hook object for the binary at binPath.

@@ -284,6 +284,13 @@ const (
 	// what the decision was actually evaluated against, so the SaaS never
 	// attests a degraded evaluation as full enforcement.
 	NotePolicyDegraded = "policy_degraded"
+	// NotePayloadCwdUnusable: the harness payload named a working directory
+	// that could not be evaluated against (relative, missing, or not a
+	// directory), so the command was evaluated against the hook process's own
+	// directory instead (#4452). Written by the hook, not a stage. Detail
+	// names the payload value and why it was refused, so a receipt never
+	// presents a fallback directory as the one the agent's shell was in.
+	NotePayloadCwdUnusable = "payload_cwd_unusable"
 )
 
 // Note is one attestation record on an evaluation. See the kinds above.

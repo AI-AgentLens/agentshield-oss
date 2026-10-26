@@ -301,3 +301,25 @@ func TestInlineCodeFragments_QuotedCarrierPayloadNotTruncated(t *testing.T) {
 		t.Errorf("InlineCodeFragments(%q) = %q, want %q", in, got, want)
 	}
 }
+
+// TestMaterializeAssignments_CommandPrefixAssignment is #4413: a prefix
+// assignment hands the program its value exactly as `export` does, so the
+// value must be materialized like an argument. A bare assignment (no command)
+// binds and runs nothing, so it stays untouched.
+func TestMaterializeAssignments_CommandPrefixAssignment(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"bare-expansion", "h=/dev/shm/x; HOME=$h ssh host", "h=/dev/shm/x\nHOME=/dev/shm/x ssh host"},
+		{"quoted-expansion-written-bare", `h=/dev/shm/x; HOME="$h" git status`, "h=/dev/shm/x\nHOME=/dev/shm/x git status"},
+		{"value-with-space-stays-quoted", `h="a b"; V=$h env`, "h=\"a b\"\nV='a b' env"},
+		{"bare-assignment-untouched", "h=/dev/shm/x; HOME=$h", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MaterializeAssignments(tc.in); got != tc.want {
+				t.Errorf("MaterializeAssignments(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

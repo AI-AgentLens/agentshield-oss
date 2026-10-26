@@ -3873,4 +3873,27 @@ var SysRQTriggerCoverageCases = []TestCase{
 		Description:      "Reading the sysrq enablement bitmask from /proc/sys/kernel/sysrq — read-only state inspection, not a sysrq-trigger write. Must ALLOW; ts-block-sysrq-trigger must NOT fire (the rule requires a redirect to /proc/sysrq-trigger).",
 		Tags:             []string{"tn", "sysrq"},
 	},
+
+	// --- #4454: control-plane API volume delete (OECD AIM 2026-04-27-6153) ---
+
+	{
+		ID:               "TP-RAILWAY-VOLUMEDELETE-001",
+		Command:          `curl -X POST https://backboard.railway.app/graphql/v2 -H "Authorization: Bearer $RAILWAY_TOKEN" -H "Content-Type: application/json" -d '{"query":"mutation { volumeDelete(volumeId: \"3d2c42fb-0000-0000-0000-000000000000\") }"}'`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/cloud-infra/control-plane-api-volume-delete",
+		Analyzer:         "regex",
+		Description:      "The incident's own call: one POST to Railway's GraphQL API deleting a database volume and the backups stored in it.",
+		Tags:             []string{"tp", "cloud", "incident"},
+	},
+	{
+		ID:               "TN-RAILWAY-VOLUMEDELETE-001",
+		Command:          `curl -s https://backboard.railway.app/graphql/v2 -H "Authorization: Bearer $RAILWAY_TOKEN" -d '{"query":"query { me { name } }"}'`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/cloud-infra/control-plane-api-volume-delete",
+		Analyzer:         "regex",
+		Description:      "A read-only query to the same host is ordinary traffic: recorded (AUDIT), not blocked.",
+		Tags:             []string{"tn", "cloud", "incident"},
+	},
 }

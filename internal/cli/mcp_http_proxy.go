@@ -157,6 +157,9 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// #4463: the entry is redacted and data-label scrubbed like the hook's event.
+	// dlEngine is set below once the policy's labels are compiled; nil scrubs nothing.
+	var dlEngine *datalabel.Engine
 	onAudit := func(entry mcp.AuditEntry) {
 		if auditFile == nil {
 			return
@@ -164,7 +167,7 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		auditMu.Lock()
 		defer auditMu.Unlock()
 
-		data, err := json.Marshal(entry)
+		data, err := json.Marshal(entry.Redacted(dlEngine.Scrub))
 		if err != nil {
 			return
 		}
@@ -190,6 +193,7 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 		if engine, dlErr := datalabel.NewEngine(dlConfigs); dlErr != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] warning: data label engine init failed: %v\n", dlErr)
 		} else if engine != nil {
+			dlEngine = engine
 			dlScanner = mcp.NewDataLabelScanner(engine)
 			fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] data label scanner: %d labels loaded\n", len(mcpPolicy.DataLabels))
 		}

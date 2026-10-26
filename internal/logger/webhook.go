@@ -27,7 +27,8 @@ func NewWebhookLogger(url, authHeader string) *WebhookLogger {
 
 // Log sends an audit event to the webhook. It fires in a goroutine with one retry.
 func (w *WebhookLogger) Log(event AuditEvent) error {
-	data, err := json.Marshal(event)
+	// Same Redacted as the file line and the SaaS wire copy (#4332).
+	data, err := json.Marshal(event.Redacted())
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,7 @@ func (w *WebhookLogger) Close() error {
 
 // SendSync sends data synchronously (for testing).
 func (w *WebhookLogger) SendSync(event AuditEvent) error {
-	data, err := json.Marshal(event)
+	data, err := json.Marshal(event.Redacted())
 	if err != nil {
 		return err
 	}

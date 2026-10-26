@@ -60,8 +60,18 @@ Both MCP transport mechanisms are supported:
    `enforcement_mode:`, or `--mode`): a `tools/call` that would be `BLOCK`ed
    is forwarded and logged as `AUDIT` with `"original_decision": "BLOCK"` and
    `"mode": "audit-only"`, whichever step above decided it. The hook records
-   the same call the same way. The **config file guard** (step 6) still blocks
-   in audit-only mode: it is the proxy's self-protection. Audit-only covers
+   the same call the same way. **Self-protection** still blocks in audit-only
+   mode: the **config file guard** (step 6), a BLOCK a self-protection rule
+   decided, and a BLOCK on a call whose arguments name AgentShield's
+   configuration or an agent's hook file (#4337). The hook (shell and tool
+   path), `mcp-eval` and `shield-server` keep a narrower set, by one
+   definition (`PolicyEvaluator.ApplyModeKeepingSelfProtection`,
+   `mcp.ShellSelfProtectionKeep`): a BLOCK a self-protection rule decided, or
+   one on a call that **changes** AgentShield's state or an agent's hook or MCP
+   configuration file. A read of those files, or a change to the guard's other
+   files, is recorded there; widening or narrowing the proxies to match is a
+   separate decision. Only a BLOCK enforce mode makes is kept, so audit-only
+   never blocks more than enforce. Audit-only covers
    `tools/call` only; `resources/read`, `resources/subscribe`, `prompts/get`
    and `completion/complete` requests, and the server-to-client filters below
    (tool description scanning, response scanning), behave as in enforce mode.
@@ -482,7 +492,7 @@ Every hidden tool is recorded in the audit log with:
 ## Design Decisions
 
 1. **Block at `tools/call` + scan `tools/list`** — `tools/call` requests are evaluated against policy. `tools/list` responses are scanned for poisoned tool descriptions and poisoned tools are removed.
-2. **Fail open on parse errors, with a receipt; refuse nesting past the decoder limit** — If a message can't be parsed as JSON-RPC, it's forwarded unscanned (stdio in both directions, HTTP request path, HTTP JSON and SSE response relays), so the proxy doesn't break non-standard server implementations — and the pass is recorded as an `mcp-extract-fail-open` AUDIT receipt, because a message Shield could not read is a message Shield did not scan (#4158). The one parse failure that is a decision of its own is depth: `encoding/json` refuses JSON with more than 10000 arrays or objects open at once, while Node's `JSON.parse` accepts it, so a message nested past that limit (counted outside string literals, by `internal/mcp/parse_failure.go`) is not forwarded. The client receives a JSON-RPC parse error (`-32700`, `"id": null`, since the id cannot be read) and a BLOCK is recorded under `mcp-json-depth-exceeded`. No legitimate MCP message comes near that depth; the shape is enumerable and attacker-inducible (`arguments` is model-controlled JSON). In the server-to-client direction, on both transports, payloads that are not shaped like a message (`{"`, `{}`, `[{` or `[]` after any run of whitespace and UTF-8 BOMs) — a stdio server's banner or debug lines on stdout, an empty `202`, an HTML error page, the legacy SSE `endpoint` frame — are relayed without a receipt; the depth check runs on every payload regardless of shape, so a run of BOMs cannot hide a deep message.
+2. **Fail open on parse errors, with a receipt; refuse nesting past the decoder limit** — If a message can't be parsed as JSON-RPC, it's forwarded unscanned (stdio in both directions, HTTP request path, HTTP JSON and SSE response relays), so the proxy doesn't break non-standard server implementations — and the pass is recorded as an `mcp-extract-fail-open` AUDIT receipt, because a message Shield could not read is a message Shield did not scan (#4158). The one parse failure that is a decision of its own is depth: `encoding/json` refuses JSON with more than 10000 arrays or objects open at once, while Node's `JSON.parse` accepts it, so a message nested past that limit (counted outside string literals, by `internal/mcp/parse_failure.go`) is not forwarded. The client receives a JSON-RPC parse error (`-32700`, `"id": null`, since the id cannot be read) and a BLOCK is recorded under `mcp-json-depth-exceeded`. No legitimate MCP message comes near that depth; the shape is enumerable and attacker-inducible (`arguments` is model-controlled JSON). In the server-to-client direction, on both transports, payloads that are not shaped like a message (`{"`, `{}`, `[{` or `[]` after any run of whitespace and UTF-8 BOMs) — a stdio server's banner or debug lines on stdout, an empty `202`, an HTML error page, the legacy SSE `endpoint` frame — are relayed without a receipt, except that a non-2xx HTTP body is first scanned with the error-message prose sets (`mcp-error-message-injection`), because the TS SDK hands that body to the host as the `callTool` error text; a hit replaces the body with `Upstream error (HTTP <status>)`, keeps the status, and records an AUDIT (#4408); the depth check runs on every payload regardless of shape, so a run of BOMs cannot hide a deep message.
 3. **stdio transport only** — HTTP/SSE transport is deferred. Most IDE MCP integrations use stdio.
 4. **No server identity verification** — The proxy trusts the server it spawns. Server impersonation detection is deferred.
 5. **Separate policy file** — MCP policy is in `mcp-policy.yaml`, not mixed with shell command policy. The threat models and rule shapes are different.

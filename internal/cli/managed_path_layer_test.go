@@ -54,6 +54,11 @@ func TestManagedMode_ConfigDirIsProtectedByPath(t *testing.T) {
 		`CFG=$HOME/.agentshield; python3 -c "open('$CFG/policy.yaml','w').write('disable_rules: [block-rm-root]')"`,
 		`D=$HOME/.agentshield; cp /tmp/p.yaml $D/policy.yaml`,
 		`cd ` + home + `/.agentshield && python3 -c "open('policy.yaml','w').write('x')"`,
+		// #4434 item 3: the watchdog state file has no rule of its own; only the
+		// directory glob and the text rules stand between it and a blanking write.
+		`CFG=$HOME/.agentshield; python3 -c "open('$CFG/watchdog-state.json','w').write('{}')"`,
+		`D=$HOME/.agentshield; cp /tmp/s.json $D/watchdog-state.json`,
+		`rm ` + home + `/.agentshield/watchdog-state.json`,
 	}
 	for _, cmd := range blocked {
 		res, _ := evaluateCommand(cmd, home, "claude-code-hook", "")
@@ -66,6 +71,7 @@ func TestManagedMode_ConfigDirIsProtectedByPath(t *testing.T) {
 		`cat ` + home + `/.agentshield/policy.yaml`,
 		`tail -n 5 ` + home + `/.agentshield/audit.jsonl`,
 		`ls -la ` + home + `/.agentshield`,
+		`cat ` + home + `/.agentshield/watchdog-state.json`,
 	}
 	for _, cmd := range allowed {
 		res, _ := evaluateCommand(cmd, home, "claude-code-hook", "")

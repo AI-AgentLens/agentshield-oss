@@ -50,6 +50,10 @@ defaults:
       env: ["GOOGLE_APPLICATION_CREDENTIALS", "CLOUDSDK_CONFIG"]
 
 network:
+  # allow_domains is enforced only when enforce_allowlist is true, and then
+  # only the entries in this file count. See docs/policy-guide.md,
+  # "Outbound destination allowlist".
+  # enforce_allowlist: true
   allow_domains:
     - "github.com"
     - "api.github.com"

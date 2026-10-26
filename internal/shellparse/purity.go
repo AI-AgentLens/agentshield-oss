@@ -59,7 +59,13 @@ import (
 // #3976 each closed for a synchronous channel. Unparseable input is impure
 // (no exemption), the same fail-closed posture as the rest of the
 // attribution code.
-func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body string) bool) bool {
+//
+// interpHeredocExecFree receives the actual program text. Optional legacy
+// checks are additional AND requirements on the historical source range,
+// whose end can include the closing delimiter at EOF. This lets a caller
+// tighten its parser without widening decisions previously rejected because
+// of that range. Analyzer supplies its frozen-semantics execution-call check.
+func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body string) bool, legacyExecFree ...func(lang, body string) bool) bool {
 	if strings.TrimSpace(command) == "" {
 		return true
 	}
@@ -85,7 +91,7 @@ func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body str
 				return false
 			}
 			if call, ok := n.Cmd.(*syntax.CallExpr); ok && len(call.Args) > 0 {
-				if !callIsPure(src, n, call, interpHeredocExecFree) {
+				if !callIsPure(src, n, call, interpHeredocExecFree, legacyExecFree...) {
 					pure = false
 					return false
 				}
@@ -197,7 +203,7 @@ func sedScriptExecutes(script string) bool {
 	return false
 }
 
-func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHeredocExecFree func(lang, body string) bool) bool {
+func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHeredocExecFree func(lang, body string) bool, legacyExecFree ...func(lang, body string) bool) bool {
 	if !wordIsStatic(call.Args[0]) {
 		return false // `$x`, `$(…)`, `` `…` ``: the program is whatever the expansion says
 	}
@@ -271,7 +277,7 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHere
 		return true
 	}
 	if lang, ok := codeInterpreters[name]; ok && interpHeredocExecFree != nil {
-		return interpreterHeredocIsPure(src, stmt, lang, args, interpHeredocExecFree)
+		return interpreterHeredocIsPure(src, stmt, lang, args, interpHeredocExecFree, legacyExecFree...)
 	}
 	return false
 }
@@ -280,11 +286,11 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHere
 // argv operands after the `-`) whose quoted body the exec-free analysis
 // accepts. Any inline-program flag, a script operand, or more than one
 // heredoc is impure.
-func interpreterHeredocIsPure(src string, stmt *syntax.Stmt, lang string, args []string, execFree func(lang, body string) bool) bool {
+func interpreterHeredocIsPure(src string, stmt *syntax.Stmt, lang string, args []string, execFree func(lang, body string) bool, legacyExecFree ...func(lang, body string) bool) bool {
 	if len(args) > 0 && args[0] != "-" {
 		return false // a script path or an option: the program is not the heredoc
 	}
-	var body string
+	var body, legacyBody string
 	heredocs := 0
 	for _, r := range stmt.Redirs {
 		switch r.Op {
@@ -299,12 +305,32 @@ func interpreterHeredocIsPure(src string, stmt *syntax.Stmt, lang string, args [
 			if from < 0 || to > len(src) || from > to {
 				return false
 			}
-			body = src[from:to]
+			legacyBody = src[from:to]
+			// Hdoc.End can include the closing delimiter when it ends at EOF.
+			// Lit.Value is the actual program text; never parse the delimiter
+			// as interpreter code. Purity already requires a static body.
+			var actual strings.Builder
+			for _, part := range r.Hdoc.Parts {
+				lit, ok := part.(*syntax.Lit)
+				if !ok {
+					return false
+				}
+				actual.WriteString(lit.Value)
+			}
+			body = actual.String()
 		case syntax.WordHdoc:
 			return false
 		}
 	}
-	return heredocs == 1 && execFree(lang, body)
+	if heredocs != 1 || !execFree(lang, body) {
+		return false
+	}
+	for _, check := range legacyExecFree {
+		if check == nil || !check(lang, legacyBody) {
+			return false
+		}
+	}
+	return true
 }
 
 func heredocDelimiterQuoted(w *syntax.Word) bool {
@@ -348,6 +374,13 @@ func stmtWritesDeferredExecTarget(stmt *syntax.Stmt) bool {
 // line itself containing an execute statement.
 func isDeferredExecTarget(p string) bool {
 	return isHookPath(p) || isAutoRunPath(p)
+}
+
+// IsDeferredExecTarget shares the purity gate's hook/startup/cron path list
+// with interpreter file operations. Callers must resolve their own language's
+// path expressions; an unresolved destination cannot establish inertness.
+func IsDeferredExecTarget(p string) bool {
+	return isDeferredExecTarget(path.Clean(p))
 }
 
 func isHookPath(p string) bool {

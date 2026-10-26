@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -101,17 +102,6 @@ func (h *MessageHandler) configGuard(toolName string, arguments map[string]inter
 	return result
 }
 
-// selfProtectionRuleFired reports whether any of rules is a self-protection
-// rule of the evaluator's policy (PolicyEvaluator.IsSelfProtectionRule).
-func (h *MessageHandler) selfProtectionRuleFired(rules []string) bool {
-	for _, id := range rules {
-		if h.Evaluator.IsSelfProtectionRule(id) {
-			return true
-		}
-	}
-	return false
-}
-
 // auditOnly reports whether tools/call BLOCKs are recorded instead of
 // enforced (#4337).
 func (h *MessageHandler) auditOnly() bool {
@@ -142,6 +132,8 @@ func (h *MessageHandler) holdForAuditOnly(held *[]MCPEvalResult, r MCPEvalResult
 // B1: the premium rules guard spellings the guard alone missed, and the OSS
 // build has only the guard), or a call that names AgentShield's config or an
 // agent hook file in any spelling (argsNameSelfProtectTarget, review pass 2).
+// The last two are PolicyEvaluator.KeepsSelfProtectionBlock, which the other
+// surfaces share (ApplyModeKeepingSelfProtection).
 // The last only keeps a BLOCK enforce mode already made, so it reads broadly:
 // any path-shaped value, command words, and a relative path by its tail. guardBlocked says whether the guard already
 // blocked in the scan chain; when an earlier scanner blocked first the guard
@@ -178,7 +170,7 @@ func (h *MessageHandler) applyToolCallMode(result MCPEvalResult, held []MCPEvalR
 				result.Reasons = append(reasons, result.Reasons...)
 			}
 		}
-		if guardBlocked || h.selfProtectionRuleFired(result.TriggeredRules) || argsNameSelfProtectTarget(toolName, arguments) {
+		if guardBlocked || h.Evaluator.KeepsSelfProtectionBlock(toolName, arguments, result.TriggeredRules) {
 			return result
 		}
 		result.OriginalDecision = result.Decision
@@ -890,31 +882,17 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 		}
 	}
 
-	// If still not blocked, check value limits on numeric arguments
+	// If still not blocked, check value limits on numeric arguments. The pass
+	// and its merge (rule ids, reasons, taxonomy) are the evaluator's, shared
+	// with shield-server and mcp-eval.
 	if result.Decision != "BLOCK" {
-		vlResult := h.Evaluator.CheckValueLimits(params.Name, params.Arguments)
+		var vlResult ValueLimitResult
+		result, vlResult = h.Evaluator.ApplyValueLimits(result, params.Name, params.Arguments)
 		if vlResult.Blocked {
-			result.Decision = "BLOCK"
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
-			}
 			_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] BLOCKED by value limit: %s (%d violations)\n",
 				params.Name, len(vlResult.Findings))
 			for _, f := range vlResult.Findings {
 				_, _ = fmt.Fprintf(h.Stderr, "  - [%s] %s=%.2f (%s)\n", f.RuleID, f.ArgName, f.Value, f.Limit)
-			}
-		} else if len(vlResult.Findings) > 0 {
-			// AUDIT-level findings
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit-audit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit_audit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
 			}
 		}
 	}
@@ -2967,6 +2945,22 @@ func (h *MessageHandler) filterResponseControlTokens(items []ContentItem, reques
 	return replacement
 }
 
+// legacyToolResultItem renders a `toolResult` value as the text the client
+// shows the model: a JSON string as itself, anything else as its JSON text.
+// Returns nil for an absent or null value.
+func legacyToolResultItem(raw json.RawMessage) *ContentItem {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+	text := string(trimmed)
+	var s string
+	if json.Unmarshal(trimmed, &s) == nil {
+		text = s
+	}
+	return &ContentItem{Type: "text", Text: text}
+}
+
 // FilterToolCallResponse checks if a response is a tools/call result.
 // If it is, scans each text content item for prompt injection, action directives,
 // exfiltration instructions, and encoded payloads. When poisoned content is found
@@ -2992,6 +2986,12 @@ func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
 		return nil
 	}
 	h.auditWireShape(MethodToolsCall+"-response", shape)
+
+	// A legacy `toolResult` is shown to the model in place of `content`, so it
+	// is scanned as one more text block (#4551).
+	if lt := legacyToolResultItem(callResult.LegacyToolResult); lt != nil {
+		callResult.Content = append(callResult.Content, *lt)
+	}
 
 	// What the text scanners below read: the wire items, then the text each
 	// embedded resource carries (#4296). Scanners that judge the kind or the
@@ -5175,6 +5175,14 @@ func (h *MessageHandler) DispatchServerResponse(msg *Message, data []byte) []byt
 		return false
 	}
 	ambiguous := false
+	// A legacy `toolResult` (#4551) is shown to the model in place of
+	// `content`, so a typed route to any single filter that does not read it
+	// would forward it unscanned. Any spelling of the key runs the chain.
+	for k := range fields {
+		if strings.EqualFold(k, "toolResult") {
+			ambiguous = true
+		}
+	}
 	var matched []responseRoute
 	for _, r := range h.responseRoutes() {
 		all := true

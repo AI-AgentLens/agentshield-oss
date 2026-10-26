@@ -2752,6 +2752,16 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 			name: "unquoted URL argument with long CDN path",
 			cmd:  `wget -O out.pdf https://assets.ctfassets.net/rb9cdnjh59cm/72xv4p67HVXKp6CjWmjkPk/1cdbfa19f6307e2720396b66a6194dc9/file.pdf`,
 		},
+		// Regression tests for #4472: a long CamelCase Go test name is a
+		// letters-only run (no digit, '+', '/' or '=' padding), not base64.
+		{
+			name: "grep for a long Go test function name",
+			cmd:  `cd ~/dev/kai/saas && grep -n "TestControlEvidence_EventWithoutTaxonomyFallsBackToPublishedMapping" -A40 internal/posture/control_attribution_test.go | head -50`,
+		},
+		{
+			name: "go test -run with a long Go test function name",
+			cmd:  `go test -run TestControlEvidenceEventWithoutTaxonomyFallsBackToPublishedMapping ./internal/posture/`,
+		},
 	}
 
 	for _, tt := range fps {

@@ -297,7 +297,7 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 		// own, so each member gets the screening a single line gets (#4070,
 		// the HTTP proxy's filterBatch). A line that is not a non-empty array
 		// takes the single-message path below.
-		if out, hit, ok := filterBatch(line, p.screenServerLine); ok {
+		if out, hit, ok := filterBatch(line, p.screenServerMessage); ok {
 			switch {
 			case !hit:
 				writeLineToWriter(clientWriter, line)
@@ -307,7 +307,7 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 			continue
 		}
 
-		if out, acted := p.screenServerLine(line); !acted {
+		if out, acted := p.screenServerMessage(line); !acted {
 			writeLineToWriter(clientWriter, line)
 		} else if out != nil {
 			writeLineToWriter(clientWriter, out)
@@ -315,17 +315,23 @@ func (p *Proxy) proxyServerToClient(serverReader io.Reader, clientWriter io.Writ
 	}
 }
 
-// screenServerLine screens one server-to-client message (a stdio line or one
-// member of a batch). acted is false when the message goes out as it came;
-// (out, true) replaces it with out (a scanner's filtered form or a JSON-RPC
-// error); (nil, true) suppresses it.
-func (p *Proxy) screenServerLine(line []byte) (out []byte, acted bool) {
+// screenServerMessage screens one server-to-client message (a stdio line or
+// one member of a batch) as it decodes and, when it sends a field twice under
+// case folding, as the client reads it (#4407, client_view.go). acted is false
+// when the message goes out as it came; (out, true) replaces it with out (a
+// scanner's filtered form or a JSON-RPC error); (nil, true) suppresses it.
+func (p *Proxy) screenServerMessage(line []byte) (out []byte, acted bool) {
+	return p.handler.screenAsClientReads(line, p.screenServerLine)
+}
+
+// screenServerLine is one screen of screenServerMessage, through h.
+func (p *Proxy) screenServerLine(h *MessageHandler, line []byte) (out []byte, acted bool) {
 	msg, kind, err := ParseMessage(line)
 	if err != nil {
 		// Unparseable: nesting past the decoder limit is replaced by a
 		// parse error, anything else is forwarded as-is (fail open) with a
 		// receipt when the line is shaped like a message (#4158).
-		if blocked, errResp := p.handler.ScreenRelayedParseFailure(parseTransportStdio, parseDirServerToClient, line, err); blocked {
+		if blocked, errResp := h.ScreenRelayedParseFailure(parseTransportStdio, parseDirServerToClient, line, err); blocked {
 			return errResp, true
 		}
 		return nil, false
@@ -333,7 +339,7 @@ func (p *Proxy) screenServerLine(line []byte) (out []byte, acted bool) {
 
 	// Responses (id, no method): route to the single applicable scanner.
 	if msg.Method == "" {
-		if filtered := p.handler.DispatchServerResponse(msg, line); filtered != nil {
+		if filtered := h.DispatchServerResponse(msg, line); filtered != nil {
 			return filtered, true
 		}
 		return nil, false
@@ -342,31 +348,31 @@ func (p *Proxy) screenServerLine(line []byte) (out []byte, acted bool) {
 	// Server-initiated requests / notifications.
 	switch kind {
 	case KindSamplingCreateMessage:
-		if blocked, blockResp := p.handler.HandleSamplingCreateMessage(msg); blocked {
+		if blocked, blockResp := h.HandleSamplingCreateMessage(msg); blocked {
 			return blockResp, true
 		}
 	case KindElicitationCreate:
-		if blocked, blockResp := p.handler.HandleElicitationCreate(msg); blocked {
+		if blocked, blockResp := h.HandleElicitationCreate(msg); blocked {
 			return blockResp, true
 		}
 	case KindNotification:
 		// Drop notifications/message payloads containing injection patterns.
 		// Notifications have no ID so we cannot send a JSON-RPC error back —
 		// we simply suppress the notification to prevent it reaching the client.
-		if p.handler.HandleNotificationMessage(msg) {
+		if h.HandleNotificationMessage(msg) {
 			return nil, true
 		}
 		// Drop notifications/resources/updated if the URI matches a blocked resource.
 		// A compromised server can redirect update notifications to credential paths.
-		if p.handler.HandleResourcesUpdatedNotification(msg) {
+		if h.HandleResourcesUpdatedNotification(msg) {
 			return nil, true
 		}
 		// Record pending capability expansion check when server signals tool list changed.
-		p.handler.HandleToolsListChangedNotification(msg)
+		h.HandleToolsListChangedNotification(msg)
 		// Drop notifications/progress if the message field contains injection patterns.
 		// A compromised server can embed adversarial instructions in progress messages
 		// that arrive without a prior tool call, bypassing argument-level scanning.
-		if p.handler.HandleProgressNotification(msg) {
+		if h.HandleProgressNotification(msg) {
 			return nil, true
 		}
 	}

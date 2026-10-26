@@ -62,12 +62,14 @@ type Server struct {
 // same command would get from a local install (the same faithful-predictor
 // contract `agentshield check` keeps, #1952/#3030).
 func NewServer(opts Options) (*Server, error) {
+	// opts.Mode is rung 1 of config.Load's mode resolution, so cfg.Mode is
+	// already the mode in force, normalised: an unrecognised --mode enforces
+	// with a stderr warning, and is reported as "enforce". It used to be
+	// overwritten here with the raw flag, so an unrecognised value enforced
+	// but every verdict and /healthz reported the typo as the mode (#4356).
 	cfg, err := config.Load(opts.PolicyPath, opts.LogPath, opts.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
-	}
-	if opts.Mode != "" {
-		cfg.Mode = opts.Mode
 	}
 
 	s := &Server{
@@ -184,7 +186,11 @@ func (s *Server) loadMCPEvaluator(cfg *config.Config, policyOverride string) {
 		}
 	}
 
-	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, cfg.Mode)
+	// Enforce mode (""): evaluateMCP adds the value_limits pass after the
+	// evaluator returns and applies s.mode to the final verdict, as the MCP
+	// proxies do. An evaluator in audit-only mode would downgrade its own
+	// BLOCK first and let a value-limit BLOCK through undowngraded (#4356).
+	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, "")
 }
 
 // Close releases the audit logger. Safe on a nil logger.
@@ -377,30 +383,17 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 	}
 
 	// value_limits rules are a separate numeric-threshold pass merged after
-	// the rule matcher, gated on not-already-BLOCKed — kept in lock-step with
-	// internal/cli/mcp_eval.go and mcp/handler.go, or this surface silently
-	// mis-simulates every value_limits rule in the corpus (#3169).
-	if result.Decision != policy.DecisionBlock {
-		vlResult := s.mcpEval.CheckValueLimits(req.ToolName, args)
-		if vlResult.Blocked {
-			result.Decision = policy.DecisionBlock
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
-			}
-		} else if len(vlResult.Findings) > 0 {
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit-audit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit_audit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
-			}
-		}
-	}
+	// the rule matcher, gated on not-already-BLOCKed. ApplyValueLimits is the
+	// one definition mcp-eval and the proxies share, so this surface cannot
+	// mis-simulate a value_limits rule again (#3169) or drop its taxonomy.
+	result, _ = s.mcpEval.ApplyValueLimits(result, req.ToolName, args)
+
+	// The verdict above is enforce mode's, from every block source. Apply the
+	// mode once, last, so an audit-only BLOCK is recorded as AUDIT with its
+	// original decision whichever source decided it (#4356), except a
+	// self-protection BLOCK, which blocks in either mode, as on the proxies
+	// (#4337 review B1).
+	result = s.mcpEval.ApplyModeKeepingSelfProtection(result, s.mode, req.ToolName, args)
 
 	if tracker != nil {
 		// Record after evaluation so history holds prior calls only — a rule

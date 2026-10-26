@@ -39,6 +39,7 @@ var coreLayer = map[string]string{
 	"internal/execenv":            "execution-context facts",
 	"internal/regexlit":           "regex literal matching",
 	"internal/seqmatch":           "sequence matching",
+	"internal/safefile":           "non-blocking regular-file read for hook config (#4478)",
 	"internal/unicode":            "unicode smuggling scan",
 	"internal/redact":             "secret redaction",
 	"packs":                       "embedded rule packs (data the engine loads)",

@@ -193,6 +193,10 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Read the machine id sent with every /api/audit event (#4208) while
+	// evaluation runs, not after it: on macOS it execs ioreg.
+	go prefetchMachineID()
+
 	data, err := io.ReadAll(hookStdinReader())
 	if err != nil {
 		return hookInputFailure("hook input read", err)
@@ -273,6 +277,14 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 // harness handler turned it into a silent allow; the signature is what makes
 // that impossible to reintroduce.
 func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult, *logger.AuditEvent) {
+	return evaluateCommandNoted(cmdStr, cwd, source, sessionID, nil)
+}
+
+// evaluateCommandNoted is evaluateCommand plus notes the caller already holds
+// about this evaluation (#4452: a payload cwd that could not be used). They go
+// on every event the evaluation records, before it is logged or sent; they
+// never change a decision.
+func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.Note) (*policy.EvalResult, *logger.AuditEvent) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
@@ -303,6 +315,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 				Source:         source,
 				SessionID:      sessionID,
 				Principal:      osPrincipal(),
+				Notes:          append([]logger.Note(nil), notes...),
 			}
 			recordSelfProtectBlock(&event)
 			return &blockedResult, &event
@@ -311,12 +324,12 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 
 	cfg, err := config.Load(policyPath, logPath, mode)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "config load", err: err}, cmdStr, cwd, source, sessionID)
+		return failSafeDecision(evalFailure{stage: "config load", err: err, notes: notes}, cmdStr, cwd, source, sessionID)
 	}
 
 	auditLogger, err := logger.New(cfg.LogPath)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "audit log init", err: err, cfg: cfg}, cmdStr, cwd, source, sessionID)
+		return failSafeDecision(evalFailure{stage: "audit log init", err: err, cfg: cfg, notes: notes}, cmdStr, cwd, source, sessionID)
 	}
 	defer func() {
 		_ = auditLogger.Close()
@@ -327,7 +340,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 
 	pol, err := policy.Load(cfg.PolicyPath)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "policy load", err: err, cfg: cfg, log: auditLogger}, cmdStr, cwd, source, sessionID)
+		return failSafeDecision(evalFailure{stage: "policy load", err: err, cfg: cfg, log: auditLogger, notes: notes}, cmdStr, cwd, source, sessionID)
 	}
 	// #3620: on a managed host the local policy cannot weaken the admin's.
 	// Applied to the user file BEFORE packs merge in, so a premium pack's own
@@ -370,6 +383,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 				err:   fmt.Errorf("disk packs directory unreadable, enforcement would be degraded: %w", packsLoadErr),
 				cfg:   cfg,
 				log:   auditLogger,
+				notes: notes,
 			}, cmdStr, cwd, source, sessionID)
 		}
 	}
@@ -389,6 +403,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 			err:   fmt.Errorf("%d policy pack(s) failed to parse; enforcement would be degraded", len(failedPacks)),
 			cfg:   cfg,
 			log:   auditLogger,
+			notes: notes,
 		}, cmdStr, cwd, source, sessionID)
 	}
 
@@ -398,7 +413,7 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 	// environment is the ground truth.
 	engine, err := assembly.ShellEngine(pol, cfg.Analyzer.MaxParseDepth, cfg.Mode)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger}, cmdStr, cwd, source, sessionID)
+		return failSafeDecision(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger, notes: notes}, cmdStr, cwd, source, sessionID)
 	}
 
 	evalResult := engine.EvaluateWithParsedCwd(cmdStr, normalized.Paths, normalized.Parsed, cwd)
@@ -412,12 +427,17 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 		TriggeredRules:   evalResult.TriggeredRules,
 		Reasons:          evalResult.Reasons,
 		TaxonomyRefs:     evalResult.TaxonomyRefs,
-		Notes:            auditNotes(evalResult.Notes),
 		Mode:             cfg.Mode,
 		OriginalDecision: string(evalResult.OriginalDecision),
 		Source:           source,
 		SessionID:        sessionID,
 		Principal:        osPrincipal(),
+		Notes:            append(auditNotes(evalResult.Notes), notes...),
+	}
+	// #4448: a data-label match must not travel in the record it caused.
+	// Redacted() scrubs the local line and the SaaS payload alike.
+	if scrub := policy.DataLabelScrubber(pol); scrub != nil {
+		event = event.WithScrubber(scrub)
 	}
 	// #4077 pass 1: the fallback above keeps evaluating, so the event must say
 	// it ran degraded. Without this note the SaaS receives an ordinary
@@ -436,12 +456,14 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 	if evalResult.Decision == policy.DecisionBlock || evalResult.Decision == policy.DecisionAudit {
 		event.Flagged = true
 	}
-	if err := auditLogger.Log(event); err != nil {
+	link, err := auditLogger.LogLinked(event)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
 	}
 
-	// Send to SaaS (fire-and-forget)
-	sendRemoteAudit(&event)
+	// Queue for the SaaS with the local line's link (#4208). No network
+	// here: a detached uploader sends it (audit_queue.go, #4467).
+	sendRemoteAudit(&event, link)
 
 	return &evalResult, &event
 }
@@ -452,18 +474,19 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 // without this the attempt to tamper with AgentShield was recorded nowhere.
 // Best effort: a failure to record never changes the decision.
 func recordSelfProtectBlock(event *logger.AuditEvent) {
+	var link *logger.ChainLink
 	if cfg, err := config.Load(policyPath, logPath, mode); err != nil {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: config load: %v\n", err)
 	} else if l, err := logger.New(cfg.LogPath); err != nil {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: %v\n", err)
 	} else {
 		noteLockUnavailable(event, l)
-		if err := l.Log(*event); err != nil {
+		if link, err = l.LogLinked(*event); err != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
 		}
 		_ = l.Close()
 	}
-	sendRemoteAudit(event)
+	sendRemoteAudit(event, link)
 }
 
 // buildMiddlewareChain assembles the middleware chain based on enterprise config.
@@ -584,7 +607,12 @@ func handlePreToolUse(input hookInput, rawToolInput json.RawMessage, source stri
 		if cmdStr == "" {
 			return nil
 		}
-		evalResult, _ := evaluateCommand(cmdStr, "", source, sessionIDFor(input))
+		// #4452: evaluate where the agent's shell runs the command — the
+		// payload's cwd — not where the harness happened to start this
+		// process. An unusable payload cwd falls back to the process
+		// directory (main's behaviour) with a note on the event.
+		cwd, cwdNotes := payloadEvalCwd(input.Cwd)
+		evalResult, _ := evaluateCommandNoted(cmdStr, cwd, source, sessionIDFor(input), cwdNotes)
 		if evalResult.Decision == policy.DecisionBlock {
 			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
 			if len(evalResult.TriggeredRules) > 0 {
@@ -678,6 +706,13 @@ func stringToolInputArguments(raw json.RawMessage) (map[string]interface{}, bool
 // and MCP evaluations from one session correlate (issue #3111). cwd is the
 // payload's session directory, against which a relative write target resolves.
 func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, source, sessionID, cwd string) error {
+	// #4452: the event records the directory the shell path evaluates
+	// against — the payload cwd when usable, else the process directory with
+	// a note. The managed config-write check below keeps reading the raw
+	// payload cwd, exactly as before: routing it through the fallback would
+	// change which file a relative write target names for a malformed cwd.
+	auditCwd, auditCwdNotes := payloadEvalCwd(cwd)
+
 	// Parse tool_input as map for MCP evaluation
 	var arguments map[string]interface{}
 	fromText := false
@@ -693,7 +728,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 	// config directory. Checked first, like the shell path's SelfProtect
 	// middleware: it needs no policy, so a broken ruleset cannot switch it off.
 	if result, blocked := managedConfigToolWrite(toolName, arguments, fromText, cwd); blocked {
-		auditMCPCall(toolName, arguments, result, source, "managed", sessionID)
+		auditMCPCall(toolName, arguments, result, source, "managed", sessionID, auditCwd, auditCwdNotes)
 		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED tool call: %s\n   Rule: %s\n   Reason: %s\n", toolName, strings.Join(result.TriggeredRules, ", "), result.Reasons[0])
 		emitCopilotDeny(source, "tool call: "+toolName, result.TriggeredRules, result.Reasons)
 		os.Exit(2)
@@ -725,7 +760,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 				TriggeredRules: []string{failClosedRuleID},
 				Reasons:        []string{"AgentShield: MCP ruleset failed to load — blocking (fail_closed enabled): " + degraded},
 			}
-			auditMCPCall(toolName, arguments, result, source, "managed", sessionID)
+			auditMCPCall(toolName, arguments, result, source, "managed", sessionID, auditCwd, auditCwdNotes)
 			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n   Reason: %s\n", toolName, result.Reasons[0])
 			emitCopilotDeny(source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
 			os.Exit(2)
@@ -733,20 +768,27 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: MCP ruleset degraded (%s) — evaluated against what loaded (fail-safe default, not enforced as configured)\n", degraded)
 	}
 
-	evaluator := assembly.MCPEvaluator(loaded.Policy, modeForAudit)
+	// Enforce mode (""): the verdict is computed as enforce mode computes it,
+	// and the configured mode is applied once, last, with the self-protection
+	// keep rule the proxies, shield-server and mcp-eval share (#4337 review
+	// B1): in audit-only mode a BLOCK on AgentShield's own configuration or an
+	// agent hook file still blocks. The downgrade used to happen inside the
+	// evaluator, which lowered those BLOCKs too.
+	evaluator := assembly.MCPEvaluator(loaded.Policy, "")
 	result := evaluator.EvaluateToolCall(toolName, arguments)
 
 	// #4351: Claude Code names an MCP server's tool mcp__<server>__<tool>, and
 	// the pack rules are authored against the bare <tool> (write_file, ...), so
 	// the wire name alone missed them all. Evaluate the bare name too; the
-	// second reading can only ADD a block, or under audit-only the record of
-	// one. shield-server applies the same rule through the same helper.
+	// second reading can only ADD a block. shield-server applies the same rule
+	// through the same helper.
 	if bare, ok := mcp.BareToolName(toolName); ok {
 		result = mcp.PreferBlockingBareResult(result, evaluator.EvaluateToolCall(bare, arguments))
 	}
+	result = evaluator.ApplyModeKeepingSelfProtection(result, modeForAudit, toolName, arguments)
 
 	// Audit log
-	auditMCPCall(toolName, arguments, result, source, modeForAudit, sessionID)
+	auditMCPCall(toolName, arguments, result, source, modeForAudit, sessionID, auditCwd, auditCwdNotes)
 
 	if result.Decision == policy.DecisionBlock {
 		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n", toolName)
@@ -785,15 +827,11 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 // "audit-only") — recorded so the SaaS can segment telemetry by rollout
 // cohort. Issue #1952.
 // sessionID is the harness session identifier (issue #3111).
-func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.MCPEvalResult, hookSource, enforcementMode, sessionID string) {
+// cwd is the evaluation directory (payloadEvalCwd, #4452); "" records the
+// process directory, as every MCP event did before. notes go on the event.
+func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.MCPEvalResult, hookSource, enforcementMode, sessionID, cwd string, notes []logger.Note) {
 	home, _ := os.UserHomeDir()
 	logPath := filepath.Join(home, ".agentshield", "audit.jsonl")
-	auditLogger, err := logger.New(logPath)
-	if err != nil {
-		return
-	}
-	defer func() { _ = auditLogger.Close() }()
-
 	// "<agent>-hook" becomes "<agent>-mcp-hook" (claude-code, codex,
 	// copilot-cli, …), so one harness's shell and MCP events share a prefix.
 	source := "claude-code-mcp-hook"
@@ -801,7 +839,9 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		source = agent + "-mcp-hook"
 	}
 
-	cwd, _ := os.Getwd()
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 
 	event := logger.AuditEvent{
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
@@ -825,12 +865,24 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		Source:           source,
 		SessionID:        sessionID,
 		Principal:        osPrincipal(),
+		Notes:            append([]logger.Note(nil), notes...),
 	}
-	noteLockUnavailable(&event, auditLogger)
-	_ = auditLogger.Log(event)
+	// An unopenable local log still sends the event to the SaaS, with no
+	// local_chain (#4208: none is better than a made-up one), as the shell
+	// path does in failSafeDecision (#4470).
+	auditLogger, err := logger.New(logPath)
+	if err != nil {
+		sendRemoteAudit(&event, nil)
+		return
+	}
+	defer func() { _ = auditLogger.Close() }()
 
-	// Send to SaaS
-	sendRemoteAudit(&event)
+	noteLockUnavailable(&event, auditLogger)
+	link, _ := auditLogger.LogLinked(event)
+
+	// Queue for the SaaS with the local line's link (#4208; audit_queue.go,
+	// #4467).
+	sendRemoteAudit(&event, link)
 }
 
 // lockNoteSource is the slice of the audit logger noteLockUnavailable needs.

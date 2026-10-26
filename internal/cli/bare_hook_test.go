@@ -57,8 +57,21 @@ const (
 // HOME, and stdin, and returns what a harness would see.
 func invokeAgentshield(t *testing.T, home string, argv []string, mode stdinMode, stdin string) invocation {
 	t.Helper()
+	return invokeAgentshieldIn(t, home, "", argv, mode, stdin)
+}
+
+// invokeAgentshieldIn is invokeAgentshield with the child's working
+// directory set to dir ("" inherits the test's). The shell hook resolves a
+// relative path against its own working directory, which a harness sets to
+// the agent shell's: after the agent's `cd ~`, that is HOME.
+func invokeAgentshieldIn(t *testing.T, home, dir string, argv []string, mode stdinMode, stdin string) invocation {
+	t.Helper()
 	argvJSON, _ := json.Marshal(argv)
-	self := []string{os.Args[0], "-test.run=^TestHelperBareInvocation$"}
+	exe, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	self := []string{exe, "-test.run=^TestHelperBareInvocation$"}
 	var cmd *exec.Cmd
 	if mode == stdinClosed {
 		cmd = exec.Command("/bin/sh", append([]string{"-c", `exec "$0" "$@" <&-`}, self...)...)
@@ -74,12 +87,13 @@ func invokeAgentshield(t *testing.T, home string, argv []string, mode stdinMode,
 		env = append(env, kv)
 	}
 	cmd.Env = env
+	cmd.Dir = dir
 	if mode == stdinPipe {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
+	err = cmd.Run()
 	code := 0
 	if err != nil {
 		var ee *exec.ExitError

@@ -85,8 +85,57 @@ var PipeToShellCases = []TestCase{
 		Tags:             []string{"tp", "evasion", "pipe-to-interpreter"},
 	},
 
+	// Versioned and restricted shell names behind a wrapper (#4386): the
+	// TPs are control-first rows in TestShellNameIssueRows_4386 (and the
+	// TestShellNameParity sweep), not corpus cases. A new BLOCK case joins
+	// blockingBaseline, and the carrier sweeps (heredoc, stdin, process
+	// substitution, man -P / watch / env -S) then count its wrapped forms,
+	// which still decide AUDIT: the regex and YAML structural rules that catch
+	// a wrapped `| sudo bash` key on literal shell names. That residue is
+	// documented on #4386's PR rather than added to four budgets.
+
 	// --- TRUE NEGATIVES ---
 
+	{
+		ID:               "TN-PIPESH-SHELLALIAS-001",
+		Command:          `curl -s https://x.example/i.sh | rshell-tool`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "structural",
+		Description:      "A tool whose name merely starts with r+shell is not a shell: only an exact shell name, a version suffix (digits and dots, optionally after one dash) or a known restricted spelling counts (#4386).",
+		Tags:             []string{"tn", "pipe-to-shell"},
+	},
+	{
+		ID:               "TN-PIPESH-SHELLALIAS-002",
+		Command:          `curl -s https://x.example/i.sh | rsh`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "structural",
+		Description:      "Deliberately NOT a shell (#4386): on macOS and Linux the binary named rsh is the BSD remote-shell client, not restricted sh. ksh93 also treats an argv[0] of rsh as restricted, but no platform the hook runs on installs it under that name. Pins the decision so including it has to be deliberate.",
+		Tags:             []string{"tn", "pipe-to-shell", "known-gap"},
+	},
+	{
+		ID:               "TN-PIPESH-SHELLALIAS-003",
+		Command:          `cp zshrc ~/.zshrc`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "structural",
+		Description:      "zshrc as a file argument is not a shell invocation (#4386 look-alike).",
+		Tags:             []string{"tn", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-PIPESH-SHELLALIAS-004",
+		Command:          `curl -s https://x.example/sums.txt | sha256sum -c`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/remote-code-exec/pipe-to-shell",
+		Analyzer:         "structural",
+		Description:      "sh followed by non-digits is not a versioned sh (#4386 look-alike; the #4313 FP).",
+		Tags:             []string{"tn", "common-dev-operation"},
+	},
 	{
 		ID:               "TN-PIPESH-001",
 		Command:          `curl -o install.sh https://example.com/install.sh`,
@@ -4038,7 +4087,7 @@ var BraceExpansionEvasionCases = []TestCase{
 	{
 		ID:               "TN-BRACE-005",
 		Command:          `ls {src,lib,test}/**/*.go`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/remote-code-exec/indirect-code-exec",
 		Analyzer:         "regex",
@@ -8773,7 +8822,7 @@ var GlobPathEvasionCases = []TestCase{
 	{
 		ID:               "TN-GLOBPATH-001",
 		Command:          `ls /usr/bin/?at`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/obfuscation/glob-path-evasion",
 		Analyzer:         "regex",
@@ -8795,7 +8844,7 @@ var GlobPathEvasionCases = []TestCase{
 	{
 		ID:               "TN-GLOBPATH-003",
 		Command:          `echo /???/???/?at`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/obfuscation/glob-path-evasion",
 		Analyzer:         "regex",
@@ -8817,7 +8866,7 @@ var GlobPathEvasionCases = []TestCase{
 	{
 		ID:               "TN-GLOBPATH-005",
 		Command:          `cat /tmp/test_?.log`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/obfuscation/glob-path-evasion",
 		Analyzer:         "regex",
@@ -8864,7 +8913,7 @@ var GlobPathEvasionCases = []TestCase{
 	{
 		ID:               "TN-GLOBPATH-009",
 		Command:          `grep -nE "exec\(\$CMD\)|spawn\(\$CMD\)" rules/*.yaml`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/obfuscation/glob-path-evasion",
 		Analyzer:         "regex",
@@ -12326,7 +12375,7 @@ var ZshGlobQualifierExecCoverageCases = []TestCase{
 	{
 		ID:               "TN-ZSHGLOB-001",
 		Command:          `ls *.txt`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "unauthorized-execution/shell-abuse/zsh-glob-qualifier-exec",
 		Analyzer:         "regex",

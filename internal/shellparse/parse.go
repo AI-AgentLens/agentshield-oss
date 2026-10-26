@@ -28,6 +28,12 @@ type ParsedCommand struct {
 	// Operators between segments: "|", "&&", "||", ";"
 	Operators []string
 
+	// Fallback is true when the text did not parse as bash, so Segments
+	// came from fallbackParse's pipe split, which sees only the first word of
+	// each part. A check that must know every command in the line refuses
+	// it (#4509: zsh's `() { set -f; }` read as one harmless segment).
+	Fallback bool
+
 	// Redirects at the top level (e.g., "> /dev/null")
 	Redirects []Redirect
 
@@ -2031,7 +2037,7 @@ const maxFallbackPrefixLines = 200
 
 // fallbackParse handles commands that mvdan.cc/sh can't parse.
 func fallbackParse(command string, depth, maxDepth int) *ParsedCommand {
-	pc := &ParsedCommand{}
+	pc := &ParsedCommand{Fallback: true}
 	parts := strings.Split(command, "|")
 	for i, part := range parts {
 		part = strings.TrimSpace(part)
@@ -2962,12 +2968,72 @@ var PrivilegeShellCarriers = map[string]bool{
 	"su": true, "runuser": true,
 }
 
+// IsShellInterpreter reports whether exe names a shell: a ShellInterpreters
+// entry, that name with a version suffix, or the restricted spelling of a
+// shell that defines one (#4386).
+//
+// Spellings are matched by shape rather than listed one at a time, because
+// the list kept missing them: `| sudo zsh5`, `| env zsh5`, `| rzsh` and
+// `| rksh93` after a download decided AUDIT while `| sudo bash` BLOCKed. Two
+// shapes, each a name that runs its stdin exactly as its base shell does:
+//
+//   - a version suffix: digits and dots ending in a digit, optionally after
+//     one dash — zsh5 (Debian ships /bin/zsh5), ksh93, bash5.2, and
+//     zsh-5.9 (zsh's own install links it beside zsh);
+//   - a restricted name: rbash (bash(1) RESTRICTED SHELL), rzsh (zsh(1):
+//     restricted when the basename starts with r), rksh (ksh(1): rksh,
+//     rksh93). A restricted shell still runs every command it reads.
+//
+// Deliberately NOT a shell: rsh. ksh93 does treat an argv[0] of rsh as
+// restricted, but on macOS and Linux the binary named rsh is the BSD
+// remote-shell client, and reading `rsh host cmd` as shell source would be a
+// guess. A dash, sh or tcsh with an r in front is no shell anyone installs.
+//
+// Direction, classified per call site when this widened: every caller uses a
+// match to analyse MORE (capture -c/heredoc bodies as shell source, treat a
+// pipe sink as an executor and withdraw an inertness exemption, attribute a
+// receipt conservatively), never to excuse a finding. Two lists that use a
+// match to SKIP text are kept literal on purpose: normalize's
+// nestedShellInterpreters and argclass's commandRegistry mark everything after
+// `<shell> -c` as inert for path extraction, so widening them would lower
+// protected-path decisions. The substitution scope model reads the
+// ShellInterpreters map directly and is frozen (#3769).
 func IsShellInterpreter(exe string) bool {
-	return ShellInterpreters[exe]
+	if ShellInterpreters[exe] || restrictedShellNames[exe] {
+		return true
+	}
+	base := stripShellVersion(exe)
+	return base != "" && (ShellInterpreters[base] || restrictedShellNames[base])
+}
+
+// restrictedShellNames are the restricted spellings of a ShellInterpreters
+// entry that its own manual defines (rbash is a ShellInterpreters entry
+// already). Closed: each one is the documented argv[0] of a shell.
+var restrictedShellNames = map[string]bool{
+	"rzsh": true, // zsh(1) RESTRICTED SHELL
+	"rksh": true, // ksh(1): rksh, rksh93
+}
+
+// stripShellVersion returns exe without a trailing version suffix — digits and
+// dots ending in a digit, optionally after one dash — or "" when exe has no
+// such suffix or nothing before it.
+func stripShellVersion(exe string) string {
+	i := len(exe)
+	for i > 0 && (exe[i-1] >= '0' && exe[i-1] <= '9' || exe[i-1] == '.') {
+		i--
+	}
+	suffix := exe[i:]
+	if suffix == "" || suffix[0] == '.' || suffix[len(suffix)-1] == '.' || strings.Contains(suffix, "..") {
+		return ""
+	}
+	if i > 0 && exe[i-1] == '-' {
+		i--
+	}
+	return exe[:i]
 }
 
 func IsShellOrInterpreter(exe string) bool {
-	return ShellInterpreters[exe] || CodeInterpreters[exe]
+	return IsShellInterpreter(exe) || CodeInterpreters[exe]
 }
 
 func IsDownloadCommand(exe string) bool {
@@ -3016,7 +3082,9 @@ func redirectOpString(redir *syntax.Redirect) string {
 
 func binaryOpString(op syntax.BinCmdOperator) string {
 	switch op {
-	case syntax.Pipe:
+	case syntax.Pipe, syntax.PipeAll:
+		// "|&" is "2>&1 |": the right side still reads the left side's output
+		// (#4380), so every "|" predicate must see it.
 		return "|"
 	case syntax.AndStmt:
 		return "&&"

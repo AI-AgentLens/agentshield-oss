@@ -5317,7 +5317,7 @@ var PythonPthPersistenceCases = []TestCase{
 	{
 		ID:               "TN-PTH-004",
 		Command:          `ls /usr/lib/python3/dist-packages/*.pth`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/shell-init/python-pth-persistence",
 		Analyzer:         "regex",
@@ -7292,6 +7292,29 @@ var AliasInterceptionCases = []TestCase{
 		Analyzer:         "guardian",
 		Description:      "FP regression (issue #487): compound command with tee heredoc body mentioning 'skip policy' — guardian-disable_security must NOT fire on tee file-write heredoc bodies",
 		Tags:             []string{"tn", "fp-regression", "guardian", "heredoc", "tee", "compound", "regression"},
+	},
+
+	// Claude Code's current Windows managed-settings path (#4432, shell half).
+	// Rule: ts-block-claude-managed-settings-programfiles-write
+	{
+		ID:               "TP-TS-BLOCK-CLAUDE-MANAGED-SETTINGS-PROGRAMFILES-001",
+		Command:          `Set-Content -Path "C:\Program Files\ClaudeCode\managed-settings.json" -Value "{}"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/security-tool-tampering",
+		Analyzer:         "regex",
+		Description:      "write to Claude Code's current Windows managed-settings file (vendor-moved alias of the legacy ProgramData path)",
+		Tags:             []string{"tp", "windows", "managed-settings"},
+	},
+	{
+		ID:               "TN-TS-BLOCK-CLAUDE-MANAGED-SETTINGS-PROGRAMFILES-001",
+		Command:          `Get-Content "C:\Program Files\ClaudeCode\managed-settings.json"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/security-tool-tampering",
+		Analyzer:         "regex",
+		Description:      "reading the managed-settings file is not matched",
+		Tags:             []string{"tn", "windows", "managed-settings"},
 	},
 
 	// ---------------------------------------------------------------------------

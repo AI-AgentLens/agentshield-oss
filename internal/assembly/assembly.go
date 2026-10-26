@@ -11,6 +11,8 @@
 package assembly
 
 import (
+	"fmt"
+	"io"
 	"os"
 
 	"github.com/AI-AgentLens/agentshield/internal/execenv"
@@ -22,7 +24,8 @@ import (
 //
 // mode is the enforcement mode. "audit-only" downgrades BLOCK and
 // REQUIRE_APPROVAL to AUDIT inside the engine, so every caller gets the same
-// behaviour without repeating the downgrade (#1952).
+// behaviour without repeating the downgrade (#1952), except a self-protection
+// BLOCK, which blocks in either mode (#4337 review B1, mcp.ShellSelfProtectionKeep).
 //
 // The execution context is detected from this process's environment (#3291),
 // so context-scoped rules (match.context.ci) tighten posture when the
@@ -32,10 +35,25 @@ func ShellEngine(pol *policy.Policy, maxParseDepth int, mode string) (*policy.En
 	if err != nil {
 		return nil, err
 	}
+	// Settings that load leniently instead of failing (an invalid
+	// network.enforce_allowlist value, #4437) are reported here, the one place
+	// every live surface builds its engine, so none can stay silent about it.
+	for _, w := range pol.ConfigWarnings() {
+		_, _ = fmt.Fprintf(configWarnings, "[AgentShield] warning: %s\n", w)
+	}
 	engine.SetMode(mode)
+	// Audit-only keeps a self-protection BLOCK, by the rule the tool-call
+	// surfaces apply (#4337 review B1, #4395): a self-protection rule decided
+	// it, or the command changes AgentShield's state or an agent's hook or MCP
+	// configuration file.
+	engine.SetSelfProtectionKeep(mcp.ShellSelfProtectionKeep(pol))
 	engine.SetExecContext(execenv.Detect(os.Getenv))
 	return engine, nil
 }
+
+// configWarnings is where ShellEngine reports Policy.ConfigWarnings. A
+// variable so tests can capture it.
+var configWarnings io.Writer = os.Stderr
 
 // MCPEvaluator builds the MCP tool-call evaluator for a merged MCP policy.
 // mode is as for ShellEngine; "" means enforce.

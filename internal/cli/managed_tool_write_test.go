@@ -81,6 +81,10 @@ func TestHook_ManagedHarnessWriteToConfig_IsBlocked(t *testing.T) {
 		{"claude NotebookEdit", claudeToolPayload(t, "w4", "NotebookEdit", map[string]interface{}{"notebook_path": asConfigFile(home, "n.ipynb"), "new_source": "x"})},
 		{"claude Write new pack", claudeToolPayload(t, "w5", "Write", map[string]interface{}{"file_path": asConfigFile(home, "packs/evil.yaml"), "content": "x"})},
 		{"claude Write audit log", claudeToolPayload(t, "w6", "Write", map[string]interface{}{"file_path": asConfigFile(home, "audit.jsonl"), "content": ""})},
+		// #4434 item 3: the watchdog's state file is covered only by the directory
+		// glob, so a harness write that blanks it must be named here.
+		{"claude Write watchdog state", claudeToolPayload(t, "w24", "Write", map[string]interface{}{"file_path": asConfigFile(home, "watchdog-state.json"), "content": "{}"})},
+		{"claude Edit watchdog state", claudeToolPayload(t, "w25", "Edit", map[string]interface{}{"file_path": asConfigFile(home, "watchdog-state.json"), "old_string": "a", "new_string": "b"})},
 		{"tilde", claudeToolPayload(t, "w7", "Write", map[string]interface{}{"file_path": "~/.agentshield/policy.yaml", "content": "x"})},
 		{"dot-dot", claudeToolPayload(t, "w8", "Write", map[string]interface{}{"file_path": filepath.Join(home, "proj") + "/../.agentshield/policy.yaml", "content": "x"})},
 		{"symlinked dir", claudeToolPayload(t, "w10", "Write", map[string]interface{}{"file_path": filepath.Join(dirLink, "policy.yaml"), "content": "x"})},

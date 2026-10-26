@@ -3,10 +3,12 @@ package enterprise
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -19,13 +21,25 @@ type WatchdogCheck struct {
 	Name    string `json:"name"`
 	Passed  bool   `json:"passed"`
 	Message string `json:"message,omitempty"`
+
+	// scope is what the managed-scope check read, for the loop's tamper vs
+	// config-gap decision (watchdog_events.go). Nil on every other check.
+	scope *managedScope
 }
 
 // RunWatchdogOnce performs all watchdog checks and returns results.
+//
+// When configDir's managed.json puts the host in managed mode (read the way
+// every other managed-mode gate reads it, so a corrupt file counts as
+// managed), it also checks that Claude Code's managed settings carry the
+// AgentShield hook (#4292).
 func RunWatchdogOnce(configDir string) []WatchdogCheck {
 	var checks []WatchdogCheck
 
 	checks = append(checks, checkHookFiles()...)
+	if m := LoadManagedConfigFrom(filepath.Join(configDir, "managed.json")); m != nil && m.Managed {
+		checks = append(checks, checkClaudeCodeHookScopes())
+	}
 	checks = append(checks, checkPolicyFile(configDir))
 	checks = append(checks, checkManagedConfig(configDir))
 	checks = append(checks, checkBypassEnv())
@@ -52,41 +66,35 @@ func RunWatchdog(cfg *ManagedConfig, configDir string) {
 
 	fmt.Fprintf(os.Stderr, "[AgentShield] watchdog: started (interval: %ds)\n", interval)
 
+	tracker := newWatchdogTracker(configDir)
+	alert := func(watchdogEvent) {}
+	if cfg.Watchdog != nil && cfg.Watchdog.AlertWebhook != "" {
+		url := cfg.Watchdog.AlertWebhook
+		alert = func(ev watchdogEvent) { go sendWatchdogAlertEvent(url, ev) }
+	}
 	for {
-		checks := RunWatchdogOnce(configDir)
-
-		// Log heartbeat
-		heartbeat := logger.AuditEvent{
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Command:   "watchdog-heartbeat",
-			Decision:  "ALLOW",
-			Mode:      "watchdog",
-			Source:    "watchdog",
-		}
-		_ = auditLogger.Log(heartbeat)
-
-		// Check for failures
-		for _, c := range checks {
-			if !c.Passed {
-				tamperEvent := logger.AuditEvent{
-					Timestamp: time.Now().UTC().Format(time.RFC3339),
-					Command:   "watchdog-tamper-detected",
-					Decision:  "AUDIT",
-					Flagged:   true,
-					Mode:      "watchdog",
-					Source:    "watchdog",
-					Error:     fmt.Sprintf("%s: %s", c.Name, c.Message),
-				}
-				_ = auditLogger.Log(tamperEvent)
-
-				// Alert via webhook if configured
-				if cfg.Watchdog != nil && cfg.Watchdog.AlertWebhook != "" {
-					go sendWatchdogAlert(cfg.Watchdog.AlertWebhook, c)
-				}
-			}
-		}
-
+		watchdogTick(configDir, tracker, auditLogger.Log, alert)
 		<-ticker.C
+	}
+}
+
+// watchdogTick is one pass of the watchdog loop: run the checks, log the
+// heartbeat, then log and alert each event the tracker decides on
+// (watchdog_events.go).
+func watchdogTick(configDir string, t *watchdogTracker, log func(logger.AuditEvent) error, alert func(watchdogEvent)) {
+	checks := RunWatchdogOnce(configDir)
+
+	_ = log(logger.AuditEvent{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Command:   "watchdog-heartbeat",
+		Decision:  "ALLOW",
+		Mode:      "watchdog",
+		Source:    "watchdog",
+	})
+
+	for _, ev := range t.evaluate(checks) {
+		_ = log(ev.auditEvent())
+		alert(ev)
 	}
 }
 
@@ -188,6 +196,154 @@ func checkClaudeCodeHookFile(path string, data []byte) WatchdogCheck {
 	return WatchdogCheck{Name: name, Passed: true}
 }
 
+// ClaudeManagedHookCheckName names the check that Claude Code's managed
+// settings carry the AgentShield hook. `agentshield scan` reports it too.
+const ClaudeManagedHookCheckName = "hook-claude-code-managed"
+
+// ClaudeManagedSettingsPath returns where Claude Code's file-based managed
+// settings live on this OS. `agentshield setup claude-code --managed` and
+// --write-managed use it too, so the watchdog checks the file setup writes.
+// A variable only so tests can point it at a temp file; nothing else assigns
+// it, and no environment variable moves it, since anything a repository's
+// settings could set must not decide where the watchdog looks.
+var ClaudeManagedSettingsPath = func() string {
+	return hookentry.ManagedSettingsPath(runtime.GOOS)
+}
+
+// checkClaudeCodeHookScopes is managed mode's check that AgentShield's Claude
+// Code hook is registered in Claude Code managed settings (#4292). A hook
+// there survives a repository's committed .claude/settings.json setting
+// "disableAllHooks": true, and the user-scope hook in ~/.claude/settings.json
+// does not: measured for a SessionStart hook on Claude Code 2.1.296
+// (2026-10-12); for PreToolUse, the event AgentShield uses, Claude Code's
+// documentation says the same, but it is not measured. It fails when the
+// managed settings file is missing, empty, unreadable, malformed, holds no
+// AgentShield PreToolUse hook, or sets disableAllHooks itself, which turns
+// managed hooks off too. It passes only when the hook is there. Its message
+// always names the scopes that carry the hook, managed and user, pass or fail.
+//
+// It reports and never blocks: whether managed mode should require this
+// scope is not decided (#4292). The user-scope check (hook-claude-code) is
+// unchanged and still runs beside it. Whether a failure is logged as tamper
+// or as a configuration gap, and how often, is the watchdog loop's decision
+// (watchdog_events.go).
+//
+// Honest limit: it reads the managed settings FILE only. Claude Code uses one
+// managed source by default, the highest-ranked one that delivers a policy
+// key: server-managed settings, then an MDM profile or HKLM registry value,
+// then the file (https://code.claude.com/docs/en/managed-settings, "How
+// Claude Code combines managed sources"). A hook delivered by an MDM profile
+// or server-managed settings is not seen here and is reported missing; a
+// hook in the file is reported present even when a higher-ranked source
+// makes Claude Code skip the file.
+func checkClaudeCodeHookScopes() WatchdogCheck {
+	managedPath := ClaudeManagedSettingsPath()
+	scope := managedScopeState(managedPath)
+	user := "unknown (cannot determine home dir)"
+	if home, err := os.UserHomeDir(); err == nil {
+		user = userScopeState(filepath.Join(home, ".claude", "settings.json"))
+	}
+	scopes := fmt.Sprintf("Claude Code hook scopes: managed %s; user %s", scope.desc, user)
+	if scope.ok {
+		return WatchdogCheck{Name: ClaudeManagedHookCheckName, Passed: true, Message: scopes, scope: &scope}
+	}
+	return WatchdogCheck{
+		Name:   ClaudeManagedHookCheckName,
+		Passed: false,
+		Message: scopes + ". Managed mode expects the hook in Claude Code managed settings, the one scope a repository's " +
+			"committed .claude/settings.json cannot switch off with disableAllHooks (#4292). Deploy it with " +
+			"`agentshield setup claude-code --managed` (prints the snippet for MDM) or " +
+			"`agentshield setup claude-code --write-managed` (writes the file; needs administrator rights)",
+		scope: &scope,
+	}
+}
+
+// managedScope is what checkClaudeCodeHookScopes read from the managed
+// settings file.
+type managedScope struct {
+	// ok: the hook is in the file and will run.
+	ok bool
+	// hookInFile: the file parses and holds an AgentShield PreToolUse hook,
+	// whether or not disableAllHooks turns it off.
+	hookInFile bool
+	// disablesAll: the file sets "disableAllHooks": true.
+	disablesAll bool
+	// desc is the short description for the scope report.
+	desc string
+}
+
+// managedScopeState reads Claude Code's managed settings file at path and
+// reports whether it carries a working AgentShield hook.
+func managedScopeState(path string) managedScope {
+	data, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return managedScope{desc: fmt.Sprintf("missing (%s does not exist)", path)}
+	case err != nil:
+		// Claude Code reads the file as the same user; a read the OS denies
+		// starts every session without that source's policies.
+		return managedScope{desc: fmt.Sprintf("unreadable (%s: %v)", path, err)}
+	}
+	if len(bytes.TrimSpace(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))) == 0 {
+		// Claude Code reads an empty managed settings file as {} (managed
+		// settings page, "Find entries Claude Code dropped"): valid, no hooks.
+		return managedScope{desc: fmt.Sprintf("empty (Claude Code reads it as {}): no AgentShield hook in %s", path)}
+	}
+	ok, err := hookentry.SettingsHasPreToolUseHook(data)
+	if err != nil {
+		// Claude Code refuses to start while a managed settings file is not a
+		// JSON object, so no hook runs either.
+		return managedScope{desc: fmt.Sprintf("broken (%s does not parse as JSON: %v)", path, err)}
+	}
+	s := managedScope{hookInFile: ok, disablesAll: disablesAllHooks(data)}
+	switch {
+	case s.disablesAll:
+		s.desc = fmt.Sprintf("off (%s sets disableAllHooks: true, which turns off managed hooks too)", path)
+	case !ok:
+		s.desc = fmt.Sprintf("missing (%s has no PreToolUse hook that runs `agentshield hook`)", path)
+	default:
+		s.ok = true
+		s.desc = fmt.Sprintf("present (%s)", path)
+	}
+	return s
+}
+
+// userScopeState describes the user-scope hook in ~/.claude/settings.json for
+// the scope report. The pass/fail verdict on that file stays with
+// checkClaudeCodeHookFile.
+func userScopeState(path string) string {
+	data, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Sprintf("missing (%s does not exist)", path)
+	case err != nil:
+		return fmt.Sprintf("unreadable (%s: %v)", path, err)
+	}
+	ok, err := hookentry.SettingsHasPreToolUseHook(data)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("broken (%s does not parse as JSON)", path)
+	case !ok:
+		return fmt.Sprintf("missing (%s has no PreToolUse hook that runs `agentshield hook`)", path)
+	}
+	return fmt.Sprintf("present (%s)", path)
+}
+
+// disablesAllHooks reports whether a settings document sets
+// "disableAllHooks" to the JSON boolean true. Claude Code drops any other
+// value in managed settings with a warning (managed-settings page, "Keys that
+// fail closed"), so only true turns hooks off.
+func disablesAllHooks(data []byte) bool {
+	var doc struct {
+		DisableAllHooks interface{} `json:"disableAllHooks"`
+	}
+	if err := json.Unmarshal(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), &doc); err != nil {
+		return false
+	}
+	b, ok := doc.DisableAllHooks.(bool)
+	return ok && b
+}
+
 func checkPolicyFile(configDir string) WatchdogCheck {
 	policyPath := filepath.Join(configDir, "policy.yaml")
 	if _, err := os.Stat(policyPath); os.IsNotExist(err) {
@@ -242,11 +398,22 @@ func checkBypassEnv() WatchdogCheck {
 }
 
 func sendWatchdogAlert(webhookURL string, check WatchdogCheck) {
+	sendWatchdogAlertType(webhookURL, alertTamper, check.Name, check.Message)
+}
+
+// sendWatchdogAlertEvent posts the webhook alert for one watchdog event.
+func sendWatchdogAlertEvent(webhookURL string, ev watchdogEvent) {
+	sendWatchdogAlertType(webhookURL, ev.kind.alertType(), ev.check.Name, ev.message)
+}
+
+// sendWatchdogAlertType posts one alert. The payload shape is the one the
+// tamper alert always had; alertType is its "type" field.
+func sendWatchdogAlertType(webhookURL, alertType, checkName, message string) {
 	alert := map[string]interface{}{
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"type":      "tamper_detected",
-		"check":     check.Name,
-		"message":   check.Message,
+		"type":      alertType,
+		"check":     checkName,
+		"message":   message,
 	}
 	data, err := json.Marshal(alert)
 	if err != nil {

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,10 @@ type AuditEvent struct {
 	// MCP-specific fields (present when source starts with "mcp-proxy")
 	ToolName     string                 `json:"tool_name,omitempty"`
 	MCPArguments map[string]interface{} `json:"arguments,omitempty"`
+
+	// scrub removes customer data-label matches in Redacted() (#4448). Unexported
+	// so it is never serialised and cannot affect the hash chain.
+	scrub func(string) string
 }
 
 // Redacted returns a copy of e with secrets replaced by [REDACTED] in every
@@ -151,7 +156,30 @@ type AuditEvent struct {
 // agent-supplied text and are left as they are. The slices and the arguments
 // map are fresh copies; e itself is never modified, because the caller still
 // holds it (and its slices) after logging.
+//
+// Customer data labels are scrubbed first when the event carries a scrubber
+// (WithScrubber, #4448): a label BLOCK must not deliver the value it stopped.
+// It runs before secret redaction so the label sees the original text.
 func (e AuditEvent) Redacted() AuditEvent {
+	if s := e.scrub; s != nil {
+		e.Command = s(e.Command)
+		if e.Args != nil {
+			args := make([]string, len(e.Args))
+			for i, a := range e.Args {
+				args[i] = s(a)
+			}
+			e.Args = args
+		}
+		if e.Reasons != nil {
+			reasons := make([]string, len(e.Reasons))
+			for i, r := range e.Reasons {
+				reasons[i] = s(r)
+			}
+			e.Reasons = reasons
+		}
+		e.Error = s(e.Error)
+		e.MCPArguments = scrubArguments(s, e.MCPArguments)
+	}
 	e.Command = redact.Redact(e.Command)
 	// Unconditional, as before #4332: RedactArgs turns nil into an empty
 	// list, so an event without args keeps writing "args":[] rather than null.
@@ -166,6 +194,44 @@ func (e AuditEvent) Redacted() AuditEvent {
 	e.Error = redact.Redact(e.Error)
 	e.MCPArguments = redact.RedactArguments(e.MCPArguments)
 	return e
+}
+
+// WithScrubber returns a copy of e whose Redacted() first passes every
+// agent-supplied string through scrub (#4448). The scrubber travels with the
+// event value, so the audit.jsonl line and the SaaS payload, which both go
+// through Redacted(), cannot disagree. It is never serialised.
+func (e AuditEvent) WithScrubber(scrub func(string) string) AuditEvent {
+	e.scrub = scrub
+	return e
+}
+
+// scrubArguments returns a deep copy of args with s applied to every string
+// value and every string inside nested maps and lists. Keys are left alone.
+func scrubArguments(s func(string) string, args map[string]interface{}) map[string]interface{} {
+	if args == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		out[k] = scrubValue(s, v)
+	}
+	return out
+}
+
+func scrubValue(s func(string) string, v interface{}) interface{} {
+	switch t := v.(type) {
+	case string:
+		return s(t)
+	case map[string]interface{}:
+		return scrubArguments(s, t)
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, e := range t {
+			out[i] = scrubValue(s, e)
+		}
+		return out
+	}
+	return v
 }
 
 // IsMCP returns true if this event came from the MCP proxy.
@@ -523,7 +589,39 @@ func (l *AuditLogger) LockUnavailableNote() (Note, bool) {
 	}, true
 }
 
+// ChainLink is where a written audit line sits in the local hash chain
+// (#4208). A receiver that is sent every line's link can tell a line that
+// never arrived from one that did: line N+1's PrevHash names line N's
+// LineHash, so a PrevHash it never received is a missing line. The local
+// chain cannot show that on its own: deleting the tail, or rewriting the
+// file from a point onward, leaves a chain that verifies.
+type ChainLink struct {
+	// PrevHash is the line's prev_hash exactly as written: "" when the line
+	// is a genesis line (an empty log, or one ending in an unchained line).
+	PrevHash string `json:"prev_hash"`
+	// LineHash is the SHA-256 hex of the full line as written, without its
+	// terminator: rawChainedHash of the record, which is the prev_hash the
+	// next chained line carries and what VerifyChain links against.
+	LineHash string `json:"line_hash"`
+}
+
+// Log appends event to the audit log. Callers that also send the event
+// elsewhere and need its place in the chain call LogLinked.
 func (l *AuditLogger) Log(event AuditEvent) error {
+	_, err := l.LogLinked(event)
+	return err
+}
+
+// LogLinked is Log, returning the written line's link (#4208). The link is
+// taken under the same lock as the write, from the bytes written (after
+// redaction), so it is the line on disk and not a recomputation of it.
+//
+// It is nil whenever err is non-nil: the write failed, landed partially, or
+// went only to an unlinked inode (reappendIfUnlinked). A link is a claim
+// that this line is in the log, and none of those can make it. Every line
+// LogLinked writes is chained (ComputeEntryHash fails only when marshalling
+// fails, which aborts the write), so a nil error always comes with a link.
+func (l *AuditLogger) LogLinked(event AuditEvent) (*ChainLink, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -588,7 +686,7 @@ func (l *AuditLogger) Log(event AuditEvent) error {
 
 	data, err := json.Marshal(entry)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	data = append(data, '\n')
@@ -597,14 +695,27 @@ func (l *AuditLogger) Log(event AuditEvent) error {
 		// Do not advance the head past an entry that may not be on disk, and
 		// force a re-read next time in case the write landed partially.
 		l.knownSize = -1
-		return err
+		return nil, err
 	}
 	l.knownSize += int64(n)
-	l.prevHash = ComputeChainedHash(entry)
+	link := writtenLink(entry, data)
+	l.prevHash = link.LineHash
 	if !degraded {
-		return nil
+		return link, nil
 	}
-	return l.reappendIfUnlinked(entry)
+	return l.reappendIfUnlinked(entry, link)
+}
+
+// writtenLink is the link of a line just written: its prev_hash, and the
+// hash of the bytes written minus the "\n" Log appends. Hashing those bytes,
+// not a re-marshal of entry, makes the link and the next line's prev_hash
+// the hash of what is on disk by construction (the two agree because Log's
+// json.Marshal is deterministic; this does not depend on that).
+func writtenLink(entry ChainedEvent, line []byte) *ChainLink {
+	return &ChainLink{
+		PrevHash: entry.PrevHash,
+		LineHash: rawChainedHash(bytes.TrimSuffix(line, []byte("\n"))),
+	}
 }
 
 // afterDegradedFollow is a test seam: Log calls it, when set, after the
@@ -644,19 +755,23 @@ const maxUnlinkedReappends = 2
 // hook, which warns and enforces regardless. Nothing here runs on the
 // healthy path: its lock spans rotate and write, so its output is
 // unchanged. Must be called with l.mu held.
-func (l *AuditLogger) reappendIfUnlinked(entry ChainedEvent) error {
+//
+// link is the first write's link; the one returned is the link of the
+// append that stuck, since a re-append carries a new prev_hash and so is a
+// different line. On loss it returns nil: the event is in no file.
+func (l *AuditLogger) reappendIfUnlinked(entry ChainedEvent, link *ChainLink) (*ChainLink, error) {
 	for attempt := 0; attempt < maxUnlinkedReappends; attempt++ {
 		if !unlinked(l.file) {
-			return nil
+			return link, nil
 		}
 		_, followed, err := l.followRotation()
 		if err != nil {
-			return l.lostUnlinked(fmt.Errorf("reopen failed: %w", err))
+			return nil, l.lostUnlinked(fmt.Errorf("reopen failed: %w", err))
 		}
 		if !followed {
 			// Unlinked, yet the live path is this same file or cannot
 			// be stat'ed: writing here again cannot help.
-			return l.lostUnlinked(errors.New("live path could not be followed"))
+			return nil, l.lostUnlinked(errors.New("live path could not be followed"))
 		}
 		if afterReappendFollow != nil {
 			afterReappendFollow(attempt)
@@ -666,21 +781,22 @@ func (l *AuditLogger) reappendIfUnlinked(entry ChainedEvent) error {
 		entry.EntryHash = ComputeEntryHash(entry)
 		data, err := json.Marshal(entry)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		data = append(data, '\n')
 		n, err := l.file.Write(data)
 		if err != nil {
 			l.knownSize = -1
-			return err
+			return nil, err
 		}
 		l.knownSize += int64(n)
-		l.prevHash = ComputeChainedHash(entry)
+		link = writtenLink(entry, data)
+		l.prevHash = link.LineHash
 	}
 	if !unlinked(l.file) {
-		return nil
+		return link, nil
 	}
-	return l.lostUnlinked(fmt.Errorf("still unlinked after %d re-appends", maxUnlinkedReappends))
+	return nil, l.lostUnlinked(fmt.Errorf("still unlinked after %d re-appends", maxUnlinkedReappends))
 }
 
 // lostUnlinked reports an event that was written only to an unlinked inode.

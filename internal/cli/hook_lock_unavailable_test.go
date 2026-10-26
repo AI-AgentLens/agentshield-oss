@@ -183,7 +183,7 @@ func TestHook_LockFileUnopenable_MCPAuditDiskMatchesWire(t *testing.T) {
 			_, configDir := newHomeWithUnopenableLock(t, fx)
 			posted := captureAuditPOSTs(t)
 
-			auditMCPCall("read_file", map[string]interface{}{"path": "/etc/hosts"}, blocked, "claude-code-hook", "enforce", "sess-4052")
+			auditMCPCall("read_file", map[string]interface{}{"path": "/etc/hosts"}, blocked, "claude-code-hook", "enforce", "sess-4052", "", nil)
 
 			if disk, wire := diskAndWireLockNotes(t, configDir, posted); disk != 1 || wire != 1 {
 				t.Fatalf("MCP audit path: lock note on disk %d times, on the wire %d times; want exactly 1 and 1", disk, wire)
@@ -194,7 +194,7 @@ func TestHook_LockFileUnopenable_MCPAuditDiskMatchesWire(t *testing.T) {
 		_, configDir := newFailSafeHome(t, false, failSafePolicyGood)
 		posted := captureAuditPOSTs(t)
 
-		auditMCPCall("read_file", map[string]interface{}{"path": "/etc/hosts"}, blocked, "claude-code-hook", "enforce", "sess-4052")
+		auditMCPCall("read_file", map[string]interface{}{"path": "/etc/hosts"}, blocked, "claude-code-hook", "enforce", "sess-4052", "", nil)
 
 		if disk, wire := diskAndWireLockNotes(t, configDir, posted); disk != 0 || wire != 0 {
 			t.Fatalf("healthy MCP audit path: lock note on disk %d times, on the wire %d times; want none", disk, wire)

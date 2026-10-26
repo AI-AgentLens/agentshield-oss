@@ -157,7 +157,7 @@ var LogrotateScriptInjectionCases = []TestCase{
 	{
 		ID:               "TN-LOGROTATE-INJECT-008",
 		Command:          "grep prerotate /etc/logrotate.d/*",
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "persistence-evasion/cron-job/logrotate-script-injection",
 		Analyzer:         "regex",

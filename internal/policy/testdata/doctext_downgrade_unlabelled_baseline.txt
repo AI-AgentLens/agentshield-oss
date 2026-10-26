@@ -173,3 +173,4 @@ ts-block-llm-eval-stdin-pipe	partial-label (pre-existing: [in_heredoc])	packs/pr
 ts-block-best-of-n-jailbreak-meta	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
 ts-block-authority-framed-env-exfil-telemetry	partial-label (pre-existing: [is_doc_text])	packs/premium/terminal-safety-advanced.yaml
 ts-block-programdata-ai-config-plant	partial-label (pre-existing: [in_interpreter_heredoc])	packs/premium/terminal-safety-advanced.yaml
+ts-block-claude-managed-settings-programfiles-write	partial-label ([in_interpreter_heredoc] only, mirrors ts-block-programdata-ai-config-plant; full label not measured for TP loss, #4432)	packs/premium/terminal-safety-advanced.yaml

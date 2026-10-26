@@ -43,13 +43,11 @@ const (
 	// shellparse.QuotedProgramArgs (#3631).
 	LabelPosQuotedProgramArg = "quoted_program_arg"
 	// LabelPosInterpHeredocLiteral — the match exists only inside a quoted
-	// string literal in a python3/node/ruby/perl heredoc body that contains
-	// NO command-execution call this package can recognize anywhere in that
-	// body: data being assigned, printed, or written to a file, never a
-	// program the interpreter runs. A body that DOES contain a recognized
-	// exec call gets no exclusion at all, even for a literal that isn't
-	// itself that call's argument — see InertInterpreterHeredocLiterals
-	// (#3809) for why that's the line, not "not itself an exec argument".
+	// string literal in an interpreter heredoc accepted by the closed inert
+	// grammar AND the historical exec-call check. Only bytes covered by both
+	// old and comment-aware literal extraction qualify. Unknown constructs or
+	// deferred-execution writes void the whole body's exemption; see
+	// InertInterpreterHeredocLiterals.
 	LabelPosInterpHeredocLiteral = "interp_heredoc_literal"
 )
 
@@ -130,11 +128,14 @@ func PositionExcluded(command string, positions []string, foldCtx *StatementFold
 			// command line of commands that never run their input. The
 			// channel withdrawals (#3967 / #3976) stay as defence in depth.
 			if !pureSet {
-				pure, pureSet = shellparse.CommandLineIsPure(command, interpHeredocExecFree), true
+				pure, pureSet = shellparse.CommandLineIsPure(command, interpHeredocExecFree, legacyInterpHeredocExecFree), true
 			}
 			if !pure || shellparse.TextReachesExecutor(command) || matchedItemInExecutedSubstitution(command, items, matches) {
 				continue
 			}
+		}
+		if p == LabelPosSearchNeedle && searchOutputExecuted(command, items, matches) {
+			continue // #4468: the lines the needle selects are run or acted on
 		}
 		if !anyMatches(matches, redactedForms(redacted, foldCtx)) {
 			return true
@@ -184,8 +185,9 @@ func PositionExcluded(command string, positions []string, foldCtx *StatementFold
 //
 // loop_wordlist and search_needle are NOT in this class: a loop word whose
 // variable never reaches an executor, and a grep pattern operand, are words
-// on the invoking command line — piping grep's OUTPUT into bash executes the
-// matched file lines, not the needle.
+// on the invoking command line, not data text. search_needle has its own
+// withdrawal, searchOutputExecuted (#4468): piping grep's OUTPUT into bash
+// executes the matched file lines, and every one of them contains the needle.
 //
 // # The substitution channel (#3976)
 //
@@ -206,6 +208,46 @@ func positionAssertsDataText(label string) bool {
 	switch label {
 	case LabelPosHeredocBody, LabelPosQuotedProgramArg, LabelPosInterpHeredocLiteral:
 		return true
+	}
+	return false
+}
+
+// searchOutputExecuted reports whether a search_needle exclusion must be
+// withdrawn because grep's OUTPUT reaches something that runs or acts on it
+// (#4468).
+//
+// The excuse is "searching for a name is not using it". It is false once the
+// search's results are executed: every line a needle selects contains the
+// needle, so for a rule keyed on a literal name the executed lines carry
+// exactly the text the rule exists to stop. Measured on main 36ec1b64: a grep
+// for the shadow-file path piped to bash, eval'd from a substitution, run as
+// a process substitution, fed to xargs, or read in a loop and eval'd all
+// decided AUDIT, while the direct read BLOCKs.
+//
+// Three predicates, the first two shared with the data-text positions so the
+// executor channels are written once:
+//
+//   - shellparse.TextReachesExecutor: a pipe into a shell or interpreter, or
+//     a file written then run (command-wide, the #3797 granularity);
+//   - matchedItemInExecutedSubstitution: a matched needle inside a command or
+//     process substitution whose output runs (`eval "$(grep …)"`,
+//     `bash <(grep …)`, `x=$(grep …); eval "$x"`);
+//   - shellparse.ForwardedSearchNeedles: a matched needle whose grep feeds
+//     xargs or a read loop that acts on the line. Neither executor predicate
+//     sees those two, because the receiving program is not a shell named in
+//     the pipe.
+//
+// Only positive evidence withdraws. A plain grep, a grep piped to wc/sort/
+// head or written to a file, and a grep captured into a variable that is
+// never executed keep their exclusion (TestSearchNeedleWithdrawnWhenOutputExecutes).
+func searchOutputExecuted(command string, items []string, matches func(string) bool) bool {
+	if shellparse.TextReachesExecutor(command) || matchedItemInExecutedSubstitution(command, items, matches) {
+		return true
+	}
+	for _, n := range shellparse.ForwardedSearchNeedles(command) {
+		if anyMatches(matches, itemForms([]string{n})) {
+			return true
+		}
 	}
 	return false
 }
@@ -264,36 +306,58 @@ func itemForms(items []string) []string {
 }
 
 // redactedForms is the set of texts the pattern must NOT match for the
-// exclusion to hold. It mirrors the whole-command candidates the regex layer
-// already derives, plus — per statement (#3725) — the FULL
-// StatementMatchCandidates fold set, not just the raw split text: every form
-// here is a way the SAME match could survive redaction, and missing one would
-// suppress a real second occurrence. StatementMatchCandidates always includes
-// the statement's own raw text as its first element, so this subsumes the
-// plain per-statement check it replaces.
+// exclusion to hold: every form here is a way the SAME match could survive
+// redaction, and missing one would suppress a real second occurrence.
+//
+// It is assembled from the parts the matcher itself uses, never from a
+// hand-kept list (#4400):
+//
+//   - the redacted text and every whole-command rendering of it, from
+//     buildWholeCommandForms, the function RegexAnalyzer.Analyze matches
+//     against, so the passes and their order are the matcher's;
+//   - per statement (#3725), the FULL StatementMatchCandidates fold set
+//     (StatementRestrictCandidates for a restricting rule, see below);
+//   - the executed-text bodies (ExecutedText, #3938), read as statements of
+//     their own, as the matcher's per-statement retry reads them.
+//
+// Why it is built this way. A rendering the matcher has and this list lacks
+// is a needle-shaped bypass: a search operand naming the pattern sits in front
+// of a real payload that matches only in that rendering, the needle is then
+// the only match subtraction can see, and the exclusion excuses the whole
+// command. A hand-kept subset here drifted three times in #4400: a missing
+// pass (MaterializeAssignments over a sibling assignment), missing renderings
+// (executed text and three more), and then the order of two passes (a
+// sibling-assigned path read through an unset-parameter splice, which needs
+// the splice folded BEFORE the assignment is materialized).
+// TestRedactedFormsCoverMatcherTransforms pins the sharing.
 func redactedForms(redacted string, foldCtx *StatementFoldContext) []string {
-	forms := []string{
-		redacted,
-		shellparse.DequoteCommand(redacted),
-		shellparse.NormalizeIFS(redacted),
+	forms := append([]string{redacted}, buildWholeCommandForms(redacted,
+		shellparse.DequoteCommand(redacted), shellparse.NormalizeIFS(redacted))...)
+	// Restrict candidates for a restricting rule (#3991): a form here can
+	// only CANCEL an exclusion, so for a BLOCK/AUDIT rule reading a
+	// path-spelled command word as its program is stricter — a real
+	// `/usr/bin/tar …` next to a quoted doc-text copy of the pattern is
+	// not excused on the copy's account. For an ALLOW rule cancelling
+	// the exclusion LOOSENS the verdict, so the caller only sets
+	// restrictForms for restricting rules (Codex pass 2, R1).
+	statementForms := func(st string) []string {
+		if foldCtx != nil && foldCtx.restrictForms {
+			return StatementRestrictCandidates(st, foldCtx)
+		}
+		return StatementMatchCandidates(st, foldCtx)
 	}
 	for _, st := range shellparse.SplitTopLevelStatements(redacted) {
 		st = strings.TrimRight(st, " \t\n;")
 		if st == "" {
 			continue
 		}
-		// Restrict candidates for a restricting rule (#3991): a form here can
-		// only CANCEL an exclusion, so for a BLOCK/AUDIT rule reading a
-		// path-spelled command word as its program is stricter — a real
-		// `/usr/bin/tar …` next to a quoted doc-text copy of the pattern is
-		// not excused on the copy's account. For an ALLOW rule cancelling
-		// the exclusion LOOSENS the verdict, so the caller only sets
-		// restrictForms for restricting rules (Codex pass 2, R1).
-		if foldCtx != nil && foldCtx.restrictForms {
-			forms = append(forms, StatementRestrictCandidates(st, foldCtx)...)
-		} else {
-			forms = append(forms, StatementMatchCandidates(st, foldCtx)...)
-		}
+		forms = append(forms, statementForms(st)...)
+	}
+	// Executed text is retried as a command of its own, exactly as the
+	// matcher's per-statement retry does, so "^" means the start of what the
+	// shell runs.
+	for _, body := range shellparse.ExecutedText(redacted) {
+		forms = append(forms, statementForms(body)...)
 	}
 	return forms
 }

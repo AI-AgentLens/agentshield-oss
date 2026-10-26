@@ -76,6 +76,16 @@ func MaterializeAssignments(command string) string {
 	syntax.Walk(file, func(node syntax.Node) bool {
 		switch n := node.(type) {
 		case *syntax.CallExpr:
+			// A prefix assignment (`HOME=$h ssh host`) hands the program the
+			// value exactly as an `export` does (#4413). Only when a command
+			// follows: a bare `NAME=$v` binds, it runs nothing.
+			if len(n.Args) > 0 {
+				for _, a := range n.Assigns {
+					if a.Value != nil && materializeAssignValueInPlace(a.Value, syms) {
+						changed = true
+					}
+				}
+			}
 			for _, w := range n.Args {
 				if materializeWordInPlace(w, syms) {
 					changed = true
@@ -298,6 +308,36 @@ func materializeWordInPlace(w *syntax.Word, syms map[string]string) bool {
 	}
 	w.Parts = []syntax.WordPart{&syntax.Lit{ValuePos: w.Pos(), ValueEnd: w.End(), Value: shellSingleQuote(val)}}
 	return true
+}
+
+// materializeAssignValueInPlace is materializeWordInPlace for a prefix
+// assignment's value. An assignment value is never word-split, so quotes add
+// nothing, and a rule's `HOME=(/tmp|...)` anchor does not read through them:
+// a shell-safe resolution is written bare.
+func materializeAssignValueInPlace(w *syntax.Word, syms map[string]string) bool {
+	if w == nil || !partsRequireMaterialization(w.Parts) {
+		return false
+	}
+	val, ok := resolveConstWord(w, syms)
+	if !ok {
+		return false
+	}
+	if val != "" && strings.IndexFunc(val, func(r rune) bool { return !isBareAssignRune(r) }) < 0 {
+		w.Parts = []syntax.WordPart{&syntax.Lit{ValuePos: w.Pos(), ValueEnd: w.End(), Value: val}}
+		return true
+	}
+	// Never word-split, so always quote: a bare multi-word Lit would re-parse
+	// as a second command.
+	w.Parts = []syntax.WordPart{&syntax.Lit{ValuePos: w.Pos(), ValueEnd: w.End(), Value: shellSingleQuote(val)}}
+	return true
+}
+
+func isBareAssignRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("_./:@%+,-", r)
 }
 
 // hasBareParamExp reports whether parts contains a top-level *syntax.ParamExp

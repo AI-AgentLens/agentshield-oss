@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -241,7 +242,7 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 // the policy package keeps config a leaf in the dependency graph and lets
 // this run before policy validation.
 func loadPolicyEnforcementMode(policyPath string) string {
-	data, err := os.ReadFile(policyPath)
+	data, err := safefile.ReadFile(policyPath)
 	if err != nil {
 		return ""
 	}
@@ -258,7 +259,7 @@ func loadPolicyEnforcementMode(policyPath string) string {
 // on top via managed.json.)
 func loadFileConfig(configDir string) *fileConfig {
 	path := filepath.Join(configDir, DefaultConfigFile)
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -284,7 +285,7 @@ func loadFileConfig(configDir string) *fileConfig {
 // same rule; internal/cli pins the two loaders to agree.
 func LoadManaged(configDir string) *ManagedConfig {
 	managedPath := filepath.Join(configDir, "managed.json")
-	data, err := os.ReadFile(managedPath)
+	data, err := safefile.ReadFile(managedPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil

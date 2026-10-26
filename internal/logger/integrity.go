@@ -751,6 +751,33 @@ func chainHeadOf(line []byte, ok bool) string {
 	return rawChainedHash(line)
 }
 
+// ReadRegularFileCapped returns path's contents when it is a regular file of
+// at most max bytes, opened the way lastRecord opens a tail: never blocking
+// in open(2) (openTail), with the kind taken from the open descriptor. A
+// FIFO, device, directory, socket, or a file larger than max returns
+// ok=false without reading it. A symlink is followed to what it names,
+// and that target must pass the same check. It is for small files under
+// ~/.agentshield that a process running as the same user can replace with
+// anything (#4208: the machine-id cache; a FIFO there blocked os.ReadFile
+// forever, the #4057 Codex pass 6 class).
+func ReadRegularFileCapped(path string, max int64) (data []byte, ok bool) {
+	f, err := openTail(path)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > max {
+		return nil, false
+	}
+	// The limit holds even if the file grows between the fstat and the read.
+	data, err = io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil || int64(len(data)) > max {
+		return nil, false
+	}
+	return data, true
+}
+
 // lastRecord returns the last non-blank line of path — the record the
 // verifier will treat as the file's last — with its line terminator removed.
 // Blank lines (see blankRecord) and an unterminated whitespace-only fragment

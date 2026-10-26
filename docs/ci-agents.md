@@ -102,6 +102,11 @@ jobs:
 
       # 4. Run the coding agent — its shell commands now flow through the hook
       - name: Run coding agent
+        # env:
+        #   # Logged in to AI Agent Lens? An ephemeral runner kills the
+        #   # background uploader at job end, and with it any audit event
+        #   # still queued; sync uploads each event before the hook returns.
+        #   AGENTSHIELD_AUDIT_UPLOAD: sync
         run: claude -p "Review the PR diff and suggest fixes"
 ```
 
@@ -137,3 +142,9 @@ agentshield check --shell "env"
 - **Audit trail:** every decision (including CI blocks) is written to the audit
   log and forwarded to the AI Agent Lens SaaS when configured, feeding the
   runtime-attested-compliance receipt.
+  The upload runs in a background process the hook starts, so the hook never
+  waits on the SaaS. An ephemeral runner kills that process at job end, and
+  with it any event still queued, so set `AGENTSHIELD_AUDIT_UPLOAD=sync` in the
+  agent step's environment (commented in step 4 above): each hook call then
+  uploads its own event before it returns, at the cost of one SaaS round trip
+  per tool call.

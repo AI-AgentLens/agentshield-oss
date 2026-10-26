@@ -46,10 +46,11 @@ const (
 	evalErrorRuleID = "agentshield-eval-error"
 )
 
-// eventLogger is the slice of the audit logger the boundary needs: Log for
-// the disk line, and the lock note so the wire payload matches it.
+// eventLogger is the slice of the audit logger the boundary needs: LogLinked
+// for the disk line and its chain link (sent with the event, #4208), and the
+// lock note so the wire payload matches it.
 type eventLogger interface {
-	Log(event logger.AuditEvent) error
+	LogLinked(event logger.AuditEvent) (*logger.ChainLink, error)
 	lockNoteSource
 }
 
@@ -60,6 +61,9 @@ type evalFailure struct {
 	err   error
 	cfg   *config.Config
 	log   eventLogger
+	// notes are the caller's notes about this evaluation (#4452), carried
+	// onto the fail-safe event like any other.
+	notes []logger.Note
 }
 
 // failClosedEnabled reports whether managed fail-closed mode is on. It
@@ -170,14 +174,17 @@ func failSafeDecision(f evalFailure, cmdStr, cwd, source, sessionID string) (*po
 		SessionID:      sessionID,
 		Principal:      osPrincipal(),
 		Error:          f.err.Error(),
+		Notes:          append([]logger.Note(nil), f.notes...),
 	}
 	noteLockUnavailable(&event, f.log)
+	var link *logger.ChainLink
 	if f.log != nil {
-		if err := f.log.Log(event); err != nil {
+		var err error
+		if link, err = f.log.LogLinked(event); err != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
 		}
 	}
-	sendRemoteAudit(&event)
+	sendRemoteAudit(&event, link)
 
 	return &result, &event
 }

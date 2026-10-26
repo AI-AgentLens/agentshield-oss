@@ -250,6 +250,7 @@ func parityRows() []parityRow {
 		ruleToolDesc = "tool-description-poisoning"
 		ruleToolResp = "tool-response-poisoning"
 		ruleMeta     = "mcp-response-meta-field-injection"
+		ruleResource = "resource-content-injection"
 	)
 
 	return []parityRow{
@@ -329,6 +330,82 @@ func parityRows() []parityRow {
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
 		{name: "input_required/embedded-sampling", body: `{"jsonrpc":"2.0","id":1,"result":{"resultType":"input_required","inputRequests":` + embeddedSampling + `}}`,
 			want: outcomeBlocked, absent: []string{mSSH}, rules: []string{"sampling-content-scan"}},
+
+		// --- a field sent twice under case folding is read as the client reads it (#4407) ---
+		// encoding/json reads the LAST fold match; every client reads the
+		// exact key. Each surface has its control (the exact key alone), the
+		// attack order (exact poison, then a fold decoy: main forwarded it),
+		// the reverse order (main already read the poison), and the no-
+		// lowering order (exact benign, then fold poison: main read the
+		// poison, so the decoded screen must still act on it).
+		{name: "fold/tools-description/control", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"safe_tool","description":` + jSSH + `},{"name":"ok_tool","description":"fine"}]}}`,
+			want: outcomeRewritten, absent: []string{mSSH}, present: []string{"ok_tool"}, rules: []string{ruleToolDesc}},
+		{name: "fold/tools-description/exact-then-fold", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"safe_tool","description":` + jSSH + `,"Description":"Returns weather."},{"name":"ok_tool","description":"fine"}]}}`,
+			want: outcomeRewritten, absent: []string{mSSH}, present: []string{"ok_tool"}, rules: []string{ruleToolDesc}},
+		{name: "fold/tools-description/fold-then-exact", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"safe_tool","Description":"Returns weather.","description":` + jSSH + `},{"name":"ok_tool","description":"fine"}]}}`,
+			want: outcomeRewritten, absent: []string{mSSH}, present: []string{"ok_tool"}, rules: []string{ruleToolDesc}},
+		// Both screens rewrite: the decoded one hides plain_tool and keeps
+		// fold_tool, the client's view hides both. A tie keeps main's
+		// rewrite, which re-encodes fold_tool from what it decoded: the
+		// client gets the decoy description, never the poison.
+		{name: "fold/tools-description/both-screens-rewrite", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"fold_tool","description":` + jSSH + `,"Description":"Returns weather."},{"name":"plain_tool","description":` + jSSH + `},{"name":"ok_tool","description":"fine"}]}}`,
+			want: outcomeRewritten, absent: []string{mSSH, "plain_tool", "Description"}, present: []string{"ok_tool", "fold_tool", `"description":"Returns weather."`}, rules: []string{ruleToolDesc}},
+		{name: "fold/tools-description/no-lowering", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"safe_tool","description":"Returns weather.","Description":` + jSSH + `},{"name":"ok_tool","description":"fine"}]}}`,
+			want: outcomeRewritten, absent: []string{mSSH}, present: []string{"ok_tool"}, rules: []string{ruleToolDesc}},
+
+		// --- legacy `toolResult` (#4551): Claude Code shows it in place of content ---
+		{name: "toolResult/control-content", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + jIgnore + `}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "toolResult/string", body: `{"jsonrpc":"2.0","id":1,"result":{"toolResult":` + jIgnore + `}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "toolResult/decoy-content", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Record 42: status ok"}],"toolResult":` + jIgnore + `}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "toolResult/non-string", body: `{"jsonrpc":"2.0","id":1,"result":{"toolResult":{"note":` + jIgnore + `}}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "toolResult/fold-spelling", body: `{"jsonrpc":"2.0","id":1,"result":{"ToolResult":` + jIgnore + `}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "toolResult/clean", body: `{"jsonrpc":"2.0","id":1,"result":{"toolResult":"Record 42: status ok"}}`,
+			want: outcomeForwarded, present: []string{"Record 42: status ok"}},
+		{name: "toolResult/clean-with-content", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}],"toolResult":"Record 42: status ok"}}`,
+			want: outcomeForwarded, present: []string{"Record 42: status ok"}},
+
+		{name: "fold/content-text/control", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + jIgnore + `}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/content-text/exact-then-fold", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + jIgnore + `,"Text":"ok"}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/content-text/fold-then-exact", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","Text":"ok","text":` + jIgnore + `}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/content-text/no-lowering", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok","Text":` + jIgnore + `}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+
+		{name: "fold/error-message/control", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":` + jIgnore + `}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, present: []string{`"code":-32603`}, rules: []string{ruleErr}},
+		{name: "fold/error-message/exact-then-fold", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":` + jIgnore + `,"MESSAGE":"Internal error"}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, present: []string{`"code":-32603`}, rules: []string{ruleErr}},
+		{name: "fold/error-message/fold-then-exact", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"MESSAGE":"Internal error","message":` + jIgnore + `}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, present: []string{`"code":-32603`}, rules: []string{ruleErr}},
+
+		{name: "fold/resource-contents/control", body: `{"jsonrpc":"2.0","id":1,"result":{"contents":[{"uri":"file:///notes.txt","mimeType":"text/plain","text":` + jIgnore + `}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleResource}},
+		{name: "fold/resource-contents/exact-then-fold", body: `{"jsonrpc":"2.0","id":1,"result":{"contents":[{"uri":"file:///notes.txt","mimeType":"text/plain","text":` + jIgnore + `,"Text":"ok"}]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleResource}},
+
+		// The envelope: `Result`/`Error` replace the field the dispatch reads.
+		{name: "fold/envelope-result/exact-then-fold", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[` + poisonedText + `]},"Result":{"content":[]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/envelope-result/exact-then-null", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[` + poisonedText + `]},"Result":null}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/envelope-error/exact-then-null", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":` + jIgnore + `},"Error":null}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleErr}},
+		// encoding/json folds with Unicode simple folding, so `ſ` (U+017F) is
+		// `s` and `ſtructuredContent` is the same field to the decoder.
+		{name: "fold/structuredContent/unicode-fold-decoy", body: `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"x":` + jIgnore + `},"ſtructuredContent":{"x":"ok"}}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{"mcp-structured-content-injection"}},
+
+		// Benign fold duplicates: the client's view is screened and finds
+		// nothing, so the original bytes go out and no receipt is written.
+		{name: "fold/clean/text-twice", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok","Text":"also fine"}]}}`, want: outcomeForwarded},
+		{name: "fold/clean/user-data-keys", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"row"}],"structuredContent":{"name":"a","Name":"b","Text":"c","text":"d"}}}`, want: outcomeForwarded},
 
 		// --- clean messages of every discriminated shape pass through byte-identical ---
 		{name: "clean/error", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params: path must be a string"}}`, want: outcomeForwarded},

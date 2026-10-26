@@ -55,7 +55,22 @@ var setupClaudeCodeCmd = &cobra.Command{
 makes is evaluated by AgentShield before execution.
 
   agentshield setup claude-code             # enable hook
-  agentshield setup claude-code --disable   # disable hook`,
+  agentshield setup claude-code --disable   # disable hook
+
+The hook is registered in ~/.claude/settings.json (user scope). A repository's
+committed .claude/settings.json with "disableAllHooks": true turns user-scope
+hooks off. A hook in Claude Code managed settings keeps running (#4292):
+
+  agentshield setup claude-code --managed > agentshield.json
+      # print the managed-settings JSON (stdout) and the per-OS file path
+      # (stderr) for an MDM such as Jamf or Intune to deploy; writes nothing
+  sudo agentshield setup claude-code --write-managed
+      # merge the hook into this machine's managed settings file, keeping
+      # every other key; needs administrator rights
+
+  macOS:          /Library/Application Support/ClaudeCode/managed-settings.json
+  Linux and WSL:  /etc/claude-code/managed-settings.json
+  Windows:        C:\Program Files\ClaudeCode\managed-settings.json`,
 	RunE: setupClaudeCodeCommand,
 }
 
@@ -124,16 +139,21 @@ General setup:
 }
 
 var (
-	installFlag bool
-	disableFlag bool
+	installFlag      bool
+	disableFlag      bool
+	managedFlag      bool
+	writeManagedFlag bool
 )
 
 func init() {
 	setupCmd.Flags().BoolVar(&installFlag, "install", false, "Install wrapper script and default policy packs")
+	setupClaudeCodeCmd.Flags().BoolVar(&managedFlag, "managed", false, "Print the Claude Code managed-settings JSON that registers the hook, and the per-OS file path, for MDM; writes nothing")
+	setupClaudeCodeCmd.Flags().BoolVar(&writeManagedFlag, "write-managed", false, "Merge the hook into this machine's Claude Code managed settings file (needs administrator rights)")
 	setupWindsurfCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCursorCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupOpenClawCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupClaudeCodeCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
+	setupClaudeCodeCmd.MarkFlagsMutuallyExclusive("managed", "write-managed", "disable")
 	setupGeminiCLICmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCodexCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCmd.AddCommand(setupWindsurfCmd)
@@ -805,25 +825,44 @@ type claudeHookInstall struct {
 	Migrated []string
 }
 
+// changed reports whether the merge changed the settings document.
+func (r claudeHookInstall) changed() bool {
+	return r.Added || len(r.Migrated) > 0
+}
+
 // installClaudeCodeHook makes the Claude Code settings file at settingsPath
-// hold AgentShield's PreToolUse hook for binPath, and writes the file only
-// when something changed. execOK says whether binPath may be written in exec
-// form (execFormBlocker).
+// hold AgentShield's PreToolUse hook for binPath (mergeClaudeCodeHook), and
+// writes the file only when something changed. execOK says whether binPath
+// may be written in exec form (execFormBlocker).
+func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHookInstall, error) {
+	settings, err := readClaudeSettings(settingsPath)
+	if err != nil {
+		return claudeHookInstall{}, err
+	}
+	res := mergeClaudeCodeHook(settings, binPath, execOK)
+	if !res.changed() {
+		return res, nil
+	}
+	return res, writeClaudeSettings(settingsPath, settings)
+}
+
+// mergeClaudeCodeHook makes a Claude Code settings document hold AgentShield's
+// PreToolUse hook for binPath. It is the one definition of the entry: the
+// user-scope install, the managed-settings snippet (`setup claude-code
+// --managed`) and the managed-settings merge (--write-managed) all call it,
+// so the three cannot drift (#4292).
 //
 //   - No AgentShield entry: append one, in exec form when execOK, else shell.
 //   - A shell-form AgentShield entry and execOK: rewrite that hook object to
 //     exec form in place. Its other keys (a timeout, say), its matcher group
 //     and the hooks beside it are left as they are. Without execOK it stays.
-//   - Otherwise the file already holds our entry: change nothing.
+//   - Otherwise the document already holds our entry: change nothing.
 //
 // It never adds a second entry, never downgrades exec form to shell form, and
-// never touches a hook object that is not AgentShield's.
-func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHookInstall, error) {
+// never touches a hook object that is not AgentShield's. Keys outside
+// hooks.PreToolUse are left as they are.
+func mergeClaudeCodeHook(settings map[string]interface{}, binPath string, execOK bool) claudeHookInstall {
 	var res claudeHookInstall
-	settings, err := readClaudeSettings(settingsPath)
-	if err != nil {
-		return res, err
-	}
 	hooks := getOrCreateMap(settings, "hooks")
 	preToolUse := getOrCreateSlice(hooks, "PreToolUse")
 	want, wantForm := claudeCodeHook(binPath, execOK)
@@ -855,17 +894,19 @@ func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHoo
 	}
 
 	if !found {
+		// No "matcher": the group fires on every tool call, Bash and MCP alike
+		// (https://code.claude.com/docs/en/hooks: "If you omit the matcher or
+		// use "*", the group activates on every occurrence of the event.").
 		hooks["PreToolUse"] = append(preToolUse, map[string]interface{}{
 			"hooks": []interface{}{want},
 		})
 		res.Added = true
 		res.Form = wantForm
 	}
-	if !res.Added && len(res.Migrated) == 0 {
-		return res, nil
+	if res.changed() {
+		settings["hooks"] = hooks
 	}
-	settings["hooks"] = hooks
-	return res, writeClaudeSettings(settingsPath, settings)
+	return res
 }
 
 func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
@@ -876,6 +917,18 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		return disableClaudeCodeHook(settingsPath)
+	}
+
+	// Managed settings (#4292). Neither path touches ~/.claude: --managed
+	// writes nothing, and --write-managed usually runs under sudo, where a
+	// user-scope write would leave a root-owned file in the user's home.
+	if managedFlag || writeManagedFlag {
+		hookPath := resolveAgentShieldPath()
+		blocker := execFormBlocker(hookPath)
+		if managedFlag {
+			return printManagedClaudeSnippet(cmd.OutOrStdout(), cmd.ErrOrStderr(), hookPath, blocker, managedSetupPath())
+		}
+		return runWriteManaged(cmd.OutOrStdout(), managedSetupPath(), hookPath, blocker)
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")

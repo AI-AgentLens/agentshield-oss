@@ -1,6 +1,7 @@
 package shellparse
 
 import (
+	"regexp"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -39,6 +40,10 @@ var sensitiveGlobTargets = []string{
 	".docker/config.json",
 	".npmrc",
 	".netrc",
+	// KeePass database (#4410). sec-block-keepassxc-db-read matches it by
+	// regex, so a glob inside the extension resolved to nothing before
+	// this entry.
+	".kdbx",
 	".pgpass",
 	".git-credentials",
 	".pypirc",
@@ -73,12 +78,77 @@ const (
 	// maxGlobAlternatives bounds the candidate list this returns, same
 	// purpose as maxBraceAlternatives in brace_expand.go.
 	maxGlobAlternatives = 16
+	// minGlobEdgeLiteral is how many leading bytes of a target's final path
+	// component a TRAILING wildcard must leave literal before it counts as
+	// pinning that one name (#4410). A trailing '?' or '*' on /etc/shadow
+	// or ~/.netrc pins it; a wildcard after "/etc/s" or "~/.n" matches
+	// ordinary names too, so it stays unresolved and decides AUDIT.
+	minGlobEdgeLiteral = 4
+	// maxGlobEdgeSpan bounds how many trailing bytes a '*' may stand for.
+	maxGlobEdgeSpan = 3
 )
 
 // globVariant is one precomputed (wildcard-text, resolved-target) pair.
 type globVariant struct {
 	text   string
 	target string
+	// atEnd marks a trailing-wildcard variant (#4410): it resolves only when
+	// it ends the literal it is found in, so a byte after the wildcard is
+	// never read as part of the protected name.
+	atEnd bool
+}
+
+// singleCharClass matches a bracket class naming exactly one character,
+// which pathname expansion resolves to that character.
+var singleCharClass = regexp.MustCompile(`\[([^\]\[!^\\*?-])\]`)
+
+// collapseSingleClasses replaces each one-character class with its character
+// and reports whether it changed anything.
+func collapseSingleClasses(text string) (string, bool) {
+	out := singleCharClass.ReplaceAllString(text, "$1")
+	return out, out != text
+}
+
+// matchGlobVariant returns where gv starts in text, or -1.
+func matchGlobVariant(text string, gv globVariant) int {
+	if gv.atEnd {
+		if strings.HasSuffix(text, gv.text) {
+			return len(text) - len(gv.text)
+		}
+		return -1
+	}
+	return strings.Index(text, gv.text)
+}
+
+// appendEdgeVariants adds the trailing-wildcard spellings of target (#4410):
+// its last one to three bytes replaced by '?' or '*'. The interior builder
+// keeps a literal byte on both sides of a wildcard, so a wildcard on the
+// last byte resolved to nothing and the read was ALLOWed. A directory-only
+// target has no final component.
+func appendEdgeVariants(out []globVariant, seen map[string]bool, target string) []globVariant {
+	if strings.HasSuffix(target, "/") {
+		return out
+	}
+	name := target[strings.LastIndex(target, "/")+1:]
+	for k := 1; k <= maxGlobEdgeSpan; k++ {
+		if len(name)-k < minGlobEdgeLiteral {
+			break
+		}
+		candidates := []string{"*"}
+		if k <= maxGlobWildcardSpan {
+			candidates = append(candidates, strings.Repeat("?", k))
+		}
+		for _, wc := range candidates {
+			variant := target[:len(target)-k] + wc
+			key := "end\x00" + variant + "\x00" + target
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, globVariant{text: variant, target: target, atEnd: true})
+		}
+	}
+	return out
 }
 
 // globVariantIndex is built once at package init from sensitiveGlobTargets —
@@ -116,6 +186,7 @@ func buildGlobVariantIndex() []globVariant {
 				}
 			}
 		}
+		out = appendEdgeVariants(out, seen, target)
 	}
 	return out
 }
@@ -142,7 +213,7 @@ func buildGlobVariantIndex() []globVariant {
 // Returns nil when command has no unquoted '?'/'*', when parsing fails, or
 // when no wildcard resolves to a known sensitive path.
 func DeglobSensitivePaths(command string) []string {
-	if !strings.ContainsAny(command, "?*") {
+	if !strings.ContainsAny(command, "?*[") {
 		return nil
 	}
 
@@ -181,16 +252,25 @@ func DeglobSensitivePaths(command string) []string {
 	seen := make(map[string]bool)
 	var alternatives []string
 	for _, s := range spans {
-		text := command[s.start:s.end]
+		text, collapsed := collapseSingleClasses(command[s.start:s.end])
+		if collapsed {
+			// A one-character class is that character (#4410), so the
+			// collapsed command is itself a candidate.
+			resolved := command[:s.start] + text + command[s.end:]
+			if !seen[resolved] {
+				seen[resolved] = true
+				alternatives = append(alternatives, resolved)
+			}
+		}
 		if !strings.ContainsAny(text, "?*") {
 			continue
 		}
 		for _, gv := range globVariantIndex {
-			idx := strings.Index(text, gv.text)
+			idx := matchGlobVariant(text, gv)
 			if idx < 0 {
 				continue
 			}
-			resolved := command[:s.start+idx] + gv.target + command[s.start+idx+len(gv.text):]
+			resolved := command[:s.start] + text[:idx] + gv.target + text[idx+len(gv.text):] + command[s.end:]
 			if seen[resolved] {
 				continue
 			}
@@ -221,11 +301,15 @@ func DeglobSensitivePaths(command string) []string {
 // callers already pass an isolated, already-unquoted argument. Returns p
 // unchanged if it has no unquoted wildcard or none resolves.
 func DeglobPath(p string) string {
+	if !strings.ContainsAny(p, "?*[") {
+		return p
+	}
+	p, _ = collapseSingleClasses(p)
 	if !strings.ContainsAny(p, "?*") {
 		return p
 	}
 	for _, gv := range globVariantIndex {
-		if idx := strings.Index(p, gv.text); idx >= 0 {
+		if idx := matchGlobVariant(p, gv); idx >= 0 {
 			return p[:idx] + gv.target + p[idx+len(gv.text):]
 		}
 	}

@@ -630,6 +630,21 @@ func printManagedChecks(cfg *config.Config, managedCfg *enterprise.ManagedConfig
 		fmt.Println("  ❌ Hook integrity:        tamper detected")
 	}
 
+	// Which Claude Code scopes carry the hook (#4292). Managed mode expects
+	// managed settings, the scope a repository's disableAllHooks cannot reach.
+	for _, c := range hookChecks {
+		if c.Name != enterprise.ClaudeManagedHookCheckName {
+			continue
+		}
+		total++
+		if c.Passed {
+			fmt.Printf("  ✅ Claude Code hook scope: %s\n", c.Message)
+			passed++
+		} else {
+			fmt.Printf("  ❌ Claude Code hook scope: %s\n", c.Message)
+		}
+	}
+
 	return passed, total
 }
 

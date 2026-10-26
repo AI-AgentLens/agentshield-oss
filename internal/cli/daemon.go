@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -11,11 +14,36 @@ import (
 	"syscall"
 )
 
-const launchdLabel = "com.aiagentlens.agentshield"
+const launchdBaseLabel = "com.aiagentlens.agentshield"
+
+// launchdLabel is the launchd job label for this HOME (#4476). The machine's real
+// user keeps the bare label, so an existing install is not migrated. Any other HOME
+// (a scratch HOME, a test harness) gets a suffix derived from the path: launchd
+// labels are global to the user session, and a shared label let a stop from one
+// HOME unload the other's daemon.
+func launchdLabel() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return launchdBaseLabel
+	}
+	if u, err := user.Current(); err != nil || u.HomeDir == "" || filepath.Clean(u.HomeDir) == filepath.Clean(home) {
+		return launchdBaseLabel
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(home)))
+	return launchdBaseLabel + "." + hex.EncodeToString(sum[:4])
+}
+
+// launchctlLoadRefused reports whether `launchctl load` output means the job was not
+// loaded. The legacy `load` verb prints these and can still exit 0 (#4476).
+func launchctlLoadRefused(out string) bool {
+	o := strings.ToLower(out)
+	return strings.Contains(o, "already loaded") || strings.Contains(o, "load failed") ||
+		strings.Contains(o, "service already") || strings.Contains(o, "could not find")
+}
 
 func plistPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel()+".plist")
 }
 
 func pidFilePath() string {
@@ -46,7 +74,7 @@ func stopHeartbeatDaemon() {
 // isHeartbeatRunning checks if the daemon is alive.
 func isHeartbeatRunning() bool {
 	if runtime.GOOS == "darwin" {
-		out, err := exec.Command("launchctl", "list", launchdLabel).Output()
+		out, err := exec.Command("launchctl", "list", launchdLabel()).Output()
 		if err == nil && len(out) > 0 {
 			return true
 		}
@@ -97,7 +125,7 @@ func installLaunchd() error {
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin</string>
     </dict>
 </dict>
-</plist>`, launchdLabel, binPath, logPath, logPath)
+</plist>`, launchdLabel(), binPath, logPath, logPath)
 
 	plistFile := plistPath()
 	_ = os.MkdirAll(filepath.Dir(plistFile), 0755)
@@ -108,8 +136,12 @@ func installLaunchd() error {
 
 	// Load the service
 	cmd := exec.Command("launchctl", "load", plistFile)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		return fmt.Errorf("launchctl load: %s: %w", string(out), err)
+	}
+	if launchctlLoadRefused(string(out)) {
+		return fmt.Errorf("launchctl load refused: %s", strings.TrimSpace(string(out)))
 	}
 
 	return nil

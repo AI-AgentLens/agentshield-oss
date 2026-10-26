@@ -66,7 +66,12 @@
       "properties": {
         "allow_domains": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "description": "Allowed outbound destinations. Enforced only when enforce_allowlist is true, and then only the entries in your own policy file count (not the built-in defaults or pack domains). An entry matches the host and its subdomains; *.host matches subdomains only; an IP address matches only itself."
+        },
+        "enforce_allowlist": {
+          "type": "boolean",
+          "description": "Opt-in outbound allowlist (#4437). When true, a network command whose destination Shield can name (curl, wget, URL remotes of git clone/fetch/pull/push/ls-remote) is blocked when the host is not on allow_domains (subdomains included); destinations Shield cannot name are recorded, not stopped. Loopback (localhost, *.localhost, 127.0.0.0/8, ::1) is never blocked. Absent or false changes no decision. A value that is not true/false leaves it off with a warning."
         }
       }
     },
@@ -128,7 +133,7 @@
             "type": "string",
             "enum": ["loop_wordlist", "search_needle", "heredoc_body"]
           },
-          "description": "Suppress this rule when its match exists ONLY at one of these syntactic positions. Different question from command_intent_exclude: an intent label classifies the whole command's text, a position label asks where the match landed in the parsed command. loop_wordlist = an item of a `for NAME in …` word list whose loop variable is only printed or used as a search pattern — the value is data being iterated, not an operand (#3376). search_needle = the PATTERN operand of a grep-family invocation (grep/egrep/fgrep/rg/ag) — a search term compared against file content, never a target being opened, executed, or attached to (#3382). heredoc_body = the BODY text of a `cat`/`tee <<DELIM … DELIM` heredoc — data being written or printed, never a command-line token; never applies to a heredoc fed to an interpreter (bash/sh/python3/…), whose body is code (#3397). Position alone is not the exemption: `for p in /etc/shadow; do cat \"$p\"; done` still fires, and a genuine invocation appearing anywhere else in the command still fires. Unknown labels are rejected at policy load."
+          "description": "Suppress this rule when its match exists ONLY at one of these syntactic positions. Different question from command_intent_exclude: an intent label classifies the whole command's text, a position label asks where the match landed in the parsed command. loop_wordlist = an item of a `for NAME in …` word list whose loop variable is only printed or used as a search pattern — the value is data being iterated, not an operand (#3376). search_needle = the PATTERN operand of a grep-family invocation (grep/egrep/fgrep/rg/ag) — a search term compared against file content, never a target being opened, executed, or attached to (#3382); withdrawn when the command executes grep's output, whose every line contains the needle (#4468). heredoc_body = the BODY text of a `cat`/`tee <<DELIM … DELIM` heredoc — data being written or printed, never a command-line token; never applies to a heredoc fed to an interpreter (bash/sh/python3/…), whose body is code (#3397). Position alone is not the exemption: `for p in /etc/shadow; do cat \"$p\"; done` still fires, and a genuine invocation appearing anywhere else in the command still fires. Unknown labels are rejected at policy load."
         },
         "command_fold_separators": {
           "type": "boolean",

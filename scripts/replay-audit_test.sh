@@ -5,7 +5,9 @@
 # the real report shape and flips a case when its shell text carries a marker
 # (FLIP2BLOCK / FLIP2AUDIT). So these cases prove the selection (sources,
 # window, dedupe, cap), the sharding (every case reaches a shard), the
-# classification and the exit codes — and that a vacuous run says so.
+# classification and the exit codes — and that a vacuous run says so. A
+# command carrying [REDACTED] is counted as unreplayable and never reaches the
+# candidate (#4084).
 #
 # Run: bash scripts/replay-audit_test.sh
 set -uo pipefail
@@ -146,6 +148,47 @@ contains "names the shard exit code" "$TMP/o9b.txt" "exited 64"
 # ── 10. usage errors ────────────────────────────────────────────────────────
 run --binary "$TMP/does-not-exist" > "$TMP/o10.txt" 2>&1; check "missing binary -> exit 1" 1 $?
 run --log "$TMP/l9.jsonl" --hours abc > "$TMP/o10b.txt" 2>&1; check "non-integer --hours -> exit 1" 1 $?
+
+# ── 11. a redacted command is counted, never replayed (#4084) ───────────────
+# The audit log redacts secrets before it writes, so a recorded command with
+# [REDACTED] is not the text the deployed binary evaluated. Replaying it flips
+# by construction. The fake's markers stand in for what the real engine does
+# to the redacted text: a secrets BLOCK no longer sees its secret (FLIP2AUDIT),
+# and a span that swallowed a heredoc terminator lets prose match (FLIP2BLOCK).
+LOG="$TMP/l11a.jsonl"
+{ ev claude-code-hook BLOCK 'awsKey := "[REDACTED]" FLIP2AUDIT' '["guardian-secrets_in_command"]'
+  ev claude-code-hook ALLOW "ls" ; } > "$LOG"
+run --log "$LOG" > "$TMP/o11a.txt" 2>&1; check "redacted BLOCK is not replayed -> no flip" 0 $?
+contains "no BLOCK lost from the redacted event"        "$TMP/o11a.txt" "flips 0 (BLOCK lost 0, new BLOCK 0, other 0)"
+contains "the redacted BLOCK is counted, as a BLOCK"    "$TMP/o11a.txt" "unreplayable (redacted) 1 (1 recorded BLOCK)"
+contains "only the un-redacted event was replayed"      "$TMP/o11a.txt" "unique 2 · replayed 1 (all 0 recorded BLOCKs"
+
+LOG="$TMP/l11b.jsonl"
+{ ev claude-code-hook AUDIT $'cat > /tmp/body.md <<\'EOF\'\nprose [REDACTED] FLIP2BLOCK' '["ne-audit-git-push"]'
+  ev claude-code-hook ALLOW "pwd" ; } > "$LOG"
+run --log "$LOG" > "$TMP/o11b.txt" 2>&1; check "redacted AUDIT is not replayed -> no new BLOCK" 0 $?
+contains "no new BLOCK from the redacted event"         "$TMP/o11b.txt" "flips 0 (BLOCK lost 0, new BLOCK 0, other 0)"
+contains "the redacted AUDIT is counted"                "$TMP/o11b.txt" "unreplayable (redacted) 1 (0 recorded BLOCK)"
+contains "only the un-redacted event was replayed"      "$TMP/o11b.txt" "unique 2 · replayed 1 "
+
+# control: un-redacted events beside a redacted one are replayed and their
+# flips counted exactly as before; only the redacted one is set aside.
+LOG="$TMP/l11c.jsonl"
+{ ev claude-code-hook BLOCK "rm -rf build FLIP2AUDIT" '["ts-block-x"]'
+  ev codex-hook AUDIT "echo 'prose' FLIP2BLOCK" '[]'
+  ev claude-code-hook BLOCK 'export TOKEN=[REDACTED] FLIP2AUDIT' '["guardian-secrets_in_command"]' ; } > "$LOG"
+run --log "$LOG" > "$TMP/o11c.txt" 2>&1; check "un-redacted flips still reported -> exit 10" 10 $?
+contains "un-redacted flips counted as before"          "$TMP/o11c.txt" "flips 2 (BLOCK lost 1, new BLOCK 1, other 0)"
+contains "unique counts all 3, replays the 2 clean"     "$TMP/o11c.txt" "unique 3 · replayed 2 (all 1 recorded BLOCKs"
+contains "the redacted one is counted beside them"      "$TMP/o11c.txt" "unreplayable (redacted) 1 (1 recorded BLOCK)"
+not_contains "the redacted command is not a reported flip" "$TMP/o11c.txt" "export TOKEN"
+
+# nothing replayable left: vacuous (exit 2) with the count, not a pass and
+# not a crash on a missing shard file.
+LOG="$TMP/l11d.jsonl"
+ev claude-code-hook BLOCK 'awsKey := "[REDACTED]"' '["guardian-secrets_in_command"]' > "$LOG"
+run --log "$LOG" > "$TMP/o11d.txt" 2>&1; check "only redacted events -> exit 2 (vacuous)" 2 $?
+contains "says nothing was replayable, with the count" "$TMP/o11d.txt" "replayed 0 · unreplayable (redacted) 1 (1 recorded BLOCK) — nothing replayable (vacuous)"
 
 echo
 if [ "$fail" -eq 0 ]; then echo "replay-audit_test: all cases passed"; else echo "replay-audit_test: FAILURES"; exit 1; fi

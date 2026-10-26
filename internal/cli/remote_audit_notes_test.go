@@ -13,7 +13,7 @@ import (
 // case byte-for-byte; this pins the present one.
 func TestBuildAuditPayload_NotesPresentOnlyWhenSet(t *testing.T) {
 	ev := &logger.AuditEvent{Command: "ls", Decision: "AUDIT", Mode: "enforce"}
-	raw, err := buildAuditPayload(ev)
+	raw, err := buildAuditPayload(ev, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestBuildAuditPayload_NotesPresentOnlyWhenSet(t *testing.T) {
 	}
 
 	ev.Notes = auditNotes([]analyzer.Note{{Kind: analyzer.NoteExcused, Rule: "ts-block-x", Detail: "intent:is_doc_text"}})
-	raw, err = buildAuditPayload(ev)
+	raw, err = buildAuditPayload(ev, "")
 	if err != nil {
 		t.Fatal(err)
 	}

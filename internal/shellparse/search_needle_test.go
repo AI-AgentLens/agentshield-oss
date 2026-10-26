@@ -1,6 +1,9 @@
 package shellparse
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The FP that motivated this (#3382): a search for a documented command
 // example, quoted so the pattern operand spans a whole phrase.
@@ -246,5 +249,84 @@ func TestSearchToolNeedlesNoOp(t *testing.T) {
 	items, redacted := SearchToolNeedles(`ls -la /tmp`)
 	if items != nil || redacted != "" {
 		t.Fatalf("expected no-op sentinel, got items=%#v redacted=%q", items, redacted)
+	}
+}
+
+// #4415: a name the same command line defines runs the definition, not the
+// search tool, so its operands are not a needle.
+func TestSearchToolNeedlesShadowedName_4415(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		found   bool
+	}{
+		{"function definition", `grep() { cat "$@"; }; grep frida -r .`, false},
+		{"function keyword form", `function rg { cat "$@"; }; rg frida .`, false},
+		{"alias", `alias grep='cat'; grep frida -r .`, false},
+		{"script written by redirect", `printf 'cat "$@"' > /tmp/bin/grep; /tmp/bin/grep frida -r .`, false},
+		{"script copied into place", `cp ./reader /tmp/bin/grep; grep frida -r .`, false},
+		{"control: unrelated function", `f() { echo hi; }; grep -i "frida -n x" -r docs/`, true},
+		{"control: redirect to other file", `echo hi > /tmp/grep.log; grep frida -r .`, true},
+		{"control: plain grep", `grep frida -r .`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			items, _ := SearchToolNeedles(tc.command)
+			if (len(items) > 0) != tc.found {
+				t.Fatalf("SearchToolNeedles(%q) items=%v, want found=%v", tc.command, items, tc.found)
+			}
+		})
+	}
+}
+
+// #4468: a needle whose matching lines reach xargs or a read loop that acts
+// on them is forwarded; one whose output is counted, sorted, printed or
+// suppressed is not.
+func TestForwardedSearchNeedles(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    []string
+	}{
+		// --- forwarded ---
+		{"xargs with a target", `grep -F 'zqx' f | xargs cat`, []string{`'zqx'`}},
+		{"xargs runs each line", `grep zqx f | xargs -L1 env`, []string{`zqx`}},
+		{"xargs as a later stage", `grep zqx f | sort -u | xargs cat`, []string{`zqx`}},
+		{"xargs behind a wrapper", `grep zqx f | sudo xargs cat`, []string{`zqx`}},
+		{"xargs fed by a process substitution", `xargs cat < <(grep zqx f)`, []string{`zqx`}},
+		{"read loop evals the line", `grep zqx f | while read -r l; do eval "$l"; done`, []string{`zqx`}},
+		{"read loop runs the line as a command", `grep zqx f | while IFS= read -r l || [ -n "$l" ]; do $l; done`, []string{`zqx`}},
+		{"read loop opens the line", `grep zqx f | while read -r p; do cat "$p"; done`, []string{`zqx`}},
+		{"read loop with no name uses REPLY", `grep zqx f | while read; do eval "$REPLY"; done`, []string{`zqx`}},
+		{"read loop fed by a process substitution", `while read -r l; do $l; done < <(grep zqx f)`, []string{`zqx`}},
+		{"read target named at run time", `grep zqx f | while read -r "$v"; do :; done`, []string{`zqx`}},
+		{"rg", `rg zqx f | xargs cat`, []string{`zqx`}},
+
+		// --- not forwarded ---
+		{"plain grep", `grep zqx f`, nil},
+		{"counted", `grep zqx f | wc -l`, nil},
+		{"bare xargs runs echo", `grep zqx f | xargs`, nil},
+		{"xargs echo", `grep zqx f | xargs echo`, nil},
+		{"xargs printf", `grep zqx f | xargs -I{} printf '%s\n' {}`, nil},
+		{"filenames only", `grep -rl zqx . | xargs cat`, nil},
+		{"count only", `grep -c zqx f | xargs cat`, nil},
+		{"quiet", `grep -q zqx f | while read -r l; do $l; done`, nil},
+		{"read loop prints the line", `grep zqx f | while read -r l; do echo "$l"; done`, nil},
+		{"read loop ignores the line", `grep zqx f | while read -r l; do n=$((n+1)); done`, nil},
+		{"read -d '' is not a dynamic target", `grep zqx f | while IFS= read -r -d '' l; do printf '%s\n' "$l"; done`, nil},
+		{"loop that does not read", `grep zqx f | while true; do sleep 1; done`, nil},
+		{"xargs elsewhere, not fed by the grep", `grep zqx f; find . -name '*.tmp' | xargs rm`, nil},
+		{"read loop elsewhere, not fed by the grep", `grep zqx f; while read -r l; do $l; done < list.txt`, nil},
+		{"git pickaxe output is commit metadata", `git log -S'zqx' --oneline | xargs git show`, nil},
+		{"shadowed grep is not a search", `grep() { cat "$@"; }; grep zqx f | xargs cat`, nil},
+		{"does not parse", `grep zqx f | xargs cat (`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ForwardedSearchNeedles(tc.command)
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("ForwardedSearchNeedles(%q) = %q, want %q", tc.command, got, tc.want)
+			}
+		})
 	}
 }

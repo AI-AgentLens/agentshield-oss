@@ -3,6 +3,7 @@ package policy
 import (
 	"os"
 
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,7 +35,7 @@ import (
 // don't have a knob today; that's a deliberate floor. If a real customer asks
 // for it, we add an explicit `override:` block then.
 func Load(path string) (*Policy, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DefaultPolicy(), nil
@@ -74,6 +75,11 @@ func mergeUserOverDefaults(base, user *Policy) *Policy {
 	// legitimately takes a credential, never un-declare a shipped one.
 	merged.Defaults.ProtectedPathConsumers = append(merged.Defaults.ProtectedPathConsumers, user.Defaults.ProtectedPathConsumers...)
 	merged.Network.AllowDomains = unionStrings(merged.Network.AllowDomains, user.Network.AllowDomains)
+	// The opt-in allowlist (#4437) enforces only what the operator wrote, so
+	// their list is kept apart from the union above. The switch is taken from
+	// the user file alone: the baseline never sets it.
+	merged.Network.operatorAllowDomains = append([]string(nil), user.Network.AllowDomains...)
+	merged.Network.EnforceAllowlist = user.Network.EnforceAllowlist
 
 	merged.Rules = append(merged.Rules, user.Rules...)
 	merged.DataLabels = append(merged.DataLabels, user.DataLabels...)

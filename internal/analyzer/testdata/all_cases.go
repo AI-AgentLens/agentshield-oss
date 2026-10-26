@@ -322,5 +322,8 @@ func AllTestCases() []TestCase {
 	// `echo '<payload>' >> ~/.zshenv` falls to the default AUDIT instead of
 	// ALLOW; /dev/null, inherited streams and fd dups keep the ALLOW.
 	all = append(all, ReadOnlyAllowRedirectCases...)
+	// A $'...' escape that decodes to byte 0 ends the body in bash (#4540):
+	// a NUL spliced into a verb or a path hid it from every anchored rule.
+	all = append(all, ANSICNULCases...)
 	return all
 }

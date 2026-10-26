@@ -82,7 +82,9 @@ func TestCaseFold_CwdIsFoldedInTheFoldedReading_4206(t *testing.T) {
 
 // The tie rule of caseFoldResult: the folded result wins when strictly more
 // restrictive, or at an equal decision when its record strictly extends the
-// as-written one. Everything else keeps the as-written result. Mutants killed:
+// as-written one. Everything else keeps the as-written result. The choice reads
+// pre-mode ranks and records only, so audit-only picks what enforce picks.
+// Mutants killed:
 // "folded wins any tie", "superset check removed", "superset non-strict".
 func TestCaseFoldResult_Selection_4206(t *testing.T) {
 	note := analyzer.Note{Kind: "excused", Rule: "r1", Detail: "d"}
@@ -112,7 +114,15 @@ func TestCaseFoldResult_Selection_4206(t *testing.T) {
 		{"equal, folded drops a rule but adds two", mk(DecisionAudit, []string{"a", "x"}), mk(DecisionAudit, []string{"a", "b", "c"}), false},
 		{"equal, superset rules but a note is dropped", mk(DecisionAudit, []string{"a"}, note), mk(DecisionAudit, []string{"a", "b"}), false},
 		{"equal, superset rules and the note kept", mk(DecisionAudit, []string{"a"}, note), mk(DecisionAudit, []string{"a", "b"}, note), true},
-		{"equal rank, different final decision", downgraded(DecisionBlock, DecisionAudit, []string{"a"}), mk(DecisionBlock, []string{"a", "b"}), false},
+		// Changed deliberately (#4395 fix round 1). Equal pre-mode rank with
+		// different final decisions only happens in audit-only mode, when one
+		// reading is a self-protection BLOCK the mode keeps and the other an
+		// ordinary BLOCK it lowers. Enforce mode picks the folded reading here
+		// (same rank, strict superset), so audit-only must pick it too, or it
+		// drops the self-protection rule and its taxonomy. This row used to
+		// expect the as-written result, which was exactly that bug.
+		{"equal rank, different final decision", downgraded(DecisionBlock, DecisionAudit, []string{"a"}), mk(DecisionBlock, []string{"a", "b"}), true},
+		{"equal rank, different final decision, not a superset", downgraded(DecisionBlock, DecisionAudit, []string{"a", "x"}), mk(DecisionBlock, []string{"a", "b"}), false},
 		{"as-written has an unranked decision", mk(Decision("?"), []string{"a"}), mk(DecisionBlock, []string{"a", "b"}), false},
 	}
 	for _, tc := range cases {

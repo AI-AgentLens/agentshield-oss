@@ -12,6 +12,9 @@
 # interp_heredoc_literal 7, quoted_program_arg 3), 0 after the executor-reach withdrawal.
 # #3976 (2026-09-23) added six substitution channels (cmdsub via bash -c and eval,
 # procsub, capture-then-eval, python/awk procsub): 76 leaks with the new predicate
-# disabled, 0 with it. "Empty" means empty over the channels the test probes, not
+# disabled, 0 with it. #4468 (2026-10-24) added five grep-needle channels (the TP as
+# a grep pattern whose output is piped to bash, eval'd, run as a procsub, fed to
+# xargs, or read and eval'd): 215 search_needle leaks on 36ec1b64, 0 with the
+# withdrawal. "Empty" means empty over the channels the test probes, not
 # over every way text can reach an executor.
 # A new line here is a regression to explain, not an allowance.

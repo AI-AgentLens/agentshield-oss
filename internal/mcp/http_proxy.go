@@ -552,11 +552,11 @@ func (hp *HTTPProxy) writeJSONResponse(w http.ResponseWriter, resp *http.Respons
 // handler.go's responseFilterChain() — three response scanners shipped
 // without ever being added here (#3989). Routing through the handler means a
 // filter added to responseFilterChain() is wired to every transport at once.
-func (hp *HTTPProxy) dispatchServerData(msg *Message, data []byte) []byte {
+func (hp *HTTPProxy) dispatchServerData(h *MessageHandler, msg *Message, data []byte) []byte {
 	if msg != nil {
-		return hp.handler.DispatchServerResponse(msg, data)
+		return h.DispatchServerResponse(msg, data)
 	}
-	return hp.handler.runResponseFilterChain(data)
+	return h.runResponseFilterChain(data)
 }
 
 // isServerResponse is the predicate that decides whether a parsed
@@ -582,7 +582,7 @@ func (hp *HTTPProxy) screenRelayedJSON(w http.ResponseWriter, resp *http.Respons
 		hp.writeBlockedJSON(w, resp, errResp)
 		return true
 	}
-	return false
+	return hp.screenErrorStatusBody(w, resp, body)
 }
 
 // filterBatch applies one to every member of a JSON-RPC batch array (#4070).
@@ -641,8 +641,14 @@ func (hp *HTTPProxy) filterJSONResponse(body []byte) ([]byte, bool) {
 // filterJSONOne is filterJSONResponse for one message or batch member: a
 // server-initiated message the shared handling suppresses returns (nil, true),
 // which filterBatch drops from its array and filterJSONResponse turns into an
-// empty batch.
+// empty batch. It screens the message as it decodes and, when it sends a
+// field twice under case folding, as the client reads it (#4407).
 func (hp *HTTPProxy) filterJSONOne(body []byte) ([]byte, bool) {
+	return hp.handler.screenAsClientReads(body, hp.filterJSONMessage)
+}
+
+// filterJSONMessage is one screen of filterJSONOne, through h.
+func (hp *HTTPProxy) filterJSONMessage(h *MessageHandler, body []byte) ([]byte, bool) {
 	// Scan the form the client reads (#4162): WHATWG .json() strips one
 	// leading BOM, Go's decoder rejects it. Unchanged bytes are still
 	// what goes out; a scanner's replacement carries no BOM.
@@ -655,12 +661,12 @@ func (hp *HTTPProxy) filterJSONOne(body []byte) ([]byte, bool) {
 	}
 	msg, kind, perr := ParseMessage(scanned)
 	if perr != nil || !isServerResponse(msg) {
-		if perr == nil && hp.serverInitiatedSuppressed(msg, kind) {
+		if perr == nil && serverInitiatedSuppressed(h, msg, kind) {
 			return nil, true
 		}
 		msg = nil
 	}
-	if filtered := hp.dispatchServerData(msg, scanned); filtered != nil {
+	if filtered := hp.dispatchServerData(h, msg, scanned); filtered != nil {
 		return filtered, true
 	}
 	return body, false
@@ -685,11 +691,19 @@ func stripOneBOM(b []byte) []byte {
 // can only be suppressed — there is no JSON-RPC error to send on the SSE
 // channel — and the server then stalls waiting for a response, which is
 // acceptable for a malicious request.
+//
+// It screens the event as it decodes and, when it sends a field twice under
+// case folding, as the client reads it (#4407).
 func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
+	return hp.handler.screenAsClientReads(data, hp.filterSSEMessage)
+}
+
+// filterSSEMessage is one screen of filterSSEData, through h.
+func (hp *HTTPProxy) filterSSEMessage(h *MessageHandler, data []byte) ([]byte, bool) {
 	// An event no scanner below could read: nesting past the decoder limit
 	// is replaced by a parse error, anything else is relayed with a receipt
 	// (#4158). This runs on whichever form is being relayed.
-	if blocked, errResp := hp.handler.ScreenRelayedPayload(parseTransportHTTP, parseDirServerToClient, data); blocked {
+	if blocked, errResp := h.ScreenRelayedPayload(parseTransportHTTP, parseDirServerToClient, data); blocked {
 		return errResp, true
 	}
 	data = stripOneBOM(data) // #4162: scan the form the client reads
@@ -705,14 +719,14 @@ func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
 		if perr == nil {
 			m = msg
 		}
-		if filtered := hp.dispatchServerData(m, data); filtered != nil {
+		if filtered := hp.dispatchServerData(h, m, data); filtered != nil {
 			return filtered, true
 		}
 		return nil, false
 	}
 	// A message with a method is never a response; every response scanner
 	// rejects it, so only the server-initiated handling applies.
-	if hp.serverInitiatedSuppressed(msg, kind) {
+	if serverInitiatedSuppressed(h, msg, kind) {
 		return nil, true
 	}
 	return nil, false
@@ -723,25 +737,25 @@ func (hp *HTTPProxy) filterSSEData(data []byte) ([]byte, bool) {
 // elicitation/create, notifications/*) and reports whether it must not reach
 // the client. SSE and a plain JSON response body deliver these identically to
 // the SDK clients, so both relays call it (#4070 notification-parity row).
-func (hp *HTTPProxy) serverInitiatedSuppressed(msg *Message, kind MessageKind) bool {
+func serverInitiatedSuppressed(h *MessageHandler, msg *Message, kind MessageKind) bool {
 	switch kind {
 	case KindSamplingCreateMessage:
-		if blocked, _ := hp.handler.HandleSamplingCreateMessage(msg); blocked {
+		if blocked, _ := h.HandleSamplingCreateMessage(msg); blocked {
 			return true
 		}
 	case KindElicitationCreate:
-		if blocked, _ := hp.handler.HandleElicitationCreate(msg); blocked {
+		if blocked, _ := h.HandleElicitationCreate(msg); blocked {
 			return true
 		}
 	case KindNotification:
-		if hp.handler.HandleNotificationMessage(msg) {
+		if h.HandleNotificationMessage(msg) {
 			return true
 		}
-		if hp.handler.HandleResourcesUpdatedNotification(msg) {
+		if h.HandleResourcesUpdatedNotification(msg) {
 			return true
 		}
-		hp.handler.HandleToolsListChangedNotification(msg)
-		if hp.handler.HandleProgressNotification(msg) {
+		h.HandleToolsListChangedNotification(msg)
+		if h.HandleProgressNotification(msg) {
 			return true
 		}
 	}

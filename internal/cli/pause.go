@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -110,16 +111,28 @@ func resumeCommand(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// pauseFileMaxBytes caps the pause-state read (#4474). pauseCommand writes
+// about 200 bytes (two timestamps and a fixed sentence), so a file over
+// 4 KiB was not written by it. Over the cap reads as not paused, which is
+// full enforcement: no cap can make the read pause anything.
+const pauseFileMaxBytes = 4 << 10
+
 // IsPaused checks if AgentShield is currently paused.
-// Called by hookCommand before evaluating shell rules.
+// Called by hookCommand before evaluating shell rules, on every hook call.
+//
+// The read never blocks (#4474): with os.ReadFile, a FIFO at paused.json
+// blocked open(2) with no writer and the hook gave no verdict at all (the
+// #4057 FIFO class). Anything but a regular file of at most
+// pauseFileMaxBytes (a FIFO, a device, a directory, an oversized file)
+// reads as not paused, the same as a missing one: evaluation runs.
 func IsPaused() bool {
 	fp, err := pauseFilePath()
 	if err != nil {
 		return false
 	}
-	data, err := os.ReadFile(fp)
-	if err != nil {
-		return false // no file = not paused
+	data, ok := logger.ReadRegularFileCapped(fp, pauseFileMaxBytes)
+	if !ok {
+		return false // no file, or not a small regular file = not paused
 	}
 	var state pauseState
 	if err := json.Unmarshal(data, &state); err != nil {

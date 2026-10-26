@@ -22,6 +22,8 @@ func NewSyslogLogger(protocol, address string) (*SyslogLogger, error) {
 
 // Log sends an audit event to syslog as structured JSON.
 func (s *SyslogLogger) Log(event AuditEvent) error {
+	// Same Redacted as the file line and the SaaS wire copy (#4332).
+	event = event.Redacted()
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err

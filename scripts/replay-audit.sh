@@ -28,7 +28,8 @@
 # Exit codes (all advisory to `make deploy`):
 #   0   replayed, no flips
 #   10  replayed, flips found (printed)
-#   2   nothing to replay in the window — a vacuous run, said out loud
+#   2   nothing to replay in the window (or only redacted events, which are
+#       counted as unreplayable, #4084) — a vacuous run, said out loud
 #   3   the candidate reported failed packs (its own exit 3): results suspect
 #   1   usage / missing tool / missing binary
 #
@@ -115,15 +116,38 @@ jq -s '
   "$WORK/events.jsonl" > "$WORK/unique.json"
 UNIQUE=$(jq 'length' "$WORK/unique.json")
 
-# 2. Cap: every recorded BLOCK, plus the most recent --max of the rest.
+# 1b. Unreplayable: the audit log redacts secrets before it writes a line
+#    (internal/redact), so a recorded command carrying [REDACTED] is not the
+#    text the deployed binary evaluated. Replaying it flips by construction,
+#    in both directions (#4084): a secrets BLOCK no longer sees its secret
+#    ("BLOCK lost"), and a [REDACTED] span that swallowed a heredoc terminator
+#    makes the parse fall back to flat text, so prose inside matches ("new
+#    BLOCK"). These are counted, not replayed, and the count (recorded BLOCKs
+#    separately) is on the summary line: skipped out loud, never dropped.
+#    The redactor itself is not changed here; un-redacting the log is wrong.
+jq '[.[] | select(.command | contains("[REDACTED]"))]' "$WORK/unique.json" > "$WORK/redacted.json"
+jq '[.[] | select(.command | contains("[REDACTED]") | not)]' "$WORK/unique.json" > "$WORK/replayable.json"
+REDACTED=$(jq 'length' "$WORK/redacted.json")
+REDACTED_BLOCKS=$(jq '[.[] | select(.decision == "BLOCK")] | length' "$WORK/redacted.json")
+UNREPLAYABLE="unreplayable (redacted) ${REDACTED} (${REDACTED_BLOCKS} recorded BLOCK)"
+
+# 2. Cap: every replayable recorded BLOCK, plus the most recent --max of the rest.
 jq --argjson max "$MAX" '
   (map(select(.decision == "BLOCK"))) + (map(select(.decision != "BLOCK")) | .[0:$max])
   | to_entries
   | map({name: ("c" + (.key|tostring)), shell: .value.command, expect: .value.decision,
          recorded_rules: .value.rules, ts: .value.timestamp})' \
-  "$WORK/unique.json" > "$WORK/selected.json"
+  "$WORK/replayable.json" > "$WORK/selected.json"
 SELECTED=$(jq 'length' "$WORK/selected.json")
 BLOCKS=$(jq '[.[] | select(.expect == "BLOCK")] | length' "$WORK/selected.json")
+
+# Nothing left to replay (every event redacted, or --max 0 with no BLOCKs):
+# vacuous, said out loud. Without this the shard loop runs zero times and the
+# collect step fails on a missing shard file instead of reporting.
+if [ "$SELECTED" -eq 0 ]; then
+  echo "replay-audit: window ${HOURS}h · events ${EVENTS} · unique ${UNIQUE} · replayed 0 · ${UNREPLAYABLE} — nothing replayable (vacuous)"
+  exit 2
+fi
 
 # 3. Shard round-robin and run the candidate on each shard in parallel. The
 #    fixture is JSON, which the YAML fixture parser accepts; one case per
@@ -213,7 +237,7 @@ if [ "$FLIPS" -gt 0 ]; then
 fi
 
 ELAPSED=$(( $(date +%s) - START ))
-echo "replay-audit: window ${HOURS}h · events ${EVENTS} · unique ${UNIQUE} · replayed ${SELECTED} (all ${BLOCKS} recorded BLOCKs + up to ${MAX} others) · jobs ${JOBS} · ${ELAPSED}s"
+echo "replay-audit: window ${HOURS}h · events ${EVENTS} · unique ${UNIQUE} · replayed ${SELECTED} (all ${BLOCKS} recorded BLOCKs + up to ${MAX} others) · ${UNREPLAYABLE} · jobs ${JOBS} · ${ELAPSED}s"
 echo "replay-audit: flips ${FLIPS} (BLOCK lost ${LOST}, new BLOCK ${NEWBLOCK}, other ${OTHER}) · candidate $BINARY"
 
 if [ "$DEGRADED" = "1" ]; then

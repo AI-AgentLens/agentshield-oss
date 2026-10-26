@@ -151,39 +151,7 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 		},
 
 		// --- Security bypass: disable guards ---
-		{
-			signal: Signal{
-				ID:          "disable_security",
-				Category:    "security-bypass",
-				Severity:    "critical",
-				Confidence:  0.90,
-				Description: "Command attempts to disable or bypass security controls",
-			},
-			match: func(req GuardianRequest) bool {
-				return matchesDisableSecurity(req.RawCommand)
-			},
-			refine: func(req GuardianRequest, sig *Signal) {
-				// #3380: AGENTSHIELD_DISABLE is a direct bypass regardless of
-				// context and must never be downgraded by the banner check below.
-				if agentshieldDisableRe.MatchString(req.RawCommand) {
-					return
-				}
-				if disableSecurityIsBareBanner(req.RawCommand) {
-					sig.Severity = "medium"
-					sig.Confidence = 0.35
-					sig.Description = "Command echoes/prints a security-bypass phrase with no other text (a banner/progress line, not a directive) — recorded for audit, not blocked"
-					return
-				}
-				// #3633: a grep/sed/awk pattern argument is a search NEEDLE,
-				// not a directive — see disableSecurityIsQuotedToolPattern.
-				if disableSecurityIsQuotedToolPattern(req.RawCommand) {
-					sig.Severity = "medium"
-					sig.Confidence = 0.35
-					sig.Description = "Command searches/matches for a security-bypass phrase as a tool pattern argument (grep/sed/awk), not a directive — recorded for audit, not blocked"
-				}
-			},
-			escalate: "BLOCK",
-		},
+		disableSecurityRule(disableSecurityTextPatterns),
 
 		// --- Obfuscation: base64 payload ---
 		{
@@ -490,6 +458,54 @@ var disableSecurityTextPatterns = compilePatterns([]string{
 // bypass attempt and should fire regardless of surrounding context.
 var agentshieldDisableRe = regexp.MustCompile(`(?i)AGENTSHIELD_DISABLE`)
 
+// gitSearchRe matches the git subcommands that only read: `git grep` and
+// `git log` (-S/-G needles). Leading global options (`-C dir`) are skipped.
+var gitSearchRe = regexp.MustCompile(`(?i)^\s*git\s+(?:-\S+\s+(?:\S+\s+)?)*(grep|log)\b`)
+
+// agentshieldDisableLive reports whether cmd names the disable variable in a
+// position that can set it (#4430). A mention is not an assignment: the
+// variable as a grep needle, a git-grep/log needle, or inside a gh/git quoted
+// argument is text being searched or sent to an API, and is no more an attempt
+// to disable AgentShield than the disable PHRASES in the same positions.
+//
+// Burden of proof runs toward BLOCK: only a statement that is a plain
+// search/gh/git invocation with no substitution, pipe or redirect, and whose
+// variable mention is a needle or sits inside quotes, is inert. An env-prefix
+// (`AGENTSHIELD_DISABLE=1 git ...`), an export, a mention in a statement of
+// any other command, or a mention in any other statement of a compound all stay
+// live. Pinned by TestAgentshieldDisableLive.
+func agentshieldDisableLive(cmd string) bool {
+	if !agentshieldDisableRe.MatchString(cmd) {
+		return false
+	}
+	for _, seg := range splitTopLevelCompound(normalizeMultilineCommand(cmd)) {
+		if agentshieldDisableRe.MatchString(seg) && !agentshieldDisableMentionInert(seg) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentshieldDisableMentionInert(seg string) bool {
+	seg = strings.TrimSpace(seg)
+	// A computed or redirected statement can do more than search or send text.
+	// $( and ` execute even inside double quotes.
+	if strings.Contains(seg, "$(") || strings.Contains(seg, "`") {
+		return false
+	}
+	unquoted := stripQuotedRe.ReplaceAllString(seg, "")
+	if strings.ContainsAny(unquoted, "|<>") || strings.Contains(unquoted, "--pre") || strings.Contains(unquoted, "--pager") {
+		return false
+	}
+	if searchToolRe.MatchString(seg) || gitSearchRe.MatchString(seg) {
+		return true
+	}
+	if safeCallerRe.MatchString(seg) {
+		return !agentshieldDisableRe.MatchString(unquoted)
+	}
+	return false
+}
+
 // pyRawStringRe matches Python/PCRE raw-string literals r'...' / r"..." (and the
 // rb” / br"" byte-string variants). A jailbreak phrase appearing INSIDE a raw
 // string is a regex *pattern* — defensive sanitization code, not an executed
@@ -639,7 +655,15 @@ func unquoteFlagWords(cmd string) string {
 //     and could constitute indirect injection. Example: `echo "disable agentshield"` → BLOCK.
 //   - AGENTSHIELD_DISABLE env-var pattern always fires regardless of context.
 func matchesDisableSecurity(cmd string) bool {
-	if agentshieldDisableRe.MatchString(cmd) {
+	return matchesDisableSecurityWith(cmd, disableSecurityTextPatterns)
+}
+
+// matchesDisableSecurityWith is matchesDisableSecurity with the bypass
+// phrases as a parameter: the shipped signal passes
+// disableSecurityTextPatterns, DisablesAgentShield the subset naming
+// AgentShield itself.
+func matchesDisableSecurityWith(cmd string, patterns []*regexp.Regexp) bool {
+	if agentshieldDisableLive(cmd) {
 		return true
 	}
 	if safeCallerRe.MatchString(cmd) {
@@ -652,17 +676,17 @@ func matchesDisableSecurity(cmd string) bool {
 		if idx := strings.Index(stripped, "<<"); idx != -1 {
 			stripped = stripped[:idx]
 		}
-		return matchesAnyPattern(stripped, disableSecurityTextPatterns)
+		return matchesAnyPattern(stripped, patterns)
 	}
 	// Special case: file-write heredoc (cat > file << EOF, tee file << EOF).
 	// Strip the heredoc body (everything from << onwards) since it is file content.
 	// fileWriteHeredocAnywhereRe also handles compound commands like `cd dir && tee file << EOF`.
 	if fileWriteHeredocStartRe.MatchString(cmd) || fileWriteHeredocAnywhereRe.MatchString(cmd) {
 		if idx := strings.Index(cmd, "<<"); idx != -1 {
-			return matchesAnyPattern(cmd[:idx], disableSecurityTextPatterns)
+			return matchesAnyPattern(cmd[:idx], patterns)
 		}
 	}
-	return matchesAnyPattern(cmd, disableSecurityTextPatterns)
+	return matchesAnyPattern(cmd, patterns)
 }
 
 // disableSecurityDirectiveWords turns a printed disable-security phrase from
@@ -1128,6 +1152,13 @@ func isBase64Payload(cmd string) bool {
 		// Threshold of 4.5 eliminates these FPs while preserving detection of real
 		// base64-encoded payloads (entropy typically 5.5–6.0 bits/char).
 		if shannonEntropy(matched) < 4.5 {
+			continue
+		}
+		// Skip a letters-only run. Base64 of binary or mixed text carries
+		// digits, '+', '/' or '=' padding; a 40+ char run of only [A-Za-z] is a
+		// long CamelCase identifier (a Go test name passed to grep or -run,
+		// #4472) in all but a ~1-in-5000 chance per 40 chars of real payload.
+		if !strings.ContainsAny(matched, "0123456789+/=") {
 			continue
 		}
 		return true

@@ -159,7 +159,15 @@ func TestUnsetParamExpParity(t *testing.T) {
 	// AUDIT, and so does the UNMUTATED flattened control (`read zc <<'EOF' rm
 	// -rf / EOF $zc`, no ${zqx} at all), which pins the leak on the
 	// reconstruction rather than on either transform.
-	const maxLeaks = 52
+	//
+	// Raised 52 -> 53 by TP-FRIDA-SEARCHNEEDLE-004 (#4400), the same artifact
+	// a fourth time: a pickaxe needle, then a python heredoc whose os.system
+	// call runs the attach. Measured exec-splice 53/2655 with it, and it is in
+	// the sweep's leak list (the head without it passed at 52). With the
+	// heredoc's newlines kept, the mutant (`g${zqx}it log -S'…' --oneline;
+	// python3 - <<'EOF'\n…\nEOF`) BLOCKs on main bdf33a63, on e44fc4d1 and on
+	// the fix-round-2 head, checked on the built binaries.
+	const maxLeaks = 53
 
 	rank := map[string]int{"ALLOW": 0, "AUDIT": 1, "REQUIRE_APPROVAL": 2, "BLOCK": 3}
 

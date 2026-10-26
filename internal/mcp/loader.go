@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"github.com/AI-AgentLens/agentshield/packs"
 	"gopkg.in/yaml.v3"
 )
@@ -52,7 +53,7 @@ func FailedMCPPacks(infos []MCPPackInfo) []MCPPackInfo {
 // LoadMCPPolicy reads an MCP policy from the given YAML file path.
 // If the file doesn't exist, returns a sensible default policy.
 func LoadMCPPolicy(path string) (*MCPPolicy, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DefaultMCPPolicy(), nil

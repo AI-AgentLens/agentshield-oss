@@ -81,6 +81,10 @@ compliance-indexes: ## Regenerate compliance/indexes/ markdown from taxonomy ent
 	go run ./internal/taxonomy/generate_index.go
 
 LIVE_LINK ?= /opt/homebrew/bin/$(BINARY)
+# The live hook runs a COPY outside the working tree, installed only by
+# `make deploy` (#4390). Pointing the link at build/ meant any `make build` on
+# any branch swapped the enforcing binary with no deploy.
+LIVE_BIN ?= $(HOME)/.agentshield/bin/$(BINARY)
 
 HOURS ?= 24
 replay-audit: build ## Replay the last $(HOURS)h of real audit-log traffic through build/agentshield; print decision flips (#3995)
@@ -114,7 +118,8 @@ deploy: build ## Build and deploy packs + binary to ~/.agentshield
 	@# for months was a deploy that half-worked — packs refreshed, binary stale —
 	@# because every symptom of a stale engine looks like a rule problem. If the
 	@# binary cannot be wired up, stop before shipping rules to it.
-	@bash scripts/ensure-live-link.sh "$(LIVE_LINK)" "$(abspath $(BUILD_DIR)/$(BINARY))"
+	@bash scripts/install-live-binary.sh "$(BUILD_DIR)/$(BINARY)" "$(LIVE_BIN)"
+	@bash scripts/ensure-live-link.sh "$(LIVE_LINK)" "$(LIVE_BIN)"
 	@echo "Deploying packs..."
 	@# Remove legacy nested layouts from historical deploys. Earlier versions
 	@# of this target copied into ~/.agentshield/packs/community/ and

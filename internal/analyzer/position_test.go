@@ -167,6 +167,108 @@ func TestPositionExcludedSearchNeedle(t *testing.T) {
 	}
 }
 
+// keepassDBMatcher and homeRedirectMatcher stand in for
+// sec-block-keepassxc-db-read and ts-block-home-redirect, the two shipped
+// search_needle rules whose pass-1 (#4400) probes lowered.
+func keepassDBMatcher() func(string) bool {
+	re := regexp.MustCompile(`(cat|less|more|head|tail|bat|strings|xxd|hexdump|cp|mv|scp|rsync|base64)\s+.*\.kdbx\b`)
+	return re.MatchString
+}
+
+func homeRedirectMatcher() func(string) bool {
+	re := regexp.MustCompile(`(export\s+)?\bHOME=(/tmp|/dev/shm|/var/tmp|/run/user|\./|\.\./)\S*`)
+	return re.MatchString
+}
+
+// fridaNameAttachMatcher stands in for ts-block-frida-name-attach: a rule
+// anchored on its program word, so a payload an echo pipes into a shell
+// matches only as the executed text the shell receives.
+func fridaNameAttachMatcher() func(string) bool {
+	re := regexp.MustCompile(`^(?:sudo\s+)?frida\b(?:\s+\S+)*?\s+(?:-n|--name)\s+\S+`)
+	return re.MatchString
+}
+
+// TestPositionExcludedSubtractionWholeCommandForms pins the two whole-command
+// forms #4400 added to redactedForms. Every "false" row blocked without its
+// needle and was excluded with it: the needle was the only match
+// subtraction could see, because the real read only matches after
+// MaterializeAssignments resolves a variable assigned in a sibling statement,
+// or after DecodeEmittedSeparators turns a printf escape into the separator a
+// leading \b needs. Every needle here matches the rule on its own, so
+// attribution holds and subtraction alone decides the row. The "true" rows
+// are the over-reach guards: the new forms must not cancel an exclusion when
+// nothing reads the variable or nothing executes the printf.
+//
+// Each row runs under both fold contexts production passes: the plain one,
+// and the restrict-forms one handed to restricting rules (#3991).
+func TestPositionExcludedSubtractionWholeCommandForms(t *testing.T) {
+	tests := []struct {
+		name    string
+		matches func(string) bool
+		command string
+		want    bool
+	}{
+		{"pickaxe needle alone", keepassDBMatcher(),
+			`git log -S'cat a.kdbx' --oneline`, true},
+		{"pickaxe needle plus a literal read", keepassDBMatcher(),
+			`git log -S'cat a.kdbx' --oneline && cat ~/Passwords.kdbx`, false},
+		{"pickaxe needle plus a read of a sibling-assigned variable", keepassDBMatcher(),
+			`git log -S'cat a.kdbx' && x=~/Passwords.kdbx && cat "$x"`, false},
+		{"assignment first, copy two statements later", keepassDBMatcher(),
+			`f=~/Passwords.kdbx; git log --oneline -S'cp a.kdbx b'; cp "$f" /tmp/x`, false},
+		{"git diff -G needle plus a sibling-assigned read", keepassDBMatcher(),
+			`p=~/Passwords.kdbx; git diff -G'cat a.kdbx' HEAD~1; cat "$p"`, false},
+		{"grep needle plus a sibling-assigned read", keepassDBMatcher(),
+			`grep -rn 'cat a.kdbx' docs/ && x=~/Passwords.kdbx && cat "$x"`, false},
+		{"variable assigned but only echoed", keepassDBMatcher(),
+			`x=~/Passwords.kdbx && git log -S'cat a.kdbx' --oneline && echo "$x"`, true},
+		{"grep needle plus a sibling-assigned export", homeRedirectMatcher(),
+			`h=/tmp/evil && grep -rn 'HOME=/tmp/x' docs/ && export HOME=$h`, false},
+		{"grep needle plus a printf-escaped payload piped to sh", homeRedirectMatcher(),
+			`grep -rn 'HOME=/tmp/x ssh' docs/; printf 'id\nHOME=/tmp/evil ssh h\n' | sh`, false},
+		{"pickaxe needle plus a printf-escaped payload piped to sh", homeRedirectMatcher(),
+			`git log -S'HOME=/tmp/x ssh' --oneline; printf 'id\nHOME=/tmp/evil ssh h\n' | sh`, false},
+		{"printf-escaped payload that nothing executes", homeRedirectMatcher(),
+			`grep -rn 'HOME=/tmp/x ssh' docs/; printf 'id\nHOME=/tmp/evil ssh h\n'`, true},
+		// Fix round 2: an anchored rule matches a piped or substituted
+		// payload only once it is retried as the command the shell runs.
+		{"pickaxe needle plus an echoed payload piped to sh", fridaNameAttachMatcher(),
+			`git log -S'frida -n Foo' --oneline; echo 'frida -n Safari' | sh`, false},
+		{"grep needle plus an echoed payload piped to bash", fridaNameAttachMatcher(),
+			`grep 'frida -n Foo' notes.txt && echo 'frida -n Safari' | bash`, false},
+		{"pickaxe needle plus a substitution body", fridaNameAttachMatcher(),
+			`git log -S'frida -n Foo' --oneline; sh -c "$(echo frida -n Safari)"`, false},
+		{"pickaxe needle plus an interpreter heredoc os.system call", fridaNameAttachMatcher(),
+			"git log -S'frida -n Foo' --oneline; python3 - <<'EOF'\nimport os\nos.system(\"frida -n Safari\")\nEOF", false},
+		{"echoed payload that nothing executes", fridaNameAttachMatcher(),
+			`git log -S'frida -n Foo' --oneline; echo 'frida -n Safari'`, true},
+		{"echoed payload written to a file", fridaNameAttachMatcher(),
+			`grep 'frida -n Foo' notes.txt; echo 'frida -n Safari' > notes2.txt`, true},
+		// Pass 2: a fold, then materialize, in the matcher's order. Only the
+		// shared buildWholeCommandForms gives subtraction that composition.
+		{"sibling-assigned read through an unset-parameter splice", keepassDBMatcher(),
+			`git log -S'cat a.kdbx' --oneline; x=~/Passwords.kdbx; ca${zqx}t "$x"`, false},
+		{"sibling-assigned read through an indirect executable", keepassDBMatcher(),
+			`git log -S'cat a.kdbx' --oneline; x=~/Passwords.kdbx; $(echo cat) "$x"`, false},
+		{"path split across sibling assignments with a splice", shadowMatcher(),
+			`git log -S'/etc/shadow' --oneline; a=/etc; b=sha${zqx}dow; cat $a/$b`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fc := NewStatementFoldContext(tt.command)
+			for _, ctx := range []struct {
+				label string
+				fc    *StatementFoldContext
+			}{{"plain", fc}, {"restrict", fc.withRestrictForms()}} {
+				got := PositionExcluded(tt.command, []string{LabelPosSearchNeedle}, ctx.fc, tt.matches)
+				if got != tt.want {
+					t.Errorf("%s fold context: PositionExcluded(%q) = %v, want %v", ctx.label, tt.command, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 // sitecustomizeMatcher stands in for ts-block-python-sitecustomize-write — a
 // rule whose signal is TWO co-required tokens (an executable word and a
 // filename), which stresses attribution differently than the single-region
@@ -320,13 +422,16 @@ func TestHeredocBodyPlaceholderMatchesNoShippedLiteral(t *testing.T) {
 	}
 }
 
-// TestWordPositionsSurviveExecutorReach pins the deliberate NON-withdrawal in
-// positionAssertsDataText (#3976, from the #3968 adversarial review, where a
-// mutation adding search_needle and loop_wordlist to the withdrawal survived
-// every gate). A grep needle and a loop word are words on the invoking
-// command line: piping grep's OUTPUT, or the loop's output, into a shell runs
-// that output, not the word. Both must stay excused although the command
-// reaches an executor by pipe and by substitution.
+// TestWordPositionsSurviveExecutorReach pins the deliberate NON-withdrawal of
+// loop_wordlist in positionAssertsDataText (#3976, from the #3968 adversarial
+// review, where a mutation adding loop_wordlist to the withdrawal survived
+// every gate). An unused loop word is a word on the invoking command line:
+// piping the loop's output into a shell runs that output, not the word.
+//
+// search_needle used to be pinned here on the same reasoning. #4468 showed
+// the reasoning does not hold for grep: piping grep's output into a shell
+// runs the matched lines, and every one of them contains the needle. It now
+// has its own withdrawal, pinned by TestSearchNeedleWithdrawnWhenOutputExecutes.
 func TestWordPositionsSurviveExecutorReach(t *testing.T) {
 	matches := func(s string) bool { return strings.Contains(s, "zqword") }
 	cases := []struct {
@@ -334,9 +439,8 @@ func TestWordPositionsSurviveExecutorReach(t *testing.T) {
 		command  string
 		position string
 	}{
-		{"needle, output piped to bash", `grep -rn 'zqword' . | bash`, LabelPosSearchNeedle},
-		{"needle, output run by bash -c", `bash -c "$(grep -rn 'zqword' .)"`, LabelPosSearchNeedle},
 		{"loop word unused, output piped to bash", `for p in 'zqword'; do echo hi; done | bash`, LabelPosLoopWordList},
+		{"loop word unused, output run by bash -c", `bash -c "$(for p in 'zqword'; do echo hi; done)"`, LabelPosLoopWordList},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -346,6 +450,59 @@ func TestWordPositionsSurviveExecutorReach(t *testing.T) {
 			fc := NewStatementFoldContext(c.command)
 			if !PositionExcluded(c.command, []string{c.position}, fc, matches) {
 				t.Errorf("%s no longer excused on executor reach — %s is a command-line word, not executed text", c.command, c.position)
+			}
+		})
+	}
+}
+
+// TestSearchNeedleWithdrawnWhenOutputExecutes pins #4468. A grep needle that
+// names the rule's literal is excused (searching is not using), until the
+// command runs or acts on grep's OUTPUT: every line the needle selects
+// contains it. Each route the issue names withdraws the exclusion, and every
+// shape that only counts, sorts, prints, stores or suppresses the output keeps
+// it, so the fix raises a decision only where the lines are executed.
+func TestSearchNeedleWithdrawnWhenOutputExecutes(t *testing.T) {
+	matches := shadowMatcher()
+	cases := []struct {
+		name     string
+		command  string
+		excluded bool
+	}{
+		// --- withdrawn: the selected lines are run or acted on ---
+		{"piped to bash", `grep -F '/etc/shadow' cmds.txt | bash`, false},
+		{"piped through sed to sh", `grep -F '/etc/shadow' cmds.txt | sed 's/^ *//' | sh`, false},
+		{"eval of a command substitution", `eval "$(grep -F '/etc/shadow' cmds.txt)"`, false},
+		{"captured, then eval", `x=$(grep -F '/etc/shadow' cmds.txt); eval "$x"`, false},
+		{"process substitution run by bash", `bash <(grep -F '/etc/shadow' cmds.txt)`, false},
+		{"process substitution sourced", `source <(grep -F '/etc/shadow' cmds.txt)`, false},
+		{"xargs cat", `grep -F '/etc/shadow' list.txt | xargs cat`, false},
+		{"xargs runs each line", `grep -F '/etc/shadow' cmds.txt | xargs -L1 env`, false},
+		{"read loop evals the line", `grep -F '/etc/shadow' cmds.txt | while read -r l; do eval "$l"; done`, false},
+		{"read loop opens the line", `grep -F '/etc/shadow' list.txt | while read -r f; do cat "$f"; done`, false},
+		{"read loop fed by a process substitution", `while read -r l; do $l; done < <(grep -F /etc/shadow cmds.txt)`, false},
+		{"written, then run", `grep -F '/etc/shadow' cmds.txt > /tmp/x.sh; bash /tmp/x.sh`, false},
+
+		// --- kept: nothing runs the selected lines ---
+		{"plain grep", `grep -rn "/etc/shadow" docs/`, true},
+		{"counted", `grep -F '/etc/shadow' cmds.txt | wc -l`, true},
+		{"sorted and truncated", `grep -F '/etc/shadow' cmds.txt | sort | head -5`, true},
+		{"written to a file nothing runs", `grep -F '/etc/shadow' cmds.txt > out.txt`, true},
+		{"count captured", `n=$(grep -c '/etc/shadow' cmds.txt); echo "$n"`, true},
+		{"captured, never executed", `x=$(grep -F '/etc/shadow' cmds.txt); echo done`, true},
+		{"printed by a substitution", `echo "$(grep -F '/etc/shadow' cmds.txt)"`, true},
+		{"read loop prints the line", `grep -F '/etc/shadow' cmds.txt | while read -r l; do echo "$l"; done`, true},
+		{"bare xargs runs echo", `grep -F '/etc/shadow' cmds.txt | xargs`, true},
+		{"xargs echo", `grep -F '/etc/shadow' cmds.txt | xargs echo`, true},
+		{"filenames only, to xargs", `grep -rl '/etc/shadow' docs/ | xargs wc -l`, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if !matches(c.command) {
+				t.Fatalf("control: %q must contain the rule's literal, or this row tests nothing", c.command)
+			}
+			fc := NewStatementFoldContext(c.command)
+			if got := PositionExcluded(c.command, []string{LabelPosSearchNeedle}, fc, matches); got != c.excluded {
+				t.Errorf("PositionExcluded(%q) = %v, want %v", c.command, got, c.excluded)
 			}
 		})
 	}

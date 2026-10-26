@@ -29,6 +29,9 @@ import (
 //	setup.go        — agentshield self-LookPath, openclaw hook (de)installer
 //	setup_mcp.go    — agentshield self-LookPath
 //	daemon.go       — launchctl load/unload, agentshield connect
+//	audit_flush.go  — starts this binary as `agentshield audit-flush`, the
+//	                  background audit uploader (#4467); fixed argv, no event
+//	                  data (TestAuditFlusherArgv_IsFixed)
 //	mcp_http_proxy.go — syscall for SO_REUSEPORT-class options
 //
 // Detection: AST-based — we scan each guarded file for SelectorExpr nodes

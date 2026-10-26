@@ -60,3 +60,7 @@ ts-block-untrusted-clone-agent-review-privilege-inversion	pipe-to-bash	41a52fec	
 ts-block-untrusted-clone-agent-review-privilege-inversion	pipe-to-bash	7faa8f3d	other-rule-fired-at-audit; tp=git clone https://github.com/some/dep /tmp/dep && codex --full-auto ex
 ts-block-untrusted-pr-checkout-agent-review-privilege-inversion	pipe-to-bash	3ee6de3e	structural-rule; tp=gh pr checkout 9001 && aider --yes-always --message "is this PR safe t
 ts-block-untrusted-pr-checkout-agent-review-privilege-inversion	pipe-to-bash	cbf16a80	structural-rule; tp=gh pr checkout 17 && codex --full-auto exec "audit the diff for malici
+ts-block-pkill-process-freeze	pipe-to-bash	0f5365a7	pre-existing: echo '<payload with $(..;..) or backticks>' | bash is AUDIT on main too; exposed by #4399 pass-1 TPs (2026-10-18)
+ts-block-pkill-process-freeze	pipe-to-bash	e9ee9f92	pre-existing: echo '<payload with $(..;..) or backticks>' | bash is AUDIT on main too; exposed by #4399 pass-1 TPs (2026-10-18)
+ts-block-pkill-process-freeze	pipe-to-bash	6196f9f1	pre-existing: echo '<payload with $(..;..) or an unexpanded $VAR>' | bash is AUDIT on main too; exposed by #4399 numeric-alias TPs (2026-10-18)
+ts-block-pkill-process-freeze	pipe-to-bash	7988acd6	pre-existing: echo '<payload with $(..;..) or an unexpanded $VAR>' | bash is AUDIT on main too; exposed by #4399 numeric-alias TPs (2026-10-18)

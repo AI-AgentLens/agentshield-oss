@@ -187,8 +187,9 @@ func degradedNote(ns []logger.Note) *logger.Note {
 
 // captureAuditPOSTs points the credentials in the test HOME at a local
 // server and returns a func yielding the notes of every event POSTed to
-// /api/audit. The hook uploads synchronously, so the capture is complete by
-// the time evaluateCommand returns.
+// /api/audit. The package tests run the upload in-process (TestMain in
+// audit_queue_main_test.go), so the capture is complete by the time
+// evaluateCommand returns.
 func captureAuditPOSTs(t *testing.T) func() [][]logger.Note {
 	t.Helper()
 	var (

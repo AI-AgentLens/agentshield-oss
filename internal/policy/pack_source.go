@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 )
 
 // This file is the shared pack-loading core for the two pack families:
@@ -136,7 +138,7 @@ func DiskPackSources(dir string, skipFile func(fileName string) bool) ([]PackSou
 			Stem:  strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
 			Path:  path,
 			Label: path,
-			Read:  func() ([]byte, error) { return os.ReadFile(path) },
+			Read:  func() ([]byte, error) { return safefile.ReadFile(path) },
 		})
 	}
 	return sources, nil

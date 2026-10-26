@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,7 +67,9 @@ func newArtifactHashAnalyzerFromPath(manifestPath, mode string) *ArtifactHashAna
 	if strings.TrimSpace(manifestPath) == "" {
 		return nil
 	}
-	data, err := os.ReadFile(manifestPath)
+	// safefile, not os.ReadFile: a FIFO named by the env var would otherwise
+	// hold the verdict (#4478). It folds into "unreadable" below.
+	data, err := safefile.ReadFile(manifestPath)
 	if err != nil {
 		// Feature requested but manifest unreadable: fail-safe to off rather
 		// than blocking everything. (A stderr warning is emitted by the caller
@@ -213,8 +216,11 @@ func looksLikePath(tok string) bool {
 	return false
 }
 
+// sha256Hex reads the script a command names. A FIFO there held the verdict
+// with os.ReadFile (#4478); safefile returns an error for any non-regular
+// file, which Analyze already treats as "can't confirm tampering" and skips.
 func sha256Hex(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		return "", err
 	}

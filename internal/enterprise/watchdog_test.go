@@ -415,3 +415,23 @@ func TestWatchdog_ClaudeCodeHookIsStructural(t *testing.T) {
 		})
 	}
 }
+
+// #4326: a PreToolUse entry that merely ENDS with "agentshield hook" is not an
+// installed hook. `echo agentshield hook` exits 0 and evaluates nothing, so the
+// watchdog must not report hook-claude-code as passed.
+func TestWatchdog_ClaudeCodeHookRejectsSuffixOnlyWrappers(t *testing.T) {
+	for _, cmd := range []string{
+		"echo agentshield hook",
+		"true; agentshield hook",
+		"false && agentshield hook",
+	} {
+		data := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + cmd + `"}]}]}}`)
+		if c := checkClaudeCodeHookFile("settings.json", data); c.Passed {
+			t.Errorf("%q must not satisfy the Claude Code hook check", cmd)
+		}
+	}
+	control := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook"}]}]}}`)
+	if c := checkClaudeCodeHookFile("settings.json", control); !c.Passed {
+		t.Errorf("control: a real shell-form entry must pass, got: %s", c.Message)
+	}
+}

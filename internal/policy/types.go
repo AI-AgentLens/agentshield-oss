@@ -68,7 +68,21 @@ type Defaults struct {
 }
 
 type Network struct {
+	// AllowDomains is the merged list: the built-in defaults, the user's
+	// policy file and every pack, unioned. Nothing enforces it; the opt-in
+	// allowlist below reads the operator's own list instead.
 	AllowDomains []string `yaml:"allow_domains"`
+	// EnforceAllowlist turns on the outbound destination allowlist (#4437):
+	// a network command whose destination Shield can name is blocked when the
+	// host is not on the operator's allow_domains. Absent, false, or any value
+	// that is not a YAML boolean leaves it off, and then no decision changes.
+	// See egress_allowlist.go.
+	EnforceAllowlist OptInSwitch `yaml:"enforce_allowlist,omitempty"`
+
+	// operatorAllowDomains is allow_domains exactly as the operator's policy
+	// file wrote it, captured in mergeUserOverDefaults before the union with
+	// the defaults and the packs. It is the list the allowlist enforces.
+	operatorAllowDomains []string
 }
 
 type Rule struct {

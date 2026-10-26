@@ -1,0 +1,524 @@
+{
+  "managed/control #4424: delete AgentShield's directory, ./ after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "managed",
+    "original_decision": null,
+    "reasons": [
+      "Blocked: attempt to modify AgentShield configuration (rule: sp-block-delete-config)"
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "enterprise-self-protect"
+    ]
+  },
+  "managed/control #4424: delete the audit log, relative after cd into the directory": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.agentshield/**"
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/control: shell, git hook skip whose message names AgentShield": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control. Structural matching requires 'commit' to be git's actual subcommand and -n/--no-verify to belong to that same invocation, eliminating cross-statement FPs from unrelated flags (e.g. a piped `sed -n`) and substring matches on branch names/paths containing \"commit\".",
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "unauthorized-execution/ai-content-integrity/llm-generated-insecure-code",
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "ts-block-git-commit-no-verify",
+      "guardian-disable_security"
+    ]
+  },
+  "managed/control: shell, guardian disable_security on a git hook skip": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control. Structural matching requires 'commit' to be git's actual subcommand and -n/--no-verify to belong to that same invocation, eliminating cross-statement FPs from unrelated flags (e.g. a piped `sed -n`) and substring matches on branch names/paths containing \"commit\".",
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "unauthorized-execution/ai-content-integrity/llm-generated-insecure-code",
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "ts-block-git-commit-no-verify",
+      "guardian-disable_security"
+    ]
+  },
+  "managed/control: shell, other BLOCK": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Destructive remove at filesystem root is not allowed.",
+      "Destructive recursive remove at filesystem root.",
+      "rm with recursive+force flags targeting root path: /",
+      "Structural: recursive force-delete on system directory (handles flag reordering and sudo)."
+    ],
+    "taxonomy": [
+      "destructive-ops/fs-destruction/recursive-root-delete",
+      "destructive-ops/fs-destruction/system-directory-delete"
+    ],
+    "triggered_rules": [
+      "block-rm-root",
+      "ts-block-rm-root",
+      "st-block-rm-recursive-root",
+      "ts-struct-block-rm-system"
+    ]
+  },
+  "managed/control: shell, protected-path BLOCK elsewhere, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4397: hooks key into an agent hook file, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking."
+    ],
+    "taxonomy": [
+      "supply-chain/config-tampering/ai-agent-hook-injection"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-hook-injection"
+    ]
+  },
+  "managed/shell #4397: write to an agent hook file, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
+    ]
+  },
+  "managed/shell #4424/#4397: export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "guardian-disable_security"
+    ]
+  },
+  "managed/shell #4424: delete AgentShield's directory, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.agentshield/**"
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4424: delete the audit log, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.agentshield/**"
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell: write to an agent hook file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
+    ]
+  },
+  "unmanaged/control: shell, append to a shell rc file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Appending to shell startup files (.bashrc.zshrc.bash_profile, etc.) is a persistence technique — commands added here execute automatically on every new terminal session."
+    ],
+    "taxonomy": [
+      "persistence-evasion/shell-startup/shell-profile-backdoor"
+    ],
+    "triggered_rules": [
+      "ts-block-shell-profile-append"
+    ]
+  },
+  "unmanaged/control: shell, git hook skip whose message names AgentShield": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control. Structural matching requires 'commit' to be git's actual subcommand and -n/--no-verify to belong to that same invocation, eliminating cross-statement FPs from unrelated flags (e.g. a piped `sed -n`) and substring matches on branch names/paths containing \"commit\".",
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "unauthorized-execution/ai-content-integrity/llm-generated-insecure-code",
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "ts-block-git-commit-no-verify",
+      "guardian-disable_security"
+    ]
+  },
+  "unmanaged/control: shell, guardian disable_security on a git hook skip": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "git commit --no-verify (-n) bypasses all pre-commit hooks including security linters (semgrep, bandit, gosec, trufflehog) — the last automated gate catching AI-generated vulnerabilities (SQLi, hardcoded secrets, weak crypto) before they enter source control. Structural matching requires 'commit' to be git's actual subcommand and -n/--no-verify to belong to that same invocation, eliminating cross-statement FPs from unrelated flags (e.g. a piped `sed -n`) and substring matches on branch names/paths containing \"commit\".",
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "unauthorized-execution/ai-content-integrity/llm-generated-insecure-code",
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "ts-block-git-commit-no-verify",
+      "guardian-disable_security"
+    ]
+  },
+  "unmanaged/control: shell, other BLOCK": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Destructive remove at filesystem root is not allowed.",
+      "Destructive recursive remove at filesystem root.",
+      "rm with recursive+force flags targeting root path: /",
+      "Structural: recursive force-delete on system directory (handles flag reordering and sudo)."
+    ],
+    "taxonomy": [
+      "destructive-ops/fs-destruction/recursive-root-delete",
+      "destructive-ops/fs-destruction/system-directory-delete"
+    ],
+    "triggered_rules": [
+      "block-rm-root",
+      "ts-block-rm-root",
+      "st-block-rm-recursive-root",
+      "ts-struct-block-rm-system"
+    ]
+  },
+  "unmanaged/control: shell, protected-path BLOCK elsewhere, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/control: tool path, other BLOCK": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-tool"
+    ]
+  },
+  "unmanaged/control: tool path, read AgentShield's config, no self-protection rule": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/control: tool path, read a shell rc file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/control: tool path, read git config": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/control: tool path, read ssh config": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools.",
+      "MCP tool accessing credential/sensitive path detected by structural match."
+    ],
+    "taxonomy": [
+      "credential-exposure/config-file-access/generic-config-access"
+    ],
+    "triggered_rules": [
+      "test-plain-block-file-tools",
+      "mcp-struct-block-credential-path-access"
+    ]
+  },
+  "unmanaged/control: tool path, write a shell rc file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/shell #4397: hooks key into an agent hook file, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Programmatic write adding a hooks key to AI agent settings — injecting lifecycle hooks into Claude Code, Cursor, or Windsurf settings creates persistent interception of every future agent tool call, enabling credential harvesting, command logging, and session hijacking."
+    ],
+    "taxonomy": [
+      "supply-chain/config-tampering/ai-agent-hook-injection"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-hook-injection"
+    ]
+  },
+  "unmanaged/shell #4397: write to an agent hook file, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
+    ]
+  },
+  "unmanaged/shell #4424/#4397: export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Command attempts to disable or bypass security controls"
+    ],
+    "taxonomy": [
+      "persistence-evasion/defense-evasion/security-tool-tampering"
+    ],
+    "triggered_rules": [
+      "guardian-disable_security"
+    ]
+  },
+  "unmanaged/shell #4424: delete the audit log, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Deleting AgentShield audit log files or directories — destroys the security audit trail for AI agent actions. No legitimate use case."
+    ],
+    "taxonomy": [
+      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    ],
+    "triggered_rules": [
+      "ts-block-agentshield-log-delete"
+    ]
+  },
+  "unmanaged/shell: case-fold tie, mixed case + rm -rf /": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Destructive remove at filesystem root is not allowed.",
+      "Destructive recursive remove at filesystem root.",
+      "rm with recursive+force flags targeting root path: /",
+      "Structural: recursive force-delete on system directory (handles flag reordering and sudo).",
+      "Structural: deleting the whole AgentShield directory, or everything in it, destroys the audit trail together with the policy that produces it. An agent must not remove its own guard; uninstall happens outside the agent (#4035). Handles flag order, sudo, and ~/$HOME/absolute spellings."
+    ],
+    "taxonomy": [
+      "destructive-ops/fs-destruction/recursive-root-delete",
+      "destructive-ops/fs-destruction/system-directory-delete",
+      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    ],
+    "triggered_rules": [
+      "block-rm-root",
+      "ts-block-rm-root",
+      "st-block-rm-recursive-root",
+      "ts-struct-block-rm-system",
+      "ts-struct-block-agentshield-dir-delete"
+    ]
+  },
+  "unmanaged/shell: self-protection rule (Kai's repro)": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Structural: deleting the whole AgentShield directory, or everything in it, destroys the audit trail together with the policy that produces it. An agent must not remove its own guard; uninstall happens outside the agent (#4035). Handles flag order, sudo, and ~/$HOME/absolute spellings."
+    ],
+    "taxonomy": [
+      "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    ],
+    "triggered_rules": [
+      "ts-struct-block-agentshield-dir-delete"
+    ]
+  },
+  "unmanaged/shell: write to an agent hook file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
+    ]
+  },
+  "unmanaged/tool path: edit of an agent hook file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/tool path: self-protection rule": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Self-protection test rule."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-sp-block-agentshield-tool"
+    ]
+  },
+  "unmanaged/tool path: write to AgentShield's config": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  },
+  "unmanaged/tool path: write to an agent MCP config file": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Plain test rule on file tools."
+    ],
+    "taxonomy": null,
+    "triggered_rules": [
+      "test-plain-block-file-tools"
+    ]
+  }
+}

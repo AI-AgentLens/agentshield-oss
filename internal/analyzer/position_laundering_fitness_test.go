@@ -26,10 +26,19 @@ import (
 //	python3 - <<'PY' | bash / print("<tp>") / PY        interp_heredoc_literal, piped
 //	awk 'BEGIN{print "<tp>"}' | bash                    quoted_program_arg, piped
 //
+// plus the substitution channels (#3976) and, since #4468, the TP as a grep
+// PATTERN operand whose matching lines are run:
+//
+//	grep -F -- '<tp> ' cmds.txt | bash                 search_needle, piped
+//	eval "$(grep -F -- '<tp> ' cmds.txt)"              search_needle, cmdsub
+//	bash <(grep -F -- '<tp> ' cmds.txt)                search_needle, procsub
+//	grep -F -- '<tp> ' cmds.txt | xargs -L1 env        search_needle, xargs
+//	grep … | while IFS= read -r l; do eval "$l"; done  search_needle, read loop
+//
 // Every channel is applied to every such rule, whatever label it carries: a
-// rule with loop_wordlist or search_needle is not excused in these positions
-// at all, so it contributes a probe that must hold trivially — a cheap check
-// that no future position label quietly extends into them.
+// rule that does not carry the position a channel exercises is not excused
+// there at all, so it contributes a probe that must hold trivially — a cheap
+// check that no future position label quietly extends into it.
 //
 // A wrapped command must decide at or above the bare decision. Leaks that are
 // open today are recorded in knownPositionLaunderingGapsFile with the same
@@ -131,6 +140,35 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 			}
 			return "bash <(awk 'BEGIN{print \"" + c + " \"}')", true
 		}},
+		// #4468: the TP is a grep PATTERN operand and grep's OUTPUT runs.
+		// Every line a fixed-string needle selects contains the needle, so
+		// the executed lines carry exactly the text the rule keys on. One
+		// channel per route the issue names: a pipe to a shell, eval of a
+		// command substitution, a process substitution run as a script,
+		// xargs, and a while-read loop.
+		{"grep-needle-pipe-to-bash", func(c string) (string, bool) {
+			g, ok := grepNeedleProbe(c)
+			return g + " | bash", ok
+		}},
+		{"grep-needle-cmdsub-eval", func(c string) (string, bool) {
+			g, ok := grepNeedleProbe(c)
+			return "eval \"$(" + g + ")\"", ok
+		}},
+		{"grep-needle-procsub-bash", func(c string) (string, bool) {
+			g, ok := grepNeedleProbe(c)
+			return "bash <(" + g + ")", ok
+		}},
+		// `env` runs each selected line as a command. Not the shell -c
+		// spelling: ts-block-xargs-indirect-exec blocks that on its own, so
+		// the probe would hold without measuring the position.
+		{"grep-needle-xargs-env", func(c string) (string, bool) {
+			g, ok := grepNeedleProbe(c)
+			return g + " | xargs -L1 env", ok
+		}},
+		{"grep-needle-while-read-eval", func(c string) (string, bool) {
+			g, ok := grepNeedleProbe(c)
+			return g + " | while IFS= read -r l; do eval \"$l\"; done", ok
+		}},
 	}
 
 	known := loadKnownPositionLaunderingGaps(t)
@@ -138,7 +176,7 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 	var newLeaks []string
 	perLabel := map[string]int{}
 
-	rules, probes, skipped, laundered, notPosition := 0, 0, 0, 0, 0
+	rules, probes, skipped, laundered, notPosition, grepUnseen := 0, 0, 0, 0, 0, 0
 	for _, r := range pol.Rules {
 		if len(r.Match.CommandPositionExclude) == 0 || r.Tests == nil {
 			continue
@@ -162,7 +200,11 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 				got := engine.Evaluate(wrapped, nil)
 				if sev[got.Decision] < sev[bare.Decision] {
 					if ctl := control.Evaluate(wrapped, nil); sev[ctl.Decision] < sev[bare.Decision] {
-						notPosition++ // leaks with no position exclusion at all — not this test's class
+						if strings.HasPrefix(ch.name, "grep-needle-") {
+							grepUnseen++ // see maxGrepUnseen below
+						} else {
+							notPosition++ // leaks with no position exclusion at all — not this test's class
+						}
 						t.Logf("not a position leak (also lower with positions stripped): %s via %s bare=%s wrapped=%s stripped=%s", r.ID, ch.name, bare.Decision, got.Decision, ctl.Decision)
 						continue
 					}
@@ -184,7 +226,7 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 		labels = append(labels, l+"="+strconv.Itoa(n))
 	}
 	sort.Strings(labels)
-	t.Logf("position-exclusion laundering fitness: %d rules %v, %d probes, %d skipped (quoting/delimiter), %d laundered by a position exclusion (%d recorded, %d new), %d lower-but-not-position (leak with positions stripped too)", rules, labels, probes, skipped, laundered, laundered-len(newLeaks), len(newLeaks), notPosition)
+	t.Logf("position-exclusion laundering fitness: %d rules %v, %d probes, %d skipped (quoting/delimiter), %d laundered by a position exclusion (%d recorded, %d new), %d lower-but-not-position (leak with positions stripped too), %d grep-needle probes the pattern cannot see", rules, labels, probes, skipped, laundered, laundered-len(newLeaks), len(newLeaks), notPosition, grepUnseen)
 	// 09a1762a + #3967: 14 rules, 261 probes. A shrinking denominator means a
 	// pack failed to load (premium rules load from disk) or the wrappers broke.
 	if rules < 12 || probes < 100 {
@@ -211,6 +253,21 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 	if notPosition > maxNotPosition {
 		t.Errorf("%d lower-but-not-position leaks, ceiling %d: executed text now scores below its bare TP on a new probe — see the \"not a position leak\" lines above", notPosition, maxNotPosition)
 	}
+	// The grep-needle channels (#4468) get their own ceiling, so their
+	// probes can neither spend nor hide behind the budget above. What runs
+	// in those channels is the LINES of a file the needle selects, which no
+	// layer can read; the TP is visible only as the needle. A rule anchored
+	// at the start of a command (`^`) therefore cannot match the wrapped text
+	// with or without its position exclusion, and the probe measures the
+	// anchor, not the position. 5 on 36ec1b64: ts-block-frida-name-attach's
+	// one quote-free TP (`frida -n chrome`, anchored by #3936) via each of
+	// the five channels. Lower it if a rule stops anchoring; a new rule that
+	// raises it is a rule whose pattern cannot see a grep needle, which is a
+	// fact to record, not a leak to fix here.
+	const maxGrepUnseen = 5
+	if grepUnseen > maxGrepUnseen {
+		t.Errorf("%d grep-needle probes the pattern cannot see, ceiling %d — see the \"not a position leak\" lines above", grepUnseen, maxGrepUnseen)
+	}
 	var fixed []string
 	for key := range known {
 		if !seen[key] {
@@ -221,6 +278,19 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 	for _, key := range fixed {
 		t.Errorf("recorded position-laundering gap no longer leaks — remove it from %s: %s", knownPositionLaunderingGapsFile, key)
 	}
+}
+
+// grepNeedleProbe renders tp as the fixed-string PATTERN operand of a grep
+// over a file (#4468). `--` ends grep's options, so a TP that starts with `-`
+// is still the pattern; a TP carrying a single quote cannot be one shell word
+// here, and a newline would make grep read several patterns, so those skip.
+// The trailing space is the python channel's: a rule anchored on `(\s|$)`
+// must see the boundary it saw bare, not the closing quote (#3802).
+func grepNeedleProbe(tp string) (string, bool) {
+	if strings.ContainsAny(tp, "'\n") {
+		return "", false
+	}
+	return "grep -F -- '" + tp + " ' cmds.txt", true
 }
 
 // knownPositionLaunderingGapsFile is the position-exclusion twin of

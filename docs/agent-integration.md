@@ -45,7 +45,10 @@ one or both channels depending on the environment.
 beyond the `packs/` a Homebrew install copies there, and no agent configuration that mentions AgentShield) puts it
 in **audit-only** mode: every decision is logged, and an action AgentShield
 would block is recorded as `AUDIT` with `original_decision: BLOCK` **and then
-runs**. One line turns on enforcement:
+runs**, unless it would tamper with AgentShield itself (a self-protection
+BLOCK, which blocks in either mode; see the
+[README](../README.md#audit-only-mode-the-default-for-new-installs)). One line
+turns on enforcement:
 
 ```yaml
 # ~/.agentshield/agentshield.yaml
@@ -90,6 +93,15 @@ agentshield setup windsurf     # Windsurf — Cascade Hooks
 agentshield setup cursor       # Cursor — beforeShellExecution hook
 agentshield setup openclaw     # OpenClaw — Agent Bootstrap Hook
 ```
+
+On a managed host, also register the Claude Code hook in Claude Code's managed
+settings. A hook there keeps running when a repository's committed
+`.claude/settings.json` sets `"disableAllHooks": true`. Run
+`agentshield setup claude-code --managed` to print the JSON for an MDM, or
+`sudo agentshield setup claude-code --write-managed` to merge it into this
+machine's file. The README section
+[Register the Claude Code hook in managed settings](../README.md#register-the-claude-code-hook-in-managed-settings)
+gives the paths and the merge rules.
 
 ### Step 3: Generic integration (any environment)
 

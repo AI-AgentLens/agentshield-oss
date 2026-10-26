@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/assembly"
+	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
@@ -34,8 +35,14 @@ Examples:
   agentshield mcp-eval --tool read_file --arg path=/workspace/project/README.md
   agentshield mcp-eval --tool execute_command --arg command="ls -la"
 
+The decision is enforce mode's unless --mode audit-only is passed; mcp-eval
+does not read the mode configured in agentshield.yaml or policy.yaml. Under
+--mode audit-only a call enforce mode would block reports AUDIT, with the
+original decision in "original_decision" (--format json) and on the
+"Original decision:" line, and its rules kept.
+
 Exit codes:
-  0 — ALLOW or AUDIT
+  0 — ALLOW or AUDIT (including a BLOCK downgraded by --mode audit-only)
   2 — BLOCK`,
 	RunE: mcpEvalRun,
 }
@@ -85,40 +92,14 @@ func mcpEvalRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Loaded %d MCP packs: %s\n", len(names), strings.Join(names, ", "))
 	}
 
-	// Evaluate.
-	// Mode "": mcp-eval does not apply audit-only mode, unlike the hook's tool
-	// path it predicts (#4324 row 6).
+	// Evaluate in enforce mode and apply --mode once, to the final verdict
+	// (#4356). Before, nothing applied --mode, so `mcp-eval --mode
+	// audit-only` printed BLOCK for any rule. An evaluator built in audit-only
+	// mode is not the fix either: it downgrades its own BLOCK, the
+	// value_limits pass then runs on the AUDIT, and a value-limit BLOCK gets
+	// through undowngraded, which is what shield-server did.
 	evaluator := assembly.MCPEvaluator(loaded.Policy, "")
-	result := evaluator.EvaluateToolCall(mcpEvalTool, arguments)
-
-	// value_limits rules are a separate check (numeric threshold on an
-	// argument) from the YAML rule matcher above — the real MCP proxy
-	// (handler.go HandleToolCall) runs both and merges them, so mcp-eval
-	// must too or it silently mis-simulates every value_limits rule in the
-	// corpus (issue #3169): the CLI would report AUDIT/ALLOW for a call a
-	// live MCP session actually BLOCKs. Only consulted when not already
-	// BLOCKed, mirroring handler.go's `if result.Decision != "BLOCK"` gate.
-	if result.Decision != policy.DecisionBlock {
-		vlResult := evaluator.CheckValueLimits(mcpEvalTool, arguments)
-		if vlResult.Blocked {
-			result.Decision = policy.DecisionBlock
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
-			}
-		} else if len(vlResult.Findings) > 0 {
-			result.TriggeredRules = append(result.TriggeredRules, "value-limit-audit")
-			for _, f := range vlResult.Findings {
-				if f.RuleID != "" {
-					result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
-				}
-				result.Reasons = append(result.Reasons, fmt.Sprintf("value_limit_audit: %s (arg: %s, value: %.2f, %s)", f.Reason, f.ArgName, f.Value, f.Limit))
-			}
-		}
-	}
+	result := mcpEvalVerdict(evaluator, mcpEvalTool, arguments, mcpEvalMode(mode))
 
 	// Output.
 	switch strings.ToLower(mcpEvalFormat) {
@@ -137,6 +118,38 @@ func mcpEvalRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// mcpEvalMode is the mode mcp-eval simulates: the --mode flag, normalised as
+// config.Load normalises it, so an unrecognised value enforces. The warning for
+// one is config.Load's own, printed when loadDeployedMCPPolicy resolves the
+// config directory. Without the flag it is enforce: mcp-eval does not read the
+// configured mode (agentshield.yaml, policy.yaml), so a flagless run reports
+// what enforce mode decides, as it always has (#4324 row 6).
+func mcpEvalMode(flag string) string {
+	m, _ := config.NormalizeMode(flag)
+	return m
+}
+
+// mcpEvalVerdict is mcp-eval's verdict for one tool call. evaluator must be in
+// enforce mode: the verdict is computed as enforce mode computes it, from the
+// rule matcher and then the value_limits pass, and mode is applied once at the
+// end, so in audit-only mode a BLOCK from either source is reported as AUDIT
+// with original_decision BLOCK and its rules and taxonomy kept (#4356). A
+// self-protection BLOCK stays BLOCK in audit-only mode, as on the proxies
+// (#4337 review B1, PolicyEvaluator.ApplyModeKeepingSelfProtection).
+//
+// value_limits rules are a separate check (numeric threshold on an argument)
+// from the YAML rule matcher — the real MCP proxy (handler.go HandleToolCall)
+// runs both and merges them, so mcp-eval must too or it silently
+// mis-simulates every value_limits rule in the corpus (issue #3169): the CLI
+// would report AUDIT/ALLOW for a call a live MCP session actually BLOCKs. Only
+// consulted when not already BLOCKed, mirroring handler.go's
+// `if result.Decision != "BLOCK"` gate.
+func mcpEvalVerdict(evaluator *mcp.PolicyEvaluator, tool string, arguments map[string]interface{}, mode string) mcp.MCPEvalResult {
+	result := evaluator.EvaluateToolCall(tool, arguments)
+	result, _ = evaluator.ApplyValueLimits(result, tool, arguments)
+	return evaluator.ApplyModeKeepingSelfProtection(result, mode, tool, arguments)
 }
 
 // parseMCPEvalArgs builds the arguments map from --arg and --json flags.
@@ -174,6 +187,10 @@ func printMCPEvalResult(result mcp.MCPEvalResult) {
 		fmt.Printf("ALLOW\n")
 	default:
 		fmt.Printf("%s\n", result.Decision)
+	}
+	if result.OriginalDecision != "" {
+		fmt.Printf("  Original decision: %s (audit-only mode; enforce mode would %s)\n",
+			result.OriginalDecision, strings.ToLower(strings.ReplaceAll(string(result.OriginalDecision), "_", " ")))
 	}
 
 	if len(result.TriggeredRules) > 0 {

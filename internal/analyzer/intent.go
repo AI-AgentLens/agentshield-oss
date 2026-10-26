@@ -382,10 +382,10 @@ func withoutInertTextLabels(labels []string) []string {
 // commandTextReach: the shared classifier is reused across commands.
 func (c *IntentClassifier) commandIsPure(command string) bool {
 	if c.memo == nil {
-		return shellparse.CommandLineIsPure(command, interpHeredocExecFree)
+		return shellparse.CommandLineIsPure(command, interpHeredocExecFree, legacyInterpHeredocExecFree)
 	}
 	if !c.pureSet {
-		c.pure = shellparse.CommandLineIsPure(command, interpHeredocExecFree)
+		c.pure = shellparse.CommandLineIsPure(command, interpHeredocExecFree, legacyInterpHeredocExecFree)
 		c.pureSet = true
 	}
 	return c.pure

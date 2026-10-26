@@ -10,6 +10,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/mountspec"
 	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 type NormalizedCommand struct {
@@ -109,6 +110,7 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	if !hasHeredoc {
 		nc.Parsed = shellparse.Parse(nc.RawCommand, 2)
 	}
+	keepDots := !defaultGlobbing(nc.Parsed, rawCommand)
 
 	// For path extraction, use AST-aware classification.
 	// The AST identifies the command + subcommand, then we walk the original
@@ -117,7 +119,7 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	// reliable token-order-based flag-value tracking.
 	switch {
 	case nc.Parsed != nil && len(nc.Parsed.Segments) > 0:
-		nc.Paths, nc.Domains = astAwareExtract(nc.Parsed, cwd, homeDir)
+		nc.Paths, nc.Domains = astAwareExtract(nc.Parsed, cwd, homeDir, keepDots)
 	case nc.Parsed != nil && isCommentOnly(nc.RawCommand):
 		// Every line is a bash comment (`# cat ~/.ssh/id_rsa`): nothing
 		// executes, so leave Paths/Domains empty (#4009). The naive tokenizer
@@ -133,7 +135,7 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 		// Fallback: original tokenizer. Required for heredoc commands, where
 		// shellparse.Parse is deliberately not called (see hasHeredoc above),
 		// and for the zero-segment shapes listed in the case above.
-		nc.Paths, nc.Domains = fallbackExtract(args, cwd, homeDir)
+		nc.Paths, nc.Domains = fallbackExtract(args, cwd, homeDir, keepDots)
 	}
 
 	// A command substitution's body is a shell program the outer command
@@ -155,7 +157,7 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	if substParsed == nil {
 		substParsed = shellparse.Parse(nc.RawCommand, 2)
 	}
-	subPaths, subDomains := extractSubstitutionPaths(substParsed, cwd, homeDir)
+	subPaths, subDomains := extractSubstitutionPaths(substParsed, cwd, homeDir, keepDots)
 	nc.Paths = append(nc.Paths, subPaths...)
 	nc.Domains = append(nc.Domains, subDomains...)
 
@@ -181,8 +183,8 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 // - Knows specific command semantics (echo args are all text, grep arg[0] is pattern)
 // - Handles combined flags like -am by checking each char against spec
 // - Still falls back to universal textContentFlags for unknown commands
-func astAwareExtract(parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]string, []string) {
-	return astAwareExtractRedirs(parsed, cwd, homeDir, false)
+func astAwareExtract(parsed *shellparse.ParsedCommand, cwd, homeDir string, keepDots bool) ([]string, []string) {
+	return astAwareExtractRedirs(parsed, cwd, homeDir, false, keepDots)
 }
 
 // isDataRedirect reports whether a redirect's word is data the command reads
@@ -201,7 +203,7 @@ func isDataRedirect(op string) bool {
 // sent main's whole command to the fallback tokenizer, whose heredoc state
 // machine swallows everything after the operator. (An unspaced word inside a
 // substitution is still extracted by the top-level walk, as on main.)
-func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string, skipData bool) ([]string, []string) {
+func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string, skipData, keepDots bool) ([]string, []string) {
 	var paths []string
 	var domains []string
 
@@ -211,7 +213,7 @@ func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string
 	// arguments, and a segment boundary must never shift which raw token a
 	// later segment's position counting lands on.
 	for _, seg := range parsed.Segments {
-		p, d := extractSegmentPathsAndDomains(seg, cwd, homeDir)
+		p, d := extractSegmentPathsAndDomains(seg, cwd, homeDir, keepDots)
 		paths = append(paths, p...)
 		domains = append(domains, d...)
 	}
@@ -222,18 +224,14 @@ func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string
 			if skipData && isDataRedirect(redir.Op) {
 				continue
 			}
-			if redir.Path != "" && looksLikePath(redir.Path) {
-				paths = append(paths, expandPath(redir.Path, cwd, homeDir))
-			}
+			paths = append(paths, redirectTargetPaths(redir.Op, redir.Path, cwd, homeDir, keepDots)...)
 		}
 	}
 	for _, redir := range parsed.Redirects {
 		if skipData && isDataRedirect(redir.Op) {
 			continue
 		}
-		if redir.Path != "" && looksLikePath(redir.Path) {
-			paths = append(paths, expandPath(redir.Path, cwd, homeDir))
-		}
+		paths = append(paths, redirectTargetPaths(redir.Op, redir.Path, cwd, homeDir, keepDots)...)
 	}
 
 	return paths, domains
@@ -250,7 +248,7 @@ func astAwareExtractRedirs(parsed *shellparse.ParsedCommand, cwd, homeDir string
 // positional slot as if it were a separate, real argument and — if it looked
 // like a path — got misclassified as one, producing a protected-path false
 // positive on commands like `grep -rn 'cat ~/.ssh/id_rsa' file.go` (#3224).
-func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir string) ([]string, []string) {
+func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir string, keepDots bool) ([]string, []string) {
 	// Build the set of text flags for this specific command.
 	// Start with universal text flags, then overlay command-specific ones.
 	cmdTextFlags := make(map[string]bool)
@@ -303,6 +301,8 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 	// Docker isn't reading the SSH key — it's launching a container that itself
 	// runs a dry-run mcp-eval against a path STRING.
 	nestedCodeStart := findNestedShellCodeStart(words)
+	isTar := tarExecutables[filepath.Base(seg.Executable)]
+	tarDir := cwd
 
 	// A container bind mount reads its SOURCE (#3630). The spec is one argv
 	// token — `~/.creds:/mnt` — so the trailing `:` defeats every
@@ -331,6 +331,27 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 			continue
 		}
 		arg := words[i]
+
+		// tar -C <dir> changes the directory its later operands resolve
+		// against (#4381): `tar czf x.tgz -C ~ .ssh` reads ~/.ssh.
+		if isTar {
+			if dir, skip, ok := tarDirectoryFlag(words, i); ok {
+				if pathnorm.StripShellQuotes(dir) == "~" && homeDir != "" {
+					dir = homeDir
+				}
+				tarDir = expandPath(dir, tarDir, homeDir)
+				if looksLikePath(dir) {
+					paths = append(paths, tarDir)
+				}
+				i += skip
+				continue
+			}
+			if tarDir != cwd && !strings.HasPrefix(arg, "-") && !skipTextContent {
+				if p, ok := tarOperandPath(arg, tarDir, homeDir); ok {
+					paths = append(paths, p)
+				}
+			}
+		}
 
 		// Flag handling
 		if strings.HasPrefix(arg, "-") {
@@ -381,6 +402,10 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 		// Normal argument — extract paths and domains
 		if looksLikePath(arg) {
 			paths = append(paths, expandPath(arg, cwd, homeDir))
+		} else if p, ok := bareOperandPath(arg, cwd, seg.Executable); ok {
+			paths = append(paths, p)
+		} else {
+			paths = append(paths, bareGlobPaths(arg, cwd, keepDots)...)
 		}
 		if d := extractDomains(arg); len(d) > 0 {
 			domains = append(domains, d...)
@@ -544,7 +569,7 @@ func findNestedShellCodeStart(args []string) int {
 //     a top-level command) and reads quoted text and heredoc/here-string data
 //     as paths: `echo "$(export M='cat f')"`, `echo "$(<<< 'f')"` — as
 //     `export M='cat f'` and `<<< 'f'` are at top level.
-func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir string) ([]string, []string) {
+func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir string, keepDots bool) ([]string, []string) {
 	if parsed == nil {
 		return nil, nil
 	}
@@ -552,12 +577,12 @@ func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir str
 	for _, s := range parsed.Substitutions {
 		switch {
 		case s.Parsed != nil && len(s.Parsed.Segments) > 0:
-			p, d := astAwareExtractRedirs(s.Parsed, cwd, homeDir, true)
+			p, d := astAwareExtractRedirs(s.Parsed, cwd, homeDir, true, keepDots)
 			paths = append(paths, p...)
 			domains = append(domains, d...)
 		default:
 			if bodyArgs := strings.Fields(s.Body); len(bodyArgs) > 0 {
-				p, d := fallbackExtract(bodyArgs, cwd, homeDir)
+				p, d := fallbackExtract(bodyArgs, cwd, homeDir, keepDots)
 				paths = append(paths, p...)
 				domains = append(domains, d...)
 			}
@@ -569,9 +594,7 @@ func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir str
 			if isDataRedirect(r.Op) {
 				continue
 			}
-			if r.Path != "" && looksLikePath(r.Path) {
-				paths = append(paths, expandPath(r.Path, cwd, homeDir))
-			}
+			paths = append(paths, redirectTargetPaths(r.Op, r.Path, cwd, homeDir, keepDots)...)
 		}
 	}
 	return paths, domains
@@ -579,7 +602,7 @@ func extractSubstitutionPaths(parsed *shellparse.ParsedCommand, cwd, homeDir str
 
 // fallbackExtract is the original tokenizer-based extraction with heredoc and
 // textContentFlags support. Used when AST parsing fails or for heredoc commands.
-func fallbackExtract(args []string, cwd, homeDir string) ([]string, []string) {
+func fallbackExtract(args []string, cwd, homeDir string, keepDots bool) ([]string, []string) {
 	var paths []string
 	var domains []string
 
@@ -650,6 +673,10 @@ func fallbackExtract(args []string, cwd, homeDir string) ([]string, []string) {
 		if looksLikePath(arg) {
 			expanded := expandPath(arg, cwd, homeDir)
 			paths = append(paths, expanded)
+		} else if p, ok := bareOperandPath(arg, cwd, ""); ok {
+			paths = append(paths, p)
+		} else {
+			paths = append(paths, bareGlobPaths(arg, cwd, keepDots)...)
 		}
 
 		if d := extractDomains(arg); len(d) > 0 {
@@ -678,6 +705,373 @@ func looksLikePath(arg string) bool {
 	}
 
 	return false
+}
+
+// tarExecutables are the tar spellings whose -C / --directory moves the
+// directory later operands are read from or extracted into.
+var tarExecutables = map[string]bool{"tar": true, "gtar": true, "bsdtar": true}
+
+// tarDirectoryFlag recognises tar's directory option at words[i]: `-C dir`,
+// `-Cdir`, a short cluster ending in C (`-xC dir`), `--directory dir` and
+// `--directory=dir`. skip is how many extra words the option consumed.
+func tarDirectoryFlag(words []string, i int) (dir string, skip int, ok bool) {
+	arg := words[i]
+	switch {
+	case arg == "--directory" || arg == "-C":
+		if i+1 < len(words) {
+			return words[i+1], 1, true
+		}
+	case strings.HasPrefix(arg, "--directory="):
+		return strings.TrimPrefix(arg, "--directory="), 0, true
+	case strings.HasPrefix(arg, "-C") && len(arg) > 2:
+		return arg[2:], 0, true
+	case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && len(arg) > 2 &&
+		strings.HasSuffix(arg, "C") && !strings.ContainsAny(arg[1:len(arg)-1], "fCTX"):
+		if i+1 < len(words) {
+			return words[i+1], 1, true
+		}
+	}
+	return "", 0, false
+}
+
+// tarOperandPath resolves a member operand against tar's current -C directory.
+// It is an ADDITIONAL candidate beside the cwd-relative reading, never a
+// replacement, so the decision can only rise.
+func tarOperandPath(arg, dir, homeDir string) (string, bool) {
+	arg = pathnorm.StripShellQuotes(arg)
+	if arg == "" || strings.ContainsAny(arg, "$`*?[") || strings.HasPrefix(arg, "~") || filepath.IsAbs(arg) {
+		return "", false
+	}
+	return expandPath(arg, dir, homeDir), true
+}
+
+// bareOperandPath resolves a slash-less operand (`cat id_rsa`) against cwd
+// when it names an existing entry there (#4381). looksLikePath requires a
+// separator, so with cwd=~/.ssh a bare key name never reached the
+// protected-path match while `./id_rsa` did. The existence check is what keeps
+// ordinary words (`ssh myhost`, `git status`) from becoming paths under the
+// cwd. Residual: a bare name that does not exist yet (a create-write of a new
+// key from inside the protected directory) is still not extracted.
+func bareOperandPath(arg, cwd, exe string) (string, bool) {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return "", false
+	}
+	arg = pathnorm.StripShellQuotes(arg)
+	if arg == "" || arg == "." || arg == ".." ||
+		strings.ContainsAny(arg, "/$`=:*?[") || strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "~") {
+		return "", false
+	}
+	full := filepath.Join(cwd, arg)
+	if _, err := os.Lstat(full); err != nil && !fileOperandCommands[filepath.Base(exe)] {
+		return "", false
+	}
+	return filepath.Clean(full), true
+}
+
+// redirectTargetPaths resolves a redirect target. A target with a separator
+// goes through expandPath as before; a bare one (`cat < id_rsa`, `> id_rsa`
+// from inside ~/.ssh) is the alias of `./id_rsa`, which already BLOCKs (#4403).
+// An output redirect creates its target, so it needs no existing entry; an
+// input redirect does, like any other bare operand.
+func redirectTargetPaths(op, path, cwd, homeDir string, keepDots bool) []string {
+	if path == "" {
+		return nil
+	}
+	if looksLikePath(path) {
+		return []string{expandPath(path, cwd, homeDir)}
+	}
+	if op == ">&" || op == "<&" {
+		return nil // `2>&1`, `>&-`: a descriptor, not a name under cwd
+	}
+	exe := ""
+	if strings.Contains(op, ">") {
+		exe = "touch"
+	}
+	if p, ok := bareOperandPath(path, cwd, exe); ok {
+		return []string{p}
+	}
+	return bareGlobPaths(path, cwd, keepDots)
+}
+
+// maxBareGlobMatches bounds one glob's contribution to the path list so `*`
+// in a huge cwd stays cheap. It is far above any protected directory's size.
+const maxBareGlobMatches = 4096
+
+// bareGlobPaths expands a slash-less glob operand (`cat id_*`) against cwd the
+// way the shell would, so each entry it names is a candidate path (#4403).
+// `cat id_*` from inside ~/.ssh is `cat ~/.ssh/id_*`, which already BLOCKs.
+//
+// A shell's `*`, `?` and `[...]` never match a leading dot unless the pattern
+// itself starts with a literal `.`; Go's filepath.Glob has no such rule, so
+// `ls *` from $HOME named ~/.ssh and BLOCKed (#4481). Measured on bash 3.2,
+// bash 5.3, zsh 5.9, sh, dash and ksh with no rc files: none expands `*`,
+// `?ssh`, `*ssh`, `[.]ssh`, `[!a]ssh` or `[[:punct:]]ssh` to `.ssh`, and all
+// expand `.*`, `.ss*` and `.[s]sh` to it. Dot entries are dropped only when
+// that rule is all that decides; main's reading is kept when
+//   - keepDots: the line is not provably running under the shell's default
+//     glob options (defaultGlobbing);
+//   - the word is quoted or escaped: the program, not the shell, may get the
+//     pattern and match dot-files itself (git pathspecs do);
+//   - only dot entries match: the shell then passes the pattern on as-is.
+func bareGlobPaths(arg, cwd string, keepDots bool) []string {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return nil
+	}
+	word := arg
+	arg = pathnorm.StripShellQuotes(arg)
+	if arg == "" || !strings.ContainsAny(arg, "*?[") ||
+		strings.ContainsAny(arg, "/$`=:") || strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "~") {
+		return nil
+	}
+	matches, err := filepath.Glob(filepath.Join(cwd, arg))
+	if err != nil {
+		return nil
+	}
+	if !keepDots && !strings.HasPrefix(arg, ".") && !strings.ContainsAny(word, `'"\`) {
+		if shown := withoutDotEntries(matches); len(shown) > 0 {
+			matches = shown
+		}
+	}
+	if len(matches) > maxBareGlobMatches {
+		matches = matches[:maxBareGlobMatches]
+	}
+	return matches
+}
+
+func withoutDotEntries(matches []string) []string {
+	shown := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if !strings.HasPrefix(filepath.Base(m), ".") {
+			shown = append(shown, m)
+		}
+	}
+	return shown
+}
+
+// optionBuiltins are the commands that can change the current shell's options
+// or run text in it: the option builtins of bash, zsh, ksh and dash, zsh's
+// precommand modifiers and `repeat` (valid bash, a zsh loop that runs its
+// arguments as a command), and the builtins that run text or a file in place,
+// history re-execution (`fc`, zsh `r`) among them, and zsh `zstyle`, whose
+// -s/-b/-a/-t forms write a named parameter (#4509 Codex pass 2). A
+// line that runs one of them by name is not provably under default globbing.
+var optionBuiltins = map[string]bool{
+	"set": true, "setopt": true, "unsetopt": true, "shopt": true, "emulate": true,
+	"enable": true, "disable": true, "noglob": true, "nocorrect": true, "-": true,
+	"builtin": true, "command": true, "exec": true, "time": true, "eval": true,
+	"source": true, ".": true, "alias": true, "trap": true, "autoload": true,
+	"repeat": true, "fc": true, "history": true, "r": true, "zstyle": true,
+}
+
+// globStateNames are the option and variable names that change how a glob
+// expands: bash dotglob, GLOBIGNORE (non-null enables dotglob), SHELLOPTS and
+// BASHOPTS; zsh GLOB_DOTS, its DOT_GLOB alias, NO_GLOB and the options
+// parameter; ksh93 FIGNORE. Matched on the folded text (lower case, quotes,
+// backslashes, `_` and `-` removed, as zsh ignores case and `_` in option
+// names), so a mention anywhere keeps main's reading.
+var globStateNames = []string{
+	"dotglob", "globdots", "globignore", "shellopts", "bashopts", "noglob",
+	"fignore", "options[", "options=", "options+=",
+}
+
+// nameBinders take a variable NAME from an argument; printf and zsh print
+// do so only with -v. With a dynamic argument they can bind GLOBIGNORE or a
+// zsh option parameter whose name never appears in the text.
+var nameBinders = map[string]bool{
+	"read": true, "mapfile": true, "readarray": true, "getopts": true, "let": true,
+	"vared": true, "zparseopts": true,
+}
+
+var arithAssignOps = map[syntax.BinAritOperator]bool{
+	syntax.Assgn: true, syntax.AddAssgn: true, syntax.SubAssgn: true, syntax.MulAssgn: true,
+	syntax.QuoAssgn: true, syntax.RemAssgn: true, syntax.AndAssgn: true, syntax.OrAssgn: true,
+	syntax.XorAssgn: true, syntax.ShlAssgn: true, syntax.ShrAssgn: true,
+}
+
+// bindsDynamicName reports whether the line can bind a variable whose name is
+// not literal in its text: a declaration builtin's bare argument or nameref
+// flag, a nameBinders argument, an arithmetic assignment target, or indirect
+// expansion, any of them built from an expansion or a brace list. It walks the
+// bash AST, so a line continuation or a quoted separator cannot end the
+// statement early the way a text scan could (#4509 Codex pass 1). A text that
+// does not parse binds unknowably, so it counts.
+func bindsDynamicName(text string) bool {
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(text), "")
+	if err != nil {
+		return true
+	}
+	found := false
+	syntax.Walk(file, func(n syntax.Node) bool {
+		switch x := n.(type) {
+		case *syntax.DeclClause:
+			for _, a := range x.Args {
+				if !a.Naked || a.Value == nil {
+					continue
+				}
+				v, lit := literalWordValue(a.Value)
+				if !lit || strings.HasPrefix(v, "-") && strings.Contains(v, "n") {
+					found = true // a bare dynamic name, or a nameref flag
+				}
+			}
+		case *syntax.CallExpr:
+			if len(x.Args) == 0 {
+				break
+			}
+			cmd, lit := literalWordValue(x.Args[0])
+			if !lit {
+				break // a dynamic command word fails defaultGlobbing anyway
+			}
+			binds := nameBinders[cmd]
+			if cmd == "printf" || cmd == "print" {
+				// -v can arrive through an expansion in option position
+				// (#4509 Codex pass 2): a non-literal word before the first
+				// non-option counts as a possible -v.
+				options := true
+				for _, w := range x.Args[1:] {
+					v, ok := literalWordValue(w)
+					if strings.HasPrefix(v, "-v") || options && !ok {
+						binds = true
+					}
+					if ok && (!strings.HasPrefix(v, "-") || v == "--") {
+						options = false
+					}
+				}
+			}
+			if binds {
+				for _, w := range x.Args[1:] {
+					if _, ok := literalWordValue(w); !ok {
+						found = true
+					}
+				}
+			}
+		case *syntax.BinaryArithm:
+			if arithAssignOps[x.Op] && !literalArithm(x.X) {
+				found = true
+			}
+		case *syntax.UnaryArithm:
+			if (x.Op == syntax.Inc || x.Op == syntax.Dec) && !literalArithm(x.X) {
+				found = true
+			}
+		case *syntax.ParamExp:
+			if x.Excl {
+				found = true // ${!v}: indirect, and ${!v:=x} can assign through it
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// literalWordValue returns a word's value when it is made only of plain text
+// and quotes, with no expansion and no brace list (`{a,b}` builds a name too).
+func literalWordValue(w *syntax.Word) (string, bool) {
+	var b strings.Builder
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			if p.Dollar {
+				return "", false
+			}
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			for _, q := range p.Parts {
+				l, ok := q.(*syntax.Lit)
+				if !ok {
+					return "", false
+				}
+				b.WriteString(l.Value)
+			}
+		default:
+			return "", false
+		}
+	}
+	v := b.String()
+	if strings.Contains(v, "{") && strings.Contains(v, ",") {
+		return "", false
+	}
+	return v, true
+}
+
+func literalArithm(x syntax.ArithmExpr) bool {
+	w, ok := x.(*syntax.Word)
+	if !ok {
+		return false
+	}
+	_, lit := literalWordValue(w)
+	return lit
+}
+
+// defaultGlobbing reports whether every glob in the line provably expands under
+// the shell's default options, so `*`, `?` and `[...]` cannot reach a dot entry
+// and cannot reach the program unexpanded (#4481). It is a positive check, and
+// every condition it cannot establish keeps main's reading: the line must
+// parse as bash, not through fallbackParse (a heredoc command, which normalize
+// does not parse for the fallback tokenizer's sake, is parsed here; zsh-only
+// syntax such as `() { … }` or `for x (a) cmd` fails here); every command must be named by a static
+// word (no
+// quote, escape, expansion, brace or glob in it) and none may be an
+// optionBuiltin; the folded text may name no globStateNames; and the text may
+// bind no variable by a name that is not literal in it (bindsDynamicName).
+// ANSI-C and locale quoting (`$'...'`) need no rule of their own: they spell a
+// name only inside a word, and a command word holding `$` is not static, an
+// option builtin is caught by name whatever its arguments say, and a variable
+// binding through a non-literal argument is bindsDynamicName. The spellings of a switch are not
+// enumerable (zsh folds case and `_` in option names and inverts letters with
+// `+`; quote removal splices a builtin's own name; #4509 passes 1-2). The
+// commands that can flip one are. Not covered: an rc file, an alias or function
+// from one, or an earlier command in a persistent shell; and bash's recursive
+// arithmetic evaluation, where a variable whose VALUE holds an assignment runs
+// it when referenced in any arithmetic context (`(( w ))`, `[[ w -eq 0 ]]`,
+// a subscript). That one is a documented gap (#4509 Codex pass 2), not modelled:
+// every arithmetic reference would have to be refused. It is dominated: main
+// itself ALLOWs `grep -r key ~` and `git add -A` from $HOME, which reach the
+// same dot entries with no binding at all.
+func defaultGlobbing(parsed *shellparse.ParsedCommand, rawCommand string) bool {
+	if parsed == nil {
+		parsed = shellparse.Parse(rawCommand, 2)
+	}
+	if parsed == nil || parsed.Fallback || len(parsed.Segments) == 0 {
+		return false
+	}
+	if bindsDynamicName(rawCommand) {
+		return false
+	}
+	// A backslash-newline is removed before the shell reads the line, so a
+	// name split across one is still that name.
+	text := strings.ReplaceAll(rawCommand, "\\\n", "")
+	folded := strings.ToLower(strings.NewReplacer("_", "", "-", "", "'", "", `"`, "", `\`, "").Replace(text))
+	for _, n := range globStateNames {
+		if strings.Contains(folded, n) {
+			return false
+		}
+	}
+	segs := shellparse.AllSegments(parsed)
+	for _, sub := range parsed.Substitutions {
+		segs = append(segs, shellparse.AllSegments(sub.Parsed)...)
+	}
+	for _, seg := range segs {
+		exe := seg.Executable // as written, path and all
+		if exe == "" || exe == "[" || exe == "[[" {
+			continue // an assignment-only statement (filepath.Base("") is "."), or test
+		}
+		if strings.ContainsAny(exe, "$`'\"\\*?[{}") || optionBuiltins[exe] ||
+			optionBuiltins[filepath.Base(exe)] || optionBuiltins[seg.Program] {
+			return false
+		}
+	}
+	return true
+}
+
+// fileOperandCommands take a slash-less word as a file to create or write, so
+// a name that does not exist yet is still a path under cwd (#4381): `touch
+// id_rsa` from inside ~/.ssh is `touch ./id_rsa`, which already BLOCKs. A
+// closed list on purpose: for `ssh myhost` the bare word is a host, and
+// resolving it would manufacture a protected-path hit under ~/.ssh.
+var fileOperandCommands = map[string]bool{
+	"touch": true, "tee": true, "cp": true, "mv": true, "install": true,
+	"truncate": true, "ln": true, "rm": true, "unlink": true, "shred": true,
 }
 
 func expandPath(path, cwd, homeDir string) string {

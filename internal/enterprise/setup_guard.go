@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 )
 
 // CheckDisableAllowed returns an error if managed mode blocks hook removal.
@@ -44,7 +46,7 @@ func LoadManagedConfig() *ManagedConfig {
 // corrupt enrollment let one bad byte turn pause and bypass back on. Same
 // rule as config.LoadManaged; internal/cli pins the two to agree.
 func LoadManagedConfigFrom(path string) *ManagedConfig {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil

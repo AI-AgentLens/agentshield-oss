@@ -34,6 +34,45 @@ func TestClassify(t *testing.T) {
 		{"echo mentioning agentshield", `{"type":"command","command":"echo \"agentshield was here\""}`, None},
 		{"command merely contains agentshield", `{"type":"command","command":"/usr/bin/true agentshield"}`, None},
 		{"agentshield hook not at the end", `{"type":"command","command":"agentshield hook --help"}`, None},
+		// #4326: the suffix alone is not an invocation. Each of these ends
+		// with "agentshield hook" and runs no hook.
+		{"echo wrapper (watchdog false-healthy)", `{"type":"command","command":"echo agentshield hook"}`, None},
+		{"printf wrapper", `{"type":"command","command":"printf %s agentshield hook"}`, None},
+		{"compound, other command first", `{"type":"command","command":"true; agentshield hook"}`, None},
+		{"compound, && chain", `{"type":"command","command":"false && agentshield hook"}`, None},
+		{"or-list masks the verdict", `{"type":"command","command":"agentshield hook || true"}`, None},
+		{"backgrounded", `{"type":"command","command":"agentshield hook &"}`, None},
+		{"negated", `{"type":"command","command":"! agentshield hook"}`, None},
+		{"assignment prefix", `{"type":"command","command":"PATH=/tmp agentshield hook"}`, None},
+		{"redirected away", `{"type":"command","command":"agentshield hook >/dev/null"}`, None},
+		{"lookalike program", `{"type":"command","command":"/tmp/xagentshield hook"}`, None},
+		{"expansion decides the program", `{"type":"command","command":"$P agentshield hook"}`, None},
+		{"expansion in the program path", `{"type":"command","command":"$HOME/bin/agentshield hook"}`, None},
+		{"command substitution", `{"type":"command","command":"$(echo x)agentshield hook"}`, None},
+		{"wrapper program", `{"type":"command","command":"env agentshield hook"}`, None},
+		{"unparseable", `{"type":"command","command":"'agentshield hook"}`, None},
+		{"subshell", `{"type":"command","command":"(agentshield hook)"}`, None},
+		{"quoted program path with a space", `{"type":"command","command":"\"/Users/a b/bin/agentshield\" hook"}`, Shell},
+		{"single-quoted program", `{"type":"command","command":"'/opt/bin/agentshield' hook"}`, Shell},
+		// #4330 pass 1: shapes mvdan/sh accepts that a real shell does not run as
+		// `agentshield hook`. Main rejected each; none may read as installed.
+		{"trailing CR (bash passes hook\\r)", `{"type":"command","command":"/opt/homebrew/bin/agentshield hook\r"}`, None},
+		{"CRLF line ending", `{"type":"command","command":"/opt/homebrew/bin/agentshield hook\r\n"}`, None},
+		{"CR as the separator", `{"type":"command","command":"/opt/homebrew/bin/agentshield\rhook"}`, None},
+		{"trailing NUL", `{"type":"command","command":"/opt/homebrew/bin/agentshield hook\u0000"}`, None},
+		{"brace expansion in the program path", `{"type":"command","command":"/opt/homebrew/bin{,}/agentshield 'hook'"}`, None},
+		{"glob in the program path", `{"type":"command","command":"/x/*/agentshield 'hook'"}`, None},
+		{"leading tilde expands", `{"type":"command","command":"~/bin/agentshield hook"}`, None},
+		{"question-mark glob in the program path", `{"type":"command","command":"/x/?/agentshield 'hook'"}`, None},
+		{"bracket glob in the program path", `{"type":"command","command":"/opt/homebrew/bi[n]/agentshield 'hook'"}`, None},
+		// #4330 pass 2: mvdan/sh ends a comment at a backslash-newline; a real
+		// shell runs `agentshield` with no argument, then `hook` (exit 127).
+		{"comment ended by a line continuation", `{"type":"command","command":"/opt/homebrew/bin/agentshield #x\\\nhook"}`, None},
+		{"bare, comment ended by a line continuation", `{"type":"command","command":"agentshield #\\\nhook"}`, None},
+		// Mutation gaps from the same pass: each row kills one surviving mutant.
+		{"second statement masks the exit code", `{"type":"command","command":"agentshield hook; true"}`, None},
+		{"substitution inside double quotes", `{"type":"command","command":"\"$(x)/agentshield\" hook"}`, None},
+		{"wrong subcommand", `{"type":"command","command":"/opt/homebrew/bin/agentshield version"}`, None},
 		{"no command", `{"type":"command"}`, None},
 		{"command not a string", `{"type":"command","command":["agentshield","hook"]}`, None},
 		{"not an object", `"agentshield hook"`, None},
@@ -144,5 +183,22 @@ func TestSettingsHasPreToolUseHook(t *testing.T) {
 				t.Errorf("SettingsHasPreToolUseHook = %v; want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// The managed settings paths are the ones Claude Code documents
+// (https://code.claude.com/docs/en/managed-settings, read 2026-10-19). The
+// Windows path is under Program Files: Claude Code no longer reads the legacy
+// C:\ProgramData location (#4292 PR B).
+func TestManagedSettingsPath(t *testing.T) {
+	for goos, want := range map[string]string{
+		"darwin":  "/Library/Application Support/ClaudeCode/managed-settings.json",
+		"linux":   "/etc/claude-code/managed-settings.json",
+		"windows": `C:\Program Files\ClaudeCode\managed-settings.json`,
+		"freebsd": "/etc/claude-code/managed-settings.json",
+	} {
+		if got := ManagedSettingsPath(goos); got != want {
+			t.Errorf("ManagedSettingsPath(%q) = %q; want %q", goos, got, want)
+		}
 	}
 }

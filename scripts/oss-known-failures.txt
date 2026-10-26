@@ -1311,6 +1311,7 @@ case:TP-TS-AUDIT-TUNNEL-AI-PORT-001
 case:TP-TS-AUDIT-TUNNEL-AI-PORT-002
 case:TP-TS-AUDIT-XLANG-001
 case:TP-TS-AUDIT-XLANG-003
+case:TP-TS-BLOCK-CLAUDE-MANAGED-SETTINGS-PROGRAMFILES-001
 case:TP-TS-BLOCK-CLOUDTRAIL-001
 case:TP-TS-BLOCK-CLOUDTRAIL-002
 case:TP-TS-BLOCK-CLOUDTRAIL-003
@@ -1493,7 +1494,6 @@ test:TestDocTextDowngradeCannotBeLaundered
 test:TestBlockShellRulesCarryDocTextDowngrade
 test:TestDocTextDowngradeKeepsInlineTPsAtBlock
 test:TestHeredocBodyExclusionWithdrawnWhenBodyExecutes
-test:TestPositionExclusionCannotBeLaundered
 
 # --- 2026-09-24: 6 entries added by check-oss-baseline.sh --refresh ---
 case:TP-TS-BLOCK-TAR-EXEC-FLAGS-005
@@ -1526,3 +1526,20 @@ case:TP-UNAUTH-AIDEVSERVER-001
 
 # --- 2026-10-13: 1 entry added by check-oss-baseline.sh --refresh ---
 test:TestProseRulesSurviveNBSP
+
+# --- 2026-10-17: 2 entries added by check-oss-baseline.sh --refresh ---
+test:TestPrivateAliasPositiveControl
+test:TestPrivateAliasTmpIsABudgetedGap
+
+# --- 2026-10-19: 6 entries added by check-oss-baseline.sh --refresh ---
+case:TP-FRIDA-SEARCHNEEDLE-002
+case:TP-FRIDA-SEARCHNEEDLE-003
+case:TP-FRIDA-SEARCHNEEDLE-004
+test:TestInterpInertRealRules
+test:TestInterpReview4418_AuthorExecGuards
+test:TestInterpReview4418_ExecChannelsOutsideAllowlist
+case:TP-RAILWAY-VOLUMEDELETE-001
+
+# --- 2026-10-25: 2 entries added by check-oss-baseline.sh --refresh ---
+test:TestANSICNULNeverRelaxes
+test:TestANSICNULVerbSpliceParity

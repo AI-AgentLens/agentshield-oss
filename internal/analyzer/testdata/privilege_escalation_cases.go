@@ -3127,6 +3127,62 @@ var HomeRedirectCases = []TestCase{
 		Description:      `An interpreter heredoc body EXECUTES, so the value handed to a subprocess is a real redirect. in_interpreter_heredoc is deliberately absent from the #3793 downgrade list and this case pins that intent. Caveat recorded honestly: this case also passes via the #3697 recovery of the subprocess.run literal as an unlabelled statement, so it does NOT discriminate a mutation that ADDS in_interpreter_heredoc to the list. The only shape that would discriminate it is an inert doc-prose body, which is exactly the false positive #3809 is open to fix - pinning it would cement a known FP, so it is deliberately left unpinned.`,
 		Tags:             []string{"tp", "interpreter-heredoc", "issue-3793", "issue-3697"},
 	},
+	// #4400 fix round: the HOME-redirect twins of the keepass sibling-read
+	// gap, plus the decoded-separator gap. Each blocks without the needle.
+	// The real redirect uses /dev/shm and the needle /tmp: a /tmp payload
+	// would only re-measure the budgeted /private/tmp alias gap (#4387) in
+	// TestPrivateAliasTmpIsABudgetedGap, and a leading assignment would turn
+	// into a program name under the exec-wrapper parity sweeps.
+	{
+		ID:               "TP-HOMEDIR-NEEDLE-SIBLING-014",
+		Command:          `grep -rn 'HOME=/tmp/x' docs/ && h=/dev/shm/evil && export HOME=$h`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `#4400: open on main before the fix. A grep needle naming the pattern, then a real export of a variable assigned in a sibling statement. Only the whole-command MaterializeAssignments form resolves $h, and subtraction lacked it.`,
+		Tags:             []string{"tp", "home-redirect", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-HOMEDIR-NEEDLE-SIBLING-015",
+		Command:          `git log -S'HOME=/tmp/x' && h=/dev/shm/evil && export HOME=$h`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `#4400: the git pickaxe spelling of TP-HOMEDIR-NEEDLE-SIBLING-014, which the pickaxe needle newly exposed for this rule.`,
+		Tags:             []string{"tp", "home-redirect", "search-needle", "subtraction", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-HOMEDIR-NEEDLE-EMITTED-016",
+		Command:          `grep -rn 'HOME=/tmp/x ssh' docs/; printf 'id\nHOME=/dev/shm/evil ssh deploy@host.example\n' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `#4400: open on main before the fix. The payload reaches sh behind a printf newline escape, which only DecodeEmittedSeparators (#3802) turns into a real separator for the leading \b. Subtraction lacked that form, so the needle was the only match it saw.`,
+		Tags:             []string{"tp", "home-redirect", "search-needle", "subtraction", "pipe-to-shell", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TP-HOMEDIR-NEEDLE-EMITTED-017",
+		Command:          `git log -S'HOME=/tmp/x ssh' --oneline; printf 'id\nHOME=/dev/shm/evil ssh deploy@host.example\n' | sh`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `#4400: the git pickaxe spelling of TP-HOMEDIR-NEEDLE-EMITTED-016. Blocked on main, where the pickaxe string was not a needle; AUDIT on the PR before the fix round.`,
+		Tags:             []string{"tp", "home-redirect", "search-needle", "subtraction", "pipe-to-shell", "regression", "issue-4400"},
+	},
+	{
+		ID:               "TN-HOMEDIR-NEEDLE-EMITTED-018",
+		Command:          `grep -rn 'HOME=/tmp/x ssh' docs/; printf 'id\nHOME=/dev/shm/evil ssh deploy@host.example\n'`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "privilege-escalation/command-execution/env-injection",
+		Analyzer:         "pipeline",
+		Description:      `#4400 over-reach guard: the same printf with nothing executing it. DecodeEmittedSeparators decodes only text handed to an executor, so it adds no form here and the needle exclusion holds.`,
+		Tags:             []string{"tn", "home-redirect", "search-needle", "subtraction", "issue-4400"},
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -5340,6 +5396,91 @@ var SignalProcessFreezeCases = []TestCase{
 		Analyzer:         "regex",
 		Description:      "killall without freeze signal — terminates all matching processes, not freezing.",
 		Tags:             []string{"tn", "safe"},
+	},
+	// --- #4371 / #4399: segment-confined gap for the numeric aliases only ---
+	// A named signal keeps the original `.*` gap. These four were BLOCK on
+	// main and dropped to AUDIT when one confined gap served every signal
+	// (#4399 pass 2), so they pin that the named-signal half did not narrow.
+
+	{
+		ID:               "TP-SPF-010",
+		Command:          `bash -c "pkill -f \"auditd|falco\" -STOP"`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "pipeline",
+		Description:      `pkill -STOP of two monitors, as a bash -c payload whose pattern sits in escaped double quotes. The payload keeps its \" escapes, so a gap that honours quoting sees the | as live; the named signal's .* gap does not care (#4399 pass 2, finding 1).`,
+		Tags:             []string{"tp", "signal", "evasion", "regression"},
+	},
+	{
+		ID:               "TP-SPF-011",
+		Command:          `pkill -f "$(printf "%s|%s" auditd falco)" -STOP`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "regex",
+		Description:      `pkill -STOP with the target list built by "$(printf ...)": double quotes nested inside a quoted substitution, separator inside the inner quotes (#4399 pass 2, finding 2).`,
+		Tags:             []string{"tp", "signal", "evasion", "regression"},
+	},
+	{
+		ID:               "TP-SPF-012",
+		Command:          `pkill -F <(pgrep -f myproc | head -1) -STOP`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "regex",
+		Description:      `pkill -STOP reading its pid file from a process substitution that contains a pipe — an expansion no confined gap models (#4399 pass 2, finding 3).`,
+		Tags:             []string{"tp", "signal", "evasion", "regression"},
+	},
+	{
+		ID:               "TP-SPF-013",
+		Command:          `pkill -f ${PAT:-auditd;falco} -STOP`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "regex",
+		Description:      `pkill -STOP whose pattern is a parameter-expansion default carrying a literal ; — one shell word, not a separator (#4399 pass 2, finding 3).`,
+		Tags:             []string{"tp", "signal", "evasion", "regression"},
+	},
+	{
+		ID:               "TN-SPF-006",
+		Command:          `pkill -f myserver; ls | head -20`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "regex",
+		Description:      `The #4371 FP: pkill sends SIGTERM, and the -20 belongs to head in a later command. The numeric aliases' gap stops at a live separator.`,
+		Tags:             []string{"tn", "safe", "regression", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-SPF-007",
+		Command:          `pkill -f myserver; tail -18 server.log`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "regex",
+		Description:      `The #4371 FP: -18 is tail's line count in the next command, not SIGCONT.`,
+		Tags:             []string{"tn", "safe", "regression", "common-dev-operation"},
+	},
+	{
+		ID:               "TN-SPF-008",
+		Command:          `bash -c "pkill -f x; tail -18 log"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "pipeline",
+		Description:      `The #4371 FP inside a bash -c payload: the inline-code fragment is matched too, and its ; is live.`,
+		Tags:             []string{"tn", "safe", "regression"},
+	},
+	{
+		ID:               "TN-SPF-009",
+		Command:          `bash -c "pkill -f \"auditd|falco\" -19"`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "persistence-evasion/defense-evasion/local-security-monitor-suppression",
+		Analyzer:         "pipeline",
+		Description:      `KNOWN GAP, pinned on purpose (#4399, Gary's call): this really sends signal 19 (SIGSTOP on Linux) to two monitors, and main BLOCKs it. The numeric aliases use the confined gap, and the bash -c payload keeps its \" escapes, so the | inside the inner quotes reads as live and the match is cut. The named spelling (TP-SPF-010) still BLOCKs. Closing this means teaching the gap escaped quotes in carrier payloads; when that lands, flip this to a TP deliberately.`,
+		Tags:             []string{"known-gap", "signal", "evasion"},
 	},
 }
 

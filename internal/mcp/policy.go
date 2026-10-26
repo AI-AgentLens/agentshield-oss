@@ -219,6 +219,9 @@ type ValueLimitFinding struct {
 	Limit    string          `json:"limit"` // e.g., "max=100"
 	Decision policy.Decision `json:"decision"`
 	Reason   string          `json:"reason"`
+	// Taxonomy is the rule's taxonomy node, copied from ValueLimitRule so a
+	// value-limit verdict attests to it like any other rule's (ApplyValueLimits).
+	Taxonomy string `json:"taxonomy,omitempty"`
 }
 
 // ValueLimitResult holds the outcome of checking tool call arguments
@@ -361,6 +364,23 @@ func (e *PolicyEvaluator) SetMode(mode string) {
 	e.mode = mode
 }
 
+// ApplyMode applies audit-only mode (#1952) to a tool-call verdict assembled
+// outside the evaluator, exactly as the evaluator applies it to its own
+// verdicts: BLOCK and REQUIRE_APPROVAL become AUDIT with OriginalDecision set,
+// and rules, reasons and taxonomy are kept. Any other mode returns r unchanged.
+//
+// It is for callers that add block sources after the evaluator returns, such
+// as the value_limits pass. They build the evaluator in enforce mode ("") and
+// call ApplyMode once on the final verdict, so every block source is recorded
+// with its original decision and each pass is gated on the decision enforce
+// mode computes (#4356: shield-server and mcp-eval used to downgrade inside
+// the evaluator and then let a value-limit BLOCK through). The MCP proxies
+// apply the mode the same way, at the end, with their own self-protection
+// rule on top (MessageHandler.applyToolCallMode).
+func ApplyMode(r MCPEvalResult, mode string) MCPEvalResult {
+	return applyMCPModeDowngrade(r, mode)
+}
+
 // applyMCPModeDowngrade collapses interrupting decisions to AUDIT in
 // audit-only mode and records the original. Mirrors the shell-side
 // applyModeDowngrade. Issue #1952.
@@ -448,7 +468,8 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 
 // evaluateReadings runs the argument-dependent rule set under every reading of
 // the arguments — as written, case-folded (#4194), separator-normalised
-// (#4243) — and keeps the strictest, WITHOUT the audit-only downgrade.
+// (#4243), /private alias written short (#4387) — and keeps the strictest,
+// WITHOUT the audit-only downgrade.
 func (e *PolicyEvaluator) evaluateReadings(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall) MCPEvalResult {
 	// Case-folded path reading (#4194). The rules below compare argument
 	// values case-sensitively, and on a case-insensitive volume (APFS, NTFS)
@@ -478,6 +499,20 @@ func (e *PolicyEvaluator) evaluateReadings(toolName string, arguments map[string
 		}
 		result = stricterMCPResult(result, e.evaluateArguments(toolName, slashed, toolDescription, history, true))
 	}
+	// macOS /private alias reading (#4387). On macOS /etc, /var and /tmp are
+	// symlinks into /private, so `/private/etc/hosts` is `/etc/hosts`, and
+	// the argument rules are authored against the short spelling. Same
+	// raise-only construction as the two readings above (the shell engine's
+	// twin is policy.Engine.EvaluatePrivateAlias); the rules that match
+	// `/private` literally keep matching in the as-written reading. The short
+	// spelling gets the case fold too, as the as-written one does: APFS is
+	// case-insensitive, so `/private/etc/SUDOERS` is `/etc/sudoers`.
+	if short, ok := privateAliasArguments(arguments); ok {
+		result = stricterMCPResult(result, e.evaluateArguments(toolName, short, toolDescription, history, false))
+		if folded, ok := foldPathArguments(short); ok {
+			result = stricterMCPResult(result, e.evaluateArguments(toolName, folded, toolDescription, history, true))
+		}
+	}
 	return result
 }
 
@@ -488,6 +523,17 @@ func (e *PolicyEvaluator) evaluateReadings(toolName string, arguments map[string
 var harnessReadTools = map[string]string{
 	"Read": "read_file",
 	"view": "read_file",
+}
+
+// harnessWriteTools is the write counterpart (#4457): Claude Code
+// Write{file_path,content}, Edit/MultiEdit{file_path,new_string}; Copilot CLI
+// create/edit{path}. apply_patch is #4253's and not listed.
+var harnessWriteTools = map[string]string{
+	"Write":     "write_file",
+	"Edit":      "edit_file",
+	"MultiEdit": "edit_file",
+	"create":    "write_file",
+	"edit":      "edit_file",
 }
 
 // attributeHarnessRead records — never enforces — the read rules a harness
@@ -507,6 +553,11 @@ var harnessReadTools = map[string]string{
 // cannot mistake it for a block.
 func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName string, arguments map[string]interface{}) MCPEvalResult {
 	mcpName, ok := harnessReadTools[toolName]
+	issue := "#4248"
+	if !ok {
+		mcpName, ok = harnessWriteTools[toolName]
+		issue = "#4457"
+	}
 	if !ok || result.Decision != policy.DecisionAudit {
 		return result
 	}
@@ -519,6 +570,13 @@ func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName st
 	if _, has := resolveField(arguments, "path"); !has {
 		if fp, ok := resolveField(arguments, "file_path"); ok {
 			equivArgs["path"] = fp
+		}
+	}
+	// Edit carries its payload as new_string; write rules that read the content
+	// look for `content`.
+	if _, has := resolveField(arguments, "content"); !has {
+		if ns, ok := resolveField(arguments, "new_string"); ok {
+			equivArgs["content"] = ns
 		}
 	}
 	// No description and no history: the equivalence is about the path
@@ -536,7 +594,7 @@ func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName st
 			why = " — " + equiv.Reasons[i]
 		}
 		out.TriggeredRules = append(out.TriggeredRules, rule)
-		out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (#4248): as %s this call matches the BLOCK rule %s%s", mcpName, rule, why))
+		out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (%s): as %s this call matches the BLOCK rule %s%s", issue, mcpName, rule, why))
 	}
 	out.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(append(append([]string{}, result.TaxonomyRefs...), equiv.AllTaxonomyRefs()...))
 	return out
@@ -673,6 +731,13 @@ func slashWindowsPathArguments(arguments map[string]interface{}) (map[string]int
 		}
 		return strings.ReplaceAll(s, `\`, "/")
 	})
+}
+
+// privateAliasArguments returns a deep copy of arguments with every macOS
+// /private alias of /etc, /var or /tmp written short
+// (pathnorm.CanonicalPrivateAlias), and whether any value changed (#4387).
+func privateAliasArguments(arguments map[string]interface{}) (map[string]interface{}, bool) {
+	return mapArgumentStrings(arguments, pathnorm.CanonicalPrivateAlias)
 }
 
 // mapArgumentStrings returns a deep copy of arguments with every string value
@@ -1536,6 +1601,7 @@ func (e *PolicyEvaluator) CheckValueLimits(toolName string, arguments map[string
 				Limit:    limitDesc,
 				Decision: rule.Decision,
 				Reason:   reason,
+				Taxonomy: rule.Taxonomy,
 			}
 			result.Findings = append(result.Findings, finding)
 			if rule.Decision == policy.DecisionBlock {
@@ -1545,6 +1611,47 @@ func (e *PolicyEvaluator) CheckValueLimits(toolName string, arguments map[string
 	}
 
 	return result
+}
+
+// ApplyValueLimits is the value_limits pass every MCP tools/call surface runs
+// after the rule matcher: the proxies (MessageHandler.HandleToolCall),
+// shield-server /v1/evaluate and mcp-eval. One definition, so the three cannot
+// drift (#3169 was this surface silently missing from mcp-eval).
+//
+// It runs only when result is not already BLOCK, and on a verdict computed as
+// enforce mode computes it; the caller applies the mode afterwards (#4356). A
+// BLOCK finding sets the decision to BLOCK; AUDIT findings are recorded and
+// leave the decision as it is. Either way the findings' rule ids, reasons and
+// taxonomy nodes are appended after the rule matcher's, in finding order, so a
+// value-limit receipt attests to its rule's node instead of only to a rule id
+// the consumer must resolve itself. The returned ValueLimitResult is the raw
+// pass, for callers that log it.
+func (e *PolicyEvaluator) ApplyValueLimits(result MCPEvalResult, toolName string, arguments map[string]interface{}) (MCPEvalResult, ValueLimitResult) {
+	if result.Decision == policy.DecisionBlock {
+		return result, ValueLimitResult{}
+	}
+	vl := e.CheckValueLimits(toolName, arguments)
+	if len(vl.Findings) == 0 {
+		return result, vl
+	}
+	label, prefix := "value-limit-audit", "value_limit_audit"
+	if vl.Blocked {
+		result.Decision = policy.DecisionBlock
+		label, prefix = "value-limit", "value_limit"
+	}
+	result.TriggeredRules = append(result.TriggeredRules, label)
+	taxonomy := append([]string(nil), result.TaxonomyRefs...)
+	for _, f := range vl.Findings {
+		if f.RuleID != "" {
+			result.TriggeredRules = append(result.TriggeredRules, f.RuleID)
+		}
+		result.Reasons = append(result.Reasons, fmt.Sprintf("%s: %s (arg: %s, value: %.2f, %s)", prefix, f.Reason, f.ArgName, f.Value, f.Limit))
+		taxonomy = appendTaxonomy(taxonomy, f.Taxonomy)
+	}
+	if len(taxonomy) != len(result.TaxonomyRefs) {
+		result.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(taxonomy)
+	}
+	return result, vl
 }
 
 // matchValueLimitTool checks if a tool name matches a ValueLimitRule's tool filter.

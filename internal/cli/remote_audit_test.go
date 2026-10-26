@@ -29,6 +29,10 @@ import (
 // hostnames, or other ambient-context fields to the canonical payload. The
 // cwd/session_id/principal values below are fixtures, not ambient reads — the
 // builder never resolves them itself.
+// goldenClientEventID is the client_event_id the contract golden carries
+// (#4467).
+const goldenClientEventID = "5f0c2a9e8b7d4c3e9a1f6b2d0e4c8a71"
+
 func TestBuildAuditPayload_AuditOnlyContract(t *testing.T) {
 	event := &logger.AuditEvent{
 		Command:          "telnet legacy-router.lan 23",
@@ -48,7 +52,9 @@ func TestBuildAuditPayload_AuditOnlyContract(t *testing.T) {
 		Principal: "dev",
 	}
 
-	got, err := buildAuditPayload(event)
+	// client_event_id (#4467) is a fixture here, never a fresh random id: the SaaS
+	// golden pins the same value and its dedupe key reads it.
+	got, err := buildAuditPayload(event, goldenClientEventID)
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -85,7 +91,7 @@ func TestBuildAuditPayload_EnforceModeOmitsOriginalDecision(t *testing.T) {
 		// OriginalDecision intentionally empty
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -176,7 +182,7 @@ func TestBuildAuditPayload_BlockCarriesTaxonomy(t *testing.T) {
 		Source:         "claude-code-hook",
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -206,7 +212,7 @@ func TestBuildAuditPayload_TaxonomyAlwaysPresentEvenWhenEmpty(t *testing.T) {
 		// TaxonomyRefs intentionally nil
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -248,7 +254,7 @@ func TestBuildAuditPayload_MultiRuleTriggerPreservesEveryRuleID(t *testing.T) {
 		Source: "claude-code-hook",
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -303,7 +309,7 @@ func TestBuildAuditPayload_MCPEventSeparatesSignalsFromRuleIDs(t *testing.T) {
 		Source:       "claude-code-mcp-hook",
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -357,7 +363,7 @@ func TestBuildAuditPayload_SignalsOmittedWhenAbsent(t *testing.T) {
 		Source:         "claude-code-hook",
 	}
 
-	got, err := buildAuditPayload(event)
+	got, err := buildAuditPayload(event, "")
 	if err != nil {
 		t.Fatalf("buildAuditPayload(): %v", err)
 	}
@@ -385,7 +391,7 @@ func TestBuildAuditPayload_IdentityPlane(t *testing.T) {
 		event.SessionID = "9f2c1d64-3b7a-4c05-8e11-a6d0b4f37c92"
 		event.Principal = "dev"
 
-		got, err := buildAuditPayload(&event)
+		got, err := buildAuditPayload(&event, "")
 		if err != nil {
 			t.Fatalf("buildAuditPayload(): %v", err)
 		}
@@ -404,7 +410,7 @@ func TestBuildAuditPayload_IdentityPlane(t *testing.T) {
 	t.Run("omitted when unknown", func(t *testing.T) {
 		event := base // no Cwd / SessionID / Principal
 
-		got, err := buildAuditPayload(&event)
+		got, err := buildAuditPayload(&event, "")
 		if err != nil {
 			t.Fatalf("buildAuditPayload(): %v", err)
 		}
