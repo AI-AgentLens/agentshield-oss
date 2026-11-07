@@ -20,8 +20,10 @@ package hookentry
 import (
 	"bytes"
 	"encoding/json"
+	"runtime"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -107,7 +109,12 @@ func isShellInvocation(cmd string) bool {
 	if strings.ContainsAny(cmd, "\r\x00") || strings.Contains(cmd, "\\\n") {
 		return false
 	}
-	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	// A hook entry is "agentshield hook", so one past the chain bound (#4778)
+	// is not it, and is not parsed.
+	if shellparse.CheckChainBound(cmd) != nil {
+		return false
+	}
+	f, err := shellparse.ParseText(cmd)
 	if err != nil || len(f.Stmts) != 1 {
 		return false
 	}
@@ -264,15 +271,34 @@ func ShellHook(binPath string) map[string]interface{} {
 	}
 }
 
+// IsProgram reports whether a configured command names the agentshield
+// binary, the way setup writes it: the bare name or a path ending in it, and
+// on Windows agentshield.exe in any case. setup mcp and status use it to
+// recognise a server they wrapped (#4717).
+func IsProgram(cmd string) bool { return isExecProgram(cmd) }
+
 // isExecProgram reports whether an exec-form command names the agentshield
 // binary: "agentshield" itself or a path whose last element is exactly that.
 // A trailing slash, a lookalike name or surrounding whitespace is rejected,
 // because each names something Claude Code cannot spawn as our binary.
 func isExecProgram(cmd string) bool {
+	return isExecProgramOn(runtime.GOOS, cmd)
+}
+
+// isExecProgramOn is isExecProgram for a given GOOS. On Windows the binary
+// setup writes is agentshield.exe, either separator ends the directory, and
+// the file system ignores case, so C:\...\AgentShield.exe is the same
+// program (#4717). Without this, setup could not see its own entry: every
+// run appended another, and --disable found nothing to remove.
+func isExecProgramOn(goos, cmd string) bool {
 	if cmd != strings.TrimSpace(cmd) {
 		return false
 	}
-	return cmd == BinaryName || strings.HasSuffix(cmd, "/"+BinaryName)
+	if goos != "windows" {
+		return cmd == BinaryName || strings.HasSuffix(cmd, "/"+BinaryName)
+	}
+	base := cmd[strings.LastIndexAny(cmd, `/\`)+1:]
+	return strings.EqualFold(base, BinaryName) || strings.EqualFold(base, BinaryName+".exe")
 }
 
 // isExecArgs reports whether args is exactly ["hook"].

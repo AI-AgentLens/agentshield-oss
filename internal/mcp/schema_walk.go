@@ -3,6 +3,8 @@ package mcp
 import (
 	"strconv"
 	"strings"
+
+	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
 // maxSchemaWalkDepth bounds the recursion in forEachSchemaProperty. A tools/list
@@ -309,4 +311,17 @@ func schemaRequiredSet(node map[string]interface{}) map[string]bool {
 		}
 	}
 	return req
+}
+
+// forEachSchemaPropertyNameReading tries the raw property first, then an
+// additional client-sanitized name. The path and schema stay as sent, so audit
+// attribution and per-path deduplication retain their existing behavior.
+func forEachSchemaPropertyNameReading(root map[string]interface{}, fn func(schemaProperty)) {
+	forEachSchemaProperty(root, func(p schemaProperty) {
+		fn(p)
+		if stripped, changed := pkgunicode.StripConsumerIgnorables(p.Name); changed {
+			p.Name = stripped
+			fn(p)
+		}
+	})
 }

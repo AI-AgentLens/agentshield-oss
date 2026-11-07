@@ -49,10 +49,6 @@ func newDegradedThenHealthy(t *testing.T) (D, H *AuditLogger, logPath string) {
 	return D, H, logPath
 }
 
-func windowEvent(cmd string) AuditEvent {
-	return AuditEvent{Timestamp: "2026-09-30T00:00:00Z", Command: cmd, Decision: "ALLOW", Mode: "enforce"}
-}
-
 // dropLastRecord deletes the last record of path: an attacker removing the
 // most recent entry of the rotated generation.
 func dropLastRecord(t *testing.T, path string) {

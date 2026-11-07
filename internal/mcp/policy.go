@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	slashpath "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -266,6 +267,54 @@ func (r MCPEvalResult) AllTaxonomyRefs() []string {
 	return analyzer.NormalizeTaxonomyRefs(merged)
 }
 
+// AllTaxonomyRefs is the same merged view for a proxy audit entry: its
+// Go-intercept TaxonomyRef first, then the per-rule TaxonomyRefs (#4734).
+func (e AuditEntry) AllTaxonomyRefs() []string {
+	merged := make([]string, 0, len(e.TaxonomyRefs)+1)
+	if e.TaxonomyRef != "" {
+		merged = append(merged, e.TaxonomyRef)
+	}
+	merged = append(merged, e.TaxonomyRefs...)
+	return analyzer.NormalizeTaxonomyRefs(merged)
+}
+
+// RuleTaxonomyRefs returns the declared taxonomy refs of the loaded rules
+// (tool, sentinel and resource rules) with the given ids, in order. Ids that
+// name no such rule, such as a Go scanner's signal label, are skipped.
+//
+// It is the fallback for a proxy audit entry that names its rules but carries
+// no taxonomy (#4734): the description scan, schema drift, rug-pull. It reads
+// only the rule's static taxonomy, so a decision whose taxonomy depends on the
+// arguments must carry it in the entry, as the tools/call entry does.
+func (e *PolicyEvaluator) RuleTaxonomyRefs(ruleIDs []string) []string {
+	if e == nil || e.policy == nil || len(ruleIDs) == 0 {
+		return nil
+	}
+	byID := make(map[string]string)
+	for _, r := range e.policy.Rules {
+		if r.Taxonomy != "" {
+			byID[r.ID] = r.Taxonomy
+		}
+	}
+	for _, r := range e.policy.ResourceRules {
+		if r.Taxonomy != "" {
+			byID[r.ID] = r.Taxonomy
+		}
+	}
+	for _, r := range e.SentinelRules {
+		if r != nil && r.Taxonomy != "" {
+			byID[r.ID] = r.Taxonomy
+		}
+	}
+	var refs []string
+	for _, id := range ruleIDs {
+		if t, ok := byID[id]; ok {
+			refs = append(refs, t)
+		}
+	}
+	return analyzer.NormalizeTaxonomyRefs(refs)
+}
+
 // PolicyEvaluator evaluates MCP tool calls against an MCPPolicy.
 type PolicyEvaluator struct {
 	policy        *MCPPolicy
@@ -277,6 +326,14 @@ type PolicyEvaluator struct {
 	// selfProtect caches IsSelfProtectionRule's index; nil (an evaluator
 	// built as a literal) computes it on every call.
 	selfProtect *selfProtectIndex
+	// protectedPaths are the customer's shell protected_paths, which a
+	// file-path argument may not name (#4645, SetProtectedPaths). home is the
+	// home directory `~/` in them expands to.
+	protectedPaths []string
+	home           string
+	// workDir is the directory the tool call runs in, for that check
+	// (InWorkingDir, #4653); "" when the surface has none.
+	workDir string
 }
 
 // selfProtectIndex is the lazily built set of self-protection rule ids. It
@@ -462,6 +519,7 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 	}
 
 	result := e.evaluateReadings(toolName, arguments, toolDescription, history)
+	result = e.foldProtectedPath(result, arguments)
 	result = e.attributeHarnessRead(result, toolName, arguments)
 	return applyMCPModeDowngrade(result, e.mode)
 }
@@ -662,18 +720,21 @@ func (e *PolicyEvaluator) evaluateArguments(toolName string, arguments map[strin
 		}
 	}
 
-	// Evaluate structural rules — check standalone structural_rules
+	// Evaluate structural rules — check standalone structural_rules. The
+	// taxonomy a firing records is structuralRuleTaxonomy's: the static node,
+	// or for a taxonomy_from: matched_path rule the node of the path it
+	// matched (#4665). It is computed only for a firing that is recorded.
 	for _, rule := range e.policy.StructuralRules {
 		if matchStructuralRule(toolName, arguments, rule) {
 			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
 				result.Decision = rule.Decision
 				result.TriggeredRules = []string{rule.ID}
 				result.Reasons = []string{rule.Reason}
-				result.TaxonomyRefs = firstTaxonomy(rule.Taxonomy)
+				result.TaxonomyRefs = structuralRuleTaxonomy(rule, arguments)
 			} else if decisionSeverity(rule.Decision) == decisionSeverity(result.Decision) {
 				result.TriggeredRules = append(result.TriggeredRules, rule.ID)
 				result.Reasons = append(result.Reasons, rule.Reason)
-				result.TaxonomyRefs = appendTaxonomy(result.TaxonomyRefs, rule.Taxonomy)
+				result.TaxonomyRefs = append(result.TaxonomyRefs, structuralRuleTaxonomy(rule, arguments)...)
 			}
 		}
 	}
@@ -1117,13 +1178,13 @@ func (e *PolicyEvaluator) matchRuleFold(toolName string, arguments map[string]in
 // Supports exact match and simple glob (* suffix).
 func matchToolName(name, pattern string) bool {
 	if strings.Contains(pattern, "*") {
-		if matched, _ := filepath.Match(pattern, name); matched {
+		if matched, _ := slashpath.Match(pattern, name); matched {
 			return true
 		}
 		// Naming-convention fallback (issue #3443): a rule's tool_name_any
 		// glob is authored against one MCP server's spelling convention
 		// (git_*) — a hyphenated server (git-checkout) is otherwise invisible.
-		matched, _ := filepath.Match(normalizeSeparators(pattern), normalizeSeparators(name))
+		matched, _ := slashpath.Match(normalizeSeparators(pattern), normalizeSeparators(name))
 		return matched
 	}
 	if name == pattern {
@@ -1202,7 +1263,7 @@ func matchGlob(value, pattern string) bool {
 // two matching strategies.
 func matchGlobLiteral(value, pattern string) bool {
 	if !strings.Contains(pattern, "**") {
-		matched, _ := filepath.Match(pattern, value)
+		matched, _ := slashpath.Match(pattern, value)
 		return matched
 	}
 
@@ -1382,7 +1443,7 @@ func globMatch(value, pattern []string) bool {
 			return false
 		}
 
-		matched, _ := filepath.Match(pattern[pi], value[vi])
+		matched, _ := slashpath.Match(pattern[pi], value[vi])
 		if !matched {
 			return false
 		}
@@ -1393,7 +1454,17 @@ func globMatch(value, pattern []string) bool {
 	return vi == len(value)
 }
 
-// splitPath splits a file path into its components, after filepath.Clean.
+// splitPath splits a file path into its components, after path.Clean.
+//
+// The glob engine works in slash form on every platform (#4717). Rules are
+// authored with "/" and the evaluator was built and tested as a POSIX binary,
+// where filepath is slash-based. On a native Windows build filepath is
+// backslash-based: Clean turned "**/.ssh/**" into "**\.ssh\**", which
+// splitPathPattern then could not split, so every "**" glob in the MCP packs
+// (1,601 of them) silently fell through to the default. Slash form makes the
+// Windows binary decide exactly as the POSIX binary does for the same string;
+// a backslash value is still retried in slash form only when it looks like a
+// Windows path (matchGlob). path is filepath on unix, so nothing changes there.
 //
 // Linear in len(p) (#4255). It used to walk the path backwards with
 // filepath.Split, re-Clean the remaining directory on every step and PREPEND
@@ -1405,12 +1476,11 @@ func globMatch(value, pattern []string) bool {
 // "." sentinel never became a component. TestSplitPathMatchesQuadraticReference
 // pins the equivalence against the old implementation.
 func splitPath(p string) []string {
-	p = filepath.Clean(p)
+	p = slashpath.Clean(p)
 	if p == "/" || p == "." {
 		return nil
 	}
-	sep := string(filepath.Separator)
-	return strings.Split(strings.TrimPrefix(p, sep), sep)
+	return strings.Split(strings.TrimPrefix(p, "/"), "/")
 }
 
 // splitPathPattern splits a glob pattern into components, preserving "**".
@@ -1419,7 +1489,7 @@ func splitPathPattern(pattern string) []string {
 	// single separator so component indices line up with splitPath's output
 	// for the same value. It leaves "**" untouched — Clean only special-cases
 	// ".", "..", and repeated separators, never an ordinary path segment.
-	pattern = filepath.Clean(pattern)
+	pattern = slashpath.Clean(pattern)
 	pattern = strings.TrimPrefix(pattern, "/")
 	if pattern == "" || pattern == "." {
 		return nil
@@ -1480,7 +1550,7 @@ func (e *PolicyEvaluator) EvaluateResourceRead(uri string) MCPEvalResult {
 // matchResourceURI checks if a URI matches a blocked resource pattern.
 func matchResourceURI(uri, pattern string) bool {
 	if strings.Contains(pattern, "*") {
-		matched, _ := filepath.Match(pattern, uri)
+		matched, _ := slashpath.Match(pattern, uri)
 		if matched {
 			return true
 		}

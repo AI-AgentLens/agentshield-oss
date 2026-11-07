@@ -239,23 +239,53 @@ func (e *Engine) ScanText(text, toolName, direction string) []DataLabelMatch {
 //     costs the value;
 //   - no max-scan-bytes cap: a cap here would leave the tail unredacted.
 //
-// Overlapping spans merge; the earliest label's id names the merged span.
-// A nil Engine returns text unchanged.
+// The spans it replaces are Spans(text). A nil Engine returns text unchanged.
 func (e *Engine) Scrub(text string) string {
-	if e == nil || len(e.labels) == 0 || text == "" {
+	spans := e.Spans(text)
+	if len(spans) == 0 {
 		return text
 	}
-
-	type span struct {
-		start, end int
-		label      string
+	var out strings.Builder
+	pos := 0
+	for _, s := range spans {
+		if s.Start > pos {
+			out.WriteString(text[pos:s.Start])
+		}
+		out.WriteString(s.Placeholder())
+		pos = s.End
 	}
-	var spans []span
+	out.WriteString(text[pos:])
+	return out.String()
+}
+
+// Span is a byte range [Start, End) of a text that a data label matched, and
+// the id of the label that names it.
+type Span struct {
+	Start, End int
+	Label      string
+}
+
+// Placeholder is what a record carries in the span's place: "[LABEL:<id>]".
+func (s Span) Placeholder() string { return "[LABEL:" + s.Label + "]" }
+
+// Spans returns the spans Scrub replaces, in order and disjoint: every match
+// of every label, found on text with Scrub's rules (all matches, scope
+// ignored, no cap), overlapping matches merged into one span that the
+// earliest label names. The audit record's redaction masks these together
+// with the secret spans found on the same text (redact.RedactWithLabels,
+// #4813), so a label value inside a secret cannot cut the secret's
+// redaction short. A nil Engine returns nil.
+func (e *Engine) Spans(text string) []Span {
+	if e == nil || len(e.labels) == 0 || text == "" {
+		return nil
+	}
+
+	var spans []Span
 
 	if e.keywordAutomaton != nil {
 		for _, hit := range e.keywordAutomaton.Search(text) {
 			owner := e.keywordIndex[hit.PatternID]
-			spans = append(spans, span{hit.Start, hit.End, e.labels[owner.labelIdx].config.ID})
+			spans = append(spans, Span{hit.Start, hit.End, e.labels[owner.labelIdx].config.ID})
 		}
 	}
 
@@ -276,37 +306,30 @@ func (e *Engine) Scrub(text string) string {
 				if v := cl.config.Patterns[j].Validator; v != "" && !Validate(v, text[loc[0]:loc[1]]) {
 					continue
 				}
-				spans = append(spans, span{loc[0], loc[1], cl.config.ID})
+				spans = append(spans, Span{loc[0], loc[1], cl.config.ID})
 			}
 		}
 	}
 
 	if len(spans) == 0 {
-		return text
+		return nil
 	}
 
-	sort.SliceStable(spans, func(a, b int) bool { return spans[a].start < spans[b].start })
+	sort.SliceStable(spans, func(a, b int) bool { return spans[a].Start < spans[b].Start })
 
-	var out strings.Builder
-	pos := 0
+	merged := spans[:0]
 	for i := 0; i < len(spans); {
 		s := spans[i]
-		end := s.end
 		i++
-		for i < len(spans) && spans[i].start < end {
-			if spans[i].end > end {
-				end = spans[i].end
+		for i < len(spans) && spans[i].Start < s.End {
+			if spans[i].End > s.End {
+				s.End = spans[i].End
 			}
 			i++
 		}
-		if s.start > pos {
-			out.WriteString(text[pos:s.start])
-		}
-		out.WriteString("[LABEL:" + s.label + "]")
-		pos = end
+		merged = append(merged, s)
 	}
-	out.WriteString(text[pos:])
-	return out.String()
+	return merged
 }
 
 // contextWindow returns a slice of text covering ±contextWindowBytes around

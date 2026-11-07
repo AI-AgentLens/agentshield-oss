@@ -223,6 +223,14 @@ func decodeANSIC(body string, stopAtNUL bool) (string, bool, int) {
 	return b.String(), true, -1
 }
 
+// DecodeDollarQuotedSpans is decodeDollarQuotedSpans, exported for the
+// managed-mode token scan in internal/enterprise (#4631), which reads text no
+// parser accepts and so has no AST to dequote. It reports whether any span
+// was decoded.
+func DecodeDollarQuotedSpans(s string) (string, bool) {
+	return decodeDollarQuotedSpans(s)
+}
+
 // decodeDollarQuotedSpans finds every $'...' span in s — honoring backslash
 // escapes within the span so an escaped quote (\') doesn't terminate it early
 // — and replaces each with its decoded literal content. Used by

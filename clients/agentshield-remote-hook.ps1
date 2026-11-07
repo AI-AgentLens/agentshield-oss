@@ -49,10 +49,23 @@ Compatibility: Windows PowerShell 5.1 and PowerShell 7+. No 7-only syntax
 (no ??, ternary, &&, -AsHashtable). The source is ASCII-only because 5.1 reads
 a BOM-less script as the ANSI code page.
 
-Limitation (#4245): PowerShell COMMAND TEXT is sent to the server's shell
-pipeline, whose analyzers parse POSIX shell. Most PowerShell attack shapes get
-the default AUDIT - recorded, not blocked. File and MCP tool calls are fully
-evaluated (Windows paths included, #4243).
+Routing (ADR-001 step 2, #4245): every request carries the routing key the
+local hook routes on (`route`): the harness, the tool name exactly as the
+harness sent it, and the host OS. The harness is derived as `agentshield hook`
+derives it: copilot-cli-native for the native dialect; for the Claude shape,
+copilot-cli when AGENTSHIELD_AGENT_ID is copilot-cli, codex when it is codex
+or unset with turn_id in the payload, and claude-code otherwise. A server that
+knows the key routes the call through the same table as the local hook: Claude
+Code's PowerShell tool is read by MCP policy and the PowerShell lane (no longer
+by the POSIX shell pipeline), Copilot's native powershell tool by the POSIX
+and PowerShell lanes, and with AGENTSHIELD_AGENT_ID=copilot-cli on Windows a
+compatible-format Bash call by both too. The request keeps the shape it always
+had (any bash/powershell tool as a command, every other tool as a tool call)
+and carries the whole tool input as arguments, so a server that predates the
+key decides exactly as before: there, PowerShell COMMAND TEXT is read only by
+the POSIX shell pipeline, and most PowerShell attack shapes get the default
+AUDIT. File and MCP tool calls are fully evaluated (Windows paths included,
+#4243).
 
 This client EVALUATES via the server and never executes anything.
 #>
@@ -105,6 +118,16 @@ function Write-Block([string]$Header, $Verdict) {
     [Console]::Out.Write(($out | ConvertTo-Json -Compress))
 }
 
+# The routing key's OS, as Go's runtime.GOOS spells it. Windows PowerShell
+# (the Desktop edition, 5.x) runs only on Windows and has no $IsWindows;
+# PowerShell 7 sets $IsWindows, $IsMacOS and $IsLinux.
+function Get-HostOS {
+    if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.PSVersion.Major -lt 6 -or $IsWindows) { return 'windows' }
+    if ($IsMacOS) { return 'darwin' }
+    if ($IsLinux) { return 'linux' }
+    return 'unknown'
+}
+
 function Exit-FailOpenOrClosed([string]$Message) {
     if ((Get-EnvOr 'AGENTSHIELD_REMOTE_FAIL_CLOSED' '') -eq '1') {
         $verdict = @{ reasons = @("shield-server unreachable and fail-closed is enabled ($Message)") }
@@ -145,7 +168,8 @@ try {
 
 # --- normalise the two Copilot dialects (and Claude Code / Codex) -----------
 $hookEvent = Get-Field $payload 'hook_event_name'
-if ($null -ne $hookEvent) {
+$isNative = ($null -eq $hookEvent)
+if (-not $isNative) {
     $toolName = [string](Get-Field $payload 'tool_name')
     $toolInput = Get-Field $payload 'tool_input'
     $sessionId = [string](Get-Field $payload 'session_id')
@@ -181,7 +205,26 @@ $identity = @{
     source     = "$agentId-remote-hook"
 }
 
+# The routing key (ADR-001 step 2). The harness is derived as the local hook
+# derives it (claudeShapedHarness in internal/cli/hook.go), from the raw
+# AGENTSHIELD_AGENT_ID, not from the identity default above: a label that is
+# not a plain lower-case word counts as unset, and an unset one with no
+# turn_id routes as Claude Code. Case-sensitive, as Go compares.
+$rawAgent = [string][Environment]::GetEnvironmentVariable('AGENTSHIELD_AGENT_ID')
+if ($rawAgent -cnotmatch '^[a-z0-9][a-z0-9-]{0,31}\z') { $rawAgent = '' }
+$harness = 'claude-code'
+if ($isNative) {
+    $harness = 'copilot-cli-native'
+} elseif ($rawAgent -ceq 'copilot-cli') {
+    $harness = 'copilot-cli'
+} elseif ($rawAgent -ceq 'codex' -or ($rawAgent -eq '' -and $isCodex)) {
+    $harness = 'codex'
+}
+$route = @{ harness = $harness; tool = $toolName; os = (Get-HostOS) }
+
 # --- shell surface ----------------------------------------------------------
+# Sent as a command, the shape a server without the routing key reads with the
+# POSIX shell pipeline. A server with the key routes on the key instead.
 if ($toolName -eq 'Bash' -or $toolName -eq 'bash' -or $toolName -eq 'powershell') {
     if (-not (Test-Field $toolInput 'command')) {
         # Not an empty command: a payload with NO command field means the
@@ -194,7 +237,9 @@ if ($toolName -eq 'Bash' -or $toolName -eq 'bash' -or $toolName -eq 'powershell'
     if ([string]::IsNullOrEmpty($command)) { exit 0 }
     $cwd = [string](Get-Field $payload 'cwd')
     if ([string]::IsNullOrEmpty($cwd)) { $cwd = (Get-Location).Path }
-    $body = @{ command = $command; cwd = $cwd }
+    # arguments: the whole tool input, which a routed call's Structured lane
+    # reads (Claude Code's PowerShell row); a server without the key ignores it.
+    $body = @{ command = $command; cwd = $cwd; arguments = $toolInput; route = $route }
     foreach ($k in $identity.Keys) { $body[$k] = $identity[$k] }
     try {
         $verdict = Invoke-Evaluate $body
@@ -208,7 +253,9 @@ if ($toolName -eq 'Bash' -or $toolName -eq 'bash' -or $toolName -eq 'powershell'
     exit 0
 }
 
-# --- every other tool goes through MCP policy (mirrors hook.go) -------------
+# --- every other tool is sent as a tool call --------------------------------
+# A server without the routing key evaluates it with MCP policy; one with the
+# key reads it with every lane of the tool's row, as hook.go does.
 $arguments = @{}
 if ($toolInput -is [string]) {
     # Observed live (Copilot CLI 1.0.93): edits through apply_patch arrive with
@@ -222,7 +269,11 @@ if ($toolInput -is [string]) {
 } elseif ($null -ne $toolInput) {
     $arguments = $toolInput
 }
-$body = @{ tool_name = $toolName; arguments = $arguments }
+# cwd: the server resolves file-path arguments against it for the customer's
+# relative protected_paths, as for a command (#4653).
+$toolCwd = [string](Get-Field $payload 'cwd')
+if ([string]::IsNullOrEmpty($toolCwd)) { $toolCwd = (Get-Location).Path }
+$body = @{ tool_name = $toolName; arguments = $arguments; cwd = $toolCwd; route = $route }
 foreach ($k in $identity.Keys) { $body[$k] = $identity[$k] }
 try {
     $verdict = Invoke-Evaluate $body

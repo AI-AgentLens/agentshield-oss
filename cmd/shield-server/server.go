@@ -20,6 +20,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/AI-AgentLens/agentshield/internal/policy/remediation"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 // Options configures a Server. Zero values resolve to the same defaults the
@@ -55,6 +56,13 @@ type Server struct {
 	degraded    bool
 	failedPacks []string
 	warnings    []string
+	// shellProtected is the merged shell policy's protected_paths, which
+	// loadShellEngine records for loadMCPEvaluator: the customer's patterns
+	// among them apply to tool-call file-path arguments (#4645).
+	shellProtected []string
+	// maxParseDepth is the analyzer's max_parse_depth, which also bounds the
+	// PowerShell lane's nested interpreters (ADR-001 D6).
+	maxParseDepth int
 }
 
 // NewServer loads config, shell policy, MCP policy, and the audit logger —
@@ -136,6 +144,8 @@ func (s *Server) loadShellEngine(cfg *config.Config, policyOverride string) erro
 		return fmt.Errorf("create policy engine: %w", err)
 	}
 	s.engine = engine
+	s.shellProtected = append([]string(nil), pol.Defaults.ProtectedPaths...)
+	s.maxParseDepth = cfg.Analyzer.MaxParseDepth
 	return nil
 }
 
@@ -190,7 +200,12 @@ func (s *Server) loadMCPEvaluator(cfg *config.Config, policyOverride string) {
 	// evaluator returns and applies s.mode to the final verdict, as the MCP
 	// proxies do. An evaluator in audit-only mode would downgrade its own
 	// BLOCK first and let a value-limit BLOCK through undowngraded (#4356).
-	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, "")
+	//
+	// The shell policy loadShellEngine loaded supplies the customer's
+	// protected_paths, so /v1/evaluate blocks a tool call naming one exactly
+	// as the hook's tool path does (#4645). NewServer runs loadShellEngine
+	// first.
+	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, s.shellProtected, "")
 }
 
 // Close releases the audit logger. Safe on a nil logger.
@@ -205,12 +220,20 @@ func (s *Server) Close() {
 // evaluateRequest is the /v1/evaluate wire format, v1. Additive changes only:
 // this schema is the seam every thin client (curl hook, CI wrapper, gateway
 // callout) builds against. Exactly one of Command / ToolName must be set —
-// mirroring how the IDE hook branches shell vs MCP on tool name.
+// mirroring how the IDE hook branched shell vs MCP on tool name before the
+// routing table, and how a server without the table still routes.
+//
+// Route is the routing key (ADR-001 step 2): with it, the request is read by
+// the lane its shape always took here and by the lanes of the local hook's
+// row (routing.go), and Arguments carries the tool's whole input even when
+// Command is set. Without it, the request decides exactly as it did before
+// the key existed.
 //
 // AgentID / SessionID / Principal are carried from day one (identity plane,
 // issue #3111): the server side is exactly where identity data appears, and
 // retrofitting it onto an evidence schema later is brutal.
 type evaluateRequest struct {
+	Route           *routeKey               `json:"route,omitempty"`
 	Command         string                  `json:"command,omitempty"`
 	Cwd             string                  `json:"cwd,omitempty"`
 	ToolName        string                  `json:"tool_name,omitempty"`
@@ -317,18 +340,31 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exactly one of command or tool_name must be set"})
 		return
 	}
+	routed, err := routeRequest(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid route: " + err.Error()})
+		return
+	}
 
 	var resp evaluateResponse
-	if req.Command != "" {
-		resp = s.evaluateShell(req)
-	} else {
-		resp = s.evaluateMCP(req)
+	rec, ok := req, false
+	if routed != nil {
+		resp, rec, ok = s.evaluateRouted(req, routed)
+	}
+	if !ok {
+		// Today's path: a request with no key.
+		rec = req
+		if req.Command != "" {
+			resp = s.evaluateShell(req)
+		} else {
+			resp = s.evaluateMCP(req)
+		}
 	}
 	resp.Mode = s.mode
 	resp.Degraded = s.degraded
 	resp.SessionID = req.SessionID
 
-	s.logAudit(req, resp)
+	s.logAudit(rec, resp)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -336,9 +372,38 @@ func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 // note in internal/cli/check.go): NormalizeCommand tokenizes for the
 // path-extraction state machine but parses the AST from the original string
 // (#2831), and the parsed AST feeds the structural + downstream analyzers.
+// It is today's path for a command (a request with no route key) and the
+// POSIX lane of a routed one (ADR-001 step 2).
 func (s *Server) evaluateShell(req evaluateRequest) evaluateResponse {
-	normalized := normalize.NormalizeCommand(req.Command, req.Cwd)
-	result := s.engine.EvaluateWithParsedCwd(req.Command, normalized.Paths, normalized.Parsed, req.Cwd)
+	result := s.readShell(req.Command, req.Cwd)
+	return shellResponse(result, req.Command)
+}
+
+// readShell is the POSIX reading of a command: the bash normalizer and the
+// analyzer pipeline. shield-server runs no enterprise middleware: the host
+// whose managed state that would read is the client's, not this one.
+//
+// A command past the chain bound, or a text a reading derived from it, is not
+// parsed (#4778): walking the parser's tree for it overflows the Go stack,
+// which would kill the server and every request in flight. Its reading is a
+// lane failure's AUDIT with a chain_too_long note (pastChainBound); the server
+// has no managed fail_closed. Every shell reading here goes through this one
+// function: a request with no route key, the POSIX lane of a routed one, and
+// the PowerShell lane's nested bash texts and native-command bridge.
+func (s *Server) readShell(command, cwd string) policy.EvalResult {
+	var result policy.EvalResult
+	if chain := shellparse.GuardChainBound(command, func() {
+		normalized := normalize.NormalizeCommand(command, cwd)
+		result = s.engine.EvaluateWithParsedCwd(command, normalized.Paths, normalized.Parsed, cwd)
+	}); chain != nil {
+		return pastChainBound(chain)
+	}
+	return result
+}
+
+// shellResponse is the verdict of a shell-shaped reading, the POSIX lane's or
+// the PowerShell lane's: the hook writes both the same way.
+func shellResponse(result policy.EvalResult, command string) evaluateResponse {
 	return evaluateResponse{
 		Decision:         string(result.Decision),
 		Rules:            result.TriggeredRules,
@@ -347,11 +412,17 @@ func (s *Server) evaluateShell(req evaluateRequest) evaluateResponse {
 		Explanation:      result.Explanation,
 		Notes:            result.Notes,
 		OriginalDecision: string(result.OriginalDecision),
-		Remediation:      remediation.SuggestForShell(result.TriggeredRules, req.Command, enterprise.ManagedHost()),
+		Remediation:      remediation.SuggestForShell(result.TriggeredRules, command, enterprise.ManagedHost()),
 	}
 }
 
+// evaluateMCP is today's path for a tool call (a request with no route key)
+// and the Structured lane of a routed one (ADR-001 step 2).
 func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
+	return mcpResponse(s.readMCP(req))
+}
+
+func (s *Server) readMCP(req evaluateRequest) mcp.MCPEvalResult {
 	args := req.Arguments
 	if args == nil {
 		args = map[string]interface{}{}
@@ -369,7 +440,11 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 		history = tracker.History()
 	}
 
-	result := s.mcpEval.EvaluateToolCallWithHistory(req.ToolName, args, req.ToolDescription, history)
+	// #4653: the protected-path check resolves file-path arguments against
+	// the request's cwd, as the shell path resolves a command's. A request
+	// without one (or with a relative one) gets no working directory.
+	ev := s.mcpEval.InWorkingDir(req.Cwd)
+	result := ev.EvaluateToolCallWithHistory(req.ToolName, args, req.ToolDescription, history)
 
 	// #4351, in lock-step with the hook: Claude Code names an MCP server's
 	// tool mcp__<server>__<tool>, and pack rules are authored against the bare
@@ -379,7 +454,7 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 	// names does not see earlier namespaced calls.
 	if bare, ok := mcp.BareToolName(req.ToolName); ok {
 		result = mcp.PreferBlockingBareResult(result,
-			s.mcpEval.EvaluateToolCallWithHistory(bare, args, req.ToolDescription, history))
+			ev.EvaluateToolCallWithHistory(bare, args, req.ToolDescription, history))
 	}
 
 	// value_limits rules are a separate numeric-threshold pass merged after
@@ -401,7 +476,10 @@ func (s *Server) evaluateMCP(req evaluateRequest) evaluateResponse {
 		// its own predecessor.
 		tracker.Record(req.ToolName, args)
 	}
+	return result
+}
 
+func mcpResponse(result mcp.MCPEvalResult) evaluateResponse {
 	return evaluateResponse{
 		Decision:         string(result.Decision),
 		Rules:            result.TriggeredRules,

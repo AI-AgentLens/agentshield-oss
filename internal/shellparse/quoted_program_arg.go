@@ -68,8 +68,7 @@ func QuotedProgramArgs(command string) (items []string, redacted string) {
 	if !strings.ContainsAny(command, "'\"") {
 		return nil, ""
 	}
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil, ""
 	}

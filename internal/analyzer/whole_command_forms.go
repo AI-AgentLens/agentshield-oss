@@ -3,6 +3,7 @@ package analyzer
 import (
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -114,6 +115,7 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// position-sensitive-only retry below does not apply here, so every rule
 	// gets a shot at each resolved alternative, not just anchored ones (#3085).
 	for _, alt := range shellparse.ExpandBraces(raw) {
+		abandon.Checkpoint() // #4785: each alternative re-parses the whole command
 		addForm(alt)
 		// Compose with the other static transforms, same as every other
 		// candidate source above (indirect-exec, line-continuation): a
@@ -132,6 +134,7 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// expansion phase" gap as ExpandBraces above, same reason every rule
 	// (not just anchored ones) needs a shot at each resolution (#3102).
 	for _, alt := range shellparse.DeglobSensitivePaths(raw) {
+		abandon.Checkpoint()
 		addForm(alt)
 		addForm(shellparse.DequoteCommand(alt))
 		addForm(shellparse.NormalizeIFS(alt))
@@ -150,6 +153,7 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// folded away FIRST, which is what makes this a pass over the
 	// already-collected forms rather than another entry in the list.
 	for _, f := range append([]string{raw}, wholeCommandForms...) {
+		abandon.Checkpoint()
 		if folded := shellparse.NormalizeUnsetParamExp(f); folded != "" {
 			addForm(folded)
 			addForm(shellparse.DequoteCommand(folded))
@@ -204,6 +208,7 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// site, so it runs after the unset-parameter fold and sees an
 	// already-simplified form (issue #3217).
 	for _, f := range append([]string{raw}, wholeCommandForms...) {
+		abandon.Checkpoint()
 		if expanded := shellparse.NormalizeBraceWordList(f); expanded != "" {
 			addForm(expanded)
 			addForm(shellparse.DequoteCommand(expanded))
@@ -219,10 +224,16 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// reasoning as the brace-word-list pass just above: it composes with
 	// quote-splices, IFS separators and brace-expanded alternatives.
 	for _, f := range append([]string{raw}, wholeCommandForms...) {
+		abandon.Checkpoint()
 		if materialized := shellparse.MaterializeAssignments(f); materialized != "" {
 			addForm(materialized)
 			addForm(shellparse.DequoteCommand(materialized))
 			addForm(shellparse.NormalizeIFS(materialized))
+		}
+		// The same fold with $'...' bodies decoded first (#4591), so a value
+		// like $'rm\t-rf\t/' splits on its tabs the way bash splits it.
+		if materialized := shellparse.MaterializeAssignmentsANSIC(f); materialized != "" {
+			addForm(materialized)
 		}
 	}
 	// Command-execution literals recovered from inside an interpreter
@@ -234,6 +245,7 @@ func buildWholeCommandForms(raw, dequotedCommand, ifsNormalized string) []string
 	// (per-statement exclusion scoping) is ctx.RawStatements, populated
 	// separately via AttributionStatements.
 	for _, cand := range InterpreterHeredocExecStatements(raw) {
+		abandon.Checkpoint()
 		addForm(cand)
 		addForm(shellparse.DequoteCommand(cand))
 	}

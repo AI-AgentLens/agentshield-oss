@@ -6,7 +6,63 @@ import (
 	"testing"
 
 	"mvdan.cc/sh/v3/syntax"
+
+	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
 )
+
+// ifsParityOSSIncidental lists the corpus cases this sweep leaves out in the
+// community-only tree (a clone of agentshield-oss, packs/premium/ stripped).
+// Each one BLOCKs there through a rule that is not meant for it, while the
+// rules that are meant for it are premium. The sweep's baseline is "what
+// BLOCKs today", so in that tree an incidental BLOCK joins it, and losing that
+// BLOCK under ${IFS} is not the bypass #3044 is about.
+//
+// It is test-only. In the OSS build the ${IFS} spelling of a listed command
+// still decides lower than its plain spelling; the list records that, it does
+// not cause it. The full tree ignores the list, so its budget stays 0.
+//
+// Every entry is pinned in the OSS tree (checkIFSParityOSSIncidental): the
+// plain spelling must still BLOCK through exactly `rule` and nothing else, and
+// the ${IFS} spelling must still decide lower at every position the sweep
+// tries. When either stops being true, the sweep fails and the entry has to
+// come out on purpose.
+var ifsParityOSSIncidental = map[string]struct{ rule, why string }{
+	// #4827. Its rules, ts-block-registry-hive-copy and
+	// ps-block-registry-hive-copy, are premium (#4798); the community tier has
+	// no hive-copy rule. Unquoted, bash drops the path's backslashes, and
+	// guardian's base64 heuristic BLOCKs the run of letters left
+	// (TN-WIN-HIVE-COPY-001 is quoted to avoid the same thing). With ${IFS}
+	// in the command, that word holds a ParamExp, DequoteCommand leaves it
+	// alone, and the heuristic no longer sees the run.
+	"TP-WIN-HIVE-COPY-001": {
+		rule: "guardian-obfuscated_base64",
+		why:  "its rules are premium; the OSS tree BLOCKs it only through guardian's base64 heuristic on the backslash-stripped path",
+	},
+}
+
+// checkIFSParityOSSIncidental pins each ifsParityOSSIncidental entry in the
+// community-only tree. leaked[id] counts the positions at which the entry's
+// ${IFS} spelling decided lower; tried[id] counts the positions it was tried at.
+func checkIFSParityOSSIncidental(t *testing.T, decide func(string) (string, []string), baselineIDs map[string]string, leaked, tried map[string]int) {
+	t.Helper()
+	for id, e := range ifsParityOSSIncidental {
+		cmd, ok := baselineIDs[id]
+		if !ok {
+			t.Errorf("ifsParityOSSIncidental lists %s, which does not BLOCK in this tree, so the entry exempts nothing; remove it", id)
+			continue
+		}
+		decision, rules := decide(cmd)
+		if decision != "BLOCK" || len(rules) != 1 || rules[0] != e.rule {
+			t.Errorf("ifsParityOSSIncidental lists %s because only %s BLOCKs it here (%s); it now decides %s with rules %v. Re-check the entry: if a rule meant for this command BLOCKs it, remove the entry so the sweep grades it", id, e.rule, e.why, decision, rules)
+		}
+		if tried[id] == 0 {
+			t.Errorf("ifsParityOSSIncidental lists %s, but the sweep tried no ${IFS} spelling of it; remove the entry", id)
+		}
+		if leaked[id] != tried[id] {
+			t.Errorf("ifsParityOSSIncidental lists %s, but its ${IFS} spelling now keeps the BLOCK at %d of %d positions; remove the entry so the sweep grades it", id, tried[id]-leaked[id], tried[id])
+		}
+	}
+}
 
 // TestIFSSeparatorParity is the fitness function for issue #3044
 // (taxonomy: unauthorized-execution/agentic-attacks/pre-expansion-command-guard-bypass),
@@ -57,17 +113,32 @@ func TestIFSSeparatorParity(t *testing.T) {
 	// local.
 	engine, baseline := blockingBaseline(t)
 
+	// Only the community-only tree reads ifsParityOSSIncidental (#4827).
+	oss := !ossbuild.PremiumPacksPresent()
+	incidentalLeaked := map[string]int{}
+	incidentalTried := map[string]int{}
+
 	for _, p := range positions {
 		t.Run(p.name, func(t *testing.T) {
 			var leaks []string
-			tried := 0
+			tried, exempted := 0, 0
 			for _, tc := range baseline {
 				substituted, ok := ifsAtSpace(tc.Command, p.n)
 				if !ok {
 					continue
 				}
-				tried++
+				_, incidental := ifsParityOSSIncidental[tc.ID]
+				incidental = incidental && oss
 				got := string(engine.Evaluate(substituted, nil).Decision)
+				if incidental {
+					exempted++
+					incidentalTried[tc.ID]++
+					if rank[got] < rank["BLOCK"] {
+						incidentalLeaked[tc.ID]++
+					}
+					continue
+				}
+				tried++
 				if rank[got] < rank["BLOCK"] {
 					leaks = append(leaks, fmt.Sprintf("%s: BLOCK -> %s : %s", tc.ID, got, substituted))
 				}
@@ -78,8 +149,19 @@ func TestIFSSeparatorParity(t *testing.T) {
 					"$IFS defaults to whitespace — swapping it in must never weaken enforcement (see #3044).\n%s",
 					p.name, len(leaks), tried, maxLeaks, joinLines(leaks))
 			}
-			t.Logf("%s: %d/%d leaked (budget %d)", p.name, len(leaks), tried, maxLeaks)
+			t.Logf("%s: %d/%d leaked (budget %d); %d left out as OSS-tree incidental BLOCKs", p.name, len(leaks), tried, maxLeaks, exempted)
 		})
+	}
+
+	if oss {
+		baselineIDs := map[string]string{}
+		for _, tc := range baseline {
+			baselineIDs[tc.ID] = tc.Command
+		}
+		checkIFSParityOSSIncidental(t, func(cmd string) (string, []string) {
+			r := engine.Evaluate(cmd, nil)
+			return string(r.Decision), r.TriggeredRules
+		}, baselineIDs, incidentalLeaked, incidentalTried)
 	}
 }
 

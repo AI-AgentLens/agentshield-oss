@@ -36,7 +36,7 @@ type StructuralRule struct {
 	FlagsNone []string // must NOT have any of these
 
 	// Argument predicates (glob patterns)
-	ArgsAny  []string // any positional arg matches any glob
+	ArgsAny  []string // any positional arg matches any glob; on an ALLOW (not negated), EVERY arg must (#4595)
 	ArgsNone []string // no positional arg matches any of these
 
 	// Pipe analysis
@@ -154,17 +154,48 @@ func matchSegment(seg CommandSegment, rule StructuralRule) bool {
 		}
 	}
 
-	// --- ArgsAny: at least one positional arg matches at least one glob ---
-	if len(rule.ArgsAny) > 0 {
-		found := false
+	// --- ArgsAny on an ALLOW: EVERY positional arg matches a glob (#4595) ---
+	// An ALLOW vouches for the whole invocation, so its argument predicate
+	// must hold for every operand, never for any one. With "at least one",
+	// `rm -rf /tmp/x /etc/y` earned ts-allow-rm-tmp from its /tmp operand,
+	// and the structural-override tag then dropped the regex BLOCK on the
+	// /etc operand. A negated rule keeps the plain reading: inverting "every"
+	// would widen the ALLOW instead of narrowing it.
+	if len(rule.ArgsAny) > 0 && rule.Decision == "ALLOW" && !rule.Negate {
+		if len(seg.Args) == 0 {
+			return false
+		}
 		for _, arg := range seg.Args {
+			ok := false
 			for _, pattern := range rule.ArgsAny {
 				if matchArgGlob(arg, pattern) {
-					found = true
+					ok = true
 					break
 				}
 			}
-			if found {
+			if !ok {
+				return false
+			}
+		}
+	}
+
+	// --- ArgsAny: at least one positional arg matches at least one glob ---
+	//
+	// On a non-ALLOW rule that pairs args_any with args_none, args_none carves
+	// OPERANDS out of args_any instead of vetoing the invocation (#4595):
+	// `rm -rf /tmp/x /etc/y` has an /etc operand that no exemption covers, so
+	// the BLOCK on it must stand. Only ts-struct-block-rm-system has this
+	// shape; an ALLOW keeps the invocation-wide veto below.
+	operandCarveOut := len(rule.ArgsAny) > 0 && len(rule.ArgsNone) > 0 &&
+		rule.Decision != "ALLOW" && !rule.Negate
+	if len(rule.ArgsAny) > 0 {
+		found := false
+		for _, arg := range seg.Args {
+			if operandCarveOut && argMatchesAny(arg, rule.ArgsNone) {
+				continue
+			}
+			if argMatchesAny(arg, rule.ArgsAny) {
+				found = true
 				break
 			}
 		}
@@ -174,7 +205,7 @@ func matchSegment(seg CommandSegment, rule StructuralRule) bool {
 	}
 
 	// --- ArgsNone: no positional arg matches any of these ---
-	if len(rule.ArgsNone) > 0 {
+	if len(rule.ArgsNone) > 0 && !operandCarveOut {
 		for _, arg := range seg.Args {
 			for _, pattern := range rule.ArgsNone {
 				if matchArgGlob(arg, pattern) {
@@ -219,6 +250,9 @@ func matchPipePredicates(parsed *ParsedCommand, rule StructuralRule) bool {
 					// Check PipeToFlagsNone: if pipe_to segment has any of these flags, skip this match.
 					disqualified := false
 					for _, flag := range rule.PipeToFlagsNone {
+						if shellFlagIsNotProgram(rhs, flag) {
+							continue // #4599: errexit / job control, stdin is still the script
+						}
 						if segmentHasFlag(rhs, flag) {
 							disqualified = true
 							break
@@ -271,6 +305,12 @@ func segmentHasFlag(seg CommandSegment, flag string) bool {
 
 	// Check common short↔long aliases so users can write either form.
 	aliases := flagAliases(flag)
+	if (flag == "n" || flag == "dry-run") && isGitCommitSegment(seg) {
+		// #4612: for `git commit`, -n is the hook-skipping short flag and
+		// --dry-run is its own long option, so the generic n <-> dry-run
+		// alias is a misread there.
+		aliases = nil
+	}
 	for _, alias := range aliases {
 		if _, ok := seg.Flags[alias]; ok {
 			return true
@@ -278,6 +318,11 @@ func segmentHasFlag(seg CommandSegment, flag string) bool {
 	}
 
 	return false
+}
+
+// isGitCommitSegment reports whether seg is a `git commit` invocation.
+func isGitCommitSegment(seg CommandSegment) bool {
+	return (seg.Executable == "git" || seg.Program == "git") && seg.SubCommand == "commit"
 }
 
 // flagAliases returns known short↔long aliases for common flags.
@@ -301,6 +346,12 @@ func flagAliases(flag string) []string {
 		"q":         {"quiet"},
 		"quiet":     {"q"},
 		"x":         {"extract"},
+		// #4606: git (parse-options) and getopt_long accept any unambiguous
+		// prefix of a long option. For git the three-letter stem is ambiguous
+		// with the verbose negation and is rejected, so the four-letter stem
+		// is the shortest spelling that runs as the hook-skipping flag. Only
+		// a rule naming that flag reads these.
+		"no-verify": {"no-veri", "no-verif"},
 	}
 	return aliasMap[flag]
 }
@@ -362,6 +413,15 @@ func applyNegate(matched, negate bool) bool {
 func stringInList(s string, list []string) bool {
 	for _, item := range list {
 		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func argMatchesAny(arg string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matchArgGlob(arg, pattern) {
 			return true
 		}
 	}

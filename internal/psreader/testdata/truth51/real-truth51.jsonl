@@ -1,0 +1,4 @@
+{"id":515436,"parse_errors":[],"commands":[{"name":"Get-PSDrive","op":"","params":["-psprovider"],"args":["FileSystem"]},{"name":"Select-Object","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":["Name","n","FreeGB","e","n","UsedGB","e"]}
+{"id":515433,"parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":["-force"],"args":["$env:USERPROFILE\\.ssh"]},{"name":"Select-Object","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":["Name","Length","LastWriteTime"]}
+{"id":514825,"parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":["-name"],"args":[]}],"strings":[]}
+{"id":513714,"parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\aiagentlens"]},{"name":"Select-Object","op":"","params":["-first"],"args":["\u003cexpr\u003e","Name"]},{"name":"Get-Process","op":"","params":[],"args":[]},{"name":"Measure-Object","op":"","params":[],"args":[]}],"strings":[]}

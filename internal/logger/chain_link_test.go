@@ -284,3 +284,7 @@ func silenceStderr(t *testing.T, fn func()) {
 	}()
 	fn()
 }
+
+func windowEvent(cmd string) AuditEvent {
+	return AuditEvent{Timestamp: "2026-09-30T00:00:00Z", Command: cmd, Decision: "ALLOW", Mode: "enforce"}
+}

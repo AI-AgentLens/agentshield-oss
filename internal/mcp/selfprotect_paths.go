@@ -226,8 +226,9 @@ func absNamesTarget(p, home string, fold bool) (string, bool) {
 		p = p[len(firmlinkPrefix):]
 	}
 	// Lexical: the cleaned spelling under HOME. HOME reached through a
-	// symlink is the identity walk's.
-	if kc, kh := key(filepath.Clean(p)), key(filepath.Clean(home)); strings.HasPrefix(kc, kh+"/") {
+	// symlink is the identity walk's. Slash form, so a Windows path compares
+	// against the "/" below (#4717); ToSlash is the identity on unix.
+	if kc, kh := key(filepath.ToSlash(filepath.Clean(p))), key(filepath.ToSlash(filepath.Clean(home))); strings.HasPrefix(kc, kh+"/") {
 		if rel, ok := remNamesTarget(kc[len(kh)+1:], key); ok {
 			return rel, true
 		}
@@ -301,7 +302,7 @@ func relTailNamesTarget(p string) (string, bool) {
 // namesTargetGuard is the guard's reading of one path value: identity, with a
 // relative path resolved against the proxy's working directory.
 func namesTargetGuard(v string) (string, bool) {
-	home := os.Getenv("HOME")
+	home := nativeHomeDir()
 	if home == "" {
 		return "", false
 	}
@@ -322,7 +323,7 @@ func namesTargetGuard(v string) (string, bool) {
 // namesTargetKeep is the audit-only keep rule's reading of one path value:
 // as namesTargetGuard, plus a relative path's tail, and case always folded.
 func namesTargetKeep(v string) (string, bool) {
-	home := os.Getenv("HOME")
+	home := nativeHomeDir()
 	if home == "" {
 		return "", false
 	}

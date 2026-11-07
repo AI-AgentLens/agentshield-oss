@@ -4,6 +4,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -36,8 +37,7 @@ import (
 // execution wrapper, and anything the parser fails on. The failure mode is a
 // withheld ALLOW, which leaves ts-block-dd-zero's own decision in place.
 func ddCommandProvablySafe(raw, cwd string) bool {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(raw), "")
+	file, err := shellparse.ParseText(raw, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil || len(file.Stmts) == 0 {
 		return false
 	}

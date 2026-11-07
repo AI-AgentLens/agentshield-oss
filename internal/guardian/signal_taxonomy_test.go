@@ -25,7 +25,7 @@ func TestSignalToTaxonomy(t *testing.T) {
 		{"obfuscated_decoder_eval", "unauthorized-execution/obfuscation/interpreter-encoding-evasion"},
 		{"eval_risk", "unauthorized-execution/remote-code-exec/indirect-code-exec"},
 		{"bulk_exfiltration", "data-exfiltration/file-exfiltration/archive-credential-bypass"},
-		{"secrets_in_command", ""},
+		{"secrets_in_command", "credential-exposure/inline-credential/secret-in-command-line"},
 		{"indirect_injection", "unauthorized-execution/agentic-attacks/indirect-prompt-injection"},
 		{"html_comment_injection", "unauthorized-execution/agentic-attacks/indirect-prompt-injection"},
 		{"unicode_steganography", "unauthorized-execution/agentic-attacks/invisible-unicode-prompt-injection"},
@@ -54,12 +54,10 @@ func TestSignalToTaxonomy(t *testing.T) {
 // buildRules() without a corresponding case in signalToTaxonomy silently
 // falls to the "" default instead of failing loudly. Every signal ID that
 // ships in the built-in provider must resolve to a non-empty ref UNLESS it
-// is explicitly and deliberately unmapped (see the secrets_in_command
-// comment in signalToTaxonomy).
+// is explicitly and deliberately unmapped. None is today: secrets_in_command,
+// the last one, got its node in #4560.
 func TestSignalToTaxonomy_EveryBuiltInRuleIsMapped(t *testing.T) {
-	deliberatelyUnmapped := map[string]bool{
-		"secrets_in_command": true,
-	}
+	deliberatelyUnmapped := map[string]bool{}
 
 	p := NewHeuristicProvider()
 	seen := map[string]bool{}

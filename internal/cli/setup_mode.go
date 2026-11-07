@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/homedir"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +51,7 @@ const enableEnforcementHint = "set `mode: enforce` in ~/.agentshield/agentshield
 // installed, so the machine enforces today even if ~/.agentshield is empty
 // (setup on main leaves the directory empty until the first hook call).
 func harnessConfigPaths(home string) []string {
-	return []string{
+	return append([]string{
 		filepath.Join(home, ".claude", "settings.json"),
 		filepath.Join(home, ".claude", "settings.local.json"),
 		filepath.Join(home, ".cursor", "hooks.json"),
@@ -59,9 +60,9 @@ func harnessConfigPaths(home string) []string {
 		filepath.Join(home, ".gemini", "settings.json"),
 		filepath.Join(home, ".codex", "hooks.json"),
 		filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
-		copilotHookFilePath(),
+		copilotHookFilePath(home),
 		filepath.Join(home, ".openclaw", "hooks", "agentshield"),
-	}
+	}, windowsClaudeDesktopConfigs(home)...)
 }
 
 // priorInstallEvidence returns the first sign that AgentShield has been on
@@ -151,21 +152,56 @@ func applyNewInstallDefault(home string) (written bool, evidence string, err err
 	return true, "", nil
 }
 
-// setupPreRun runs before every `agentshield setup` command and applies the
-// new-install default (#4337). A --disable run installs nothing, so it never
-// writes the default. Neither do the Claude Code managed-settings runs
-// (#4292): --managed writes nothing at all, and --write-managed usually runs
-// under sudo, where the default would land root-owned in the user's
-// ~/.agentshield. A failure to write it is reported and setup continues: the
-// machine then runs in enforce mode, today's behaviour.
-func setupPreRun(cmd *cobra.Command, _ []string) error {
-	for _, name := range []string{"disable", "managed", "write-managed"} {
-		if f := cmd.Flags().Lookup(name); f != nil && f.Value.String() == "true" {
-			return nil
-		}
+// errSetupNoHome is setup's refusal when HOME is empty or unset (#4565).
+var errSetupNoHome = fmt.Errorf("setup refused: %w, so there is no home directory to find agent configs in; set HOME to your home directory and re-run", homedir.ErrNoHome)
+
+// setupHome is the home directory every setup path builds a config path
+// from, and the one the managed-mode check reads (homedir.Dir, #4565). An
+// empty or unset HOME is errSetupNoHome: every path built from it would be
+// relative to the working directory, which edited the real configs when run
+// from the real home, and left stray .claude/ and similar directories
+// anywhere else.
+func setupHome() (string, error) {
+	home, err := homedir.Dir()
+	if err != nil {
+		return "", errSetupNoHome
 	}
-	home := os.Getenv("HOME")
-	if home == "" {
+	return home, nil
+}
+
+// setupFlagSet reports whether the command has the boolean flag name and it
+// is true.
+func setupFlagSet(cmd *cobra.Command, name string) bool {
+	f := cmd.Flags().Lookup(name)
+	return f != nil && f.Value.String() == "true"
+}
+
+// setupPreRun runs before every `agentshield setup` command. It refuses an
+// empty or unset HOME (#4565), on every surface, enable and --disable alike,
+// managed host or not. Each surface also resolves its paths through
+// setupHome, so a surface reached without this pre-run (runAutoSetup calls
+// them directly) refuses the same way.
+//
+// The Claude Code managed-settings runs are the exception (#4292): --managed
+// writes nothing at all and --write-managed writes only the system
+// managed-settings file, so neither uses HOME, and an MDM script may run them
+// without one.
+//
+// Then it applies the new-install default (#4337). A --disable run installs
+// nothing, so it never writes the default. Neither do the managed-settings
+// runs: --write-managed usually runs under sudo, where the default would land
+// root-owned in the user's ~/.agentshield. A failure to write it is reported
+// and setup continues: the machine then runs in enforce mode, today's
+// behaviour.
+func setupPreRun(cmd *cobra.Command, _ []string) error {
+	if setupFlagSet(cmd, "managed") || setupFlagSet(cmd, "write-managed") || setupFlagSet(cmd, "remove-managed") {
+		return nil
+	}
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	if setupFlagSet(cmd, "disable") {
 		return nil
 	}
 	written, _, err := applyNewInstallDefault(home)

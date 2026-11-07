@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/assembly"
@@ -112,7 +110,18 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 	// original decision and the config guard keeps blocking (#4337, #4324
 	// row 1). Passing the mode here as well would downgrade the evaluator's
 	// verdicts on other message types the proxy still enforces.
-	evaluator := assembly.MCPEvaluator(mcpPolicy, "")
+	//
+	// The customer's protected_paths apply to tool-call file-path arguments
+	// here as on the hook's tool path (#4645). Read once, at startup, like the
+	// MCP packs: a pack added later takes effect on the proxy's next start.
+	shellProtected, ppWarnings := shellProtectedPathsFor(cfg)
+	for _, w := range ppWarnings {
+		fmt.Fprintf(os.Stderr, "[AgentShield MCP] warning: %s\n", w)
+	}
+	// File-path arguments resolve against this process's directory (#4653):
+	// the MCP server is spawned without its own Dir, so it inherits it and
+	// resolves a relative argument there.
+	evaluator := assembly.MCPEvaluator(mcpPolicy, shellProtected, "").InWorkingDir(toolCallWorkDir(""))
 	proxyMode := ""
 	if cfg != nil {
 		proxyMode = cfg.Mode
@@ -128,7 +137,6 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	var auditFile *os.File
-	var auditMu sync.Mutex
 
 	if auditPath != "" {
 		auditFile, err = os.OpenFile(auditPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
@@ -145,21 +153,7 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 	// #4463: the entry is redacted and data-label scrubbed like the hook's event.
 	// dlEngine is set below once the policy's labels are compiled; nil scrubs nothing.
 	var dlEngine *datalabel.Engine
-	onAudit := func(entry mcp.AuditEntry) {
-		if auditFile == nil {
-			return
-		}
-		auditMu.Lock()
-		defer auditMu.Unlock()
-
-		// Write as JSONL, consistent with existing audit format
-		data, err := json.Marshal(entry.Redacted(dlEngine.Scrub))
-		if err != nil {
-			return
-		}
-		_, _ = auditFile.Write(data)
-		_, _ = auditFile.Write([]byte("\n"))
-	}
+	onAudit := newMCPProxyAuditSink(auditFile, func() *datalabel.Engine { return dlEngine }, evaluator.RuleTaxonomyRefs)
 
 	// Find the server command after "--"
 	serverCmd := args

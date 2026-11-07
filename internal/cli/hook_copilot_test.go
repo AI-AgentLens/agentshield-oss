@@ -67,7 +67,15 @@ func catchAllCredentialPath() string { return "/home/user/" + ".aws/" + "credent
 // harness sees: exit code, stdout, stderr.
 func runHookChild(t *testing.T, home, payload string, extraEnv ...string) (int, string, string) {
 	t.Helper()
+	return runHookChildIn(t, "", home, payload, extraEnv...)
+}
+
+// runHookChildIn is runHookChild with the child's working directory set to
+// dir ("" inherits this process's).
+func runHookChildIn(t *testing.T, dir, home, payload string, extraEnv ...string) (int, string, string) {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHookProcess$")
+	cmd.Dir = dir
 	var env []string
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "AGENTSHIELD_AGENT_ID=") {
@@ -482,17 +490,25 @@ func TestCopilotStringShellInputFailsSafe(t *testing.T) {
 			"native shell": copilotNativePayload(t, "s3", "powershell", "Get-ChildItem"),
 		}
 	}
+	// The native powershell row and the compatible Bash row on Windows hold
+	// two shell lanes (ADR-001 step 4); neither reads a string, so the refusal
+	// must not depend on the row having one lane.
+	hosts := map[string][]string{"": nil, " (windows)": onWindows}
 	managed, _ := newFailSafeHome(t, true, failSafePolicyGood)
-	for name, p := range payloads(t) {
-		if code, _, stderr := runHookChild(t, managed, p); code != 2 {
-			t.Errorf("%s with a string tool_input under managed fail_closed: exit %d, want 2 (fail-safe): %s", name, code, stderr)
+	for host, env := range hosts {
+		for name, p := range payloads(t) {
+			if code, _, stderr := runHookChild(t, managed, p, env...); code != 2 {
+				t.Errorf("%s%s with a string tool_input under managed fail_closed: exit %d, want 2 (fail-safe): %s", name, host, code, stderr)
+			}
 		}
 	}
 	plain, _ := newFailSafeHome(t, false, failSafePolicyGood)
-	for name, p := range payloads(t) {
-		code, _, stderr := runHookChild(t, plain, p)
-		if code != 0 || !strings.Contains(stderr, "hook input parse failed") {
-			t.Errorf("%s with a string tool_input: exit %d, stderr %q; want 0 with the fail-safe warning, never a silent pass", name, code, stderr)
+	for host, env := range hosts {
+		for name, p := range payloads(t) {
+			code, _, stderr := runHookChild(t, plain, p, env...)
+			if code != 0 || !strings.Contains(stderr, "hook input parse failed") {
+				t.Errorf("%s%s with a string tool_input: exit %d, stderr %q; want 0 with the fail-safe warning, never a silent pass", name, host, code, stderr)
+			}
 		}
 	}
 }

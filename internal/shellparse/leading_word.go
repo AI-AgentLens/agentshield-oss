@@ -1,6 +1,10 @@
 package shellparse
 
-import "unicode"
+import (
+	"unicode"
+
+	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
+)
 
 // FoldLeadingExecWord returns cmd with quote/backslash artifacts removed from
 // its first whitespace-delimited word — the executable position of the whole
@@ -43,7 +47,11 @@ func FoldLeadingExecWord(cmd string) string {
 		return ""
 	}
 	word := cmd[start:end]
-	folded := NormalizeExecName(word)
+	// Quote removal only, not NormalizeExecName's EQUALS fold (#4597). This is
+	// a whole-command form, which ALLOW rules read too, so folding `=ls -la`
+	// here made it ALLOW where main said AUDIT. The anchored form of `=rm`
+	// comes from StripExecWrapperPrefix, a restrict candidate ALLOW never reads.
+	folded := pathnorm.StripShellQuotes(word)
 	if folded == word {
 		return ""
 	}

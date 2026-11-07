@@ -2,8 +2,10 @@ package regexlit
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // TestRequiredLiteralsDerivation pins the shapes the derivation must handle,
@@ -240,4 +242,63 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestFoldOnlyRunes_AreEveryASCIIOrbitMember derives foldOnlyRunes again from
+// Go's case-folding tables: every rune outside ASCII that shares a fold orbit
+// with an ASCII letter. A Unicode update that adds one fails here.
+func TestFoldOnlyRunes_AreEveryASCIIOrbitMember(t *testing.T) {
+	var want []rune
+	for r := rune('a'); r <= 'z'; r++ {
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f > unicode.MaxASCII {
+				want = append(want, f)
+			}
+		}
+	}
+	got := []rune(foldOnlyRunes)
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("foldOnlyRunes = %q, the Unicode tables give %q", got, want)
+	}
+}
+
+// TestReplaceAllString_FoldOnlyRunesRunTheRegexp: (?i) matches the Kelvin
+// sign as k and the long s as s, which the ASCII fold prescan cannot see
+// (#4803's Opus pass: a secret after "--to\u212aen" stayed in the record). An
+// input carrying one gets the regexp's own output, from a derived literal set
+// and from a hand-given one. Each row first checks that the prescan alone
+// would have skipped it, so the row exercises the branch it is for.
+func TestReplaceAllString_FoldOnlyRunesRunTheRegexp(t *testing.T) {
+	rows := []struct{ pattern, in string }{
+		{`(?i)--token\s+\S+`, "mysql -u root --to\u212aen hunter2hunter2"},
+		{`(?i)--token\s+\S+`, "mysql --TO\u212aEN hunter2hunter2"},
+		{`(?i)secret[=:]\S+`, "echo \u017fecret=hunter2hunter2"},
+		{`(?i)--user\s+\S+`, "curl --u\u017fer bob:hunter2 https://x.example"},
+	}
+	for _, row := range rows {
+		re := regexp.MustCompile(row.pattern)
+		derived := NewFromRegexp(re)
+		if len(derived.Literals()) == 0 {
+			t.Fatalf("%s: no derived literals; the row would not exercise the prescan", row.pattern)
+		}
+		hand := derived.WithRequiredLiterals(derived.Literals(), true)
+		want := re.ReplaceAllString(row.in, "[X]")
+		if want == row.in {
+			t.Fatalf("%s: the regexp does not match %q; the row proves nothing", row.pattern, row.in)
+		}
+		for name, m := range map[string]*Matcher{"derived": derived, "hand": hand} {
+			if m.prescan(row.in) {
+				t.Fatalf("%s %s: the prescan already finds a literal in %q; the row proves nothing", name, row.pattern, row.in)
+			}
+			if got := m.ReplaceAllString(row.in, "[X]"); got != want {
+				t.Errorf("%s %s: ReplaceAllString(%q) = %q, the regexp gives %q", name, row.pattern, row.in, got, want)
+			}
+			// FindAllStringIndex shares the guard (#4813).
+			if got, want := m.FindAllStringIndex(row.in, -1), re.FindAllStringIndex(row.in, -1); !slices.EqualFunc(got, want, slices.Equal[[]int]) {
+				t.Errorf("%s %s: FindAllStringIndex(%q) = %v, the regexp gives %v", name, row.pattern, row.in, got, want)
+			}
+		}
+	}
 }

@@ -98,7 +98,15 @@ func mcpEvalRun(cmd *cobra.Command, args []string) error {
 	// mode is not the fix either: it downgrades its own BLOCK, the
 	// value_limits pass then runs on the AUDIT, and a value-limit BLOCK gets
 	// through undowngraded, which is what shield-server did.
-	evaluator := assembly.MCPEvaluator(loaded.Policy, "")
+	// The customer's protected_paths, as the hook's tool path applies them
+	// (#4645), so mcp-eval keeps predicting that surface.
+	shellProtected, ppWarnings := shellProtectedPathsFor(loaded.Config)
+	for _, w := range ppWarnings {
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %s\n", w)
+	}
+	// It has no payload, so file-path arguments resolve against this
+	// process's directory, as the hook's tool path falls back (#4653).
+	evaluator := assembly.MCPEvaluator(loaded.Policy, shellProtected, "").InWorkingDir(toolCallWorkDir(""))
 	result := mcpEvalVerdict(evaluator, mcpEvalTool, arguments, mcpEvalMode(mode))
 
 	// Output.

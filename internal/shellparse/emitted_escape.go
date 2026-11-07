@@ -2,6 +2,7 @@ package shellparse
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -103,6 +104,258 @@ func DecodeEmittedSeparators(command string) string {
 	if !TextReachesExecutor(command) {
 		return ""
 	}
+	return decodeEmitted(command, false, func(w string, st octalStyle) (string, bool) {
+		return decodeEscapes(w, st, false)
+	})
+}
+
+// DecodeEmittedProse is DecodeEmittedSeparators for a reader that is not a
+// shell (#4604): the LLM that later reads the text a command writes to a file
+// or to the agent's own stdout. That reader exists whether or not anything
+// executes the text, so there is no executor gate. And because zsh (the shell
+// Claude Code's Bash tool runs on a stock Mac) and /bin/sh decode escapes in a
+// plain `echo` with no -e, an echo operand is decoded with or without the flag.
+// Bash's builtin does not, so for bash this reading can differ from what is
+// written; it is therefore a PROSE-ONLY candidate form for the guardian (the
+// structural signals never see it) and it decodes only whitespace and control
+// bytes, so it can split a word run and never join one: it can only add a match.
+func DecodeEmittedProse(command string) string {
+	if !strings.ContainsRune(command, '\\') {
+		return ""
+	}
+	return decodeEmitted(command, true, func(w string, st octalStyle) (string, bool) {
+		return decodeEscapes(w, st, true)
+	})
+}
+
+// DecodeEmittedInvisible is the byte-escape sibling of DecodeEmittedProse
+// (#4604): a printf format, and an echo operand on zsh or /bin/sh, writes
+// `\xe2\x80\xae` as the three bytes of U+202E, so the file the LLM reads holds a
+// bidi override the command text never spells. Only a run of adjacent escapes
+// whose bytes are exactly invisible characters from invisibleSteganoRunes is
+// decoded; every other escape is left as written, so the output can add an
+// invisible character and never a visible one. A prose-only candidate for the
+// guardian's unicode_steganography check.
+func DecodeEmittedInvisible(command string) string {
+	if !strings.ContainsRune(command, '\\') {
+		return ""
+	}
+	return decodeEmitted(command, true, decodeInvisibleEscapes)
+}
+
+// DecodeEmittedInvisibleWrapped is the second reading of DecodeEmittedInvisible
+// (#4604, the #4660 fix round): a printf or echo behind an execution wrapper —
+// `sudo printf`, `env -i echo`, `nohup printf`, `command printf`, `nice -n 5
+// printf` — but emittedEscapeWords keys on Args[0] and so saw a program named
+// `sudo`. The wrapper parity sweeps found it once TP-STEG-AI-003 decided BLOCK:
+// bare it BLOCKs, behind any wrapper it AUDITed.
+//
+// What the wrapped program writes depends on which program runs, so every
+// decode here must rest on bytes some real target writes (class 4 of the alias
+// exception: identical bytes; Gary, 2026-10-30). Measured on macOS that day
+// (zsh 5, bash 3.2, /bin/sh = bash in POSIX mode with xpg_echo):
+//
+//   - printf behind any wrapper: GNU printf decodes \x, octal and \u
+//     (documented, not measured here); BSD /usr/bin/printf decodes octal.
+//     Decoded as the bare call is.
+//   - echo behind a wrapper that runs a program (sudo, env, nohup, nice,
+//     exec, ...): that is /bin/echo, and no platform's /bin/echo decodes
+//     without -e. Not decoded without -e (Gary's 10-30 decision). With -e, GNU
+//     echo decodes \x and \0ddd but has no \u, so \u is not decoded.
+//   - `command echo`: the builtin in bash and /bin/sh, but /bin/echo in zsh
+//     (zsh's `command` names an external command). /bin/sh's builtin decodes
+//     \x and \0ddd without -e; nothing decodes \u. Decoded without \u.
+//   - `builtin echo` and zsh's precommand words (`noglob echo`, ...): zsh's
+//     builtin, which decodes all three. Decoded as the bare call is.
+//
+// See wrapperRunner. Prose-only and invisible-only, so it can add a signal and
+// never remove one.
+//
+// Each call whose Args[0] is an exec wrapper is read again from the command
+// the wrappers run, located by execWrapperTarget — the isExecWrapper /
+// wrapperTargetIndex walk that StripExecWrapperPrefix (regex layer) and
+// StripExecWrappers (AST layers) share. So the wrapper set and each wrapper's
+// option grammar (`env -i`, `sudo -u x`, `nice -n 5`, `flock -w 5 FILE`) are
+// the ones the wrapper parity sweeps already gate; there is no list here.
+//
+// An ADDITIONAL candidate, never a replacement: DecodeEmittedInvisible is
+// unchanged, and this returns "" unless a wrapped call contributed a decoded
+// run, so whenever it returns text that text differs from the first reading
+// and the caller keeps both. A bare printf/echo in the same command is decoded
+// here too, exactly as the first reading decodes it.
+func DecodeEmittedInvisibleWrapped(command string) string {
+	if !strings.ContainsRune(command, '\\') {
+		return ""
+	}
+	return decodeEmittedReading(command, true, true, decodeInvisibleEscapes)
+}
+
+// wrapperRunner is what runs a printf/echo behind a chain of wrappers.
+type wrapperRunner int
+
+const (
+	// runsShellBuiltin: `builtin` and zsh's precommand words (noglob,
+	// nocorrect, -, repeat N) keep the shell's own echo/printf.
+	runsShellBuiltin wrapperRunner = iota
+	// runsViaCommand: `command` keeps the builtin in bash and /bin/sh but runs
+	// the external program in zsh.
+	runsViaCommand
+	// runsProgram: any other wrapper execs a program (sudo, env, nohup, nice,
+	// exec, timeout, a path-qualified `/usr/bin/command`, ...).
+	runsProgram
+)
+
+// emittedWrapperTarget returns the index in call.Args of the printf/echo that
+// call's leading wrappers run (0 when there is none) and what runs it. The
+// wrappers are execWrapperHops' (the ExecWrappers walk); `builtin` is not in
+// that table, so one `builtin` word on the target is read here too (bash, zsh
+// and /bin/sh all run their own builtin behind it). The most external hop
+// wins: `command sudo echo` is /bin/echo.
+func emittedWrapperTarget(call *syntax.CallExpr) (int, wrapperRunner) {
+	target, words, hops := execWrapperHops(call)
+	runner := runsShellBuiltin
+	for _, h := range hops {
+		switch name := NormalizeExecName(words[h]); {
+		case isShellWord(name):
+		case name == "command":
+			if runner == runsShellBuiltin {
+				runner = runsViaCommand
+			}
+		default:
+			runner = runsProgram
+		}
+	}
+	if target+1 < len(words) && NormalizeExecName(words[target]) == "builtin" {
+		target++
+	}
+	return target, runner
+}
+
+// invisibleSteganoRunes is the set the guardian's unicode_steganography check
+// counts (heuristic.go matchesUnicodeSteganography).
+var invisibleSteganoRunes = map[rune]bool{
+	'\u202e': true, '\u200b': true, '\u200c': true, '\u200d': true,
+	'\u2060': true, '\u2061': true, '\u2062': true, '\u2063': true, '\u2064': true,
+}
+
+// decodeInvisibleEscapes decodes each maximal run of adjacent \xHH or octal
+// escapes whose bytes are all invisibleSteganoRunes, leaving all else as is.
+func decodeInvisibleEscapes(s string, style octalStyle) (string, bool) {
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(s); {
+		if s[i] != '\\' || i+1 >= len(s) {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		// Read the run of byte escapes starting here.
+		var bytes []byte
+		j := i
+		for j+1 < len(s) && s[j] == '\\' {
+			var v byte
+			var n int
+			var ok bool
+			if (s[j+1] == 'u' || s[j+1] == 'U') && style != octalEchoNoUnicode {
+				// bash 4.2+ and zsh: \uHHHH / \UHHHHHHHH write the UTF-8 of one
+				// character. Only an invisibleSteganoRunes member is accepted.
+				enc, used := readUnicodeEscape(s[j+1:])
+				if used == 0 {
+					break
+				}
+				bytes = append(bytes, enc...)
+				j += used + 1
+				continue
+			}
+			if s[j+1] == 'x' {
+				v, n, ok = readHexEscape(s[j+2:])
+				n += 2
+			} else {
+				v, n, ok = readOctalEscape(s[j+1:], style)
+				n++
+			}
+			if !ok {
+				break
+			}
+			bytes = append(bytes, v)
+			j += n
+		}
+		if len(bytes) > 0 && invisibleOnly(bytes) {
+			b.Write(bytes)
+			changed = true
+			i = j
+			continue
+		}
+		// Not ours: emit both bytes so an escaped backslash is never re-read.
+		b.WriteByte(s[i])
+		b.WriteByte(s[i+1])
+		i += 2
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
+}
+
+// readUnicodeEscape reads `u` or `U` plus up to 4 or 8 hex digits from s (s
+// starts at the u/U). It returns the UTF-8 of the character and the bytes
+// consumed from s, or (nil, 0) when there is no digit or the character is not
+// one of invisibleSteganoRunes.
+func readUnicodeEscape(s string) ([]byte, int) {
+	max := 4
+	if s[0] == 'U' {
+		max = 8
+	}
+	var v rune
+	n := 0
+	for n < max && 1+n < len(s) {
+		d := hexVal(s[1+n])
+		if d < 0 {
+			break
+		}
+		v = v<<4 | rune(d)
+		n++
+	}
+	if n == 0 || !invisibleSteganoRunes[v] {
+		return nil, 0
+	}
+	return []byte(string(v)), 1 + n
+}
+
+func hexVal(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return -1
+}
+
+func invisibleOnly(bs []byte) bool {
+	str := string(bs)
+	for _, r := range str {
+		if r == utf8.RuneError || !invisibleSteganoRunes[r] {
+			return false
+		}
+	}
+	return str != ""
+}
+
+// decodeEmitted is the shared walk. echoAlways decodes echo operands without -e;
+// dec rewrites one operand word.
+func decodeEmitted(command string, echoAlways bool, dec func(string, octalStyle) (string, bool)) string {
+	return decodeEmittedReading(command, echoAlways, false, dec)
+}
+
+// decodeEmittedReading is decodeEmitted with an opt-in second reading:
+// lookThrough also reads a call whose Args[0] is an exec wrapper from the
+// command the wrapper runs (see DecodeEmittedInvisibleWrapped), and then
+// returns "" unless such a wrapped call changed something. With lookThrough
+// false the walk, the splice and the result are exactly decodeEmitted's.
+func decodeEmittedReading(command string, echoAlways, lookThrough bool, dec func(string, octalStyle) (string, bool)) string {
 	// A second parse, of the RAW text: AnalyzeTextReach parses the
 	// IFS-normalized form, whose byte offsets do not address this string.
 	// Splicing on offsets from the wrong parse is silent corruption, so the
@@ -115,6 +368,7 @@ func DecodeEmittedSeparators(command string) string {
 	type span struct {
 		start, end int
 		style      octalStyle
+		wrapped    bool
 	}
 	var targets []span
 	syntax.Walk(file, func(node syntax.Node) bool {
@@ -122,9 +376,22 @@ func DecodeEmittedSeparators(command string) string {
 		if !ok || len(call.Args) == 0 {
 			return true
 		}
-		words, style := emittedEscapeWords(call)
+		words, style := emittedEscapeWords(call, echoAlways)
+		wrapped := false
+		if len(words) == 0 && lookThrough {
+			// Only a call the first reading did not take: a call it did take
+			// is a printf/echo already, and is decoded identically below.
+			if t, runner := emittedWrapperTarget(call); t > 0 {
+				// /bin/echo decodes nothing without -e (Gary, 2026-10-30).
+				words, style = emittedEscapeWords(&syntax.CallExpr{Args: call.Args[t:]}, echoAlways && runner != runsProgram)
+				if style == octalEcho && runner != runsShellBuiltin {
+					style = octalEchoNoUnicode
+				}
+				wrapped = true
+			}
+		}
 		for _, w := range words {
-			targets = append(targets, span{int(w.Pos().Offset()), int(w.End().Offset()), style})
+			targets = append(targets, span{int(w.Pos().Offset()), int(w.End().Offset()), style, wrapped})
 		}
 		return true
 	})
@@ -134,19 +401,20 @@ func DecodeEmittedSeparators(command string) string {
 
 	var b strings.Builder
 	b.Grow(len(command))
-	prev, changed := 0, false
+	prev, changed, wrappedChanged := 0, false, false
 	for _, t := range targets {
 		if t.start < prev || t.end > len(command) || t.start >= t.end {
 			continue // defensive: never splice on offsets that do not bracket
 		}
 		b.WriteString(command[prev:t.start])
-		decoded, did := decodeSeparatorEscapes(command[t.start:t.end], t.style)
+		decoded, did := dec(command[t.start:t.end], t.style)
 		b.WriteString(decoded)
 		changed = changed || did
+		wrappedChanged = wrappedChanged || (did && t.wrapped)
 		prev = t.end
 	}
 	b.WriteString(command[prev:])
-	if !changed {
+	if !changed || (lookThrough && !wrappedChanged) {
 		return ""
 	}
 	return b.String()
@@ -168,12 +436,15 @@ const (
 	octalNone octalStyle = iota
 	octalPrintf
 	octalEcho
+	// octalEchoNoUnicode is echo's dialect where no runtime decodes \u:
+	// the wrapped reading's /bin/echo -e and `command echo` (#4660).
+	octalEchoNoUnicode
 )
 
 // emittedEscapeWords returns the words of call whose escape sequences the
 // program expands — printf's format operand, or every operand of `echo -e` —
 // along with which octal dialect that program speaks.
-func emittedEscapeWords(call *syntax.CallExpr) ([]*syntax.Word, octalStyle) {
+func emittedEscapeWords(call *syntax.CallExpr, echoAlways bool) ([]*syntax.Word, octalStyle) {
 	if len(call.Args) == 0 {
 		return nil, octalNone
 	}
@@ -214,7 +485,7 @@ func emittedEscapeWords(call *syntax.CallExpr) ([]*syntax.Word, octalStyle) {
 			inOptions = false
 			out = append(out, w)
 		}
-		if !sawE {
+		if !sawE && !echoAlways {
 			return nil, octalNone
 		}
 		return out, octalEcho
@@ -258,6 +529,14 @@ func execBaseName(w *syntax.Word) string {
 // never emits. Same lexical discipline, and the same failure mode if dropped,
 // as pathnorm.FoldObfuscatingBackslashesUnquoted.
 func decodeSeparatorEscapes(s string, style octalStyle) (string, bool) {
+	return decodeEscapes(s, style, false)
+}
+
+// decodeEscapes is decodeSeparatorEscapes with an opt-in for the plain space
+// (0x20), which the regex-stage reading leaves alone and the prose reading
+// (#4604) needs: `\x20` is the escape-spelled space of an injected sentence.
+func decodeEscapes(s string, style octalStyle, allowSpace bool) (string, bool) {
+	isSep := func(v byte) bool { return isSeparatorByte(v) || (allowSpace && v == ' ') }
 	var b strings.Builder
 	b.Grow(len(s))
 	changed := false
@@ -275,14 +554,14 @@ func decodeSeparatorEscapes(s string, style octalStyle) (string, bool) {
 			continue
 		}
 		if c == 'x' {
-			if v, n, ok := readHexEscape(s[i+2:]); ok && isSeparatorByte(v) {
+			if v, n, ok := readHexEscape(s[i+2:]); ok && isSep(v) {
 				b.WriteByte(v)
 				changed = true
 				i += 2 + n
 				continue
 			}
 		}
-		if v, n, ok := readOctalEscape(s[i+1:], style); ok && isSeparatorByte(v) {
+		if v, n, ok := readOctalEscape(s[i+1:], style); ok && isSep(v) {
 			b.WriteByte(v)
 			changed = true
 			i += 1 + n
@@ -340,7 +619,7 @@ func readOctalEscape(s string, style octalStyle) (byte, int, bool) {
 	switch style {
 	case octalPrintf:
 		// \ddd — up to three octal digits, a leading 0 being one of them.
-	case octalEcho:
+	case octalEcho, octalEchoNoUnicode:
 		// \0ddd — the 0 is a required marker and is not part of the value.
 		if len(s) == 0 || s[0] != '0' {
 			return 0, 0, false

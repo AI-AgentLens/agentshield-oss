@@ -328,8 +328,7 @@ func (e *Engine) isProtectedToken(word string, foldCase bool) bool {
 // (isProtectedToken strips them). nil when the segment does not parse or has
 // no command word.
 func segmentWords(raw string) []string {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(raw), "")
+	file, err := shellparse.ParseText(raw, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil
 	}

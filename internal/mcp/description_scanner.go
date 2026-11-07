@@ -1182,6 +1182,7 @@ func scanToolDescriptionOnce(tool ToolDefinition) DescriptionScanResult {
 	// absent from the isZeroWidth list. Baselined against the shipped folds, so
 	// it reports strictly the remainder; folded-but-not-raw, so it is additive.
 	result.Findings = append(result.Findings, detectRenderedTextEvasion(text)...)
+	result.Findings = append(result.Findings, detectConsumerProseEvasion(text)...)
 
 	// Signal 17: Markdown / HTML egress in description. MCP hosts that render tool
 	// descriptions as Markdown auto-fetch image URLs and execute embedded HTML on
@@ -1324,6 +1325,15 @@ func scanToolDescriptionOnce(tool ToolDefinition) DescriptionScanResult {
 	// side-channel operation.
 	result.Findings = append(result.Findings, detectToolVerbDescriptionMismatch(tool.Name, tool.Description)...)
 	result.Findings = append(result.Findings, detectVerbMismatchEvasion(tool.Name, tool.Description)...)
+	if recovered, changed := pkgunicode.RecoverConsumerProse(tool.Description); changed &&
+		len(detectToolVerbDescriptionMismatch(tool.Name, tool.Description)) == 0 {
+		for _, f := range detectToolVerbDescriptionMismatch(tool.Name, recovered) {
+			f.Signal = SignalRenderedTextEvasion
+			f.Detail += renderRecoveryNote
+			f.Snippet = truncateForSnippet(tool.Description, 80)
+			result.Findings = append(result.Findings, f)
+		}
+	}
 
 	// Signals 32/33/34: consent-gate / reasoning-exfiltration / audit-evasion social
 	// engineering. These target the host's approval mechanism, the agent's own private
@@ -1785,7 +1795,7 @@ func detectTitleInjection(title string) []PoisonFinding {
 	// consent dialog, so a directive disguised at the codepoint level is read by
 	// both the model and the human approving the call. Wiring a mitigation to
 	// one of two surfaces reads, in review, exactly like wiring it to both.
-	for _, f := range detectRenderedTextEvasion(title) {
+	for _, f := range append(detectRenderedTextEvasion(title), detectConsumerProseEvasion(title)...) {
 		findings = append(findings, PoisonFinding{
 			Signal:  SignalTitleInjection,
 			Detail:  "tool title: " + f.Detail,
@@ -2832,6 +2842,32 @@ func detectRenderedTextEvasion(text string) []PoisonFinding {
 	return findings
 }
 
+// detectConsumerProseEvasion adds the client-sanitized reading without changing
+// the shipped raw or rendered-text passes. Recovery alone is never a finding.
+func detectConsumerProseEvasion(text string) []PoisonFinding {
+	recovered, changed := pkgunicode.RecoverConsumerProse(text)
+	if !changed {
+		return nil
+	}
+	legacy, _ := pkgunicode.RecoverRenderedText(text)
+	if recovered == legacy {
+		return nil
+	}
+	recovered = foldSeparatorRuns(recovered)
+	findings := foldedOnlyFindings(text, recovered, SignalRenderedTextEvasion,
+		"Client text recovery (ASCII word breaks, discarded characters and compatibility forms)")
+	if len(detectSeparatorObfuscation(text)) == 0 {
+		for _, f := range detectSeparatorObfuscation(recovered) {
+			f.Signal = SignalRenderedTextEvasion
+			findings = append(findings, f)
+		}
+	}
+	for i := range findings {
+		findings[i].Snippet = truncateForSnippet(text, 80)
+	}
+	return findings
+}
+
 // detectToolNameConfusable flags an MCP tool whose name contains Unicode
 // confusables or invisible characters — a tool-impersonation / confused-deputy
 // signal that no other surface inspects (description scanners exclude the name;
@@ -3317,6 +3353,16 @@ func promptManagementDomainDeclared(toolName, description string) bool {
 // purpose makes `ssh_private_key` or `env_dump` an ordinary agent-supplied
 // argument, so gating them would trade a real detection for nothing.
 func classifyHarvestParam(name, toolName, description string) (PoisonSignal, string) {
+	if sig, category := classifyHarvestParamReading(name, toolName, description); sig != "" {
+		return sig, category
+	}
+	if stripped, changed := pkgunicode.StripConsumerIgnorables(name); changed {
+		return classifyHarvestParamReading(stripped, toolName, description)
+	}
+	return "", ""
+}
+
+func classifyHarvestParamReading(name, toolName, description string) (PoisonSignal, string) {
 	if name == "" {
 		return "", ""
 	}
@@ -3424,7 +3470,7 @@ func detectSchemaReadVerbEgressSink(name string, rawSchema json.RawMessage) []Po
 	var findings []PoisonFinding
 	seen := make(map[string]bool)
 
-	forEachSchemaProperty(rootMap, func(p schemaProperty) {
+	forEachSchemaPropertyNameReading(rootMap, func(p schemaProperty) {
 		// Only the egress category is flagged here. exec/shell on a reader are
 		// already covered at call time and carry a higher FP risk at the
 		// schema layer (a `code`/`snippet` field on a code-search tool); the
@@ -3483,7 +3529,7 @@ func detectSchemaReadVerbCommandSink(name string, rawSchema json.RawMessage) []P
 	var findings []PoisonFinding
 	seen := make(map[string]bool)
 
-	forEachSchemaProperty(rootMap, func(p schemaProperty) {
+	forEachSchemaPropertyNameReading(rootMap, func(p schemaProperty) {
 		if !readVerbCommandSinkNames[strings.ToLower(p.Name)] || seen[p.Path] {
 			return
 		}
@@ -3703,7 +3749,7 @@ func detectOutputSchemaResultSteering(toolName, description string, rawSchema js
 	var findings []PoisonFinding
 	seen := make(map[string]bool)
 
-	forEachSchemaProperty(rootMap, func(p schemaProperty) {
+	forEachSchemaPropertyNameReading(rootMap, func(p schemaProperty) {
 		class, sig, what := classifySteeringField(p.Name)
 		if class == "" || steeringDomainDeclared(class, toolName, description) {
 			return
@@ -3778,7 +3824,7 @@ func detectSchemaConsentAttestationParam(toolName, description string, rawSchema
 	var findings []PoisonFinding
 	seen := make(map[string]bool)
 
-	forEachSchemaProperty(rootMap, func(p schemaProperty) {
+	forEachSchemaPropertyNameReading(rootMap, func(p schemaProperty) {
 		if !outputConsentFieldRE.MatchString(strings.ToLower(p.Name)) || seen[p.Path] {
 			return
 		}

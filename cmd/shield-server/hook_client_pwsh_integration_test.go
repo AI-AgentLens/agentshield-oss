@@ -393,3 +393,82 @@ func TestPwshHookForwardsStringToolInput(t *testing.T) {
 		t.Errorf("plain string toolArgs not forwarded under input: arguments = %v", args(3))
 	}
 }
+
+// TestPwshHookSendsRoutingKey captures the routing key (ADR-001 step 2) the
+// client sends: the harness derived as the local hook derives it
+// (claudeShapedHarness: AGENTSHIELD_AGENT_ID when it is a plain lower-case
+// label, then turn_id, else Claude Code; the native dialect is always
+// copilot-cli-native), the tool exactly as the harness named it, and this
+// host's OS. The shape stays the one a server without the key reads: bash and
+// powershell tools in any letter case as a command, with the whole tool input
+// as arguments; every other tool as a tool call.
+func TestPwshHookSendsRoutingKey(t *testing.T) {
+	bodies, capture := captureServer(t)
+	base := map[string]string{"AGENTSHIELD_SERVER_URL": capture.URL}
+	withAgent := func(id string) map[string]string {
+		return map[string]string{"AGENTSHIELD_SERVER_URL": capture.URL, "AGENTSHIELD_AGENT_ID": id}
+	}
+	codexCompat := copilotCompatPayload("PowerShell", cmdInput("Get-Date"), "s-codex")
+	codexCompat["turn_id"] = "turn-0001"
+	runs := []struct {
+		name    string
+		env     map[string]string
+		payload map[string]interface{}
+		harness string
+		tool    string
+		command bool
+	}{
+		{"compat Bash, agent id unset", base, copilotCompatPayload("Bash", cmdInput("ls"), "s1"), "claude-code", "Bash", true},
+		{"compat Bash, copilot-cli", withAgent("copilot-cli"), copilotCompatPayload("Bash", cmdInput("ls"), "s2"), "copilot-cli", "Bash", true},
+		{"compat Bash, label not plain", withAgent("Copilot-CLI"), copilotCompatPayload("Bash", cmdInput("ls"), "s3"), "claude-code", "Bash", true},
+		{"Claude Code PowerShell", withAgent("claude-code"), copilotCompatPayload("PowerShell", cmdInput("Get-Date"), "s4"), "claude-code", "PowerShell", true},
+		{"Codex PowerShell, turn_id", base, codexCompat, "codex", "PowerShell", true},
+		{"compat Bash, codex label", withAgent("codex"), copilotCompatPayload("Bash", cmdInput("ls"), "s5"), "codex", "Bash", true},
+		{"native powershell", base, copilotNativePayload("powershell", cmdInput("Get-Date"), "s6"), "copilot-cli-native", "powershell", true},
+		{"native view", withAgent("copilot-cli"), copilotNativePayload("view", map[string]interface{}{"path": "/repo/a"}, "s7"), "copilot-cli-native", "view", false},
+		{"compat Read", base, copilotCompatPayload("Read", map[string]interface{}{"file_path": "/repo/a"}, "s8"), "claude-code", "Read", false},
+	}
+	for _, r := range runs {
+		code, stdout, stderr := runPwshClient(t, r.env, r.payload)
+		assertAllow(t, r.name, code, stdout, stderr)
+	}
+	got := bodies()
+	if len(got) != len(runs) {
+		t.Fatalf("server saw %d requests, want %d", len(got), len(runs))
+	}
+	for i, r := range runs {
+		b := got[i]
+		rk, _ := b["route"].(map[string]interface{})
+		if rk["harness"] != r.harness || rk["tool"] != r.tool || rk["os"] != clientHostOS() {
+			t.Errorf("%s: route %v, want harness %s, tool %s, os %s", r.name, b["route"], r.harness, r.tool, clientHostOS())
+		}
+		if (b["command"] != nil) != r.command || (b["tool_name"] != nil) == r.command {
+			t.Errorf("%s: command %v tool_name %v; want sent as a command: %v", r.name, b["command"], b["tool_name"], r.command)
+		}
+		input := r.payload["tool_input"]
+		if input == nil {
+			input = r.payload["toolArgs"]
+		}
+		if fmt.Sprint(b["arguments"]) != fmt.Sprint(input) {
+			t.Errorf("%s: arguments %v, want the whole tool input %v", r.name, b["arguments"], input)
+		}
+	}
+}
+
+// TestPwshHookClaudeCodePowerShellReachesItsRow: end to end through the
+// script, Claude Code's PowerShell tool is read by its row's PowerShell lane,
+// which blocks a key read the POSIX reading of main's client allowed
+// (ts-allow-readonly). Control: a benign command is allowed.
+func TestPwshHookClaudeCodePowerShellReachesItsRow(t *testing.T) {
+	ts := httptest.NewServer(sharedServer.Handler())
+	defer ts.Close()
+	env := map[string]string{"AGENTSHIELD_SERVER_URL": ts.URL, "AGENTSHIELD_AGENT_ID": "claude-code"}
+
+	code, stdout, stderr := runPwshClient(t, env, copilotCompatPayload("PowerShell", cmdInput(psKeyRead()), "pw-row"))
+	assertDeny(t, "Claude Code PowerShell key read", code, stdout, stderr)
+	if !strings.Contains(stderr, "protected-path") {
+		t.Errorf("block message lacks the PowerShell lane's rule: %s", stderr)
+	}
+	code, stdout, stderr = runPwshClient(t, env, copilotCompatPayload("PowerShell", cmdInput("Get-Date"), "pw-row-ok"))
+	assertAllow(t, "Claude Code PowerShell Get-Date", code, stdout, stderr)
+}

@@ -54,8 +54,7 @@ func InertLoopWordLists(command string) (items []string, redacted string) {
 	if !strings.Contains(command, "for") && !strings.Contains(command, "select") {
 		return nil, ""
 	}
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil, ""
 	}
@@ -307,8 +306,7 @@ func MCPEvalDynamicPolicyFlag(command string) bool {
 	if !strings.Contains(command, "mcp-policy") {
 		return false
 	}
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return false
 	}
@@ -350,7 +348,18 @@ func MCPEvalDynamicPolicyFlag(command string) bool {
 // hasGrepSummaryFlag reports whether the invocation carries a flag under which
 // grep never prints a matched line: -c/--count, -q/--quiet/--silent, and the
 // filename-only forms -l/-L.
+//
+// In a short cluster, a summary letter counts only BEFORE the first letter that
+// takes a value: in `-e'… eval …'` or `-drecurse` the rest of the word is the
+// value, so its l or c is not a flag (#4657 pass 2). rg's -L is --follow, which
+// prints matched lines, so it is not a summary for rg. A false here can only
+// raise a decision: both callers use a true to keep an exclusion.
 func hasGrepSummaryFlag(args []*syntax.Word) bool {
+	summary := "cqlL"
+	if len(args) > 0 && path.Base(NormalizeExecName(staticWord(args[0]))) == "rg" {
+		summary = "cql"
+	}
+	booleanFlags := booleanShortFlagsFor(args)
 	for i := 1; i < len(args); i++ {
 		t := staticWord(args[i])
 		if t == "--" {
@@ -363,8 +372,13 @@ func hasGrepSummaryFlag(args []*syntax.Word) bool {
 		if strings.HasPrefix(t, "--") || !strings.HasPrefix(t, "-") || len(t) < 2 {
 			continue
 		}
-		if strings.ContainsAny(t[1:], "cqlL") {
-			return true
+		for _, r := range t[1:] {
+			if strings.ContainsRune(summary, r) {
+				return true
+			}
+			if !strings.ContainsRune(booleanFlags, r) {
+				break // the rest of the word is this flag's value
+			}
 		}
 	}
 	return false
@@ -437,6 +451,7 @@ func escaping(span byteSpan, escapes []byteSpan) bool {
 // for the pattern would shift every later operand by one and could mark a
 // haystack inert.
 func grepNeedleSpan(args []*syntax.Word) (byteSpan, bool) {
+	booleanFlags := booleanShortFlagsFor(args)
 	endOfFlags := false
 	for i := 1; i < len(args); i++ {
 		w := args[i]
@@ -448,7 +463,7 @@ func grepNeedleSpan(args []*syntax.Word) (byteSpan, bool) {
 			// before the generic flag handling below so `--regexp=` is not
 			// mistaken for a value-inline FILTER flag like `--include=` (whose
 			// value is a glob, not a pattern) and skipped (#3728, finding B).
-			if sub, ok := inlinePatternValueSpan(w); ok {
+			if sub, ok := inlinePatternValueSpan(w, booleanFlags); ok {
 				return sub, true
 			}
 			// staticWord's own contract: "" means UNKNOWN (a parameter
@@ -495,23 +510,75 @@ func grepNeedleSpan(args []*syntax.Word) (byteSpan, bool) {
 				// is still the pattern. A bare long flag is only safe to skip
 				// when it is known not to take one. (`--regexp=`/`--regex=` are
 				// handled by inlinePatternValueSpan above, before this branch.)
-				if strings.Contains(t, "=") || grepBooleanLongFlags[t] {
+				// `--file=PATS` supplies the patterns, so the next token is a
+				// FILE, not the pattern (#4714).
+				if !longPatternOption(t) && (strings.Contains(t, "=") || grepBooleanLongFlags[t]) {
 					continue
 				}
 				return byteSpan{}, false
 			}
 			if len(t) > 1 && strings.HasPrefix(t, "-") {
 				for _, r := range t[1:] {
-					if !strings.ContainsRune(grepBooleanShortFlags, r) {
+					if !strings.ContainsRune(booleanFlags, r) {
 						return byteSpan{}, false
 					}
 				}
 				continue
 			}
+			// grep permutes options: in `grep /etc/shadow -e root` the first
+			// positional is a FILE, because a later -e supplies the pattern.
+			if laterPatternOption(args[i+1:], booleanFlags) {
+				return byteSpan{}, false
+			}
 		}
 		return wholeWordSpan(w), true
 	}
 	return byteSpan{}, false
+}
+
+// laterPatternOption reports whether a word after the candidate needle, before
+// any `--`, could be an option that supplies the pattern (-e, -f, --regexp,
+// --file, or anything this file cannot prove is a boolean flag). GNU grep, BSD
+// grep and ugrep all permute options, so such a word makes every positional a
+// FILE, and grepNeedleSpan must refuse rather than mark one inert (#4714).
+// Refusing keeps every word live, so a false positive here only raises.
+//
+// A wholly dynamic word ("$f") counts as an operand, the same reading
+// grepNeedleSpan gives one before the needle. booleanFlags is the invocation's
+// own table (booleanShortFlagsFor), so rg's -r/-E and ag's -G refuse here too.
+func laterPatternOption(rest []*syntax.Word, booleanFlags string) bool {
+	for _, w := range rest {
+		t := staticWord(w)
+		switch {
+		case t == "--":
+			return false // operands from here on
+		case t == "":
+			if leadingDashUnresolved(w) {
+				return true
+			}
+		case t == "-" || !strings.HasPrefix(t, "-"):
+			// an operand: a file, or stdin
+		case strings.HasPrefix(t, "--"):
+			if longPatternOption(t) || !(strings.Contains(t, "=") || grepBooleanLongFlags[t]) {
+				return true
+			}
+		default:
+			for _, r := range t[1:] {
+				if !strings.ContainsRune(booleanFlags, r) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// longPatternOption reports whether a long option, with or without an inline
+// value, is --regexp/--regex or --file, or a prefix getopt_long would expand
+// to one of them (`--rege=x`, `--fil=x`).
+func longPatternOption(t string) bool {
+	name, _, _ := strings.Cut(t, "=")
+	return len(name) > 2 && (strings.HasPrefix("--regexp", name) || strings.HasPrefix("--file", name))
 }
 
 func wholeWordSpan(w *syntax.Word) byteSpan {
@@ -563,7 +630,7 @@ func containsExecutingExpansion(w *syntax.Word) bool {
 //
 // -f/--file are deliberately NOT recognised: their value is a FILE of patterns,
 // not a needle, so `grep -f FILE` must stay live (its FILE is a real path).
-func inlinePatternValueSpan(w *syntax.Word) (byteSpan, bool) {
+func inlinePatternValueSpan(w *syntax.Word, booleanFlags string) (byteSpan, bool) {
 	if w == nil || len(w.Parts) == 0 {
 		return byteSpan{}, false
 	}
@@ -610,7 +677,7 @@ func inlinePatternValueSpan(w *syntax.Word) (byteSpan, bool) {
 				}
 				return byteSpan{start, end}, true
 			}
-			if !strings.ContainsRune(grepBooleanShortFlags, rune(c)) {
+			if !strings.ContainsRune(booleanFlags, rune(c)) {
 				// A value-consuming or unknown flag before any "e" (`-f…`,
 				// `-m…`): not a clean inline pattern layout. Decline.
 				return byteSpan{}, false
@@ -687,6 +754,25 @@ func leadingDashUnresolved(w *syntax.Word) bool {
 // following token. Anything absent here (-e, -f, -m, -A, -B, -C, -D, -d) may,
 // so its presence makes the operand layout unknowable.
 const grepBooleanShortFlags = "acEFGHhIiLlnoPqRrsUvwxZz"
+
+// booleanShortFlagsFor returns the short options that never consume the next
+// token for the invocation whose words are args. The table above is grep's.
+// ripgrep and the silver searcher share the grep-family needle finder but not
+// its flag meanings: rg's -r REPLACEMENT and -E ENCODING take a value, and
+// ag's -G takes a file-name regex. Read as booleans, the value becomes the
+// needle and rg prints a -r replacement, so a rule's own text could be hidden
+// in a position that reaches an executor (#4657 pass 1). Dropping them only
+// refuses more invocations, which keeps their words live.
+func booleanShortFlagsFor(args []*syntax.Word) string {
+	if len(args) == 0 {
+		return grepBooleanShortFlags
+	}
+	switch path.Base(NormalizeExecName(staticWord(args[0]))) {
+	case "rg", "ag":
+		return strings.NewReplacer("E", "", "r", "", "G", "").Replace(grepBooleanShortFlags)
+	}
+	return grepBooleanShortFlags
+}
 
 var grepBooleanLongFlags = map[string]bool{
 	"--basic-regexp": true, "--count": true, "--extended-regexp": true,

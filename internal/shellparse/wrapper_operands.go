@@ -164,6 +164,42 @@ var wrapperPositionalOperands = map[string]int{
 	"setarch": 1, // ARCH (optional in modern util-linux — see above)
 }
 
+// shellWordOperands are the zsh command-word constructs in ExecWrappers
+// (#4597), with the number of words each takes before the command it runs.
+//
+// They are described here and not by the flag walk because they have no
+// options at all. The walk would misread both shapes that matter:
+//
+//	repeat 3 rm -rf /    as a positional-operand wrapper, the walk would skip
+//	                     `3` as a numeric option, count `rm` as the operand,
+//	                     skip `-rf`, and name `/` the command
+//	repeat $n rm -rf /   the walk names the count `$n` as the command
+//
+// zsh's grammar is `repeat word sublist` (zshmisc(1)): exactly one word, of any
+// shape, since it is arithmetic-expanded (`repeat $n`, `repeat 1+1` and
+// `repeat $((2))` all run). The precommand modifiers take no word at all, so a
+// dash-word after one is the command, not an option (`noglob -x` runs `-x`).
+//
+// Chaining falls out of StripExecWrappers' loop: `nocorrect noglob - sh`
+// peels all three. zsh itself is stricter. nocorrect must come first and
+// repeat is a reserved word only at the start of a command, so `noglob
+// nocorrect sh` and `noglob repeat 1 sh` are "command not found" there. Those
+// spellings are read as the command they name anyway: the cost is a decision
+// on a command that does not run, never a miss on one that does.
+var shellWordOperands = map[string]int{
+	"noglob":    0,
+	"nocorrect": 0,
+	"-":         0,
+	"repeat":    1, // the count
+}
+
+// isShellWord reports whether name (already through NormalizeExecName) is one
+// of the zsh constructs in shellWordOperands.
+func isShellWord(name string) bool {
+	_, ok := shellWordOperands[name]
+	return ok
+}
+
 // carriesInlineCodeFlag reports whether a privilege carrier's operands include
 // the flag whose value is shell SOURCE rather than a command word.
 //
@@ -294,6 +330,23 @@ func consumesNextToken(wrapper, tok string) bool {
 func wrapperTargetIndex(words []string) int {
 	if len(words) == 0 {
 		return 0
+	}
+	// A zsh construct is matched on the word as written, never by basename:
+	// `/usr/local/bin/repeat` is a program, not the reserved word.
+	if n, ok := shellWordOperands[NormalizeExecName(words[0])]; ok {
+		i := 1 + n
+		// repeat's sublist is a whole command, so it may open with
+		// assignments: `repeat 1 FOO=1 rm -rf /` runs rm. Skipped the way
+		// env skips them. After a precommand modifier zsh does not take
+		// `FOO=1` as an assignment (command not found), so skipping it there
+		// only reads a command that fails as the one it names.
+		for i < len(words) && wrapperAssignRe.MatchString(words[i]) {
+			i++
+		}
+		if i >= len(words) {
+			return len(words) // no command would be left — keep the word
+		}
+		return i
 	}
 	wrapper := path.Base(NormalizeExecName(words[0]))
 	if PrivilegeShellCarriers[wrapper] && carriesInlineCodeFlag(words) {

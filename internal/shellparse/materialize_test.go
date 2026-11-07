@@ -213,6 +213,54 @@ func TestMaterializeAssignments_PrefixAssignmentUntouched(t *testing.T) {
 	}
 }
 
+// TestMaterializeAssignmentsANSIC is issue #4591: a value bound from $'...'
+// holds the decoded bytes at runtime, so an unquoted read word-splits on a
+// decoded tab exactly as on a literal one. The plain fold must keep its old
+// output, because shellparse.Parse feeds it to the AST layers.
+func TestMaterializeAssignmentsANSIC(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"tab escape", `x=$'ufw\tdisable'; $x`, "x='ufw\tdisable'\nufw\tdisable"},
+		{"octal tab", `x=$'ufw\011disable'; $x`, "x='ufw\tdisable'\nufw\tdisable"},
+		{"hex letter", `x=$'\x75fw disable'; $x`, "x='ufw disable'\nufw disable"},
+		{"newline escape", `x=$'ufw\ndisable'; $x`, "x='ufw\ndisable'\nufw\ndisable"},
+		{"quoted read stays one word", `x=$'ufw\tdisable'; "$x"`, "x='ufw\tdisable'\n'ufw\tdisable'"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MaterializeAssignmentsANSIC(tc.in); got != tc.want {
+				t.Errorf("MaterializeAssignmentsANSIC(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("plain fold unchanged", func(t *testing.T) {
+		in := `x=$'ufw\tdisable'; $x`
+		if got, want := MaterializeAssignments(in), "x=$'ufw\\tdisable'\nufw\\tdisable"; got != want {
+			t.Errorf("MaterializeAssignments(%q) = %q, want %q", in, got, want)
+		}
+	})
+
+	noOps := []string{
+		`x='ufw disable'; $x`,          // no $'...' at all
+		`echo $'ufw\tdisable'`,         // decodes, but nothing reads a binding
+		`x=$'ufw\tdisable'; echo done`, // binding never read
+		`x=$'it\'s'; $x`,               // decoding yields a quote: left encoded
+		`x=$'plain'; $x`,               // no escape, so the plain fold already has it
+		`x=$'ufw\tdisable'; $x (((`,    // parse failure
+	}
+	for _, in := range noOps {
+		t.Run("no-op "+in, func(t *testing.T) {
+			if got := MaterializeAssignmentsANSIC(in); got != "" {
+				t.Errorf("MaterializeAssignmentsANSIC(%q) = %q, want \"\"", in, got)
+			}
+		})
+	}
+}
+
 // TestMaterializeAssignments_ParseFailure returns "" rather than panicking
 // on unparseable input.
 func TestMaterializeAssignments_ParseFailure(t *testing.T) {
@@ -321,5 +369,23 @@ func TestMaterializeAssignments_CommandPrefixAssignment(t *testing.T) {
 				t.Errorf("MaterializeAssignments(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestBuildExecSymbolTableANSIC pins the second table's contract (#4591): it
+// exists only when a $'...' body decodes, and resolves the decoded value
+// where the plain table resolves the encoded one.
+func TestBuildExecSymbolTableANSIC(t *testing.T) {
+	for _, in := range []string{`x='a b'; $x`, `x=$'plain'; $x`, `x=$'a\tb'; $x (((`} {
+		if got := BuildExecSymbolTableANSIC(in); got != nil {
+			t.Errorf("BuildExecSymbolTableANSIC(%q) = non-nil, want nil", in)
+		}
+	}
+	cmd := `x=$'a\tb'; $x`
+	if got, want := ResolveIndirectExecutable("$x", BuildExecSymbolTableANSIC(cmd)), "a\tb"; got != want {
+		t.Errorf("decoded table resolves $x to %q, want %q", got, want)
+	}
+	if got, want := ResolveIndirectExecutable("$x", BuildExecSymbolTable(cmd)), `a\tb`; got != want {
+		t.Errorf("plain table resolves $x to %q, want %q (it must stay unchanged)", got, want)
 	}
 }

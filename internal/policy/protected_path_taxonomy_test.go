@@ -49,8 +49,10 @@ func TestProtectedPathSystemTreeStaysUnattributed4336(t *testing.T) {
 	}
 }
 
-// A user policy that names a path the table does not know keeps BLOCKing
-// without a taxonomy: the table adds evidence, it is never a precondition.
+// A user policy that names a path the table does not know keeps BLOCKing:
+// the table adds evidence, it is never a precondition. Since #4645 the BLOCK
+// attests to the protected-path node (it recorded none from #4336 until then),
+// so a customer's own path lands on a control as the shipped paths do.
 func TestProtectedPathUnknownPatternStillBlocks4336(t *testing.T) {
 	pol := DefaultPolicy()
 	pol.Defaults.ProtectedPaths = []string{"/srv/vault/**"}
@@ -59,8 +61,76 @@ func TestProtectedPathUnknownPatternStillBlocks4336(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	r := engine.Evaluate("cat /srv/vault/k", []string{"/srv/vault/k"})
-	if r.Decision != DecisionBlock || len(r.TaxonomyRefs) != 0 {
-		t.Fatalf("got %s %v", r.Decision, r.TaxonomyRefs)
+	if r.Decision != DecisionBlock || len(r.TaxonomyRefs) != 1 || r.TaxonomyRefs[0] != ProtectedPathNode {
+		t.Fatalf("got %s %v; want BLOCK [%s]", r.Decision, r.TaxonomyRefs, ProtectedPathNode)
+	}
+}
+
+// #4645: every protected-path BLOCK whose pattern has no specific node
+// attests to the protected-path node, on both protected-path rule ids, except
+// the patterns whose node is an open decision (the system trees, #4336, and
+// AgentShield's own config directory, #4431 item 2), which stay exactly as on
+// main: BLOCK, no taxonomy.
+func TestProtectedPathBlockFallsBackToProtectedPathNode4645(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory")
+	}
+	for _, c := range []struct {
+		name, pattern, cmd, path string
+		want                     []string
+	}{
+		{"customer pack path", "/etc/acme/secrets/**", "cat /etc/acme/secrets/db.env", "/etc/acme/secrets/db.env", []string{ProtectedPathNode}},
+		{"customer home path", "~/company-secrets/**", "cat ~/company-secrets/a", home + "/company-secrets/a", []string{ProtectedPathNode}},
+		// The MCP twin of this community pattern (mcp-gen-protected-path-vault-token)
+		// already cites the node; the shell BLOCK now agrees with it. This row
+		// named ~/.npmrc until #4560 gave that pattern a specific node (the
+		// next row); ~/.vault-token is a shipped pattern that still has none.
+		{"shipped pattern with no specific node", "~/.vault-token", "cat ~/.vault-token", home + "/.vault-token", []string{ProtectedPathNode}},
+		{"#4560 row refines the fallback", "~/.npmrc", "cat ~/.npmrc", home + "/.npmrc", []string{"credential-exposure/package-registry/package-manager-credential-access"}},
+		{"specific node still wins", "~/.aws/**", "cat ~/.aws/credentials", home + "/.aws/credentials", []string{"credential-exposure/cloud-credentials/cloud-credential-access"}},
+		{"system tree stays unattributed", "/etc/**", "cat /etc/hosts", "/etc/hosts", nil},
+		{"/System stays unattributed", "/System/**", "cat /System/x", "/System/x", nil},
+		{"/Library stays unattributed", "/Library/**", "cat /Library/x", "/Library/x", nil},
+		{"managed config dir stays unattributed", ManagedConfigProtectedPath, "cp /tmp/p.yaml ~/.agentshield/policy.yaml", home + "/.agentshield/policy.yaml", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pol := DefaultPolicy()
+			pol.Defaults.ProtectedPaths = []string{c.pattern}
+			engine, err := NewEngine(pol)
+			if err != nil {
+				t.Fatalf("NewEngine: %v", err)
+			}
+			r := engine.Evaluate(c.cmd, []string{c.path})
+			if r.Decision != DecisionBlock {
+				t.Fatalf("decision %s, want BLOCK (rules %v)", r.Decision, r.TriggeredRules)
+			}
+			if len(r.TaxonomyRefs) != len(c.want) || (len(c.want) == 1 && r.TaxonomyRefs[0] != c.want[0]) {
+				t.Errorf("taxonomy %v, want %v", r.TaxonomyRefs, c.want)
+			}
+		})
+	}
+}
+
+// The substitution post-pass (protected-path-via-substitution) records the
+// same node as the early exit.
+func TestProtectedPathViaSubstitutionCarriesNode4645(t *testing.T) {
+	pol := DefaultPolicy()
+	pol.Defaults.ProtectedPaths = []string{"/etc/acme/secrets/**"}
+	engine, err := NewEngineWithAnalyzers(pol, 2)
+	if err != nil {
+		t.Fatalf("NewEngineWithAnalyzers: %v", err)
+	}
+	r := sshReceipt(t, engine, "D=/etc/acme/secrets; cat $D/db.env")
+	if r.Decision != DecisionBlock {
+		t.Fatalf("decision %s, want BLOCK (rules %v)", r.Decision, r.TriggeredRules)
+	}
+	found := false
+	for _, ref := range r.TaxonomyRefs {
+		found = found || ref == ProtectedPathNode
+	}
+	if !found {
+		t.Errorf("rules %v taxonomy %v, want %s among them", r.TriggeredRules, r.TaxonomyRefs, ProtectedPathNode)
 	}
 }
 

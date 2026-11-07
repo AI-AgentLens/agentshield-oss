@@ -251,9 +251,12 @@ func parityRows() []parityRow {
 		ruleToolResp = "tool-response-poisoning"
 		ruleMeta     = "mcp-response-meta-field-injection"
 		ruleResource = "resource-content-injection"
+		ruleInstr    = "mcp-initialize-instructions-injection"
+		ruleResList  = "resource-list-metadata-injection"
+		ruleTplList  = "mcp-resource-templates-list-injection"
 	)
 
-	return []parityRow{
+	return append([]parityRow{
 		// --- error.message injection, across every id shape (finding 1) ---
 		{name: "error/int-id", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":` + jIgnore + `}}`,
 			want: outcomeBlocked, absent: []string{mIgnore}, present: []string{`"code":-32603`}, rules: []string{ruleErr}},
@@ -289,6 +292,20 @@ func parityRows() []parityRow {
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleMeta}},
 		{name: "initialize+_meta", body: `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"s","version":"1"},"_meta":{"note":` + jIgnore + `}}}`,
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleMeta}},
+		// --- server/discover handshake (#4563) ---
+		// Claude Code 2.1.309 takes instructions from a discover answer and
+		// never sends initialize. The answer has no discriminator key, so it
+		// runs the chain, where FilterInitializeResponse now scans it; before
+		// the fix it was forwarded on every transport. The initialize row is
+		// the control: the same instructions decide the same. The block
+		// reason quotes the instructions, so the check is that no result
+		// survives, not that the marker is gone.
+		{name: "server/discover/instructions", body: `{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2026-07-28"],"capabilities":{},"serverInfo":{"name":"s","version":"1"},"instructions":` + jSSH + `}}`,
+			want: outcomeBlocked, absent: []string{`"result"`, `"supportedVersions"`}, rules: []string{ruleInstr}},
+		{name: "initialize/instructions", body: `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"s","version":"1"},"instructions":` + jSSH + `}}`,
+			want: outcomeBlocked, absent: []string{`"result"`, `"protocolVersion"`}, rules: []string{ruleInstr}},
+		{name: "server/discover/clean", body: `{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"serverInfo":{"name":"acme-db","version":"1.0"},"instructions":"Use the query tool for read-only SQL."}}`,
+			want: outcomeForwarded, present: []string{"read-only SQL"}},
 		{name: "tasks/get+_meta", body: `{"jsonrpc":"2.0","id":1,"result":{"taskId":"t-1","status":"working","_meta":{"note":` + jIgnore + `}}}`,
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleMeta}},
 
@@ -322,6 +339,25 @@ func parityRows() []parityRow {
 		// and ruleToolResp fires.
 		{name: "residual/Tools+content+nextCursor/rewrite-pre-empts-block", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":` + jIgnore + `}],"nextCursor":` + jKube + `,"Tools":[{"name":"t","description":"ok","inputSchema":{"type":"object"},"_meta":{"n":` + jSSH + `}}]}}`,
 			want: outcomeRewritten, absent: []string{mIgnore, mSSH}, present: []string{`"tools":null`, mKube}, rules: []string{ruleToolDesc}},
+
+		// --- resources/list and templates/list with empty uri / uriTemplate (#4569) ---
+		// The SDKs type both as plain strings, so `""` reaches the client, and
+		// Claude Code's ListMcpResourcesTool hands the entry to the model. A
+		// "some entry has a non-empty uri" guard forwarded such lists unscanned
+		// on every transport. The file-URI rows are the controls; the clean
+		// empty-uri rows pin that dropping the guard adds no deny.
+		{name: "resources/list/file-uri/poisoned", body: `{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"file:///tmp/notes.txt","name":"notes","description":` + jKube + `}]}}`,
+			want: outcomeBlocked, absent: []string{mKube}, rules: []string{ruleResList}},
+		{name: "resources/list/empty-uri/poisoned", body: `{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"","name":"notes","description":` + jKube + `}]}}`,
+			want: outcomeBlocked, absent: []string{mKube}, rules: []string{ruleResList}},
+		{name: "resources/list/two-empty-uri/poisoned", body: `{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"","name":"a","description":"ok"},{"uri":"","name":"notes","description":` + jKube + `}]}}`,
+			want: outcomeBlocked, absent: []string{mKube}, rules: []string{ruleResList}},
+		{name: "resources/list/empty-uri/clean", body: `{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"","name":"notes","description":"Meeting notes for the week."}]}}`,
+			want: outcomeForwarded, present: []string{"Meeting notes"}},
+		{name: "templates/list/empty-uriTemplate/poisoned", body: `{"jsonrpc":"2.0","id":1,"result":{"resourceTemplates":[{"uriTemplate":"","name":"notes","description":` + jKube + `}]}}`,
+			want: outcomeBlocked, absent: []string{mKube}, rules: []string{ruleTplList}},
+		{name: "templates/list/empty-uriTemplate/clean", body: `{"jsonrpc":"2.0","id":1,"result":{"resourceTemplates":[{"uriTemplate":"","name":"notes","description":"Notes by date."}]}}`,
+			want: outcomeForwarded, present: []string{"Notes by date."}},
 
 		// --- the single-discriminator hot path, poisoned ---
 		{name: "tools/list/poisoned-tool", body: `{"jsonrpc":"2.0","id":1,"result":{"tools":[` + poisonedTool + `,{"name":"ok_tool","description":"fine"}]}}`,
@@ -397,6 +433,17 @@ func parityRows() []parityRow {
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
 		{name: "fold/envelope-error/exact-then-null", body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":` + jIgnore + `},"Error":null}`,
 			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleErr}},
+		// A lone fold-only `Method`/`Error` has no exact twin, so no client
+		// reads it, but the decoder does: Method made the response a server
+		// request, Error skipped the filters (#4567).
+		{name: "fold/envelope-lone/Method", body: `{"jsonrpc":"2.0","id":1,"Method":"ping","result":{"content":[` + poisonedText + `]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/envelope-lone/METHOD", body: `{"jsonrpc":"2.0","id":1,"result":{"content":[` + poisonedText + `]},"METHOD":"x"}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/envelope-lone/Error", body: `{"jsonrpc":"2.0","id":1,"Error":{"code":-32000,"message":"x"},"result":{"content":[` + poisonedText + `]}}`,
+			want: outcomeBlocked, absent: []string{mIgnore}, rules: []string{ruleToolResp}},
+		{name: "fold/envelope-lone/clean", body: `{"jsonrpc":"2.0","id":1,"Error":{"code":-32000,"message":"x"},"result":{"content":[{"type":"text","text":"ok"}]}}`,
+			want: outcomeForwarded},
 		// encoding/json folds with Unicode simple folding, so `ſ` (U+017F) is
 		// `s` and `ſtructuredContent` is the same field to the decoder.
 		{name: "fold/structuredContent/unicode-fold-decoy", body: `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"x":` + jIgnore + `},"ſtructuredContent":{"x":"ok"}}}`,
@@ -418,7 +465,7 @@ func parityRows() []parityRow {
 		// open documented on ParseMessage's other callers) — and must not
 		// crash the proxy on either transport.
 		{name: "unparseable/forwarded", body: `not-json-at-all but still contains ` + injSSH, want: outcomeForwarded},
-	}
+	}, consumerRecoveryParityRows()...)
 }
 
 // TestResponseDispatch_TransportParity drives every row through stdio, HTTP

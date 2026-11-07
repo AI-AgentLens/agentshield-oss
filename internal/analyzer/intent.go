@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -406,6 +407,7 @@ func (c *IntentClassifier) Name() string { return "intent-classifier" }
 // ctx.RawStatementsParsed, and returns no findings.
 func (c *IntentClassifier) Analyze(ctx *AnalysisContext) []Finding {
 	ctx.CommandFacts = c.Classify(ctx.RawCommand)
+	abandon.Checkpoint() // #4785: each half parses the whole command
 	ctx.RawStatements, ctx.RawStatementsParsed = AttributionStatements(ctx.RawCommand)
 	return nil
 }

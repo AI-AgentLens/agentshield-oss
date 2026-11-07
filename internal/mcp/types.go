@@ -299,6 +299,10 @@ const (
 	MethodPromptsGet                    = "prompts/get"
 	MethodPromptsList            = "prompts/list"
 	MethodCompletionComplete     = "completion/complete"
+	// MethodServerDiscover is the MCP 2026-07-28 handshake. Claude Code 2.1.309
+	// opens stdio servers with it, and when the server answers, initialize never
+	// runs (#4563).
+	MethodServerDiscover = "server/discover"
 	// MethodTasksGet and MethodTasksResult are SEP-1686 ("Tasks") client→server
 	// polling methods: after a task-augmented request returns a task handle,
 	// the client polls tasks/get for status and tasks/result to retrieve the
@@ -386,6 +390,11 @@ type ResourceEntry struct {
 	// asks for it without first checking the schema — see issue #3500, which
 	// found the resources/read premise unsupported by the wire protocol.
 	Annotations *ContentAnnotations `json:"annotations,omitempty"`
+	// Meta is the entry's own `_meta`. Claude Code's ListMcpResourcesTool hands
+	// the model each whole entry as JSON, so it is scanned like the text
+	// fields (#4564). A rewrite that hides a sibling still drops it from the
+	// kept entries, as before.
+	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ResourcesListResult is the JSON-RPC result for a resources/list response.
@@ -424,6 +433,8 @@ type ResourceTemplateEntry struct {
 	// ranking scanners read it on resources/list only; on this surface it is
 	// forwarded in typed form and not yet scanned.
 	Annotations *ContentAnnotations `json:"annotations,omitempty"`
+	// Meta is the template's own `_meta`, scanned like the text fields (#4564).
+	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ResourcesTemplatesListResult is the JSON-RPC result for a

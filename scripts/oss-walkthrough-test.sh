@@ -76,8 +76,8 @@ step "STEP 0 — environment"
 cat /etc/os-release | grep -E "PRETTY_NAME|^NAME" | head -2
 echo "user: $(whoami)  home: $HOME"
 
-step "STEP 1 — README Try It: brew tap + install"
-expect "tap added, agentshield binary in PATH"
+step "STEP 1 — README Install: brew install ai-agentlens/oss/agentshield"
+expect "the README's one install line works on its own, agentshield binary in PATH"
 # Brew env tuning + retry loop guard against ghcr.io bottle-download SSL EOFs
 # at nightly hours (~9PM EDT). Two consecutive nightlies (5/20 + 5/21) failed
 # here on the `go` keg download, not on our formula.
@@ -85,16 +85,16 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_ANALYTICS=1
 export HOMEBREW_CURL_RETRIES=5
 export HOMEBREW_DOWNLOAD_CONCURRENCY=1
-# Pre-emptive Tap Trust: Homebrew gates non-official casks now (5.1.15+) and
-# extends to formulae at 5.2.0/6.0.0. Trusting the OSS tap here is a no-op on
-# current Homebrew and keeps this walkthrough green when the formula gate lands.
-brew tap AI-AgentLens/oss 2>&1 | tail -3
-brew trust AI-AgentLens/oss >/dev/null 2>&1 || \
-    echo "  note: brew trust unavailable on this Homebrew - skipping (install is the real gate)"
+# Exactly the README's line, with no `brew tap` or `brew trust` first. Homebrew
+# 7 refuses a formula from an untrusted tap, and this walkthrough used to trust
+# the tap before installing, so it could not see the README's old
+# `brew tap AI-AgentLens/oss && brew install agentshield` failing there
+# (agentshield-oss#4667). The full name taps and trusts the one formula. No TTY
+# here, so Homebrew 7's confirmation prompt for the Go dependency is skipped.
 # Capture, do not pipe: `brew install | tail` exits with tail's status (0), so
 # the retry below used to break on attempt 1 whether or not the install worked.
 for attempt in 1 2 3; do
-    if install_out=$(brew install AI-AgentLens/oss/agentshield 2>&1); then
+    if install_out=$(brew install ai-agentlens/oss/agentshield 2>&1); then
         printf '%s\n' "$install_out" | tail -5
         break
     fi
@@ -168,11 +168,12 @@ agentshield check --shell "rm -rf /" >/dev/null 2>&1; rc=$?
 [ $rc -eq 2 ] && pass "enforce: rm -rf / blocked (exit 2)" || fail "enforce: rm -rf / gave exit $rc, expected 2"
 
 step "STEP 5 — Add A Local Rule"
-expect "BLOCK on psql prod.db with custom rule"
+expect "BLOCK on psql prod.db with custom rule, recorded with its taxonomy"
 cat > "$HOME/.agentshield/policy.yaml" <<EOF
 version: "0.1"
 rules:
   - id: block-production-db
+    taxonomy: "credential-exposure/database-access/database-credential-access"
     match:
       command_regex: "psql.*prod"
     decision: "BLOCK"
@@ -180,6 +181,11 @@ rules:
 EOF
 agentshield check --shell "psql prod.db" --policy "$HOME/.agentshield/policy.yaml"; rc=$?
 [ $rc -eq 2 ] && pass "custom rule fires via --policy" || fail "custom rule did not block via --policy (exit $rc)"
+# The README's example names a taxonomy node; a rule without one enforces but
+# its records map to no control. Pin that the node reaches the decision.
+agentshield check --shell "psql prod.db" --policy "$HOME/.agentshield/policy.yaml" --format json \
+  | grep -q '"credential-exposure/database-access/database-credential-access"' \
+  && pass "custom rule's decision carries its taxonomy node" || fail "custom rule's decision has no taxonomy node"
 
 step "STEP 6 — diagnostics commands from README"
 expect "log shows helpful empty state, rule list / pause / resume work"
@@ -271,6 +277,7 @@ cat > "$HOME/.agentshield/policy.yaml" <<EOF
 version: "0.1"
 rules:
   - id: block-production-db
+    taxonomy: "credential-exposure/database-access/database-credential-access"
     match:
       command_regex: "psql.*prod"
     decision: "BLOCK"

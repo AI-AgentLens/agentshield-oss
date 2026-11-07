@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,9 +19,10 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
-	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/AI-AgentLens/agentshield/internal/policy/remediation"
+	"github.com/AI-AgentLens/agentshield/internal/route"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	"github.com/spf13/cobra"
 )
 
@@ -166,6 +169,13 @@ func init() {
 }
 
 func hookCommand(cmd *cobra.Command, args []string) error {
+	// A call that returns without recording anything (nothing to evaluate,
+	// or no lane had anything to read) still answers it: exit 0. Once the
+	// decision budget is armed that answer is a claim like any other write
+	// (hook_budget.go), so it never races the watchdog's.
+	hookBudgetEnabled = true
+	defer func() { activeBudget.claimForEvaluation() }()
+
 	// Opportunistic heartbeat — keep agent online while IDE is active
 	go sendOpportunisticHeartbeat()
 
@@ -221,9 +231,16 @@ func hookCommand(cmd *cobra.Command, args []string) error {
 	// #4251). For every other harness and shape it fails the parse exactly as
 	// before — a Gemini run_shell_command or a Bash call whose input is a
 	// string would otherwise read as an empty command and pass unevaluated.
-	if input.ToolInput.IsText && (input.HookEventName != "PreToolUse" || input.ToolName == "Bash") {
+	// Which tool is a shell is the routing table's call (ADR-001). A row that
+	// also has the Structured lane (Claude Code's Monitor, #4753) is read and
+	// recorded by that lane, as it was before the shell lane joined it.
+	if input.ToolInput.IsText && (input.HookEventName != "PreToolUse" || shellOnlyRow(preToolUseCall(claudeShapedHarness(input), input))) {
 		return hookInputFailure("hook input parse", errors.New("tool_input is a string where an object is required"))
 	}
+
+	// The budget counts from process start, not from arming: a slow step
+	// before a handler arms still counts (TestHookBudget_CountsFromProcessStart).
+	hookSlowPoint("before-arm")
 
 	// Auto-detect IDE format based on input fields.
 	// Claude Code sends {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {...}}.
@@ -285,62 +302,189 @@ func evaluateCommand(cmdStr, cwd, source, sessionID string) (*policy.EvalResult,
 // on every event the evaluation records, before it is logged or sent; they
 // never change a decision.
 func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.Note) (*policy.EvalResult, *logger.AuditEvent) {
+	r := readCommand(cmdStr, cwd, source, sessionID, notes)
+	r.record(nil)
+	return r.result, r.event
+}
+
+// commandReading is one evaluation of a shell command, held before it is
+// recorded: the verdict, the event that records it, and write, the path's
+// own way of recording that event (the local audit line and the SaaS queue).
+// Building one writes nothing; record is the only step that does, so a lane
+// the combiner does not keep (ADR-001 D4) leaves no record.
+type commandReading struct {
+	result *policy.EvalResult
+	event  *logger.AuditEvent
+	write  func(*logger.AuditEvent)
+	close  func() // releases the audit logger the evaluation opened; nil when none
+}
+
+// record writes the event, with extra notes after its own, and releases the
+// reading. extra is nil for a call one lane decides, so its event is the one
+// evaluateCommandNoted has always written. It claims the call first
+// (hook_budget.go): past the decision budget the watchdog may already have
+// answered it, and then this never returns.
+func (r *commandReading) record(extra []logger.Note) {
+	activeBudget.claimForEvaluation()
+	r.event.Notes = append(r.event.Notes, extra...)
+	r.write(r.event)
+	r.release()
+}
+
+// release drops the reading without recording it.
+func (r *commandReading) release() {
+	if r.close != nil {
+		r.close()
+		r.close = nil
+	}
+}
+
+// readCommand is evaluateCommandNoted up to the point it writes. Every path
+// to a verdict (the managed self-protection BLOCK, each failSafeDecision
+// stage, and the policy evaluation) returns its reading here with the writer
+// that path has always used.
+func readCommand(cmdStr, cwd, source, sessionID string, notes []logger.Note) *commandReading {
+	return readShellShaped(cmdStr, cwd, source, sessionID, notes, posixEvaluation)
+}
+
+// shellShapedEvaluation is how one shell lane decides a command text once the
+// hook has built the engine for it (readShellShaped). Every shell lane shares
+// the load sequence, the fail-safe boundary and the shell-shaped record; only
+// this step differs.
+type shellShapedEvaluation struct {
+	// stage names a failure of evaluate at the fail-safe boundary.
+	stage string
+	// middleware runs the enterprise middleware chain (BypassGuard, the sp-*
+	// text rules) before anything else. The POSIX lane runs it; the
+	// PowerShell lane does not (hook_powershell.go says where the rules reach
+	// PowerShell text and where they do not).
+	middleware bool
+	// parsesPOSIX: the lane parses the command with the bash parser, so a
+	// command past the chain bound is decided without parsing it (#4778,
+	// chain_bound.go). The PowerShell lane's own reader is not the bash
+	// parser; its nested bash texts are bounded where it reads them
+	// (psLane.readPOSIX).
+	parsesPOSIX bool
+	evaluate    func(engine *policy.Engine, cfg *config.Config, cmdStr, cwd string) (policy.EvalResult, error)
+}
+
+// posixEvaluation is the POSIX lane: the bash normalizer and the analyzer
+// pipeline. A derived text past the chain bound is its error (#4778).
+var posixEvaluation = shellShapedEvaluation{
+	stage:       "policy evaluation",
+	middleware:  true,
+	parsesPOSIX: true,
+	evaluate: func(engine *policy.Engine, _ *config.Config, cmdStr, cwd string) (policy.EvalResult, error) {
+		r, e := readPOSIXText(engine, cmdStr, cwd)
+		if e != nil {
+			return r, e
+		}
+		return r, nil
+	},
+}
+
+// middlewareBlock runs the enterprise middleware chain on cmdStr, and returns
+// its BLOCK when it blocked. Empty outside managed mode.
+func middlewareBlock(cmdStr, cwd, source string) (*policy.EvalResult, bool) {
+	return middlewareBlockWith(buildMiddlewareChain(), cmdStr, cwd, source, selfProtectTaxonomyRefs)
+}
+
+// middlewareBlockWith runs chain on cmdStr and returns its BLOCK, with the
+// receipt's nodes from refs.
+func middlewareBlockWith(chain []enterprise.EvalMiddleware, cmdStr, cwd, source string, refs func(ruleID, command string) []string) (*policy.EvalResult, bool) {
+	if len(chain) == 0 {
+		return nil, false
+	}
+	// Run pre-eval middleware (SelfProtect, BypassGuard)
+	ctx := &enterprise.EvalContext{Command: cmdStr, Cwd: cwd, Source: source}
+	enterprise.RunChain(ctx, chain)
+	if !ctx.Blocked {
+		return nil, false
+	}
+	// On a managed host this BLOCK is the only record of the attempt, so it
+	// carries the node of the sp-* rule that fired (self_protect_taxonomy.go).
+	// The node is per rule, never one for the whole middleware: an audit-log
+	// delete is not tampering, and sp-block-config-touch also blocks reads
+	// (#4603).
+	return &policy.EvalResult{
+		Decision:       policy.DecisionBlock,
+		TriggeredRules: []string{"enterprise-self-protect"},
+		Reasons:        []string{ctx.BlockMsg},
+		Explanation:    ctx.BlockMsg,
+		TaxonomyRefs:   refs(ctx.BlockRule, ctx.Command),
+	}, true
+}
+
+// selfProtectReading is the reading of a self-protection BLOCK: a managed
+// BLOCK event, recorded by recordSelfProtectBlock.
+func selfProtectReading(blocked *policy.EvalResult, cmdStr, cwd, source, sessionID string, notes []logger.Note) *commandReading {
+	blockedResult := *blocked
+	event := logger.AuditEvent{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		Command:        cmdStr,
+		Args:           strings.Fields(cmdStr),
+		Cwd:            cwd,
+		Decision:       "BLOCK",
+		Flagged:        true,
+		TriggeredRules: blockedResult.TriggeredRules,
+		Reasons:        blockedResult.Reasons,
+		TaxonomyRefs:   blockedResult.TaxonomyRefs,
+		Mode:           "managed",
+		Source:         source,
+		SessionID:      sessionID,
+		Principal:      osPrincipal(),
+		Notes:          append([]logger.Note(nil), notes...),
+	}
+	return &commandReading{result: &blockedResult, event: &event, write: recordSelfProtectBlock}
+}
+
+// readShellShaped reads cmdStr with one shell lane and returns the reading,
+// unwritten, with the writer its path has always used.
+func readShellShaped(cmdStr, cwd, source, sessionID string, notes []logger.Note, lane shellShapedEvaluation) *commandReading {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	failSafe := func(f evalFailure, closer func()) *commandReading {
+		result, event, write := failSafeReading(f, cmdStr, cwd, source, sessionID)
+		return &commandReading{result: result, event: event, write: write, close: closer}
+	}
 
-	// Run enterprise middleware chain (pre-eval)
-	ctx := &enterprise.EvalContext{Command: cmdStr, Cwd: cwd, Source: source}
-	chain := buildMiddlewareChain()
-	if len(chain) > 0 {
-		// Run pre-eval middleware (SelfProtect, BypassGuard)
-		enterprise.RunChain(ctx, chain)
-		if ctx.Blocked {
-			blockedResult := policy.EvalResult{
-				Decision:       policy.DecisionBlock,
-				TriggeredRules: []string{"enterprise-self-protect"},
-				Reasons:        []string{ctx.BlockMsg},
-				Explanation:    ctx.BlockMsg,
-			}
-			event := logger.AuditEvent{
-				Timestamp:      time.Now().UTC().Format(time.RFC3339),
-				Command:        cmdStr,
-				Args:           strings.Fields(cmdStr),
-				Cwd:            cwd,
-				Decision:       "BLOCK",
-				Flagged:        true,
-				TriggeredRules: blockedResult.TriggeredRules,
-				Reasons:        blockedResult.Reasons,
-				Mode:           "managed",
-				Source:         source,
-				SessionID:      sessionID,
-				Principal:      osPrincipal(),
-				Notes:          append([]logger.Note(nil), notes...),
-			}
-			recordSelfProtectBlock(&event)
-			return &blockedResult, &event
+	// #4778: a command past the chain bound is not parsed, by the middleware
+	// or the pipeline (chain_bound.go).
+	if lane.parsesPOSIX {
+		if e := shellparse.CheckChainBound(cmdStr); e != nil {
+			return readPastChainBound(cmdStr, cwd, source, sessionID, notes, e)
 		}
 	}
 
+	if lane.middleware {
+		var blocked *policy.EvalResult
+		var ok bool
+		if e := shellparse.GuardChainBound(cmdStr, func() { blocked, ok = middlewareBlock(cmdStr, cwd, source) }); e != nil {
+			return readPastChainBound(cmdStr, cwd, source, sessionID, notes, e)
+		}
+		if ok {
+			return selfProtectReading(blocked, cmdStr, cwd, source, sessionID, notes)
+		}
+	}
+
+	hookSlowPoint("load")
 	cfg, err := config.Load(policyPath, logPath, mode)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "config load", err: err, notes: notes}, cmdStr, cwd, source, sessionID)
+		return failSafe(evalFailure{stage: "config load", err: err, notes: notes}, nil)
 	}
 
 	auditLogger, err := logger.New(cfg.LogPath)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "audit log init", err: err, cfg: cfg, notes: notes}, cmdStr, cwd, source, sessionID)
+		return failSafe(evalFailure{stage: "audit log init", err: err, cfg: cfg, notes: notes}, nil)
 	}
-	defer func() {
-		_ = auditLogger.Close()
-	}()
+	closeLog := func() { _ = auditLogger.Close() }
 
 	cmdArgs := strings.Fields(cmdStr)
-	normalized := normalize.NormalizeCommand(cmdStr, cwd)
 
 	pol, err := policy.Load(cfg.PolicyPath)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "policy load", err: err, cfg: cfg, log: auditLogger, notes: notes}, cmdStr, cwd, source, sessionID)
+		return failSafe(evalFailure{stage: "policy load", err: err, cfg: cfg, log: auditLogger, notes: notes}, closeLog)
 	}
 	// #3620: on a managed host the local policy cannot weaken the admin's.
 	// Applied to the user file BEFORE packs merge in, so a premium pack's own
@@ -378,13 +522,13 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 		pol = embeddedOnlyPolicy
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: packs load failed: %v — evaluating with base, user and embedded packs only; disk (premium/custom) rules are NOT loaded\n", packsLoadErr)
 		if failClosedEnabled(cfg) {
-			return failSafeDecision(evalFailure{
+			return failSafe(evalFailure{
 				stage: "packs load",
 				err:   fmt.Errorf("disk packs directory unreadable, enforcement would be degraded: %w", packsLoadErr),
 				cfg:   cfg,
 				log:   auditLogger,
 				notes: notes,
-			}, cmdStr, cwd, source, sessionID)
+			}, closeLog)
 		}
 	}
 
@@ -398,14 +542,21 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 		fmt.Fprintf(os.Stderr, "[AgentShield] CRITICAL: pack %q failed to parse — its rules are NOT loaded, enforcement degraded: %v\n", fp.Path, fp.LoadError)
 	}
 	if len(failedPacks) > 0 && failClosedEnabled(cfg) {
-		return failSafeDecision(evalFailure{
+		return failSafe(evalFailure{
 			stage: "policy pack parse",
 			err:   fmt.Errorf("%d policy pack(s) failed to parse; enforcement would be degraded", len(failedPacks)),
 			cfg:   cfg,
 			log:   auditLogger,
 			notes: notes,
-		}, cmdStr, cwd, source, sessionID)
+		}, closeLog)
 	}
+
+	// #4448, #4805: the data labels this call's record is scrubbed with,
+	// compiled once the policy is complete. They scrub the event below, and
+	// every fail-safe reading of the call from here on, the decision
+	// budget's answer included.
+	labels := labelsFor(pol.DataLabels)
+	activeBudget.publishLabels(labels)
 
 	// The mode (#1952) and the CI execution context (#3291) are applied in
 	// assembly.ShellEngine. The context is detected from this process's
@@ -413,10 +564,18 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 	// environment is the ground truth.
 	engine, err := assembly.ShellEngine(pol, cfg.Analyzer.MaxParseDepth, cfg.Mode)
 	if err != nil {
-		return failSafeDecision(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger, notes: notes}, cmdStr, cwd, source, sessionID)
+		return failSafe(evalFailure{stage: "engine init", err: err, cfg: cfg, log: auditLogger, notes: notes, labels: labels}, closeLog)
 	}
 
-	evalResult := engine.EvaluateWithParsedCwd(cmdStr, normalized.Paths, normalized.Parsed, cwd)
+	hookSlowPoint("evaluate")
+	evalResult, err := lane.evaluate(engine, cfg, cmdStr, cwd)
+	if chain, ok := err.(*shellparse.ChainTooLongError); ok {
+		// A derived text past the chain bound (#4778).
+		return failSafe(evalFailure{stage: commandParseStage, err: chain, cfg: cfg, log: auditLogger, notes: withChainTooLongNote(notes, chain), chainTooLong: true}, closeLog)
+	}
+	if err != nil {
+		return failSafe(evalFailure{stage: lane.stage, err: err, cfg: cfg, log: auditLogger, notes: notes, labels: labels}, closeLog)
+	}
 
 	event := logger.AuditEvent{
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
@@ -435,9 +594,10 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 		Notes:            append(auditNotes(evalResult.Notes), notes...),
 	}
 	// #4448: a data-label match must not travel in the record it caused.
-	// Redacted() scrubs the local line and the SaaS payload alike.
-	if scrub := policy.DataLabelScrubber(pol); scrub != nil {
-		event = event.WithScrubber(scrub)
+	// Redacted() scrubs the local line and the SaaS payload alike. A label
+	// set that does not compile never gets here (engine init refuses it).
+	if labels.scrub != nil {
+		event = event.WithScrubber(labels.scrub)
 	}
 	// #4077 pass 1: the fallback above keeps evaluating, so the event must say
 	// it ran degraded. Without this note the SaaS receives an ordinary
@@ -451,21 +611,24 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 		})
 	}
 
-	noteLockUnavailable(&event, auditLogger)
+	write := func(event *logger.AuditEvent) {
+		noteLockUnavailable(event, auditLogger)
 
-	if evalResult.Decision == policy.DecisionBlock || evalResult.Decision == policy.DecisionAudit {
-		event.Flagged = true
+		if event.Decision == string(policy.DecisionBlock) || event.Decision == string(policy.DecisionAudit) {
+			event.Flagged = true
+		}
+		// One redaction for the line and the wire entry (#4781).
+		red := redactForRecord(event)
+		link, err := auditLogger.LogLinkedRedacted(red)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
+		}
+
+		// Queue for the SaaS with the local line's link (#4208). No network
+		// here: a detached uploader sends it (audit_queue.go, #4467).
+		sendRemoteAuditRedacted(red, link)
 	}
-	link, err := auditLogger.LogLinked(event)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
-	}
-
-	// Queue for the SaaS with the local line's link (#4208). No network
-	// here: a detached uploader sends it (audit_queue.go, #4467).
-	sendRemoteAudit(&event, link)
-
-	return &evalResult, &event
+	return &commandReading{result: &evalResult, event: &event, write: write, close: closeLog}
 }
 
 // recordSelfProtectBlock writes a pre-eval (self-protect / bypass-guard) BLOCK
@@ -475,18 +638,25 @@ func evaluateCommandNoted(cmdStr, cwd, source, sessionID string, notes []logger.
 // Best effort: a failure to record never changes the decision.
 func recordSelfProtectBlock(event *logger.AuditEvent) {
 	var link *logger.ChainLink
+	var l *logger.AuditLogger
 	if cfg, err := config.Load(policyPath, logPath, mode); err != nil {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: config load: %v\n", err)
-	} else if l, err := logger.New(cfg.LogPath); err != nil {
+	} else if l, err = logger.New(cfg.LogPath); err != nil {
+		l = nil
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: self-protect block not logged locally: %v\n", err)
 	} else {
 		noteLockUnavailable(event, l)
-		if link, err = l.LogLinked(*event); err != nil {
+	}
+	// One redaction for the line and the wire entry (#4781).
+	red := redactForRecord(event)
+	if l != nil {
+		var err error
+		if link, err = l.LogLinkedRedacted(red); err != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log failed: %v\n", err)
 		}
 		_ = l.Close()
 	}
-	sendRemoteAudit(event, link)
+	sendRemoteAuditRedacted(red, link)
 }
 
 // buildMiddlewareChain assembles the middleware chain based on enterprise config.
@@ -510,16 +680,25 @@ func handleWindsurfHook(input hookInput) error {
 	if cmdStr == "" {
 		return nil
 	}
+	if !routesToShell(route.ToolCall{Harness: route.Windsurf, Tool: input.AgentActionName, OS: hostOS(), HasCommand: true}) {
+		return nil
+	}
 
-	evalResult, _ := evaluateCommand(cmdStr, input.ToolInfo.Cwd, "windsurf-hook", sessionIDFor(input))
+	source, sessionID := "windsurf-hook", sessionIDFor(input)
+	armHookBudget(shellBudgetCall(route.Windsurf, input.AgentActionName, source, sessionID, cmdStr, literalCwd(input.ToolInfo.Cwd), emitWindsurfVerdict))
+	evalResult, _ := evaluateCommand(cmdStr, input.ToolInfo.Cwd, source, sessionID)
+	emitWindsurfVerdict(evalResult)
+	return nil
+}
 
+// emitWindsurfVerdict writes Windsurf's verdict: on a BLOCK the explanation
+// on stderr and exit 2; otherwise nothing.
+func emitWindsurfVerdict(evalResult *policy.EvalResult) {
 	if evalResult.Decision == policy.DecisionBlock {
 		fmt.Fprintf(os.Stderr, "🛑 BLOCKED by AgentShield\n")
 		fmt.Fprintf(os.Stderr, "%s\n", evalResult.Explanation)
 		os.Exit(2)
 	}
-
-	return nil
 }
 
 // handleCursorHook processes Cursor hooks (beforeShellExecution).
@@ -530,9 +709,23 @@ func handleCursorHook(input hookInput) error {
 		outputCursorAllow()
 		return nil
 	}
+	// Both Cursor shapes reaching this handler are its shell event: the
+	// documented one names it, the legacy one is the same event without it.
+	if !routesToShell(route.ToolCall{Harness: route.Cursor, Tool: cursorShellEvent, OS: hostOS(), HasCommand: true}) {
+		outputCursorAllow()
+		return nil
+	}
 
-	evalResult, _ := evaluateCommand(cmdStr, input.Cwd, "cursor-hook", sessionIDFor(input))
+	source, sessionID := "cursor-hook", sessionIDFor(input)
+	armHookBudget(shellBudgetCall(route.Cursor, cursorShellEvent, source, sessionID, cmdStr, literalCwd(input.Cwd), emitCursorVerdict))
+	evalResult, _ := evaluateCommand(cmdStr, input.Cwd, source, sessionID)
+	emitCursorVerdict(evalResult)
+	return nil
+}
 
+// emitCursorVerdict writes Cursor's verdict on stdout: permission deny on a
+// BLOCK, allow otherwise.
+func emitCursorVerdict(evalResult *policy.EvalResult) {
 	if evalResult.Decision == policy.DecisionBlock {
 		output := cursorHookOutput{
 			Continue:     true,
@@ -542,12 +735,14 @@ func handleCursorHook(input hookInput) error {
 		}
 		data, _ := json.Marshal(output)
 		fmt.Println(string(data))
-		return nil
+		return
 	}
-
 	outputCursorAllow()
-	return nil
 }
+
+// cursorShellEvent is Cursor's shell hook event, the routing key of every
+// payload handleCursorHook receives.
+const cursorShellEvent = "beforeShellExecution"
 
 func outputCursorAllow() {
 	output := cursorHookOutput{
@@ -561,18 +756,19 @@ func outputCursorAllow() {
 // handleClaudeCodeHook processes Claude Code and Codex CLI PreToolUse hooks.
 // Both agents emit the same payload shape ({hook_event_name, tool_name,
 // tool_input}); Codex adds turn_id which we use only for audit-log labeling.
-// Only Bash tool calls are evaluated; other tools pass through.
+// The routing table decides which tools are shell calls and which go to MCP
+// policy (handlePreToolUse).
 // Block → print reason to stderr + exit 2. Allow/Audit → exit 0.
 func handleClaudeCodeHook(input hookInput, rawToolInput json.RawMessage) error {
-	return handlePreToolUse(input, rawToolInput, hookSourceFor(input, "claude-code-hook"))
+	return handlePreToolUse(input, rawToolInput, hookSourceFor(input, "claude-code-hook"), claudeShapedHarness(input))
 }
 
 // handleCopilotNativeHook adapts GitHub Copilot CLI's native "preToolUse"
-// dialect (#4251) onto the Claude-shaped core. The shell tools (bash, and
-// powershell on Windows) become Bash; every other runtime tool name is kept
-// and goes through MCP policy — the same mapping as the agentless PowerShell
-// client. toolArgs is decoded exactly as tool_input is, so a malformed shell
-// command takes the fail-safe path in both dialects.
+// dialect (#4251) onto the Claude-shaped core. It keeps the runtime tool
+// name: the routing table sends bash and powershell (and Bash) to the shell
+// pipeline, as the adapter's rename to Bash did before ADR-001, and every
+// other tool to MCP policy. toolArgs is decoded exactly as tool_input is, so
+// a malformed shell command takes the fail-safe path in both dialects.
 func handleCopilotNativeHook(input hookInput, rawToolArgs json.RawMessage) error {
 	adapted := hookInput{
 		HookEventName: "preToolUse",
@@ -580,29 +776,42 @@ func handleCopilotNativeHook(input hookInput, rawToolArgs json.RawMessage) error
 		SessionID:     input.SessionIDNative,
 		Cwd:           input.Cwd,
 	}
-	if adapted.ToolName == "bash" || adapted.ToolName == "powershell" {
-		adapted.ToolName = "Bash"
-	}
 	if len(rawToolArgs) > 0 {
 		if err := json.Unmarshal(rawToolArgs, &adapted.ToolInput); err != nil {
 			return hookInputFailureFor(hookSourceFor(adapted, "copilot-cli-hook"), "hook input parse", err)
 		}
 	}
-	return handlePreToolUse(adapted, rawToolArgs, hookSourceFor(adapted, "copilot-cli-hook"))
+	return handlePreToolUse(adapted, rawToolArgs, hookSourceFor(adapted, "copilot-cli-hook"), route.CopilotCLINative)
 }
 
 // handlePreToolUse is the shared core for every Claude-shaped PreToolUse
-// payload: Claude Code, Codex CLI, and both Copilot CLI dialects.
-func handlePreToolUse(input hookInput, rawToolInput json.RawMessage, source string) error {
-	// Shell commands (Bash tool) → evaluate through the analyzer pipeline
-	if input.ToolName == "Bash" {
-		// A string tool_input is accepted for edits (apply_patch), never for
-		// a shell call: no client sends one, and reading it as an empty
-		// command would pass the call unevaluated and unrecorded. Before
-		// #4251 the shape failed the parse; it still takes the fail-safe path.
-		if input.ToolInput.IsText {
-			return hookInputFailureFor(source, "hook input parse", errors.New("shell tool_input is a string, not an object"))
-		}
+// payload: Claude Code, Codex CLI, and both Copilot CLI dialects. The routing
+// table (internal/route) picks the lanes. A row with more than one lane is
+// read by each and combined (combineLanes, ADR-001 D4); a single-lane row
+// takes that lane's path below, unchanged.
+func handlePreToolUse(input hookInput, rawToolInput json.RawMessage, source string, harness route.Harness) error {
+	call := preToolUseCall(harness, input)
+	lanes := route.Route(call)
+
+	// A string tool_input is accepted for edits (apply_patch), never for a
+	// call only shell lanes read: no client sends one, and reading it as an
+	// empty command would pass the call unevaluated and unrecorded. Before
+	// #4251 the shape failed the parse; it still takes the fail-safe path,
+	// whether the row has one shell lane or two.
+	if input.ToolInput.IsText && shellOnlyLanes(lanes) {
+		return hookInputFailureFor(source, "hook input parse", errors.New("shell tool_input is a string, not an object"))
+	}
+
+	if c, ok := preToolUseBudgetCall(lanes, call, input, rawToolInput, source); ok {
+		armHookBudget(c)
+	}
+
+	if len(lanes) > 1 {
+		return combineLanes(lanes, call, input, rawToolInput, source)
+	}
+
+	// Shell commands → evaluate through the analyzer pipeline
+	if slices.Contains(lanes, route.POSIX) {
 		cmdStr := input.ToolInput.Command
 		if cmdStr == "" {
 			return nil
@@ -613,23 +822,77 @@ func handlePreToolUse(input hookInput, rawToolInput json.RawMessage, source stri
 		// directory (main's behaviour) with a note on the event.
 		cwd, cwdNotes := payloadEvalCwd(input.Cwd)
 		evalResult, _ := evaluateCommandNoted(cmdStr, cwd, source, sessionIDFor(input), cwdNotes)
-		if evalResult.Decision == policy.DecisionBlock {
-			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED this command\n")
-			if len(evalResult.TriggeredRules) > 0 {
-				fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(evalResult.TriggeredRules, ", "))
-			}
-			for _, reason := range evalResult.Reasons {
-				fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
-			}
-			fmt.Fprint(os.Stderr, remediation.SuggestForShell(evalResult.TriggeredRules, cmdStr, enterprise.ManagedHost()))
-			emitCopilotDeny(source, "this command", evalResult.TriggeredRules, evalResult.Reasons)
-			os.Exit(2)
-		}
+		emitShellVerdict(source, cmdStr, evalResult)
 		return nil
 	}
 
-	// MCP tool calls → evaluate through MCP policy
-	return handleClaudeCodeMCPCall(input.ToolName, rawToolInput, source, sessionIDFor(input), input.Cwd)
+	if !slices.Contains(lanes, route.Structured) {
+		return nil // no lane: not evaluated
+	}
+
+	// Tool calls → evaluate through MCP policy. A call carrying command text
+	// that no row names is recorded as a routing gap; the note is evidence,
+	// never a decision input.
+	var routeNotes []logger.Note
+	if route.Gap(call) {
+		routeNotes = append(routeNotes, routingGapNote(call))
+	}
+	return handleClaudeCodeMCPCall(input.ToolName, rawToolInput, source, sessionIDFor(input), input.Cwd, routeNotes)
+}
+
+// claudeShapedHarness names the harness of a Claude-shaped PreToolUse payload
+// the way hookSourceFor labels its audit source: AGENTSHIELD_AGENT_ID first,
+// then Codex's turn_id. A label the routing table does not know is routed as
+// Claude Code.
+func claudeShapedHarness(input hookInput) route.Harness {
+	switch id := agentIDFromEnv(); {
+	case id == "copilot-cli":
+		return route.CopilotCLI
+	case id == "codex", id == "" && input.TurnID != "":
+		return route.Codex
+	}
+	return route.ClaudeCode
+}
+
+// hostOS is the host OS a routing key names (route.ToolCall.OS):
+// runtime.GOOS. It is a variable only so that the internal/cli tests can
+// exercise a Windows row on the macOS and Linux CI (pinTestHostOS, called
+// from the test binary's TestMain). Nothing in the agentshield binary
+// changes it: an environment variable that did would let an agent switch the
+// PowerShell lane off (TestHostOSOverride_ProductionBinaryIgnoresIt).
+var hostOS = func() string { return runtime.GOOS }
+
+// preToolUseCall is the routing key of a Claude-shaped payload: the harness,
+// the tool it names, and this host's OS. The command text is never part of
+// it, only whether there is any.
+func preToolUseCall(harness route.Harness, input hookInput) route.ToolCall {
+	return route.ToolCall{Harness: harness, Tool: input.ToolName, OS: hostOS(), HasCommand: input.ToolInput.Command != ""}
+}
+
+// routesToShell reports whether the table sends c to the shell pipeline.
+func routesToShell(c route.ToolCall) bool {
+	return slices.Contains(route.Route(c), route.POSIX)
+}
+
+// shellOnlyRow reports whether the table sends c to a shell lane and no lane
+// of its row reads a tool call's arguments, so a string tool_input would
+// leave nothing evaluated.
+func shellOnlyRow(c route.ToolCall) bool {
+	return shellOnlyLanes(route.Route(c))
+}
+
+// shellOnlyLanes is shellOnlyRow for a row already looked up: a shell lane
+// (POSIX or PowerShell, which read the command text) and no Structured lane.
+func shellOnlyLanes(lanes []route.Lane) bool {
+	shell := slices.Contains(lanes, route.POSIX) || slices.Contains(lanes, route.PowerShell)
+	return shell && !slices.Contains(lanes, route.Structured)
+}
+
+// routingGapNote records a tool call that carried command text no shell lane
+// read (ADR-001 D5).
+func routingGapNote(c route.ToolCall) logger.Note {
+	n := assembly.RoutingGapNote(c)
+	return logger.Note{Kind: n.Kind, Rule: n.Rule, Detail: n.Detail}
 }
 
 // agentIDPattern bounds AGENTSHIELD_AGENT_ID to a plain label, so the value
@@ -705,33 +968,95 @@ func stringToolInputArguments(raw json.RawMessage) (map[string]interface{}, bool
 // the harness session identifier, carried onto the same audit event so shell
 // and MCP evaluations from one session correlate (issue #3111). cwd is the
 // payload's session directory, against which a relative write target resolves.
-func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, source, sessionID, cwd string) error {
+func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, source, sessionID, cwd string, routeNotes []logger.Note) error {
+	r := readToolCall(toolName, rawToolInput, source, sessionID, cwd, routeNotes)
+	r.record(nil)
+	r.emit()
+	return nil
+}
+
+// toolCallReading is one MCP-policy evaluation of a tool call, held before it
+// is recorded: the result, everything auditMCPCall writes with it, and the
+// verdict output of the step that decided it. Building one writes no audit
+// event; record does, and emit writes the verdict (exit 2 on a BLOCK).
+type toolCallReading struct {
+	toolName  string
+	arguments map[string]interface{}
+	result    mcp.MCPEvalResult
+	source    string
+	mode      string // the mode recorded on the event: "managed" for the two pre-policy BLOCKs
+	sessionID string
+	auditCwd  string
+	notes     []logger.Note
+	errText   string // the failure on a fail-safe reading's event; "" for an evaluation
+	emitFor   func(r *toolCallReading)
+}
+
+// record writes the reading's audit event, with extra notes after its own.
+// extra is nil for a call one lane decides, so its event is the one
+// handleClaudeCodeMCPCall has always written. It claims the call first, as
+// commandReading.record does.
+func (r *toolCallReading) record(extra []logger.Note) {
+	activeBudget.claimForEvaluation()
+	r.write(extra)
+}
+
+// write is record without the claim: the decision budget's watchdog, which
+// holds the claim already, records through it (answer).
+func (r *toolCallReading) write(extra []logger.Note) {
+	notes := r.notes
+	if len(extra) > 0 {
+		notes = append(slices.Clone(r.notes), extra...)
+	}
+	auditMCPCallErr(r.toolName, r.arguments, r.result, r.source, r.mode, r.sessionID, r.auditCwd, notes, r.errText)
+}
+
+// answer records the reading and writes its verdict, for a caller that
+// already holds the call's claim.
+func (r *toolCallReading) answer() {
+	r.write(nil)
+	r.emit()
+}
+
+// emit writes the verdict of the step that decided the reading.
+func (r *toolCallReading) emit() { r.emitFor(r) }
+
+// toolCallArguments parses tool_input as the argument map MCP policy reads;
+// fromText reports a string tool_input (stringToolInputArguments).
+func toolCallArguments(rawToolInput json.RawMessage) (arguments map[string]interface{}, fromText bool) {
+	if len(rawToolInput) > 0 {
+		if textArgs, ok := stringToolInputArguments(rawToolInput); ok {
+			return textArgs, true
+		}
+		_ = json.Unmarshal(rawToolInput, &arguments)
+	}
+	return arguments, false
+}
+
+// readToolCall is handleClaudeCodeMCPCall up to the point it writes.
+func readToolCall(toolName string, rawToolInput json.RawMessage, source, sessionID, cwd string, routeNotes []logger.Note) *toolCallReading {
 	// #4452: the event records the directory the shell path evaluates
 	// against — the payload cwd when usable, else the process directory with
 	// a note. The managed config-write check below keeps reading the raw
 	// payload cwd, exactly as before: routing it through the fallback would
 	// change which file a relative write target names for a malformed cwd.
 	auditCwd, auditCwdNotes := payloadEvalCwd(cwd)
+	// routeNotes (a routing gap, ADR-001) go on every event this call
+	// records, after the cwd notes. Evidence only: no decision reads them.
+	eventNotes := append(slices.Clone(auditCwdNotes), routeNotes...)
 
-	// Parse tool_input as map for MCP evaluation
-	var arguments map[string]interface{}
-	fromText := false
-	if len(rawToolInput) > 0 {
-		if textArgs, ok := stringToolInputArguments(rawToolInput); ok {
-			arguments, fromText = textArgs, true
-		} else {
-			_ = json.Unmarshal(rawToolInput, &arguments)
-		}
+	arguments, fromText := toolCallArguments(rawToolInput)
+
+	reading := func(result mcp.MCPEvalResult, mode string, emit func(*toolCallReading)) *toolCallReading {
+		return &toolCallReading{toolName: toolName, arguments: arguments, result: result, source: source,
+			mode: mode, sessionID: sessionID, auditCwd: auditCwd, notes: eventNotes, emitFor: emit}
 	}
 
 	// #4260: on a managed host a harness's own write tool may not touch the
 	// config directory. Checked first, like the shell path's SelfProtect
 	// middleware: it needs no policy, so a broken ruleset cannot switch it off.
 	if result, blocked := managedConfigToolWrite(toolName, arguments, fromText, cwd); blocked {
-		auditMCPCall(toolName, arguments, result, source, "managed", sessionID, auditCwd, auditCwdNotes)
-		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED tool call: %s\n   Rule: %s\n   Reason: %s\n", toolName, strings.Join(result.TriggeredRules, ", "), result.Reasons[0])
-		emitCopilotDeny(source, "tool call: "+toolName, result.TriggeredRules, result.Reasons)
-		os.Exit(2)
+		return reading(result, "managed", emitManagedToolWriteBlock)
 	}
 
 	loaded := loadDeployedMCPPolicy("")
@@ -748,6 +1073,15 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 		modeForAudit = cfg.Mode
 	}
 
+	// #4645: the customer's protected_paths (policy.yaml and packs, as the
+	// shell path loads them) apply to the tool call's file-path arguments. A
+	// layer that cannot be read degrades this ruleset like a broken MCP pack.
+	shellProtected, ppWarnings := shellProtectedPathsFor(cfg)
+	for _, w := range ppWarnings {
+		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %s\n", w)
+	}
+	loaded.Warnings = append(loaded.Warnings, ppWarnings...)
+
 	// The MCP path had no fail-closed boundary (adversarial review of #3622,
 	// 2026-09-02): the config error was discarded, and a corrupt MCP policy or
 	// pack became a warning plus a silent fallback to whatever loaded. Same
@@ -760,10 +1094,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 				TriggeredRules: []string{failClosedRuleID},
 				Reasons:        []string{"AgentShield: MCP ruleset failed to load — blocking (fail_closed enabled): " + degraded},
 			}
-			auditMCPCall(toolName, arguments, result, source, "managed", sessionID, auditCwd, auditCwdNotes)
-			fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n   Reason: %s\n", toolName, result.Reasons[0])
-			emitCopilotDeny(source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
-			os.Exit(2)
+			return reading(result, "managed", emitMCPFailClosedBlock)
 		}
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: MCP ruleset degraded (%s) — evaluated against what loaded (fail-safe default, not enforced as configured)\n", degraded)
 	}
@@ -774,7 +1105,14 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 	// B1): in audit-only mode a BLOCK on AgentShield's own configuration or an
 	// agent hook file still blocks. The downgrade used to happen inside the
 	// evaluator, which lowered those BLOCKs too.
-	evaluator := assembly.MCPEvaluator(loaded.Policy, "")
+	//
+	// #4653: the protected-path check resolves file-path arguments against
+	// the directory the shell path evaluates in: the payload's cwd when
+	// usable (payloadEvalCwd, #4452), else this process's, as
+	// evaluateCommand falls back. A relative customer pattern then matches
+	// the absolute paths Claude Code sends.
+	evaluator := assembly.MCPEvaluator(loaded.Policy, shellProtected, "").InWorkingDir(toolCallWorkDir(auditCwd))
+	hookSlowPoint("evaluate")
 	result := evaluator.EvaluateToolCall(toolName, arguments)
 
 	// #4351: Claude Code names an MCP server's tool mcp__<server>__<tool>, and
@@ -786,10 +1124,34 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 		result = mcp.PreferBlockingBareResult(result, evaluator.EvaluateToolCall(bare, arguments))
 	}
 	result = evaluator.ApplyModeKeepingSelfProtection(result, modeForAudit, toolName, arguments)
+	return reading(result, modeForAudit, emitMCPPolicyVerdict)
+}
 
-	// Audit log
-	auditMCPCall(toolName, arguments, result, source, modeForAudit, sessionID, auditCwd, auditCwdNotes)
+// emitManagedToolWriteBlock is the verdict of the managed-host tool-write
+// check (#4260).
+func emitManagedToolWriteBlock(r *toolCallReading) {
+	if r.result.Decision != policy.DecisionBlock {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED tool call: %s\n   Rule: %s\n   Reason: %s\n", r.toolName, strings.Join(r.result.TriggeredRules, ", "), r.result.Reasons[0])
+	emitCopilotDeny(r.source, "tool call: "+r.toolName, r.result.TriggeredRules, r.result.Reasons)
+	os.Exit(2)
+}
 
+// emitMCPFailClosedBlock is the verdict of a degraded MCP ruleset under
+// managed fail_closed.
+func emitMCPFailClosedBlock(r *toolCallReading) {
+	if r.result.Decision != policy.DecisionBlock {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n   Reason: %s\n", r.toolName, r.result.Reasons[0])
+	emitCopilotDeny(r.source, "MCP tool call: "+r.toolName, r.result.TriggeredRules, r.result.Reasons)
+	os.Exit(2)
+}
+
+// emitMCPPolicyVerdict is the verdict of an MCP policy evaluation.
+func emitMCPPolicyVerdict(r *toolCallReading) {
+	result, toolName := r.result, r.toolName
 	if result.Decision == policy.DecisionBlock {
 		fmt.Fprintf(os.Stderr, "🛡️ AgentShield BLOCKED MCP tool call: %s\n", toolName)
 		if len(result.TriggeredRules) > 0 {
@@ -799,7 +1161,7 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 			fmt.Fprintf(os.Stderr, "   Reason: %s\n", reason)
 		}
 		fmt.Fprint(os.Stderr, remediation.SuggestForMCP(result.TriggeredRules, enterprise.ManagedHost()))
-		emitCopilotDeny(source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
+		emitCopilotDeny(r.source, "MCP tool call: "+toolName, result.TriggeredRules, result.Reasons)
 		os.Exit(2)
 	}
 
@@ -815,8 +1177,6 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 			fmt.Fprintf(os.Stderr, "   Rule: %s\n", strings.Join(result.TriggeredRules, ", "))
 		}
 	}
-
-	return nil
 }
 
 // auditMCPCall writes an audit log entry for an MCP tool call evaluation.
@@ -830,6 +1190,12 @@ func handleClaudeCodeMCPCall(toolName string, rawToolInput json.RawMessage, sour
 // cwd is the evaluation directory (payloadEvalCwd, #4452); "" records the
 // process directory, as every MCP event did before. notes go on the event.
 func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.MCPEvalResult, hookSource, enforcementMode, sessionID, cwd string, notes []logger.Note) {
+	auditMCPCallErr(toolName, arguments, result, hookSource, enforcementMode, sessionID, cwd, notes, "")
+}
+
+// auditMCPCallErr is auditMCPCall for a fail-safe reading: errText is the
+// failure it records on the event's error field ("" for an evaluation).
+func auditMCPCallErr(toolName string, arguments map[string]interface{}, result mcp.MCPEvalResult, hookSource, enforcementMode, sessionID, cwd string, notes []logger.Note, errText string) {
 	home, _ := os.UserHomeDir()
 	logPath := filepath.Join(home, ".agentshield", "audit.jsonl")
 	// "<agent>-hook" becomes "<agent>-mcp-hook" (claude-code, codex,
@@ -865,6 +1231,7 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 		Source:           source,
 		SessionID:        sessionID,
 		Principal:        osPrincipal(),
+		Error:            errText,
 		Notes:            append([]logger.Note(nil), notes...),
 	}
 	// An unopenable local log still sends the event to the SaaS, with no
@@ -872,17 +1239,19 @@ func auditMCPCall(toolName string, arguments map[string]interface{}, result mcp.
 	// path does in failSafeDecision (#4470).
 	auditLogger, err := logger.New(logPath)
 	if err != nil {
-		sendRemoteAudit(&event, nil)
+		sendRemoteAuditRedacted(redactForRecord(&event), nil)
 		return
 	}
 	defer func() { _ = auditLogger.Close() }()
 
 	noteLockUnavailable(&event, auditLogger)
-	link, _ := auditLogger.LogLinked(event)
+	// One redaction for the line and the wire entry (#4781).
+	red := redactForRecord(&event)
+	link, _ := auditLogger.LogLinkedRedacted(red)
 
 	// Queue for the SaaS with the local line's link (#4208; audit_queue.go,
 	// #4467).
-	sendRemoteAudit(&event, link)
+	sendRemoteAuditRedacted(red, link)
 }
 
 // lockNoteSource is the slice of the audit logger noteLockUnavailable needs.
@@ -909,10 +1278,11 @@ func noteLockUnavailable(event *logger.AuditEvent, l lockNoteSource) {
 }
 
 // handleGeminiCLIHook processes Gemini CLI BeforeTool hooks.
-// Only run_shell_command tool calls are evaluated; other tools pass through.
+// The routing table sends run_shell_command to the shell pipeline; other
+// tools pass through.
 // Responds with JSON {"decision": "allow"} or {"decision": "deny", "reason": "..."} on stdout.
 func handleGeminiCLIHook(input hookInput) error {
-	if input.ToolName != "run_shell_command" {
+	if !routesToShell(route.ToolCall{Harness: route.GeminiCLI, Tool: input.ToolName, OS: hostOS(), HasCommand: input.ToolInput.Command != ""}) {
 		outputGeminiAllow()
 		return nil
 	}
@@ -924,8 +1294,16 @@ func handleGeminiCLIHook(input hookInput) error {
 	}
 
 	cwd := input.ToolInput.DirPath
-	evalResult, _ := evaluateCommand(cmdStr, cwd, "gemini-cli-hook", sessionIDFor(input))
+	source, sessionID := "gemini-cli-hook", sessionIDFor(input)
+	armHookBudget(shellBudgetCall(route.GeminiCLI, input.ToolName, source, sessionID, cmdStr, literalCwd(cwd), emitGeminiVerdict))
+	evalResult, _ := evaluateCommand(cmdStr, cwd, source, sessionID)
+	emitGeminiVerdict(evalResult)
+	return nil
+}
 
+// emitGeminiVerdict writes Gemini CLI's verdict on stdout: decision deny on a
+// BLOCK, allow otherwise.
+func emitGeminiVerdict(evalResult *policy.EvalResult) {
 	if evalResult.Decision == policy.DecisionBlock {
 		output := geminiHookOutput{
 			Decision:      "deny",
@@ -934,11 +1312,9 @@ func handleGeminiCLIHook(input hookInput) error {
 		}
 		data, _ := json.Marshal(output)
 		fmt.Println(string(data))
-		return nil
+		return
 	}
-
 	outputGeminiAllow()
-	return nil
 }
 
 func outputGeminiAllow() {

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 )
@@ -128,6 +129,17 @@ func ScanResourcesListResponse(result *ResourcesListResult) ResourceListScanResu
 		// Title is display text a host renders beside the name (#4159).
 		if f := scanMetadataField("title", resource.Title); f != nil {
 			scanResult.Findings = append(scanResult.Findings, *f)
+		}
+		// mimeType and the entry's own _meta reach the model too: Claude Code's
+		// ListMcpResourcesTool hands it each whole entry as JSON (#4564).
+		if f := scanMetadataField("mimeType", resource.MIMEType); f != nil {
+			scanResult.Findings = append(scanResult.Findings, *f)
+		}
+		for _, text := range entryMetaScanTexts(resource.Meta) {
+			if f := scanMetadataField("_meta", text); f != nil {
+				scanResult.Findings = append(scanResult.Findings, *f)
+				break
+			}
 		}
 	}
 
@@ -278,6 +290,20 @@ func checkResourceEntryMetadata(name, description string) []ResourceListFinding 
 		findings = append(findings, *f)
 	}
 	return findings
+}
+
+// entryMetaScanTexts returns the texts to scan for a list entry's `_meta`: the
+// raw bytes, plus the decoded view when they carry an escape. Two scans, never
+// one concatenation (see decodedJSONScanText).
+func entryMetaScanTexts(meta json.RawMessage) []string {
+	if len(meta) == 0 || string(meta) == "null" {
+		return nil
+	}
+	texts := []string{string(meta)}
+	if decoded, ok := decodedJSONScanText(meta); ok {
+		texts = append(texts, decoded)
+	}
+	return texts
 }
 
 // scanMetadataField checks a single resource metadata field (name or description) against

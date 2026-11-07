@@ -83,8 +83,7 @@ func NormalizeBraceWordList(command string) string {
 		return ""
 	}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return ""
 	}

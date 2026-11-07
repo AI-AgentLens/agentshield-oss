@@ -15,7 +15,7 @@ agentshield version
 
 If not installed:
 ```bash
-brew tap AI-AgentLens/oss && brew install agentshield
+brew install ai-agentlens/oss/agentshield
 ```
 
 ---
@@ -91,7 +91,7 @@ For known IDEs, use the built-in setup:
 agentshield setup claude-code  # Claude Code — PreToolUse hook (native)
 agentshield setup windsurf     # Windsurf — Cascade Hooks
 agentshield setup cursor       # Cursor — beforeShellExecution hook
-agentshield setup openclaw     # OpenClaw — Agent Bootstrap Hook
+agentshield setup openclaw     # OpenClaw — bootstrap notice only; NOT enforcement (#4582)
 ```
 
 On a managed host, also register the Claude Code hook in Claude Code's managed
@@ -101,7 +101,12 @@ settings. A hook there keeps running when a repository's committed
 `sudo agentshield setup claude-code --write-managed` to merge it into this
 machine's file. The README section
 [Register the Claude Code hook in managed settings](../README.md#register-the-claude-code-hook-in-managed-settings)
-gives the paths and the merge rules.
+gives the paths and the merge rules. When `managed.json` sets `fail_closed`,
+the user-scope entry carries `"onFailure": "block"`, and the managed entry does
+when you pass `--on-failure-block`. Claude Code then blocks a tool call whose
+hook cannot start, crashes or times out, and blocks every call while the
+agentshield binary is missing. Before uninstalling, unenroll the machine and
+run `sudo agentshield setup claude-code --remove-managed`.
 
 ### Step 3: Generic integration (any environment)
 
@@ -273,6 +278,8 @@ To fully remove hooks for a specific IDE, use the IDE-specific disable flag:
 agentshield setup claude-code --disable
 agentshield setup mcp --disable         # restore original MCP configs
 ```
+
+On a managed host every one of these is refused (exit 1), `setup mcp --disable` included. A host is managed when `managed.json` says so under `$HOME` or under the account's home directory from the system's user database, so pointing `HOME` somewhere else does not lift the refusal. That holds on macOS, and on Linux for an account listed in `/etc/passwd`; for an account the release build cannot find there (a directory-service user), the lookup falls back to `$HOME`. If the lookup fails outright, only `managed.json` under `$HOME` counts. Every `setup` command refuses to run with `HOME` empty or unset (exit 1).
 
 ---
 

@@ -6,12 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/AI-AgentLens/agentshield/internal/assembly"
 	"github.com/AI-AgentLens/agentshield/internal/config"
-	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -55,6 +55,12 @@ Examples:
   # Run a fixture of TP/TN cases (for CI and local iteration)
   agentshield check --fixture ./packs/destructive_ops.test.yaml
 
+  # A case can name the rule it tests: "fires: co-block-prod-db" passes only
+  # when that rule triggers, "silent: co-block-prod-db" only when it does not.
+  # Use these for custom rules: built-in packs still apply, so a decision
+  # alone can pass without your rule ever firing. A pack's protected_paths
+  # are tested as the built-in rule: "fires: protected-path".
+
   # Diagnose a command the IDE hook just blocked. --shell puts the command in
   # argv, where the hook sees it and blocks the diagnosis too (#3302); reading
   # it from a file keeps the flagged text out of argv entirely.
@@ -67,11 +73,14 @@ func init() {
 	checkCmd.Flags().StringVar(&checkShellFile, "shell-file", "", "File containing the shell command to evaluate (NOT executed); keeps the command text out of argv so the IDE hook cannot block the diagnosis itself")
 	checkCmd.Flags().StringVar(&checkPolicyPath, "policy", "", "Policy YAML to use instead of ~/.agentshield/policy.yaml (also skips deployed ~/.agentshield/packs, so the named file is not shadowed)")
 	checkCmd.Flags().StringVar(&checkFixture, "fixture", "", "Fixture YAML file containing test cases")
-	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "Output format: text or json (only with --shell)")
+	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "Output format: text or json (with --shell or --shell-file)")
 	rootCmd.AddCommand(checkCmd)
 }
 
 func checkRun(cmd *cobra.Command, args []string) error {
+	// Flags parsed; a policy that will not load is not a usage error (#4739).
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true // main prints the returned error
 	if err := resolveShellFile(); err != nil {
 		return err
 	}
@@ -169,6 +178,18 @@ func resolveShellFile() error {
 // against a fresh build per command.
 type checkEngine struct {
 	engine *policy.Engine
+	// probe answers a fixture case's fires/silent. It loads the named policy
+	// file with every one of its rules raised to BLOCK, so a stricter rule
+	// elsewhere (an embedded pack, a built-in analyzer) cannot drop a match
+	// from the triggered rules: the combiner keeps only the winning decision's
+	// rules. A rule's decision does not change what it matches. Nil when no
+	// policy file was named.
+	probe *policy.Engine
+	// probeIDs holds the named policy file's rule ids. A fires or silent
+	// naming any other id is an error: silent on a misspelled id would pass
+	// forever, testing nothing.
+	probeIDs map[string]bool
+	mode     string
 }
 
 func evaluateShellCommand(command, policyFileOverride string) (policy.EvalResult, error) {
@@ -206,11 +227,50 @@ func newCheckEngine(policyFileOverride string) (*checkEngine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create policy engine: %w", err)
 	}
-	return &checkEngine{engine: engine}, nil
+	return &checkEngine{engine: engine, mode: checkMode}, nil
+}
+
+// protectedPathRuleID is the rule id a protected_paths match reports.
+const protectedPathRuleID = "protected-path"
+
+// addProbe builds the probe engine from the named policy file. Fixture mode
+// calls it only when a case uses fires or silent.
+func (ce *checkEngine) addProbe(policyFile string) error {
+	pol, err := policy.Load(policyFile)
+	if err != nil {
+		return fmt.Errorf("failed to load policy from %s: %w", policyFile, err)
+	}
+	ce.probeIDs = make(map[string]bool, len(pol.Rules)+1)
+	for i := range pol.Rules {
+		pol.Rules[i].Decision = policy.DecisionBlock
+		ce.probeIDs[pol.Rules[i].ID] = true
+	}
+	// A pack's defaults.protected_paths fire as the built-in "protected-path"
+	// rule, so a test of a protected path names that id.
+	ce.probeIDs[protectedPathRuleID] = true
+	pol, _, _ = policy.LoadEmbeddedShellPacks(pol)
+	ce.probe, err = assembly.ShellEngine(pol, defaultMaxParseDepth(), ce.mode)
+	if err != nil {
+		return fmt.Errorf("failed to create probe engine: %w", err)
+	}
+	return nil
 }
 
 // evaluate runs one command through the loaded engine.
 func (ce *checkEngine) evaluate(command string) policy.EvalResult {
+	return evaluateWith(ce.engine, command)
+}
+
+// namedRules returns the rules a fires/silent case is judged on: the probe's
+// when a policy file was named, else the engine's.
+func (ce *checkEngine) namedRules(command string, full policy.EvalResult) []string {
+	if ce.probe == nil {
+		return full.TriggeredRules
+	}
+	return evaluateWith(ce.probe, command).TriggeredRules
+}
+
+func evaluateWith(engine *policy.Engine, command string) policy.EvalResult {
 	// Mirror the IDE hook's evaluation path exactly so `check` is a faithful
 	// dev-loop predictor of production behavior:
 	//   1. Use NormalizeCommand, which tokenizes internally (strings.Fields) so
@@ -230,9 +290,15 @@ func (ce *checkEngine) evaluate(command string) policy.EvalResult {
 	// (checkProtectedPaths also matches a path under cwd, made cwd-relative,
 	// against a relative pattern), so check and the hook agree either way —
 	// see TestEvaluateShellCommand_CwdParity.
+	//
+	// A command past the chain bound, or a text a reading derived from it, is
+	// decided as the hook decides it, without parsing (#4778, chain_bound.go).
 	cwd, _ := os.Getwd()
-	normalized := normalize.NormalizeCommand(command, cwd)
-	return ce.engine.EvaluateWithParsedCwd(command, normalized.Paths, normalized.Parsed, cwd)
+	r, chain := readPOSIXText(engine, command, cwd)
+	if chain != nil {
+		return pastChainBoundResult(chain, nil)
+	}
+	return r
 }
 
 func printShellResult(w io.Writer, r policy.EvalResult) {
@@ -250,6 +316,9 @@ func printShellResult(w io.Writer, r policy.EvalResult) {
 	}
 	for _, n := range r.Notes {
 		_, _ = fmt.Fprintf(w, "  Note: %s%s%s\n", n.Kind, optField(" rule=", n.Rule), optField(" ", n.Detail))
+	}
+	if len(r.TriggeredRules) > 0 && len(r.TaxonomyRefs) == 0 {
+		_, _ = fmt.Fprintln(w, "  Note: no rule here names a taxonomy node, so this decision's record maps to no compliance control. If it's your rule, add `taxonomy:`.")
 	}
 }
 
@@ -298,7 +367,7 @@ func loadCheckPolicy(policyFileOverride string) (*policy.Policy, string, error) 
 
 	pol, err := policy.Load(basePath)
 	if err != nil {
-		return nil, basePath, fmt.Errorf("failed to load policy from %s: %w", basePath, err)
+		return nil, basePath, unreadablePolicyError(basePath, err)
 	}
 
 	pol, embeddedInfos, _ := policy.LoadEmbeddedShellPacks(pol)
@@ -393,6 +462,12 @@ type fixtureCase struct {
 	Name   string `yaml:"name"`
 	Shell  string `yaml:"shell"`
 	Expect string `yaml:"expect"`
+	// Fires and Silent name the rule a case is about. Embedded packs still
+	// apply under --policy, so an expected decision can be met by a built-in
+	// rule while the rule under test never fires; naming the rule closes that
+	// gap. When either is set, Expect is optional.
+	Fires  string `yaml:"fires,omitempty"`
+	Silent string `yaml:"silent,omitempty"`
 }
 
 type fixtureReport struct {
@@ -405,12 +480,30 @@ type fixtureReport struct {
 type fixtureCaseResult struct {
 	name    string
 	line    int
-	expect  policy.Decision
+	expect  policy.Decision // empty when the case only names a rule
 	actual  policy.Decision
 	pass    bool
 	err     error // parse/eval-time error
 	rules   []string
 	reasons []string
+	fires   string
+	silent  string
+	named   []string // rules that matched, for fires/silent (see checkEngine.probe)
+}
+
+// failures lists why a case failed, in the order expect, fires, silent.
+func (r fixtureCaseResult) failures() []string {
+	var why []string
+	if r.expect != "" && r.actual != r.expect {
+		why = append(why, fmt.Sprintf("expected %s, got %s", r.expect, r.actual))
+	}
+	if r.fires != "" && !slices.Contains(r.named, r.fires) {
+		why = append(why, fmt.Sprintf("expected rule %s to fire", r.fires))
+	}
+	if r.silent != "" && slices.Contains(r.named, r.silent) {
+		why = append(why, fmt.Sprintf("expected rule %s to stay silent", r.silent))
+	}
+	return why
 }
 
 func runFixtureFile(fixturePath, policyFileOverride string) (fixtureReport, error) {
@@ -449,19 +542,44 @@ func runFixtureFile(fixturePath, policyFileOverride string) (fixtureReport, erro
 	// recorded on every case, exactly as the per-case build used to report it,
 	// so the report shape and the exit code are unchanged.
 	ce, engineErr := newCheckEngine(policyPathToUse)
+	if engineErr == nil && policyPathToUse != "" && slices.ContainsFunc(fix.Cases, func(c fixtureCase) bool {
+		return c.Fires != "" || c.Silent != ""
+	}) {
+		engineErr = ce.addProbe(policyPathToUse)
+	}
 
 	for i, c := range fix.Cases {
 		line := 0
 		if i < len(caseLines) {
 			line = caseLines[i]
 		}
-		expectedDecision, parseErr := parseExpectedDecision(c.Expect)
-		if parseErr != nil {
-			report.results = append(report.results, fixtureCaseResult{
-				name: c.Name, line: line, err: parseErr,
-			})
-			report.failed++
-			continue
+		var expectedDecision policy.Decision
+		if c.Expect != "" || (c.Fires == "" && c.Silent == "") {
+			d, parseErr := parseExpectedDecision(c.Expect)
+			if parseErr != nil {
+				report.results = append(report.results, fixtureCaseResult{
+					name: c.Name, line: line, err: parseErr,
+				})
+				report.failed++
+				continue
+			}
+			expectedDecision = d
+		}
+		if engineErr == nil && ce.probeIDs != nil {
+			var unknown string
+			for _, id := range []string{c.Fires, c.Silent} {
+				if id != "" && !ce.probeIDs[id] {
+					unknown = id
+				}
+			}
+			if unknown != "" {
+				report.results = append(report.results, fixtureCaseResult{
+					name: c.Name, line: line,
+					err: fmt.Errorf("rule %q is not in %s", unknown, policyPathToUse),
+				})
+				report.failed++
+				continue
+			}
 		}
 
 		if engineErr != nil {
@@ -478,10 +596,15 @@ func runFixtureFile(fixturePath, policyFileOverride string) (fixtureReport, erro
 			line:    line,
 			expect:  expectedDecision,
 			actual:  evalResult.Decision,
-			pass:    evalResult.Decision == expectedDecision,
 			rules:   evalResult.TriggeredRules,
 			reasons: evalResult.Reasons,
+			fires:   c.Fires,
+			silent:  c.Silent,
 		}
+		if c.Fires != "" || c.Silent != "" {
+			res.named = ce.namedRules(c.Shell, evalResult)
+		}
+		res.pass = len(res.failures()) == 0
 		if res.pass {
 			report.passed++
 		} else {
@@ -546,8 +669,8 @@ func printFixtureReport(w io.Writer, r fixtureReport) {
 		case res.pass:
 			_, _ = fmt.Fprintf(w, "  PASS  %s (%s)\n", res.name, res.actual)
 		default:
-			_, _ = fmt.Fprintf(w, "%s:%d: FAIL %s — expected %s, got %s\n",
-				r.path, res.line, res.name, res.expect, res.actual)
+			_, _ = fmt.Fprintf(w, "%s:%d: FAIL %s — %s\n",
+				r.path, res.line, res.name, strings.Join(res.failures(), "; "))
 			if len(res.rules) > 0 {
 				_, _ = fmt.Fprintf(w, "        rules: %s\n", strings.Join(res.rules, ", "))
 			}

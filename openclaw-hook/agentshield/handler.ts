@@ -1,13 +1,10 @@
 /**
  * AgentShield Hook for OpenClaw
  *
- * Injects security-aware bootstrap instructions into the agent context.
- * On agent:bootstrap, adds an AGENTSHIELD.md file that tells the agent
- * a PreToolUse hook will evaluate every command through AgentShield's
- * 7-layer pipeline before the host executes it. The agent does NOT wrap
- * commands — AgentShield is evaluation-only and never executes (see the
- * removed `agentshield run` subcommand: it was taken out after an
- * `agentshield run -- rm -rf /` incident wiped a user's data).
+ * Injects a notice into the agent context on agent:bootstrap. This is NOT
+ * enforcement: OpenClaw sends no tool call to `agentshield hook`, so no
+ * command is evaluated (#4582). The notice says so, rather than telling the
+ * agent a hook is checking its commands.
  */
 
 import { readFileSync } from "fs";
@@ -51,14 +48,12 @@ const handler = async (event: any) => {
   } catch {
     // Fallback inline content if file not found
     bootstrapContent = [
-      "# AgentShield — Runtime Security",
+      "# AgentShield — Notice",
       "",
-      "A PreToolUse hook evaluates every shell command and MCP tool call",
-      "through AgentShield's 7-layer pipeline before the host executes it.",
-      "Issue commands normally — you do NOT need to wrap or prefix anything.",
-      "",
-      "If AgentShield blocks a command, do NOT retry or rephrase to bypass it.",
-      "Report the block (rule ID + reason) to the user and ask for guidance.",
+      "AgentShield is installed, but it is NOT evaluating commands in this",
+      "OpenClaw session: no shell command or tool call is sent to it.",
+      "Do not treat the absence of a block as a safety signal. Ask the user",
+      "before running destructive or credential-touching commands.",
     ].join("\n");
   }
 

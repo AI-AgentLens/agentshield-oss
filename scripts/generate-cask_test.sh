@@ -95,6 +95,35 @@ fi
 echo "caveats"
 has "caveats name the zap uninstall" "$CASK" "brew uninstall --zap --cask agentshield"
 
+# Homebrew 7.0.0 deprecated the Ruby flight blocks (Homebrew/brew#23729): every
+# command that loads the cask printed a warning, and the next minor release
+# makes it an error. The structured steps replace them.
+echo "flight steps"
+if grep -qE '^  (uninstall_)?(preflight|postflight) do' "$CASK"; then
+  bad "cask has a Ruby flight block: $(grep -nE '^  (uninstall_)?(preflight|postflight) do' "$CASK")"
+else
+  ok "no Ruby flight block"
+fi
+has "preflight_steps emitted" "$CASK" "  preflight_steps do"
+has "postflight_steps emitted" "$CASK" "  postflight_steps do"
+sed -n '/^  preflight_steps do/,/^  end$/p' "$CASK" > "$TMP/preflight.rb"
+[ -s "$TMP/preflight.rb" ] || bad "could not isolate preflight_steps"
+# The uid must reach the client unexpanded: an unescaped \$( in the generator's
+# heredoc would bake the release machine's uid into every customer's cask.
+has "bootout resolves the uid on the client" "$TMP/preflight.rb" \
+  '"exec /bin/launchctl bootout gui/$(/usr/bin/id -u)/com.aiagentlens.agentshield"'
+has "bootout failure stays non-fatal" "$TMP/preflight.rb" "must_succeed: false"
+# Steps run in Homebrew's sandbox with a throwaway HOME, where ~ names the
+# wrong directory; base: :home is the real one.
+has "plist guard is home-based" "$TMP/preflight.rb" \
+  'if_path_exists "Library/LaunchAgents/com.aiagentlens.agentshield.plist", base: :home do'
+has "plist removal is home-based" "$TMP/preflight.rb" \
+  'remove "Library/LaunchAgents/com.aiagentlens.agentshield.plist", base: :home'
+if grep -q '~/' "$TMP/preflight.rb"; then bad "preflight_steps names a ~ path"; else ok "preflight_steps names no ~ path"; fi
+for b in agentshield agentcompliance; do
+  has "postflight clears quarantine on $b via the staged_path token" "$CASK" "\"{{staged_path}}/$b\"]"
+done
+
 # --- run the zap script against a fake binary --------------------------------
 # The script body is the Ruby heredoc between <<~'SH' and SH. A single-quoted
 # heredoc is taken literally, so this is the exact text /bin/sh receives.

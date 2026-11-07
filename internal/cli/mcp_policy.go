@@ -24,6 +24,11 @@ type loadedMCPPolicy struct {
 	PacksDir   string
 	LegacyDir  string
 	Warnings   []string
+	// Config is the config the directory was resolved from, nil when
+	// config.Load failed. mcp-eval reads the shell protected_paths through it
+	// (#4645) rather than loading the config a second time, which would print
+	// its warnings twice.
+	Config *config.Config
 }
 
 // loadDeployedMCPPolicy assembles the runtime MCP policy from, in order:
@@ -36,7 +41,8 @@ type loadedMCPPolicy struct {
 func loadDeployedMCPPolicy(overridePolicyPath string) *loadedMCPPolicy {
 	loaded := &loadedMCPPolicy{}
 
-	configDir, warn := resolveAgentShieldConfigDir()
+	configDir, cfg, warn := resolveAgentShieldConfig()
+	loaded.Config = cfg
 	if warn != "" {
 		loaded.Warnings = append(loaded.Warnings, warn)
 	}
@@ -95,16 +101,18 @@ func loadDeployedMCPPolicy(overridePolicyPath string) *loadedMCPPolicy {
 	return loaded
 }
 
-// resolveAgentShieldConfigDir picks the config dir, preferring config.Load's
-// view (which honors managed.json) and falling back to $HOME/.agentshield.
-// Returns empty configDir + a warning string when neither path resolves.
-func resolveAgentShieldConfigDir() (string, string) {
-	if cfg, _ := config.Load(policyPath, logPath, mode); cfg != nil && cfg.ConfigDir != "" {
-		return cfg.ConfigDir, ""
+// resolveAgentShieldConfig picks the config dir, preferring config.Load's
+// view (which honors managed.json) and falling back to $HOME/.agentshield,
+// and returns the loaded config (nil when config.Load failed). Returns empty
+// configDir + a warning string when neither path resolves.
+func resolveAgentShieldConfig() (string, *config.Config, string) {
+	cfg, _ := config.Load(policyPath, logPath, mode)
+	if cfg != nil && cfg.ConfigDir != "" {
+		return cfg.ConfigDir, cfg, ""
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Sprintf("cannot determine home directory (%v); using embedded MCP packs only", err)
+		return "", cfg, fmt.Sprintf("cannot determine home directory (%v); using embedded MCP packs only", err)
 	}
-	return filepath.Join(home, config.DefaultConfigDir), ""
+	return filepath.Join(home, config.DefaultConfigDir), cfg, ""
 }

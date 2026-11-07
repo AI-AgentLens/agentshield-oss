@@ -150,10 +150,11 @@ func parseTaskStatusResponseFields(result json.RawMessage) (fields map[string]js
 // response unchanged — every other field (taskId, status, keepAlive,
 // pollFrequency, and any vendor extension) is preserved verbatim.
 func (h *MessageHandler) FilterTaskGetResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
 		return nil
 	}
@@ -232,10 +233,11 @@ const taskListScanMaxItems = 1000
 // unchanged — every other field, per item and top-level (including
 // nextCursor and any vendor extension), is preserved verbatim.
 func (h *MessageHandler) FilterTaskListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
 		return nil
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AI-AgentLens/agentshield/internal/homedir"
 	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
@@ -146,7 +147,10 @@ func NormalizeMode(m string) (string, bool) {
 }
 
 func Load(policyPath, logPath, mode string) (*Config, error) {
-	homeDir, err := os.UserHomeDir()
+	// homedir.Dir is os.UserHomeDir with the error made explicit: the one
+	// resolver setup and the managed-mode check use (#4565), so the
+	// ~/.agentshield this loads is the one setup wrote.
+	homeDir, err := homedir.Dir()
 	if err != nil {
 		return nil, err
 	}
@@ -208,11 +212,7 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 		Analyzer:   DefaultAnalyzerConfig(),
 	}
 
-	if policyPath != "" {
-		cfg.PolicyPath = policyPath
-	} else {
-		cfg.PolicyPath = filepath.Join(configDir, DefaultPolicyFile)
-	}
+	cfg.PolicyPath = policyFileFor(configDir, policyPath, managed)
 
 	if logPath != "" {
 		cfg.LogPath = logPath
@@ -222,13 +222,38 @@ func Load(policyPath, logPath, mode string) (*Config, error) {
 
 	cfg.Managed = managed
 
-	// In managed mode, ignore --policy and --log overrides
+	// In managed mode, ignore --policy and --log overrides (the policy
+	// file's half is in policyFileFor).
 	if cfg.Managed != nil && cfg.Managed.Managed {
-		cfg.PolicyPath = filepath.Join(configDir, DefaultPolicyFile)
 		cfg.LogPath = filepath.Join(configDir, DefaultLogFile)
 	}
 
 	return cfg, nil
+}
+
+// policyFileFor is the policy file Load uses: policyPath when one is given,
+// else the config directory's, and the config directory's on a managed host
+// whatever policyPath says.
+func policyFileFor(configDir, policyPath string, managed *ManagedConfig) string {
+	if policyPath == "" || (managed != nil && managed.Managed) {
+		return filepath.Join(configDir, DefaultPolicyFile)
+	}
+	return policyPath
+}
+
+// PolicyLocation is the config directory and the policy file Load resolves
+// for policyPath, found without creating the directory or reading anything
+// but managed.json. It is for a caller whose Load failed and that still has
+// to read what the policy declares: the hook's fail-safe record reads the
+// data_labels there (#4805). err is set when the home directory cannot be
+// resolved, which is also when Load fails before it reaches the disk.
+func PolicyLocation(policyPath string) (configDir, policyFile string, err error) {
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return "", "", err
+	}
+	configDir = filepath.Join(homeDir, DefaultConfigDir)
+	return configDir, policyFileFor(configDir, policyPath, LoadManaged(configDir)), nil
 }
 
 // loadPolicyEnforcementMode reads just the top-level `enforcement_mode:`

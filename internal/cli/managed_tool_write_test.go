@@ -150,8 +150,8 @@ func TestHook_ManagedConfigWrite_CopilotGetsDenyVerdict(t *testing.T) {
 			continue
 		}
 		found = true
-		if e.Decision != "BLOCK" || e.Source != "copilot-cli-mcp-hook" || !containsStr(e.Taxonomy, selfProtectTaxonomy) {
-			t.Errorf("receipt = %+v, want BLOCK from copilot-cli-mcp-hook with taxonomy %s", e, selfProtectTaxonomy)
+		if e.Decision != "BLOCK" || e.Source != "copilot-cli-mcp-hook" || !containsStr(e.Taxonomy, spNodeTampering) {
+			t.Errorf("receipt = %+v, want BLOCK from copilot-cli-mcp-hook with taxonomy %s", e, spNodeTampering)
 		}
 	}
 	if !found {

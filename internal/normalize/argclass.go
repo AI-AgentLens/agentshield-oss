@@ -35,7 +35,162 @@ type CommandArgSpec struct {
 	// as text. Used for commands like `git commit -m "msg"` where the shell
 	// parser doesn't consume the flag value and it leaks into Args.
 	TextFlagConsumesAllArgs bool
+
+	// PatternOptions, for a search tool, names the options that supply the
+	// pattern in place of the TextPositions operand (#4676).
+	PatternOptions *PatternOptions
 }
+
+// PatternOptions describes how a grep-family tool takes its pattern from an
+// option. With `-e PAT`, `--regexp=PAT` or `-f FILE` anywhere on the line
+// (getopt permutes), the tool reads no positional pattern: every positional
+// word is a file to search. The path walk's TextPositions slot and its
+// sticky text-flag state both assumed otherwise, so the file was never
+// extracted (#4676).
+type PatternOptions struct {
+	// Text and File are short option letters whose value is the pattern
+	// (e) or names a pattern file the tool opens and reads (f).
+	Text, File byte
+	// ValueLetters are the other short options that take a value. They are
+	// used only to end a short-option cluster: in `rg -tconf` the t takes
+	// "conf", so the f there is not -f. A letter missing from this list can
+	// only make the reading extract more (see patternOptionOperandPaths).
+	ValueLetters string
+	// Values drives the getopt reading, grepOperandPaths (#4682).
+	Values *OptionValues
+}
+
+// OptionValues lists the options of a grep-family tool that take a value, as
+// its option parser reads them (#4682). The path walk reads every option word
+// as a switch, and its universal -m text flag (meant for `git commit -m`)
+// swallows every later word up to the next option, so grep's max-count
+// `-m 1` hid the file operand. grepOperandPaths consumes each value as a value
+// instead.
+//
+// Both lists are measured, not guessed: each option was run as `OPT VAL KEY
+// file` against BSD grep 2.6.0 (macOS), GNU grep 3.7 and ripgrep 15.2.0 (PR
+// #4682 has the table). Where the tools disagree the option is listed as a
+// switch. That is the direction whose error is bounded: the reading then takes
+// the value as the pattern and the real pattern as one more candidate path,
+// which is how the walk already reads every option. Listing a switch as
+// taking a value would make the reading skip the word after it, which may be
+// the file.
+type OptionValues struct {
+	// Short are the letters that take a value, other than the pattern
+	// letters: the rest of the word (`-m1`, `-rnm5`), or the next word.
+	Short string
+	// Long are the names that take the next word as their value when written
+	// without "=". An option whose value is optional (grep's --color) is a
+	// switch unless "=" joins its value, so it is not listed.
+	Long map[string]bool
+}
+
+// grepPatternOptions covers GNU and BSD grep, egrep and fgrep (value-taking
+// short options: -A -B -C -D -d -m, and GNU's undocumented -X).
+var grepPatternOptions = &PatternOptions{Text: 'e', File: 'f', ValueLetters: "ABCDdmX", Values: grepOptionValues}
+
+// grepOptionValues is the union of BSD and GNU grep's value-taking options,
+// less two they disagree on: -X takes a matcher name in GNU and is --xz, a
+// switch, in BSD; --context takes a required value in GNU and an optional one
+// in BSD (`--context 3`: BSD reads 3 as the pattern). --color/--colour take
+// an optional value in both. Unique prefixes (`--max 1`) are read as switches.
+var grepOptionValues = &OptionValues{
+	Short: "ABCDdm",
+	Long: map[string]bool{
+		"after-context": true, "before-context": true, "binary-files": true,
+		"devices": true, "directories": true, "exclude": true, "exclude-dir": true,
+		"exclude-from": true, "group-separator": true, "include": true,
+		"include-dir": true, "label": true, "max-count": true,
+	},
+}
+
+// rgPatternOptions covers ripgrep (-A -B -C -E -M -T -d -g -j -m -r -t take
+// a value).
+var rgPatternOptions = &PatternOptions{Text: 'e', File: 'f', ValueLetters: "ABCEMTdgjmrt", Values: rgOptionValues}
+
+// rgOptionValues is every ripgrep 15 option `rg --help` shows with a value.
+// ripgrep takes no prefixes, and its --color requires a value.
+var rgOptionValues = &OptionValues{
+	Short: "ABCEMTdgjmrt",
+	Long: map[string]bool{
+		"after-context": true, "before-context": true, "color": true, "colors": true,
+		"context": true, "context-separator": true, "dfa-size-limit": true,
+		"encoding": true, "engine": true, "field-context-separator": true,
+		"field-match-separator": true, "generate": true, "glob": true,
+		"hostname-bin": true, "hyperlink-format": true, "iglob": true,
+		"ignore-file": true, "max-columns": true, "max-count": true,
+		"max-depth": true, "max-filesize": true, "path-separator": true,
+		"pre": true, "pre-glob": true, "regex-size-limit": true, "replace": true,
+		"sort": true, "sortr": true, "threads": true, "type": true,
+		"type-add": true, "type-clear": true, "type-not": true,
+	},
+}
+
+// SearchToolOptions is the option set of a search tool whose options are not
+// grep's: ag and ack (#4689). Their -m is max-count, as grep's is, so the
+// walk's universal -m text flag hid their file operands the same way. They
+// have no -e, and their -f means something else (ag: --follow; ack: list the
+// files, with no pattern), so grep's PatternOptions do not fit them.
+//
+// The lists are measured, not guessed. Each option was run as `OPT VAL KEY
+// file` on ag 2.2.0 and ack v3.6.0 (Debian bookworm), and ag's getopt table
+// and ack's Getopt::Long specs were read from their source (PR #4689's table).
+// An option counts as taking a value only when it always takes one. -A, -B,
+// -C (both tools) and ack's -p take the next word only when it is a number,
+// and ack's --pager only when it does not start with "-", so they are listed
+// as switches. That is the direction whose error is bounded (see OptionValues).
+// Both tools accept a unique prefix of a long name; a prefix is read as a
+// switch, as for grep.
+type SearchToolOptions struct {
+	// Values are the options that take a value.
+	Values OptionValues
+	// NoPatternShort and NoPatternLong are the options after which the tool
+	// reads no positional pattern, so every positional word is a path: ag's
+	// -g/--filename-pattern, ack's -f and --match.
+	NoPatternShort string
+	NoPatternLong  map[string]bool
+}
+
+// agOptions is ag 2.2.0's getopt_long table. -A/-B/-C take the next word only
+// when strtol reads all of it, and --after/--before/--context take a value
+// only after "=".
+var agOptions = &SearchToolOptions{
+	Values: OptionValues{
+		Short: "GgmpW",
+		Long: map[string]bool{
+			"ackmate-dir-filter": true, "color-line-number": true, "color-match": true,
+			"color-path": true, "depth": true, "file-search-regex": true,
+			"filename-pattern": true, "ignore": true, "ignore-dir": true,
+			"max-count": true, "pager": true, "path-to-ignore": true, "width": true,
+			"workers": true,
+		},
+	},
+	NoPatternShort: "g",
+	NoPatternLong:  map[string]bool{"filename-pattern": true},
+}
+
+// ackOptions is ack v3.6.0's Getopt::Long specs (bundling on, so `-m1` and
+// `-im 1` give m the value 1). The `:` specs (-A, -B, -C, -p, --pager and
+// their long names) take an optional value and are switches here.
+var ackOptions = &SearchToolOptions{
+	Values: OptionValues{
+		Short: "mtT",
+		Long: map[string]bool{
+			"ackrc": true, "color-colno": true, "color-filename": true,
+			"color-lineno": true, "color-match": true, "files-from": true,
+			"ignore-dir": true, "ignore-directory": true, "ignore-file": true,
+			"match": true, "max-count": true, "noignore-dir": true,
+			"noignore-directory": true, "output": true, "range-end": true,
+			"range-start": true, "type": true, "type-add": true, "type-del": true,
+			"type-set": true,
+		},
+	},
+	NoPatternShort: "f",
+	NoPatternLong:  map[string]bool{"match": true},
+}
+
+// searchToolReadings maps a search tool's basename to its option set.
+var searchToolReadings = map[string]*SearchToolOptions{"ag": agOptions, "ack": ackOptions}
 
 // commandRegistry maps "executable" or "executable subcommand" to its arg spec.
 var commandRegistry = map[string]CommandArgSpec{
@@ -73,11 +228,15 @@ var commandRegistry = map[string]CommandArgSpec{
 	// — e.g. `grep -e 'cat ~/.ssh/id_rsa' file.go` never has a positional
 	// pattern at all, so TextPositions[0] alone would still misclassify the
 	// flag value as a path. -f's value is a *file path* (a pattern list),
-	// not text, so it's intentionally excluded here (#3224).
-	"grep":  {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}},
-	"egrep": {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}},
-	"fgrep": {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}},
-	"rg":    {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}},
+	// not text, so it's intentionally excluded here (#3224). Once one of
+	// these options supplies the pattern, the positional words are files;
+	// PatternOptions drives that second reading (#4676). ag and ack are not
+	// given one: ag's -f is --follow and ack's -f lists files. They get their
+	// own reading, keyed on searchToolReadings, outside this spec (#4689).
+	"grep":  {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}, PatternOptions: grepPatternOptions},
+	"egrep": {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}, PatternOptions: grepPatternOptions},
+	"fgrep": {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}, PatternOptions: grepPatternOptions},
+	"rg":    {TextPositions: map[int]bool{0: true}, TextFlags: map[string]bool{"e": true, "regexp": true}, PatternOptions: rgPatternOptions},
 	"ag":    {TextPositions: map[int]bool{0: true}},
 	"ack":   {TextPositions: map[int]bool{0: true}},
 	"sed":   {TextPositions: map[int]bool{0: true}},

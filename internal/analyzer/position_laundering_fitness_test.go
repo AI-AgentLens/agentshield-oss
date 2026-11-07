@@ -264,7 +264,15 @@ func TestPositionExclusionCannotBeLaundered(t *testing.T) {
 	// the five channels. Lower it if a rule stops anchoring; a new rule that
 	// raises it is a rule whose pattern cannot see a grep needle, which is a
 	// fact to record, not a leak to fix here.
-	const maxGrepUnseen = 5
+	//
+	// +55 (#4671): ts-block-agentshield-log-overwrite's 11 quote-free TPs via
+	// each of the five channels. The rule is target-anchored: the log must be
+	// the LAST operand. A needle cannot show that, because a selected line
+	// that carries the log as a SOURCE (`cp /tmp/x <log> /tmp/y`) contains the
+	// same needle. The rule needs heredoc_body for the cat-heredoc note shape
+	// (an in_heredoc label would also downgrade its `tee <log> <<EOF` TP), and
+	// that is what puts it in this sweep.
+	const maxGrepUnseen = 60
 	if grepUnseen > maxGrepUnseen {
 		t.Errorf("%d grep-needle probes the pattern cannot see, ceiling %d — see the \"not a position leak\" lines above", grepUnseen, maxGrepUnseen)
 	}

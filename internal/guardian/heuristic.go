@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -61,6 +62,9 @@ func (p *HeuristicProvider) Analyze(req GuardianRequest) (GuardianResponse, erro
 	split := false
 
 	for _, r := range p.rules {
+		// An evaluation the hook's watchdog has already answered parks here
+		// (#4785); otherwise a no-op.
+		abandon.Checkpoint()
 		if req.ProseOnly && r.shellStructural {
 			continue
 		}
@@ -84,6 +88,7 @@ func (p *HeuristicProvider) Analyze(req GuardianRequest) (GuardianResponse, erro
 			ok := false
 			if len(statements) > 1 {
 				for _, s := range statements {
+					abandon.Checkpoint()
 					sreq := req
 					sreq.RawCommand = s
 					if r.match(sreq) {
@@ -445,7 +450,11 @@ var promptExfilPatterns = compilePatterns([]string{
 var disableSecurityTextPatterns = compilePatterns([]string{
 	`(?i)(disable|turn\s+off|bypass|skip|ignore)\s+(agentshield|security|guard|policy|policies)`,
 	`(?i)(remove|delete|uninstall)\s+(agentshield|security\s+guard)`,
-	`(?i)--no-?(verify|security|guard|policy)`,
+	// veri(fy?)? because git accepts any unambiguous prefix of a long
+	// option: the four- and five-letter stems run as the full flag (#4606).
+	// The three-letter stem is ambiguous with the verbose negation and git
+	// rejects it, so it is not matched.
+	`(?i)--no-?(veri(fy?)?|security|guard|policy)`,
 	// --no-check is a trust bypass only when it names what it skips: a certificate, TLS
 	// hostname, GPG key, signature or checksum. Prefixes, not whole words, so getopt_long
 	// abbreviations (wget --no-check-cert) and plurals still match. Bare --no-check/--nocheck
@@ -1252,12 +1261,96 @@ var tripleQuoteDoubleRe = regexp.MustCompile(`(?s)""".*?"""`)
 // that the runtime actually invokes) live OUTSIDE the string literal that
 // contains the fixture content. Stripping fixture strings preserves visibility
 // into the call site.
+//
+// An f-string is the exception (#4611): Python evaluates the expression inside
+// each `{...}` replacement field, so `f'{eval(input())}'` is a call site, not
+// data. Its replacement fields are therefore read too.
+//
+// They are APPENDED, on a line of their own after the stripped text, and never
+// spliced back in place (#4621). Spliced field text re-entered the later strip
+// passes and the callers' `<<` truncation: a field `1<<2` moved the cut in
+// front of a real `eval(`, and a field holding a lone `'` paired with a later
+// quote and deleted the span between them. Every literal is still deleted
+// exactly as before #4611, so that text is a byte-identical prefix of the
+// result and any match it had is still a match; when no f-string carries a
+// field the result is that text alone.
 func stripPythonStringLiterals(cmd string) string {
-	cmd = tripleQuoteSingleRe.ReplaceAllString(cmd, "")
-	cmd = tripleQuoteDoubleRe.ReplaceAllString(cmd, "")
-	cmd = innerSingleQuoteRe.ReplaceAllString(cmd, "")
-	cmd = innerEscapedDoubleQuoteRe.ReplaceAllString(cmd, "")
-	return cmd
+	var fields strings.Builder
+	cmd = stripLiteralsCollectingFields(cmd, tripleQuoteSingleRe, 3, &fields)
+	cmd = stripLiteralsCollectingFields(cmd, tripleQuoteDoubleRe, 3, &fields)
+	cmd = stripLiteralsCollectingFields(cmd, innerSingleQuoteRe, 1, &fields)
+	cmd = stripLiteralsCollectingFields(cmd, innerEscapedDoubleQuoteRe, 2, &fields)
+	if fields.Len() == 0 {
+		return cmd
+	}
+	return cmd + "\n" + fields.String() + "\n"
+}
+
+// stripLiteralsCollectingFields deletes every match of re (a string literal
+// with delimiters delim bytes wide on each side), exactly as
+// re.ReplaceAllString(cmd, "") does, and writes the replacement-field
+// expressions of each f-string literal it deletes to fields.
+func stripLiteralsCollectingFields(cmd string, re *regexp.Regexp, delim int, fields *strings.Builder) string {
+	for _, loc := range re.FindAllStringIndex(cmd, -1) {
+		if loc[1]-loc[0] >= 2*delim && isFStringPrefix(cmd[:loc[0]]) {
+			fields.WriteString(fStringFields(cmd[loc[0]+delim : loc[1]-delim]))
+		}
+	}
+	return re.ReplaceAllString(cmd, "")
+}
+
+// isFStringPrefix reports whether text ends in a Python string prefix that
+// makes the following literal an f-string (f, rf, fr in any case), standing
+// alone as a token rather than the tail of an identifier.
+func isFStringPrefix(text string) bool {
+	i := len(text)
+	for i > 0 {
+		c := text[i-1]
+		if c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			i--
+			continue
+		}
+		break
+	}
+	switch strings.ToLower(text[i:]) {
+	case "f", "rf", "fr":
+		return true
+	}
+	return false
+}
+
+// fStringFields returns the text of each `{...}` replacement field in an
+// f-string body, space-separated. `{{` and `}}` are literal braces.
+func fStringFields(body string) string {
+	var b strings.Builder
+	for i := 0; i < len(body); i++ {
+		if body[i] != '{' {
+			continue
+		}
+		if i+1 < len(body) && body[i+1] == '{' {
+			i++
+			continue
+		}
+		depth := 1
+		j := i + 1
+		for ; j < len(body) && depth > 0; j++ {
+			switch body[j] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+		}
+		end := j
+		if depth == 0 {
+			end = j - 1
+		}
+		b.WriteByte(' ')
+		b.WriteString(body[i+1 : end])
+		b.WriteByte(' ')
+		i = j - 1
+	}
+	return b.String()
 }
 
 // stripCatHeredocBodies removes the body of every cat/tee heredoc — the text from
@@ -2499,7 +2592,14 @@ var archiveCmdWordRe = regexp.MustCompile(`(?i)^(?:sudo\s+)?(tar|zip)\b`)
 // bulkExfilArchiveTargetRe matches a broad/sensitive archive target.
 // "/home" and "$home" require a trailing word boundary so a bare `/home`
 // (no trailing slash) still counts, while "/homebrew" does not.
-var bulkExfilArchiveTargetRe = regexp.MustCompile(`(?i)(~/|\$home\b|/home\b|\.git|/repo)`)
+//
+// #4605: the same home directory is also spelled `~` (no slash), `${HOME}`,
+// and on macOS `/Users` or `/Users/<name>`. Each is an alias of a target that
+// already BLOCKs (`~/`, `$HOME`, `/home`), so it must decide the same. `/Users`
+// and bare `~` are anchored to a word start: an unanchored `/users` would match
+// the path of an API URL (`curl https://x.example/api/users`), a new FP class
+// that `~/` and `/home` do not share.
+var bulkExfilArchiveTargetRe = regexp.MustCompile(`(?i)(~/|\$home\b|\$\{home\b|/home\b|\.git|/repo|(?:^|[\s"'=:])~(?:[\s"';|&)]|$)|(?:^|[\s"'=:])/users\b)`)
 
 // bulkExfilPipeToNetInStatementRe is the per-statement counterpart of the
 // former bulkExfilPipeToNetRe, applied only within a statement that

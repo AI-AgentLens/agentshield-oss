@@ -73,8 +73,7 @@ func SearchToolNeedles(command string) (items []string, redacted string) {
 		return nil, ""
 	}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil, ""
 	}
@@ -198,8 +197,7 @@ func ForwardedSearchNeedles(command string) []string {
 	if !strings.Contains(command, "xargs") && !strings.Contains(command, "read") {
 		return nil
 	}
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil
 	}

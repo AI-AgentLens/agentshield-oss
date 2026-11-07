@@ -342,18 +342,24 @@ func NewEngineWithAnalyzers(p *Policy, maxParseDepth int) (*Engine, error) {
 	return engine, nil
 }
 
-// DataLabelScrubber returns a function that replaces every span a data label
-// in pol matches with "[LABEL:<id>]" (#4448), for AuditEvent.WithScrubber. It
-// returns nil when pol declares no labels or the labels do not compile; the
-// pipeline reports a compile failure itself (BuildAnalyzerPipeline), and a
-// scrubber that cannot be built must not stop an audit event from being written.
-func DataLabelScrubber(pol *Policy) func(string) string {
-	if pol == nil || len(pol.DataLabels) == 0 {
-		return nil
+// DataLabelScrubber returns a function that finds every span one of labels
+// matches (datalabel.Engine.Spans), for AuditEvent.WithScrubber, whose
+// Redacted() masks them as "[LABEL:<id>]" together with the secrets in the
+// same text (#4448, #4813), or nil when there are no labels. err is the
+// labels' compile error: then no scrubber can be built, and the caller
+// decides what the record does without one (the pipeline refuses to build on
+// the same error, BuildAnalyzerPipeline, so an evaluated event never meets
+// it; a fail-safe one withholds its text, #4805).
+func DataLabelScrubber(labels []DataLabel) (func(string) []datalabel.Span, error) {
+	if len(labels) == 0 {
+		return nil, nil
 	}
-	engine, err := datalabel.NewEngine(convertDataLabels(pol.DataLabels))
-	if err != nil || engine == nil {
-		return nil
+	engine, err := datalabel.NewEngine(convertDataLabels(labels))
+	if err != nil {
+		return nil, err
 	}
-	return engine.Scrub
+	if engine == nil {
+		return nil, nil
+	}
+	return engine.Spans, nil
 }

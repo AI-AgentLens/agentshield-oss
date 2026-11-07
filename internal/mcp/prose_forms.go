@@ -52,6 +52,9 @@ type proseForms struct {
 	// recoveredLower is the lowercased text with codepoint-level disguises
 	// undone. Empty when recovery changed nothing.
 	recoveredLower string
+	// consumerLower is an additional client-sanitized reading. Keep the older
+	// recovery too: normalization can erase a pattern present in that reading.
+	consumerLower string
 }
 
 // renderRecoveryNote is appended to a finding's description when the pattern
@@ -68,6 +71,12 @@ func newProseForms(text string) proseForms {
 	if recovered, changed := pkgunicode.RecoverRenderedText(text); changed {
 		f.recoveredLower = strings.ToLower(recovered)
 	}
+	if recovered, changed := pkgunicode.RecoverConsumerProse(text); changed {
+		lower := strings.ToLower(recovered)
+		if lower != f.lower && lower != f.recoveredLower {
+			f.consumerLower = lower
+		}
+	}
 	return f
 }
 
@@ -79,6 +88,9 @@ func proseMatchNote(re *regexp.Regexp, forms proseForms) (note string, ok bool) 
 		return "", true
 	}
 	if forms.recoveredLower != "" && re.MatchString(forms.recoveredLower) {
+		return renderRecoveryNote, true
+	}
+	if forms.consumerLower != "" && re.MatchString(forms.consumerLower) {
 		return renderRecoveryNote, true
 	}
 	return "", false

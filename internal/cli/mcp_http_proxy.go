@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -127,7 +125,18 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 	// original decision and the config guard keeps blocking (#4337, #4324
 	// row 1). Passing the mode here as well would downgrade the evaluator's
 	// verdicts on other message types the proxy still enforces.
-	evaluator := assembly.MCPEvaluator(mcpPolicy, "")
+	//
+	// The customer's protected_paths apply to tool-call file-path arguments
+	// here as on the hook's tool path (#4645). Read once, at startup, like the
+	// MCP packs: a pack added later takes effect on the proxy's next start.
+	shellProtected, ppWarnings := shellProtectedPathsFor(cfg)
+	for _, w := range ppWarnings {
+		fmt.Fprintf(os.Stderr, "[AgentShield MCP-HTTP] warning: %s\n", w)
+	}
+	// No working directory (#4653): the upstream is a remote server whose
+	// directory this process cannot know, so a relative customer pattern
+	// matches only a relative argument here.
+	evaluator := assembly.MCPEvaluator(mcpPolicy, shellProtected, "")
 	proxyMode := ""
 	if cfg != nil {
 		proxyMode = cfg.Mode
@@ -143,7 +152,6 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	var auditFile *os.File
-	var auditMu sync.Mutex
 
 	if auditPath != "" {
 		auditFile, err = os.OpenFile(auditPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
@@ -160,20 +168,7 @@ func mcpHTTPProxyCommand(cmd *cobra.Command, args []string) error {
 	// #4463: the entry is redacted and data-label scrubbed like the hook's event.
 	// dlEngine is set below once the policy's labels are compiled; nil scrubs nothing.
 	var dlEngine *datalabel.Engine
-	onAudit := func(entry mcp.AuditEntry) {
-		if auditFile == nil {
-			return
-		}
-		auditMu.Lock()
-		defer auditMu.Unlock()
-
-		data, err := json.Marshal(entry.Redacted(dlEngine.Scrub))
-		if err != nil {
-			return
-		}
-		_, _ = auditFile.Write(data)
-		_, _ = auditFile.Write([]byte("\n"))
-	}
+	onAudit := newMCPProxyAuditSink(auditFile, func() *datalabel.Engine { return dlEngine }, evaluator.RuleTaxonomyRefs)
 
 	// Determine listen address
 	listenAddr := "127.0.0.1:0"

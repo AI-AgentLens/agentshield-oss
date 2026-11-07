@@ -1,0 +1,64 @@
+{"id": "en-dash-params", "command": "Remove-Item \u2013Recurse \u2013Force C:\\tmp\\x"}
+{"id": "smart-single-quotes", "command": "Get-Content \u2018C:\\tmp\\a b.txt\u2019"}
+{"id": "smart-double-quotes", "command": "Get-Content \u201cC:\\tmp\\a b.txt\u201d"}
+{"id": "backtick-in-bareword", "command": "Get-Item C:\\tmp\\a`tb.txt"}
+{"id": "line-continuation", "command": "Get-ChildItem `\n  -Path C:\\tmp `\n  -Recurse"}
+{"id": "stop-parsing", "command": "icacls.exe --% C:\\tmp\\x /grant Users:F"}
+{"id": "splatting", "command": "$p = @{Path='C:\\tmp\\x'; Recurse=$true}; Remove-Item @p"}
+{"id": "param-colon-value", "command": "Remove-Item -Path:C:\\tmp\\x -Recurse:$true"}
+{"id": "subexpr-in-string", "command": "Write-Host \"Size: $((Get-Item C:\\tmp\\x).Length)\""}
+{"id": "here-string-literal", "command": "@'\nline C:\\tmp\\in\n'@ | Set-Content C:\\tmp\\out.txt"}
+{"id": "here-string-expand", "command": "@\"\nPath: $(Get-Location) $env:TEMP\\x\n\"@ | Out-File C:\\tmp\\o.txt"}
+{"id": "line-comment", "command": "Get-Item C:\\tmp\\a # trailing C:\\tmp\\ignored"}
+{"id": "block-comment", "command": "<# C:\\tmp\\ignored #> Get-Item C:\\tmp\\b"}
+{"id": "pipeline-chain", "command": "git status && git log -1 || Write-Host fail"}
+{"id": "scriptblock-param", "command": "Invoke-Command -ScriptBlock { param($x) Remove-Item $x } -ArgumentList C:\\tmp\\x"}
+{"id": "foreach-object", "command": "Get-ChildItem C:\\tmp | ForEach-Object { Remove-Item $_.FullName }"}
+{"id": "dotnet-static", "command": "[System.IO.File]::Delete(\"$env:USERPROFILE\\x.txt\")"}
+{"id": "aliases", "command": "gci C:\\tmp | ? { $_.Length -gt 1kb } | % { $_.Name }"}
+{"id": "call-op-variable", "command": "$exe = 'C:\\tmp\\a.exe'; & $exe /silent"}
+{"id": "dot-source", "command": ". .\\profile.ps1"}
+{"id": "redirect-all", "command": "Get-Process *> C:\\tmp\\all.txt; dir 2>$null"}
+{"id": "array-args", "command": "Copy-Item a.txt,b.txt -Destination C:\\tmp"}
+{"id": "quotes-inside-bareword", "command": "Write-Output C:\\\"Program Files\"\\x"}
+{"id": "var-bareword", "command": "Get-ChildItem $env:USERPROFILE\\.config\\x"}
+{"id": "braced-var", "command": "Get-ChildItem ${env:USERPROFILE}\\.config"}
+{"id": "iex-string", "command": "iex \"Remove-Item C:\\tmp\\x\""}
+{"id": "if-else", "command": "if (Test-Path C:\\tmp\\x) { Remove-Item C:\\tmp\\x } else { Write-Host none }"}
+{"id": "foreach-statement", "command": "foreach ($f in Get-ChildItem C:\\tmp) { Remove-Item $f }"}
+{"id": "try-catch", "command": "try { Get-Item C:\\tmp\\x -ErrorAction Stop } catch [System.Exception] { Write-Warning $_ }"}
+{"id": "function-def", "command": "function f($p) { Get-Content $p }; f C:\\tmp\\x"}
+{"id": "switch", "command": "switch ($x) { 'a' { Remove-Item C:\\tmp\\a } default { Write-Host d } }"}
+{"id": "number-args", "command": "Start-Sleep 5; Get-Random -Maximum 10"}
+{"id": "static-member-string", "command": "[Environment]::GetFolderPath('UserProfile')"}
+{"id": "typed-assign", "command": "[string]$x = Get-Content C:\\tmp\\a"}
+{"id": "paren-arg", "command": "Remove-Item (Join-Path $HOME 'x.txt')"}
+{"id": "newline-statements", "command": "Set-Location C:\\tmp\nRemove-Item x.txt"}
+{"id": "newline-after-pipe", "command": "Get-ChildItem C:\\tmp |\n  Remove-Item"}
+{"id": "escaped-dollar", "command": "Write-Host \"cost `$5 C:\\tmp\""}
+{"id": "doubled-single-quote", "command": "Write-Host 'it''s C:\\tmp'"}
+{"id": "native-quoted-path", "command": "& \"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"ls -la\""}
+{"id": "nested-cmd", "command": "cmd /c \"del C:\\tmp\\x\""}
+{"id": "nested-powershell", "command": "powershell -NoProfile -Command \"Remove-Item C:\\tmp\\x\""}
+{"id": "start-process-args", "command": "Start-Process powershell -ArgumentList '-c','Remove-Item C:\\tmp\\x'"}
+{"id": "string-method", "command": "'C:\\tmp\\x'.Replace('x','y')"}
+{"id": "background-job", "command": "Start-Sleep 1 &"}
+{"id": "ternary", "command": "$a = (Test-Path x) ? 'yes' : 'no'"}
+{"id": "null-coalesce", "command": "$b = $null ?? 'C:\\tmp'"}
+{"id": "paren-in-bareword", "command": "icacls C:\\tmp\\x /grant Users:(F)"}
+{"id": "digit-command", "command": "7z.exe a C:\\tmp\\out.7z C:\\tmp\\in"}
+{"id": "member-arg", "command": "Get-Item $file.FullName"}
+{"id": "hashtable-cmd-value", "command": "$h = @{ Items = Get-ChildItem C:\\tmp }"}
+{"id": "calculated-property", "command": "Get-ChildItem | Select-Object Name, @{n='MB';e={$_.Length/1MB}}"}
+{"id": "unary-comma", "command": "Write-Output ,C:\\tmp\\x"}
+{"id": "env-drive-path", "command": "Get-Content env:USERPROFILE"}
+{"id": "tilde-path", "command": "Get-Content ~\\.config\\x"}
+{"id": "invoke-webrequest-outfile", "command": "Invoke-WebRequest -Uri https://example.com/a -OutFile $env:TEMP\\a.zip"}
+{"id": "encoded-command", "command": "powershell -enc VwByAGkAdABlAC0ASABvAHMAdAAgAGgAaQA="}
+{"id": "variable-colon-path", "command": "Get-Item $HOME/.config"}
+{"id": "scope-modifier", "command": "$script:x = Get-Content C:\\tmp\\a"}
+{"id": "multi-assign", "command": "$a, $b = Get-Item C:\\tmp\\a, C:\\tmp\\b"}
+{"id": "do-while", "command": "do { Remove-Item C:\\tmp\\x } while ($false)"}
+{"id": "cast-in-arg", "command": "Write-Output ([int]\"5\")"}
+{"id": "pipeline-var", "command": "$items | Remove-Item -Force"}
+{"id": "where-method", "command": "(Get-ChildItem C:\\tmp).Where({ $_.Name -like '*.log' }) | Remove-Item"}

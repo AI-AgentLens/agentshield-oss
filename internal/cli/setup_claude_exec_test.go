@@ -311,7 +311,7 @@ func TestInstallClaudeCodeHook_NonAbsolutePathKeepsShellForm(t *testing.T) {
 	dir := t.TempDir()
 
 	fresh := filepath.Join(dir, "fresh.json")
-	res, err := installClaudeCodeHook(fresh, "agentshield", false)
+	res, err := installClaudeCodeHook(fresh, "agentshield", false, onFailureOmit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestInstallClaudeCodeHook_NonAbsolutePathKeepsShellForm(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "settings.json")
 			writeSettingsFile(t, path, tc.initial)
-			res, err := installClaudeCodeHook(path, "agentshield", false)
+			res, err := installClaudeCodeHook(path, "agentshield", false, onFailureOmit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -354,7 +354,7 @@ func TestInstallClaudeCodeHook_BrokenLookalikeIsNotInstalled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	writeSettingsFile(t, path, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook","args":["--help"]}]}]}}`)
 
-	res, err := installClaudeCodeHook(path, "/opt/homebrew/bin/agentshield", true)
+	res, err := installClaudeCodeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureOmit)
 	if err != nil {
 		t.Fatal(err)
 	}

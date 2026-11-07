@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,8 +42,9 @@ runs is evaluated by AgentShield before execution.
 var setupOpenClawCmd = &cobra.Command{
 	Use:   "openclaw",
 	Short: "Set up AgentShield for OpenClaw gateway",
-	Long: `Install an OpenClaw hook that routes every agent exec call through
-AgentShield's 6-layer security pipeline.
+	Long: `Install an OpenClaw bootstrap hook that adds an AgentShield note to the
+agent's context. This is NOT enforcement: no OpenClaw tool call is sent to
+AgentShield, so no command is evaluated or blocked (#4582).
 
   agentshield setup openclaw             # install hook
   agentshield setup openclaw --disable   # remove hook`,
@@ -88,10 +91,12 @@ runs is evaluated by AgentShield before execution.
 var setupCodexCmd = &cobra.Command{
 	Use:   "codex",
 	Short: "Set up AgentShield for OpenAI Codex CLI (PreToolUse hook)",
-	Long: `Install or remove the PreToolUse hook so every Bash tool call Codex CLI
-makes is evaluated by AgentShield before execution. Codex CLI shipped
-native PreToolUse hook support; the JSON payload format matches Claude
-Code, so AgentShield's existing hook handler evaluates it unchanged.
+	Long: `Install or remove the PreToolUse hooks so every Bash and MCP tool call
+Codex CLI makes is evaluated by AgentShield before execution. Codex CLI
+shipped native PreToolUse hook support; the JSON payload format matches
+Claude Code, so AgentShield's existing hook handler evaluates it unchanged.
+Re-running it on an older install adds the MCP hook and leaves the shell
+hook untouched.
 
   agentshield setup codex             # enable hook
   agentshield setup codex --disable   # disable hook`,
@@ -139,21 +144,27 @@ General setup:
 }
 
 var (
-	installFlag      bool
-	disableFlag      bool
-	managedFlag      bool
-	writeManagedFlag bool
+	installFlag        bool
+	disableFlag        bool
+	managedFlag        bool
+	writeManagedFlag   bool
+	onFailureBlockFlag bool
+	removeManagedFlag  bool
 )
 
 func init() {
 	setupCmd.Flags().BoolVar(&installFlag, "install", false, "Install wrapper script and default policy packs")
 	setupClaudeCodeCmd.Flags().BoolVar(&managedFlag, "managed", false, "Print the Claude Code managed-settings JSON that registers the hook, and the per-OS file path, for MDM; writes nothing")
 	setupClaudeCodeCmd.Flags().BoolVar(&writeManagedFlag, "write-managed", false, "Merge the hook into this machine's Claude Code managed settings file (needs administrator rights)")
+	setupClaudeCodeCmd.Flags().BoolVar(&onFailureBlockFlag, "on-failure-block", false, `With --managed or --write-managed: give the managed hook "onFailure": "block", so Claude Code blocks a tool call when the hook cannot start, crashes or times out (for fleets running fail_closed)`)
+	setupClaudeCodeCmd.Flags().BoolVar(&removeManagedFlag, "remove-managed", false, "Remove AgentShield's hook from this machine's Claude Code managed settings file (needs administrator rights; refused in managed mode)")
 	setupWindsurfCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCursorCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupOpenClawCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupClaudeCodeCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
-	setupClaudeCodeCmd.MarkFlagsMutuallyExclusive("managed", "write-managed", "disable")
+	setupClaudeCodeCmd.MarkFlagsMutuallyExclusive("managed", "write-managed", "disable", "remove-managed")
+	setupClaudeCodeCmd.MarkFlagsMutuallyExclusive("on-failure-block", "disable")
+	setupClaudeCodeCmd.MarkFlagsMutuallyExclusive("on-failure-block", "remove-managed")
 	setupGeminiCLICmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCodexCmd.Flags().BoolVar(&disableFlag, "disable", false, "Remove AgentShield hooks and disable integration")
 	setupCmd.AddCommand(setupWindsurfCmd)
@@ -183,9 +194,9 @@ type ideDetector struct {
 }
 
 func runAutoSetup(cmd *cobra.Command) error {
-	home := os.Getenv("HOME")
-	if home == "" {
-		return fmt.Errorf("HOME not set")
+	home, err := setupHome()
+	if err != nil {
+		return err
 	}
 
 	detectors := []ideDetector{
@@ -221,7 +232,7 @@ func runAutoSetup(cmd *cobra.Command) error {
 		},
 		{
 			name:      "GitHub Copilot CLI",
-			detect:    func(h string) bool { return dirExists(copilotHome()) },
+			detect:    func(h string) bool { return dirExists(copilotHome(h)) },
 			setupFunc: setupCopilotCLICommand,
 		},
 	}
@@ -385,7 +396,11 @@ func disableHook(hooksPath, ideName string) error {
 // ─── Windsurf Setup ─────────────────────────────────────────────────────────
 
 func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
-	hooksPath := filepath.Join(os.Getenv("HOME"), ".codeium", "windsurf", "hooks.json")
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	hooksPath := filepath.Join(home, ".codeium", "windsurf", "hooks.json")
 	hooksDir := filepath.Dir(hooksPath)
 
 	if disableFlag {
@@ -478,7 +493,11 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 // ─── Cursor Setup ───────────────────────────────────────────────────────────
 
 func setupCursorCommand(cmd *cobra.Command, args []string) error {
-	hooksPath := filepath.Join(os.Getenv("HOME"), ".cursor", "hooks.json")
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	hooksPath := filepath.Join(home, ".cursor", "hooks.json")
 	hooksDir := filepath.Dir(hooksPath)
 
 	if disableFlag {
@@ -569,7 +588,11 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 // ─── OpenClaw Setup ─────────────────────────────────────────────────────────
 
 func setupOpenClawCommand(cmd *cobra.Command, args []string) error {
-	hookDir := filepath.Join(os.Getenv("HOME"), ".openclaw", "hooks", "agentshield")
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	hookDir := filepath.Join(home, ".openclaw", "hooks", "agentshield")
 
 	if disableFlag {
 		if err := enterprise.CheckDisableAllowed(); err != nil {
@@ -684,12 +707,11 @@ func setupOpenClawCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Println("How it works:")
 	fmt.Println("  1. OpenClaw starts a session with the agent")
-	fmt.Println("  2. AgentShield hook injects security instructions (AGENTSHIELD.md)")
-	fmt.Println("  3. The host's PreToolUse hook forwards each shell command and MCP")
-	fmt.Println("     tool call to AgentShield for evaluation — the agent does not")
-	fmt.Println("     wrap commands itself (AgentShield is evaluation-only).")
-	fmt.Println("  4. Each command is evaluated by the 7-layer security pipeline")
-	fmt.Println("  5. In enforce mode, dangerous commands are blocked before the host executes them")
+	fmt.Println("  2. AgentShield hook injects a note into the agent's context (AGENTSHIELD.md)")
+	fmt.Println()
+	fmt.Println("⚠  That is all it does. OpenClaw has no integration that sends its shell")
+	fmt.Println("   commands or tool calls to AgentShield, so nothing is evaluated, logged")
+	fmt.Println("   or blocked. Do not rely on AgentShield to protect an OpenClaw agent.")
 	fmt.Println()
 	fmt.Println("Restart the OpenClaw gateway to activate the hook.")
 	fmt.Println()
@@ -823,23 +845,124 @@ type claudeHookInstall struct {
 	// Migrated holds the command of each shell-form AgentShield entry that was
 	// rewritten to exec form in place.
 	Migrated []string
+	// OnFailureChanged counts the AgentShield hook objects already in the
+	// file whose "onFailure" key the merge set or removed.
+	OnFailureChanged int
 }
 
 // changed reports whether the merge changed the settings document.
 func (r claudeHookInstall) changed() bool {
-	return r.Added || len(r.Migrated) > 0
+	return r.Added || len(r.Migrated) > 0 || r.OnFailureChanged > 0
+}
+
+// Claude Code's "onFailure" hook key, on the AgentShield entry (#4772
+// follow-up, Gary 2026-11-04).
+//
+// On PreToolUse a command hook that cannot start, times out, or exits with a
+// code other than 0 or 2 does not block: Claude Code runs the tool call. With
+// "onFailure": "block" on the hook object, each of those blocks the call
+// (https://code.claude.com/docs/en/hooks, "Block the action when a hook
+// fails"). That covers what the hook cannot answer itself: a missing or
+// killed binary, a hang, a crash that is not Go's exit 2, a call past Claude
+// Code's hook timeout.
+//
+// Setup writes it only where the hook itself already fails closed:
+// failClosedEnabled, the predicate the hook uses at run time, which reads
+// fail_closed from ~/.agentshield/managed.json. Claude Code then blocks on a
+// hook failure exactly when the hook would have blocked on its own failure.
+// An unmanaged install gets no harness-level block (Gary's minimal-intrusion
+// rule).
+//
+// Claude Code added the key in 2.1.295. Earlier versions load an entry that
+// carries it and ignore the key: measured 2026-11-04 on 1.0.60, 1.0.128,
+// 2.0.20, 2.0.77, 2.1.109, 2.1.110, 2.1.138, 2.1.139, 2.1.200, 2.1.250 and
+// 2.1.294 (darwin-arm64, a mock API, a throwaway HOME). On each, a hook
+// carrying the key still blocked with exit 2, and a failing one let the call
+// run, as it does without the key. So no version gate.
+const claudeOnFailureKey, claudeOnFailureBlock = "onFailure", "block"
+
+// onFailurePolicy says what mergeClaudeCodeHook does with the "onFailure" key
+// of the AgentShield hook objects in a document. Hook objects that are not
+// AgentShield's are never touched.
+type onFailurePolicy int
+
+const (
+	// onFailureKeep leaves the key as it is on existing entries and writes no
+	// key on a new one.
+	onFailureKeep onFailurePolicy = iota
+	// onFailureBlock sets "onFailure": "block" on every AgentShield entry.
+	onFailureBlock
+	// onFailureOmit removes the key from every AgentShield entry.
+	onFailureOmit
+)
+
+// userScopeOnFailure is the policy for the user-scope settings file, which
+// setup owns: "block" when the hook runs fail_closed, and otherwise no key, so
+// a host that turns fail_closed off converges back on the next setup run.
+func userScopeOnFailure() onFailurePolicy {
+	if failClosedEnabled(nil) {
+		return onFailureBlock
+	}
+	return onFailureOmit
+}
+
+// managedOnFailure is the policy for Claude Code's managed settings
+// (--managed, --write-managed): "block" only when the administrator passed
+// --on-failure-block, and otherwise keep, which writes no key and leaves any
+// key already in the file, as main did. It is never inferred from managed.json:
+// these commands run under sudo or an MDM script, whose HOME (root's, or none)
+// says nothing about the fleet's fail_closed (Codex pass 1 on this change).
+func managedOnFailure(blockFlag bool) onFailurePolicy {
+	if blockFlag {
+		return onFailureBlock
+	}
+	return onFailureKeep
+}
+
+// applyOnFailure applies p to one AgentShield hook object and reports whether
+// it changed it.
+func applyOnFailure(hm map[string]interface{}, p onFailurePolicy) bool {
+	switch p {
+	case onFailureBlock:
+		if hm[claudeOnFailureKey] != claudeOnFailureBlock {
+			hm[claudeOnFailureKey] = claudeOnFailureBlock
+			return true
+		}
+	case onFailureOmit:
+		if _, ok := hm[claudeOnFailureKey]; ok {
+			delete(hm, claudeOnFailureKey)
+			return true
+		}
+	}
+	return false
+}
+
+// printOnFailureState says what the entry's "onFailure" key means after a
+// merge with policy p. onFailureKeep prints nothing: the key is whatever the
+// file already held.
+func printOnFailureState(w io.Writer, p onFailurePolicy) {
+	switch p {
+	case onFailureBlock:
+		_, _ = fmt.Fprintln(w, "   \"onFailure\": \"block\" — fail_closed (managed.json): Claude Code (2.1.295+) blocks the tool")
+		_, _ = fmt.Fprintln(w, "   call when the hook cannot start, crashes or times out. While agentshield is missing or")
+		_, _ = fmt.Fprintln(w, "   broken (a Homebrew upgrade's relink, an uninstall), every Claude Code tool call is blocked.")
+	case onFailureOmit:
+		_, _ = fmt.Fprintln(w, "   No \"onFailure\" key: if the hook cannot start, crashes or times out, Claude Code runs the")
+		_, _ = fmt.Fprintln(w, "   tool call. Managed hosts with fail_closed get \"onFailure\": \"block\".")
+	}
 }
 
 // installClaudeCodeHook makes the Claude Code settings file at settingsPath
 // hold AgentShield's PreToolUse hook for binPath (mergeClaudeCodeHook), and
 // writes the file only when something changed. execOK says whether binPath
-// may be written in exec form (execFormBlocker).
-func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHookInstall, error) {
+// may be written in exec form (execFormBlocker); onFail what happens to the
+// entry's "onFailure" key.
+func installClaudeCodeHook(settingsPath, binPath string, execOK bool, onFail onFailurePolicy) (claudeHookInstall, error) {
 	settings, err := readClaudeSettings(settingsPath)
 	if err != nil {
 		return claudeHookInstall{}, err
 	}
-	res := mergeClaudeCodeHook(settings, binPath, execOK)
+	res := mergeClaudeCodeHook(settings, binPath, execOK, onFail)
 	if !res.changed() {
 		return res, nil
 	}
@@ -857,15 +980,18 @@ func installClaudeCodeHook(settingsPath, binPath string, execOK bool) (claudeHoo
 //     exec form in place. Its other keys (a timeout, say), its matcher group
 //     and the hooks beside it are left as they are. Without execOK it stays.
 //   - Otherwise the document already holds our entry: change nothing.
+//   - Every AgentShield hook object, new or found, gets onFail applied to its
+//     "onFailure" key (onFailurePolicy).
 //
 // It never adds a second entry, never downgrades exec form to shell form, and
 // never touches a hook object that is not AgentShield's. Keys outside
 // hooks.PreToolUse are left as they are.
-func mergeClaudeCodeHook(settings map[string]interface{}, binPath string, execOK bool) claudeHookInstall {
+func mergeClaudeCodeHook(settings map[string]interface{}, binPath string, execOK bool, onFail onFailurePolicy) claudeHookInstall {
 	var res claudeHookInstall
 	hooks := getOrCreateMap(settings, "hooks")
 	preToolUse := getOrCreateSlice(hooks, "PreToolUse")
 	want, wantForm := claudeCodeHook(binPath, execOK)
+	applyOnFailure(want, onFail)
 
 	found := false
 	for _, group := range preToolUse {
@@ -880,12 +1006,15 @@ func mergeClaudeCodeHook(settings map[string]interface{}, binPath string, execOK
 				continue
 			}
 			found = true
+			hm := h.(map[string]interface{}) // Classify accepts only objects
 			if form == hookentry.Shell && wantForm == hookentry.Exec {
-				hm := h.(map[string]interface{}) // Classify accepts only objects
 				res.Migrated = append(res.Migrated, hm["command"].(string))
 				hm["command"] = binPath
 				hm["args"] = []interface{}{hookentry.Subcommand}
 				form = hookentry.Exec
+			}
+			if applyOnFailure(hm, onFail) {
+				res.OnFailureChanged++
 			}
 			if res.Form != hookentry.Exec {
 				res.Form = form
@@ -910,25 +1039,46 @@ func mergeClaudeCodeHook(settings map[string]interface{}, binPath string, execOK
 }
 
 func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
-	settingsPath := filepath.Join(os.Getenv("HOME"), ".claude", "settings.json")
+	// Managed settings (#4292). Neither path touches ~/.claude: --managed
+	// writes nothing, and --write-managed usually runs under sudo, where a
+	// user-scope write would leave a root-owned file in the user's home.
+	// They come before HOME is resolved because they never use it, so an MDM
+	// script with no HOME can still run them (#4565). --disable cannot reach
+	// this branch: cobra refuses it alongside either flag
+	// (MarkFlagsMutuallyExclusive in init).
+	if onFailureBlockFlag && !managedFlag && !writeManagedFlag {
+		return fmt.Errorf(`--on-failure-block applies to --managed and --write-managed; the user-scope hook gets "onFailure": "block" from fail_closed in ~/.agentshield/managed.json`)
+	}
+	if removeManagedFlag {
+		// A new way to switch AgentShield off for the machine, so it is
+		// refused like --disable, and also when the account that ran sudo is
+		// enrolled (CheckManagedRemovalAllowed).
+		if err := enterprise.CheckManagedRemovalAllowed(); err != nil {
+			return err
+		}
+		return runRemoveManaged(cmd.OutOrStdout(), managedSetupPath())
+	}
+	if managedFlag || writeManagedFlag {
+		hookPath := resolveAgentShieldPath()
+		blocker := execFormBlocker(hookPath)
+		onFail := managedOnFailure(onFailureBlockFlag)
+		if managedFlag {
+			return printManagedClaudeSnippet(cmd.OutOrStdout(), cmd.ErrOrStderr(), hookPath, blocker, managedSetupPath(), onFail)
+		}
+		return runWriteManaged(cmd.OutOrStdout(), managedSetupPath(), hookPath, blocker, onFail)
+	}
+
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
 
 	if disableFlag {
 		if err := enterprise.CheckDisableAllowed(); err != nil {
 			return err
 		}
 		return disableClaudeCodeHook(settingsPath)
-	}
-
-	// Managed settings (#4292). Neither path touches ~/.claude: --managed
-	// writes nothing, and --write-managed usually runs under sudo, where a
-	// user-scope write would leave a root-owned file in the user's home.
-	if managedFlag || writeManagedFlag {
-		hookPath := resolveAgentShieldPath()
-		blocker := execFormBlocker(hookPath)
-		if managedFlag {
-			return printManagedClaudeSnippet(cmd.OutOrStdout(), cmd.ErrOrStderr(), hookPath, blocker, managedSetupPath())
-		}
-		return runWriteManaged(cmd.OutOrStdout(), managedSetupPath(), hookPath, blocker)
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -946,7 +1096,8 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 
 	hookPath := resolveAgentShieldPath()
 	blocker := execFormBlocker(hookPath)
-	res, err := installClaudeCodeHook(settingsPath, hookPath, blocker == "")
+	onFail := userScopeOnFailure()
+	res, err := installClaudeCodeHook(settingsPath, hookPath, blocker == "", onFail)
 	if err != nil {
 		return err
 	}
@@ -962,8 +1113,11 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 		for _, was := range res.Migrated {
 			fmt.Printf("   was: %q\n", was)
 		}
+	case res.OnFailureChanged > 0:
+		fmt.Printf("✅ PreToolUse hook updated (%s): %s\n", res.Form, settingsPath)
 	default:
 		fmt.Printf("✅ Claude Code hook already configured (%s): %s\n", res.Form, settingsPath)
+		printOnFailureState(os.Stdout, onFail)
 		fmt.Println()
 		printTestHint("Claude Code")
 		fmt.Println()
@@ -975,6 +1129,7 @@ func setupClaudeCodeCommand(cmd *cobra.Command, args []string) error {
 	if res.Form == hookentry.Exec {
 		fmt.Printf("   \"command\": %q, \"args\": [\"hook\"] — Claude Code runs it directly, not through a shell\n", hookPath)
 	}
+	printOnFailureState(os.Stdout, onFail)
 	fmt.Println()
 	fmt.Println("How it works:")
 	fmt.Println("  1. Claude Code is about to run any tool call (Bash, MCP, etc.)")
@@ -1074,14 +1229,23 @@ func removeAgentShieldHooks(groups []interface{}) ([]interface{}, int) {
 	return kept, removed
 }
 
+// stripUTF8BOM drops a leading UTF-8 byte-order mark. Windows PowerShell 5.1
+// writes one with Set-Content/Out-File -Encoding UTF8, and Claude Code reads
+// such a file, so a config with a BOM is a real state (#4741). encoding/json
+// rejects it. Every JSON config setup, status or scan reads goes through here;
+// writes are re-marshalled and carry no BOM.
+func stripUTF8BOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+}
+
 func readClaudeSettings(path string) (map[string]interface{}, error) {
 	settings := make(map[string]interface{})
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &settings); err != nil {
+	if len(stripUTF8BOM(data)) > 0 {
+		if err := json.Unmarshal(stripUTF8BOM(data), &settings); err != nil {
 			return nil, fmt.Errorf("failed to parse %s: %w", path, err)
 		}
 	}
@@ -1169,7 +1333,11 @@ func agentshieldGeminiHookEntry() map[string]interface{} {
 }
 
 func setupGeminiCLICommand(cmd *cobra.Command, args []string) error {
-	settingsPath := filepath.Join(os.Getenv("HOME"), ".gemini", "settings.json")
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(home, ".gemini", "settings.json")
 
 	if disableFlag {
 		if err := enterprise.CheckDisableAllowed(); err != nil {
@@ -1320,8 +1488,8 @@ func readGeminiSettings(path string) (map[string]interface{}, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read %s: %w", path, err)
 	}
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &settings); err != nil {
+	if len(stripUTF8BOM(data)) > 0 {
+		if err := json.Unmarshal(stripUTF8BOM(data), &settings); err != nil {
 			return nil, fmt.Errorf("failed to parse %s: %w", path, err)
 		}
 	}
@@ -1341,19 +1509,109 @@ func writeGeminiSettings(path string, settings map[string]interface{}) error {
 
 // ─── Codex CLI Setup ─────────────────────────────────────────────────────────
 
+// Codex matches a hook group against tool_name. A matcher with regex
+// characters is an unanchored regex search and one without is an exact match
+// (codex-rs/hooks/src/events/common.rs), so "mcp__" alone would match nothing.
+// Codex names an MCP tool mcp__<server>__<tool>
+// (codex-rs/core/src/tools/handlers/mcp.rs), the same as Claude Code.
+const (
+	codexShellMatcher = "^Bash$"
+	codexMCPMatcher   = "^mcp__.*"
+)
+
+// Codex titles a hook in /hooks with its statusMessage ("Unnamed hook"
+// without one) and shows it beside a hook run that takes long enough to draw
+// (codex-rs/tui/src/bottom_pane/hooks_browser_view.rs, history_cell/hook_cell.rs).
+// It is part of the trust hash, so only entries setup writes get it; an
+// existing trusted entry keeps its name, or lack of one.
+const (
+	codexShellHookName = "AgentShield: shell commands"
+	codexMCPHookName   = "AgentShield: MCP tool calls"
+)
+
 // agentshieldCodexHookEntry builds the Codex PreToolUse hook entry with a Bash
 // matcher. Codex's JSON shape matches Claude Code's, but Codex evaluates the
 // matcher as a regex against tool_name — anchoring keeps us from matching
 // hypothetical future tools like "BashOutput".
 func agentshieldCodexHookEntry() map[string]interface{} {
+	return agentshieldCodexHookGroup(codexShellMatcher, codexShellHookName)
+}
+
+// agentshieldCodexMCPHookEntry builds the entry that sends Codex MCP tool
+// calls to the same `agentshield hook`, which routes every non-Bash tool to
+// the MCP policy evaluator.
+func agentshieldCodexMCPHookEntry() map[string]interface{} {
+	return agentshieldCodexHookGroup(codexMCPMatcher, codexMCPHookName)
+}
+
+// codexHookCoverage reports which AgentShield groups hooks.json already has.
+// Any AgentShield group whose matcher is not the MCP one counts as the shell
+// group, as every such group did before the MCP group existed.
+func codexHookCoverage(preToolUse []interface{}) (shell, mcp bool) {
+	for _, entry := range preToolUse {
+		if !isAgentShieldCodexHookEntry(entry) {
+			continue
+		}
+		m, _ := entry.(map[string]interface{})
+		if matcher, _ := m["matcher"].(string); matcher == codexMCPMatcher {
+			mcp = true
+		} else {
+			shell = true
+		}
+	}
+	return shell, mcp
+}
+
+// ensureCodexHookEntries appends whichever AgentShield groups are missing and
+// never edits, removes or reorders a group that is already there. Codex keys
+// hook trust by position (pre_tool_use:<group>:<handler>) and hashes the
+// event, matcher and handler (codex-rs/hooks/src/engine/discovery.rs), so
+// editing a shell group the user already trusted would stop it running until
+// they reviewed it again. An appended group leaves that trust alone. The new
+// group needs its own /hooks review, and until then MCP calls go unchecked, as
+// they did before the group existed.
+func ensureCodexHookEntries(preToolUse []interface{}) ([]interface{}, []string) {
+	shell, mcp := codexHookCoverage(preToolUse)
+	var added []string
+	if !shell {
+		preToolUse = append(preToolUse, agentshieldCodexHookEntry())
+		added = append(added, "shell")
+	}
+	if !mcp {
+		preToolUse = append(preToolUse, agentshieldCodexMCPHookEntry())
+		added = append(added, "MCP")
+	}
+	return preToolUse, added
+}
+
+// codexHooksMissingMCP reports whether hooks.json has AgentShield's shell
+// group but not its MCP group: an install from before the MCP group existed,
+// which a re-run of `agentshield setup codex` upgrades.
+func codexHooksMissingMCP(hooksPath string) bool {
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		return false
+	}
+	var settings map[string]interface{}
+	if json.Unmarshal(stripUTF8BOM(data), &settings) != nil {
+		return false
+	}
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	preToolUse, _ := hooks["PreToolUse"].([]interface{})
+	shell, mcp := codexHookCoverage(preToolUse)
+	return shell && !mcp
+}
+
+func agentshieldCodexHookGroup(matcher, name string) map[string]interface{} {
 	binPath := resolveAgentShieldPath()
 	return map[string]interface{}{
-		"matcher": "^Bash$",
+		"matcher": matcher,
 		"hooks": []interface{}{
 			map[string]interface{}{
-				"type":    "command",
-				"command": binPath + " hook",
-				"timeout": 10,
+				"type":          "command",
+				"command":       binPath + " hook",
+				"timeout":       10,
+				"statusMessage": name,
 			},
 		},
 	}
@@ -1379,7 +1637,11 @@ func isAgentShieldCodexHookEntry(entry interface{}) bool {
 }
 
 func setupCodexCommand(cmd *cobra.Command, args []string) error {
-	codexDir := filepath.Join(os.Getenv("HOME"), ".codex")
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	codexDir := filepath.Join(home, ".codex")
 	hooksPath := filepath.Join(codexDir, "hooks.json")
 
 	if disableFlag {
@@ -1433,52 +1695,53 @@ func setupCodexCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	preToolUse := getOrCreateSlice(hooks, "PreToolUse")
-	for _, entry := range preToolUse {
-		if isAgentShieldCodexHookEntry(entry) {
-			fmt.Printf("✅ Codex PreToolUse hook already configured: %s\n", hooksPath)
-			fmt.Println()
-			fmt.Println("If Codex still shows '⚠ 1 hook needs review before it can run.',")
-			fmt.Println("approve it now:")
-			fmt.Println("  1. Start Codex:  codex")
-			fmt.Println("  2. Type:  /hooks")
-			fmt.Println("  3. Select PreToolUse → highlight AgentShield → press T (Trust)")
-			fmt.Println()
-			fmt.Println("To disable: agentshield setup codex --disable")
-			fmt.Println()
-			printStatus()
-			return nil
-		}
+	updated, added := ensureCodexHookEntries(preToolUse)
+	if len(added) == 0 {
+		fmt.Printf("✅ Codex PreToolUse hooks already configured (shell + MCP): %s\n", hooksPath)
+		fmt.Println()
+		fmt.Println("If Codex still shows a \"hook needs review\" notice, approve them now:")
+		fmt.Println("  1. Start Codex:  codex")
+		fmt.Println("  2. Type:  /hooks")
+		fmt.Println("  3. Select PreToolUse → highlight each AgentShield entry → press T (Trust)")
+		fmt.Println()
+		fmt.Println("To disable: agentshield setup codex --disable")
+		fmt.Println()
+		printStatus()
+		return nil
 	}
 
-	hooks["PreToolUse"] = append(preToolUse, agentshieldCodexHookEntry())
+	hooks["PreToolUse"] = updated
 	settings["hooks"] = hooks
 
 	if err := writeClaudeSettings(hooksPath, settings); err != nil {
 		return err
 	}
 
-	fmt.Printf("✅ PreToolUse hook installed: %s\n", hooksPath)
+	fmt.Printf("✅ PreToolUse hooks added (%s): %s\n", strings.Join(added, " + "), hooksPath)
+	if len(added) == 1 && added[0] == "MCP" {
+		fmt.Println("   Your existing shell hook is unchanged and keeps running.")
+	}
 	fmt.Println()
-	fmt.Println("⚠  ONE MORE STEP — Codex requires you to approve new hooks before")
-	fmt.Println("   they fire. Until you do, Codex will show:")
-	fmt.Println()
-	fmt.Println("     ⚠  1 hook needs review before it can run.")
+	fmt.Println("⚠  ONE MORE STEP — Codex runs a new hook only after you approve it.")
+	fmt.Println("   Until you do, Codex shows a \"hook needs review\" notice and the")
+	fmt.Println("   new hook does not run.")
 	fmt.Println()
 	fmt.Println("   To approve:")
 	fmt.Println("     1. Start Codex:  codex")
 	fmt.Println("     2. At the prompt, type:  /hooks")
-	fmt.Println("     3. Select \"PreToolUse\" → highlight the AgentShield entry → press T (Trust)")
-	fmt.Println("     4. Exit Codex. The next session will route Bash commands through AgentShield.")
+	fmt.Println("     3. Select \"PreToolUse\" → highlight each AgentShield entry → press T (Trust)")
+	fmt.Println("     4. Exit Codex. The next session routes shell commands and MCP tool")
+	fmt.Println("        calls through AgentShield.")
 	fmt.Println()
-	fmt.Println("   Codex re-prompts for review whenever ~/.codex/hooks.json changes")
-	fmt.Println("   (including future AgentShield upgrades that resolve to a new binary path).")
+	fmt.Println("   Codex asks again for any entry whose command changes")
+	fmt.Println("   (for example, an AgentShield upgrade that moves the binary).")
 	fmt.Println()
 	fmt.Println("How it works after approval:")
-	fmt.Println("  1. Codex is about to run a Bash tool call")
+	fmt.Println("  1. Codex is about to run a shell command or call an MCP tool")
 	fmt.Println("  2. The PreToolUse hook calls `agentshield hook`")
-	fmt.Println("  3. The command flows through the 7-layer analyzer pipeline")
-	fmt.Println("  4. If BLOCK (enforce mode): Codex prevents the command from running (exit 2)")
-	fmt.Println("  5. If ALLOW/AUDIT: the command runs normally")
+	fmt.Println("  3. A command flows through the analyzer pipeline; an MCP call through the MCP policy")
+	fmt.Println("  4. If BLOCK (enforce mode): Codex prevents the call from running (exit 2)")
+	fmt.Println("  5. If ALLOW/AUDIT: the call runs normally")
 	fmt.Println()
 	fmt.Println("To disable: agentshield setup codex --disable")
 	fmt.Println()

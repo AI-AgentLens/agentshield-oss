@@ -87,10 +87,39 @@ func TestMCPEvaluator_AppliesMode(t *testing.T) {
 		{"", policy.DecisionBlock, ""},
 		{"audit-only", policy.DecisionAudit, policy.DecisionBlock},
 	} {
-		got := MCPEvaluator(pol, c.mode).EvaluateToolCall("zzassembly_tool", nil)
+		got := MCPEvaluator(pol, nil, c.mode).EvaluateToolCall("zzassembly_tool", nil)
 		if got.Decision != c.want || got.OriginalDecision != c.wantOr {
 			t.Errorf("mode %q: decision %s (original %q), want %s (original %q)", c.mode, got.Decision, got.OriginalDecision, c.want, c.wantOr)
 		}
+	}
+}
+
+// #4645: MCPEvaluator applies the customer's protected_paths to file-path
+// arguments, and only the customer's: a shipped pattern in the same list
+// keeps the tool-call decision it has without it (#4248's AUDIT-with-rule
+// choice for the agent's own Read of a shipped credential path).
+func TestMCPEvaluator_AppliesCustomerProtectedPathsOnly(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	pol := &mcp.MCPPolicy{Defaults: mcp.MCPDefaults{Decision: policy.DecisionAudit}}
+	shell := []string{"~/.aws/**", "~/.npmrc", "/etc/**", policy.ManagedConfigProtectedPath, "/etc/acme/secrets/**"}
+	ev := MCPEvaluator(pol, shell, "")
+	if got := ev.ProtectedPaths(); len(got) != 1 || got[0] != "/etc/acme/secrets/**" {
+		t.Fatalf("evaluator protected paths %v, want only the customer's", got)
+	}
+	read := func(p string) mcp.MCPEvalResult {
+		return ev.EvaluateToolCall("Read", map[string]interface{}{"file_path": p})
+	}
+	if r := read("/etc/acme/" + "secrets/db.env"); r.Decision != policy.DecisionBlock || len(r.TriggeredRules) != 1 || r.TriggeredRules[0] != policy.ProtectedPathRuleID {
+		t.Errorf("customer path: %s %v, want BLOCK protected-path", r.Decision, r.TriggeredRules)
+	}
+	for _, p := range []string{"~/.aws/credentials", "~/.npmrc", "/etc/hosts", "~/.agentshield/policy.yaml"} {
+		if r := read(p); r.Decision != policy.DecisionAudit || len(r.TriggeredRules) != 0 {
+			t.Errorf("shipped pattern %s: %s %v, want the policy's AUDIT with no rule", p, r.Decision, r.TriggeredRules)
+		}
+	}
+	// nil: no shell policy, no change.
+	if r := MCPEvaluator(pol, nil, "").EvaluateToolCall("Read", map[string]interface{}{"file_path": "/etc/acme/" + "secrets/db.env"}); r.Decision != policy.DecisionAudit {
+		t.Errorf("nil shell paths: %s %v, want AUDIT", r.Decision, r.TriggeredRules)
 	}
 }
 

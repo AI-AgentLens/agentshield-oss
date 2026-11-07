@@ -25,6 +25,66 @@
       "protected-path"
     ]
   },
+  "managed/control #4429: protected read alone": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/control #4429: protected read, then a git hook skip": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/control #4429: protected read, then another BLOCK": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/control #4748: protected read, then write to a hook file through another login's ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
   "managed/control: shell, git hook skip whose message names AgentShield": {
     "decision": "BLOCK",
     "exit": 2,
@@ -169,6 +229,96 @@
       "protected-path"
     ]
   },
+  "managed/shell #4429: protected read \u0026\u0026 export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4429: protected read, then delete the audit log, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4429: protected read, then export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4748: protected read, then tee to an agent hook file through ~\u003clogin\u003e/": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4748: protected read, then write to an agent hook file through ~\u003clogin\u003e/": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "managed/shell #4748: write to an agent hook file through ~\u003clogin\u003e/, alone": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
+    ]
+  },
   "managed/shell: write to an agent hook file": {
     "decision": "BLOCK",
     "exit": 2,
@@ -182,6 +332,66 @@
     ],
     "triggered_rules": [
       "ts-block-agent-settings-write"
+    ]
+  },
+  "unmanaged/control #4429: protected read alone": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/control #4429: protected read, then a git hook skip": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/control #4429: protected read, then another BLOCK": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/control #4748: protected read, then write to a hook file through another login's ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
     ]
   },
   "unmanaged/control: shell, append to a shell rc file": {
@@ -412,6 +622,111 @@
     ],
     "triggered_rules": [
       "ts-block-agentshield-log-delete"
+    ]
+  },
+  "unmanaged/shell #4429: protected read \u0026\u0026 export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4429: protected read, then delete the audit log, relative after cd ~": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4429: protected read, then export AgentShield's disable variable": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4748: protected read, then delete AgentShield's directory through ~\u003clogin\u003e/": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4748: protected read, then tee to an agent hook file through ~\u003clogin\u003e/": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4748: protected read, then write to an agent hook file through ~\u003clogin\u003e/": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Access to protected path denied: ~/.aws/**"
+    ],
+    "taxonomy": [
+      "credential-exposure/cloud-credentials/cloud-credential-access"
+    ],
+    "triggered_rules": [
+      "protected-path"
+    ]
+  },
+  "unmanaged/shell #4748: write to an agent hook file through ~\u003clogin\u003e/, alone": {
+    "decision": "BLOCK",
+    "exit": 2,
+    "mode": "enforce",
+    "original_decision": null,
+    "reasons": [
+      "Shell redirect overwriting ~/.claude/settings.json — an agent self-modifying its permission configuration achieves capability escalation by granting itself unrestricted tool access without human authorization."
+    ],
+    "taxonomy": [
+      "unauthorized-execution/agentic-attacks/agent-capability-escalation"
+    ],
+    "triggered_rules": [
+      "ts-block-agent-settings-write"
     ]
   },
   "unmanaged/shell: case-fold tie, mixed case + rm -rf /": {

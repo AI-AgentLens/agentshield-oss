@@ -3,6 +3,7 @@ package shellparse
 import (
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -54,10 +55,37 @@ func MaterializeAssignments(command string) string {
 	if !strings.Contains(command, "$") {
 		return ""
 	}
+	return materializeAssignments(command, false)
+}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+// MaterializeAssignmentsANSIC is MaterializeAssignments with every $'...'
+// body first decoded the way bash decodes it (#4591). A value bound from
+// $'rm\t-rf\t/' holds real tabs at runtime, so an unquoted $x splits into
+// three words, exactly as it does for a value typed with literal tabs. The
+// plain fold copies the still-encoded body, so `$x` became the single word
+// rm\t-rf\t/ and no rule saw the command bash runs.
+//
+// It is an ADDITIONAL candidate form, never a replacement: shellparse.Parse
+// keeps feeding the AST layers the plain fold, so every reading main had is
+// still evaluated and this one can only add findings. A body whose decoding
+// contains a single quote is left encoded, because the printer would write
+// it inside single quotes and change the word's shape.
+//
+// Returns "" when the command has no $'...', nothing decoded, nothing was
+// materialized, or parsing fails.
+func MaterializeAssignmentsANSIC(command string) string {
+	if !strings.Contains(command, "$'") {
+		return ""
+	}
+	return materializeAssignments(command, true)
+}
+
+func materializeAssignments(command string, decodeANSIC bool) string {
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
+		return ""
+	}
+	if decodeANSIC && !decodeDollarSingleQuoted(file) {
 		return ""
 	}
 
@@ -120,6 +148,28 @@ func MaterializeAssignments(command string) string {
 	// The printer always terminates a script with a trailing newline; strip
 	// it so the reconstruction compares like a single command_regex subject.
 	return strings.TrimSuffix(sb.String(), "\n")
+}
+
+// decodeDollarSingleQuoted rewrites every $'...' node in file to the plain
+// single-quoted text bash decodes it to, so the fold that follows resolves
+// the runtime value. Reports whether any node changed.
+func decodeDollarSingleQuoted(file *syntax.File) bool {
+	changed := false
+	syntax.Walk(file, func(node syntax.Node) bool {
+		sq, ok := node.(*syntax.SglQuoted)
+		if !ok || !sq.Dollar {
+			return true
+		}
+		decoded, did := pathnorm.DecodeANSICEscapes(sq.Value)
+		if !did || strings.ContainsRune(decoded, '\'') {
+			return true
+		}
+		sq.Dollar = false
+		sq.Value = decoded
+		changed = true
+		return true
+	})
+	return changed
 }
 
 // materializePending is a not-yet-resolved `Name=value` binding awaiting a

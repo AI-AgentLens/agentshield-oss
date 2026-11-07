@@ -121,10 +121,19 @@ func auditBatchBody(entries []json.RawMessage) []byte {
 }
 
 // auditWireEntry is one event as it goes on the wire, built from the redacted
-// copy (see buildAuditPayload), with its #4208 link and #4467 id. It is the
-// only builder: the payload helpers above and sendRemoteAudit all use it.
+// copy (see buildAuditPayload), with its #4208 link and #4467 id. The payload
+// helpers above and sendRemoteAudit use it; auditWireEntryRedacted is the one
+// builder underneath.
 func auditWireEntry(original *logger.AuditEvent, clientEventID string, link auditLink) map[string]any {
-	redacted := original.Redacted()
+	return auditWireEntryRedacted(original.RedactOnce(), clientEventID, link)
+}
+
+// auditWireEntryRedacted is auditWireEntry for an event already redacted
+// (#4781): the hook redacts an event once and hands the result to both the
+// local line (LogLinkedRedacted) and this builder, so the two copies are the
+// same redaction by construction, and the wire does not pay for a second.
+func auditWireEntryRedacted(red logger.RedactedEvent, clientEventID string, link auditLink) map[string]any {
+	redacted := red.Event()
 	event := &redacted
 
 	// Use tool name as command for MCP calls
@@ -193,6 +202,9 @@ func auditWireEntry(original *logger.AuditEvent, clientEventID string, link audi
 	if event.ToolName != "" {
 		entry["tool_name"] = event.ToolName
 	}
+	if event.ServerName != "" {
+		entry["server_name"] = event.ServerName
+	}
 	if len(event.MCPArguments) > 0 {
 		entry["arguments"] = event.MCPArguments
 	}
@@ -211,6 +223,19 @@ func auditWireEntry(original *logger.AuditEvent, clientEventID string, link audi
 		entry["client_event_id"] = clientEventID
 	}
 	return entry
+}
+
+// remoteAuditCredentials is what makes sendRemoteAudit upload an event:
+// credentials with a token, or nil when the event stays local. The hook's
+// decision budget sizes its record reserve on the same answer
+// (hookRecordReserveEnrolledPerKiB), so the reserve and the tail it holds
+// cannot disagree about whether there is an upload to wait for.
+func remoteAuditCredentials() *auth.Credentials {
+	creds, _ := auth.Load()
+	if creds == nil || creds.Token == "" {
+		return nil
+	}
+	return creds
 }
 
 // sendRemoteAudit hands an audit event to the SaaS upload. Every hook sender
@@ -233,15 +258,32 @@ func auditWireEntry(original *logger.AuditEvent, clientEventID string, link audi
 // read only after the credentials check, so an install that reports
 // nowhere does not pay for it, and its wait is bounded by machineIDWait.
 func sendRemoteAudit(event *logger.AuditEvent, chain *logger.ChainLink) {
-	creds, _ := auth.Load()
-	if creds == nil || creds.Token == "" {
+	creds := remoteAuditCredentials()
+	if creds == nil {
 		return
 	}
+	queueRemoteAudit(creds, event.RedactOnce(), chain)
+}
+
+// sendRemoteAuditRedacted is sendRemoteAudit for an event the caller has
+// already redacted for its local line (#4781): the same upload, with no
+// second redaction. Logged-out installs return here, as before.
+func sendRemoteAuditRedacted(red logger.RedactedEvent, chain *logger.ChainLink) {
+	creds := remoteAuditCredentials()
+	if creds == nil {
+		return
+	}
+	queueRemoteAudit(creds, red, chain)
+}
+
+// queueRemoteAudit is the upload half of sendRemoteAudit, for a host with
+// credentials and an event already redacted.
+func queueRemoteAudit(creds *auth.Credentials, red logger.RedactedEvent, chain *logger.ChainLink) {
 	// The wire entry is built once, here, and the queue and the synchronous
 	// fallback carry the same bytes: the id, the local chain link and the
 	// machine id are fixed when the event happens, never rebuilt at upload
 	// time.
-	entry, err := json.Marshal(auditWireEntry(event, newClientEventID(), auditLink{
+	entry, err := json.Marshal(auditWireEntryRedacted(red, newClientEventID(), auditLink{
 		MachineID: machineIDs.within(machineIDWait),
 		Chain:     chain,
 	}))
@@ -261,11 +303,21 @@ func sendRemoteAudit(event *logger.AuditEvent, chain *logger.ChainLink) {
 
 // postAuditEntrySync is the pre-#4467 upload: one POST, waited on, with a 3 s
 // timeout, and the event is dropped on any error. Used in sync mode and when
-// the queue cannot be used.
+// the queue cannot be used. In the hook it runs after the record and before
+// the verdict leaves the process, so an armed budget cuts its timeout to the
+// time left before the harness stops waiting (hookBudget.uploadTimeout,
+// #4803) and skips it when none is left.
 func postAuditEntrySync(creds *auth.Credentials, entry json.RawMessage) {
-	client := &http.Client{Timeout: 3 * time.Second}
+	timeout := activeBudget.uploadTimeout(syncUploadTimeout)
+	if timeout <= 0 {
+		return
+	}
+	client := &http.Client{Timeout: timeout}
 	_, _ = postAuditBody(client, creds, auditBatchBody([]json.RawMessage{entry}))
 }
+
+// syncUploadTimeout is postAuditEntrySync's timeout when nothing cuts it.
+const syncUploadTimeout = 3 * time.Second
 
 // splitTriggeredRules partitions AuditEvent.TriggeredRules into resolvable
 // rule ids and detector signals.

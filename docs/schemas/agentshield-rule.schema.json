@@ -143,7 +143,125 @@
         "dataflow":               { "$ref": "#/$defs/dataflow_match" },
         "semantic":               { "$ref": "#/$defs/semantic_match" },
         "stateful":               { "$ref": "#/$defs/stateful_match" },
-        "context":                { "$ref": "#/$defs/context_match" }
+        "context":                { "$ref": "#/$defs/context_match" },
+        "powershell":             { "$ref": "#/$defs/powershell_match" },
+        "powershell_strings": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Some string literal the PowerShell lane read outside every command's elements (assignments, arrays, hashtables, redirection targets, .NET method arguments) equals one entry, ASCII case-insensitively. For .NET text with no command (the AMSI bypass). A sibling of powershell, never combined with any matcher; older binaries decode it as an empty match."
+        },
+        "powershell_calls": {
+          "$ref": "#/$defs/powershell_match",
+          "description": "A powershell match whose tree may also name .NET method calls (call nodes): a network cmdlet fed by [Convert]::ToBase64String(...), or [Microsoft.Win32.Registry]::SetValue(...) on its own. A sibling of powershell, never combined with any matcher; v0.2.2619 to v0.2.2640 decode it as an empty match, so premium rules may use it. Call nodes are valid only here."
+        }
+      }
+    },
+
+    "powershell_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["command"] }, { "required": ["call"] }],
+      "description": "Match one command the PowerShell lane read (ADR-001 step 5), or, under powershell_calls, one .NET method call (a call node). Evaluated only by the PowerShell lane; a rule with this block may carry no other matcher, so the bash pipeline never reads it. Every field given must hold for the same command or call.",
+      "properties": {
+        "command": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ],
+          "description": "Canonical command names, aliases resolved by the lane (iex is invoke-expression). Exact and ASCII case-insensitive, never a prefix; a native program matches with or without a directory and .exe; any reading of a version-dependent alias matches."
+        },
+        "call": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ],
+          "description": "Makes this node a call node (valid only under powershell_calls): a .NET method call, Type::Method for a static call (the type as written, with or without System., ASCII case-insensitive) or .Method for an instance call on any object. A call node names no command and carries only values_any (over the string literals in its arguments) and fed_by_any (the commands and calls inside its arguments)."
+        },
+        "params_any": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/powershell_param" },
+          "description": "Some parameter of the command matches one entry."
+        },
+        "positions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The parameters the command binds positional arguments to, in order (Set-ItemProperty: -Path, -Name, -Value); params_any then also reads a parameter bound by position. Only widens params_any, so a binary that predates it reads the rule as written without it."
+        },
+        "args_any": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Some word of the command equals one entry (ASCII case-insensitive): an argument's value, or a parameter as written (a native program receives -create as a word). A parameter's attached value (-Name:x) and each item of an array value (a,b) are words too."
+        },
+        "args_wildcard": {
+          "type": "boolean",
+          "description": "args_any also matches a word that is a PowerShell wildcard pattern (*, ?, [a-c], backtick escapes) matching an entry, for a command that expands one (Stop-Service -Name WinDef*). Only widens args_any, so a binary that predates it reads the rule as written without it."
+        },
+        "paths_any": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Some whole-value path of the command matches one glob (ASCII case-insensitive). A leading **/ matches any trailing run of whole path components."
+        },
+        "fed_by_any": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/powershell_match" },
+          "description": "Some command whose output can reach this one (an earlier stage of its pipeline, or a command inside its arguments) matches one entry. Under powershell_calls an entry may be a call node: a .NET call whose output can reach this command, or, below a call node, a command or call inside that call's arguments."
+        },
+        "fed_by_all": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/powershell_match" },
+          "description": "Every entry has an input, as fed_by_any reads one: ForEach-Object fed by the Win32_ShadowCopy listing and holding the .Delete() call. A narrowing key, valid only under powershell_calls, which older binaries ignore."
+        },
+        "encoded_command": {
+          "type": "boolean",
+          "description": "The command starts PowerShell with -EncodedCommand text, in any accepted spelling, decoded or not."
+        },
+        "stdin_script": {
+          "type": "boolean",
+          "description": "The command starts PowerShell whose command line runs its standard input as the script: -, -Command -, -File -, or no script at all (only switches and options that take a value). A narrowing key, valid only under powershell_calls, which older binaries ignore."
+        },
+        "values_any": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Some argument value of the command (\\ read as /, trailing separators dropped) matches one glob, ASCII case-insensitively; a leading **/ as in paths_any. Reads values paths_any skips as prose, such as a registry key on a provider drive. Community rules only: v0.2.2639/v0.2.2640 read a rule using it as its bare command."
+        },
+        "output_runs": { "$ref": "#/$defs/powershell_output_runs" }
+      }
+    },
+
+    "powershell_output_runs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["params"],
+      "description": "A file the command writes through one of params is run by a later command of the text: by its path as the command name, or as an argument of a by command. Community rules only, as values_any.",
+      "properties": {
+        "params": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Parameters whose value is the file written: by prefix (ADR-001 decision 1), or exactly for a native long option such as --output."
+        },
+        "by": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ],
+          "description": "Commands that run a file passed as an argument (Start-Process, msiexec, powershell -File, ...)."
+        }
+      }
+    },
+
+    "powershell_param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Matched by prefix (ADR-001 decision 1). A trailing * names a family: -Disable* matches any parameter that starts with -Disable." },
+        "value_not": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Holds only when the parameter's value (attached with a colon, else the next argument) is none of these; a parameter with no value (a switch) holds, and so does a computed one."
+        }
       }
     },
 

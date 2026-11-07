@@ -38,6 +38,7 @@ const redactionCanary = "Lk4332canary"
 func testAPIKey() string      { return "sk_" + "test_" + "Zm9v" + "YmFy" + "YmF6" + redactionCanary }
 func testBearerToken() string { return "tok_" + "live_" + "A1b2" + "C3d4" + "E5f6" + redactionCanary }
 func testPassword() string    { return "Pw-" + "Sx9" + "-q7" + redactionCanary }
+func testGitHubToken() string { return "gh" + "p_" + "Zm9vYmFy" + "YmF6Zm9v" + "YmFyYmF6" + redactionCanary }
 
 // redactionCase is one way a secret reaches an audit event.
 type redactionCase struct {
@@ -124,6 +125,24 @@ func redactionCases() []redactionCase {
 				_, ev := failSafeDecision(evalFailure{stage: "config load", err: errors.New(errText)},
 					"agentshield-test-cmd", "/workspace", "claude-code-hook", "")
 				return *ev
+			},
+		},
+		{
+			// A PowerShell dynamic_name note quotes the computed command name,
+			// so its detail is agent text too (#4800's Opus pass: the
+			// command read [REDACTED] and the note beside it did not).
+			name:   "note detail",
+			secret: testGitHubToken(),
+			event: func(t *testing.T) logger.AuditEvent {
+				name := "('" + testGitHubToken() + "' + 'x')"
+				cmd := "& " + name + " /list"
+				return logger.AuditEvent{
+					Command: cmd, Args: strings.Fields(cmd),
+					Decision: "BLOCK", Mode: "enforce", Source: "copilot-cli-hook",
+					TriggeredRules: []string{"guardian-secrets_in_command"},
+					Notes: []logger.Note{{Kind: "dynamic_name",
+						Detail: "command name \"" + name + "\" is computed"}},
+				}
 			},
 		},
 	}

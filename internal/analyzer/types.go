@@ -291,6 +291,94 @@ const (
 	// names the payload value and why it was refused, so a receipt never
 	// presents a fallback directory as the one the agent's shell was in.
 	NotePayloadCwdUnusable = "payload_cwd_unusable"
+	// NoteRoutingGap: a tool call whose input carries command text, from a
+	// harness and tool no routing row names (internal/route, ADR-001 D5), was
+	// evaluated as a tool call by MCP policy, as every unnamed tool was before
+	// ADR-001, and no shell lane read its text. Claude Code's PowerShell tool
+	// is the case that went unnoticed. Written by the hook, not a stage, on
+	// the MCP event. Detail names the tool and the harness. The decision is
+	// MCP policy's, unchanged.
+	//
+	// The PowerShell lane writes the same kind for an interpreter its text
+	// starts with that no lane reads (route.NestedLane: cmd, wsl), on its own
+	// shell-shaped event, naming the interpreter. There the text went unread
+	// by any lane, so the lane's decision is at least AUDIT (ADR-001 D4, D5).
+	NoteRoutingGap = "routing_gap"
+	// NoteLaneReadings: the call's routing row names more than one lane
+	// (internal/route, ADR-001 D4), every lane read it, and the stricter
+	// verdict was kept, the earlier lane winning ties, except that a
+	// rule-less AUDIT gives way to a tied AUDIT that names a rule (#4779).
+	// Written by the hook,
+	// not a stage, on the one event the call records: the kept lane's own.
+	// Detail names the tool, then every lane's decision and first rule in row
+	// order and the lane kept, e.g. "tool=Monitor; structured=AUDIT;
+	// posix=BLOCK(ts-block-rm-root); kept=posix" (route.ReadingsDetail): a
+	// receipt kept from the POSIX lane is shell-shaped, and the tool is the
+	// only thing on it that says it was not a Bash call. The decision is the
+	// kept lane's own, raised only by the AUDIT floor; under audit-only's
+	// keep-BLOCK rule the kept lane is the one whose BLOCK survived.
+	NoteLaneReadings = "lane_readings"
+
+	// NoteDialect: the decision was made on what a dialect lane read
+	// (ADR-001, D3), not on the shell pipeline. Written by
+	// policy.Engine.EvaluateFacts on every result it returns. Detail names the
+	// lane (facts.Facts.Dialect, `powershell`), so a receipt whose command is
+	// PowerShell text says how it was read without a schema change (ADR-001,
+	// decision 2). Never a decision input.
+	NoteDialect = "dialect"
+
+	// NoteNestedDepthExceeded: a dialect lane found an interpreter started
+	// with text of its own (`powershell -EncodedCommand …`, `bash -c …`)
+	// deeper than the nesting the hook reads (ADR-001 D6: the text of the
+	// call and analyzer.max_parse_depth levels of nesting under it, default
+	// 2). That text was not read, so the lane's decision is at least AUDIT.
+	// Written by the hook, not a stage. Detail names the interpreter and the
+	// depth.
+	NoteNestedDepthExceeded = "nested_depth_exceeded"
+
+	// NotePathMention: a dialect lane's text names a protected path only
+	// inside a longer value or where its raw-text scan alone found it (a
+	// commit message, a printed label, a comment: facts.Facts.Mentions), not
+	// as a value it hands to anything. Written by policy.Engine.EvaluateFacts,
+	// which floors the decision at AUDIT and never BLOCKs on a mention (Gary's
+	// rule: only BLOCK what you can justify). Detail names the protected
+	// pattern.
+	NotePathMention = "path_mention"
+
+	// NoteAnalysisBudgetExceeded: the hook ran out of its decision budget
+	// (#4772) before the evaluation had a verdict, so the call was decided
+	// the way every evaluation failure is (failSafeDecision): BLOCK
+	// (enterprise-fail-closed) under managed fail_closed, AUDIT
+	// (agentshield-eval-error) otherwise. The budget sits just under the
+	// harness's own hook timeout, past which the harness runs the call
+	// unevaluated and unrecorded. Written by the hook, not a stage, on the one
+	// event the call records. Detail names the budget, the harness, its
+	// timeout and the tool. Nothing was matched: the decision is the
+	// fail-safe's, not a rule's.
+	NoteAnalysisBudgetExceeded = "analysis_budget_exceeded"
+
+	// NoteLateAnswer: an evaluation's own record started within the hook's
+	// exit guard of the harness's hook timeout (#4818), so the answer may
+	// have reached the harness after it had stopped waiting and run the
+	// call. The watchdog's late answer says the same on its
+	// analysis_budget_exceeded note (#4785). Written by the hook, not a
+	// stage. Detail: answered_after_harness_timeout=possible|true,
+	// recorded_at, the harness, its timeout and the exit guard. The decision
+	// is the evaluation's, unchanged.
+	NoteLateAnswer = "late_answer"
+
+	// NoteChainTooLong: the command, or a text derived from it that a reading
+	// was about to parse (a nested shell's text after variable substitution),
+	// had more `|`, `|&`, `||` and `&&` operators than
+	// shellparse.MaxChainOperators (#4778). The parser's tree for such a chain
+	// overflows the Go stack when walked, which kills the process, so the text
+	// was not parsed and the call was decided the way every evaluation failure
+	// is: on the hook failSafeDecision's (BLOCK enterprise-fail-closed under
+	// managed fail_closed, AUDIT agentshield-eval-error otherwise), on
+	// shield-server AUDIT. Written by the surface, not a stage. Detail names
+	// the bound and whether the text was derived. Nothing was matched: the
+	// decision is the fail-safe's, not a rule's.
+	NoteChainTooLong = "chain_too_long"
 )
 
 // Note is one attestation record on an evaluation. See the kinds above.

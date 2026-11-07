@@ -238,6 +238,25 @@ func TestWatchdogEvents_StateFileSelfHeals(t *testing.T) {
 	}
 }
 
+// The residual #4434 item 1 leaves, pinned so closing it is deliberate: a
+// deletion stays unrepaired until one successful tick. If the state file is
+// deleted AND the hook removed before any tick runs, the restarted watchdog
+// has nothing recording that the hook was ever there and reads a
+// configuration gap, not tamper. Needs both acts while the watchdog is down.
+func TestWatchdogEvents_StateDeletedThenHookRemovedBeforeHealIsConfigGap(t *testing.T) {
+	f := healthyManagedHost(t)
+	f.managedSettings(t, execHookSettings)
+	wantEvent(t, "hook present", f.tick(newWatchdogTracker(f.configDir)), "")
+
+	// Watchdog down: the state file goes, then the hook.
+	if err := os.Remove(filepath.Join(f.configDir, watchdogStateFile)); err != nil {
+		t.Fatal(err)
+	}
+	f.setManaged(t, nil)
+
+	wantEvent(t, "restart after both", f.tick(newWatchdogTracker(f.configDir)), "config_gap")
+}
+
 // A state write that fails is named in stateNote (#4434 item 2), and the next
 // successful write clears it.
 func TestWatchdogEvents_StateWriteFailureIsNamed(t *testing.T) {

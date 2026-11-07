@@ -721,6 +721,255 @@ func TestRunFixtureFile_InvalidExpect(t *testing.T) {
 	}
 }
 
+// rulePairPolicy has a narrow custom rule and a broad rule with the same
+// decision, so a case can reach AUDIT without the custom rule firing. That is
+// the shape embedded packs create under --policy.
+const rulePairPolicy = `version: "0.1"
+defaults:
+  decision: "ALLOW"
+rules:
+  - id: "co-audit-acmectl-prod"
+    decision: "AUDIT"
+    reason: "acmectl against prod"
+    match:
+      command_regex: "^acmectl\\s+deploy\\s+prod\\b"
+  - id: "broad-audit-acmectl"
+    decision: "AUDIT"
+    reason: "any acmectl deploy"
+    match:
+      command_regex: "^acmectl\\s+deploy\\b"
+`
+
+// TestRunFixtureFile_FiresNamesTheRule — expect alone passes when another rule
+// reaches the same decision; fires catches that the named rule stayed silent.
+func TestRunFixtureFile_FiresNamesTheRule(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "rule.yaml", rulePairPolicy)
+	fixture := writeFixture(t, home, `cases:
+  - name: "expect alone is met by the broad rule"
+    shell: "acmectl deploy staging"
+    expect: AUDIT
+  - name: "fires catches that the custom rule did not fire"
+    shell: "acmectl deploy staging"
+    fires: co-audit-acmectl-prod
+  - name: "fires passes when the custom rule fires, no expect needed"
+    shell: "acmectl deploy prod"
+    fires: co-audit-acmectl-prod
+`)
+
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	got := []bool{report.results[0].pass, report.results[1].pass, report.results[2].pass}
+	want := []bool{true, false, true}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pass = %v, want %v; results = %+v", got, want, report.results)
+	}
+
+	var buf bytes.Buffer
+	printFixtureReport(&buf, report)
+	if !strings.Contains(buf.String(), "expected rule co-audit-acmectl-prod to fire") {
+		t.Errorf("output should name the rule that did not fire:\n%s", buf.String())
+	}
+}
+
+// TestRunFixtureFile_SilentNamesTheRule — silent passes when the named rule
+// does not trigger, even though another rule does, and fails when it does.
+func TestRunFixtureFile_SilentNamesTheRule(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "rule.yaml", rulePairPolicy)
+	fixture := writeFixture(t, home, `cases:
+  - name: "near miss: broad rule fires, custom rule silent"
+    shell: "acmectl deploy staging"
+    silent: co-audit-acmectl-prod
+  - name: "custom rule fires, so silent fails"
+    shell: "acmectl deploy prod"
+    silent: co-audit-acmectl-prod
+`)
+
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	if !report.results[0].pass || report.results[1].pass {
+		t.Fatalf("pass = [%v %v], want [true false]", report.results[0].pass, report.results[1].pass)
+	}
+
+	var buf bytes.Buffer
+	printFixtureReport(&buf, report)
+	if !strings.Contains(buf.String(), "expected rule co-audit-acmectl-prod to stay silent") {
+		t.Errorf("output should say the rule fired when it should not:\n%s", buf.String())
+	}
+}
+
+// TestRunFixtureFile_FiresSeesRuleHiddenByStricterRule — the combiner keeps
+// only the winning decision's rules, so an AUDIT rule that matches alongside
+// a BLOCK is missing from the triggered rules. That is what happens to a
+// customer's AUDIT rule on any command a built-in rule blocks. fires must
+// still see it.
+func TestRunFixtureFile_FiresSeesRuleHiddenByStricterRule(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "rule.yaml", `version: "0.1"
+defaults:
+  decision: "ALLOW"
+rules:
+  - id: "co-audit-acmectl-prod"
+    decision: "AUDIT"
+    reason: "acmectl against prod"
+    match:
+      command_regex: "^acmectl\\s+deploy\\s+prod\\b"
+  - id: "broad-block-acmectl"
+    decision: "BLOCK"
+    reason: "any acmectl deploy"
+    match:
+      command_regex: "^acmectl\\s+deploy\\b"
+`)
+
+	// Precondition: the plain evaluation really does hide the AUDIT rule.
+	full, err := evaluateShellCommand("acmectl deploy prod", pol)
+	if err != nil {
+		t.Fatalf("evaluateShellCommand: %v", err)
+	}
+	if full.Decision != policy.DecisionBlock || slices.Contains(full.TriggeredRules, "co-audit-acmectl-prod") {
+		t.Fatalf("precondition: want BLOCK without the AUDIT rule listed; got %s %v", full.Decision, full.TriggeredRules)
+	}
+
+	fixture := writeFixture(t, home, `cases:
+  - name: "AUDIT rule matched under a BLOCK"
+    shell: "acmectl deploy prod"
+    fires: co-audit-acmectl-prod
+  - name: "and it still stays silent where it does not match"
+    shell: "acmectl deploy staging"
+    silent: co-audit-acmectl-prod
+`)
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	if report.failed != 0 {
+		var buf bytes.Buffer
+		printFixtureReport(&buf, report)
+		t.Fatalf("fires/silent should judge the rule, not the winning decision:\n%s", buf.String())
+	}
+}
+
+// TestRunFixtureFile_ExpectAndFiresBothChecked — when a case sets both, each
+// is checked and each failure is reported.
+func TestRunFixtureFile_ExpectAndFiresBothChecked(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "rule.yaml", rulePairPolicy)
+	fixture := writeFixture(t, home, `cases:
+  - name: "rule fires but the decision is AUDIT, not BLOCK"
+    shell: "acmectl deploy prod"
+    expect: BLOCK
+    fires: co-audit-acmectl-prod
+`)
+
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	if report.results[0].pass {
+		t.Fatal("case should fail on the decision even though the rule fired")
+	}
+	var buf bytes.Buffer
+	printFixtureReport(&buf, report)
+	if !strings.Contains(buf.String(), "expected BLOCK, got AUDIT") {
+		t.Errorf("output should report the decision mismatch:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "to fire") {
+		t.Errorf("the rule did fire, so no fires failure should be reported:\n%s", buf.String())
+	}
+}
+
+// TestRunFixtureFile_UnknownRuleIDIsAnError — silent on a misspelled id would
+// pass forever, so a fires or silent id must exist in the named policy file.
+func TestRunFixtureFile_UnknownRuleIDIsAnError(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "rule.yaml", rulePairPolicy)
+	fixture := writeFixture(t, home, `cases:
+  - name: "misspelled silent"
+    shell: "acmectl deploy prod"
+    silent: co-audit-acmectl-prd
+  - name: "misspelled fires"
+    shell: "acmectl deploy prod"
+    fires: co-audit-acmectl-prd
+  - name: "known id still works"
+    shell: "acmectl deploy staging"
+    silent: co-audit-acmectl-prod
+`)
+
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	for i, wantErr := range []bool{true, true, false} {
+		res := report.results[i]
+		if (res.err != nil) != wantErr || res.pass == wantErr {
+			t.Errorf("case %q: err=%v pass=%v, want error=%v", res.name, res.err, res.pass, wantErr)
+		}
+	}
+	if report.results[0].err != nil && !strings.Contains(report.results[0].err.Error(), `"co-audit-acmectl-prd" is not in`) {
+		t.Errorf("error should name the unknown id: %v", report.results[0].err)
+	}
+}
+
+// TestRunFixtureFile_ProtectedPathByBuiltinID — a pack that only declares
+// protected_paths is tested through the built-in "protected-path" rule id,
+// which the unknown-id check accepts; a misspelling of it is still an error.
+func TestRunFixtureFile_ProtectedPathByBuiltinID(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	pol := writePolicyFile(t, home, "co-acme-paths.yaml", `name: "Acme paths"
+defaults:
+  protected_paths:
+    - "/srv/acme-vault/**"
+rules: []
+`)
+	fixture := writeFixture(t, home, `cases:
+  - name: "inside the protected folder"
+    shell: "cat /srv/acme-vault/db.env"
+    fires: protected-path
+  - name: "a sibling path is out of scope"
+    shell: "cat /srv/acme-vault-notes.md"
+    silent: protected-path
+  - name: "misspelled id"
+    shell: "cat /srv/acme-vault/db.env"
+    fires: protected-paths
+`)
+
+	report, err := runFixtureFile(fixture, pol)
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	if !report.results[0].pass || !report.results[1].pass {
+		var buf bytes.Buffer
+		printFixtureReport(&buf, report)
+		t.Fatalf("protected-path cases should pass:\n%s", buf.String())
+	}
+	if report.results[2].err == nil {
+		t.Errorf("a misspelled built-in id must be an error, got pass=%v", report.results[2].pass)
+	}
+}
+
+// TestRunFixtureFile_NoExpectNoRuleIsStillAnError — a case with neither an
+// expect nor a named rule tests nothing, so it stays a per-case error.
+func TestRunFixtureFile_NoExpectNoRuleIsStillAnError(t *testing.T) {
+	home := withFakeHomeForCheck(t)
+	fixture := writeFixture(t, home, `cases:
+  - name: "tests nothing"
+    shell: "ls"
+`)
+
+	report, err := runFixtureFile(fixture, "")
+	if err != nil {
+		t.Fatalf("runFixtureFile: %v", err)
+	}
+	if report.failed != 1 || report.results[0].err == nil {
+		t.Errorf("want one failed case with an error; got failed=%d results=%+v", report.failed, report.results)
+	}
+}
+
 // TestParseExpectedDecision_CaseInsensitive — accept BLOCK, block, Block.
 func TestParseExpectedDecision_CaseInsensitive(t *testing.T) {
 	tests := []struct {

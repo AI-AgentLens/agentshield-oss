@@ -26,6 +26,12 @@ type AuditEntry struct {
 	// TaxonomyRef links the audit event to a taxonomy entry.
 	// Populated for Go-implemented intercepts (e.g. roots/list guard).
 	TaxonomyRef string `json:"taxonomy_ref,omitempty"`
+	// TaxonomyRefs are the decision's per-rule refs, from the evaluator's
+	// result (#4734). MCP rules carry their taxonomy only on the wire (the
+	// SaaS has no rule-id fallback for them), so a proxy entry without these
+	// uploads as a receipt with no taxonomy. Read both fields through
+	// AllTaxonomyRefs.
+	TaxonomyRefs []string `json:"taxonomy,omitempty"`
 	// Mode is the enforcement mode the proxy ran in ("enforce" or
 	// "audit-only"). Set on tools/call records, the ones audit-only applies
 	// to (#4337); empty when the proxy was given no mode.

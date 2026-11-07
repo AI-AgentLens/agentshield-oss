@@ -79,6 +79,13 @@ func TestDefaultGlobbing(t *testing.T) {
 		"enable -n x; ls *",
 		"disable -p x; ls *",
 		"nocorrect ls *",
+		// the other zsh command words the parser reads through since #4597
+		// (main read each as the executable, an optionBuiltin)
+		"- ls *",
+		"repeat 1 ls *",
+		"repeat $n cat *",
+		"sudo nocorrect ls *",
+		"echo x | - grep k *",
 		// the switch inside a compound command or a function body
 		"f(){ set -f; }; f; git add *",
 		"(set -f; git add *)",

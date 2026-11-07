@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/redact"
 )
 
 // secretShaped is assembled at runtime: the hook reads test sources as commands.
@@ -11,7 +14,11 @@ func secretShaped() string { return "api_key=" + strings.Repeat("A1b2", 6) }
 
 func TestAuditEntryRedacted_4463(t *testing.T) {
 	label := "PHOENIX-" + "7731"
-	scrub := func(s string) string { return strings.ReplaceAll(s, label, "[LABEL:codename]") }
+	eng, err := datalabel.NewEngine([]datalabel.DataLabelConfig{{ID: "codename", Patterns: []datalabel.PatternConfig{{Regex: `PHOENIX-[0-9]{4}`}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scrub := eng.Spans
 
 	in := AuditEntry{
 		ToolName: "send_message",
@@ -31,7 +38,7 @@ func TestAuditEntryRedacted_4463(t *testing.T) {
 		t.Fatalf("control: raw entry should carry label and secret: %s", raw)
 	}
 
-	for name, fn := range map[string]func(string) string{"with scrubber": scrub} {
+	for name, fn := range map[string]func(string) []datalabel.Span{"with scrubber": scrub} {
 		out, _ := json.Marshal(in.Redacted(fn))
 		got := string(out)
 		if strings.Contains(got, label) {
@@ -61,9 +68,41 @@ func TestAuditEntryRedacted_4463(t *testing.T) {
 }
 
 func TestAuditEntryRedacted_NilShapesKept_4463(t *testing.T) {
-	out := AuditEntry{ToolName: "t", Decision: "ALLOW"}.Redacted(func(s string) string { return s })
+	out := AuditEntry{ToolName: "t", Decision: "ALLOW"}.Redacted(func(string) []datalabel.Span { return nil })
 	b, _ := json.Marshal(out)
 	if strings.Contains(string(b), "arguments") || strings.Contains(string(b), "reasons") {
 		t.Errorf("empty fields must stay omitted: %s", b)
+	}
+}
+
+// TestAuditEntryRedacted_LabelInsideSecret_4813: the proxies' entry had the
+// hook's order (scrub, then redact), so a label value inside a secret left
+// the secret's tail in the entry. Arguments at depth and reasons are now
+// masked as the hook's record is. Control: main's order leaves the tail.
+func TestAuditEntryRedacted_LabelInsideSecret_4813(t *testing.T) {
+	eng, err := datalabel.NewEngine([]datalabel.DataLabelConfig{{ID: "customer-records", Patterns: []datalabel.PatternConfig{{Regex: `CUST-[0-9]{6}`}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tail := "zz9yy8xx7ww6vv5u"
+	shape := "export TO" + "KEN=abcdefghijklmn" + "CUST-" + "104233" + tail
+	in := AuditEntry{
+		ToolName:  "run_command",
+		Decision:  "BLOCK",
+		Arguments: map[string]interface{}{"command": shape, "nested": map[string]interface{}{"list": []interface{}{shape}}},
+		Reasons:   []string{"matched in " + shape},
+	}
+	got, _ := json.Marshal(in.Redacted(eng.Spans))
+	for _, g := range []string{tail, "104233", "abcdefghijklmn"} {
+		if strings.Contains(string(got), g) {
+			t.Errorf("%q survived: %s", g, got)
+		}
+	}
+	if !strings.Contains(string(got), `"decision":"BLOCK"`) || !strings.Contains(string(got), `"tool_name":"run_command"`) {
+		t.Errorf("decision/tool altered: %s", got)
+	}
+	// Control: main's order, scrub then redact.
+	if main := redact.Redact(eng.Scrub(shape)); !strings.Contains(main, tail) {
+		t.Fatalf("control: main's order no longer leaves the tail (%q)", main)
 	}
 }

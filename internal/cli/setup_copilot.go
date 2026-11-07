@@ -48,16 +48,16 @@ func init() {
 }
 
 // copilotHome mirrors Copilot CLI's own resolution: COPILOT_HOME, else
-// $HOME/.copilot.
-func copilotHome() string {
+// home/.copilot, where home is setup's home directory (setupHome).
+func copilotHome(home string) string {
 	if h := os.Getenv("COPILOT_HOME"); h != "" {
 		return h
 	}
-	return filepath.Join(os.Getenv("HOME"), ".copilot")
+	return filepath.Join(home, ".copilot")
 }
 
-func copilotHookFilePath() string {
-	return filepath.Join(copilotHome(), "hooks", "agentshield.json")
+func copilotHookFilePath(home string) string {
+	return filepath.Join(copilotHome(home), "hooks", "agentshield.json")
 }
 
 // copilotHookFile is the content AgentShield owns. timeoutSec stays at
@@ -94,7 +94,7 @@ func isAgentShieldCopilotHookFile(path string) (bool, error) {
 	var doc struct {
 		Hooks map[string][]map[string]interface{} `json:"hooks"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(stripUTF8BOM(data), &doc); err != nil {
 		return false, nil
 	}
 	for _, entry := range doc.Hooks["PreToolUse"] {
@@ -111,7 +111,11 @@ func isAgentShieldCopilotHookFile(path string) (bool, error) {
 }
 
 func setupCopilotCLICommand(cmd *cobra.Command, args []string) error {
-	path := copilotHookFilePath()
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+	path := copilotHookFilePath(home)
 
 	if disableFlag {
 		if err := enterprise.CheckDisableAllowed(); err != nil {

@@ -74,6 +74,27 @@ func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body str
 	if file == nil {
 		return false
 	}
+	// Git's editor environment can be selected in another statement. Treat
+	// assignments anywhere in the line conservatively, without flow analysis.
+	gitEditorSet := false
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if a, ok := node.(*syntax.Assign); ok {
+			name := ""
+			if a.Name != nil && !a.Naked {
+				name = a.Name.Value
+			} else if a.Naked && a.Value != nil {
+				// export 'GIT_EDITOR=sh' is a naked declaration argument.
+				if value, ok := literalWordValue(a.Value); ok && strings.Contains(value, "=") {
+					name, _, _ = strings.Cut(value, "=")
+				}
+			}
+			switch name {
+			case "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "VISUAL", "EDITOR":
+				gitEditorSet = true
+			}
+		}
+		return true
+	})
 	pure := true
 	syntax.Walk(file, func(node syntax.Node) bool {
 		if !pure {
@@ -91,7 +112,7 @@ func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body str
 				return false
 			}
 			if call, ok := n.Cmd.(*syntax.CallExpr); ok && len(call.Args) > 0 {
-				if !callIsPure(src, n, call, interpHeredocExecFree, legacyExecFree...) {
+				if !callIsPure(src, n, call, gitEditorSet, interpHeredocExecFree, legacyExecFree...) {
 					pure = false
 					return false
 				}
@@ -203,7 +224,7 @@ func sedScriptExecutes(script string) bool {
 	return false
 }
 
-func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHeredocExecFree func(lang, body string) bool, legacyExecFree ...func(lang, body string) bool) bool {
+func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, gitEditorSet bool, interpHeredocExecFree func(lang, body string) bool, legacyExecFree ...func(lang, body string) bool) bool {
 	if !wordIsStatic(call.Args[0]) {
 		return false // `$x`, `$(…)`, `` `…` ``: the program is whatever the expansion says
 	}
@@ -220,6 +241,15 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHere
 				}
 			}
 		}
+		// printf -v is impure: evaluating a destination's array subscript
+		// can run command substitutions, even in a single-quoted word.
+		if name == "printf" {
+			for _, w := range args {
+				if strings.HasPrefix(w, "-v") {
+					return false
+				}
+			}
+		}
 		return true
 	}
 	switch name {
@@ -227,6 +257,12 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHere
 		// `command -v x` is a lookup; `command x` runs x.
 		return len(args) > 0 && (args[0] == "-v" || args[0] == "-V")
 	case "git":
+		// -e/--edit on message-editing subcommands is impure: an editor can
+		// execute the message (gitcli(7): bundles and unique prefixes count).
+		// Conservatively, any same-line editor assignment makes git impure too.
+		if gitEditorSet {
+			return false
+		}
 		sub := ""
 		for i := 0; i < len(args); i++ {
 			w := args[i]
@@ -244,7 +280,56 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, interpHere
 				continue
 			}
 			sub = w
+			args = args[i+1:]
 			break
+		}
+		switch sub {
+		case "commit", "tag", "merge", "cherry-pick":
+			// Stop short-option bundles at an attached value, so -mtext is
+			// data while -aemtext requests editing. S/u take optional values.
+			valueFlags, optionalFlags := "mFS", "S"
+			switch sub {
+			case "commit":
+				valueFlags += "Cctu"
+				optionalFlags += "u"
+			case "tag":
+				valueFlags += "un"
+				optionalFlags += "n"
+			case "merge":
+				valueFlags += "sX"
+			case "cherry-pick":
+				valueFlags += "X"
+			}
+			for i := 0; i < len(args); i++ {
+				w := args[i]
+				if w == "--" {
+					break
+				}
+				if strings.HasPrefix(w, "--") {
+					flag, _, attached := strings.Cut(w, "=")
+					if len(flag) > 2 && strings.HasPrefix("--edit", flag) {
+						return false
+					}
+					if !attached && len(flag) > 2 && (strings.HasPrefix("--message", flag) || strings.HasPrefix("--file", flag)) {
+						i++
+					}
+					continue
+				}
+				if !strings.HasPrefix(w, "-") {
+					continue
+				}
+				for j := 1; j < len(w); j++ {
+					if w[j] == 'e' {
+						return false
+					}
+					if strings.ContainsRune(valueFlags, rune(w[j])) {
+						if j == len(w)-1 && !strings.ContainsRune(optionalFlags, rune(w[j])) {
+							i++
+						}
+						break
+					}
+				}
+			}
 		}
 		return gitPureSubcommands[sub]
 	case "gh":

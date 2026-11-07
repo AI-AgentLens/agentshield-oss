@@ -34,8 +34,10 @@ func pinManagedSettingsPath(t *testing.T) string {
 // resetManagedFlags restores the package-level flag variables a test sets.
 func resetManagedFlags(t *testing.T) {
 	t.Helper()
-	pm, pw, pd := managedFlag, writeManagedFlag, disableFlag
-	t.Cleanup(func() { managedFlag, writeManagedFlag, disableFlag = pm, pw, pd })
+	pm, pw, pd, po, pr := managedFlag, writeManagedFlag, disableFlag, onFailureBlockFlag, removeManagedFlag
+	t.Cleanup(func() {
+		managedFlag, writeManagedFlag, disableFlag, onFailureBlockFlag, removeManagedFlag = pm, pw, pd, po, pr
+	})
 }
 
 // decodeJSON parses data as one JSON object.
@@ -58,7 +60,7 @@ func preToolUseGroups(settings map[string]interface{}) []interface{} {
 // with no matcher (every tool call), and nothing else.
 func TestManagedSnippet_ExecFormEntry(t *testing.T) {
 	bin := "/opt/homebrew/bin/agentshield"
-	out, res, err := managedSettingsSnippet(bin, true)
+	out, res, err := managedSettingsSnippet(bin, true, onFailureKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +93,7 @@ func TestManagedSnippet_ExecFormEntry(t *testing.T) {
 
 	// Without exec-form clearance the snippet falls back to shell form, as
 	// the user-scope install does.
-	shell, res, err := managedSettingsSnippet(bin, false)
+	shell, res, err := managedSettingsSnippet(bin, false, onFailureKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +120,7 @@ func TestManagedSnippet_IsTheUserScopeEntry(t *testing.T) {
 	if blocker != "" {
 		t.Fatalf("fixture: exec form should be allowed for the stand-in install: %s", blocker)
 	}
-	snippet, _, err := managedSettingsSnippet(hookPath, blocker == "")
+	snippet, _, err := managedSettingsSnippet(hookPath, blocker == "", onFailureKeep)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +169,7 @@ func TestSetupManaged_PrintsAndWritesNothing(t *testing.T) {
 // The setup pre-run writes the new-install default for an install run, but
 // not for --managed (writes nothing) or --write-managed (runs under sudo).
 func TestSetupPreRun_SkipsManagedRuns(t *testing.T) {
-	for _, flag := range []string{"managed", "write-managed", ""} {
+	for _, flag := range []string{"managed", "write-managed", "remove-managed", ""} {
 		t.Run("flag="+flag, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -196,6 +198,11 @@ func TestSetupClaudeCode_ManagedFlagsMutuallyExclusive(t *testing.T) {
 		{"--managed", "--write-managed"},
 		{"--managed", "--disable"},
 		{"--write-managed", "--disable"},
+		{"--remove-managed", "--disable"},
+		{"--remove-managed", "--write-managed"},
+		{"--remove-managed", "--managed"},
+		{"--on-failure-block", "--disable"},
+		{"--on-failure-block", "--remove-managed"},
 	} {
 		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperSetupProcess$")
 		cmd.Env = append(os.Environ(),
@@ -253,7 +260,7 @@ func writeManaged(t *testing.T, content *string) (string, managedWrite, []byte, 
 	if content != nil {
 		writeSettingsFile(t, path, *content)
 	}
-	res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true)
+	res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 	data, _ := os.ReadFile(path)
 	return path, res, data, err
 }
@@ -299,7 +306,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 		if !res.Added || !res.Created {
 			t.Errorf("result = %+v; want a created file with the entry added", res)
 		}
-		snippet, _, _ := managedSettingsSnippet("/opt/homebrew/bin/agentshield", true)
+		snippet, _, _ := managedSettingsSnippet("/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		if !reflect.DeepEqual(decodeJSON(t, data), decodeJSON(t, snippet)) {
 			t.Errorf("new file =\n%s\nwant the snippet", data)
 		}
@@ -354,7 +361,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 	})
 
 	t.Run("already ours: idempotent, file untouched", func(t *testing.T) {
-		snippet, _, _ := managedSettingsSnippet("/opt/homebrew/bin/agentshield", true)
+		snippet, _, _ := managedSettingsSnippet("/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		withOrg := decodeJSON(t, []byte(orgPolicy))
 		withOrg["hooks"] = decodeJSON(t, snippet)["hooks"]
 		raw, _ := json.Marshal(withOrg) // compact: a rewrite would re-indent it
@@ -369,7 +376,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 			t.Errorf("file rewritten:\n%s\nwant it byte-for-byte unchanged:\n%s", data, raw)
 		}
 		// And a second full run on the merged output still gives one entry.
-		if _, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true); err != nil {
+		if _, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep); err != nil {
 			t.Fatal(err)
 		}
 		again, _ := os.ReadFile(path)
@@ -384,7 +391,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 			t.Fatal(err)
 		}
 		first, _ := os.ReadFile(path)
-		res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true)
+		res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -467,7 +474,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 		if err := os.Chmod(path, 0o640); err != nil {
 			t.Fatal(err)
 		}
-		res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true)
+		res, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -485,7 +492,7 @@ func TestWriteManaged_Merge(t *testing.T) {
 		if err := os.Symlink(target, link); err != nil {
 			t.Skip("symlinks unavailable:", err)
 		}
-		if _, err := writeManagedClaudeHook(link, "/opt/homebrew/bin/agentshield", true); err != nil {
+		if _, err := writeManagedClaudeHook(link, "/opt/homebrew/bin/agentshield", true, onFailureKeep); err != nil {
 			t.Fatal(err)
 		}
 		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -547,7 +554,7 @@ func TestWriteManaged_PermissionDenied(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-		_, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true)
+		_, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		assertElevationError(t, err)
 		if data, _ := os.ReadFile(path); string(data) != orgPolicy {
 			t.Errorf("file changed:\n%s", data)
@@ -562,7 +569,7 @@ func TestWriteManaged_PermissionDenied(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
-		_, err := writeManagedClaudeHook(filepath.Join(parent, "ClaudeCode", "managed-settings.json"), "/opt/homebrew/bin/agentshield", true)
+		_, err := writeManagedClaudeHook(filepath.Join(parent, "ClaudeCode", "managed-settings.json"), "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		assertElevationError(t, err)
 	})
 	t.Run("file not readable", func(t *testing.T) {
@@ -572,7 +579,7 @@ func TestWriteManaged_PermissionDenied(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
-		_, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true)
+		_, err := writeManagedClaudeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureKeep)
 		assertElevationError(t, err)
 	})
 }

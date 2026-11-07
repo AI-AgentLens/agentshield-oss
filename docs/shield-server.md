@@ -60,12 +60,58 @@ contract every thin client builds against.
   "cwd": "/repo",
   "tool_name": "read_file",       // MCP path
   "arguments": {"path": "/workspace/project/README.md"},
+  "route": {"harness": "claude-code", "tool": "Read", "os": "windows"},   // optional routing key
   "session_id": "s-123",          // identity plane — carried from day one
   "agent_id": "claude-code",
   "principal": "dev@example.com",
   "source": "ci"
 }
 ```
+
+**Routing key (`route`, optional; ADR-001 step 2, #4245).** The key the local
+hook routes a tool call on: `harness` (`claude-code`, `codex`, `copilot-cli`
+for Copilot's Claude-compatible format, `copilot-cli-native`), `tool` (the
+tool name exactly as the harness sent it) and `os` (the host OS as Go's
+`runtime.GOOS` spells it: `windows`, `darwin`, `linux`). A request carrying it
+is read first by the lane its shape always took here (a `command` by the shell
+pipeline, a `tool_name` by MCP policy), then by every other lane of the
+routing table's row for that key (`internal/route`, the table `agentshield
+hook` uses), and the readings are combined the hook's way: the stricter
+pre-downgrade decision wins, and the earlier lane wins a tie, so a keyed call
+never decides below what its client got before and keeps the same record
+when no other lane is stricter. One tie moves the record (Gary, 2026-11-05,
+#4779): when the earlier lane's plain AUDIT names no rule and a tied AUDIT
+names one, the receipt is the one that names a rule. The decision is the
+same either way. So Claude Code's `PowerShell` tool is also
+read by MCP policy and the PowerShell lane, Copilot's native `powershell`
+tool and (on Windows) its compatible-format `Bash` by the PowerShell lane,
+Claude Code's `Monitor` by the shell pipeline. With the key:
+
+- `arguments` is the tool's whole input, even when `command` is set (MCP
+  policy reads it when the call has that lane); `command`, when set, must
+  equal `arguments.command`, and `tool_name`, when set, must equal
+  `route.tool`.
+- A call read by more than one lane answers with a `lane_readings` note
+  naming each lane's decision and the lane kept; a tool no row names whose
+  command text no shell lane reads gets a `routing_gap` note. The audit line
+  is the kept lane's: a command when a shell lane is kept, a tool call when
+  MCP policy is.
+- An incomplete key is a 400.
+
+**Without the key** (an older client, a CI wrapper, a gateway callout) a
+request decides exactly as before step 2: `command` takes the shell pipeline,
+`tool_name` takes MCP policy. That is a fitness function
+(`TestVersionSkew_UnkeyedRequestDecidesAsMain` holds it to main's code), so
+an updated server never changes what an old client gets. Both thin clients
+keep sending that shape alongside the key, so an updated client against an
+older server decides as before too.
+
+What the server's PowerShell lane cannot know: the client's environment and
+home directory (`$env:USERPROFILE`, `$HOME` and `~` resolve to `~`, matched
+against protected paths as the hook matches them; a path spelled from the
+client's home, `C:\Users\alice\.ssh\...`, is read as written), and whether
+the client's host is managed (the server applies no managed self-protection,
+on either shell lane).
 
 Response:
 
@@ -79,9 +125,14 @@ Response:
   "remediation": "…",
   "mode": "enforce",
   "degraded": false,              // true when any pack failed to load
-  "session_id": "s-123"
+  "session_id": "s-123",
+  "notes": [{"kind": "lane_readings", "detail": "tool=PowerShell; structured=AUDIT; powershell=BLOCK(protected-path); kept=powershell"}]
 }
 ```
+
+`notes` (omitted when empty) are the attestation notes the hook writes: where
+evaluation excused a match or knowingly gave up (#3995), and with a route key,
+which lanes read the call.
 
 `taxonomy` is the first hop of the fusion chain (decision → taxonomy node →
 compliance control → attestation receipt); the test suite asserts a BLOCK
@@ -135,8 +186,12 @@ shell profile):
 | `AGENTSHIELD_REMOTE_FAIL_CLOSED` | off | `1` = block when the server is unreachable (default fail-open, matching the local hook) |
 
 Behavior mapping (kept in lock-step with `internal/cli/hook.go`):
-`Bash` tool calls go to the shell surface; every other tool call goes to the
-MCP surface. BLOCK → exit 2 with the standard block message on stderr;
+every request carries the routing key (harness `claude-code`, or `codex` when
+the payload has `turn_id`; the tool name as sent; the host OS), so an updated
+server routes each tool exactly as the local hook does. The request keeps the
+shape an older server routes on: `Bash` tool calls as a command, every other
+tool call as a tool call with its `tool_input` as `arguments`.
+BLOCK → exit 2 with the standard block message on stderr;
 ALLOW/AUDIT → exit 0, with genuine MCP AUDITs surfaced on stderr and
 audit-only-mode downgrades kept silent (#1952 semantics).
 
@@ -183,7 +238,7 @@ Register it in `.github/hooks/agentshield.json` (repo) or
       {
         "type": "command",
         "powershell": "pwsh -NoProfile -NonInteractive -File C:\\tools\\agentshield-remote-hook.ps1",
-        "env": {"AGENTSHIELD_SERVER_URL": "https://shield.internal:8383"},
+        "env": {"AGENTSHIELD_SERVER_URL": "https://shield.internal:8383", "AGENTSHIELD_AGENT_ID": "copilot-cli"},
         "timeoutSec": 30
       }
     ]
@@ -222,24 +277,63 @@ Configuration: the same variables as the Python client, plus
 `AGENTSHIELD_AGENT_ID`. It is the identity recorded on every verdict, defaults
 to `copilot-cli` (`codex` when the payload carries `turn_id`), and should be
 overridden when the client is used from another harness.
+
+It also names the harness in the routing key, derived exactly as the local
+hook derives it: `copilot-cli` → Copilot's compatible format, `codex` (or
+unset with `turn_id`) → Codex, anything else or unset → Claude Code; the native
+dialect is always `copilot-cli-native`. Set `AGENTSHIELD_AGENT_ID=copilot-cli`
+in the hook entry, as above (and as `agentshield setup copilot-cli` does for
+the local hook): Copilot's compatible format sends its `bash` and `powershell`
+tools both as `Bash`, and only that label makes a Windows `Bash` call read by
+the PowerShell lane as well as the shell pipeline. Unset, it routes as Claude
+Code's `Bash`, the shell pipeline alone: what every call got before step 2.
 Set it in the hook entry's `env`, never in a shell profile: the local
 `agentshield hook` honours the same variable (`agentshield setup copilot-cli`
 writes it into Copilot's hook entry), so a global export would label every
 harness's receipts, Claude Code's included, as the exported agent.
 
-**Limitation (#4245).** The `powershell` tool's command text is evaluated by
-the shell pipeline, whose analyzers parse POSIX shell. Most PowerShell attack
-shapes get the default AUDIT: recorded, not blocked. File and MCP tool calls
-are fully evaluated, Windows backslash paths included (#4243), subject to
-#4248 (most credential rules match only MCP tool names).
+**PowerShell text (#4245).** With a server that knows the routing key,
+PowerShell command text is also read by the PowerShell lane (ADR-001), which
+blocks protected paths however the text spells them (`$env:USERPROFILE\.ssh\…`,
+`Get-Content`, `type`): Copilot's native `powershell` tool, its
+compatible-format `Bash` on Windows with `AGENTSHIELD_AGENT_ID=copilot-cli`,
+and Claude Code's `PowerShell` tool. The shell pipeline still reads every
+command this client sends, because PowerShell runs cross-platform CLIs
+(`git`, `kubectl`, `terraform`, …) verbatim and their rules live there.
+The PowerShell lane also carries the PowerShell pack rules (ADR step 5,
+`packs/community/powershell.yaml`: Defender disable, scheduled tasks,
+`Format-Volume`/`Clear-Disk`, download-and-execute, history wipes, and
+AUDITs for encoded commands, Defender exclusions and env exfiltration), and
+the shell pipeline's inline-secrets heuristic (#4802): a token in a cmdlet
+call, an assignment or a .NET call (`Write-Output <tok>`,
+`$env:GITHUB_TOKEN = '<tok>'`) BLOCKs as `guardian-secrets_in_command` on the
+Python client's Claude Code `PowerShell` call, which no shell pipeline reads,
+as the shell pipeline already blocked it for the PowerShell client. The server
+reads at most 128 KiB of a text with it; a longer text decides as before, with
+a `parse_error` note. No other guardian heuristic reads PowerShell text. An
+older server reads the text with the shell pipeline only, as before.
+
+**External programs in PowerShell text (#4768).** The local hook reads each
+external program a PowerShell command runs (`git`, `kubectl`, `terraform` …)
+by the arguments it receives, with the shell pipeline's rules: the
+native-command bridge. The server does the same only for a call no shell
+pipeline reads, which is the Python client's Claude Code `PowerShell` call,
+and it reads at most 16 KiB of rebuilt lines (a `parse_error` note floors
+the rest at AUDIT). A PowerShell-client call keeps its shell-pipeline reading
+and gets no bridge, so that a second pass stays out of the 5 s client
+budget. There, a program spelled the Windows way (`git.exe …`,
+`& 'C:\…\git.exe' …`) is read as a different program, so a rule that names
+the program does not fire there. File and MCP tool
+calls are fully evaluated, Windows backslash paths included (#4243), subject
+to #4248 (most credential rules match only MCP tool names).
 
 **Tested.**
 - **Integration suite:**
   - `cmd/shield-server/hook_client_pwsh_integration_test.go` runs the real
     script under `pwsh` against the real server, with both dialects;
   - it covers block/allow/MCP, token, fail-open/closed, pass-through
-    warnings, identity, a UTF-8 round trip, and exit-code parity with the
-    Python client;
+    warnings, identity, the routing key, a UTF-8 round trip, and exit-code
+    parity with the Python client;
   - it skips without `pwsh`, unless `AGENTSHIELD_REQUIRE_PWSH=1`, which
     turns a missing `pwsh` into a failure.
 - **Windows PowerShell 5.1:** compatibility is checked statically with
@@ -257,12 +351,30 @@ are fully evaluated, Windows backslash paths included (#4243), subject to
   token (`Authorization: Bearer …`, constant-time compare).
 - **Fail-safe, not fail-closed.** Pack load failures degrade to warnings +
   `degraded: true`; managed-mode fail-closed semantics arrive with Phase 1.
+  A shell text with more than 32,768 `|`, `|&`, `||` and `&&` operators, or
+  one whose nested shell text has that many once its variables are
+  substituted, is not parsed (#4778): walking the parser's tree for it
+  overflowed the Go stack and killed the server with every request in
+  flight. It is answered AUDIT `agentshield-eval-error` with a
+  `chain_too_long` note (the server has no managed host, so the hook's
+  managed BLOCK past the bound does not apply), on every shell reading (`readShell`: a request with
+  no key, a routed POSIX lane, the PowerShell lane's nested bash texts and
+  native-command bridge).
 - Command text is sensitive: deploy in the customer's VPC when the commands
   themselves must not leave the org.
 
 ## Tests
 
+Routing (ADR-001 step 2): `TestVersionSkew_UnkeyedRequestDecidesAsMain`
+(a request with no key, as a command and as a tool call, field for field
+against a frozen copy of main's evaluation, over the PowerShell corpora and
+a bash sample), `TestUpdatedClientParity` (each client's old and new request
+over the 12 attack shapes, the benign corpora and the bash corpus's
+cross-platform CLI BLOCKs; nothing may go down) and `TestRoutedRequest_*` (each row, the legacy lane first, malformed
+keys, the record's shape, a lane failure, audit-only).
+
 ```bash
-go test -race ./cmd/shield-server/     # ~5s — do NOT run the full repo suite for this
+go test ./cmd/shield-server/           # ~1 min (the corpus tests); several minutes with -race
+go test -race -run 'TestRouted|TestRemoteHook|TestEvaluate' ./cmd/shield-server/   # the quick ones
 AGENTSHIELD_REQUIRE_PWSH=1 go test -run TestPwshHook ./cmd/shield-server/   # PowerShell client; fails if pwsh is missing
 ```

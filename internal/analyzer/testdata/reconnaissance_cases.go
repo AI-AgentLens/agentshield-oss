@@ -615,6 +615,73 @@ var DNSEnumerationCases = []TestCase{
 		Tags: []string{"recon", "dns"},
 	},
 
+	// --- #4594: a security-record operand must not earn the DNS-safe ALLOW
+	// override for the zone transfer beside it. Each is the TP above with
+	// _dmarc.example.com inserted after dig; main decided ALLOW on all three.
+	{
+		ID:               "TP-NE-BLOCK-DNS-AXFR-003",
+		Command:          `dig _dmarc.example.com axfr example.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/dns-lookup",
+		Analyzer:         "semantic",
+		Description: `TP-NE-BLOCK-DNS-AXFR-001 with a DMARC operand inserted. dig
+			still transfers example.com. The DNS-safe override needs every
+			operand to be safe (#4594), so ne-block-dns-zone-transfer holds.`,
+		Tags: []string{"critical", "recon", "dns", "override-scope"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DNS-AXFR-004",
+		Command:          `dig _dmarc.example.com AXFR @ns1.target.com target.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/dns-lookup",
+		Analyzer:         "semantic",
+		Description: `TP-NE-BLOCK-DNS-AXFR-002 with a DMARC operand inserted. The
+			transfer of target.com still goes to its nameserver, so the
+			DNS-safe override must not apply (#4594).`,
+		Tags: []string{"critical", "recon", "dns", "override-scope"},
+	},
+	{
+		ID:               "TP-NE-BLOCK-DNS-IXFR-002",
+		Command:          `dig _dmarc.example.com ixfr=2023010101 example.com @ns1.example.com`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "reconnaissance/network-discovery/dns-lookup",
+		Analyzer:         "semantic",
+		Description: `TP-NE-BLOCK-DNS-IXFR-001 with a DMARC operand inserted. The
+			incremental transfer still runs, so the DNS-safe override must not
+			apply (#4594).`,
+		Tags: []string{"recon", "dns", "override-scope"},
+	},
+
+	// --- #4626: grep needles that only NAME the tool and the record type.
+	// ne-block-dns-zone-transfer's regex is unanchored and `\b` splits on
+	// `-`, so both BLOCKed on main. Its command_regex_exclude recognises a
+	// single plain grep statement; grep resolves no name.
+	{
+		ID:               "TN-NE-BLOCK-DNS-AXFR-001",
+		Command:          `grep -c -e dig-default-ok -e axfr-type mutants.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/dns-lookup",
+		Analyzer:         "regex",
+		Description: `The #4626 witness: grep with two hyphenated needles. Nothing
+			resolves a name, so ne-block-dns-zone-transfer must not fire.`,
+		Tags: []string{"fp-regression", "recon", "dns"},
+	},
+	{
+		ID:               "TN-NE-BLOCK-DNS-AXFR-002",
+		Command:          `grep -e dig -e axfr notes.txt`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "reconnaissance/network-discovery/dns-lookup",
+		Analyzer:         "regex",
+		Description: `#4626, the plain-word twin: the needles are the bare words.
+			Still a grep, still no lookup, so the rule must not fire.`,
+		Tags: []string{"fp-regression", "recon", "dns"},
+	},
+
 	// --- TRUE POSITIVES: dedicated DNS enum tools (BLOCK) ---
 
 	{

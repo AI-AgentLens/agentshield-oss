@@ -52,7 +52,7 @@ func newTargetHome(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	return home
 }
 
@@ -215,7 +215,7 @@ func TestConfigGuard_NFDHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nfc, spDir, "managed.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", nfc)
+	setTestHome(t, nfc)
 	want := sameFile(nfd, nfc)
 	got := CheckConfigGuard("write_file", map[string]interface{}{"path": nfd + "/" + spDir + "/managed.json"})
 	if got.Blocked != want {

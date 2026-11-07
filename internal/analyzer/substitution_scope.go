@@ -1318,8 +1318,7 @@ func (ev *scopeEval) carrier(call *syntax.CallExpr, prefixNames []string) {
 		return
 	}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	parsed, err := parser.Parse(strings.NewReader(body), "")
+	parsed, err := shellparse.ParseText(body, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return
 	}

@@ -76,7 +76,8 @@ Both MCP transport mechanisms are supported:
    and `completion/complete` requests, and the server-to-client filters below
    (tool description scanning, response scanning), behave as in enforce mode.
 8. **Tool description scanning** — when the server returns a `tools/list` response, AgentShield scans each tool’s description for poisoning signals. Poisoned tools are silently removed from the list before it reaches the IDE.
-9. All other MCP messages (`initialize`, notifications) pass through transparently.
+9. **Handshake scanning.** The server's answer to `initialize` is scanned, and so is its answer to `server/discover` (#2339, #4563). Claude Code 2.1.309 sends `server/discover` (MCP 2026-07-28) first, and when the server answers it, `initialize` never runs. The scan checks `serverInfo` for impersonation, `capabilities` for injected experimental keys, and `instructions` for injection. A BLOCK replaces the answer with a JSON-RPC error.
+10. All other MCP messages (notifications) pass through transparently.
 
 ### What is mediated
 
@@ -85,7 +86,7 @@ Both MCP transport mechanisms are supported:
 | `tools/call` | **Yes** | Tool name + argument patterns evaluated against policy; argument values scanned for secrets/credentials; config file writes blocked |
 | `tools/list` | **Yes** | Server→client responses scanned for tool description poisoning; poisoned tools hidden |
 | `resources/read` | **Yes** | URI evaluated against blocked resources, resource rules, scheme matching, and config guard for `file://` URIs |
-| `initialize` | No | Passes through |
+| `initialize`, `server/discover` | **Yes** | The server's answer is scanned for `serverInfo` impersonation, capability injection and `instructions` injection; a BLOCK replaces it with an error |
 | Notifications | No | Passes through |
 
 ## Usage
@@ -134,6 +135,8 @@ agentshield setup mcp --disable  # restore original configs
 ```
 
 This scans known config locations (`.cursor/mcp.json`, Claude Desktop config) and wraps both stdio and HTTP server configs automatically.
+
+On a managed host (`~/.agentshield/managed.json` with `"managed": true`), `--disable` is refused with exit 1 and the configs are left as they are, the same as `--disable` on the hook surfaces. `--disable` never creates `~/.agentshield/mcp-policy.yaml` or `mcp-packs/`; only setup does.
 
 ---
 

@@ -39,7 +39,7 @@ var (
 )
 
 func TestApplyModeKeepingSelfProtection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	e := keepTestEvaluator()
 	cases := []struct {
 		name string
@@ -112,7 +112,7 @@ func TestApplyModeKeepingSelfProtection(t *testing.T) {
 // whose arguments merely name a target, read or write. Pinned so narrowing it
 // is a deliberate change of the proxies' contract, not a side effect.
 func TestKeepsSelfProtectionBlock_ProxyReadingUnchanged(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	e := keepTestEvaluator()
 	if !e.KeepsSelfProtectionBlock("zq_read_file", pathArg(asPolicy), []string{"zq-plain-block"}) {
 		t.Error("proxy keep: a read naming AgentShield's config is kept on main; want it kept")
@@ -160,7 +160,7 @@ func TestShellSelfProtectionRules(t *testing.T) {
 // MCP config file. A plain read, and a change to another protected file, do
 // not count.
 func TestShellSelfProtectionKeep(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	keep := ShellSelfProtectionKeep(&policy.Policy{Rules: []policy.Rule{{ID: "zq-block-agentshield-x", Decision: policy.DecisionBlock}}})
 	gt := " " + ">" + " "
 	for _, tc := range []struct {
@@ -189,7 +189,7 @@ func TestShellSelfProtectionKeep(t *testing.T) {
 // AgentShield's own configuration.
 func TestShellSelfProtectionKeep_DecidingRule(t *testing.T) {
 	h := t.TempDir()
-	t.Setenv("HOME", h)
+	setTestHome(t, h)
 	keep := ShellSelfProtectionKeep(&policy.Policy{})
 	disableVar := "AGENT" + "SHIELD_" + "DIS" + "ABLE"
 	noVerify := "--no" + "-verify"

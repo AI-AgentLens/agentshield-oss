@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 const launchdBaseLabel = "com.aiagentlens.agentshield"
@@ -123,9 +122,11 @@ func installLaunchd() error {
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin</string>
+        <key>HOME</key>
+        <string>%s</string>
     </dict>
 </dict>
-</plist>`, launchdLabel(), binPath, logPath, logPath)
+</plist>`, launchdLabel(), binPath, logPath, logPath, home)
 
 	plistFile := plistPath()
 	_ = os.MkdirAll(filepath.Dir(plistFile), 0755)
@@ -165,9 +166,7 @@ func startDetachedProcess() error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
+	cmd.SysProcAttr = detachedProcAttr()
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
@@ -197,7 +196,7 @@ func killPidFile() {
 		_ = os.Remove(pidFile)
 		return
 	}
-	_ = proc.Signal(syscall.SIGTERM)
+	stopPid(proc)
 	_ = os.Remove(pidFile)
 }
 
@@ -214,5 +213,5 @@ func isPidAlive() bool {
 	if err != nil {
 		return false
 	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	return pidAlive(proc)
 }

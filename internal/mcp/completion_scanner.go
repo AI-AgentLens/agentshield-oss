@@ -39,10 +39,11 @@ func ScanCompletionResponse(result *CompletionCompleteResult) PromptsScanResult 
 // Returns the replacement JSON bytes, or nil if the message is not a
 // completion/complete response or no poisoning was detected.
 func (h *MessageHandler) FilterCompletionResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {

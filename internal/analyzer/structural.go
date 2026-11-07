@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
@@ -65,6 +66,7 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 
 	// 1. Run built-in Go checks (hardcoded detection rules)
 	for _, check := range a.checks {
+		abandon.Checkpoint() // #4785: parks an evaluation already answered
 		if cc, ok := check.(cwdAwareCheck); ok {
 			findings = append(findings, cc.CheckInCwd(parsed, ctx.RawCommand, ctx.Cwd)...)
 			continue
@@ -83,6 +85,7 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			have[f.RuleID] = true
 		}
 		for _, check := range a.checks {
+			abandon.Checkpoint()
 			for _, f := range check.Check(pv, ctx.RawCommand) {
 				if restrictingDecision(f.Decision) && !have[f.RuleID] {
 					have[f.RuleID] = true
@@ -97,6 +100,7 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// union (#3991); an ALLOW rule — whose finding carries the
 	// structural-override tag that can suppress a regex BLOCK — never does.
 	for _, rule := range a.userRules {
+		abandon.Checkpoint()
 		if MatchStructuralRule(parsed, rule) ||
 			(pv != nil && restrictingDecision(rule.Decision) && !rule.Negate && MatchStructuralRule(pv, rule)) {
 			f := Finding{
@@ -368,7 +372,36 @@ type pipeToShellCheck struct{}
 
 func (c *pipeToShellCheck) Name() string { return "pipe-to-shell" }
 
+// Check reads every pipeline the command runs, not only the top-level one
+// (#4629). A carrier payload (`bash -c '…'`, `sh -c`, `bash -s <<< '…'`,
+// `eval '…'`, `su -c`) and a command substitution are re-parsed into
+// parsed.Subcommands by callExprToSegment, which strips exec wrappers there
+// exactly as it does at the top level — so `bash -c 'curl … | sudo sh'` has a
+// Subcommand whose sink Executable is already "sh". What did not reach it was
+// this check: it walked parsed.Segments/Operators only, so the inner pipeline
+// was never read, and the regex rules that catch the bare `| sh` payload
+// cannot see past the wrapper word. Community decided AUDIT with no rule.
+//
+// Additive by construction: AllParsedCommands returns parsed itself first, so
+// the first iteration is main's reading unchanged and every later one can
+// only append a BLOCK finding. No finding is removed or re-decided.
 func (c *pipeToShellCheck) Check(parsed *ParsedCommand, raw string) []Finding {
+	if parsed == nil {
+		return nil
+	}
+	var findings []Finding
+	for _, pc := range shellparse.AllParsedCommands(parsed) {
+		findings = append(findings, pipeToInterpreterFindings(pc)...)
+	}
+	return findings
+}
+
+// pipeToInterpreterFindings is the per-pipeline check: a download command
+// piped into a shell or interpreter whose stdin is the program. It reads one
+// ParsedCommand's own Segments/Operators, never a flattened cross-subcommand
+// list, so it cannot invent a pipe between segments that were never joined
+// by one (see shellparse.AllParsedCommands).
+func pipeToInterpreterFindings(parsed *ParsedCommand) []Finding {
 	if parsed == nil || len(parsed.Segments) < 2 {
 		return nil
 	}
@@ -388,10 +421,10 @@ func (c *pipeToShellCheck) Check(parsed *ParsedCommand, raw string) []Finding {
 		// Also exclude -m (module invocations): python3 -m json.tool reads stdin
 		// as data (JSON, not Python code) — same safety property as -c for this check.
 		_, hasInlineFlag := right.Flags["c"]
-		if !hasInlineFlag {
+		if !hasInlineFlag && !shellFlagIsNotProgram(right, "e") {
 			_, hasInlineFlag = right.Flags["e"]
 		}
-		if !hasInlineFlag {
+		if !hasInlineFlag && !shellFlagIsNotProgram(right, "m") {
 			_, hasInlineFlag = right.Flags["m"]
 		}
 

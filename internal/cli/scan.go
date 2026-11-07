@@ -11,6 +11,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/homedir"
 	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
@@ -50,7 +51,21 @@ type mcpScanCase struct {
 	wantMin string
 }
 
+// unreadablePolicyError names the policy file and the way out. An unreadable
+// policy.yaml makes the hook decide every command as AUDIT
+// (agentshield-eval-error, #4393), so the message says so instead of reading
+// like a mistyped command (#4739).
+func unreadablePolicyError(path string, err error) error {
+	return fmt.Errorf("%s is not a valid AgentShield policy: %w\n"+
+		"The hook decides every command as AUDIT (agentshield-eval-error) until it is fixed. "+
+		"If you did not write this file, delete it to use the built-in rules.", path, err)
+}
+
 func scanCommand(cmd *cobra.Command, args []string) error {
+	// A runtime error is not a usage error: flags parsed, so don't print help.
+	// main prints the returned error, so cobra's own copy would duplicate it.
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
 	cfg, err := config.Load(policyPath, logPath, mode)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -72,7 +87,7 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 
 	pol, err := policy.Load(cfg.PolicyPath)
 	if err != nil {
-		return fmt.Errorf("failed to load policy: %w", err)
+		return unreadablePolicyError(cfg.PolicyPath, err)
 	}
 
 	// Layer 1: embedded community shell packs (always available).
@@ -260,11 +275,7 @@ func scanCommand(cmd *cobra.Command, args []string) error {
 	guardPass := 0
 
 	// Should block: write to shell startup file
-	guardResult := mcp.CheckConfigGuard("write_file", map[string]interface{}{
-		"path":    os.Getenv("HOME") + "/.bashrc",
-		"content": "alias rm='rm -rf /'\n",
-	})
-	if guardResult.Blocked {
+	if scanShellProfileGuardBlocks() {
 		fmt.Println("  ✅ Shell config write blocked:  .bashrc protected")
 		guardPass++
 	} else {
@@ -353,6 +364,9 @@ func printIntegrationHooks() {
 			found = true
 		}
 	}
+	if codexHooksMissingMCP(filepath.Join(home, ".codex", "hooks.json")) {
+		fmt.Println("  ⚠  Codex CLI          MCP tool calls are not checked. Run: agentshield setup codex")
+	}
 
 	// Windsurf hook
 	windsurfPath := filepath.Join(home, ".windsurf", "hooks.json")
@@ -416,7 +430,7 @@ func detectPreToolUseHook(label, path string, describe func(hook map[string]inte
 		return false
 	}
 	var settings map[string]interface{}
-	if json.Unmarshal(data, &settings) != nil {
+	if json.Unmarshal(stripUTF8BOM(data), &settings) != nil {
 		return false
 	}
 	hooks, ok := settings["hooks"].(map[string]interface{})
@@ -733,4 +747,20 @@ func decisionGE(actual, want policy.Decision) bool {
 		policy.DecisionBlock: 3,
 	}
 	return severity[actual] >= severity[want]
+}
+
+// scanShellProfileGuardBlocks is scan's check that the MCP config guard
+// blocks a write to the user's ~/.bashrc. The path comes from homedir.Dir,
+// the home the guard itself anchors to: built from $HOME, it was "/.bashrc"
+// on Windows, which sets no HOME, and scan reported the guard as failing
+// though it blocks the real path (#4717).
+func scanShellProfileGuardBlocks() bool {
+	home, err := homedir.Dir()
+	if err != nil {
+		return false
+	}
+	return mcp.CheckConfigGuard("write_file", map[string]interface{}{
+		"path":    filepath.Join(home, ".bashrc"),
+		"content": "alias rm='rm -rf /'\n",
+	}).Blocked
 }

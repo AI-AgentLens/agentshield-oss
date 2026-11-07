@@ -30,8 +30,6 @@
 
 ne-block-curlrc-wgetrc-proxy-write	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
 ne-block-dev-tcp	tp-loses-block(corpus)	packs/premium/network-egress.yaml
-ne-block-dns-exfil-backtick	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
-ne-block-dns-exfil-subquery	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
 ne-block-dns-exfil-var-indirect	echo-wrap-laundering-leak	packs/premium/network-egress.yaml
 ne-block-etc-hosts-write	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
 ne-block-llm-configfile-endpoint-hijack	tp-loses-block(inline+corpus)	packs/premium/network-egress.yaml
@@ -77,6 +75,8 @@ ts-block-account-db-direct-write	tp-loses-block(inline+corpus)	packs/premium/ter
 ts-block-actions-runner-hook-job	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
 ts-block-agent-session-hijack	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
 ts-block-agent-settings-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
+ts-block-agentshield-log-overwrite	tp-loses-block(inline) (#4671: in_heredoc downgrades its `tee <log> <<'EOF'` TP; carries is_doc_text plus position heredoc_body instead)	packs/community/terminal-safety.yaml
+ts-block-agentshield-log-overwrite-redirect	tp-loses-block(inline+corpus) (#4671: the echo/printf writer IS the attack, `echo '' > <log>`; carries gh/git exclusion plus position heredoc_body instead)	packs/community/terminal-safety.yaml
 ts-block-agentshield-log-truncate	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
 ts-block-ansic-hex-escape	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
 ts-block-ansic-octal-escape	tp-loses-block(inline)	packs/community/terminal-safety.yaml
@@ -147,6 +147,7 @@ ts-block-shell-profile-overwrite	tp-loses-block(inline)	packs/community/terminal
 ts-block-shell-profile-tee	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
 ts-block-shell-sysprofile-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
 ts-block-shm-redirect-sensitive	heredoc-suffix-laundering-leak (#3964)	packs/community/terminal-safety.yaml
+ts-block-startup-folder-redirect	tp-loses-block(inline) (new 2026-11-04, Windows round 2: mirrors ts-block-shell-profile-append/-tee, an echo or tee writing a script into the Startup folder IS the attack)	packs/community/terminal-safety.yaml
 ts-block-ssh-config-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
 ts-block-sshd-server-config-write	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
 ts-block-sudoers-write	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml

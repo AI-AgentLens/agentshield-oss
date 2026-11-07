@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
 	"github.com/AI-AgentLens/agentshield/internal/redact"
 )
 
@@ -41,6 +42,50 @@ var maxLogBytes int64 = defaultMaxLogBytes
 // appends and rotates without the lock, and writes no note. The other kinds
 // are written by evaluation and defined in internal/analyzer/types.go.
 const NoteAuditLockUnavailable = "audit_lock_unavailable"
+
+// NoteAgentTextWithheld is written on an event whose agent text was withheld
+// (WithAgentTextWithheld, #4805): the hook answered through its fail-safe
+// path and could not read the customer's data labels, so it could not scrub
+// a label value out of the record and withheld the text instead. Detail says
+// which source of labels could not be read, never what it contains. The
+// event's error and reasons are replaced as well (Withheld). The decision,
+// rule ids, taxonomy, mode, chain link and identity fields are untouched.
+// Never a decision input.
+const NoteAgentTextWithheld = "agent_text_withheld"
+
+// WithheldText takes the place of the command, the working directory and
+// every note detail AgentShield did not write itself, on an event whose agent
+// text was withheld (#4805).
+const WithheldText = "[WITHHELD]"
+
+// ownTextNoteKinds are the note kinds whose detail AgentShield writes from
+// its own text, the only details a withheld event keeps (#4805 Codex F2: a
+// payload_cwd_unusable note quoted the payload's cwd, which can be the
+// label's value). The safe set is short and enumerable; every other kind,
+// today's and tomorrow's, is withheld. Each entry says what its detail holds:
+var ownTextNoteKinds = map[string]bool{
+	// which source of data labels failed and how: a path, the file system's
+	// words or "data_labels does not parse".
+	NoteAgentTextWithheld: true,
+	// the lock file's open error class (errno text, never a path).
+	NoteAuditLockUnavailable: true,
+	// analyzer.NoteAnalysisBudgetExceeded: the budget, the harness, its
+	// timeout and the tool, which on a shell-shaped event is a tool the
+	// routing table sends to a shell lane, and the late-answer mark.
+	"analysis_budget_exceeded": true,
+	// analyzer.NotePolicyDegraded: the packs directory's read error.
+	"policy_degraded": true,
+	// analyzer.NoteLaneReadings: a multi-lane row's tool, each lane's
+	// decision and first rule id, and the lane kept.
+	"lane_readings": true,
+	// analyzer.NoteLateAnswer: the late-answer mark of an evaluation's own
+	// record, durations and the harness's name (#4818).
+	"late_answer": true,
+}
+
+// OwnTextNoteKind reports whether a withheld event keeps the detail of a note
+// of this kind (ownTextNoteKinds).
+func OwnTextNoteKind(kind string) bool { return ownTextNoteKinds[kind] }
 
 // Note is one attestation record on an event (#3995): where evaluation
 // excused a match (kind "excused"/"downgraded", Rule set) or knowingly gave
@@ -96,8 +141,28 @@ type AuditEvent struct {
 	// Without it the SaaS receives a rule id it cannot resolve to a control,
 	// and a runtime block cannot become auditor-defensible evidence.
 	// Empty when the decision came from a built-in intercept that has no
-	// taxonomy entry (protected-path, unicode-*, enterprise-self-protect) —
-	// an absent ref is better than an unresolvable placeholder.
+	// taxonomy entry (unicode-* other than unicode-zero-width, guardian-*
+	// signals without a node, protected-path on the system trees or on a
+	// managed host's own config directory, an enterprise-self-protect
+	// reason with no reviewed node) — an absent ref is better than an
+	// unresolvable placeholder.
+	//
+	// Exceptions, each a reviewed mapping rather than a default: a
+	// protected-path BLOCK carries the node of the credential it guards
+	// (#4336, policy/protected_path_taxonomy.go), or the protected-path node
+	// for any other pattern, a customer's included (#4645), and unicode-zero-width
+	// carries unauthorized-execution/agentic-attacks/invisible-unicode-prompt-injection
+	// (#4560, policy/unicode_taxonomy.go). The zero-width exception exists
+	// because it was the largest source of production BLOCKs whose receipt
+	// attested no control (15 of 25 in October 2026, aiagentlens#309), and
+	// Gary approved that node for it on 2026-10-26. The other built-ins wait
+	// on their own taxonomy decision. A shell enterprise-self-protect BLOCK
+	// carries the node of the sp-* reason that fired, never one node for the
+	// whole middleware (cli/self_protect_taxonomy.go, Gary 2026-10-30, #4603):
+	// most reasons cite security-tool-tampering, an audit-log delete, and a
+	// copy, move, link, install or harness write onto the log (#4670), cite
+	// ai-audit-trail-circumvention, and sp-block-config-touch cites none,
+	// because its reads cannot yet be told from its writes.
 	TaxonomyRefs []string `json:"taxonomy,omitempty"`
 	// Mode reflects the AgentShield enforcement mode at decision time:
 	// "enforce" (default) or "audit-only". Always emitted so the SaaS can
@@ -133,10 +198,44 @@ type AuditEvent struct {
 	// MCP-specific fields (present when source starts with "mcp-proxy")
 	ToolName     string                 `json:"tool_name,omitempty"`
 	MCPArguments map[string]interface{} `json:"arguments,omitempty"`
+	// ServerName is the MCP server a proxy decision was about (#4734). The
+	// hook's events leave it empty: Claude Code names the server inside
+	// tool_name (mcp__<server>__<tool>), which the SaaS already parses.
+	ServerName string `json:"server_name,omitempty"`
 
-	// scrub removes customer data-label matches in Redacted() (#4448). Unexported
-	// so it is never serialised and cannot affect the hash chain.
-	scrub func(string) string
+	// scrub finds customer data-label matches for Redacted() to mask (#4448,
+	// #4813). Unexported so it is never serialised and cannot affect the hash
+	// chain.
+	scrub func(string) []datalabel.Span
+	// withheld makes Redacted() drop the agent text and the failure's own
+	// text (#4805); nil for an event that withholds nothing. Unexported for
+	// the same reason as scrub.
+	withheld *Withheld
+	// failureQuotes are the error and reasons Redacted() replaced on a
+	// withheld event, kept so a note added after the redaction
+	// (RedactedEvent.WithNotes) is cleared of them too. Never serialised.
+	failureQuotes []string
+}
+
+// Withheld is what an event whose agent text is withheld says instead
+// (#4805, Gary 2026-11-06). Its failure can have quoted what it choked on,
+// a label's keyword or pattern among them, so the error and reasons it
+// recorded are replaced too, by AgentShield's own words.
+type Withheld struct {
+	// Detail is the NoteAgentTextWithheld note's detail: which source of
+	// data labels failed, and how.
+	Detail string
+	// Error and Reasons replace the event's error text and reasons.
+	Error   string
+	Reasons []string
+	// KeepFailureText keeps the event's own error and reasons, and Error and
+	// Reasons are ignored. It is for an event withheld because its scrubber
+	// could not finish in time, not because the labels could not be read
+	// (#4818): the scrubber it still carries masks the label values in that
+	// short text, and the rule reasons stay on the receipt. Without a
+	// scrubber it would record that text with labels unmasked, so the hook
+	// sets it only on an event that has one (AuditEvent.Scrubs).
+	KeepFailureText bool
 }
 
 // Redacted returns a copy of e with secrets replaced by [REDACTED] in every
@@ -152,86 +251,196 @@ type AuditEvent struct {
 //
 // Reasons are included because they quote agent input: the fail-safe reason
 // embeds the error text, and analyzer reasons name paths and URLs from the
-// command. Rule ids, taxonomy refs, notes and identity fields are not
-// agent-supplied text and are left as they are. The slices and the arguments
-// map are fresh copies; e itself is never modified, because the caller still
-// holds it (and its slices) after logging.
+// command. So are note details: a PowerShell dynamic_name note quotes the
+// computed command name, and a parse note quotes the -EncodedCommand text.
+// Before this was fixed, a token there reached the receipt in plain text
+// while the command beside it read [REDACTED]. A note's kind and rule are
+// left as they are, as are rule ids, taxonomy refs and identity fields:
+// none of them is agent-supplied text. The slices and the arguments map are
+// fresh copies; e itself is never modified, because the caller still holds
+// it (and its slices) after logging.
 //
-// Customer data labels are scrubbed first when the event carries a scrubber
+// Customer data labels are masked too when the event carries a scrubber
 // (WithScrubber, #4448): a label BLOCK must not deliver the value it stopped.
-// It runs before secret redaction so the label sees the original text.
+// Each field's label spans and secret spans are found on the text as written
+// and their union masked (redact.RedactWithLabels, #4813): scrubbing first let
+// a label value inside a secret cut the secret's redaction short, and the
+// rest of the secret stayed in the record. A text in which no label matches,
+// and every field of an event with no scrubber, is redacted exactly as
+// before.
+//
+// An event marked WithAgentTextWithheld (#4805) carries none of the agent's
+// text: the command becomes WithheldText and the args and MCP arguments are
+// dropped, and its working directory becomes WithheldText. Nor does it carry
+// its failure's own words: the error and reasons become the Withheld's,
+// except on an event withheld for time (Withheld.KeepFailureText, #4818),
+// which keeps its own, masked by its scrubber like any other field. Of
+// its notes, only the kinds AgentShield writes from its own text keep their
+// detail (ownTextNoteKinds), with any quote of the old error or a reason
+// replaced the same way (Gary, 2026-11-06); every other detail becomes
+// WithheldText (#4805 Codex F2). The decision, rule ids, taxonomy, mode,
+// note kinds and rules, and identity fields stay.
 func (e AuditEvent) Redacted() AuditEvent {
-	if s := e.scrub; s != nil {
-		e.Command = s(e.Command)
-		if e.Args != nil {
-			args := make([]string, len(e.Args))
-			for i, a := range e.Args {
-				args[i] = s(a)
-			}
-			e.Args = args
+	if w := e.withheld; w != nil {
+		if e.Command != "" {
+			e.Command = WithheldText
 		}
-		if e.Reasons != nil {
-			reasons := make([]string, len(e.Reasons))
-			for i, r := range e.Reasons {
-				reasons[i] = s(r)
-			}
-			e.Reasons = reasons
+		if e.Cwd != "" {
+			// A payload's cwd is the agent's text too, and no path is ever
+			// scrubbed (#4810).
+			e.Cwd = WithheldText
 		}
-		e.Error = s(e.Error)
-		e.MCPArguments = scrubArguments(s, e.MCPArguments)
+		e.Args = nil
+		e.MCPArguments = nil
+		if !w.KeepFailureText {
+			if e.failureQuotes == nil {
+				// Reasons first: a fail-safe reason quotes the error whole.
+				e.failureQuotes = append(append([]string{}, e.Reasons...), e.Error)
+			}
+			e.Error = w.Error
+			e.Reasons = append([]string(nil), w.Reasons...)
+		}
 	}
-	e.Command = redact.Redact(e.Command)
+	text := e.redactText
+	e.Command = text(e.Command)
 	// Unconditional, as before #4332: RedactArgs turns nil into an empty
 	// list, so an event without args keeps writing "args":[] rather than null.
-	e.Args = redact.RedactArgs(e.Args)
+	e.Args = redact.RedactArgsWithLabels(e.Args, e.scrub)
 	if e.Reasons != nil {
 		reasons := make([]string, len(e.Reasons))
 		for i, r := range e.Reasons {
-			reasons[i] = redact.Redact(r)
+			reasons[i] = text(r)
 		}
 		e.Reasons = reasons
 	}
-	e.Error = redact.Redact(e.Error)
-	e.MCPArguments = redact.RedactArguments(e.MCPArguments)
+	e.Error = text(e.Error)
+	e.MCPArguments = redact.RedactArgumentsWithLabels(e.MCPArguments, e.scrub)
+	e.Notes = e.redactNotes(e.Notes)
 	return e
 }
 
-// WithScrubber returns a copy of e whose Redacted() first passes every
-// agent-supplied string through scrub (#4448). The scrubber travels with the
-// event value, so the audit.jsonl line and the SaaS payload, which both go
-// through Redacted(), cannot disagree. It is never serialised.
-func (e AuditEvent) WithScrubber(scrub func(string) string) AuditEvent {
-	e.scrub = scrub
-	return e
+// redactText is Redacted()'s treatment of one string: redact.Redact, or
+// with a scrubber redact.RedactWithLabels, which is redact.Redact for a text
+// in which no label matches.
+func (e AuditEvent) redactText(s string) string {
+	return redact.RedactWithLabels(s, e.scrub)
 }
 
-// scrubArguments returns a deep copy of args with s applied to every string
-// value and every string inside nested maps and lists. Keys are left alone.
-func scrubArguments(s func(string) string, args map[string]interface{}) map[string]interface{} {
-	if args == nil {
+// RedactedEvent is an event that has been through Redacted() exactly once
+// (#4781). The hook writes one event twice, the audit.jsonl line and the
+// SaaS queue's wire entry, and both copies used to redact the original
+// themselves: two passes of about 1 ms per KiB of command each, after the
+// decision, on the clock of the harness's hook timeout (#4772, #4785). A
+// RedactedEvent carries the one result to both writers, LogLinkedRedacted
+// and the hook's wire builder, so they cannot disagree and the cost is paid
+// once.
+//
+// The field is unexported, so the only way to make one is RedactOnce: a
+// writer that takes a RedactedEvent cannot be handed an unredacted event.
+type RedactedEvent struct {
+	event AuditEvent
+}
+
+// RedactOnce returns e.Redacted() as a RedactedEvent.
+func (e AuditEvent) RedactOnce() RedactedEvent {
+	return RedactedEvent{event: e.Redacted()}
+}
+
+// Event returns the redacted event. Its slices are the RedactedEvent's own:
+// treat them as read-only.
+func (r RedactedEvent) Event() AuditEvent {
+	return r.event
+}
+
+// WithNotes returns r with its notes replaced. The new notes get the
+// treatment Redacted() gives notes (redactNotes), so the result is still
+// exactly what Redacted() returns for the same event carrying these notes.
+// Notes already redacted pass through unchanged: redaction is idempotent.
+func (r RedactedEvent) WithNotes(notes []Note) RedactedEvent {
+	r.event.Notes = r.event.redactNotes(notes)
+	return r
+}
+
+// redactNotes is Redacted()'s treatment of notes: on a withheld event every
+// detail of a kind AgentShield does not write from its own text replaced by
+// WithheldText and each quote of the failure's own text replaced, then each
+// detail redacted as Redacted() redacts a string (redactText: secrets, and
+// data labels when the event carries a scrubber). A note's kind and rule are
+// left as they are.
+func (e AuditEvent) redactNotes(notes []Note) []Note {
+	if w := e.withheld; w != nil && notes != nil {
+		out := make([]Note, len(notes))
+		for i, n := range notes {
+			if !ownTextNoteKinds[n.Kind] && n.Detail != "" {
+				n.Detail = WithheldText
+			}
+			n.Detail = w.replaceQuotes(n.Detail, e.failureQuotes)
+			out[i] = n
+		}
+		notes = out
+	}
+	return mapNoteDetails(notes, e.redactText)
+}
+
+// mapNoteDetails returns a copy of notes with f applied to each Detail. Nil
+// stays nil, so an event without notes keeps omitting the field.
+func mapNoteDetails(notes []Note, f func(string) string) []Note {
+	if notes == nil {
 		return nil
 	}
-	out := make(map[string]interface{}, len(args))
-	for k, v := range args {
-		out[k] = scrubValue(s, v)
+	out := make([]Note, len(notes))
+	for i, n := range notes {
+		n.Detail = f(n.Detail)
+		out[i] = n
 	}
 	return out
 }
 
-func scrubValue(s func(string) string, v interface{}) interface{} {
-	switch t := v.(type) {
-	case string:
-		return s(t)
-	case map[string]interface{}:
-		return scrubArguments(s, t)
-	case []interface{}:
-		out := make([]interface{}, len(t))
-		for i, e := range t {
-			out[i] = scrubValue(s, e)
+// WithScrubber returns a copy of e whose Redacted() masks every span scrub
+// finds in an agent-supplied string, together with the secrets in it (#4448,
+// #4813). scrub returns a text's data-label spans: datalabel.Engine.Spans. The
+// scrubber travels with the event value, so the audit.jsonl line and the SaaS
+// payload, which both go through Redacted(), cannot disagree. It is never
+// serialised.
+func (e AuditEvent) WithScrubber(scrub func(string) []datalabel.Span) AuditEvent {
+	e.scrub = scrub
+	return e
+}
+
+// Scrubs reports whether e carries a data-label scrubber (WithScrubber), so
+// its Redacted() costs the union redaction's time per byte of agent text.
+func (e AuditEvent) Scrubs() bool { return e.scrub != nil }
+
+// WithAgentTextWithheld returns a copy of e whose Redacted() withholds the
+// agent's text (the command, its args, the MCP arguments) and the failure's
+// own error and reasons, which become w's, and which carries a
+// NoteAgentTextWithheld note with w.Detail (#4805). It is for an event that
+// should be scrubbed of customer data labels and cannot be, because the
+// labels could not be read. Like the scrubber it travels with the event
+// value, so the audit.jsonl line and the SaaS payload, which both go through
+// Redacted(), withhold the same text.
+func (e AuditEvent) WithAgentTextWithheld(w Withheld) AuditEvent {
+	e.withheld = &w
+	e.Notes = appendNote(e.Notes, Note{Kind: NoteAgentTextWithheld, Detail: w.Detail})
+	return e
+}
+
+// replaceQuotes returns d with every quote of the failure's own text
+// replaced: an old reason by the first new reason (the error when there is
+// none), the old error by the new error. The quotes are the old reasons, in
+// order, then the old error; an empty one is skipped.
+func (w *Withheld) replaceQuotes(d string, quotes []string) string {
+	for i, q := range quotes {
+		if q == "" {
+			continue
 		}
-		return out
+		with := w.Error
+		if i < len(quotes)-1 && len(w.Reasons) > 0 {
+			with = w.Reasons[0]
+		}
+		d = strings.ReplaceAll(d, q, with)
 	}
-	return v
+	return d
 }
 
 // IsMCP returns true if this event came from the MCP proxy.
@@ -612,6 +821,14 @@ func (l *AuditLogger) Log(event AuditEvent) error {
 	return err
 }
 
+// LogLinkedRedacted is LogLinked for an event already redacted (#4781): it
+// writes exactly the line LogLinked writes for the event RedactOnce was
+// called on, without redacting it a second time. The hook uses it so the
+// local line and the SaaS wire entry share one redaction.
+func (l *AuditLogger) LogLinkedRedacted(r RedactedEvent) (*ChainLink, error) {
+	return l.logLinkedRedacted(r.event)
+}
+
 // LogLinked is Log, returning the written line's link (#4208). The link is
 // taken under the same lock as the write, from the bytes written (after
 // redaction), so it is the line on disk and not a recomputation of it.
@@ -622,6 +839,18 @@ func (l *AuditLogger) Log(event AuditEvent) error {
 // LogLinked writes is chained (ComputeEntryHash fails only when marshalling
 // fails, which aborts the write), so a nil error always comes with a link.
 func (l *AuditLogger) LogLinked(event AuditEvent) (*ChainLink, error) {
+	// Redact sensitive data before logging. The SaaS payload goes through
+	// the same Redacted, so the line and the wire cannot disagree (#4332).
+	// Done before the lock, not under it: redaction is the costly part of a
+	// write and touches nothing the lock guards. The degraded note below is
+	// appended after it, through redactNotes, so the line is the one main
+	// wrote by appending the note first and redacting the whole event.
+	return l.logLinkedRedacted(event.Redacted())
+}
+
+// logLinkedRedacted is LogLinked for an event Redacted() has already
+// produced.
+func (l *AuditLogger) logLinkedRedacted(event AuditEvent) (*ChainLink, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -661,7 +890,7 @@ func (l *AuditLogger) LogLinked(event AuditEvent) (*ChainLink, error) {
 	// write by reappendIfUnlinked (Codex pass 1 on #4057).
 	note, degraded := l.LockUnavailableNote()
 	if degraded {
-		event.Notes = appendNote(event.Notes, note)
+		event.Notes = appendNote(event.Notes, event.redactNotes([]Note{note})[0])
 		if _, _, err := l.followRotation(); err != nil {
 			fmt.Fprintf(os.Stderr, "[AgentShield] warning: audit log reopen failed: %v\n", err)
 		}
@@ -673,10 +902,6 @@ func (l *AuditLogger) LogLinked(event AuditEvent) (*ChainLink, error) {
 	}
 
 	l.resyncHead()
-
-	// Redact sensitive data before logging. The SaaS payload goes through
-	// the same Redacted, so the line and the wire cannot disagree (#4332).
-	event = event.Redacted()
 
 	// Hash after redaction: the chain has to cover exactly the bytes that land
 	// on disk. Hashing the pre-redaction event would make every entry fail

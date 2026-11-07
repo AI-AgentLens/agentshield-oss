@@ -183,8 +183,6 @@ ts-block-procsub-eval-remote
 ts-block-python-pth-write
 ts-block-python-sitecustomize-write
 ts-block-self-propagating-injection
-ts-block-shell-profile-append
-ts-block-shell-profile-overwrite
 ts-block-shell-sysprofile-write
 ts-block-shm-archive-sensitive
 ts-block-shm-credential-stage

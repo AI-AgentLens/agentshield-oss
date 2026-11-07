@@ -1,5 +1,7 @@
 package analyzer
 
+import "github.com/AI-AgentLens/agentshield/internal/abandon"
+
 // Registry is an ordered collection of analyzers that runs them in sequence,
 // threading the AnalysisContext through each layer. Each analyzer enriches
 // the context and produces findings. The Combiner merges all findings into
@@ -28,6 +30,9 @@ func (r *Registry) RunAll(ctx *AnalysisContext, defaultDecision string) Combined
 	var allFindings []Finding
 
 	for _, a := range r.analyzers {
+		// An evaluation the hook's watchdog has already answered stops here
+		// (#4785); otherwise this returns at once.
+		abandon.Checkpoint()
 		findings := a.Analyze(ctx)
 		allFindings = append(allFindings, findings...)
 	}

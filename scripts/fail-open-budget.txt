@@ -52,4 +52,8 @@ wrapper_positional:maxLeaks 46
 wrapper_positional:maxLeaks#2 47
 wrapper_value_flag:maxLeaks 46
 wrapper_value_flag:maxLeaks#2 47
-TOTAL 2023
+zsh_reading:parameter-flags-prefix 0
+zsh_reading:parameter-flags-suffix 0
+zsh_reading:brace-group-no-separator 8
+zsh_reading:anonymous-function 7
+TOTAL 2038

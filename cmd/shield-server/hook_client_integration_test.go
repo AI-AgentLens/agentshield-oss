@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -160,6 +165,180 @@ func TestRemoteHookBlocksMCPToolCall(t *testing.T) {
 	if !strings.Contains(stderr, "BLOCKED MCP tool call") {
 		t.Errorf("MCP block message missing: %s", stderr)
 	}
+}
+
+// TestRemoteHookRoutesOnlyBashAsAShell pins the Python client's request shape
+// (ADR-001 step 0, #4245): only tool_name "Bash" is sent as a command; every
+// other tool, Claude Code's PowerShell included, is sent as a tool call. That
+// shape is what a server without the routing key routes on; this server
+// routes on the key the client also sends (step 2), and each input below
+// decides as its row says: a destructive command BLOCKs as Bash and decides
+// AUDIT as Claude Code's PowerShell (MCP policy and the PowerShell lane: no
+// step-5 PowerShell rule covers `rm -rf /`, a bash spelling); `ls -la` ALLOWs
+// as Bash and BLOCKs as a call to a tool named bash, which no row names (MCP
+// policy).
+func TestRemoteHookRoutesOnlyBashAsAShell(t *testing.T) {
+	ts := httptest.NewServer(sharedServer.Handler())
+	defer ts.Close()
+	env := map[string]string{"AGENTSHIELD_SERVER_URL": ts.URL}
+	call := func(tool, command string) map[string]interface{} {
+		return map[string]interface{}{
+			"hook_event_name": "PreToolUse",
+			"tool_name":       tool,
+			"tool_input":      map[string]interface{}{"command": command},
+			"session_id":      "it-route",
+		}
+	}
+
+	code, stderr := runHookClient(t, env, call("PowerShell", destructiveCommand()))
+	if code != 0 || !strings.Contains(stderr, "AUDIT MCP tool: PowerShell") {
+		t.Errorf("PowerShell: exit %d, want 0 with the MCP AUDIT line (sent as a tool call). stderr: %s", code, stderr)
+	}
+
+	code, stderr = runHookClient(t, env, call("bash", "ls -la"))
+	if code != 2 || !strings.Contains(stderr, "BLOCKED MCP tool call: bash") {
+		t.Errorf("bash (lower case): exit %d, want 2 from MCP policy (sent as a tool call). stderr: %s", code, stderr)
+	}
+
+	// Control: the same benign command under "Bash" is a shell command.
+	if code, stderr = runHookClient(t, env, call("Bash", "ls -la")); code != 0 || strings.Contains(stderr, "BLOCKED") {
+		t.Errorf("Bash: exit %d, want 0 (sent as a command). stderr: %s", code, stderr)
+	}
+}
+
+// TestRemoteHookSendsRoutingKey captures what the client sends (ADR-001 step
+// 2): the routing key on every request (harness, the tool exactly as the
+// harness named it, this host's OS) and the whole tool_input as arguments,
+// while the shape stays the one a server without the key reads: Bash as a
+// command, every other tool as a tool call.
+func TestRemoteHookSendsRoutingKey(t *testing.T) {
+	bodies, capture := captureServer(t)
+	env := map[string]string{"AGENTSHIELD_SERVER_URL": capture.URL}
+	call := func(tool string, input map[string]interface{}, codex bool) map[string]interface{} {
+		p := map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input, "session_id": "s", "cwd": "/repo"}
+		if codex {
+			p["turn_id"] = "turn-0001"
+		}
+		return p
+	}
+	runs := []struct {
+		payload  map[string]interface{}
+		harness  string
+		command  bool // sent as a command
+		toolName string
+	}{
+		{call("Bash", map[string]interface{}{"command": "ls -la", "description": "list"}, false), "claude-code", true, ""},
+		{call("PowerShell", map[string]interface{}{"command": "Get-ChildItem"}, false), "claude-code", false, "PowerShell"},
+		{call("Bash", map[string]interface{}{"command": "ls"}, true), "codex", true, ""},
+		{call("Read", map[string]interface{}{"file_path": "/repo/a"}, false), "claude-code", false, "Read"},
+	}
+	for _, r := range runs {
+		if code, stderr := runHookClient(t, env, r.payload); code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+	}
+	got := bodies()
+	if len(got) != len(runs) {
+		t.Fatalf("server saw %d requests, want %d", len(got), len(runs))
+	}
+	for i, r := range runs {
+		b := got[i]
+		tool := r.payload["tool_name"]
+		rk, _ := b["route"].(map[string]interface{})
+		if rk["harness"] != r.harness || rk["tool"] != tool || rk["os"] != clientHostOS() {
+			t.Errorf("%v: route %v, want harness %s, tool %v, os %s", tool, b["route"], r.harness, tool, clientHostOS())
+		}
+		if r.command != (b["command"] != nil) || (b["tool_name"] != nil) == r.command {
+			t.Errorf("%v: command %v tool_name %v; want it sent as a command: %v", tool, b["command"], b["tool_name"], r.command)
+		}
+		if !reflect.DeepEqual(b["arguments"], r.payload["tool_input"]) {
+			t.Errorf("%v: arguments %v, want the whole tool_input %v", tool, b["arguments"], r.payload["tool_input"])
+		}
+	}
+}
+
+// TestRemoteHookClaudeCodePowerShellReachesItsRow: end to end through the
+// script, Claude Code's PowerShell tool is read by MCP policy and its row's
+// PowerShell lane, which blocks a key read MCP policy alone, main's path for
+// this client, recorded as AUDIT. Control: a benign command passes.
+func TestRemoteHookClaudeCodePowerShellReachesItsRow(t *testing.T) {
+	ts := httptest.NewServer(sharedServer.Handler())
+	defer ts.Close()
+	env := map[string]string{"AGENTSHIELD_SERVER_URL": ts.URL}
+	call := func(command string) map[string]interface{} {
+		return map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": "PowerShell",
+			"tool_input": map[string]interface{}{"command": command}, "session_id": "it-row", "cwd": "/repo"}
+	}
+	code, stderr := runHookClient(t, env, call(psKeyRead()))
+	if code != 2 || !strings.Contains(stderr, "protected-path") {
+		t.Errorf("key read: exit %d, want 2 by protected-path. stderr: %s", code, stderr)
+	}
+	if code, stderr = runHookClient(t, env, call("Get-Date")); code != 0 || strings.Contains(stderr, "BLOCKED") {
+		t.Errorf("Get-Date: exit %d, want 0. stderr: %s", code, stderr)
+	}
+}
+
+// TestRemoteHookHostOS: the client spells the host OS as Go's runtime.GOOS,
+// the routing table's key, for every sys.platform it may run on.
+func TestRemoteHookHostOS(t *testing.T) {
+	scriptPath, err := filepath.Abs(clientScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prog := `import importlib.util, sys
+spec = importlib.util.spec_from_file_location("hook", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+for p in sys.argv[2:]:
+    sys.platform = p
+    print(p, m.host_os())
+`
+	rows := map[string]string{"win32": "windows", "cygwin": "windows", "msys": "windows", "darwin": "darwin",
+		"linux": "linux", "linux2": "linux", "freebsd13": "freebsd", "openbsd7": "openbsd", "aix": "aix"}
+	args := []string{"-I", "-c", prog, scriptPath}
+	for p := range rows {
+		args = append(args, p)
+	}
+	out, err := exec.Command(python3(t), args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("python: %v\n%s", err, out)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		p, goos, _ := strings.Cut(line, " ")
+		if rows[p] != goos {
+			t.Errorf("sys.platform %q -> %q, want %q", p, goos, rows[p])
+		}
+		delete(rows, p)
+	}
+	if len(rows) != 0 {
+		t.Errorf("no answer for %v", rows)
+	}
+}
+
+// clientHostOS is this host's OS as the clients spell it in the route key.
+func clientHostOS() string { return runtime.GOOS }
+
+// captureServer records every request body and answers ALLOW.
+func captureServer(t *testing.T) (func() []map[string]interface{}, *httptest.Server) {
+	t.Helper()
+	var mu sync.Mutex
+	var bodies []map[string]interface{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var m map[string]interface{}
+		_ = json.Unmarshal(b, &m)
+		mu.Lock()
+		bodies = append(bodies, m)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"decision":"ALLOW"}`))
+	}))
+	t.Cleanup(ts.Close)
+	return func() []map[string]interface{} {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]map[string]interface{}(nil), bodies...)
+	}, ts
 }
 
 func TestRemoteHookSendsBearerToken(t *testing.T) {

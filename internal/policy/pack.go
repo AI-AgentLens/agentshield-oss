@@ -64,22 +64,33 @@ func FailedPacks(infos []PackInfo) []PackInfo {
 // Protected paths and allow domains are unioned. The most restrictive
 // default decision wins.
 func LoadPacks(packsDir string, base *Policy) (*Policy, []PackInfo, error) {
-	var infos []PackInfo
-
-	entries, err := os.ReadDir(packsDir)
+	result := clonePolicy(base)
+	infos, err := walkShellPackTree(packsDir, PackLoadHooks[Pack]{
+		Parse:    parseShellPack,
+		Describe: describeShellPack,
+		Merge:    func(p *Pack) { mergePackInto(result, p) },
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return base, nil, nil
 		}
 		return nil, nil, err
 	}
+	return result, infos, nil
+}
 
-	result := clonePolicy(base)
+// walkShellPackTree runs the shared pack lifecycle over every shell pack
+// LoadPacks reads from packsDir, in LoadPacks's order: each flat YAML file,
+// and each analyzer-type subdirectory's files under that subdirectory's name.
+// It is the one definition of which disk files are shell packs, shared with
+// LoadDeclaredProtectedPaths (#4645) so the two cannot disagree about it.
+// err is os.ReadDir's error on packsDir.
+func walkShellPackTree[P any](packsDir string, diskHooks PackLoadHooks[P]) ([]PackInfo, error) {
+	var infos []PackInfo
 
-	diskHooks := PackLoadHooks[Pack]{
-		Parse:    parseShellPack,
-		Describe: describeShellPack,
-		Merge:    func(p *Pack) { mergePackInto(result, p) },
+	entries, err := os.ReadDir(packsDir)
+	if err != nil {
+		return nil, err
 	}
 
 	for _, entry := range entries {
@@ -99,7 +110,7 @@ func LoadPacks(packsDir string, base *Policy) (*Policy, []PackInfo, error) {
 			}
 			enabled := !strings.HasPrefix(dirName, "_")
 			subDir := filepath.Join(packsDir, dirName)
-			subInfos, err := loadPacksFromDir(subDir, dirName, enabled, result)
+			subInfos, err := loadPacksFromDir(subDir, dirName, enabled, diskHooks)
 			if err != nil {
 				continue
 			}
@@ -134,23 +145,20 @@ func LoadPacks(packsDir string, base *Policy) (*Policy, []PackInfo, error) {
 		infos = append(infos, LoadPackSources([]PackSource{src}, diskHooks)...)
 	}
 
-	return result, infos, nil
+	return infos, nil
 }
 
 // loadPacksFromDir loads all YAML files from an analyzer-type subdirectory
-// (e.g., packs/regex/, packs/structural/) and merges them into the target policy.
-func loadPacksFromDir(dir, analyzerType string, enabled bool, target *Policy) ([]PackInfo, error) {
+// (e.g., packs/regex/, packs/structural/) through hooks, naming each pack
+// after the subdirectory and disabling all of them when the subdirectory is.
+func loadPacksFromDir[P any](dir, analyzerType string, enabled bool, hooks PackLoadHooks[P]) ([]PackInfo, error) {
 	sources, err := DiskPackSources(dir, nil)
 	if err != nil {
 		return nil, err
 	}
-	return LoadPackSources(sources, PackLoadHooks[Pack]{
-		Parse:      parseShellPack,
-		Describe:   describeShellPack,
-		NameFor:    func(stem string) string { return analyzerType + "/" + stem },
-		EnabledFor: func(stem string) bool { return enabled && !strings.HasPrefix(stem, "_") },
-		Merge:      func(p *Pack) { mergePackInto(target, p) },
-	}), nil
+	hooks.NameFor = func(stem string) string { return analyzerType + "/" + stem }
+	hooks.EnabledFor = func(stem string) bool { return enabled && !strings.HasPrefix(stem, "_") }
+	return LoadPackSources(sources, hooks), nil
 }
 
 // LoadEmbeddedShellPacks merges the community shell packs embedded in the

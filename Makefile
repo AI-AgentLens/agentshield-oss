@@ -41,6 +41,15 @@ test: ## Run tests
 test-perf: ## Run the pipeline P95 latency budget (quarantined; needs a quiet machine)
 	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
 		-run 'TestPipelinePerfBudget' ./internal/policy/
+	# The hook's decision budget answers before Codex's 10 s timeout, wall
+	# clock, on the real binary (#4772). Also a runner measurement.
+	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
+		-run 'TestHookBudget_ProductionBinaryAtCodexTimeout' ./internal/cli/
+	# A labelled host's budget answer withholds a record too large to scrub
+	# and still answers before Codex's timeout (#4814, #4813). Every run checks
+	# the record; only this one holds the wall clock to the timeout (#4827).
+	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
+		-run 'TestFailSafeRecord_TooLargeToScrub_AnsweredOnTime|TestHookRecord_LabelInsideSecret_BudgetAnswer_4813' ./internal/cli/
 
 lint: ## Run linter (requires golangci-lint)
 	golangci-lint run ./...

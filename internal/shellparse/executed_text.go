@@ -121,7 +121,7 @@ func ExecutedTextReport(command string) (texts []string, unresolved int) {
 		// decodeSeparatorEscapes, same restriction to whitespace/control
 		// characters) so the candidate is the text the shell receives.
 		if call, ok := stmt.Cmd.(*syntax.CallExpr); ok {
-			if _, style := emittedEscapeWords(call); style != octalNone {
+			if _, style := emittedEscapeWords(call, false); style != octalNone {
 				if decoded, changed := decodeSeparatorEscapes(text, style); changed {
 					add(decoded)
 				}
@@ -129,7 +129,28 @@ func ExecutedTextReport(command string) (texts []string, unresolved int) {
 		}
 	}
 
+	// addPrinted adds the literals a python / awk statement prints (#4433).
+	// The caller has established that this statement's stdout is run.
+	addPrinted := func(stmt *syntax.Stmt) {
+		for _, lit := range printedLiterals(stmt) {
+			if !strings.ContainsAny(lit, "$`") {
+				add(lit)
+			}
+		}
+	}
+
 	reach := AnalyzeTextReach(command)
+	// A python / awk statement whose stdout is piped into a shell: the left
+	// side of every pipe whose right side runs its stdin. Judged per pipe, not
+	// command-wide, because a printer next to an unrelated `echo ls | bash`
+	// reaches nothing.
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if bc, ok := node.(*syntax.BinaryCmd); ok &&
+			(bc.Op == syntax.Pipe || bc.Op == syntax.PipeAll) && pipeTargetIsExecutor(bc.Y) {
+			visitSubstitutionOutput(bc.X, addPrinted)
+		}
+		return true
+	})
 	if reach.PipesIntoExecutor || len(reach.Correlated) > 0 {
 		syntax.Walk(file, func(node syntax.Node) bool {
 			if stmt, ok := node.(*syntax.Stmt); ok {
@@ -181,6 +202,7 @@ func ExecutedTextReport(command string) (texts []string, unresolved int) {
 		for _, stmt := range bodyFile.Stmts {
 			visitSubstitutionOutput(stmt, func(s *syntax.Stmt) {
 				addEmitted(s)
+				addPrinted(s)
 				countUnresolved(s)
 			})
 		}
@@ -212,7 +234,7 @@ func visitSubstitutionOutput(stmt *syntax.Stmt, emit func(*syntax.Stmt)) {
 	}
 	switch cmd := stmt.Cmd.(type) {
 	case *syntax.CallExpr:
-		if emitsItsTextToStdout(cmd) {
+		if emitsItsTextToStdout(cmd) || len(printedLiterals(stmt)) > 0 {
 			emit(stmt)
 		}
 	case *syntax.BinaryCmd:

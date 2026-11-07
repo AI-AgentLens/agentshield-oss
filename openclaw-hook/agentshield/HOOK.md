@@ -1,6 +1,6 @@
 ---
 name: agentshield
-description: "Runtime security gateway — evaluate every exec through AgentShield's analyzer pipeline"
+description: "Bootstrap notice only — AgentShield does not evaluate OpenClaw commands"
 homepage: https://github.com/AI-AgentLens/agentshield-oss
 metadata:
   {
@@ -15,24 +15,12 @@ metadata:
 
 # AgentShield Hook
 
-Runtime security gateway for OpenClaw agents. Evaluates every shell command through AgentShield's staged analyzer pipeline before the host executes it.
+**This hook does not protect an OpenClaw agent.** It subscribes to `agent:bootstrap` only and injects a notice into the agent's context. Nothing sends an OpenClaw shell command or tool call to AgentShield, so no command is evaluated, logged or blocked (#4582). A real integration needs an OpenClaw pre-tool-call event that can veto the call.
 
 ## What It Does
 
-1. **Injects security instructions** into the agent's bootstrap context, telling the agent that a PreToolUse hook will evaluate every command it issues.
-2. The host's PreToolUse hook forwards each command to AgentShield for evaluation *before* execution. The agent itself does not wrap commands — AgentShield is evaluation-only and never executes.
-3. AgentShield evaluates each command against policy packs (structural, dataflow, semantic, stateful, guardian, datalabel rules).
-4. Dangerous commands are **blocked before execution**; safe commands pass through; AUDIT-tier commands execute with a logged flag.
-
-## Protection Layers
-
-- **Regex** — fast pattern matching on known-bad commands
-- **Structural** — AST-based analysis (flag reordering, sudo wrapping)
-- **Semantic** — intent classification (disk-destroy, file-delete, exfiltration)
-- **Dataflow** — source→sink taint tracking (credential → network)
-- **Stateful** — multi-step attack chain detection (download → execute)
-- **Guardian** — prompt injection signal detection
-- **Data Label** — customer-defined PII/codename/SSN/credit-card detection
+1. On `agent:bootstrap`, adds `AGENTSHIELD.md` to the agent's context. The note tells the agent that AgentShield is not evaluating its commands.
+2. Nothing else.
 
 ## Requirements
 

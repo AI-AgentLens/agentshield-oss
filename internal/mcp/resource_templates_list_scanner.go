@@ -123,6 +123,16 @@ func ScanResourcesTemplatesListResponse(result *ResourcesTemplatesListResult) Re
 		if f := scanTemplateMetadataField("title", tmpl.Title); f != nil {
 			out.Findings = append(out.Findings, *f)
 		}
+		// mimeType and the template's own _meta, as on resources/list (#4564).
+		if f := scanTemplateMetadataField("mimeType", tmpl.MIMEType); f != nil {
+			out.Findings = append(out.Findings, *f)
+		}
+		for _, text := range entryMetaScanTexts(tmpl.Meta) {
+			if f := scanTemplateMetadataField("_meta", text); f != nil {
+				out.Findings = append(out.Findings, *f)
+				break
+			}
+		}
 		// `icons` is not scanned here: every finding above blocks the whole
 		// list, while an unsafe icon hides the one template that carries it,
 		// with its own receipt, in FilterResourceTemplatesListResponse (#4159).

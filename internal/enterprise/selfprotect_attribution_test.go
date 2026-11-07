@@ -12,6 +12,7 @@ var selfProtectAttribution = map[string]string{
 	"sp-block-setup-disable":  "agentshield setup claude-code --disable",
 	"sp-block-delete-config":  "rm -rf ~/.agentshield/",
 	"sp-block-delete-hooks":   "rm ~/.claude/settings.json",
+	"sp-block-brew-uninstall": "brew uninstall --cask agentshield",
 	"sp-block-policy-write":   "echo 'rules: []' > ~/.agentshield/policy.yaml",
 	"sp-block-binary-replace": "cp /tmp/x /usr/local/bin/agentshield",
 	"sp-block-config-touch":   "python3 -c \"open('/root/.agentshield/managed.json','w')\"",

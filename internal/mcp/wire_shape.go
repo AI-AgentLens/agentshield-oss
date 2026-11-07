@@ -94,7 +94,9 @@ type WireShapeAnomaly struct {
 	Signal WireShapeSignal `json:"signal"`
 	// Field is the struct field the offending value landed on, as
 	// encoding/json reports it ("arguments", "modelPreferences"). Empty when
-	// the violation was at the top level of the decoded value.
+	// the violation was at the top level of the decoded value. Go 1.27
+	// extends the path into map keys ("arguments.n"); Go 1.26 stops at the
+	// struct field. It is a label for the receipt only: no decision reads it.
 	Field string `json:"field,omitempty"`
 	// Value is encoding/json's description of the offending value
 	// ("number 1e400", "array", "string").

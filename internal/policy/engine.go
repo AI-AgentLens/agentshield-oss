@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"os"
+	slashpath "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -42,6 +43,9 @@ type Engine struct {
 	// BLOCK, and the resolved paths a protected-path BLOCK matched) is kept,
 	// not downgraded. nil keeps none. Set via SetSelfProtectionKeep.
 	selfProtectionKeep SelfProtectionKeep
+	// psRules are the rules with a powershell match (ADR-001 step 5), which
+	// only EvaluateFacts reads. Compiled once, here, by NewEngine.
+	psRules []factsRule
 }
 
 // SelfProtectionKeep is the audit-only keep rule's signature (#4337 review
@@ -63,6 +67,14 @@ func NewEngine(p *Policy) (*Engine, error) {
 		regexCache:       make(map[string]*regexlit.Matcher),
 		intentClassifier: analyzer.NewIntentClassifier(),
 	}
+	// A powershell rule that cannot load fails the engine, as an unknown
+	// intent label fails the pipeline: a silently dropped rule decides
+	// nothing and says nothing.
+	psRules, err := compilePowerShellRules(p)
+	if err != nil {
+		return nil, err
+	}
+	e.psRules = psRules
 	// Pre-compile all rule regexes at initialization
 	for _, rule := range p.Rules {
 		for _, pat := range [...]string{rule.Match.CommandRegex, rule.Match.CommandRegexExclude} {
@@ -210,9 +222,10 @@ func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *anal
 // `scan` and shield-server all arrive here, which is why #3991's safety
 // guarantee lives here — see EvaluateProgramPaths — and #4194's too, see
 // EvaluateCaseFold, #4289's, see EvaluateQuotedFlags, #4387's, see
-// EvaluatePrivateAlias, and #4540's, see EvaluateANSICNUL.
+// EvaluatePrivateAlias, #4540's, see EvaluateANSICNUL, #4610's, see
+// EvaluateStderrRedirect, and #4598's, see EvaluateZshReading.
 func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string) EvalResult {
-	return e.EvaluateANSICNUL(command, paths, parsed, cwd, ANSICNULStricter)
+	return e.EvaluateZshReading(command, paths, parsed, cwd, ZshReadingStricter)
 }
 
 // PrivateAliasMode selects how an evaluation treats the macOS `/private`
@@ -410,14 +423,20 @@ func (e *Engine) EvaluateQuotedFlags(command string, paths []string, parsed *ana
 	if mode == QuotedFlagsOff {
 		return asWritten
 	}
-	bare := shellparse.UnquoteFlagWords(command)
-	if bare == "" {
-		return asWritten
-	}
+	result := asWritten
 	// parsed is the tree of the as-written text; every analyzer re-parses.
-	// paths stay the as-written argv paths: the rewrite touches no path word,
-	// and this reading can only raise the result.
-	return stricterResult(asWritten, e.EvaluateCaseFold(bare, paths, nil, cwd, CaseFoldStricter))
+	// paths stay the as-written argv paths: the rewrites touch no path word,
+	// and these readings can only raise the result.
+	if bare := shellparse.UnquoteFlagWords(command); bare != "" {
+		result = stricterResult(result, e.EvaluateCaseFold(bare, paths, nil, cwd, CaseFoldStricter))
+	}
+	// #4623: git's `-C <dir>` / `-c k=v` put a separate word before the
+	// subcommand, so `git -C /repo commit -n` read as subcommand "/repo". The
+	// same stricter-of-two construction, on the text without those options.
+	if noGlobals := shellparse.StripGitGlobalOptions(command); noGlobals != "" {
+		result = stricterResult(result, e.EvaluateCaseFold(noGlobals, paths, nil, cwd, CaseFoldStricter))
+	}
+	return result
 }
 
 // CaseFoldMode selects how an evaluation treats the letter case of paths
@@ -545,15 +564,17 @@ func caseFoldResult(asWritten, folded EvalResult) EvalResult {
 	if ra < 0 || rf != ra {
 		return asWritten
 	}
+	// A tie from here on: whichever reading is returned keeps a BLOCK the
+	// other kept (keptOnTie, #4748 Opus pass 1).
 	if !strictSuperset(folded.TriggeredRules, asWritten.TriggeredRules) {
-		return asWritten
+		return keptOnTie(asWritten, folded)
 	}
 	for _, n := range asWritten.Notes {
 		if !containsNote(folded.Notes, n) {
-			return asWritten
+			return keptOnTie(asWritten, folded)
 		}
 	}
-	return folded
+	return keptOnTie(folded, asWritten)
 }
 
 func strictSuperset(big, small []string) bool {
@@ -650,8 +671,9 @@ func (e *Engine) evaluateProgramPaths(command string, paths []string, parsed *an
 }
 
 // stricterResult returns on when its decision is STRICTLY more restrictive than
-// off's, and off otherwise — ties, and anything outside the order, keep off.
-// This is the max() #3991's safety rests on (see EvaluateProgramPaths).
+// off's, and off otherwise — ties, and anything outside the order, keep off
+// (in audit-only mode off may come back as BLOCK, see keptOnTie). This is the
+// max() #3991's safety rests on (see EvaluateProgramPaths).
 //
 // The order is local and total — ALLOW < AUDIT < REQUIRE_APPROVAL < BLOCK — and
 // deliberately NOT the combiner's decisionToSeverity, which has no
@@ -669,9 +691,33 @@ func (e *Engine) evaluateProgramPaths(command string, paths []string, parsed *an
 func stricterResult(off, on EvalResult) EvalResult {
 	ro, rn := preDowngradeRank(off), preDowngradeRank(on)
 	if ro < 0 || rn <= ro {
-		return off
+		return keptOnTie(off, on)
 	}
 	return on
+}
+
+// keptOnTie is the audit-only tie rule of every layer that picks one of two
+// readings of a command (stricterResult, caseFoldResult). picked is the
+// reading the layer returns and other the one it drops. When both BLOCKed
+// before the mode downgrade, picked was downgraded and other's BLOCK was
+// kept, picked is returned as BLOCK: its own record, no OriginalDecision. In
+// audit-only mode a BLOCK survives only through the self-protection keep, so
+// other is a self-protection BLOCK that picked's reading could not see
+// (#4748 Opus pass 1: `~<login>/` is expanded by the home-tilde reading
+// alone, and an unrelated protected-path read made both readings tie).
+//
+// That is enforce mode's result exactly: enforce ranks the two readings the
+// same way, picks the same one on the tie and returns it as BLOCK with the
+// same record. So it never reaches above enforce, and in enforce mode,
+// where nothing carries an OriginalDecision, it never applies. Any other
+// pair is returned as picked.
+func keptOnTie(picked, other EvalResult) EvalResult {
+	if picked.OriginalDecision != DecisionBlock || other.Decision != DecisionBlock || other.OriginalDecision != "" {
+		return picked
+	}
+	picked.Decision, picked.OriginalDecision = DecisionBlock, ""
+	picked.Explanation = buildExplanation(picked)
+	return picked
 }
 
 // preDowngradeRank is stricterResult's order: ALLOW < AUDIT <
@@ -849,6 +895,35 @@ func pathCommandWordBehindPrefixes(text string) bool {
 // table compare case-insensitively (see EvaluateCaseFold); false is
 // byte-for-byte the pre-#4194 evaluation.
 func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase bool) EvalResult {
+	return e.evaluateFrom(command, paths, parsed, cwd, resolve, foldCase, true)
+}
+
+// keepsMaskedSelfProtectionBlock is the audit-only keep asked of the whole
+// command when the protected-path check decided its BLOCK before the pipeline
+// ran (#4429). That early return hides every rule the pipeline would have
+// fired, so `cat ~/.aws/config; <export the disable variable>` reached the
+// keep as a protected-path BLOCK on an AWS file and was lowered, while the
+// export alone is kept. The question is put to the rest of the evaluation:
+// the same command, paths and readings with the early check skipped
+// (evaluateFrom, protectedFirst false). That evaluation runs in this engine's
+// mode, audit-only, so it decides BLOCK only when the keep accepted a BLOCK
+// of its own; every other BLOCK there is downgraded.
+//
+// It decides nothing. r, enforce mode's verdict, is kept as it is, record
+// included, or downgraded as before, so audit-only can only reach the BLOCK
+// enforce mode makes. Enforce mode never asks, and neither does a BLOCK the
+// pipeline decided: the pipeline already saw every rule.
+func (e *Engine) keepsMaskedSelfProtectionBlock(command string, r EvalResult, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase bool) bool {
+	if e.mode != "audit-only" || r.Decision != DecisionBlock || e.selfProtectionKeep == nil {
+		return false
+	}
+	return e.evaluateFrom(command, paths, parsed, cwd, resolve, foldCase, false).Decision == DecisionBlock
+}
+
+// evaluateFrom is evaluate. protectedFirst false skips the protected-path
+// check that returns before the pipeline, for keepsMaskedSelfProtectionBlock
+// alone; the post-pass on materialized paths still runs.
+func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase, protectedFirst bool) EvalResult {
 	// Every return path goes through finish() so the issue #1952 mode
 	// downgrade and the explanation-building are applied uniformly. Doing
 	// this inside the function (rather than at each return site) is what
@@ -892,6 +967,10 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 	// (the argv paths, or the substitution analyzer's materialized paths), for
 	// the audit-only keep rule (#4424). nil when no such match decided.
 	var protectedOn []string
+	// decidedBeforePipeline is true when the protected-path check returned
+	// before the pipeline: the keep then also asks the rest of the
+	// evaluation (keepsMaskedSelfProtectionBlock, #4429).
+	decidedBeforePipeline := false
 	finish := func(r EvalResult) EvalResult {
 		// Fold the Unicode smuggling finding in most-restrictive-wins, the
 		// same rule the combiner applies to every other analyzer (#4007): a
@@ -904,16 +983,21 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		// which skipped the protected-path check and RunAll/fallback
 		// entirely — one non-ASCII letter anywhere in the command silently
 		// downgraded every BLOCK to AUDIT.
+		//
+		// The taxonomy follows the rule ids: a Unicode rule that has a node
+		// (unicodeTaxonomy, #4560 — today only unicode-zero-width) carries it
+		// wherever its id is recorded, and the rest contribute none.
 		if len(uniRules) > 0 {
 			switch {
 			case decisionSeverity(uniDecision) > decisionSeverity(r.Decision):
 				r.Decision = uniDecision
 				r.TriggeredRules = append([]string{}, uniRules...)
 				r.Reasons = append([]string{}, uniReasons...)
-				r.TaxonomyRefs = nil
+				r.TaxonomyRefs = addUnicodeTaxonomy(nil, uniRules)
 			case decisionSeverity(uniDecision) == decisionSeverity(r.Decision):
 				r.TriggeredRules = append(r.TriggeredRules, uniRules...)
 				r.Reasons = append(r.Reasons, uniReasons...)
+				r.TaxonomyRefs = addUnicodeTaxonomy(r.TaxonomyRefs, uniRules)
 			}
 		}
 		// Read before applyModeDowngrade: in audit-only mode a BLOCK arrives
@@ -938,7 +1022,10 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		// protected-path BLOCK returns before the pipeline, so on a managed
 		// host (whose protected_paths cover AgentShield's directory) it is the
 		// only decision the keep sees; it carries the files it matched (#4424).
-		if !e.keepsSelfProtectionBlock(command, r, protectedOn, cwd, foldCase) {
+		// When that BLOCK hides a self-protection action elsewhere in the
+		// command, the keep is asked of the rest of the evaluation (#4429).
+		if !e.keepsSelfProtectionBlock(command, r, protectedOn, cwd, foldCase) &&
+			!(decidedBeforePipeline && e.keepsMaskedSelfProtectionBlock(command, r, paths, parsed, cwd, resolve, foldCase)) {
 			r = applyModeDowngrade(r, e.mode)
 		}
 		notes := make([]string, 0, 2)
@@ -985,13 +1072,16 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 		}
 	}
 
-	if blocked, rule := e.checkProtectedPaths(paths, cwd, foldCase); blocked && !consumerOnly() {
-		result.Decision = DecisionBlock
-		result.TriggeredRules = append(result.TriggeredRules, "protected-path")
-		result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
-		result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(paths, rule, cwd, true), cwd))
-		protectedOn = paths
-		return finish(result)
+	if protectedFirst {
+		if blocked, rule := e.checkProtectedPaths(paths, cwd, foldCase); blocked && !consumerOnly() {
+			result.Decision = DecisionBlock
+			result.TriggeredRules = append(result.TriggeredRules, ProtectedPathRuleID)
+			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
+			result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(paths, rule, cwd, true), cwd))
+			protectedOn = paths
+			decidedBeforePipeline = true
+			return finish(result)
+		}
 	}
 
 	// If an analyzer registry is set, use the full pipeline.
@@ -1074,6 +1164,10 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 	// the regex-only fallback path, so it needs its own candidate or disabling
 	// the pipeline reopens the bypass.
 	materializedCommand := shellparse.MaterializeAssignments(command)
+	// The same fold with $'...' bodies decoded first (#4591), the twin of the
+	// pipeline's form. TestANSICAssignmentSplitParityAcrossEvaluationPaths
+	// pins the two together.
+	materializedANSICCommand := shellparse.MaterializeAssignmentsANSIC(command)
 
 	// ifsCommand is the third instance of exactly that reasoning, and it was
 	// simply missing (found by the #3717 cross-path parity table): `${IFS}`/
@@ -1128,7 +1222,7 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 	// a normalized form (a dequoted self-mgmt payload, a materialized path)
 	// is recorded exactly as the pipeline records it. Codex review of #4005.
 	probeForms := []string{command}
-	for _, f := range []string{dequotedCommand, foldedCommand, materializedCommand, ifsCommand, emittedCommand} {
+	for _, f := range []string{dequotedCommand, foldedCommand, materializedCommand, materializedANSICCommand, ifsCommand, emittedCommand} {
 		if f != "" {
 			probeForms = append(probeForms, f)
 		}
@@ -1171,6 +1265,8 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 			matchedCmd = foldedCommand
 		case materializedCommand != "" && e.matchRule(materializedCommand, rule):
 			matchedCmd = materializedCommand
+		case materializedANSICCommand != "" && e.matchRule(materializedANSICCommand, rule):
+			matchedCmd = materializedANSICCommand
 		case ifsCommand != "" && e.matchRule(ifsCommand, rule):
 			matchedCmd = ifsCommand
 		case emittedCommand != "" && e.matchRule(emittedCommand, rule):
@@ -1558,8 +1654,15 @@ func (e *Engine) checkProtectedPaths(paths []string, cwd string, foldCase bool) 
 // protectedPathMatches is checkProtectedPaths' test for one path against one
 // pattern. cwd must already be folded when foldCase is set.
 func (e *Engine) protectedPathMatches(path, pattern, cwd string, foldCase bool) bool {
-	expandedPath := e.expandPath(path)
-	expandedPattern := e.expandPath(pattern)
+	return protectedPathMatchesIn(e.homeDir, path, pattern, cwd, foldCase)
+}
+
+// protectedPathMatchesIn is protectedPathMatches with the home directory
+// given, so the tool-call surfaces match a file path exactly as the shell
+// engine does (MatchProtectedPath, #4645).
+func protectedPathMatchesIn(home, path, pattern, cwd string, foldCase bool) bool {
+	expandedPath := expandHome(path, home)
+	expandedPattern := expandHome(pattern, home)
 	if foldCase {
 		expandedPath = pathnorm.FoldASCII(expandedPath)
 		expandedPattern = pathnorm.FoldASCII(expandedPattern)
@@ -1590,11 +1693,16 @@ func (e *Engine) protectedPathHits(paths []string, pattern, cwd string, foldCase
 }
 
 func (e *Engine) expandPath(path string) string {
-	if strings.HasPrefix(path, "~/") && e.homeDir != "" {
-		return filepath.Join(e.homeDir, path[2:])
+	return expandHome(path, e.homeDir)
+}
+
+// expandHome is expandPath for a given home directory.
+func expandHome(path, home string) string {
+	if strings.HasPrefix(path, "~/") && home != "" {
+		return filepath.Join(home, path[2:])
 	}
-	if strings.HasPrefix(path, "~") && e.homeDir != "" {
-		return e.homeDir
+	if strings.HasPrefix(path, "~") && home != "" {
+		return home
 	}
 	return path
 }
@@ -1623,6 +1731,13 @@ func relativeToCwd(path, pattern, cwd string) (string, bool) {
 }
 
 func matchGlob(path, pattern string) bool {
+	// expandHome joins with filepath.Join, so on Windows a pattern arrives in
+	// backslash form and the "/**" and "/*" forms below never applied: the
+	// directory itself, and anything nested deeper than one level, went
+	// unmatched (#4717). Compare in slash form. ToSlash is the identity on
+	// unix, and slashpath.Match is filepath.Match there.
+	path, pattern = filepath.ToSlash(path), filepath.ToSlash(pattern)
+
 	if strings.HasSuffix(pattern, "/**") {
 		prefix := strings.TrimSuffix(pattern, "/**")
 		return strings.HasPrefix(path, prefix+"/") || path == prefix
@@ -1637,7 +1752,7 @@ func matchGlob(path, pattern string) bool {
 		return !strings.Contains(remainder, "/")
 	}
 
-	matched, _ := filepath.Match(pattern, path)
+	matched, _ := slashpath.Match(pattern, path)
 	return matched
 }
 

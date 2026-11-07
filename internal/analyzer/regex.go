@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/regexlit"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
@@ -211,6 +212,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// Alternative renderings of the WHOLE command, checked for every rule; see
 	// buildWholeCommandForms, which redactedForms shares (#4400).
 	wholeCommandForms := buildWholeCommandForms(ctx.RawCommand, dequotedCommand, ifsNormalized)
+	abandon.Checkpoint()
 
 	// Per-statement match candidates, memoized for this evaluation.
 	// StatementMatchCandidates costs several AST parses per statement and has
@@ -280,6 +282,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 				return true
 			}
 			for _, cand := range statementCandidates(stmt) {
+				abandon.Checkpoint()
 				if a.matchRegexRule(cand, rule) {
 					return true
 				}
@@ -295,7 +298,9 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// Executed text (#3938) is reported once, eagerly, so the
 	// executed_text_unresolved note (#3995) depends on the command alone and
 	// not on whether some later rule happened to trigger the lazy retry.
+	abandon.Checkpoint()
 	executedBodies, unresolvedBodies := shellparse.ExecutedTextReport(ctx.RawCommand)
+	abandon.Checkpoint()
 	if unresolvedBodies > 0 {
 		ctx.AddNote(NoteExecutedTextUnresolved, "", strconv.Itoa(unresolvedBodies))
 	}
@@ -330,6 +335,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			add(shellparse.DequoteCommand(whole))
 		}
 		extras := func(s string) {
+			abandon.Checkpoint()
 			base := map[string]bool{}
 			for _, f := range statementCandidates(s) {
 				base[f] = true
@@ -378,6 +384,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			if s == "" {
 				continue
 			}
+			abandon.Checkpoint()
 			for _, f := range restrictCandidates(s) {
 				if f == "" || seen[f] {
 					continue
@@ -395,6 +402,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// probes on 78 BLOCK rules. Retried as commands of their own, the
 		// same way a statement is, so "^" means start of what executes.
 		for _, body := range executedBodies {
+			abandon.Checkpoint()
 			for _, f := range restrictCandidates(body) {
 				if f == "" || seen[f] {
 					continue
@@ -451,12 +459,14 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			return true
 		}
 		for _, form := range wholeCommandForms {
+			abandon.Checkpoint()
 			if a.matchRegexRule(form, rule) {
 				return true
 			}
 		}
 		if rule.Decision != "ALLOW" && a.positionSensitive[ruleIdx] {
 			for _, cand := range retryCandidates() {
+				abandon.Checkpoint()
 				if a.matchRegexRule(cand, rule) {
 					return true
 				}
@@ -469,6 +479,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		// this is the engine's ON evaluation.
 		if rule.Decision != "ALLOW" && !a.positionSensitive[ruleIdx] {
 			for _, cand := range programCandidates() {
+				abandon.Checkpoint()
 				if a.matchRegexRule(cand, rule) {
 					return true
 				}
@@ -481,6 +492,9 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	}
 
 	for ruleIdx, rule := range a.rules {
+		// The hook's watchdog may have answered this call already (#4785):
+		// then the evaluating goroutine parks here. Otherwise a no-op.
+		abandon.Checkpoint()
 		// CI-context gate (issue #3291): a rule carrying match.context.ci only
 		// applies when the runtime execution context matches. Checked first, so
 		// a rule gated out by context skips all matching work. Zero-value

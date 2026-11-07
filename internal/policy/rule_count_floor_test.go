@@ -28,6 +28,7 @@ func TestEmbeddedPacks_RuleCountFloor(t *testing.T) {
 		"terminal-safety.yaml": 560, // actual: ~711
 		"secrets-pii.yaml":     80,  // actual: ~106
 		"ci-context.yaml":      2,   // actual: 2 (issue #3291 CI-context tightening pack)
+		"powershell.yaml":      18,  // actual: 25 (ADR-001 step 5: 12; Windows round 2: +13)
 	}
 
 	shellFiles := packs.ShellFiles()

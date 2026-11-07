@@ -99,8 +99,13 @@ changes AgentShield's state or an agent's hook or MCP configuration file. A
 read of those files, or a change to another protected file (shell startup
 files; git or SSH configuration), is recorded as AUDIT. The MCP proxies keep a
 wider set: their whole config-file guard, and any call whose arguments name
-AgentShield's configuration or a hook file. Only a BLOCK enforce mode makes is
-kept; the record has no `original_decision`. On a managed host, `fail_closed` and the managed
+AgentShield's configuration or a hook file. That holds whichever check decided
+the BLOCK: when a protected path decided it before the analyzers ran (a command
+that also reads an unrelated protected file), the rest of the command is asked
+too, and the BLOCK is kept if it would be kept without that read. It also
+holds whichever spelling of the command found the self-protection action (a
+home directory written `~<login>/` is read as `~/`). Only a BLOCK
+enforce mode makes is kept; the record has no `original_decision`. On a managed host, `fail_closed` and the managed
 self-protection rules also block in either mode. In the MCP proxies, audit-only
 applies to `tools/call` (see [MCP mediation](mcp-mediation.md)).
 
@@ -507,6 +512,73 @@ defaults:
 
 Glob patterns: `**` matches recursively, `*` matches one level.
 
+A BLOCK is recorded with rule id `protected-path` and a taxonomy node, so it
+maps to compliance controls: the credential's own node for the shipped
+credential directories (`~/.ssh`, `~/.aws`, …) and
+`credential-exposure/config-file-access/protected-path` for everything else,
+including the paths you add. Two exceptions record no node yet: the system
+trees in the policy template (`/etc/**`, `/System/**`, `/Library/**`) and a
+managed host's own `~/.agentshield/**`.
+
+#### The agent's file tools
+
+A path **you** add (in `policy.yaml` or a pack) is also enforced on tool calls,
+not only on shell commands: the agent's own `Read`, `Write`, `Edit`,
+`MultiEdit`, `NotebookEdit`, `Grep` and `Glob` (Claude Code; Copilot CLI's
+`view`, `create` and `edit`), and MCP tool calls, on every surface that decides
+them — the hook, `agentshield mcp-proxy`, `agentshield mcp-http-proxy`,
+shield-server's `/v1/evaluate`, and `agentshield mcp-eval`. A call BLOCKs when
+a file-path argument (`file_path`, `notebook_path`, `path`/`paths`, `source`,
+`destination`) names the path; text that merely mentions it, such as a
+`Write`'s content, does not. The proxies read the list when they start.
+
+The paths AgentShield ships are **not** applied this way: their tool calls are
+decided by the shipped MCP rules, as before.
+
+A file tool's path is matched after `~/` expansion and `..` cleanup, and
+against the directory the tool runs in, the way a shell command's paths are
+matched against its working directory. A relative pattern (`secrets/**`,
+`.env`) therefore covers the absolute paths Claude Code sends for files under
+that directory, and a relative argument (`Grep` on `secrets`) is read under it.
+That directory is the hook payload's `cwd` (or the hook's own directory when
+the payload has none), `agentshield mcp-eval`'s and the stdio proxy's own
+directory (the proxied server inherits it), and the request's `cwd` on
+shield-server. The HTTP proxy has none, since its upstream is remote, so there
+a relative pattern matches only a relative argument.
+
+A shell command that reads a bare file name is matched the same way, whether
+or not the file exists when AgentShield checks the command. With `.env`
+protected, `cat .env`, `head -5 .env` and `cat < .env` BLOCK, as `Read` and
+`echo x > .env` do. That matters on shield-server, which checks a remote
+client's command where the client's files are not, and for a command that
+creates the file first (`git checkout -- .env && cat .env`). This covers
+commands that only read their file operands, such as `cat`, `less`, `head`,
+`tail`, `wc`, `base64`, `source` and `scp`, plus `<` redirects. For `grep`,
+`sed`, `awk`, `rsync`, `diff` and `jq`, a bare name matches only when the file
+exists, because a search pattern or an exclude name can sit where a file name
+would. Absolute and `~/` patterns are unchanged.
+
+A search tool's files are matched however its pattern is given:
+`grep -e KEY <file>`, `grep --regexp=KEY <file>`, `grep -f patterns.txt <file>`
+and `rg -e KEY <file>` decide as `grep KEY <file>` does. The `-f` pattern file
+is matched too, because grep reads it. The `-e` value is a pattern, so
+`grep -e <protected path> README.md` does not match.
+
+Options that take a value are read the way grep and rg read them, so
+`grep -m 1 KEY <file>`, `grep -rnm 5 KEY <dir>` and `rg -m 1 KEY <file>` match
+as `grep KEY <file>` does, and `grep --exclude <protected path> KEY README.md`
+does not match. Some spellings still match on an option's value: in
+`grep -A 3 <protected path> README.md` the older reading takes `3` as the
+pattern and the path as a file. That over-match is kept, because removing it
+would lower a decision. A grep named by its path (`/usr/bin/grep`,
+`/opt/homebrew/bin/rg`) is read the same way.
+
+`-m` is read as a message only where a command's `-m` is one (`git commit -m`).
+For `wc`, `sort`, `less` and `pr`, whose `-m` is a switch, `wc -m <file>`,
+`sort -m <file> <file>`, `less -m <file>` and `pr -m <file> <file>` match as
+`wc <file>` does. Other readers whose `-m` means something else are not covered
+yet (`ggrep`, `zgrep`, `ag`, `ack`).
+
 #### Designated consumers
 
 `protected_paths` means "no command may name these paths". Taken literally that
@@ -872,18 +944,32 @@ version: "1.0.0"
 
 rules:
   - id: "co-block-prod-db"
+    taxonomy: "credential-exposure/database-access/database-credential-access"
     match:
       command_regex: "(psql|mysql|mongo).*prod"
     decision: "BLOCK"
     reason: "Direct production database access is not allowed."
 
   - id: "co-audit-deploy"
+    taxonomy: "governance-risk/ai-governance-gap/agent-autonomous-production-deployment"
     match:
       command_prefix: ["kubectl apply", "helm install", "helm upgrade"]
     decision: "AUDIT"
     reason: "Kubernetes deployment flagged for review."
 EOF
 ```
+
+Give every rule a `taxonomy:` node. The node is what maps the rule's audit
+records to compliance controls; a rule without one is enforced, but its records
+map to no control. To find the node AgentShield's own rules use for an action,
+run `agentshield check --shell-file <file> --format json` on an example command
+and read `taxonomy`.
+
+`command_prefix` and a `command_regex` that starts with `^` match the start of
+the command and of each later statement (after `&&` or `;`), but not a command
+after a pipe (`echo y | kubectl apply ...`). To cover that, start the regex with
+`(^|[|;&]\s*)`, for example `(^|[|;&]\s*)kubectl\b.*\bapply\b`. That also stays
+quiet when the tool is only mentioned, as in `grep "kubectl apply" notes.md`.
 
 2. Restart your IDE — the pack is loaded automatically on next command.
 
@@ -895,6 +981,33 @@ EOF
 
    The PreToolUse hook should intercept it and block before execution.
    Check the audit log with `agentshield log --decision BLOCK` to confirm.
+
+### Test a Custom Rule
+
+Test the rule before you install it. Put a test file next to the pack:
+
+```yaml
+# my-company.test.yaml
+policy: my-company.yaml
+cases:
+  - name: "prod database"
+    shell: "psql -h db.prod.internal -U app"
+    fires: co-block-prod-db
+  - name: "staging is out of scope"
+    shell: "psql -h db.staging.internal -U app"
+    silent: co-block-prod-db
+```
+
+```bash
+agentshield check --fixture my-company.test.yaml
+```
+
+`fires` passes only when the named rule matches the command, and `silent` only
+when it does not. Prefer them to `expect: BLOCK` for custom rules: the embedded
+packs still apply, so an expected decision can come from a different rule. A
+rule that matches is reported even when a stricter rule elsewhere decides the
+command, and a `fires` or `silent` id that is not in the policy file is an
+error, so a misspelled id cannot pass.
 
 ## Built-in Policy Packs
 
@@ -1215,6 +1328,45 @@ value_limits:
 | `tool_name_regex_exclude` | Regex | Carve-out: the rule does **not** fire when the wire tool name matches. Use it to keep a broad positive pattern and exclude an enumerated set of names that are not the threat (it reaches past `mcp__<server>__` prefixes, unlike `tool_name_not_prefix_any`). ASCII names only; a non-ASCII name or an invalid regex skips the carve-out, so the rule still fires. |
 | `tool_name_any` | List | Match if any name in list matches |
 | `argument_patterns` | Map | Glob patterns matched against argument values |
+
+### Structural rule argument predicates
+
+A `structural_rules` entry matches named arguments with `args_match`. Each
+argument takes these regex lists, all run over the argument's whole string
+value:
+
+| Field | Holds when |
+|---|---|
+| `pattern_any` | at least one pattern matches |
+| `pattern_all` | every pattern matches |
+| `pattern_not` | no pattern matches anywhere in the value (content-wide) |
+| `pattern_not_match` | per match: a `pattern_any`/`pattern_all` match does not count when a match of one of these patterns lies entirely inside it (#4686) |
+
+`pattern_not` is content-wide. One excused literal anywhere in a file's
+`content` excuses every other match in it, so a placeholder line can hide a
+real key on the next line. `pattern_not_match` excuses only the match it lies
+inside:
+
+```yaml
+args_match:
+  content:
+    pattern_any:
+      - "(?i)api[_-]key\\s*[:=]\\s*[\"'][^\"']{12,}[\"']"
+    pattern_not_match:
+      - "(?i)api[_-]key\\s*[:=]\\s*[\"']your[_-]"
+```
+
+With that rule, a file holding only a `your-...` placeholder does not match,
+and a file holding the placeholder and a real key does. The exclusion runs
+over the whole value, so `^`, `$` and `\b` mean what they mean in
+`pattern_not`. Matches are Go's leftmost-first, non-overlapping matches, so a
+match that starts inside an excused one is not seen. Moving a pattern from
+`pattern_not` to `pattern_not_match` can only make a rule fire more.
+
+AgentShield versions before `pattern_not_match` ignore it. To keep their
+behaviour, list the pattern in `pattern_not` too: a pattern in both lists is
+read per match by versions that know the field, and content-wide by older
+ones.
 
 ### MCP Decision Precedence
 

@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
@@ -44,6 +45,7 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	}
 
 	for _, pc := range shellparse.AllParsedCommands(ctx.Parsed) {
+		abandon.Checkpoint() // #4785: parks an evaluation already answered
 		// 1. Run built-in Go checks
 		// Check compound commands within this single evaluation
 		// (e.g., "curl -o x.sh && bash x.sh")

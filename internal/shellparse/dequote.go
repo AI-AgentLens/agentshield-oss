@@ -32,8 +32,7 @@ func DequoteCommand(command string) string {
 		return ""
 	}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 
 	// Parse-failure retry (#3211). mvdan/sh validates an assignment NAME at
 	// parse time and rejects the WHOLE command when it is malformed:
@@ -74,7 +73,7 @@ func DequoteCommand(command string) string {
 		if !changedByFold {
 			return ""
 		}
-		file, err = parser.Parse(strings.NewReader(folded), "")
+		file, err = ParseText(folded, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 		if err != nil {
 			return ""
 		}

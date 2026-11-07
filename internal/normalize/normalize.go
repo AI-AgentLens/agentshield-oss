@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/mountspec"
@@ -258,7 +259,8 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 
 	var allText bool
 	var textPositions map[int]bool
-	if spec, found := lookupSpec(seg); found {
+	spec, found := lookupSpec(seg)
+	if found {
 		allText = spec.AllPositionalText
 		textPositions = spec.TextPositions
 
@@ -400,20 +402,445 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 		}
 
 		// Normal argument — extract paths and domains
-		if looksLikePath(arg) {
-			paths = append(paths, expandPath(arg, cwd, homeDir))
-		} else if p, ok := bareOperandPath(arg, cwd, seg.Executable); ok {
-			paths = append(paths, p)
-		} else {
-			paths = append(paths, bareGlobPaths(arg, cwd, keepDots)...)
-		}
+		paths = append(paths, operandPaths(arg, cwd, homeDir, seg.Executable, keepDots)...)
 		if d := extractDomains(arg); len(d) > 0 {
 			domains = append(domains, d...)
 		}
 		positionalIdx++
 	}
 
+	// A grep-family pattern given by an option leaves every positional word a
+	// file (#4676). The walk above cannot see that: -e's text state stays on
+	// after its value, and TextPositions still reads the first file as the
+	// pattern. A second reading, added to the walk's paths, never replacing
+	// them, so it can only raise a decision.
+	//
+	// grep's max-count -m is the walk's universal -m text flag, so it hid every
+	// later word the same way (#4682). grepOperandPaths, a third reading, reads
+	// the argv as getopt does, with the tool's value-taking options. It too is
+	// only added.
+	//
+	// A path-qualified grep (`/usr/bin/grep`) has no spec, because lookupSpec
+	// reads the exact word, so these two readings fall back to the basename's
+	// spec (#4689). The walk above keeps the exact word's spec.
+	limit := len(words)
+	if nestedCodeStart >= 0 {
+		limit = nestedCodeStart
+	}
+	patternOpts := spec.PatternOptions
+	if !found {
+		patternOpts = grepReadingSpec(filepath.Base(seg.Executable)).PatternOptions
+	}
+	if patternOpts != nil {
+		readings := patternOptionOperandPaths(words[:limit], patternOpts, cwd, homeDir, seg.Executable, keepDots)
+		if patternOpts.Values != nil {
+			readings = append(readings, grepOperandPaths(words[:limit], patternOpts, cwd, homeDir, seg.Executable, keepDots)...)
+		}
+		for _, p := range readings {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
+	// The universal -m text flag hid the operands of the readers whose own -m
+	// is a switch the same way (#4689): `wc -m <file>` extracted nothing. For
+	// those readers a fourth reading takes every option word as a switch. It
+	// too is only added.
+	if mSwitchReaders[filepath.Base(seg.Executable)] {
+		for _, p := range switchOptionOperandPaths(words[:limit], cwd, homeDir, seg.Executable, keepDots) {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
+	// A long option with its value attached (`sort --output=<file>`) is one
+	// option word, so the walk never read the value as a path: the write
+	// decided ALLOW (#4692). A fifth reading splits `--name=value` and offers
+	// the value as a candidate path. It is only added, and a name the walk
+	// treats as prose (--message=, spec text flags) is skipped.
+	//
+	// The grep family is left to its own readings: `--exclude=NAME` and
+	// `--include=GLOB` hold a name to skip, not a file it reads, and #4682
+	// pins that (TestGrepValueOptionLeavesFileOperands_4682).
+	if patternOpts == nil {
+		for _, p := range longOptionValuePaths(words[:limit], cmdTextFlags, cwd, homeDir, seg.Executable, keepDots) {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
+	// Words a zsh construct consumed before its command (repeat's count, the
+	// assignments skipped after it) are not argv, but main read them as the
+	// arguments of an unknown executable named by the construct. Read them the
+	// same way so unwrapping (#4597) never leaves a word unscanned that main
+	// scanned. They can only add paths and domains.
+	for _, arg := range seg.ZshOperandWords {
+		paths = append(paths, operandPaths(arg, cwd, homeDir, seg.ZshShellWord, keepDots)...)
+		if d := extractDomains(arg); len(d) > 0 {
+			domains = append(domains, d...)
+		}
+	}
+
+	// ag's and ack's -m is max-count too, so the walk's universal -m text flag
+	// hid their file operands (#4689): `ag -m 1 KEY <file>` extracted nothing.
+	// A sixth reading reads their argv as their option parsers do. It runs
+	// last and is only added, so every path above keeps its place.
+	if opts := searchToolReadings[filepath.Base(seg.Executable)]; opts != nil {
+		for _, p := range searchToolOperandPaths(words[:limit], opts, cwd, homeDir, seg.Executable, keepDots) {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
 	return paths, domains
+}
+
+// searchToolOperandPaths is the getopt reading of an ag or ack argv (#4689).
+// An option that takes a value consumes it (`-m 1`, `-m1`, `-im 1`,
+// `--max-count 1`, `--ignore NAME`, any `--name=value`); the first remaining
+// word is the pattern, unless an option says there is none (ag -g, ack -f,
+// ack --match), and every other word is a path to search. A lone `-` and
+// every word after `--` are positional, as in getopt and Getopt::Long, and
+// both permute, so an option after the pattern is still an option.
+//
+// It is not grepOperandPaths: that reading keys its pattern options on -e and
+// -f, and with neither letter set its zero File letter would match the zero
+// letter of every `--name=value` word and read the pattern as a file.
+//
+// The pattern is never read as a path: `ag -m 1 /etc/shadow docs/` searches
+// docs/ for that string (#3780). An option's value is not read as a path
+// either. The walk above still reads every word it read on main.
+func searchToolOperandPaths(words []string, opts *SearchToolOptions, cwd, homeDir, exe string, keepDots bool) []string {
+	var positionals []string
+	noPattern, endOfOptions := false, false
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if endOfOptions || w == "-" || !strings.HasPrefix(w, "-") {
+			positionals = append(positionals, w)
+			continue
+		}
+		if w == "--" {
+			endOfOptions = true
+			continue
+		}
+		takes, attached := false, false
+		if strings.HasPrefix(w, "--") {
+			name, _, eq := strings.Cut(w[2:], "=")
+			noPattern = noPattern || opts.NoPatternLong[name]
+			takes, attached = eq || opts.Values.Long[name], eq
+		} else {
+			for j := 1; j < len(w); j++ {
+				c := w[j]
+				if strings.IndexByte(opts.NoPatternShort, c) >= 0 {
+					noPattern = true
+				}
+				if strings.IndexByte(opts.Values.Short, c) >= 0 {
+					takes, attached = true, j+1 < len(w)
+					break
+				}
+			}
+		}
+		if takes && !attached {
+			i++ // the value, even when it starts with "-"
+		}
+	}
+	if !noPattern && len(positionals) > 0 {
+		positionals = positionals[1:] // the pattern
+	}
+	var paths []string
+	for _, w := range positionals {
+		paths = append(paths, operandPaths(w, cwd, homeDir, exe, keepDots)...)
+	}
+	return paths
+}
+
+// operandPaths reads one word in a file-operand position of exe: a word
+// shaped like a path, a bare name bareOperandPath accepts, or a bare glob.
+func operandPaths(arg, cwd, homeDir, exe string, keepDots bool) []string {
+	if looksLikePath(arg) {
+		return []string{expandPath(arg, cwd, homeDir)}
+	}
+	if p, ok := bareOperandPath(arg, cwd, exe); ok {
+		return []string{p}
+	}
+	return bareGlobPaths(arg, cwd, keepDots)
+}
+
+// grepReadingAliases are programs that hand their options to grep unchanged,
+// or are GNU grep under another name: Homebrew's `ggrep` and the compressed-file
+// wrappers (zgrep, bzgrep, xzgrep, zstdgrep and their e/f variants). Their -m is
+// grep's max-count, so the walk's universal -m text flag hid their file operands
+// the same way (#4689). They get the grep-family READINGS only, which are added
+// to the walk's paths. They are deliberately not in commandRegistry: a spec
+// there would also change the walk's TextPositions reading. ag and ack are not
+// listed (their option sets are not grep's, #4676); searchToolOperandPaths
+// reads them (#4689).
+var grepReadingAliases = map[string]string{
+	"ggrep": "grep", "gegrep": "egrep", "gfgrep": "fgrep",
+	"zgrep": "grep", "zegrep": "egrep", "zfgrep": "fgrep",
+	"bzgrep": "grep", "bzegrep": "egrep", "bzfgrep": "fgrep",
+	"xzgrep": "grep", "xzegrep": "egrep", "xzfgrep": "fgrep",
+	"zstdgrep": "grep",
+}
+
+// grepReadingSpec is the registry spec of a program's basename, falling back to
+// the grep it wraps.
+func grepReadingSpec(base string) CommandArgSpec {
+	if spec, ok := commandRegistry[base]; ok {
+		return spec
+	}
+	return commandRegistry[grepReadingAliases[base]]
+}
+
+// patternOptionOperandPaths is the second reading of a grep-family argv
+// (#4676). When an option supplies the pattern, the tool reads no positional
+// pattern, so every non-option word, before or after that option (getopt and
+// ripgrep both permute), is a file to search. The -f value names a pattern
+// file the tool opens, so it is read as a path too; a pattern value never is.
+//
+// It returns nil when no option supplies the pattern: the walk's
+// TextPositions reading is right then. Its paths are only ever added to the
+// walk's, which is why it does not have to know every value-taking option: a
+// value read as an operand (`-A 3`, `-g '*.go'`) is one more candidate path,
+// exactly as the walk reads it after a positional pattern (`grep KEY -A 3 f`).
+// Words after `--` are operands; one that starts with `-` is still not read
+// as a path, as on main.
+func patternOptionOperandPaths(words []string, opts *PatternOptions, cwd, homeDir, exe string, keepDots bool) []string {
+	var operands, patternFiles []string
+	supplied, endOfOptions := false, false
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if endOfOptions || !strings.HasPrefix(w, "-") {
+			operands = append(operands, w)
+			continue
+		}
+		if w == "--" {
+			endOfOptions = true
+			continue
+		}
+		letter, value, attached := patternOption(w, opts)
+		if letter == 0 {
+			continue
+		}
+		supplied = true
+		if !attached {
+			if i+1 == len(words) {
+				break
+			}
+			i++
+			value = words[i] // the value, even when it starts with "-"
+		}
+		if letter == opts.File {
+			patternFiles = append(patternFiles, value)
+		}
+	}
+	if !supplied {
+		return nil
+	}
+	var paths []string
+	for _, w := range append(patternFiles, operands...) {
+		paths = append(paths, operandPaths(w, cwd, homeDir, exe, keepDots)...)
+	}
+	return paths
+}
+
+// patternOption reports whether option word w supplies the pattern: the
+// option's letter (opts.Text or opts.File; 0 when it does not), and its value
+// when it is written in the same word. Spellings: `-e PAT`, `-ePAT`, a
+// cluster `-ie PAT` / `-iePAT`, `--regexp PAT`, `--regexp=PAT`, and the same
+// for f/--file. getopt_long takes an unambiguous prefix of a long name, and
+// for grep that is any prefix of "regexp" from "reg" (`--re` is also
+// --recursive); every prefix of "file" below the full name is ambiguous
+// (--files-with-matches, --fixed-strings). A cluster ends at a letter that
+// takes a value (`rg -tconf`: the f is t's value) or at any other character.
+func patternOption(w string, opts *PatternOptions) (byte, string, bool) {
+	if strings.HasPrefix(w, "--") {
+		name, value, attached := strings.Cut(w[2:], "=")
+		switch {
+		case name == "file":
+			return opts.File, value, attached
+		case len(name) >= 3 && strings.HasPrefix("regexp", name):
+			return opts.Text, value, attached
+		}
+		return 0, "", false
+	}
+	for j := 1; j < len(w); j++ {
+		c := w[j]
+		switch {
+		case c == opts.Text || c == opts.File:
+			return c, w[j+1:], j+1 < len(w)
+		case strings.IndexByte(opts.ValueLetters, c) >= 0:
+			return 0, "", false
+		case !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'):
+			return 0, "", false
+		}
+	}
+	return 0, "", false
+}
+
+// grepOperandPaths is the getopt reading of a grep-family argv (#4682). An
+// option that takes a value consumes it (`-m 1`, `-m1`, `-rnm 5`,
+// `--max-count 1`, `--exclude GLOB`); the first remaining word is the pattern
+// unless a pattern option supplied one; every other word is a file, and so is
+// a -f pattern file.
+//
+// The walk reads every option word as a switch and keeps -m's text state on
+// until the next option word, so `grep -m 1 KEY <file>` extracted nothing. On
+// a line where the walk sets no text state (no short cluster holding an m or
+// an e, `-Dread` included, and no --regexp: the walk's text flags a
+// grep-family tool accepts), no `--` and no lone `-`, this reading names a
+// subset of the walk's words: both skip the first non-option word, and this
+// one also skips option values, which the walk reads as files. So the paths
+// it adds come from the span the text state hid, or from words the walk
+// misread as options: getopt reads a lone `-` (stdin) as a positional and
+// nothing after `--` as an option, so `grep -- -KEY <file>` searches the
+// file. It is not a replacement
+// for patternOptionOperandPaths, which reads option values as files; dropping
+// that reading would lower `grep -e K --exclude <f> x` below main.
+//
+// Unique prefixes of long names are read as switches (see OptionValues).
+func grepOperandPaths(words []string, opts *PatternOptions, cwd, homeDir, exe string, keepDots bool) []string {
+	var positionals, patternFiles []string
+	supplied, endOfOptions := false, false
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if endOfOptions || w == "-" || !strings.HasPrefix(w, "-") {
+			positionals = append(positionals, w)
+			continue
+		}
+		if w == "--" {
+			endOfOptions = true
+			continue
+		}
+		letter, value, takes, attached := grepOptionWord(w, opts)
+		if !takes {
+			continue
+		}
+		if !attached {
+			if i+1 == len(words) {
+				break
+			}
+			i++
+			value = words[i] // the value, even when it starts with "-"
+		}
+		switch letter {
+		case opts.File:
+			patternFiles = append(patternFiles, value)
+			supplied = true
+		case opts.Text:
+			supplied = true
+		}
+	}
+	if !supplied && len(positionals) > 0 {
+		positionals = positionals[1:] // the pattern
+	}
+	var paths []string
+	for _, w := range append(patternFiles, positionals...) {
+		paths = append(paths, operandPaths(w, cwd, homeDir, exe, keepDots)...)
+	}
+	return paths
+}
+
+// grepOptionWord reads option word w the way getopt does: whether it takes a
+// value, the short letter that takes it (opts.Text or opts.File for the long
+// --regexp and --file, 0 for any other long option), and the value when it
+// sits in the same word. A short cluster ends
+// at its first letter that takes a value, and the rest of the word is the
+// value (`-rnm5`, `-iePAT`). A long option takes a value when "=" joins one
+// or when opts.Values lists its name.
+func grepOptionWord(w string, opts *PatternOptions) (letter byte, value string, takes, attached bool) {
+	if strings.HasPrefix(w, "--") {
+		name, value, attached := strings.Cut(w[2:], "=")
+		switch {
+		case name == "regexp":
+			return opts.Text, value, true, attached
+		case name == "file":
+			return opts.File, value, true, attached
+		case attached:
+			return 0, value, true, true
+		case opts.Values.Long[name]:
+			return 0, "", true, false
+		}
+		return 0, "", false, false
+	}
+	for j := 1; j < len(w); j++ {
+		c := w[j]
+		if c == opts.Text || c == opts.File || strings.IndexByte(opts.Values.Short, c) >= 0 {
+			return c, w[j+1:], true, j+1 < len(w)
+		}
+	}
+	return 0, "", false, false
+}
+
+// mSwitchReaders are readers whose -m is a switch of their own, not the
+// message the walk's universal -m text flag is for (#4689). Each -m was read
+// from this Mac's man page (macOS 26.6; less 668) and run on a scratch file:
+// none takes a value, and the next word is a file.
+var mSwitchReaders = map[string]bool{
+	"wc":   true, // -m: count characters
+	"sort": true, // -m, --merge: merge files already sorted
+	"less": true, // -m, --long-prompt: prompt verbosely
+	"pr":   true, // -m: print the files side by side
+
+	// Same collision on commands that name a file, found by the #4716 lane
+	// (control without -m BLOCKs protected-path; with -m it decided AUDIT or
+	// ALLOW). install and mkdir take a MODE after -m: the reading offers that
+	// word as one more candidate, and a mode is never path-shaped.
+	"ls":      true, // -m: comma-separated listing
+	"zip":     true, // -m: move the files into the archive (deletes the originals)
+	"install": true, // -m MODE
+	"mkdir":   true, // -m MODE
+}
+
+// switchOptionOperandPaths is the reading of an mSwitchReaders argv (#4689).
+// Every option word is a switch, and every other word is an operand, as is
+// every word after `--`. The walk reads every option word as a switch too,
+// but its text flags (-m, or an m in a short cluster, and the long ones in
+// textContentFlags) hide the words after them, and these readers have no
+// spec. So this reading names a superset of the walk's words, and its paths
+// can only add to the walk's. A value an option takes (`sort -k 2`,
+// `pr -h HDR`) is one more candidate path, as the walk reads it. A word
+// starting with `-` is never a path (looksLikePath, bareOperandPath and
+// bareGlobPaths all refuse one), so outside a text flag's span this adds
+// nothing.
+func switchOptionOperandPaths(words []string, cwd, homeDir, exe string, keepDots bool) []string {
+	var paths []string
+	endOfOptions := false
+	for _, w := range words {
+		if !endOfOptions && strings.HasPrefix(w, "-") {
+			endOfOptions = w == "--"
+			continue
+		}
+		paths = append(paths, operandPaths(w, cwd, homeDir, exe, keepDots)...)
+	}
+	return paths
+}
+
+// longOptionValuePaths is the reading of `--name=value` words (#4692). The
+// value of every such word before `--` is read as an operand, unless the
+// option is one of the walk's text flags (`--message=text`). A value that is
+// not path-shaped adds nothing (operandPaths refuses it), and the paths are
+// only ever added to the walk's.
+func longOptionValuePaths(words []string, textFlags map[string]bool, cwd, homeDir, exe string, keepDots bool) []string {
+	var paths []string
+	for _, w := range words {
+		if w == "--" {
+			break
+		}
+		if !strings.HasPrefix(w, "--") {
+			continue
+		}
+		name, value, attached := strings.Cut(w, "=")
+		if !attached || value == "" || textFlags[name] {
+			continue
+		}
+		paths = append(paths, operandPaths(value, cwd, homeDir, exe, keepDots)...)
+	}
+	return paths
 }
 
 // nestedShellInterpreters lists the executables whose `-c` / `-e` flag carries
@@ -750,8 +1177,15 @@ func tarOperandPath(arg, dir, homeDir string) (string, bool) {
 // separator, so with cwd=~/.ssh a bare key name never reached the
 // protected-path match while `./id_rsa` did. The existence check is what keeps
 // ordinary words (`ssh myhost`, `git status`) from becoming paths under the
-// cwd. Residual: a bare name that does not exist yet (a create-write of a new
-// key from inside the protected directory) is still not extracted.
+// cwd. A name that does not exist yet is still a path for two closed lists:
+//   - fileOperandCommands create or write it (#4401), so it resolves to
+//     <cwd>/<name> and reaches every pattern, as `./name` does;
+//   - fileReadOperandCommands read it (#4673). It is kept as written,
+//     cwd-relative, so only a relative protected_paths pattern can match it:
+//     the reading a file tool gives a relative argument (InWorkingDir, #4653).
+//     An absolute or ~ pattern never matches a relative path, so for those
+//     main's existence-gated reading is unchanged (#4401 pins `cat
+//     nosuchfile` inside ~/.ssh).
 func bareOperandPath(arg, cwd, exe string) (string, bool) {
 	if cwd == "" || !filepath.IsAbs(cwd) {
 		return "", false
@@ -762,8 +1196,18 @@ func bareOperandPath(arg, cwd, exe string) (string, bool) {
 		return "", false
 	}
 	full := filepath.Join(cwd, arg)
-	if _, err := os.Lstat(full); err != nil && !fileOperandCommands[filepath.Base(exe)] {
-		return "", false
+	if _, err := os.Lstat(full); err != nil {
+		name := ""
+		if exe != "" {
+			name = filepath.Base(exe) // Base("") is ".", the source builtin
+		}
+		switch {
+		case fileOperandCommands[name]: // resolved under cwd, below
+		case fileReadOperandCommands[name]:
+			return arg, true
+		default:
+			return "", false
+		}
 	}
 	return filepath.Clean(full), true
 }
@@ -772,7 +1216,9 @@ func bareOperandPath(arg, cwd, exe string) (string, bool) {
 // goes through expandPath as before; a bare one (`cat < id_rsa`, `> id_rsa`
 // from inside ~/.ssh) is the alias of `./id_rsa`, which already BLOCKs (#4403).
 // An output redirect creates its target, so it needs no existing entry; an
-// input redirect does, like any other bare operand.
+// input redirect reads it, so an absent one is kept cwd-relative like any
+// reader's operand (#4673). A heredoc delimiter or a here-string word (`<<`,
+// `<<-`, `<<<`) is data, not a file, and keeps main's existence-gated reading.
 func redirectTargetPaths(op, path, cwd, homeDir string, keepDots bool) []string {
 	if path == "" {
 		return nil
@@ -784,8 +1230,11 @@ func redirectTargetPaths(op, path, cwd, homeDir string, keepDots bool) []string 
 		return nil // `2>&1`, `>&-`: a descriptor, not a name under cwd
 	}
 	exe := ""
-	if strings.Contains(op, ">") {
+	switch {
+	case strings.Contains(op, ">"):
 		exe = "touch"
+	case op == "<":
+		exe = "cat"
 	}
 	if p, ok := bareOperandPath(path, cwd, exe); ok {
 		return []string{p}
@@ -896,7 +1345,7 @@ var arithAssignOps = map[syntax.BinAritOperator]bool{
 // statement early the way a text scan could (#4509 Codex pass 1). A text that
 // does not parse binds unknowably, so it counts.
 func bindsDynamicName(text string) bool {
-	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(text), "")
+	file, err := shellparse.ParseText(text, syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return true
 	}
@@ -1060,6 +1509,12 @@ func defaultGlobbing(parsed *shellparse.ParsedCommand, rawCommand string) bool {
 			optionBuiltins[filepath.Base(exe)] || optionBuiltins[seg.Program] {
 			return false
 		}
+		// noglob, nocorrect, - and repeat are in optionBuiltins, and since
+		// #4597 the parser reads through them to the command they run. A
+		// line that ran one by name keeps main's reading here.
+		if seg.ZshShellWord != "" {
+			return false
+		}
 	}
 	return true
 }
@@ -1072,6 +1527,27 @@ func defaultGlobbing(parsed *shellparse.ParsedCommand, rawCommand string) bool {
 var fileOperandCommands = map[string]bool{
 	"touch": true, "tee": true, "cp": true, "mv": true, "install": true,
 	"truncate": true, "ln": true, "rm": true, "unlink": true, "shred": true,
+}
+
+// fileReadOperandCommands read or copy out a slash-less operand as a file
+// (#4673). bareOperandPath keeps such an operand cwd-relative when it does not
+// exist at evaluation time, so a relative protected_paths pattern (`.env`)
+// decides `cat .env` as it decides `echo x > .env` and the Read tool, whether
+// or not the hook can see the file: shield-server evaluates a remote client's
+// commands on its own disk, and `git checkout -- .env && cat .env` creates it
+// mid-command. Closed for the same reason as fileOperandCommands: each entry
+// asserts that a bare word it is given is a file or a harmless flag value (a
+// count, a delimiter). Left out on purpose, because a pattern or a name can
+// sit in a file slot: the grep family, sed and awk (the walk does not know
+// which flags take a value, so in `grep -A 3 .env README.md` the 3 is read as
+// the pattern and `.env` as a file), rsync and diff (`--exclude <name>`), and
+// jq/yq (a filter such as `.env`). Those keep main's existence-gated reading.
+var fileReadOperandCommands = map[string]bool{
+	"cat": true, "tac": true, "nl": true, "less": true, "more": true, "bat": true,
+	"head": true, "tail": true, "wc": true, "sort": true, "uniq": true, "cut": true,
+	"cmp": true, "strings": true, "base64": true, "xxd": true, "od": true, "hexdump": true,
+	"md5": true, "md5sum": true, "shasum": true, "sha1sum": true, "sha256sum": true,
+	"cksum": true, "source": true, ".": true, "scp": true,
 }
 
 func expandPath(path, cwd, homeDir string) string {

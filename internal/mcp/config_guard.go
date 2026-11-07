@@ -3,7 +3,9 @@ package mcp
 import (
 	"fmt"
 	"os"
+	slashpath "path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -40,7 +42,7 @@ type protectedConfigPattern struct {
 var protectedConfigs []protectedConfigPattern
 
 func init() {
-	home := os.Getenv("HOME")
+	home := homeDir()
 	if home == "" {
 		home = "/root"
 	}
@@ -108,6 +110,22 @@ func init() {
 
 		// Claude Code primary state file — contains oauthAccount OAuth tokens
 		{"~/.claude.json", "ide-mcp-config", "Writing to ~/.claude.json could replace Claude Code's OAuth tokens or tamper with project configurations."},
+	}
+
+	// Claude Desktop on Windows (#4717): current builds keep their config in
+	// %LOCALAPPDATA%\Claude-Data\<id>\ (the vendor's README.txt in that folder
+	// says the account's settings live there), older Microsoft Store (MSIX)
+	// builds inside their package folder, the classic installer under
+	// %APPDATA%. The macOS entry above is the same file on that platform (an
+	// alias, Gary's standing yes, class 1, the vendor's current location);
+	// off Windows these paths name nothing of Claude's, so they are added
+	// only there.
+	if runtime.GOOS == "windows" {
+		templates = append(templates,
+			struct{ pattern, category, reason string }{"~/AppData/Local/Claude-Data/*/claude_desktop_config.json", "ide-mcp-config", "Writing to Claude Desktop config could inject malicious MCP servers."},
+			struct{ pattern, category, reason string }{"~/AppData/Roaming/Claude/claude_desktop_config.json", "ide-mcp-config", "Writing to Claude Desktop config could inject malicious MCP servers."},
+			struct{ pattern, category, reason string }{"~/AppData/Local/Packages/Claude_*/LocalCache/Roaming/Claude/claude_desktop_config.json", "ide-mcp-config", "Writing to Claude Desktop config could inject malicious MCP servers."},
+		)
 	}
 
 	for _, t := range templates {
@@ -264,13 +282,39 @@ func looksLikePath(s string) bool {
 		// Must not be too long (avoid matching entire file contents)
 		return len(s) < 512 && !strings.Contains(s, "\n")
 	}
+	// A native Windows path: C:\..., C:/..., \\server\share\... or ~\...
+	// Without this the guard never looked at the paths a Windows agent sends
+	// (#4717). Only on Windows, where such a path names this machine's files.
+	if runtime.GOOS == "windows" && (filepath.IsAbs(s) || strings.HasPrefix(s, `~\`)) {
+		return len(s) < 512 && !strings.Contains(s, "\n")
+	}
 	return false
+}
+
+// nativeHomeDir is os.UserHomeDir, or "" when unknown: $HOME on unix, and
+// %USERPROFILE% on Windows, which has no HOME unless a Unix-like shell set
+// one (#4717). Self-protection's identity checks use this native form.
+func nativeHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
+// homeDir is the home directory the protected patterns are anchored to, in
+// slash form, or "" when unknown. os.UserHomeDir is $HOME on unix, exactly as
+// before, and %USERPROFILE% on Windows, which has no HOME unless a Unix-like
+// shell set one: with HOME alone every pattern was anchored to /root there,
+// and this guard protected nothing (#4717).
+func homeDir() string {
+	return filepath.ToSlash(nativeHomeDir())
 }
 
 // expandHome replaces ~ with the actual home directory.
 func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home := os.Getenv("HOME")
+	if strings.HasPrefix(path, "~/") || (runtime.GOOS == "windows" && strings.HasPrefix(path, `~\`)) {
+		home := homeDir()
 		if home != "" {
 			return home + path[1:]
 		}
@@ -284,12 +328,13 @@ func expandHome(path string) string {
 // name it on a case-insensitive volume are selfProtectFindings' job, which
 // asks the filesystem rather than assuming.
 func matchConfigPath(path, pattern string) bool {
-	// Clean both for consistent comparison
-	path = filepath.Clean(path)
-	pattern = filepath.Clean(pattern)
+	// Clean both for consistent comparison, in slash form like the glob
+	// engine (splitPath); ToSlash is the identity on unix (#4717).
+	path = slashpath.Clean(filepath.ToSlash(path))
+	pattern = slashpath.Clean(filepath.ToSlash(pattern))
 
 	if !strings.Contains(pattern, "**") {
-		matched, _ := filepath.Match(pattern, path)
+		matched, _ := slashpath.Match(pattern, path)
 		if matched {
 			return true
 		}

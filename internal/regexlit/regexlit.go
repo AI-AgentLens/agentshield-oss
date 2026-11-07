@@ -102,6 +102,25 @@ func NewFromRegexp(re *regexp.Regexp) *Matcher {
 	return m
 }
 
+// WithRequiredLiterals returns a copy of m whose prescan is lits, for a
+// pattern RequiredLiterals derives no usable set for. The caller proves the
+// set: every match of the pattern contains at least one element of lits
+// (case-insensitively when fold is set, in which case each element must be
+// lowercase ASCII). internal/redact is the one caller, for three secret
+// patterns whose alternations Go's parser factors into pieces shorter than
+// minLiteralLen, and its tests check each set against the regexp on every
+// input where the regexp matches (TestRedact_HandLiteralsAreRequired).
+func (m *Matcher) WithRequiredLiterals(lits []string, fold bool) *Matcher {
+	out := &Matcher{re: m.re, fold: fold}
+	for _, l := range lits {
+		if fold {
+			l = strings.ToLower(l)
+		}
+		out.lits = append(out.lits, l)
+	}
+	return out
+}
+
 // Regexp exposes the underlying compiled regexp for call sites that need
 // more than a boolean match (submatches, replacement, LiteralPrefix).
 func (m *Matcher) Regexp() *regexp.Regexp { return m.re }
@@ -130,6 +149,52 @@ func (m *Matcher) MatchString(s string) bool {
 	}
 	return m.re.MatchString(s)
 }
+
+// ReplaceAllString is (*regexp.Regexp).ReplaceAllString with the prescan in
+// front: an input that provably holds no match comes back as it is, the
+// value the regexp returns for it, without running the regex. The hook's
+// redaction uses it (internal/redact, #4785), where most of the 26 secret
+// patterns are case-insensitive, so the regexp has no literal prefix to skip
+// with and walks the whole command once per pattern.
+//
+// The fold prescan compares ASCII only, and Go's (?i) also folds two
+// non-ASCII runes onto ASCII letters (foldOnlyRunes). An input carrying one
+// always runs the regexp, so the output is the regexp's on every input; the
+// prescan is never the reason a secret stays in a record. MatchString keeps
+// its prescan as it is: changing it would change rule decisions.
+func (m *Matcher) ReplaceAllString(src, repl string) string {
+	if m.provablyNoMatch(src) {
+		return src
+	}
+	return m.re.ReplaceAllString(src, repl)
+}
+
+// FindAllStringIndex is (*regexp.Regexp).FindAllStringIndex behind the same
+// prescan as ReplaceAllString: an input that provably holds no match returns
+// nil, the value the regexp returns for it. The audit record's redaction
+// uses it to find every secret on a text that carries a data-label value
+// (internal/redact, #4813).
+func (m *Matcher) FindAllStringIndex(s string, n int) [][]int {
+	if m.provablyNoMatch(s) {
+		return nil
+	}
+	return m.re.FindAllStringIndex(s, n)
+}
+
+// provablyNoMatch reports whether the prescan proves s holds no match, for
+// the callers whose output must be the regexp's on every input: a text with
+// a rune the ASCII fold cannot see always runs the regexp.
+func (m *Matcher) provablyNoMatch(s string) bool {
+	return len(m.lits) > 0 && !m.prescan(s) && !(m.fold && strings.ContainsAny(s, foldOnlyRunes))
+}
+
+// foldOnlyRunes are the runes outside ASCII that Go's case folding
+// (unicode.SimpleFold, which (?i) uses) puts in an ASCII letter's orbit: the
+// Kelvin sign with k, and the long s with s. `(?i)token` matches
+// "toKen", which holds no ASCII "token" (#4803's Opus pass).
+// TestFoldOnlyRunes_AreEveryASCIIOrbitMember derives the set again from the
+// Unicode tables.
+const foldOnlyRunes = "Kſ"
 
 // prescan reports whether any required literal is present in s.
 func (m *Matcher) prescan(s string) bool {

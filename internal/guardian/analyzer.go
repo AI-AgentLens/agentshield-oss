@@ -1,6 +1,10 @@
 package guardian
 
 import (
+	"slices"
+	"sync"
+
+	"github.com/AI-AgentLens/agentshield/internal/abandon"
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	pkgunicode "github.com/AI-AgentLens/agentshield/internal/unicode"
@@ -105,8 +109,46 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 	// the same fold (internal/mcp/prose_forms.go).
 	var proseForms []string
 	for _, form := range forms {
+		abandon.Checkpoint() // #4785
 		if folded, changed := pkgunicode.FoldUnicodeSeparators(form); changed {
 			proseForms = append(proseForms, folded)
+		}
+	}
+	// Escape-spelled separators (#4604): a printf format, and a plain echo in
+	// zsh or /bin/sh, writes `\x20`, `\040` and `\t` as real whitespace, so the
+	// file or stdout the LLM reads holds ordinary words while the prose signals
+	// saw `ignore\x20all\x20...`. Prose-only for the same reason as the fold
+	// above, and it decodes whitespace/control bytes only, so it can split a
+	// word run and never join one: it adds matches, the raw form still wins ties.
+	if decoded := shellparse.DecodeEmittedProse(ctx.RawCommand); decoded != "" && decoded != ctx.RawCommand {
+		proseForms = append(proseForms, decoded)
+		if folded, changed := pkgunicode.FoldUnicodeSeparators(decoded); changed {
+			proseForms = append(proseForms, folded)
+		}
+	}
+
+	// The byte-escape half of #4604: `\xe2\x80\xae` is the three bytes of a bidi
+	// override in every shell's printf, and in zsh and /bin/sh's echo. Only
+	// runs of escapes that spell invisible characters are decoded.
+	//
+	// Two readings per form (the #4660 fix round). The second looks through
+	// exec wrappers: `sudo printf`, `env -i echo`, `nohup printf` (see
+	// DecodeEmittedInvisibleWrapped for which runtimes decode which spelling
+	// there). And every form above is read, not only the raw text:
+	// `printf${IFS}'...'`, `p${zqx}rintf '...'` and a printf inside a
+	// `bash <<EOF` body emit what the bare printf emits, but only the
+	// IFS-normalized, unset-parameter-normalized or inline-code form shows the
+	// printf. The parity sweeps found each once TP-STEG-AI-003 decided BLOCK.
+	// Every reading is appended; the raw form's first reading is still the
+	// first one, as before, so nothing is replaced.
+	seenInvisible := make(map[string]bool)
+	for _, form := range forms {
+		abandon.Checkpoint()
+		for _, decoded := range []string{shellparse.DecodeEmittedInvisible(form), shellparse.DecodeEmittedInvisibleWrapped(form)} {
+			if decoded != "" && decoded != form && !seenInvisible[decoded] {
+				seenInvisible[decoded] = true
+				proseForms = append(proseForms, decoded)
+			}
 		}
 	}
 
@@ -124,6 +166,7 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 		candidates = append(candidates, candidate{text: form, proseOnly: true})
 	}
 	for _, c := range candidates {
+		abandon.Checkpoint()
 		resp, err := g.provider.Analyze(GuardianRequest{RawCommand: c.text, ResolveProgramPaths: ctx.ResolveProgramPaths, ProseOnly: c.proseOnly})
 		if err != nil {
 			// Guardian failure is non-fatal: skip this form and keep going.
@@ -132,15 +175,7 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 		}
 
 		for _, sig := range resp.Signals {
-			f := analyzer.Finding{
-				AnalyzerName: "guardian",
-				RuleID:       "guardian-" + sig.ID,
-				Decision:     signalToDecision(sig),
-				Confidence:   sig.Confidence,
-				Reason:       sig.Description,
-				TaxonomyRef:  signalToTaxonomy(sig),
-				Tags:         []string{"guardian", sig.Category},
-			}
+			f := signalFinding(sig)
 			// Union across forms, most-restrictive wins. This was "first form
 			// wins", which was equivalent while every signal ID carried one
 			// fixed severity. Since #3345 a signal can be graded per-request
@@ -161,6 +196,59 @@ func (g *GuardianAnalyzer) Analyze(ctx *analyzer.AnalysisContext) []analyzer.Fin
 	}
 
 	return findings
+}
+
+// signalFinding is the pipeline finding a signal becomes: its rule id, the
+// decision its severity maps to, its reason and its taxonomy node. The
+// guardian stage and InlineSecretsFinding both build findings here, so a
+// dialect lane's receipt cannot drift from the shell pipeline's.
+func signalFinding(sig Signal) analyzer.Finding {
+	return analyzer.Finding{
+		AnalyzerName: "guardian",
+		RuleID:       "guardian-" + sig.ID,
+		Decision:     signalToDecision(sig),
+		Confidence:   sig.Confidence,
+		Reason:       sig.Description,
+		TaxonomyRef:  signalToTaxonomy(sig),
+		Tags:         []string{"guardian", sig.Category},
+	}
+}
+
+// SecretsInCommandID is the signal id of the guardian's inline-secrets
+// heuristic. Its findings are recorded as `guardian-secrets_in_command`.
+const SecretsInCommandID = "secrets_in_command"
+
+// secretsOnly is a heuristic provider holding the secrets_in_command rule
+// alone: the same rule value buildRules returns (match, tier refine,
+// signal), so InlineSecretsFinding decides with exactly the heuristic the
+// shell pipeline runs.
+var secretsOnly = sync.OnceValue(func() *HeuristicProvider {
+	p := NewHeuristicProvider()
+	p.rules = slices.DeleteFunc(p.rules, func(r heuristicRule) bool { return r.signal.ID != SecretsInCommandID })
+	return p
+})
+
+// InlineSecretsFinding runs the guardian's secrets_in_command heuristic, and
+// no other, over text, and returns its finding built as the guardian stage
+// builds it (signalFinding): `guardian-secrets_in_command`, BLOCK for a token
+// or a credential-shaped value and AUDIT for a credential-named assignment
+// whose value has no credential shape (#3345), the heuristic's reason and
+// the secret-in-command-line node. ok is false when it does not fire.
+//
+// It exists for a dialect lane, which has no guardian stage (#4802): Claude
+// Code's PowerShell tool has no POSIX lane, so a token written in a cmdlet
+// call, an assignment or a .NET call decided AUDIT with no rule there while
+// the Bash tool BLOCKed the same text. It reads text as written, the raw
+// form only: the stage's other candidate forms (IFS, unset-parameter,
+// dequoted, heredoc and indirect-executable readings) are bash readings of
+// the text, which a PowerShell host does not perform. The other heuristics
+// stay off: they are tuned on bash text.
+func InlineSecretsFinding(text string) (analyzer.Finding, bool) {
+	resp, err := secretsOnly().Analyze(GuardianRequest{RawCommand: text})
+	if err != nil || len(resp.Signals) == 0 {
+		return analyzer.Finding{}, false
+	}
+	return signalFinding(resp.Signals[0]), true
 }
 
 // decisionRank orders pipeline decisions by restrictiveness.
@@ -209,13 +297,13 @@ func signalToDecision(sig Signal) string {
 // pipeline with no gate able to see it. The switch below returns a literal
 // per case specifically so that scanner can check these refs going forward.
 //
-// secrets_in_command deliberately returns "" — no taxonomy node describes an
-// inline credential-shaped value typed directly into a command (as opposed to
-// one read from a file or secret store, which is what every credential-exposure
-// node documents). internal/mcp/content_scanner.go's TaxonomyRef field carries
-// the same documented gap for the identical MCP-side detection; leaving this
-// one signal unmapped follows that precedent rather than stretching it onto an
-// ill-fitting node.
+// secrets_in_command maps to secret-in-command-line (#4560), the node added for
+// exactly this detection: a credential value typed into the command, not read
+// from a file or secret store. Until AI_risk_compliance#4787 added it, no node
+// described that, and this case returned "". The MCP-side detection in
+// internal/mcp/content_scanner.go stays unmapped: a secret in a tool argument
+// is not on a command line, and the node argues process listings and shell
+// history.
 func signalToTaxonomy(sig Signal) string {
 	switch sig.ID {
 	case "instruction_override":
@@ -249,7 +337,7 @@ func signalToTaxonomy(sig Signal) string {
 		// the .git/repo case is source-code exfiltration, a narrower fit.
 		return "data-exfiltration/file-exfiltration/archive-credential-bypass"
 	case "secrets_in_command":
-		return ""
+		return "credential-exposure/inline-credential/secret-in-command-line"
 	case "indirect_injection", "html_comment_injection":
 		// html_comment_injection is the HTML-comment channel of indirect
 		// injection; indirect-prompt-injection's own explanation lists "Hidden

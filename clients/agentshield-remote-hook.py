@@ -24,6 +24,16 @@ Configuration (environment):
 Claude Code / Codex settings hook entry:
   {"type": "command", "command": "python3 /path/to/agentshield-remote-hook.py"}
 
+Routing (ADR-001 step 2, #4245): every request carries the routing key the
+local hook routes on: the harness (claude-code, or codex when the payload has
+turn_id), the tool name exactly as the harness sent it, and the host OS
+(sys.platform as Go's runtime.GOOS spells it). A server that knows the key
+routes the call through the same table as `agentshield hook`, so Claude Code's
+PowerShell tool gets the PowerShell lane beside MCP policy. The request keeps
+the shape it always had (Bash as a command, every other tool as a tool call,
+with the whole tool_input as arguments), so a server that predates the key
+decides exactly as before.
+
 Exit codes (the harness contract): 0 = allow / audit, 2 = block.
 This client EVALUATES via the server and never executes anything.
 """
@@ -51,6 +61,17 @@ def fail_open_or_closed(msg: str) -> int:
         return BLOCK_EXIT
     warn(f"{msg} — allowing (fail open; set AGENTSHIELD_REMOTE_FAIL_CLOSED=1 to block instead)")
     return 0
+
+
+def host_os() -> str:
+    """The host OS as Go's runtime.GOOS spells it, the routing table's key."""
+    platform = sys.platform
+    if platform in ("win32", "cygwin", "msys"):
+        return "windows"
+    if platform.startswith("linux"):
+        return "linux"
+    # darwin as is; freebsd13 -> freebsd, as GOOS drops the version.
+    return platform.rstrip("0123456789") or platform
 
 
 def evaluate(request_body: dict) -> dict:
@@ -102,13 +123,20 @@ def main() -> int:
         "agent_id": "codex" if is_codex else "claude-code",
         "principal": getpass.getuser(),
         "source": "codex-remote-hook" if is_codex else "claude-code-remote-hook",
+        # The routing key (ADR-001 step 2): the server routes on this, never
+        # on the request's shape or the command text.
+        "route": {
+            "harness": "codex" if is_codex else "claude-code",
+            "tool": tool_name,
+            "os": host_os(),
+        },
     }
 
     if tool_name == "Bash":
         command = tool_input.get("command") if isinstance(tool_input, dict) else ""
         if not command:
             return 0
-        body = {"command": command, "cwd": payload.get("cwd") or os.getcwd(), **identity}
+        body = {"command": command, "arguments": tool_input, "cwd": payload.get("cwd") or os.getcwd(), **identity}
         try:
             verdict = evaluate(body)
         except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError, TimeoutError) as e:
@@ -118,10 +146,14 @@ def main() -> int:
             return BLOCK_EXIT
         return 0
 
-    # Every non-Bash tool goes through MCP policy, mirroring hook.go's
-    # handleClaudeCodeMCPCall (tool_input becomes the arguments map).
+    # Every other tool is sent as a tool call (tool_input becomes the
+    # arguments map), the shape a server without the routing key evaluates
+    # with MCP policy; a server with it reads the call with every lane of the
+    # tool's row, as hook.go does.
     arguments = tool_input if isinstance(tool_input, dict) else {}
-    body = {"tool_name": tool_name, "arguments": arguments, **identity}
+    # cwd: the server resolves file-path arguments against it for the
+    # customer's relative protected_paths, as for a command (#4653).
+    body = {"tool_name": tool_name, "arguments": arguments, "cwd": payload.get("cwd") or os.getcwd(), **identity}
     try:
         verdict = evaluate(body)
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError, TimeoutError) as e:

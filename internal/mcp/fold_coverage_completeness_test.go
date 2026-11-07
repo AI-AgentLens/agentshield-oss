@@ -45,6 +45,7 @@ func TestFoldCoverageIsDecidedForEveryDescriptionDetector(t *testing.T) {
 
 		"detectCompatHomoglyphEvasion":  foldPass,
 		"detectRenderedTextEvasion":     foldPass,
+		"detectConsumerProseEvasion":    foldPass,
 		"detectUnicodeSeparatorEvasion": foldPass,
 		"detectSeparatorObfuscation":    foldPass,
 

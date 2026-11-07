@@ -370,7 +370,7 @@ func elicitationRawSchemaFindings(schema *ElicitationSchema, alreadyReported map
 
 	var findings []ElicitationFinding
 	seen := map[string]bool{}
-	forEachSchemaProperty(root, func(p schemaProperty) {
+	forEachSchemaPropertyNameReading(root, func(p schemaProperty) {
 		path := p.Path[1:]
 		if alreadyReported[strings.ToLower(p.Name)] && !strings.Contains(path, ".") {
 			return // top-level property; the typed pass owns it

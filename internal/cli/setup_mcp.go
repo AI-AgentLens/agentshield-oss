@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/packs"
 	"github.com/spf13/cobra"
@@ -22,8 +25,10 @@ MCP proxy, so every MCP tool call is evaluated against policy before reaching
 the server.
 
 Supported config files:
-  Cursor:        .cursor/mcp.json
-  Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json
+  Cursor:         .cursor/mcp.json (project) and ~/.cursor/mcp.json
+  Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json (macOS)
+                  %LOCALAPPDATA%\Claude-Data\<id>\, the Microsoft Store package folder,
+                  or %APPDATA%\Claude\ (Windows)
 
   agentshield setup mcp                        # wrap MCP servers in all detected apps
   agentshield setup mcp --target claude-desktop # wrap only Claude Desktop
@@ -67,6 +72,21 @@ type mcpConfigLocation struct {
 }
 
 func setupMCPCommand(cmd *cobra.Command, args []string) error {
+	home, err := setupHome()
+	if err != nil {
+		return err
+	}
+
+	// Managed mode refuses the MCP unwrap exactly as it refuses removing the
+	// hooks (#4534): same check, before any file is read or written.
+	// TestSetupDisable_EverySurfaceRefusedWhenManaged holds every `setup`
+	// subcommand that takes --disable to this.
+	if mcpDisableFlag {
+		if err := enterprise.CheckDisableAllowed(); err != nil {
+			return err
+		}
+	}
+
 	fmt.Println("═══════════════════════════════════════════════════════")
 	fmt.Println("  AgentShield + MCP (Tool Call Mediation)")
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -81,14 +101,16 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✅ agentshield found: %s\n", binPath)
 
-	// Ensure default MCP policy exists
-	if err := ensureDefaultMCPPolicy(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠  Could not create default MCP policy: %v\n", err)
-	}
-
-	// Install default MCP packs
-	if err := installDefaultMCPPacks(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠  Could not install default MCP packs: %v\n", err)
+	// The MCP policy and packs are what wrapping needs, so only setup creates
+	// them. --disable must not create MCP state on a machine that never had
+	// it (#4534).
+	if !mcpDisableFlag {
+		if err := ensureDefaultMCPPolicy(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠  Could not create default MCP policy: %v\n", err)
+		}
+		if err := installDefaultMCPPacks(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠  Could not install default MCP packs: %v\n", err)
+		}
 	}
 
 	// Validate the --target selector up front.
@@ -100,7 +122,7 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 
 	// Find all MCP config files, then narrow to the requested target so we never
 	// silently wrap an app the user didn't ask for.
-	allLocations := findMCPConfigLocations()
+	allLocations := findMCPConfigLocations(home)
 	var locations []mcpConfigLocation
 	for _, loc := range allLocations {
 		if matchesTarget(loc, mcpTargetFlag) {
@@ -114,9 +136,12 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 	if len(locations) == 0 {
 		fmt.Println()
 		fmt.Println("ℹ  No MCP config files found.")
-		fmt.Println("   Supported locations:")
-		fmt.Println("     .cursor/mcp.json")
-		fmt.Println("     ~/Library/Application Support/Claude/claude_desktop_config.json")
+		fmt.Println("   Searched:")
+		for _, p := range mcpConfigSearchPaths(runtime.GOOS) {
+			fmt.Println("     " + p)
+		}
+		fmt.Println("   Claude Desktop connectors such as Gmail or Notion are not local MCP")
+		fmt.Println("   servers, so there is nothing to wrap for them.")
 		fmt.Println()
 		fmt.Println("   You can also use the proxy directly:")
 		fmt.Println("   agentshield mcp-proxy -- <server-command> [args...]")
@@ -160,14 +185,31 @@ func setupMCPCommand(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// findMCPConfigLocations returns paths to known IDE MCP config files that exist.
-func findMCPConfigLocations() []mcpConfigLocation {
-	home := os.Getenv("HOME")
+// mcpConfigSearchPaths is what "No MCP config files found" lists: where
+// findMCPConfigLocations looks on goos, as a user would type it. It used to
+// print the macOS paths on every platform (#4717).
+func mcpConfigSearchPaths(goos string) []string {
+	paths := []string{".cursor/mcp.json (this project)", "~/.cursor/mcp.json"}
+	if goos == "windows" {
+		return append(paths,
+			`%LOCALAPPDATA%\Claude-Data\*\claude_desktop_config.json`,
+			`%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json`,
+			`%APPDATA%\Claude\claude_desktop_config.json`)
+	}
+	return append(paths, "~/Library/Application Support/Claude/claude_desktop_config.json")
+}
+
+// findMCPConfigLocations returns paths to known IDE MCP config files that
+// exist, under home (setupHome) and in the working directory.
+func findMCPConfigLocations(home string) []mcpConfigLocation {
 	var found []mcpConfigLocation
 
 	candidates := []mcpConfigLocation{
 		{Name: "Cursor", Path: filepath.Join(home, ".cursor", "mcp.json")},
 		{Name: "Claude Desktop", Path: filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")},
+	}
+	for _, p := range windowsClaudeDesktopConfigs(home) {
+		candidates = append(candidates, mcpConfigLocation{Name: "Claude Desktop", Path: p})
 	}
 
 	// Also check current directory for project-level .cursor/mcp.json
@@ -211,7 +253,7 @@ func wrapMCPConfig(loc mcpConfigLocation, binPath string) error {
 
 	// Parse the config
 	var configMap map[string]interface{}
-	if err := json.Unmarshal(data, &configMap); err != nil {
+	if err := json.Unmarshal(stripUTF8BOM(data), &configMap); err != nil {
 		return fmt.Errorf("failed to parse %s: %w", loc.Path, err)
 	}
 
@@ -331,27 +373,30 @@ func wrapMCPConfig(loc mcpConfigLocation, binPath string) error {
 	return nil
 }
 
-// restoreMCPConfig restores the original MCP config from the .agentshield-backup file.
+// restoreMCPConfig undoes the wrapping in place, so anything written to the
+// config since `setup mcp` ran (a server the user added, the host app's own
+// preferences) survives. The .agentshield-backup copy is the whole file as it
+// was at setup time; copying it back loses those later changes (#4732), so it
+// is only the fallback when the current file cannot be unwrapped (e.g. it no
+// longer parses).
 func restoreMCPConfig(loc mcpConfigLocation) error {
 	backupPath := loc.Path + ".agentshield-backup"
 
-	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		// No backup — try to unwrap in-place
-		return unwrapMCPConfig(loc)
+	unwrapErr := unwrapMCPConfig(loc)
+	if unwrapErr == nil {
+		_ = os.Remove(backupPath)
+		return nil
 	}
 
-	// Restore from backup
 	data, err := os.ReadFile(backupPath)
 	if err != nil {
-		return fmt.Errorf("failed to read backup: %w", err)
+		return unwrapErr
 	}
-
 	if err := os.WriteFile(loc.Path, data, 0644); err != nil {
 		return fmt.Errorf("failed to restore config: %w", err)
 	}
-
 	_ = os.Remove(backupPath)
-	fmt.Printf("  ✅ Restored from backup\n")
+	fmt.Printf("  ⚠  Could not unwrap in place (%v); restored the setup-time backup, so changes made since then are lost\n", unwrapErr)
 	return nil
 }
 
@@ -368,7 +413,7 @@ func unwrapMCPConfig(loc mcpConfigLocation) error {
 	}
 
 	var configMap map[string]interface{}
-	if err := json.Unmarshal(data, &configMap); err != nil {
+	if err := json.Unmarshal(stripUTF8BOM(data), &configMap); err != nil {
 		return fmt.Errorf("failed to parse %s: %w", loc.Path, err)
 	}
 
@@ -402,9 +447,9 @@ func unwrapMCPConfig(loc mcpConfigLocation) error {
 		}
 
 		// Unwrap stdio servers. The command may be the bare name (legacy) or an
-		// absolute path (current) — match on the basename so both unwrap cleanly.
+		// absolute path (current), agentshield.exe on Windows (#4717).
 		command, _ := serverMap["command"].(string)
-		if command != "agentshield" && filepath.Base(command) != "agentshield" {
+		if !hookentry.IsProgram(command) {
 			continue
 		}
 

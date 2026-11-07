@@ -25,6 +25,7 @@ import (
 // not-allowed set is ENUMERABLE"). A new package stays outside the core until
 // someone adds it here on purpose.
 var coreLayer = map[string]string{
+	"internal/abandon":            "the stop flag an evaluation checks at its hot loops (#4785); stdlib only",
 	"internal/analyzer":           "the staged analyzer pipeline",
 	"internal/guardian":           "heuristic analyzer stage",
 	"internal/policy":             "shell rule engine and pack loading",
@@ -37,9 +38,11 @@ var coreLayer = map[string]string{
 	"internal/pathnorm":           "path normalisation",
 	"internal/mountspec":          "container mount parsing",
 	"internal/execenv":            "execution-context facts",
+	"internal/facts":              "what a dialect lane hands the engine (ADR-001, D3); data only, stdlib only",
 	"internal/regexlit":           "regex literal matching",
 	"internal/seqmatch":           "sequence matching",
 	"internal/safefile":           "non-blocking regular-file read for hook config (#4478)",
+	"internal/winlock":            "Windows file lock primitive, no imports beyond the standard library (#4717)",
 	"internal/unicode":            "unicode smuggling scan",
 	"internal/redact":             "secret redaction",
 	"packs":                       "embedded rule packs (data the engine loads)",

@@ -937,6 +937,238 @@ rules:
         - tool: "list_directory"
           args: {"path": "/workspace/src"}
 
+  # === BLOCK: file-tool write onto the AgentShield audit log (#4705) ===
+  #
+  # The shell form of this write BLOCKs on every install: cp/mv/install/rsync/
+  # ln/dd/tee onto the log (ts-block-agentshield-log-overwrite), a truncating
+  # redirect (ts-block-agentshield-log-overwrite-redirect), and moving it away
+  # (ts-block-agentshield-log-move), all in packs/community/terminal-safety.yaml
+  # (#4671/#4678). A harness's own Write/Edit tool, or an MCP write tool, onto
+  # the same file decided AUDIT with no rule on an unmanaged host. On a managed
+  # host sp-block-config-tool-write (internal/cli/managed_tool_write.go)
+  # already refuses any harness write under ~/.agentshield, before these rules
+  # load. Gary, 2026-10-31: log only, community tier; agentshield.yaml and
+  # policy.yaml stay AUDIT on unmanaged hosts, as their shell twins do.
+  #
+  # "The log" is the shell twins' path sub-pattern, translated to globs:
+  #
+  #   twins (regex)                                  here (glob)
+  #   HOME/+.agentshield/+audit\.jsonl[^/...]*       HOME/.agentshield/audit.jsonl*/**
+  #   HOME/+.agentshield/+logs(?:/[^...]*)?          HOME/.agentshield/logs/**
+  #   HOME/+.agentshield/+[^...]*\.jsonl (any depth) HOME/.agentshield/**/*.jsonl
+  #
+  # HOME is ~ or ~user (`~*`), /Users/*, /home/* or /root: the twins' set minus
+  # $HOME and ${HOME}. A tool argument is not shell-expanded, so those two
+  # spellings name a relative directory literally called `$HOME`, not the log.
+  # A .agentshield under any other directory (a project, a scratch HOME) is not
+  # matched, exactly as in the twins. Every pattern carries a `**`, which makes
+  # the matcher filepath.Clean the value first, so `//`, `/./` and `..`
+  # spellings of the log are caught. The trailing `/**` on audit.jsonl* also
+  # matches zero components, so it is the twins' direct-child match; its only
+  # extra reach is files under a directory named audit.jsonl*. Case variants
+  # (`.AgentShield/Audit.JSONL`) are caught by the evaluator's case-folded
+  # reading (#4194), not by these patterns.
+  #
+  # Appends are not matched, as in the twins (`>>`, `tee -a`): append_file is
+  # left out of the tool list, because an append destroys nothing and forged
+  # appends are ai-audit-log-injection's. Reads are not matched (Read, view,
+  # read_file; str_replace_editor's `view` command, which is why that tool
+  # family has its own rule below, keyed on the write commands).
+  #
+  # Four rules because a rule's argument patterns AND across argument names:
+  # Claude Code names the target file_path (Write/Edit/MultiEdit) or
+  # notebook_path (NotebookEdit); Copilot CLI and MCP servers name it path.
+  # Same tool list in the first three.
+  - id: mcp-persist-block-harness-agentshield-log-write
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      tool_name_any: ["Write", "Edit", "MultiEdit", "NotebookEdit", "create", "edit", "write_file", "create_file", "edit_file", "write_to_file", "save_file", "update_file", "patch_file", "apply_diff", "apply_patch"]
+      argument_patterns_any:
+        file_path:
+          - "~*/.agentshield/audit.jsonl*/**"
+          - "~*/.agentshield/logs/**"
+          - "~*/.agentshield/**/*.jsonl"
+          - "/Users/*/.agentshield/audit.jsonl*/**"
+          - "/Users/*/.agentshield/logs/**"
+          - "/Users/*/.agentshield/**/*.jsonl"
+          - "/home/*/.agentshield/audit.jsonl*/**"
+          - "/home/*/.agentshield/logs/**"
+          - "/home/*/.agentshield/**/*.jsonl"
+          - "/root/.agentshield/audit.jsonl*/**"
+          - "/root/.agentshield/logs/**"
+          - "/root/.agentshield/**/*.jsonl"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "File-tool write onto the AgentShield audit log (audit.jsonl and its rotations, the logs directory, or the .jsonl upload queue under ~/.agentshield) replaces the audit trail of AI agent actions. BLOCKed to match the shell form of the same write (ts-block-agentshield-log-overwrite). Reading the log, appending to it, and writing other AgentShield files are not matched."
+    tests:
+      tp:
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl", "content": "{}\n"}
+        - tool: "Edit"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl", "old_string": "BLOCK", "new_string": "ALLOW"}
+        - tool: "Write"
+          args: {"file_path": "/home/deploy/.agentshield/audit.jsonl.1", "content": ""}
+        - tool: "Edit"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl.1", "old_string": "a", "new_string": "b"}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/logs/hook.log", "content": ""}
+        - tool: "Edit"
+          args: {"file_path": "/root/.agentshield/logs/audit.jsonl", "old_string": "a", "new_string": "b"}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/audit-queue/queue.jsonl", "content": ""}
+        - tool: "Edit"
+          args: {"file_path": "/Users/alice/.agentshield/audit-queue/dead.jsonl", "old_string": "a", "new_string": "b"}
+        - tool: "MultiEdit"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl", "edits": [{"old_string": "BLOCK", "new_string": "ALLOW"}]}
+        - tool: "Write"
+          args: {"file_path": "~/.agentshield/audit.jsonl", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield//audit.jsonl.1", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/./.agentshield/x/../audit.jsonl.1", "content": ""}
+        - tool: "write_file"
+          args: {"file_path": "/home/deploy/.agentshield/audit.jsonl", "content": ""}
+      tn:
+        - tool: "Read"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl"}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/policy.yaml", "content": "rules: []\n"}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/agentshield.yaml", "content": "mode: enforce\n"}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/proj/audit.jsonl", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/proj/.agentshield/audit.jsonl", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/private/tmp/scratch/.agentshield/audit.jsonl", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/.agentshield/logsheet.txt", "content": ""}
+        - tool: "Write"
+          args: {"file_path": "/Users/alice/proj/docs/notes.md", "content": "The log is ~/.agentshield/audit.jsonl"}
+        - tool: "append_file"
+          args: {"file_path": "/Users/alice/.agentshield/audit.jsonl", "content": "{}\n"}
+  - id: mcp-persist-block-harness-agentshield-log-write-path-arg
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      tool_name_any: ["Write", "Edit", "MultiEdit", "NotebookEdit", "create", "edit", "write_file", "create_file", "edit_file", "write_to_file", "save_file", "update_file", "patch_file", "apply_diff", "apply_patch"]
+      argument_patterns_any:
+        path:
+          - "~*/.agentshield/audit.jsonl*/**"
+          - "~*/.agentshield/logs/**"
+          - "~*/.agentshield/**/*.jsonl"
+          - "/Users/*/.agentshield/audit.jsonl*/**"
+          - "/Users/*/.agentshield/logs/**"
+          - "/Users/*/.agentshield/**/*.jsonl"
+          - "/home/*/.agentshield/audit.jsonl*/**"
+          - "/home/*/.agentshield/logs/**"
+          - "/home/*/.agentshield/**/*.jsonl"
+          - "/root/.agentshield/audit.jsonl*/**"
+          - "/root/.agentshield/logs/**"
+          - "/root/.agentshield/**/*.jsonl"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "File-tool write onto the AgentShield audit log (audit.jsonl and its rotations, the logs directory, or the .jsonl upload queue under ~/.agentshield) replaces the audit trail of AI agent actions. BLOCKed to match the shell form of the same write (ts-block-agentshield-log-overwrite). Reading the log, appending to it, and writing other AgentShield files are not matched."
+    tests:
+      tp:
+        - tool: "create"
+          args: {"path": "/Users/alice/.agentshield/audit.jsonl", "file_text": ""}
+        - tool: "edit"
+          args: {"path": "/home/deploy/.agentshield/audit.jsonl.1", "old_str": "BLOCK", "new_str": "ALLOW"}
+        - tool: "Write"
+          args: {"path": "/Users/alice/.agentshield/logs/hook.log", "content": ""}
+        - tool: "Edit"
+          args: {"path": "/Users/alice/.agentshield/audit-queue/state.jsonl", "old_str": "a", "new_str": "b"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.agentshield/audit.jsonl", "content": ""}
+        - tool: "edit_file"
+          args: {"path": "~/.agentshield/audit.jsonl", "edits": []}
+        - tool: "apply_diff"
+          args: {"path": "/root/.agentshield/audit.jsonl", "diff": ""}
+      tn:
+        - tool: "view"
+          args: {"path": "/Users/alice/.agentshield/audit.jsonl"}
+        - tool: "read_file"
+          args: {"path": "/Users/alice/.agentshield/audit.jsonl"}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.agentshield/policy.yaml", "content": "rules: []\n"}
+        - tool: "create"
+          args: {"path": "/work/proj/audit.jsonl", "file_text": ""}
+        - tool: "write_file"
+          args: {"path": "/Users/alice/.agentshield/logsheet.txt", "content": ""}
+        - tool: "append_file"
+          args: {"path": "/Users/alice/.agentshield/audit.jsonl", "content": "{}\n"}
+  - id: mcp-persist-block-harness-agentshield-log-write-notebook-path
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      tool_name_any: ["Write", "Edit", "MultiEdit", "NotebookEdit", "create", "edit", "write_file", "create_file", "edit_file", "write_to_file", "save_file", "update_file", "patch_file", "apply_diff", "apply_patch"]
+      argument_patterns_any:
+        notebook_path:
+          - "~*/.agentshield/audit.jsonl*/**"
+          - "~*/.agentshield/logs/**"
+          - "~*/.agentshield/**/*.jsonl"
+          - "/Users/*/.agentshield/audit.jsonl*/**"
+          - "/Users/*/.agentshield/logs/**"
+          - "/Users/*/.agentshield/**/*.jsonl"
+          - "/home/*/.agentshield/audit.jsonl*/**"
+          - "/home/*/.agentshield/logs/**"
+          - "/home/*/.agentshield/**/*.jsonl"
+          - "/root/.agentshield/audit.jsonl*/**"
+          - "/root/.agentshield/logs/**"
+          - "/root/.agentshield/**/*.jsonl"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "File-tool write onto the AgentShield audit log (audit.jsonl and its rotations, the logs directory, or the .jsonl upload queue under ~/.agentshield) replaces the audit trail of AI agent actions. BLOCKed to match the shell form of the same write (ts-block-agentshield-log-overwrite). Reading the log, appending to it, and writing other AgentShield files are not matched."
+    tests:
+      tp:
+        - tool: "NotebookEdit"
+          args: {"notebook_path": "/Users/alice/.agentshield/logs/scratch.ipynb", "new_source": ""}
+        - tool: "NotebookEdit"
+          args: {"notebook_path": "/Users/alice/.agentshield/audit.jsonl", "new_source": ""}
+      tn:
+        - tool: "NotebookEdit"
+          args: {"notebook_path": "/Users/alice/proj/analysis.ipynb", "new_source": ""}
+        - tool: "NotebookEdit"
+          args: {"notebook_path": "/private/tmp/scratch/.agentshield/logs/x.ipynb", "new_source": ""}
+  # Anthropic's text-editor tool family reads as well as writes, by `command`.
+  # The command must be a write command for the rule to fire, so `view` on the
+  # log keeps main's decision. Positive, not an exclusion: argument lookup also
+  # reads keys out of nested objects and JSON-string values, so an exclusion on
+  # `command: view` could be satisfied by a Write whose content is a JSON line
+  # carrying that key; a positive match can only gain values that way.
+  - id: mcp-persist-block-harness-agentshield-log-write-str-replace
+    taxonomy: "persistence-evasion/anti-forensics/ai-audit-trail-circumvention"
+    match:
+      tool_name_any: ["str_replace_editor", "str_replace_based_edit_tool"]
+      argument_patterns_any:
+        command: ["create", "str_replace", "insert", "undo_edit"]
+        path:
+          - "~*/.agentshield/audit.jsonl*/**"
+          - "~*/.agentshield/logs/**"
+          - "~*/.agentshield/**/*.jsonl"
+          - "/Users/*/.agentshield/audit.jsonl*/**"
+          - "/Users/*/.agentshield/logs/**"
+          - "/Users/*/.agentshield/**/*.jsonl"
+          - "/home/*/.agentshield/audit.jsonl*/**"
+          - "/home/*/.agentshield/logs/**"
+          - "/home/*/.agentshield/**/*.jsonl"
+          - "/root/.agentshield/audit.jsonl*/**"
+          - "/root/.agentshield/logs/**"
+          - "/root/.agentshield/**/*.jsonl"
+    decision: "BLOCK"
+    confidence: 0.95
+    reason: "File-tool write onto the AgentShield audit log (audit.jsonl and its rotations, the logs directory, or the .jsonl upload queue under ~/.agentshield) replaces the audit trail of AI agent actions. BLOCKed to match the shell form of the same write (ts-block-agentshield-log-overwrite). Reading the log, appending to it, and writing other AgentShield files are not matched."
+    tests:
+      tp:
+        - tool: "str_replace_editor"
+          args: {"command": "str_replace", "path": "/Users/alice/.agentshield/audit.jsonl", "old_str": "BLOCK", "new_str": "ALLOW"}
+        - tool: "str_replace_based_edit_tool"
+          args: {"command": "create", "path": "/home/deploy/.agentshield/logs/audit.jsonl", "file_text": ""}
+      tn:
+        - tool: "str_replace_editor"
+          args: {"command": "view", "path": "/Users/alice/.agentshield/audit.jsonl"}
+        - tool: "str_replace_editor"
+          args: {"command": "str_replace", "path": "/Users/alice/.agentshield/policy.yaml", "old_str": "a", "new_str": "b"}
+
 # === Structural rules ===
 # These match against tool name + argument field predicates for precise detection.
 structural_rules:
@@ -1509,9 +1741,13 @@ structural_rules:
         - tool: "chmod"
           args: {"path": "/workspace/script.sh", "mode": "755"}
 
-  # Block auth bypass configuration changes
+  # Block auth bypass configuration changes. The node is the one for an agent
+  # switching off a service's own authentication through its management
+  # interface, where the premium admin-API rules sit; a config-setter tool is
+  # that interface. It was env-injection, which covers inherited environment
+  # variables, not application settings (2026-10-27).
   - id: mcp-struct-block-auth-bypass
-    taxonomy: "privilege-escalation/command-execution/env-injection"
+    taxonomy: "unauthorized-execution/agentic-attacks/agent-admin-api-authorization-disable"
     match:
       tool_name_regex: "(?i)(modify_config|set_config|update_config|update_setting)"
       args_match:

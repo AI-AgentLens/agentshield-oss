@@ -57,8 +57,18 @@ var configWarnings io.Writer = os.Stderr
 
 // MCPEvaluator builds the MCP tool-call evaluator for a merged MCP policy.
 // mode is as for ShellEngine; "" means enforce.
-func MCPEvaluator(pol *mcp.MCPPolicy, mode string) *mcp.PolicyEvaluator {
+//
+// shellProtectedPaths is the protected_paths list of the shell policy the
+// same surface enforces (policy.LoadDeclaredProtectedPaths, or a loaded
+// shell policy's Defaults.ProtectedPaths). The customer's patterns among them
+// (policy.CustomerProtectedPaths) apply to the file-path arguments of tool
+// calls, so a path a pack protects from `cat` is protected from the agent's
+// Read, Write and Edit too (#4645). It is a parameter rather than an option
+// so that no surface can build an evaluator without deciding what to pass;
+// nil means the surface has no shell policy to take it from.
+func MCPEvaluator(pol *mcp.MCPPolicy, shellProtectedPaths []string, mode string) *mcp.PolicyEvaluator {
 	evaluator := mcp.NewPolicyEvaluator(pol)
 	evaluator.SetMode(mode)
+	evaluator.SetProtectedPaths(policy.CustomerProtectedPaths(shellProtectedPaths))
 	return evaluator
 }

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // Audit-only mode records BLOCKs instead of enforcing them, except
@@ -75,6 +77,26 @@ func spRelHookFile() string    { return ".claude/" + "settings.json" }
 func spDisableVar() string     { return "AGENT" + "SHIELD_" + "DIS" + "ABLE" }
 func spNoVerify() string       { return "--no" + "-verify" }
 func spCdHome(c string) string { return "cd ~ && " + c }
+
+// spAWSRead reads a default protected path that is not AgentShield's (#4429):
+// the protected-path check decides it before the pipeline runs.
+func spAWSRead() string { return "c" + "at " + spHomePath("."+"aws/config") }
+
+// spTildeLogin is the login the shell engine's `~<login>/` reading expands
+// in this test binary and every child it re-execs (pinTestTildeAccount), so
+// `~<spTildeLogin>/` names $HOME, as `~<you>/` does on a real install.
+const spTildeLogin = "zqme" + "4748"
+
+func spLoginPath(rel string) string { return "~" + spTildeLogin + "/" + rel }
+
+// pinTestTildeAccount makes the engine's account, for its `~<login>/`
+// reading (policy.EvaluateHomeTilde), spTildeLogin with home $HOME: the
+// real-install shape, where HOME is the account's home. Unpinned, a darwin
+// build reads the developer's account from the user database whatever HOME
+// says. Called from TestMain, beside pinTestAccountHome.
+func pinTestTildeAccount() {
+	policy.SetTildeAccountLookupForTest(func() (string, string) { return spTildeLogin, os.Getenv("HOME") })
+}
 
 // spMachine is the kind of host a hook row runs on.
 type spMachine int
@@ -163,6 +185,24 @@ func spHookRows() []spHookRow {
 		// #4397: the agent-settings and hook-injection rules, relative after cd ~.
 		{"shell #4397: write to an agent hook file, relative after cd ~", spBashPayload(spCdHome("echo '{}' " + ">" + " " + spRelHookFile())), true, spBoth, true},
 		{"shell #4397: hooks key into an agent hook file, relative after cd ~", spBashPayload(spCdHome(`jq '.["hooks"]={}' ` + spRelHookFile() + " | sponge " + spRelHookFile())), true, spBoth, true},
+		// #4429: an unrelated protected-path read first. Protected-path decides
+		// before the pipeline, so the keep asks the rest of the evaluation.
+		{"shell #4429: protected read, then export AgentShield's disable variable", spBashPayload(spAWSRead() + "; export " + spDisableVar() + "=1"), true, spBoth, false},
+		{"shell #4429: protected read && export AgentShield's disable variable", spBashPayload(spAWSRead() + " && export " + spDisableVar() + "=1"), true, spBoth, false},
+		{"shell #4429: protected read, then delete the audit log, relative after cd ~", spBashPayload(spAWSRead() + "; " + spCdHome("r"+"m "+spASDir()+"/audit.jsonl")), true, spBoth, true},
+		// #4429 controls: the rest must decide a self-protection BLOCK.
+		{"control #4429: protected read alone", spBashPayload(spAWSRead()), false, spBoth, false},
+		{"control #4429: protected read, then another BLOCK", spBashPayload(spAWSRead() + "; " + spOtherDestroy()), false, spBoth, false},
+		{"control #4429: protected read, then a git hook skip", spBashPayload(spAWSRead() + "; git commit " + spNoVerify() + " -m wip"), false, spBoth, false},
+		// #4748 Opus pass 1: a target spelled ~<login>/, which only the
+		// home-tilde reading expands. With the read, both readings BLOCK
+		// before the downgrade and only the expanded one is kept.
+		{"shell #4748: write to an agent hook file through ~<login>/, alone", spBashPayload("echo '{}' " + ">" + " " + spLoginPath(".claude/"+"settings.json")), true, spBoth, false},
+		{"shell #4748: protected read, then write to an agent hook file through ~<login>/", spBashPayload(spAWSRead() + "; echo '{}' " + ">" + " " + spLoginPath(".claude/"+"settings.json")), true, spBoth, false},
+		{"shell #4748: protected read, then tee to an agent hook file through ~<login>/", spBashPayload(spAWSRead() + "; echo '{}' | tee " + spLoginPath(".claude/"+"settings.json")), true, spBoth, false},
+		{"shell #4748: protected read, then delete AgentShield's directory through ~<login>/", spBashPayload(spAWSRead() + "; " + spRM() + spLoginPath(spASDir())), true, spUnmanaged, false},
+		// Control: another login is not read, so nothing is kept.
+		{"control #4748: protected read, then write to a hook file through another login's ~", spBashPayload(spAWSRead() + "; echo '{}' " + ">" + " ~nobody/" + ".claude/" + "settings.json"), false, spBoth, false},
 		// Controls the issues name as kept on main.
 		{"control #4424: delete AgentShield's directory, ./ after cd ~", spBashPayload(spCdHome(spRM() + "./" + spASDir())), true, spManaged, true},
 		{"control #4424: delete the audit log, relative after cd into the directory", spBashPayload("cd " + spHomePath(spASDir()) + " && r" + "m audit.jsonl"), true, spManaged, false},

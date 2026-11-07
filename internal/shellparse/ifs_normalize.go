@@ -45,9 +45,7 @@ func NormalizeIFS(command string) string {
 		return ""
 	}
 
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return ""
 	}
@@ -130,8 +128,7 @@ func NormalizeIFS(command string) string {
 // stdin source (#3876): set but empty, which the fold models with
 // set-but-empty rather than unset semantics.
 func CommandAssignmentContext(command string) (ifsReassignedAnywhere bool, assigned, emptyBound map[string]bool) {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return false, nil, nil
 	}

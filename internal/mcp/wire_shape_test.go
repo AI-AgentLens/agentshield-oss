@@ -98,8 +98,11 @@ func TestAnomalyFromTypeError(t *testing.T) {
 			if shape.Signal != tc.want {
 				t.Errorf("signal = %q, want %q (json Value=%q)", shape.Signal, tc.want, shape.Value)
 			}
-			if shape.Field != tc.field {
-				t.Errorf("field = %q, want %q", shape.Field, tc.field)
+			// Go 1.27 reports the path into a map ("arguments.n"), Go 1.26
+			// only the struct field ("arguments"). Both name the protocol
+			// field, which is what the receipt promises; pin that part.
+			if top, _, _ := strings.Cut(shape.Field, "."); top != tc.field {
+				t.Errorf("field = %q, want %q (or a path under it)", shape.Field, tc.field)
 			}
 			if shape.Detail == "" {
 				t.Error("anomaly has no detail — the audit receipt would be empty")

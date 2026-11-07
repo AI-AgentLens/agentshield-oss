@@ -73,10 +73,11 @@ var scannedEmbeddedMethods = map[string]func(*MessageHandler, *Message) (bool, [
 // BLOCK-tier, or nil to forward the response unchanged (including when only
 // AUDIT-tier findings exist — those are already recorded).
 func (h *MessageHandler) FilterInputRequiredResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
 		return nil
 	}

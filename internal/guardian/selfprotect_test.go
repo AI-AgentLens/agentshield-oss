@@ -72,7 +72,7 @@ func TestRuleTaxonomy(t *testing.T) {
 	for id, want := range map[string]string{
 		"guardian-" + "dis" + "able_security": "persistence-evasion/defense-evasion/security-tool-tampering",
 		"guardian-obfuscated_base64":          "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
-		"guardian-secrets_in_command":         "",
+		"guardian-secrets_in_command":         "credential-exposure/inline-credential/secret-in-command-line",
 		"guardian-zq_unknown":                 "",
 		"ts-block-zq":                         "",
 		"":                                    "",

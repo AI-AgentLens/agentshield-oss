@@ -1,0 +1,120 @@
+{"id": "b001", "command": "git status --short"}
+{"id": "b002", "command": "git log --oneline -5"}
+{"id": "b003", "command": "# summarize recent changes\n$stat = git diff --stat HEAD~3\n$stat | Select-Object -Last 10\nif (-not $stat) { Write-Host 'No changes in last 3 commits' }"}
+{"id": "b004", "command": "git -C $env:USERPROFILE\\source\\repos\\app branch --show-current"}
+{"id": "b005", "command": "git fetch origin && git rebase origin/main"}
+{"id": "b006", "command": "git log --since=\"2 weeks ago\" --author=\"dev\" --pretty=format:\"%h %s\" | Out-String"}
+{"id": "b007", "command": "npm run build -- --watch"}
+{"id": "b008", "command": "npm test 2>&1 | Select-Object -Last 40"}
+{"id": "b009", "command": "foreach ($t in 'node','npm','npx') {\n    $v = & $t --version 2>&1\n    Write-Host \"$t => $v\"\n}"}
+{"id": "b010", "command": "Get-Content package.json | ConvertFrom-Json | Select-Object -ExpandProperty scripts"}
+{"id": "b011", "command": "cd C:\\Users\\dev\\projects\\api; npm ci --no-audit --no-fund"}
+{"id": "b012", "command": "npm ls --depth=0 2>&1 | Out-String"}
+{"id": "b013", "command": "python --version"}
+{"id": "b014", "command": "python -m pytest tests/ -x -q 2>&1 | Select-Object -Last 30"}
+{"id": "b015", "command": "pip list --outdated --format=json | ConvertFrom-Json | Format-Table name,version,latest_version"}
+{"id": "b016", "command": "python -m venv .venv && .\\.venv\\Scripts\\Activate.ps1 && pip install -r requirements.txt"}
+{"id": "b017", "command": "dotnet build --configuration Release --no-restore"}
+{"id": "b018", "command": "dotnet test --filter \"Category=Unit\" --logger \"console;verbosity=minimal\""}
+{"id": "b019", "command": "$sdks = dotnet --list-sdks\n$sdks | ForEach-Object {\n    $ver = ($_ -split ' ')[0]\n    Write-Host \"SDK $ver\"\n}\ndotnet --list-runtimes | Select-Object -First 5"}
+{"id": "b020", "command": "& \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" $env:USERPROFILE\\source\\repos\\app\\app.sln /t:Rebuild /p:Configuration=Debug /v:minimal"}
+{"id": "b021", "command": "go version"}
+{"id": "b022", "command": "go test ./... -run TestParse -count=1 -v 2>&1 | Select-String -Pattern 'FAIL|ok'"}
+{"id": "b023", "command": "go build -o bin\\server.exe .\\cmd\\server && .\\bin\\server.exe --help"}
+{"id": "b024", "command": "go vet ./... *> vet-output.txt"}
+{"id": "b025", "command": "gci -Recurse -Filter *.cs | ? { $_.Length -gt 100KB } | Select-Object FullName, Length"}
+{"id": "b026", "command": "Get-ChildItem -Path $HOME\\Documents -Recurse -Include *.md -ErrorAction SilentlyContinue | Select-Object -First 20 Name"}
+{"id": "b027", "command": "Select-String -Path .\\src\\*.ts -Pattern 'TODO|FIXME' -Recurse"}
+{"id": "b028", "command": "ls | sort LastWriteTime -Descending | select -First 10"}
+{"id": "b029", "command": "$readme = Join-Path $PWD 'README.md'\nif (Test-Path $readme) {\n    cat $readme | Select-Object -First 30\n} else {\n    Write-Host 'No README.md found'\n}"}
+{"id": "b030", "command": "Get-ChildItem -Recurse -Directory -Filter node_modules -ErrorAction SilentlyContinue | Select-Object -First 5 FullName"}
+{"id": "b031", "command": "(Get-Content .\\appsettings.json -Raw | ConvertFrom-Json).Logging.LogLevel"}
+{"id": "b032", "command": "$cfg = Get-Content $HOME\\.config\\app\\settings.json -Raw | ConvertFrom-Json; $cfg.port = 8081; $cfg | ConvertTo-Json -Depth 10 | Set-Content $HOME\\.config\\app\\settings.json"}
+{"id": "b033", "command": "(Get-Content .\\config.yaml) -replace 'debug: false','debug: true' | Set-Content .\\config.yaml"}
+{"id": "b034", "command": "[IO.File]::ReadAllText(\"$PWD\\tsconfig.json\") | ConvertFrom-Json | Select-Object -ExpandProperty compilerOptions"}
+{"id": "b035", "command": "[IO.Path]::GetExtension('C:\\Users\\dev\\projects\\api\\main.go')"}
+{"id": "b036", "command": "Get-Content .\\.env | Where-Object { $_ -notmatch '^\\s*#' -and $_ -match '=' } | ForEach-Object { $_.Split('=')[0] }"}
+{"id": "b037", "command": "$entries = $env:PATH -split ';' | Where-Object { $_ }\nforeach ($e in $entries) {\n    $ok = Test-Path $e\n    \"{0,-60} exists={1}\" -f $e, $ok\n}"}
+{"id": "b038", "command": "$env:NODE_ENV = 'development'; npm start"}
+{"id": "b039", "command": "[Environment]::GetEnvironmentVariable('Path','User') -split ';'"}
+{"id": "b040", "command": "Get-ChildItem Env: | Where-Object Name -like 'JAVA*' | Format-Table -AutoSize"}
+{"id": "b041", "command": "Get-Command node, python, git, dotnet -ErrorAction SilentlyContinue | Select-Object Name, Source"}
+{"id": "b042", "command": "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, Id, CPU"}
+{"id": "b043", "command": "Get-Process -Name node -ErrorAction SilentlyContinue | Select-Object Id, @{n='MemMB';e={[math]::Round($_.WorkingSet64/1MB,1)}}"}
+{"id": "b044", "command": "Get-Service | Where-Object Status -eq 'Running' | Select-Object -First 15 Name, DisplayName"}
+{"id": "b045", "command": "$names = 'W32Time', 'Spooler', 'EventLog'\nforeach ($n in $names) {\n    $s = Get-Service -Name $n -ErrorAction SilentlyContinue\n    if ($s) { \"$($s.Name): $($s.Status)\" } else { \"$n: not found\" }\n}"}
+{"id": "b046", "command": "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object LocalAddress, State, OwningProcess"}
+{"id": "b047", "command": "Test-NetConnection -ComputerName example.com -Port 443"}
+{"id": "b048", "command": "netstat -ano | findstr :8080"}
+{"id": "b049", "command": "$hosts = @('example.com', 'www.example.com')\n$hosts | ForEach-Object {\n    $r = Resolve-DnsName $_ -ErrorAction SilentlyContinue\n    [pscustomobject]@{ Host = $_; Address = ($r.IPAddress -join ',') }\n} | Format-Table -AutoSize"}
+{"id": "b050", "command": "Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceAlias, IPAddress"}
+{"id": "b051", "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' | Select-Object ProductName, DisplayVersion, CurrentBuild"}
+{"id": "b052", "command": "Get-ItemProperty -Path 'HKCU:\\Environment' | Format-List"}
+{"id": "b053", "command": "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall' | Get-ItemProperty | Where-Object DisplayName -like '*Visual Studio*' | Select-Object DisplayName, DisplayVersion"}
+{"id": "b054", "command": "Get-WinEvent -LogName Application -MaxEvents 20 | Where-Object LevelDisplayName -eq 'Error' | Select-Object TimeCreated, ProviderName, Message"}
+{"id": "b055", "command": "Get-EventLog -LogName System -Newest 10 -EntryType Error"}
+{"id": "b056", "command": "Get-ScheduledTask | Where-Object State -eq 'Ready' | Select-Object -First 10 TaskName, TaskPath"}
+{"id": "b057", "command": "Get-ScheduledTask -TaskPath '\\Microsoft\\Windows\\Defrag\\' | Get-ScheduledTaskInfo"}
+{"id": "b058", "command": "$zip = '.\\dist.zip'\nif (Test-Path $zip) { Remove-Item $zip }\nCompress-Archive -Path .\\dist\\* -DestinationPath $zip -Force\n'{0:N1} KB' -f ((Get-Item $zip).Length / 1KB)"}
+{"id": "b059", "command": "Expand-Archive -Path $env:TEMP\\sample.zip -DestinationPath $env:TEMP\\sample-out -Force"}
+{"id": "b060", "command": "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::OpenRead(\"$PWD\\dist.zip\").Entries | Select-Object -First 10 FullName"}
+{"id": "b061", "command": "Invoke-WebRequest -Uri https://example.com -UseBasicParsing | Select-Object StatusCode, @{n='Bytes';e={$_.Content.Length}}"}
+{"id": "b062", "command": "$headers = @{ Accept = 'application/json'; 'User-Agent' = 'dev-script/1.0' }\ntry {\n    $r = Invoke-RestMethod -Uri 'https://example.com/api/status' -Headers $headers -Method Get -TimeoutSec 10\n    $r | ConvertTo-Json -Depth 5\n} catch {\n    Write-Host \"Request failed: $($_.Exception.Message)\"\n}"}
+{"id": "b063", "command": "Invoke-WebRequest https://example.com/robots.txt -OutFile $env:TEMP\\robots.txt"}
+{"id": "b064", "command": "Invoke-RestMethod -Uri https://example.com/api/items -Method Post -ContentType 'application/json' -Body (@{name='test';count=3} | ConvertTo-Json)"}
+{"id": "b065", "command": "curl.exe -s -o NUL -w \"%{http_code}\" https://example.com"}
+{"id": "b066", "command": "Get-ChildItem Cert:\\CurrentUser\\My | Select-Object Subject, NotAfter, Thumbprint"}
+{"id": "b067", "command": "Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object NotAfter -lt (Get-Date).AddDays(90) | Select-Object Subject, NotAfter"}
+{"id": "b068", "command": "Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}"}
+{"id": "b069", "command": "Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" | Select-Object DeviceID, Size, FreeSpace"}
+{"id": "b070", "command": "[System.Environment]::OSVersion.Version"}
+{"id": "b071", "command": "Get-ComputerInfo -Property OsName, OsVersion, OsBuildNumber"}
+{"id": "b072", "command": "$PSVersionTable.PSVersion"}
+{"id": "b073", "command": "systeminfo | Select-String 'OS Name','OS Version'"}
+{"id": "b074", "command": "Test-Path $env:USERPROFILE\\source\\repos\\app\\.git"}
+{"id": "b075", "command": "Get-ChildItem .\\dist -File | ForEach-Object {\n    $h = Get-FileHash $_.FullName -Algorithm SHA256\n    '{0}  {1}' -f $h.Hash.Substring(0,16), $_.Name\n}"}
+{"id": "b076", "command": "New-Item -ItemType Directory -Path ~\\Documents\\notes -Force | Out-Null"}
+{"id": "b077", "command": "if (-not (Test-Path .\\config.json)) {\n    Copy-Item .\\config.sample.json .\\config.json -Verbose\n} else {\n    Write-Host 'config.json already exists, leaving it alone'\n}"}
+{"id": "b078", "command": "Remove-Item .\\bin, .\\obj -Recurse -Force -ErrorAction SilentlyContinue"}
+{"id": "b079", "command": "Measure-Object -Property Length -Sum -InputObject (Get-ChildItem .\\logs -File) | Select-Object Count, Sum"}
+{"id": "b080", "command": "Get-Content .\\logs\\app.log -Tail 50 | Select-String -Pattern 'ERROR' -Context 1,1"}
+{"id": "b081", "command": "$start = Get-Date\nnpm run lint 2>&1 | Select-Object -Last 15\n$elapsed = (Get-Date) - $start\nWrite-Host (\"Lint took {0:N1}s\" -f $elapsed.TotalSeconds)"}
+{"id": "b082", "command": "Start-Job -ScriptBlock { Get-ChildItem C:\\Users\\dev\\projects\\api -Recurse -Filter *.json | Measure-Object | Select-Object -ExpandProperty Count } | Wait-Job | Receive-Job"}
+{"id": "b083", "command": "Invoke-Command -ScriptBlock { Get-Process -Name pwsh | Select-Object Id, StartTime }"}
+{"id": "b084", "command": "git stash list; git stash show -p stash@{0} | Select-Object -First 40"}
+{"id": "b085", "command": "$branch = git rev-parse --abbrev-ref HEAD\nWrite-Host \"Current branch: $branch\"\nif ($branch -eq 'main') {\n    Write-Warning 'On main; create a feature branch first'\n} else {\n    git push -u origin $branch\n}"}
+{"id": "b086", "command": "$repos = Get-ChildItem $env:USERPROFILE\\source\\repos -Directory\nforeach ($r in $repos) {\n    if (Test-Path (Join-Path $r.FullName '.git')) {\n        $b = git -C $r.FullName branch --show-current\n        Write-Output \"$($r.Name): $b\"\n    }\n}"}
+{"id": "b087", "command": "$msg = @'\nfix: handle null user in session middleware\n\nThe middleware dereferenced req.user before auth ran.\n'@\ngit commit -m $msg"}
+{"id": "b088", "command": "$pkg = Get-Content package.json -Raw | ConvertFrom-Json\n$pkg.version = '1.4.2'\n$pkg | ConvertTo-Json -Depth 20 | Set-Content package.json -Encoding utf8\nWrite-Host \"Bumped to $($pkg.version)\""}
+{"id": "b089", "command": "try {\n    $resp = Invoke-RestMethod -Uri 'https://example.com/health' -TimeoutSec 5\n    Write-Host \"Healthy: $resp\"\n} catch {\n    Write-Host \"Health check failed: $($_.Exception.Message)\"\n    exit 1\n}"}
+{"id": "b090", "command": "$params = @{\n    Path        = 'C:\\Users\\dev\\projects\\api\\src'\n    Recurse     = $true\n    Filter      = '*.py'\n    ErrorAction = 'SilentlyContinue'\n}\nGet-ChildItem @params | Measure-Object | Select-Object -ExpandProperty Count"}
+{"id": "b091", "command": "$files = Get-ChildItem -Path . -Recurse -Include *.js,*.ts -Exclude node_modules\n$total = 0\nforeach ($f in $files) {\n    $total += (Get-Content $f.FullName | Measure-Object -Line).Lines\n}\nWrite-Host \"Total lines: $total\""}
+{"id": "b092", "command": "$body = @\"\n{\n  \"name\": \"$env:USERNAME\",\n  \"host\": \"$env:COMPUTERNAME\"\n}\n\"@\nInvoke-RestMethod -Uri https://example.com/api/register -Method Post -Body $body -ContentType 'application/json'"}
+{"id": "b093", "command": "$port = 5000\n$conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue\nif ($conn) {\n    $p = Get-Process -Id $conn.OwningProcess\n    Write-Host \"Port $port in use by $($p.ProcessName) (PID $($p.Id))\"\n} else {\n    Write-Host \"Port $port is free\"\n}"}
+{"id": "b094", "command": "$out = Join-Path $env:TEMP 'build-output'\nif (Test-Path $out) { Remove-Item $out -Recurse -Force }\nNew-Item -ItemType Directory -Path $out | Out-Null\ndotnet publish -c Release -o $out 2>&1 | Tee-Object -FilePath (Join-Path $out 'publish.log')\nGet-ChildItem $out | Select-Object -First 10 Name"}
+{"id": "b095", "command": "# Find largest files in the repo\nGet-ChildItem -Recurse -File -ErrorAction SilentlyContinue |\n    Sort-Object Length -Descending |\n    Select-Object -First 10 @{n='MB';e={[math]::Round($_.Length/1MB,2)}}, FullName |\n    Format-Table -AutoSize"}
+{"id": "b096", "command": "docker ps --format \"table {{.Names}}\\t{{.Status}}\"\nif ($LASTEXITCODE -ne 0) {\n    Write-Host 'Docker is not running'\n}"}
+{"id": "b097", "command": "$yaml = Get-Content .\\.github\\workflows\\ci.yml\nfor ($i = 0; $i -lt $yaml.Count; $i++) {\n    if ($yaml[$i] -match 'node-version') {\n        Write-Host \"Line $($i + 1): $($yaml[$i].Trim())\"\n    }\n}"}
+{"id": "b098", "command": "git log --oneline -20 `\n    --since='1 week ago' `\n    --no-merges `\n    -- src/"}
+{"id": "b099", "command": "dotnet build `\n    --configuration Release `\n    --no-restore `\n    /p:TreatWarningsAsErrors=true 2>&1 | Tee-Object build.log"}
+{"id": "b100", "command": "$jobs = 1..3 | ForEach-Object {\n    Start-Job -ArgumentList $_ -ScriptBlock {\n        param($n)\n        Start-Sleep -Seconds $n\n        \"job $n done\"\n    }\n}\n$jobs | Wait-Job | Receive-Job"}
+{"id": "b101", "command": "$staging = \"$env:TEMP\\staging-$(Get-Date -Format yyyyMMdd)\"\nNew-Item -ItemType Directory -Path $staging -Force | Out-Null\nCopy-Item .\\dist\\* $staging -Recurse\nCompress-Archive -Path \"$staging\\*\" -DestinationPath \"$staging.zip\" -Force\nWrite-Host \"Created $staging.zip\""}
+{"id": "b102", "command": "$result = python -c \"import sys; print(sys.version)\" 2>&1\nif ($LASTEXITCODE -eq 0) { Write-Host \"Python OK: $result\" } else { Write-Host \"Python failed\" }"}
+{"id": "b103", "command": "Get-ChildItem Env: | ForEach-Object { \"{0}={1}\" -f $_.Name, $_.Value.Length } | Select-Object -First 15"}
+{"id": "b104", "command": "$cert = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.NotAfter -gt (Get-Date) } | Select-Object -First 1\nif ($cert) {\n    \"Subject: $($cert.Subject)\"\n    \"Expires: $($cert.NotAfter.ToString('yyyy-MM-dd'))\"\n}"}
+{"id": "b105", "command": "$ErrorActionPreference = 'Stop'\ntry {\n    $data = Get-Content .\\data.json -Raw | ConvertFrom-Json\n    $data.items | Where-Object { $_.active } | ForEach-Object { $_.id }\n} catch {\n    Write-Error \"Could not parse data.json: $_\"\n}"}
+{"id": "b106", "command": "Get-ChildItem *.csproj -Recurse | ForEach-Object {\n    [xml]$x = Get-Content $_.FullName\n    $tf = $x.Project.PropertyGroup.TargetFramework | Select-Object -First 1\n    [pscustomobject]@{ Project = $_.Name; Framework = $tf }\n} | Format-Table -AutoSize"}
+{"id": "b107", "command": "$dirs = @('src', 'tests', 'docs')\n$dirs | ForEach-Object {\n    $p = Join-Path $PWD $_\n    $count = if (Test-Path $p) { (Get-ChildItem $p -Recurse -File).Count } else { 0 }\n    \"$_ : $count files\"\n}"}
+{"id": "b108", "command": "$u = 'https://example.com/downloads/tool.zip'\n$dest = Join-Path $env:USERPROFILE 'Downloads\\tool.zip'\nInvoke-WebRequest -Uri $u -OutFile $dest\n(Get-Item $dest).Length"}
+{"id": "b109", "command": "ls Env: | ? Name -match '^(HOME|USER)' | % { \"$($_.Name) -> $($_.Value)\" }"}
+{"id": "b110", "command": "gci $HOME\\.config\\app -Force | % Name"}
+{"id": "b111", "command": "npm view react version && npm outdated"}
+{"id": "b112", "command": "python -m pip install --upgrade pip || Write-Host 'pip upgrade failed'"}
+{"id": "b113", "command": "Get-Content -Path C:\\Users\\dev\\projects\\api\\go.mod | Select-String '^go '"}
+{"id": "b114", "command": "Get-WmiObject Win32_OperatingSystem | Select-Object Caption, Version, LastBootUpTime"}
+{"id": "b115", "command": "$procs = Get-Process | Where-Object { $_.MainWindowTitle }\nforeach ($p in $procs) {\n    Write-Output (\"{0,-20} {1}\" -f $p.Name, $p.MainWindowTitle)\n}"}
+{"id": "b116", "command": "Get-ChildItem -Path \"$env:USERPROFILE\\source\\repos\" -Filter *.sln -Recurse -Depth 2 | Select-Object -ExpandProperty FullName"}
+{"id": "b117", "command": "git diff --name-only main...HEAD | ForEach-Object { \"changed: $_\" }"}
+{"id": "b118", "command": "Write-Output \"He said \\\"hello\\\" and `\"quoted`\" it\" | Out-String"}
+{"id": "b119", "command": "node -e \"console.log(process.versions.node)\" 2>&1"}
+{"id": "b120", "command": "$m = Get-Content .\\notes.txt | Measure-Object -Line -Word -Character\n\"Lines: $($m.Lines)\"\n\"Words: $($m.Words)\"\n\"Chars: $($m.Characters)\""}

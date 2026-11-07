@@ -41,10 +41,12 @@ type MessageHandler struct {
 	StagedTrust          *StagedTrustTracker          // optional; nil disables TrustShift staged trust attack detection (#3519, arXiv 2608.23763)
 
 	// ManagedHost reports whether this machine is centrally managed. It shapes
-	// only the BLOCK hint printed to Stderr, never a decision. The CLI passes
+	// the BLOCK hint printed to Stderr, and it gates a decision: configGuard
+	// applies SelfProtectCommand only when it is true. The CLI passes
 	// enterprise.ManagedHost; nil means unmanaged. It is a function rather than
-	// a bool so a long-running proxy reads managed.json at hint time, as it did
-	// before the engine stopped reading enterprise config itself (#4321).
+	// a bool so a long-running proxy reads managed.json when it needs the
+	// answer, as it did before the engine stopped reading enterprise config
+	// itself (#4321).
 	ManagedHost func() bool
 
 	// Mode is the enforcement mode (#1952). In "audit-only" a tools/call that
@@ -973,6 +975,7 @@ func (h *MessageHandler) HandleToolCall(msg *Message) (bool, []byte) {
 			Source:           "mcp-proxy",
 			ServerName:       h.ServerName,
 			TaxonomyRef:      result.TaxonomyRef,
+			TaxonomyRefs:     result.TaxonomyRefs,
 			Mode:             h.Mode,
 			OriginalDecision: string(result.OriginalDecision),
 		})
@@ -1030,6 +1033,7 @@ func (h *MessageHandler) HandleResourceRead(msg *Message) (bool, []byte) {
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
 		})
 	}
 
@@ -1101,6 +1105,7 @@ func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
 		})
 	}
 
@@ -1211,7 +1216,8 @@ func (h *MessageHandler) HandlePromptsGetRequest(msg *Message) (bool, []byte) {
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "data-exfiltration/llm-data-flow/mcp-prompts-get-argument-exfiltration",
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
+			TaxonomyRef:    argumentScanTaxonomy(result.TriggeredRules),
 		})
 	}
 
@@ -1323,7 +1329,8 @@ func (h *MessageHandler) HandleCompletionCompleteRequest(msg *Message) (bool, []
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy",
 			ServerName:     h.ServerName,
-			TaxonomyRef:    "data-exfiltration/llm-data-flow/mcp-prompts-get-argument-exfiltration",
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
+			TaxonomyRef:    argumentScanTaxonomy(result.TriggeredRules),
 		})
 	}
 
@@ -1756,6 +1763,7 @@ func (h *MessageHandler) HandleResourcesUpdatedNotification(msg *Message) bool {
 			Reasons:        []string{reason},
 			Source:         "mcp-proxy-resources-updated",
 			ServerName:     h.ServerName,
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
 			TaxonomyRef:    "unauthorized-execution/agentic-attacks/mcp-resource-content-injection",
 		})
 	}
@@ -1844,10 +1852,11 @@ func (h *MessageHandler) HandleProgressNotification(msg *Message) bool {
 // Returns the replacement JSON bytes, or nil if the message is not a prompts/get
 // response or no poisoning was detected.
 func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -2020,10 +2029,11 @@ func (h *MessageHandler) FilterPromptsGetResponse(data []byte) []byte {
 // Returns modified JSON bytes with poisoned prompts removed, or nil if no
 // poisoning was detected or the message is not a prompts/list response.
 func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -2103,10 +2113,11 @@ func (h *MessageHandler) FilterPromptsListResponse(data []byte) []byte {
 // Returns the modified JSON bytes, or nil if the message is not a tools/list response
 // or no modifications were needed.
 func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process responses (has result, no method)
 	if msg.Method != "" || msg.Result == nil {
@@ -2793,17 +2804,19 @@ func (h *MessageHandler) FilterToolsListResponse(data []byte) []byte {
 	return out
 }
 
-// FilterInitializeResponse checks if a response is an initialize result.
+// FilterInitializeResponse checks if a response is a handshake result: an
+// initialize answer, or a server/discover answer (#4563).
 // If it is, scans for serverInfo impersonation, experimental capability injection,
 // protocol version downgrade attacks, and prompt injection in the instructions field
 // (MCP 2025-03-26 spec, issue #2339).
-// Returns a JSON-RPC error if BLOCKED, nil if the response is safe or not an
-// initialize response.
+// Returns a JSON-RPC error if BLOCKED, nil if the response is safe or not a
+// handshake response.
 func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -2816,10 +2829,17 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 		return nil
 	}
 
-	// Must have protocolVersion to be an initialize response
+	// An initialize answer carries protocolVersion. A server/discover answer
+	// carries supportedVersions instead, and hands the client the same
+	// serverInfo, capabilities and instructions; initialize then never runs
+	// (#4563). Both get the handshake scan.
 	h.auditWireShape("initialize"+"-response", shape)
+	method := "initialize"
 	if result.ProtocolVersion == "" {
-		return nil
+		if !isDiscoverResult(msg.Result) {
+			return nil
+		}
+		method = MethodServerDiscover
 	}
 
 	scan := ScanInitializeResponse(&result)
@@ -2828,15 +2848,15 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 	// network. The handshake decision is untouched, and a BLOCK already
 	// carries its own event.
 	if result.ServerInfo != nil && scan.Decision != "BLOCK" {
-		h.auditInternalIcons("serverInfo", "initialize", "mcp-proxy-handshake-scanner", result.ServerInfo.Icons)
+		h.auditInternalIcons("serverInfo", method, "mcp-proxy-handshake-scanner", result.ServerInfo.Icons)
 	}
 
 	if scan.Decision == "ALLOW" {
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s initialize handshake: %s\n",
-		scan.Decision, scan.Reason)
+	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] %s %s handshake: %s\n",
+		scan.Decision, method, scan.Reason)
 	rule := scan.Rule
 	taxonomyRef := "unauthorized-execution/agentic-attacks/mcp-initialize-handshake-manipulation"
 	if rule == handshakeIconRule {
@@ -2846,7 +2866,7 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 	if h.OnAudit != nil {
 		h.OnAudit(AuditEntry{
 			Timestamp:      time.Now().UTC().Format(time.RFC3339),
-			ToolName:       "initialize",
+			ToolName:       method,
 			Decision:       scan.Decision,
 			Flagged:        true,
 			TriggeredRules: []string{rule},
@@ -2867,6 +2887,21 @@ func (h *MessageHandler) FilterInitializeResponse(data []byte) []byte {
 
 	// AUDIT: pass through but the event was already logged above
 	return nil
+}
+
+// isDiscoverResult reports whether a result object is a server/discover
+// answer: it lists supportedVersions where initialize names one
+// protocolVersion. The key is matched exactly, as the client reads it:
+// Claude Code 2.1.309 validates a discover answer against a case-sensitive
+// schema and, when it doesn't match, falls back to initialize, which
+// FilterInitializeResponse already scans.
+func isDiscoverResult(result json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(result, &fields) != nil {
+		return false
+	}
+	_, ok := fields["supportedVersions"]
+	return ok
 }
 
 // filterResponseControlTokens scans tool-result / resource text content for forged
@@ -2969,10 +3004,11 @@ func legacyToolResultItem(raw json.RawMessage) *ContentItem {
 // Returns the replacement JSON bytes, or nil if the message is not a tools/call
 // response or no poisoning was detected.
 func (h *MessageHandler) FilterToolCallResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -3869,10 +3905,11 @@ const (
 // Returns the replacement JSON bytes, or nil if the message is not a
 // resources/read response or no poisoning was detected.
 func (h *MessageHandler) FilterResourceReadResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -4231,10 +4268,11 @@ func (h *MessageHandler) scanResultLevelMeta(meta json.RawMessage, msgID *json.R
 //
 // Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection
 func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -4257,19 +4295,11 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 		return repl
 	}
 
+	// Every decoded entry is scanned, whatever its uri. The SDKs type uri as a
+	// plain string, so an entry with `"uri": ""` reaches the client, and Claude
+	// Code's ListMcpResourcesTool hands it to the model. The old "at least one
+	// non-empty uri" guard forwarded such a list unscanned (#4569).
 	if len(listResult.Resources) == 0 {
-		return nil
-	}
-
-	// Verify it actually looks like a resources/list response (at least one URI field present)
-	hasURI := false
-	for _, r := range listResult.Resources {
-		if r.URI != "" {
-			hasURI = true
-			break
-		}
-	}
-	if !hasURI {
 		return nil
 	}
 
@@ -4407,6 +4437,13 @@ func (h *MessageHandler) FilterResourceListResponse(data []byte) []byte {
 		return nil
 	}
 	listResult.Resources = withoutHidden(listResult.Resources, hidden)
+	// An entry's own _meta is scanned (#4564) but not re-emitted: the rewrite
+	// keeps the form it had when the struct did not model it
+	// (TestIconListing_KeptSiblingIsTheScannedForm). Re-emitting it is a
+	// separate decision.
+	for i := range listResult.Resources {
+		listResult.Resources[i].Meta = nil
+	}
 	_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] resources/list: %d/%d resources passed, %d hidden\n",
 		len(listResult.Resources), total, len(hidden))
 	return hideListEntries(&msg, listResult)
@@ -4691,10 +4728,11 @@ func (h *MessageHandler) blockResourcesListStructuralFinding(id *json.RawMessage
 //
 // Taxonomy: unauthorized-execution/agentic-attacks/mcp-resource-uri-template-injection
 func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -4716,18 +4754,9 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 		return repl
 	}
 
+	// Every decoded entry is scanned, whatever its uriTemplate; the old guard
+	// forwarded an all-empty list unscanned (#4569, as for resources/list).
 	if len(listResult.ResourceTemplates) == 0 {
-		return nil
-	}
-	// Must look like a templates response — at least one entry with a URI template.
-	hasTemplate := false
-	for _, t := range listResult.ResourceTemplates {
-		if t.URITemplate != "" {
-			hasTemplate = true
-			break
-		}
-	}
-	if !hasTemplate {
 		return nil
 	}
 
@@ -4749,6 +4778,10 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 			return nil
 		}
 		listResult.ResourceTemplates = withoutHidden(listResult.ResourceTemplates, hidden)
+		// As on resources/list: scanned, not re-emitted (#4564).
+		for i := range listResult.ResourceTemplates {
+			listResult.ResourceTemplates[i].Meta = nil
+		}
 		_, _ = fmt.Fprintf(h.Stderr, "[AgentShield MCP] resources/templates/list: %d/%d templates passed, %d hidden\n",
 			len(listResult.ResourceTemplates), total, len(hidden))
 		return hideListEntries(&msg, listResult)
@@ -4836,10 +4869,11 @@ func (h *MessageHandler) FilterResourceTemplatesListResponse(data []byte) []byte
 // Returns the replacement JSON bytes if blocked, nil if not a roots/list response
 // or the roots are safe.
 func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
-	var msg Message
-	if err := json.Unmarshal(data, &msg); err != nil {
+	msgp := decodeResponseEnvelope(data)
+	if msgp == nil {
 		return nil
 	}
+	msg := *msgp
 
 	// Only process success responses (has result, no method, no error)
 	if msg.Method != "" || msg.Result == nil || msg.Error != nil {
@@ -4869,6 +4903,7 @@ func (h *MessageHandler) HandleRootsListResponse(data []byte) []byte {
 			Reasons:        result.Reasons,
 			Source:         "mcp-proxy-roots-guard",
 			ServerName:     h.ServerName,
+			TaxonomyRefs:   result.AllTaxonomyRefs(),
 			TaxonomyRef:    result.TaxonomyRef,
 		})
 	}
@@ -5248,6 +5283,9 @@ type responseRoute struct {
 
 // responseRoutes is the discriminator table DispatchServerResponse routes on.
 // A shape that is not here is not typed and always runs the chain.
+// server/discover (supportedVersions) is left out on purpose: it runs the
+// chain, where FilterInitializeResponse scans it (#4563), and a typed route
+// would skip the other scanners the chain runs on it today.
 func (h *MessageHandler) responseRoutes() []responseRoute {
 	return []responseRoute{
 		{"initialize", []string{"protocolVersion"}, h.FilterInitializeResponse},
@@ -5300,4 +5338,19 @@ func (h *MessageHandler) scanDispatchedMeta(fields map[string]json.RawMessage, m
 		}
 	}
 	return nil
+}
+
+// argumentScanTaxonomy is the node a prompts/get or completion/complete record
+// carries when its argument content scan or data-label scan fired, and ""
+// otherwise. The record used to carry it on every call, so a benign prompt
+// fetch would upload as an exfiltration receipt (#4734 review); a YAML rule's
+// own node comes from the evaluator's result instead.
+func argumentScanTaxonomy(rules []string) string {
+	for _, r := range rules {
+		switch r {
+		case "argument-content-scan", "data-label-scan", "data-label-scan-audit":
+			return "data-exfiltration/llm-data-flow/mcp-prompts-get-argument-exfiltration"
+		}
+	}
+	return ""
 }

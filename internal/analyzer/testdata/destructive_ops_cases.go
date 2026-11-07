@@ -1345,6 +1345,105 @@ var ForkBombCases = []TestCase{
 			backgrounded.`,
 		Tags: []string{"regression", "issue-3062"},
 	},
+	{
+		ID:               "TN-FORKBMB-005",
+		Command:          `( while true; do ps -o pcpu= -p 1; sleep 2; done ) > cpu.txt &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `FP fix (issue #4700). The & comes after "done )", so it
+			backgrounds the whole sampling loop once. The body runs ps and
+			sleep in the foreground and starts no background process.
+			ts-block-while-fork-bomb's .* ran past the loop's done.`,
+		Tags: []string{"regression", "issue-4700"},
+	},
+	{
+		ID:               "TN-FORKBMB-006",
+		Command:          `while true; do date; sleep 5; done &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `FP fix (issue #4700). A backgrounded poller with no
+			subshell: one background job, a foreground body.`,
+		Tags: []string{"regression", "issue-4700"},
+	},
+	{
+		ID:               "TN-FORKBMB-007",
+		Command:          `( while true; do echo "$(ps -o pcpu= -p "$MITM_PID")"; sleep 2; done ) > "$SCRATCH/cpu.txt" &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `FP fix (issue #4700). The line the dogfooding report
+			quoted: quotes and a command substitution in the body, a quoted
+			redirect target after the subshell.`,
+		Tags: []string{"regression", "issue-4700"},
+	},
+	{
+		ID:               "TN-FORKBMB-008",
+		Command:          `while :; do curl -s localhost:8080/health 2>&1 && break; sleep 1; done > poll.log 2>&1 &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `FP fix (issue #4700). A backgrounded readiness poller whose
+			body carries the #3062 shapes (2>&1 and &&) and whose loop is
+			redirected to a file. None of those & characters backgrounds
+			anything inside the loop.`,
+		Tags: []string{"regression", "issue-4700"},
+	},
+	{
+		ID:               "TN-FORKBMB-009",
+		Command:          `while true; do setsid sleep 9; done &`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		// Gary 2026-10-31: accepted residual; the rule blocks async syntax it can
+		// see; an opaque command reads like its foreground twin, which is AUDIT on
+		// main. `setsid` detaches each child, so the backgrounded loop does spawn
+		// without bound — but it carries no syntactic marker (no literal &, no
+		// coproc, no <(/>()), so the #4700 exclusion cannot tell it from a poller.
+		// Catching it needs the structural analyzer, not this regex; the set of
+		// backgrounding commands is not enumerable. Pins the current head decision.
+		Description: `KNOWN RESIDUAL (issue #4700, accepted by Gary 2026-10-31).
+			A loop body that backgrounds via an ordinary command (setsid, nohup)
+			has no syntactic marker, so ts-block-while-fork-bomb's #4700 exclusion
+			excuses it and the decision is AUDIT. On main this shape incidentally
+			BLOCKed through the trailing & this PR narrows. Detecting it belongs to
+			the structural analyzer.`,
+		Tags: []string{"issue-4700", "accepted-residual", "known-gap"},
+	},
+	// The bare `while true; do x & sleep 1; done &` edge is an inline tp of
+	// the rule, not a corpus case: a corpus BLOCK joins TestUnsetParamExpParity,
+	// and its `w${zqx}hile` splice leaks exactly as FN-FORKBMB-003's does on
+	// main (a pre-existing keyword-splice gap, not this exclusion).
+	{
+		ID:               "TP-FORKBMB-004",
+		Command:          `( while :; do sleep 0 & done ) > cpu.txt &`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `Issue #4700 edge. The poller's subshell-and-redirect shape
+			wrapped around a loop that spawns in its body. The trailing & that
+			backgrounds the loop must not excuse the & inside it.`,
+		Tags: []string{"issue-4700"},
+	},
+	{
+		ID:               "TP-FORKBMB-005",
+		Command:          `cd /tmp && while true; do echo hello & done`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "destructive-ops/resource-exhaustion/fork-bomb",
+		Analyzer:         "regex",
+		Description: `Issue #4700 edge. A fork-bomb loop chained after &&. The
+			exclusion is anchored to the whole command, so a prefix keeps
+			main's BLOCK.`,
+		Tags: []string{"issue-4700"},
+	},
 
 	// --- FALSE POSITIVES ---
 

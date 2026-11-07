@@ -11,6 +11,7 @@ package shellparse
 import (
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,6 +175,22 @@ type CommandSegment struct {
 	// position only swallows the first fragment and the rest leaks into the
 	// next positional slot as if it were a separate, real argument (#3224).
 	RawWords []string
+	// ZshShellWord is the first zsh command-word construct (noglob, nocorrect,
+	// -, repeat) peeled off in front of Executable, or "" (#4597). Before
+	// #4597 that word WAS the Executable, and normalize's defaultGlobbing
+	// treats a line running one by name as not provably under default
+	// globbing. Recorded so that check keeps main's reading: it can only
+	// keep more glob paths, never fewer.
+	ZshShellWord string
+	// ZshOperandWords are the words unwrapping consumed from the first zsh
+	// command-word construct or EQUALS word onward (#4597): repeat's count,
+	// the assignments skipped after it, and the operands of any wrapper
+	// further in (`noglob env -u X cmd`). They are not the command's argv,
+	// but before #4597 they were RawWords of an unknown executable, so
+	// normalize read them for paths. normalize still does, so unwrapping
+	// never leaves a word unscanned that main scanned (Codex passes 1 and 2
+	// on #4627).
+	ZshOperandWords []string
 }
 
 // Redirect represents a shell redirect operation.
@@ -195,6 +212,13 @@ func parseWithDepth(command string, depth, maxDepth int) *ParsedCommand {
 	if depth >= maxDepth {
 		return nil
 	}
+
+	// A text past the chain bound is not parsed (#4778): each fold below and
+	// the parse read it through ParseText, which panics with the bound's error
+	// past it. That covers a derived text too: a nested shell's text after its
+	// variables were substituted, or a fold's output (MaterializeAssignments
+	// splices an `eval $X$X…` value unquoted, 40 copies of X in a 20 KiB
+	// command).
 
 	// Canonicalize ${IFS}/$IFS word-splitting separators to literal spaces
 	// before parsing, so every AST-based analyzer downstream sees the same
@@ -238,9 +262,7 @@ func parseWithDepth(command string, depth, maxDepth int) *ParsedCommand {
 		command = normalized
 	}
 
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return fallbackParse(command, depth, maxDepth)
 	}
@@ -377,6 +399,48 @@ func appendStmtSequence(pc *ParsedCommand, stmts []*syntax.Stmt, raw string, dep
 	}
 }
 
+// walkBinaryChain walks a "&&"/"||"/"|" chain. N-way chains
+// ("cat x | base64 | curl") nest left-associatively, so the operands are the
+// left spine's leaves plus each level's right side, and every operand's own
+// internal Operators (from a nested BinaryCmd on its right) are kept in
+// position, not just the operators joining them; otherwise a 3+ segment pipe
+// loses an inner operator and stateful chain rules can't verify it (#2889).
+//
+// The spine is walked in a loop, not by recursion that copies each level's
+// segments into its parent: that copied the first operand's segments once
+// per level, so a pipeline of n stages cost O(n²) and a 32 KiB `a|a|…`
+// outran the harness's hook timeout (#4772). Each operand is still walked
+// into its own ParsedCommand, in source order, and only its Segments,
+// Operators and Subcommands are kept, exactly as the recursion kept them (a
+// redirect on a compound operand's own statement stays dropped, as before).
+func walkBinaryChain(pc *ParsedCommand, cmd *syntax.BinaryCmd, raw string, depth, maxDepth int, syms *ExecSymbols) {
+	operands := []*syntax.Stmt{cmd.Y}
+	ops := []string{binaryOpString(cmd.Op)}
+	left := cmd.X
+	for {
+		inner, ok := left.Cmd.(*syntax.BinaryCmd)
+		if !ok {
+			break
+		}
+		operands = append(operands, inner.Y)
+		ops = append(ops, binaryOpString(inner.Op))
+		left = inner.X
+	}
+	operands = append(operands, left)
+	slices.Reverse(operands)
+	slices.Reverse(ops)
+	for i, stmt := range operands {
+		if i > 0 {
+			pc.Operators = append(pc.Operators, ops[i-1])
+		}
+		operandPC := &ParsedCommand{}
+		walkStmt(operandPC, stmt, raw, depth, maxDepth, syms)
+		pc.Segments = append(pc.Segments, operandPC.Segments...)
+		pc.Operators = append(pc.Operators, operandPC.Operators...)
+		pc.Subcommands = append(pc.Subcommands, operandPC.Subcommands...)
+	}
+}
+
 func walkStmt(pc *ParsedCommand, stmt *syntax.Stmt, raw string, depth, maxDepth int, syms *ExecSymbols) {
 	if stmt.Cmd == nil {
 		return
@@ -501,23 +565,7 @@ func walkStmt(pc *ParsedCommand, stmt *syntax.Stmt, raw string, depth, maxDepth 
 		pc.Segments = append(pc.Segments, seg)
 
 	case *syntax.BinaryCmd:
-		op := binaryOpString(cmd.Op)
-		leftPC := &ParsedCommand{}
-		rightPC := &ParsedCommand{}
-		walkStmt(leftPC, cmd.X, raw, depth, maxDepth, syms)
-		walkStmt(rightPC, cmd.Y, raw, depth, maxDepth, syms)
-		// N-way chains (e.g. "cat x | base64 | curl") nest left-associatively,
-		// so leftPC/rightPC can carry their own internal Operators (from a
-		// nested BinaryCmd) that must be preserved in position, not just the
-		// operator joining the two halves — otherwise a 3+ segment pipe loses
-		// its inner operator and stateful chain rules can't verify it (#2889).
-		pc.Segments = append(pc.Segments, leftPC.Segments...)
-		pc.Operators = append(pc.Operators, leftPC.Operators...)
-		pc.Operators = append(pc.Operators, op)
-		pc.Segments = append(pc.Segments, rightPC.Segments...)
-		pc.Operators = append(pc.Operators, rightPC.Operators...)
-		pc.Subcommands = append(pc.Subcommands, leftPC.Subcommands...)
-		pc.Subcommands = append(pc.Subcommands, rightPC.Subcommands...)
+		walkBinaryChain(pc, cmd, raw, depth, maxDepth, syms)
 
 	case *syntax.Subshell:
 		appendStmtSequence(pc, cmd.Stmts, raw, depth, maxDepth, syms)
@@ -641,7 +689,7 @@ func callExprToSegment(call *syntax.CallExpr, raw string, syms *ExecSymbols) Com
 	// timeout, ...) so structural rules match the REAL executable. Without this,
 	// "nice rm -rf /" or "env rm -rf /" would parse with Executable=="nice"/"env"
 	// and dodge every structural rule keyed on the "rm" executable.
-	words = StripExecWrappers(words)
+	words, seg.ZshShellWord, seg.ZshOperandWords = stripExecWrappers(words)
 	seg.Executable = NormalizeExecName(words[0])
 	seg.Program = ProgramName(seg.Executable)
 	remaining := words[1:]
@@ -763,8 +811,7 @@ func callExprToSegment(call *syntax.CallExpr, raw string, syms *ExecSymbols) Com
 // command doesn't parse or has no resolvable assignments — callers treat that
 // as "nothing to resolve".
 func BuildExecSymbolTable(command string) *ExecSymbols {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil
 	}
@@ -775,6 +822,31 @@ func BuildExecSymbolTable(command string) *ExecSymbols {
 		// with no AST scope context) — unlike the primary walkStmt path, it
 		// cannot tell a $1 usage inside a function body from one outside it.
 		// See containsFuncDecl's doc comment (#3237).
+		syms = withoutPositionals(syms)
+	}
+	return syms
+}
+
+// BuildExecSymbolTableANSIC is BuildExecSymbolTable over the command with
+// every $'...' body decoded the way bash decodes it (#4591). The plain table
+// records x=$'rm\t-rf\t/' with its escapes still encoded, so a "$x"
+// statement resolved to one word bash never runs. This table holds the real
+// tabs, and a resolution through it splits into the words bash runs.
+//
+// It is a SECOND table, used only for extra retry candidates: the plain table
+// still feeds shellparse.Parse and every candidate it fed before, so this
+// can only add matches. Returns nil when the command has no $'...' or nothing
+// in it decodes.
+func BuildExecSymbolTableANSIC(command string) *ExecSymbols {
+	if !strings.Contains(command, "$'") {
+		return nil
+	}
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
+	if err != nil || !decodeDollarSingleQuoted(file) {
+		return nil
+	}
+	syms := buildExecSymbols(file)
+	if containsFuncDecl(file) {
 		syms = withoutPositionals(syms)
 	}
 	return syms
@@ -798,8 +870,7 @@ func ResolveIndirectExecutable(stmt string, syms *ExecSymbols) string {
 	// resolveExecWord also handles needs no symbol table at all, only the
 	// $VAR/${VAR} form does. Bailing here would silently skip every
 	// "$(echo dd) ..." candidate on a command with zero assignments.
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(stmt), "")
+	file, err := ParseText(stmt, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil || len(file.Stmts) != 1 {
 		return ""
 	}
@@ -839,8 +910,7 @@ func ResolveIndirectExecutable(stmt string, syms *ExecSymbols) string {
 // SplitTopLevelStatements) — only the head of a pipe is a real command word
 // to resolve; the sink is dataflow's concern, not this resolver's.
 func ResolveIndirectExecutables(command string) string {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return ""
 	}
@@ -2110,9 +2180,7 @@ func cleanLinePrefix(command string) string {
 		if strings.TrimSpace(candidate) == "" {
 			continue
 		}
-		reader := strings.NewReader(candidate)
-		parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-		if _, err := parser.Parse(reader, ""); err == nil {
+		if _, err := ParseText(candidate, syntax.KeepComments(false), syntax.Variant(syntax.LangBash)); err == nil {
 			return candidate
 		}
 	}
@@ -2154,9 +2222,7 @@ func SplitTopLevelStatements(command string) []string {
 // textual mutation into one opaque, syntactically-invalid blob). Callers
 // that need to fail closed on parse failure use this instead.
 func SplitTopLevelStatementsChecked(command string) (stmts []string, parsed bool) {
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return []string{command}, false
 	}
@@ -2213,9 +2279,7 @@ func stmtsToSource(command string, leaves []*syntax.Stmt) []string {
 //
 // Used by the regex analyzer's per-statement retry (#3045).
 func SplitSequencedStatements(command string) []string {
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return []string{command}
 	}
@@ -2254,9 +2318,7 @@ func SplitSequencedStatements(command string) []string {
 // command word is taken straight from the AST, so quoting, spacing and
 // multi-assignment cases resolve exactly as the shell resolves them.
 func StripCommandPrefixes(command string) string {
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil || len(file.Stmts) != 1 {
 		return ""
 	}
@@ -2501,6 +2563,35 @@ var ExecWrappers = map[string]bool{
 	// applies is decided per invocation by carriesInlineCodeFlag: `-c 'CMD'`
 	// stays with the carrier path (#3223), `-u USER -- CMD` unwraps here.
 	"runuser": true,
+	// #4597. zsh command-word spellings bash does not have. Claude Code's Bash
+	// tool runs commands through the user's shell, which on a stock Mac is
+	// /bin/zsh, so each of these runs the rest of the line as the command:
+	//
+	//   noglob, nocorrect, -   zshmisc(1) "PRECOMMAND MODIFIERS": "A simple
+	//                          command may be preceded by a precommand
+	//                          modifier, which will alter how the command is
+	//                          interpreted." `-` prepends `-` to argv[0];
+	//                          noglob turns off globbing; nocorrect turns
+	//                          off spelling correction.
+	//   repeat                 zshmisc(1) "COMPLEX COMMANDS", `repeat word do
+	//                          list done`: "word is expanded and treated as
+	//                          an arithmetic expression ... list is then
+	//                          executed n times", with the short form
+	//                          `repeat word sublist` under "ALTERNATE FORMS
+	//                          FOR COMPLEX COMMANDS".
+	//
+	// Each was missing from this table and leaked the same 22.7% of the
+	// BLOCKing corpus every absent wrapper leaks (587/2584, against 22 for
+	// nohup). None takes options, and their operand counts are fixed, so
+	// they are described by shellWordOperands rather than by the flag walk.
+	// The EQUALS form `=cmd` (zshexpn(1) "`=' expansion") is a spelling of
+	// the command word itself, not a wrapper; NormalizeExecName folds it.
+	//
+	// They are shell words, not programs: `/usr/local/bin/repeat` is somebody's
+	// script, so isExecWrapper does not resolve a path to one of these. (The
+	// #3991 program-name reading still reads that path as `repeat`, as it
+	// reads every path command word by its name; it can only raise.)
+	"noglob": true, "nocorrect": true, "-": true, "repeat": true,
 	// Deliberately NOT wrappers:
 	//   bwrap    — `--dev-bind SRC DST` takes TWO bare path operands after one
 	//              flag. wrapperPositionalOperands counts operands per WRAPPER,
@@ -2558,7 +2649,8 @@ func isExecWrapper(word string) bool {
 		return true
 	}
 	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "~/") {
-		return ExecWrappers[path.Base(name)]
+		base := path.Base(name)
+		return ExecWrappers[base] && !isShellWord(base)
 	}
 	return false
 }
@@ -2584,11 +2676,51 @@ var wrapperNumArgRe = regexp.MustCompile(`^(0x[0-9a-fA-F]+|[0-9]+(\.[0-9]+)?[smh
 // original form (quotes/backslashes can be meaningful in arguments). Words that
 // carry a dynamic expansion ($VAR, $(...), backticks) are returned unchanged —
 // their runtime value can't be resolved statically.
+//
+// It also folds zsh's EQUALS form, `=name` → `name` (#4597; see
+// equalsCommandName).
 func NormalizeExecName(s string) string {
+	if name, ok := equalsCommandName(s); ok {
+		return name
+	}
 	// Same shell quote/escape stripping as protected-path and argument-glob
 	// matching — kept in pathnorm so all three surfaces collapse quotes
 	// identically (issue #2813).
 	return pathnorm.StripShellQuotes(s)
+}
+
+// equalsNameStop are the characters that keep a word after `=` from being a
+// static command name: whitespace, an expansion, a glob, a quote left over, or
+// shell syntax.
+const equalsNameStop = " \t\n\r=$`'\"\\*?[]{}()<>|&;!~#"
+
+// equalsCommandName reads zsh's EQUALS expansion of a command word (#4597).
+//
+// zshexpn(1), "`=' expansion": "If a word begins with an unquoted `=' and the
+// EQUALS option is set, the remainder of the word is taken as the name of a
+// command. If a command exists by that name, the word is replaced by the full
+// pathname of the command." EQUALS is on by default, so on a stock Mac
+// `=chmod a+rwx /etc/passwd` runs /bin/chmod while every layer here saw an
+// executable named "=chmod". In bash the same word is "command not found", so
+// folding it can only make a command that runs visible; it cannot change one.
+//
+// Only when the remainder is a static word: a plain name (`=rm`), quoted
+// pieces of one (`=r'm'`, which zsh also resolves), or a path (`=/bin/rm`).
+// `=` alone (zsh: command not found), a quoted `'='rm` (not an expansion), an
+// expansion (`=$x`, whose value is not known here) and zsh's `=(cmd)` process
+// substitution are left as written, i.e. as they were before. (A caller that
+// dequotes the word before calling this folds `'='rm` too. zsh would not run
+// that word, so the only cost is reading a command that fails as the one it
+// names.)
+func equalsCommandName(s string) (string, bool) {
+	if len(s) < 2 || s[0] != '=' {
+		return "", false
+	}
+	name := pathnorm.StripShellQuotes(s[1:])
+	if name == "" || strings.ContainsAny(name, equalsNameStop) {
+		return "", false
+	}
+	return name, true
 }
 
 // isWrapperOption reports whether tok is an option/operand consumed by an exec
@@ -2612,6 +2744,21 @@ func isWrapperOption(tok string) bool {
 // If a wrapper has no trailing command (e.g. bare "env", "env -i", "sudo -i"),
 // the wrapper is left in place so it is still represented as the executable.
 func StripExecWrappers(words []string) []string {
+	out, _, _ := stripExecWrappers(words)
+	return out
+}
+
+// stripExecWrappers is StripExecWrappers that also returns the first zsh
+// command-word construct (a shellWordOperands key) it peeled, or "" (#4597),
+// for CommandSegment.ZshShellWord, and, for CommandSegment.ZshOperandWords,
+// every word consumed from the first zsh construct or EQUALS word onward:
+// main read those as arguments of an unknown executable. Operands consumed
+// by wrappers BEFORE that point are not returned: main dropped them too, and
+// returning them would raise decisions outside #4597.
+func stripExecWrappers(words []string) ([]string, string, []string) {
+	shellWord := ""
+	var consumed []string
+	retain := false
 	// Need at least the wrapper plus one more token to unwrap.
 	for len(words) > 1 {
 		if !isExecWrapper(words[0]) {
@@ -2621,9 +2768,24 @@ func StripExecWrappers(words []string) []string {
 		if target >= len(words) {
 			break // wrapper with no real target — keep it as the executable
 		}
+		name := NormalizeExecName(words[0])
+		if isShellWord(name) && shellWord == "" {
+			shellWord = name
+		}
+		// Main stopped unwrapping at the first zsh construct or EQUALS word:
+		// neither was a wrapper there, so main scanned every word after it,
+		// including the operands of wrappers further in. From that point on,
+		// keep what each wrapper consumes (Codex pass 2 on #4627, Gary
+		// 2026-10-28).
+		if isShellWord(name) || strings.HasPrefix(words[0], "=") {
+			retain = true
+		}
+		if retain {
+			consumed = append(consumed, words[1:target]...)
+		}
 		words = words[target:]
 	}
-	return words
+	return words, shellWord, consumed
 }
 
 // StripExecWrapperPrefix returns the command text starting at the real target
@@ -2651,27 +2813,64 @@ func StripExecWrappers(words []string) []string {
 // leading assignments and `!`, it composes with StripCommandPrefixes for free:
 // the assignment case falls out without a second pass.
 func StripExecWrapperPrefix(command string) string {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil || len(file.Stmts) != 1 {
 		return ""
 	}
 
 	call := leftmostCallExpr(file.Stmts[0])
-	if call == nil {
+	if call == nil || len(call.Args) == 0 {
+		return "" // an assignment-only statement has no command word
+	}
+
+	target, words := execWrapperTarget(call)
+	// zsh's EQUALS form on the target (`=rm -rf /`, `noglob =rm -rf /`) is
+	// sliced past its `=` so the anchored form names the command (#4597).
+	// That alone is something to strip, even with no wrapper in front.
+	skip := 0
+	if _, ok := equalsCommandName(words[target]); ok {
+		skip = 1
+	}
+	if target == 0 && skip == 0 {
 		return ""
 	}
 
-	// Walk wrappers the same way StripExecWrappers walks words, but tracking the
-	// AST index so the ORIGINAL text (quoting, spacing) can be sliced out rather
-	// than reconstructed. Both walks share wrapperTargetIndex so the regex
-	// layer's view of a wrapper's operands can never drift from the AST layer's
-	// — the drift #3221 was measuring in the first place.
+	start := int(call.Args[target].Pos().Offset()) + skip
+	if start < 0 || start > len(command) || (start == 0 && skip == 0) {
+		return ""
+	}
+	stripped := strings.TrimSpace(command[start:])
+	if stripped == "" || stripped == command {
+		return ""
+	}
+	return stripped
+}
+
+// execWrapperTarget returns the index into call.Args of the command that any
+// leading execution wrappers run (0 when Args[0] is not a wrapper, or is one
+// with no target), along with every argument as written.
+//
+// It walks wrappers the same way StripExecWrappers walks words, but tracking
+// the AST index so a caller can address the ORIGINAL text (quoting, spacing)
+// rather than a reconstruction. Both walks share isExecWrapper and
+// wrapperTargetIndex so the regex layer's view of a wrapper's operands can
+// never drift from the AST layer's — the drift #3221 was measuring in the
+// first place. StripExecWrapperPrefix slices the command from here; the
+// emitted-escape reading (#4604) finds a wrapped printf/echo from here.
+func execWrapperTarget(call *syntax.CallExpr) (int, []string) {
+	target, words, _ := execWrapperHops(call)
+	return target, words
+}
+
+// execWrapperHops is execWrapperTarget that also returns the index of every
+// wrapper it peeled, in order, so a caller can ask what each one runs.
+func execWrapperHops(call *syntax.CallExpr) (int, []string, []int) {
 	words := make([]string, len(call.Args))
 	for i, a := range call.Args {
 		words[i] = WordToString(a)
 	}
 	target := 0
+	var hops []int
 	for target < len(call.Args)-1 {
 		if !isExecWrapper(words[target]) {
 			break
@@ -2680,21 +2879,10 @@ func StripExecWrapperPrefix(command string) string {
 		if next >= len(call.Args) {
 			break // wrapper with no real target — leave it as the executable
 		}
+		hops = append(hops, target)
 		target = next
 	}
-	if target == 0 {
-		return ""
-	}
-
-	start := int(call.Args[target].Pos().Offset())
-	if start <= 0 || start > len(command) {
-		return ""
-	}
-	stripped := strings.TrimSpace(command[start:])
-	if stripped == "" || stripped == command {
-		return ""
-	}
-	return stripped
+	return target, words, hops
 }
 
 // CarriesShellSource reports whether seg delivers SHELL source to a shell, and

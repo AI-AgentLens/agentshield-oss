@@ -122,14 +122,19 @@ func TestCaseFoldResult_Selection_4206(t *testing.T) {
 		// drops the self-protection rule and its taxonomy. This row used to
 		// expect the as-written result, which was exactly that bug.
 		{"equal rank, different final decision", downgraded(DecisionBlock, DecisionAudit, []string{"a"}), mk(DecisionBlock, []string{"a", "b"}), true},
+		// Still the as-written reading, which enforce mode picks too. Since
+		// #4748 it comes back as BLOCK, because the folded one was kept
+		// (keptOnTie; TestCaseFoldResult_KeptOnTie_4748 pins the decision).
 		{"equal rank, different final decision, not a superset", downgraded(DecisionBlock, DecisionAudit, []string{"a", "x"}), mk(DecisionBlock, []string{"a", "b"}), false},
 		{"as-written has an unranked decision", mk(Decision("?"), []string{"a"}), mk(DecisionBlock, []string{"a", "b"}), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.asWr.Explanation, tc.folded.Explanation = "as-written", "folded"
+			// The sentinel is in Reasons: keptOnTie rebuilds the Explanation
+			// of a reading it returns as BLOCK (#4748).
+			tc.asWr.Reasons, tc.folded.Reasons = []string{"as-written"}, []string{"folded"}
 			got := caseFoldResult(tc.asWr, tc.folded)
-			isFolded, isAsWr := got.Explanation == "folded", got.Explanation == "as-written"
+			isFolded, isAsWr := len(got.Reasons) == 1 && got.Reasons[0] == "folded", len(got.Reasons) == 1 && got.Reasons[0] == "as-written"
 			if tc.wantFold && !isFolded || !tc.wantFold && !isAsWr {
 				t.Errorf("caseFoldResult returned %+v; want the %s result", got, map[bool]string{true: "folded", false: "as-written"}[tc.wantFold])
 			}

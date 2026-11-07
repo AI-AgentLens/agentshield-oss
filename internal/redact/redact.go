@@ -4,9 +4,53 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/AI-AgentLens/agentshield/internal/datalabel"
+	"github.com/AI-AgentLens/agentshield/internal/regexlit"
 )
 
-var sensitivePatterns = []*regexp.Regexp{
+// sensitivePatterns is every secret shape Redact replaces, in order, each
+// behind its required-literal prescan (regexlit, #4785). The prescan only
+// skips a pattern that provably cannot match the text as it stands at that
+// step, so the output is the plain regexp's (TestRedact_PrescanMatchesPlainRegexp).
+// It matters on the hook's clock: redaction is linear in the command, and
+// without the prescan each of the case-insensitive patterns walked the
+// whole command, which on a 4-core host with every CPU busy took 6.5 s for a
+// 1 MiB command against Codex's 10 s hook timeout.
+var sensitivePatterns = prescanned(rawSensitivePatterns)
+
+// handLiterals are the required literals of the three patterns regexlit
+// derives none for: Go's parser factors their alternations ("password|
+// passwd|pwd" becomes "p(?:ass(?:word|wd)|wd)") into pieces shorter than a
+// selective literal. Each set is read off its pattern, case-insensitively:
+//
+//   - "--(password|passwd|pwd|token|secret|api-key|apikey)\s+": the match
+//     starts with "--" and one of those words, so it holds "--pass", "--pwd",
+//     "--token", "--secret" or "--api".
+//   - "(^|\s)(-u|--user)\s+": "-u" or "--user" is followed by a whitespace
+//     character; "--user" itself holds "--user".
+//   - "(password|passwd|pwd|secret)": "passw", "pwd" or "secret".
+//
+// TestRedact_HandLiteralsAreRequired checks every set against its regexp on
+// every input where the regexp matches.
+var handLiterals = map[string][]string{
+	`(?i)--(?:password|passwd|pwd|token|secret|api-key|apikey)\s+['"]?[^\s'"-][^\s'"]*['"]?`: {"--pass", "--pwd", "--token", "--secret", "--api"},
+	`(?i)(?:^|\s)(?:-u|--user)\s+['"]?[^\s:'"]+:[^\s'"]+['"]?`:                               {"-u ", "-u\t", "-u\n", "-u\v", "-u\f", "-u\r", "--user"},
+	`(?i)(password|passwd|pwd|secret)['"]?\s*[=:]\s*['"]?[^\s'"]{8,}['"]?`:                   {"passw", "pwd", "secret"},
+}
+
+func prescanned(res []*regexp.Regexp) []*regexlit.Matcher {
+	out := make([]*regexlit.Matcher, len(res))
+	for i, re := range res {
+		out[i] = regexlit.NewFromRegexp(re)
+		if lits, ok := handLiterals[re.String()]; ok && !out[i].HasPrescan() {
+			out[i] = out[i].WithRequiredLiterals(lits, true)
+		}
+	}
+	return out
+}
+
+var rawSensitivePatterns = []*regexp.Regexp{
 	// AWS
 	regexp.MustCompile(`(?i)(aws_access_key_id|aws_secret_access_key|aws_session_token)['"]?\s*[=:]\s*['"]?[A-Za-z0-9/+=]{20,}['"]?`),
 	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
@@ -19,8 +63,11 @@ var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`ghs_[A-Za-z0-9]{36}`),
 	regexp.MustCompile(`ghr_[A-Za-z0-9]{36}`),
 
-	// Generic API keys
-	regexp.MustCompile(`(?i)(api_key|apikey|api-key|secret_key|secretkey|secret-key|access_token|auth_token)['"]?\s*[=:]\s*['"]?[A-Za-z0-9_-]{16,}['"]?`),
+	// Generic API keys. The value class is the token pattern's below, dots
+	// and base64 characters included (#4816): with [A-Za-z0-9_-] it stopped
+	// at a JWT's first dot, and the token pattern could no longer see the
+	// key name inside [REDACTED], so the payload and signature were recorded.
+	regexp.MustCompile(`(?i)(api_key|apikey|api-key|secret_key|secretkey|secret-key|access_token|auth_token)['"]?\s*[=:]\s*['"]?[A-Za-z0-9_.~+/=-]{16,}['"]?`),
 
 	// Private keys: the whole block first, so the key material goes with its
 	// header (#4340). [\s\S] also spans the literal \n of a JSON string. The
@@ -54,6 +101,14 @@ var sensitivePatterns = []*regexp.Regexp{
 
 	// Provider keys that are bare (no "key=" name beside them) (#4340).
 	regexp.MustCompile(`sk-(?:ant|proj)-[A-Za-z0-9_-]{20,}`),
+	// The shapes sec-block-ai-apikey-inline BLOCKs: a legacy or other
+	// provider's sk- key (OpenAI before project keys, DeepSeek, ...) and a
+	// Google API key. Before these two, the rule BLOCKed the call and the
+	// receipt kept the key in plain text, on the line and the wire alike.
+	// TestRedact_SecretValueRulesNeverMatchTheRecord holds every such rule to
+	// its own redacted TPs.
+	regexp.MustCompile(`\bsk-(?:[a-z0-9]+-){0,2}[A-Za-z0-9]{20,}`),
+	regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`),
 
 	// Slack tokens
 	regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
@@ -156,44 +211,67 @@ func RedactArgs(args []string) []string {
 // replaced. Strings in an array take the array's key. Numbers, booleans and
 // nulls are kept as they are, so the object keeps its shape.
 func RedactArguments(args map[string]interface{}) map[string]interface{} {
-	return redactObject("", args)
+	return redactor{}.object("", args)
 }
 
-// redactObject redacts one object. parentKey is the key the object sits under,
+// redactor is RedactArguments' walk. With labels it is
+// RedactArgumentsWithLabels': each string is redacted with RedactWithLabels,
+// and its key judged as main judged it, on the value with its label spans
+// replaced, and also on the value as written (#4813). A nil labels is
+// RedactArguments exactly.
+type redactor struct {
+	labels func(string) []datalabel.Span
+}
+
+// object redacts one object. parentKey is the key the object sits under,
 // so {"password": {"value": "<s>"}} is judged as password=<s> (#4340). A string
 // is redacted under its own key first, then under the parent's.
-func redactObject(parentKey string, args map[string]interface{}) map[string]interface{} {
+func (r redactor) object(parentKey string, args map[string]interface{}) map[string]interface{} {
 	if args == nil {
 		return nil
 	}
 	// A {"name": "DB_PASSWORD", "value": "<s>"} pair (a k8s env entry) spells the
-	// secret's name in a sibling, not in the value's own key.
+	// secret's name in a sibling, not in the value's own key. With labels the
+	// name is judged with its label spans replaced, as the scrubber left it
+	// before #4813.
 	name, _ := args["name"].(string)
+	name = r.scrubbed(name, r.spans(name))
 	out := make(map[string]interface{}, len(args))
 	for k, v := range args {
-		out[k] = redactJSONValue(k, v, parentKey)
+		rv := r
+		if s, ok := v.(string); ok {
+			if spans := r.spans(s); len(spans) > 0 {
+				out[k] = r.labelledValue(k, s, spans, name, parentKey)
+				continue
+			}
+			// No label in s: main's steps, without scanning it again.
+			rv = redactor{}
+		}
+		out[k] = rv.value(k, v, parentKey)
 		if s, ok := v.(string); ok && k == "value" && name != "" {
-			out[k] = redactKeyedString(name, s)
+			out[k] = rv.keyed(name, s)
 		}
 		if s, ok := out[k].(string); ok && s != redactedPlaceholder && parentKey != "" {
 			if _, isStr := v.(string); isStr {
-				out[k] = redactKeyedString(parentKey, s)
+				// s is already redacted, its label spans with it: judged
+				// again under the parent's key, as main judged it.
+				out[k] = redactor{}.keyed(parentKey, s)
 			}
 		}
 	}
 	return out
 }
 
-func redactJSONValue(key string, v interface{}, parentKey string) interface{} {
+func (r redactor) value(key string, v interface{}, parentKey string) interface{} {
 	switch t := v.(type) {
 	case string:
-		return redactKeyedString(key, t)
+		return r.keyed(key, t)
 	case map[string]interface{}:
-		return redactObject(inheritedKey(key, parentKey), t)
+		return r.object(inheritedKey(key, parentKey), t)
 	case []interface{}:
 		out := make([]interface{}, len(t))
 		for i, e := range t {
-			out[i] = redactJSONValue(key, e, parentKey)
+			out[i] = r.value(key, e, parentKey)
 		}
 		return out
 	case float64, json.Number, int, int64:
@@ -216,13 +294,99 @@ func inheritedKey(key, parentKey string) string {
 	return parentKey
 }
 
-func redactKeyedString(key, value string) string {
-	redacted := Redact(value)
+// keyed redacts value, a string under key: the whole value when key=value
+// redacts where value alone would not.
+func (r redactor) keyed(key, value string) string {
+	spans := r.spans(value)
+	redacted := redactSpans(value, spans)
 	if key == "" {
 		return redacted
 	}
-	if Redact(key+"="+value) != key+"="+redacted {
+	// Main's judgement, on the value as the scrubber left it. With no label
+	// in the value that is the value, and its redaction is redacted.
+	sv, rsv := value, redacted
+	if len(spans) > 0 {
+		sv = r.scrubbed(value, spans)
+		rsv = Redact(sv)
+	}
+	if Redact(key+"="+sv) != key+"="+rsv {
+		return redactedPlaceholder
+	}
+	// And on the value as the agent wrote it (#4813): a label inside the
+	// value can stop the key's pattern short of what it names.
+	if len(spans) > 0 && keyRedacts(key, value) {
 		return redactedPlaceholder
 	}
 	return redacted
+}
+
+// labelledValue redacts s, a string value of an object that carries a label
+// (spans), under its key k, the object's (scrubbed) name sibling and its
+// parent key: the steps object takes for a value with no label, made no
+// weaker than main's (#4813).
+//
+// Main ran those steps on the value with its label spans replaced: its own
+// key, then the name sibling for a "value", then the parent key over that
+// result, which redacts it a second time. When main replaced the value whole
+// so does this, and so it does when one of those keys judges the value as
+// written a secret. Otherwise the value is masked as a text whose main-order
+// spans come from as many passes as main ran, then judged under the parent
+// key as main judged its own result.
+func (r redactor) labelledValue(k, s string, spans []datalabel.Span, name, parentKey string) string {
+	plain := redactor{}
+	sv := r.scrubbed(s, spans)
+	mainV := plain.keyed(k, sv)
+	if k == "value" && name != "" {
+		mainV = plain.keyed(name, sv)
+	}
+	if mainV != redactedPlaceholder && parentKey != "" {
+		mainV = plain.keyed(parentKey, mainV)
+	}
+	if mainV == redactedPlaceholder {
+		return redactedPlaceholder
+	}
+	for _, key := range []string{k, parentKey} {
+		if key != "" && keyRedacts(key, s) {
+			return redactedPlaceholder
+		}
+	}
+	if k == "value" && name != "" && keyRedacts(name, s) {
+		return redactedPlaceholder
+	}
+	passes := 1
+	if parentKey != "" {
+		passes = 2
+	}
+	ms, _ := maskSpans(s, spans, 0, nil, passes)
+	text := Redact(mask(s, ms))
+	if parentKey != "" {
+		return plain.keyed(parentKey, text)
+	}
+	return text
+}
+
+// keyRedacts reports whether key=value redacts where value alone would not.
+func keyRedacts(key, value string) bool {
+	return Redact(key+"="+value) != key+"="+Redact(value)
+}
+
+// spans returns the label spans of s, nil without labels.
+func (r redactor) spans(s string) []datalabel.Span {
+	if r.labels == nil || s == "" {
+		return nil
+	}
+	return r.labels(s)
+}
+
+// scrubbed returns s with its label spans replaced by their placeholders,
+// as the scrubber returned it before #4813, and s itself when there are none.
+func (r redactor) scrubbed(s string, spans []datalabel.Span) string {
+	if len(spans) == 0 {
+		return s
+	}
+	ms := make([]span, len(spans))
+	for i, l := range spans {
+		ms[i] = labelSpan(l, 0)
+	}
+	return mask(s, ms)
 }

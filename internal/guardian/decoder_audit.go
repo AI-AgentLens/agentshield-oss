@@ -3,6 +3,7 @@ package guardian
 import (
 	"strings"
 
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -62,8 +63,7 @@ var fileReaderExecutables = map[string]struct{}{
 // the alternative (plumbing ctx.Parsed into GuardianRequest) is a wider
 // refactor than this single rule deserves.
 func matchesObfuscatedDecoderEval(req GuardianRequest) bool {
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(req.RawCommand), "")
+	file, err := shellparse.ParseText(req.RawCommand, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return false
 	}

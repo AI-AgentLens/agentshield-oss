@@ -1,0 +1,64 @@
+{"id":"en-dash-params","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":["-recurse","-force"],"args":["C:\\tmp\\x"]}],"strings":[]}
+{"id":"smart-single-quotes","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["C:\\tmp\\a b.txt"]}],"strings":[]}
+{"id":"smart-double-quotes","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["C:\\tmp\\a b.txt"]}],"strings":[]}
+{"id":"backtick-in-bareword","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["C:\\tmp\\a\tb.txt"]}],"strings":[]}
+{"id":"line-continuation","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":["-path","-recurse"],"args":["C:\\tmp"]}],"strings":[]}
+{"id":"stop-parsing","parse_errors":[],"commands":[{"name":"icacls.exe","op":"","params":[],"args":["--%","C:\\tmp\\x /grant Users:F"]}],"strings":[]}
+{"id":"splatting","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":[],"args":["$p"]}],"strings":["Path","C:\\tmp\\x","Recurse"]}
+{"id":"param-colon-value","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":["-path","-recurse"],"args":["C:\\tmp\\x","$true"]}],"strings":[]}
+{"id":"subexpr-in-string","parse_errors":[],"commands":[{"name":"Write-Host","op":"","params":[],"args":["Size: $((Get-Item C:\\tmp\\x).Length)"]},{"name":"Get-Item","op":"","params":[],"args":["C:\\tmp\\x"]}],"strings":[]}
+{"id":"here-string-literal","parse_errors":[],"commands":[{"name":"Set-Content","op":"","params":[],"args":["C:\\tmp\\out.txt"]}],"strings":["line C:\\tmp\\in"]}
+{"id":"here-string-expand","parse_errors":[],"commands":[{"name":"Get-Location","op":"","params":[],"args":[]},{"name":"Out-File","op":"","params":[],"args":["C:\\tmp\\o.txt"]}],"strings":["Path: $(Get-Location) $env:TEMP\\x"]}
+{"id":"line-comment","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["C:\\tmp\\a"]}],"strings":[]}
+{"id":"block-comment","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["C:\\tmp\\b"]}],"strings":[]}
+{"id":"pipeline-chain","parse_errors":["InvalidEndOfLine","InvalidEndOfLine"],"commands":[{"name":"git","op":"","params":[],"args":["status"]},{"name":"git","op":"","params":[],"args":["log","-1"]},{"name":"Write-Host","op":"","params":[],"args":["fail"]}],"strings":[]}
+{"id":"scriptblock-param","parse_errors":[],"commands":[{"name":"Invoke-Command","op":"","params":["-scriptblock","-argumentlist"],"args":["\u003cexpr\u003e","C:\\tmp\\x"]},{"name":"Remove-Item","op":"","params":[],"args":["$x"]}],"strings":[]}
+{"id":"foreach-object","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\tmp"]},{"name":"ForEach-Object","op":"","params":[],"args":["\u003cexpr\u003e"]},{"name":"Remove-Item","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":[]}
+{"id":"dotnet-static","parse_errors":[],"commands":[],"strings":["$env:USERPROFILE\\x.txt"]}
+{"id":"aliases","parse_errors":[],"commands":[{"name":"gci","op":"","params":[],"args":["C:\\tmp"]},{"name":"?","op":"","params":[],"args":["\u003cexpr\u003e"]},{"name":"%","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":[]}
+{"id":"call-op-variable","parse_errors":[],"commands":[{"name":"\u003cdynamic\u003e","op":"\u0026","params":[],"args":["/silent"]}],"strings":["C:\\tmp\\a.exe"]}
+{"id":"dot-source","parse_errors":[],"commands":[{"name":".\\profile.ps1","op":".","params":[],"args":[]}],"strings":[]}
+{"id":"redirect-all","parse_errors":[],"commands":[{"name":"Get-Process","op":"","params":[],"args":[]},{"name":"dir","op":"","params":[],"args":[]}],"strings":["C:\\tmp\\all.txt"]}
+{"id":"array-args","parse_errors":[],"commands":[{"name":"Copy-Item","op":"","params":["-destination"],"args":["\u003cexpr\u003e","C:\\tmp"]}],"strings":["a.txt","b.txt"]}
+{"id":"quotes-inside-bareword","parse_errors":[],"commands":[{"name":"Write-Output","op":"","params":[],"args":["C:\\Program Files\\x"]}],"strings":[]}
+{"id":"var-bareword","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["$env:USERPROFILE\\.config\\x"]}],"strings":[]}
+{"id":"braced-var","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["${env:USERPROFILE}\\.config"]}],"strings":[]}
+{"id":"iex-string","parse_errors":[],"commands":[{"name":"iex","op":"","params":[],"args":["Remove-Item C:\\tmp\\x"]}],"strings":[]}
+{"id":"if-else","parse_errors":[],"commands":[{"name":"Test-Path","op":"","params":[],"args":["C:\\tmp\\x"]},{"name":"Remove-Item","op":"","params":[],"args":["C:\\tmp\\x"]},{"name":"Write-Host","op":"","params":[],"args":["none"]}],"strings":[]}
+{"id":"foreach-statement","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\tmp"]},{"name":"Remove-Item","op":"","params":[],"args":["$f"]}],"strings":[]}
+{"id":"try-catch","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":["-erroraction"],"args":["C:\\tmp\\x","Stop"]},{"name":"Write-Warning","op":"","params":[],"args":["$_"]}],"strings":[]}
+{"id":"function-def","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["$p"]},{"name":"f","op":"","params":[],"args":["C:\\tmp\\x"]}],"strings":[]}
+{"id":"switch","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":[],"args":["C:\\tmp\\a"]},{"name":"Write-Host","op":"","params":[],"args":["d"]}],"strings":["a"]}
+{"id":"number-args","parse_errors":[],"commands":[{"name":"Start-Sleep","op":"","params":[],"args":["\u003cexpr\u003e"]},{"name":"Get-Random","op":"","params":["-maximum"],"args":["\u003cexpr\u003e"]}],"strings":[]}
+{"id":"static-member-string","parse_errors":[],"commands":[],"strings":["UserProfile"]}
+{"id":"typed-assign","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["C:\\tmp\\a"]}],"strings":[]}
+{"id":"paren-arg","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":[],"args":["\u003cexpr\u003e"]},{"name":"Join-Path","op":"","params":[],"args":["$HOME","x.txt"]}],"strings":[]}
+{"id":"newline-statements","parse_errors":[],"commands":[{"name":"Set-Location","op":"","params":[],"args":["C:\\tmp"]},{"name":"Remove-Item","op":"","params":[],"args":["x.txt"]}],"strings":[]}
+{"id":"newline-after-pipe","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\tmp"]},{"name":"Remove-Item","op":"","params":[],"args":[]}],"strings":[]}
+{"id":"escaped-dollar","parse_errors":[],"commands":[{"name":"Write-Host","op":"","params":[],"args":["cost $5 C:\\tmp"]}],"strings":[]}
+{"id":"doubled-single-quote","parse_errors":[],"commands":[{"name":"Write-Host","op":"","params":[],"args":["it\u0027s C:\\tmp"]}],"strings":[]}
+{"id":"native-quoted-path","parse_errors":[],"commands":[{"name":"C:\\Program Files\\Git\\bin\\bash.exe","op":"\u0026","params":["-c"],"args":["ls -la"]}],"strings":[]}
+{"id":"nested-cmd","parse_errors":[],"commands":[{"name":"cmd","op":"","params":[],"args":["/c","del C:\\tmp\\x"]}],"strings":[]}
+{"id":"nested-powershell","parse_errors":[],"commands":[{"name":"powershell","op":"","params":["-noprofile","-command"],"args":["Remove-Item C:\\tmp\\x"]}],"strings":[]}
+{"id":"start-process-args","parse_errors":[],"commands":[{"name":"Start-Process","op":"","params":["-argumentlist"],"args":["powershell","\u003cexpr\u003e"]}],"strings":["-c","Remove-Item C:\\tmp\\x"]}
+{"id":"string-method","parse_errors":[],"commands":[],"strings":["C:\\tmp\\x","x","y"]}
+{"id":"background-job","parse_errors":["AmpersandNotAllowed"],"commands":[{"name":"Start-Sleep","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":[]}
+{"id":"ternary","parse_errors":["UnexpectedToken"],"commands":[{"name":"Test-Path","op":"","params":[],"args":["x"]},{"name":"?","op":"","params":[],"args":["yes",":","no"]}],"strings":[]}
+{"id":"null-coalesce","parse_errors":["UnexpectedToken"],"commands":[{"name":"??","op":"","params":[],"args":["C:\\tmp"]}],"strings":[]}
+{"id":"paren-in-bareword","parse_errors":[],"commands":[{"name":"icacls","op":"","params":[],"args":["C:\\tmp\\x","/grant","Users:","\u003cexpr\u003e"]},{"name":"F","op":"","params":[],"args":[]}],"strings":[]}
+{"id":"digit-command","parse_errors":[],"commands":[{"name":"7z.exe","op":"","params":[],"args":["a","C:\\tmp\\out.7z","C:\\tmp\\in"]}],"strings":[]}
+{"id":"member-arg","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":[]}
+{"id":"hashtable-cmd-value","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\tmp"]}],"strings":["Items"]}
+{"id":"calculated-property","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":[]},{"name":"Select-Object","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":["Name","n","MB","e"]}
+{"id":"unary-comma","parse_errors":["MissingArgument"],"commands":[{"name":"Write-Output","op":"","params":[],"args":["C:\\tmp\\x"]}],"strings":[]}
+{"id":"env-drive-path","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["env:USERPROFILE"]}],"strings":[]}
+{"id":"tilde-path","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["~\\.config\\x"]}],"strings":[]}
+{"id":"invoke-webrequest-outfile","parse_errors":[],"commands":[{"name":"Invoke-WebRequest","op":"","params":["-uri","-outfile"],"args":["https://example.com/a","$env:TEMP\\a.zip"]}],"strings":[]}
+{"id":"encoded-command","parse_errors":[],"commands":[{"name":"powershell","op":"","params":["-enc"],"args":["VwByAGkAdABlAC0ASABvAHMAdAAgAGgAaQA="]}],"strings":[]}
+{"id":"variable-colon-path","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["$HOME/.config"]}],"strings":[]}
+{"id":"scope-modifier","parse_errors":[],"commands":[{"name":"Get-Content","op":"","params":[],"args":["C:\\tmp\\a"]}],"strings":[]}
+{"id":"multi-assign","parse_errors":[],"commands":[{"name":"Get-Item","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":["C:\\tmp\\a","C:\\tmp\\b"]}
+{"id":"do-while","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":[],"args":["C:\\tmp\\x"]}],"strings":[]}
+{"id":"cast-in-arg","parse_errors":[],"commands":[{"name":"Write-Output","op":"","params":[],"args":["\u003cexpr\u003e"]}],"strings":["5"]}
+{"id":"pipeline-var","parse_errors":[],"commands":[{"name":"Remove-Item","op":"","params":["-force"],"args":[]}],"strings":[]}
+{"id":"where-method","parse_errors":[],"commands":[{"name":"Get-ChildItem","op":"","params":[],"args":["C:\\tmp"]},{"name":"Remove-Item","op":"","params":[],"args":[]}],"strings":["*.log"]}

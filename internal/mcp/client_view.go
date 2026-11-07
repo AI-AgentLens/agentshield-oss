@@ -275,7 +275,7 @@ func clientView(data []byte) ([]byte, bool) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, false
 	}
-	reduceToClientView(v)
+	reduceToClientView(v, true)
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -288,9 +288,12 @@ func clientView(data []byte) ([]byte, bool) {
 // reduceToClientView removes, in every object, each key that is a case-fold
 // variant of another key in the same object which a struct here decodes
 // under that exact spelling. The exact one is what the client reads.
-func reduceToClientView(v any) {
+func reduceToClientView(v any, envelope bool) {
 	switch t := v.(type) {
 	case map[string]any:
+		if envelope {
+			dropLoneEnvelopeFolds(t)
+		}
 		groups := make(map[string][]string, len(t))
 		for k := range t {
 			fk := foldKey(k)
@@ -316,11 +319,30 @@ func reduceToClientView(v any) {
 			}
 		}
 		for _, c := range t {
-			reduceToClientView(c)
+			reduceToClientView(c, false)
 		}
 	case []any:
 		for _, c := range t {
-			reduceToClientView(c)
+			reduceToClientView(c, false)
+		}
+	}
+}
+
+// loneEnvelopeFold reports whether k is a key the decoder reads into the
+// envelope's method or error field that no client reads: a fold variant with
+// no exact twin ("Method", "Error", #4567). Either one makes a response look
+// like a request, or an error, to the scanners while the client still
+// delivers its result.
+func loneEnvelopeFold(k string) bool {
+	return (k != "method" && foldKey(k) == foldKey("method")) ||
+		(k != "error" && foldKey(k) == foldKey("error"))
+}
+
+// dropLoneEnvelopeFolds removes those keys from the top-level object.
+func dropLoneEnvelopeFolds(m map[string]any) {
+	for k := range m {
+		if loneEnvelopeFold(k) {
+			delete(m, k)
 		}
 	}
 }
@@ -386,6 +408,10 @@ func hasFoldDuplicateField(body []byte) bool {
 			continue
 		}
 		k, _ := tok.(string)
+		if len(stack) == 1 && loneEnvelopeFold(k) {
+			found = true
+			continue
+		}
 		if top.groups == nil {
 			top.groups = make(map[string]*group)
 		}

@@ -68,20 +68,20 @@ const (
 // pay a parse, and the second evaluation only if a byte-0 escape is found.
 func (e *Engine) EvaluateANSICNUL(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode ANSICNULMode) EvalResult {
 	if mode == ANSICNULOff {
-		return e.EvaluatePrivateAlias(command, paths, parsed, cwd, PrivateAliasStricter)
+		return e.EvaluateHomeTilde(command, paths, parsed, cwd, HomeTildeStricter)
 	}
 	reading := shellparse.ANSICNULReading(command)
 	if reading == "" {
-		return e.EvaluatePrivateAlias(command, paths, parsed, cwd, PrivateAliasStricter)
+		return e.EvaluateHomeTilde(command, paths, parsed, cwd, HomeTildeStricter)
 	}
 	// The cut reading is evaluated the way the hook evaluates a command:
 	// normalize gives it its own argv paths and its own tree. parsed is the
 	// as-written tree and is never reused for it.
 	n := normalize.NormalizeCommand(reading, cwd)
-	cut := e.EvaluatePrivateAlias(reading, n.Paths, n.Parsed, cwd, PrivateAliasStricter)
+	cut := e.EvaluateHomeTilde(reading, n.Paths, n.Parsed, cwd, HomeTildeStricter)
 	if mode == ANSICNULOn {
 		return cut
 	}
-	asWritten := e.EvaluatePrivateAlias(command, paths, parsed, cwd, PrivateAliasStricter)
+	asWritten := e.EvaluateHomeTilde(command, paths, parsed, cwd, HomeTildeStricter)
 	return stricterResult(asWritten, cut)
 }

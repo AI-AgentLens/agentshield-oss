@@ -1473,7 +1473,6 @@ case:TP-DEFEXFIL-027
 case:TP-NE-DEFERREDEXFIL-EXECGUARD-3889
 
 # --- 2026-09-19: 1 entry added by check-oss-baseline.sh --refresh ---
-test:TestPrefixBypassRatchet
 
 # --- 2026-09-20: 2 entries added by check-oss-baseline.sh --refresh ---
 case:TP-HOSTTRUST-001
@@ -1541,5 +1540,35 @@ test:TestInterpReview4418_ExecChannelsOutsideAllowlist
 case:TP-RAILWAY-VOLUMEDELETE-001
 
 # --- 2026-10-25: 2 entries added by check-oss-baseline.sh --refresh ---
-test:TestANSICNULNeverRelaxes
-test:TestANSICNULVerbSpliceParity
+
+# --- 2026-10-26: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestDNSExfilGrepSpanFP4552IsPinned
+
+# --- 2026-10-28: 5 entries added by check-oss-baseline.sh --refresh ---
+case:TP-NE-BLOCK-DNS-AXFR-003
+case:TP-NE-BLOCK-DNS-AXFR-004
+case:TP-NE-BLOCK-DNS-IXFR-002
+case:TP-NE-DNS-VARIND-003
+test:TestOverrideCannotSilenceAnotherOperand
+
+# --- 2026-10-29: 7 entries added by check-oss-baseline.sh --refresh ---
+case:TP-NE-DNS-VARIND-004
+test:TestDNSZoneTransferBypassClassesStayBlocked_4626
+test:TestDNSZoneTransferCompoundDocTextResidual_4626
+test:TestDNSZoneTransferExclusionResidue_4626
+test:TestDNSZoneTransferGrepNeedles_4626
+test:TestDNSZoneTransferPreexistingGaps_4626
+test:TestDNSZoneTransferRegexOnlyPathKeepsChains_4626
+
+# --- 2026-11-04: 7 entries added by check-oss-baseline.sh --refresh ---
+case:TP-WIN-BACKUP-CATALOG-001
+case:TP-WIN-BOOT-RECOVERY-001
+case:TP-WIN-HIVE-SAVE-001
+case:TP-WIN-LSASS-DUMP-001
+case:TP-WIN-LSASS-DUMP-002
+case:TP-WIN-SHADOW-DELETE-001
+case:TP-WIN-WMIC-SUBSCRIPTION-001
+
+# --- 2026-11-06: 5 entries added by check-oss-baseline.sh --refresh ---
+case:TP-WIN-HIVE-COPY-001
+case:TP-WIN-HIVE-COPY-002

@@ -349,6 +349,20 @@ else
     fail "codex: matcher not anchored (would over-match)"
 fi
 
+# 6b2: MCP entry — Codex names MCP tools mcp__<server>__<tool> and matches a
+# pattern without regex characters exactly, so the matcher must be a regex
+if grep -q '"\^mcp__\.\*"' "$HOME/.codex/hooks.json"; then
+    pass "codex: MCP entry installed (^mcp__.*)"
+else
+    fail "codex: MCP entry missing — Codex MCP tool calls would go unchecked"
+fi
+if grep -q '"AgentShield: shell commands"' "$HOME/.codex/hooks.json" && \
+   grep -q '"AgentShield: MCP tool calls"' "$HOME/.codex/hooks.json"; then
+    pass "codex: entries named for /hooks"
+else
+    fail "codex: entries show as \"Unnamed hook\" in /hooks"
+fi
+
 # 6c: Setup with pre-existing other hooks (must not destroy them)
 cat > "$HOME/.codex/hooks.json" <<HOOKS
 {
@@ -398,13 +412,39 @@ else
     fail "codex: upgrade left hooks.json in unexpected state"
 fi
 
-# 6e: Idempotent re-run (no duplicate entries)
+# 6e: Idempotent re-run (shell + MCP entries, no duplicates)
 agentshield setup codex > /dev/null 2>&1
 COUNT=$(grep -c "agentshield hook" "$HOME/.codex/hooks.json")
-if [ "$COUNT" -eq 1 ]; then
+if [ "$COUNT" -eq 2 ]; then
     pass "codex: idempotent (no duplicate)"
 else
-    fail "codex: duplicate entries ($COUNT found)"
+    fail "codex: expected 2 entries (shell + MCP), found $COUNT"
+fi
+
+# 6e2: Upgrade from a shell-only install appends the MCP entry and leaves the
+# trusted shell entry untouched. Codex keys trust by position and hashes the
+# matcher and command, so an edited or shifted shell entry stops running.
+cat > "$HOME/.codex/hooks.json" <<SHELLONLY
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [{"type": "command", "command": "/opt/old/agentshield hook", "timeout": 10}]
+      }
+    ]
+  }
+}
+SHELLONLY
+agentshield setup codex > /dev/null 2>&1
+BASH_LINE=$(grep -n '"\^Bash\$"' "$HOME/.codex/hooks.json" | head -1 | cut -d: -f1)
+MCP_LINE=$(grep -n '"\^mcp__\.\*"' "$HOME/.codex/hooks.json" | head -1 | cut -d: -f1)
+if grep -q "/opt/old/agentshield hook" "$HOME/.codex/hooks.json" && \
+   [ "$(grep -c "agentshield hook" "$HOME/.codex/hooks.json")" -eq 2 ] && \
+   [ -n "$BASH_LINE" ] && [ -n "$MCP_LINE" ] && [ "$BASH_LINE" -lt "$MCP_LINE" ]; then
+    pass "codex: upgrade appends MCP entry, shell entry untouched"
+else
+    fail "codex: upgrade rewrote or reordered the shell entry"
 fi
 
 # 6f: Hook payload routing — safe Bash command (Codex payload shape with turn_id)
@@ -421,6 +461,20 @@ if [ "$EXIT" = "2" ]; then
     pass "codex: hook blocks dangerous command (exit 2)"
 else
     fail "codex: hook returned exit $EXIT for rm -rf / (expected 2)"
+fi
+
+# 6g2: Codex MCP payload (tool_name mcp__<server>__<tool>) goes to the MCP
+# policy, which blocks a credential-file read
+EXIT=$(hook_eval '{"hook_event_name":"PreToolUse","tool_name":"mcp__fs__read_file","turn_id":"turn_e2e_mcp","tool_input":{"path":"/home/user/.vault-token"}}')
+if [ "$EXIT" = "2" ]; then
+    pass "codex: hook blocks MCP credential read (exit 2)"
+else
+    fail "codex: hook returned exit $EXIT for MCP credential read (expected 2)"
+fi
+if tail -1 "$HOME/.agentshield/audit.jsonl" 2>/dev/null | grep -q '"source":"codex-mcp-hook"'; then
+    pass "codex: MCP call labelled codex-mcp-hook"
+else
+    fail "codex: MCP call not labelled codex-mcp-hook"
 fi
 
 # 6h: Codex payload labels audit source as codex-hook (turn_id present)

@@ -71,9 +71,7 @@ func ExpandBraces(command string) []string {
 		return nil
 	}
 
-	reader := strings.NewReader(command)
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(reader, "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return nil
 	}

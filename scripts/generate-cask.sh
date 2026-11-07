@@ -55,20 +55,34 @@ cask "agentshield" do
 
   # Stop the heartbeat daemon before upgrading so the old binary doesn't keep
   # running as a zombie after brew replaces it.
-  preflight do
-    if OS.mac?
-      plist = File.expand_path("~/Library/LaunchAgents/com.aiagentlens.agentshield.plist")
-      if File.exist?(plist)
-        system_command "/bin/launchctl", args: ["bootout", "gui/#{Process.uid}/com.aiagentlens.agentshield"], print_stderr: false
-        File.delete(plist) if File.exist?(plist)
+  #
+  # Structured steps, not Ruby flight blocks: Homebrew 7.0.0 deprecated
+  # preflight/postflight (Homebrew/brew#23729) and the next minor release turns
+  # that into an error. These steps need Homebrew >= 6.0.16; older ones refuse
+  # to load the cask. They run in Homebrew's sandbox with a throwaway HOME, so
+  # home paths use base: :home (a literal ~ would name the throwaway HOME), and
+  # the uid comes from id -u because a steps block allows no Ruby interpolation.
+  # must_succeed: false keeps system_command's ignore-failure behaviour.
+  preflight_steps do
+    on_macos do
+      if_path_exists "Library/LaunchAgents/com.aiagentlens.agentshield.plist", base: :home do
+        run "/bin/sh",
+            args:         ["-c", "exec /bin/launchctl bootout gui/\$(/usr/bin/id -u)/com.aiagentlens.agentshield"],
+            must_succeed: false,
+            print_stderr: false
+        remove "Library/LaunchAgents/com.aiagentlens.agentshield.plist", base: :home
       end
     end
   end
 
-  postflight do
-    if OS.mac?
-      system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentshield"]
-      system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentcompliance"]
+  postflight_steps do
+    on_macos do
+      run "/usr/bin/xattr",
+          args:         ["-dr", "com.apple.quarantine", "{{staged_path}}/agentshield"],
+          must_succeed: false
+      run "/usr/bin/xattr",
+          args:         ["-dr", "com.apple.quarantine", "{{staged_path}}/agentcompliance"],
+          must_succeed: false
     end
   end
 

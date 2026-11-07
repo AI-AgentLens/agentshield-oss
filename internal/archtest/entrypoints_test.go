@@ -57,16 +57,22 @@ var directConstructionSites = map[string]entryPoint{
 // until it is registered, and an enforcing one must also get a parity row.
 var registeredEntryPoints = map[string]entryPoint{
 	// Decide live agent actions.
-	"internal/cli/hook.go:evaluateCommandNoted":              {surface: "shell hook (every harness's shell tool)", enforcing: true, calls: 1},
-	"internal/cli/hook.go:handleClaudeCodeMCPCall":           {surface: "hook tool path (built-in tools and mcp__* via PreToolUse)", enforcing: true, calls: 1},
+	// The hook's lanes build their engines where they read a call;
+	// evaluateCommandNoted and handleClaudeCodeMCPCall record what these
+	// read, and the lane combiner (internal/cli/hook_lanes.go) calls them.
+	// readShellShaped builds the shell engine for both shell lanes: POSIX
+	// (readCommand) and PowerShell (readPowerShell, ADR-001 step 4).
+	"internal/cli/hook.go:readShellShaped":                   {surface: "shell hook (every harness's shell tool; the POSIX and PowerShell lanes)", enforcing: true, calls: 1},
+	"internal/cli/hook.go:readToolCall":                      {surface: "hook tool path (built-in tools and mcp__* via PreToolUse)", enforcing: true, calls: 1},
 	"internal/cli/mcp_proxy.go:mcpProxyCommand":              {surface: "stdio MCP proxy", enforcing: true, calls: 1},
 	"internal/cli/mcp_http_proxy.go:mcpHTTPProxyCommand":     {surface: "HTTP MCP proxy", enforcing: true, calls: 1},
 	"cmd/shield-server/server.go:(*Server).loadShellEngine":  {surface: "shield-server /v1/evaluate, shell", enforcing: true, calls: 1},
 	"cmd/shield-server/server.go:(*Server).loadMCPEvaluator": {surface: "shield-server /v1/evaluate, MCP", enforcing: true, calls: 1},
 
 	// Diagnostics that predict an enforcing surface.
-	"internal/cli/check.go:newCheckEngine": {surface: "agentshield check (predicts the shell hook)", calls: 1},
-	"internal/cli/mcp_eval.go:mcpEvalRun":  {surface: "agentshield mcp-eval (predicts the hook tool path)", calls: 1},
+	"internal/cli/check.go:newCheckEngine":          {surface: "agentshield check (predicts the shell hook)", calls: 1},
+	"internal/cli/check.go:(*checkEngine).addProbe": {surface: "agentshield check --fixture fires/silent probe (rule matching only, decides nothing)", calls: 1},
+	"internal/cli/mcp_eval.go:mcpEvalRun":           {surface: "agentshield mcp-eval (predicts the hook tool path)", calls: 1},
 }
 
 // constructorRefs finds every reference to one of the given functions

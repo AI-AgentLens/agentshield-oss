@@ -78,8 +78,7 @@ jobs:
       # 1. Install AgentShield
       - name: Install AgentShield
         run: |
-          brew tap AI-AgentLens/oss
-          brew install agentshield
+          brew install ai-agentlens/oss/agentshield
           agentshield version
 
       # 2. Wire the PreToolUse hook for the coding agent (Claude Code shown)
@@ -147,4 +146,6 @@ agentshield check --shell "env"
   with it any event still queued, so set `AGENTSHIELD_AUDIT_UPLOAD=sync` in the
   agent step's environment (commented in step 4 above): each hook call then
   uploads its own event before it returns, at the cost of one SaaS round trip
-  per tool call.
+  per tool call. Near the agent's hook timeout the upload gets only the time
+  left, so the answer still lands in time; an event decided that late may then
+  not reach the SaaS (the local audit log keeps it, #4803).

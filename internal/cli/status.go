@@ -9,9 +9,13 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/auth"
 	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/homedir"
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/safefile"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var statusCmd = &cobra.Command{
@@ -67,14 +71,15 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 
 	// 3. IDE Shell Hooks
 	fmt.Println("─── Shell Command Hooks ────────────────────────────────")
-	checkShellHook("Windsurf", filepath.Join(os.Getenv("HOME"), ".codeium", "windsurf", "hooks.json"))
-	checkShellHook("Cursor", filepath.Join(os.Getenv("HOME"), ".cursor", "hooks.json"))
+	home, _ := homedir.Dir() // not $HOME: Windows sets none (#4717)
+	checkShellHook("Windsurf", filepath.Join(home, ".codeium", "windsurf", "hooks.json"))
+	checkShellHook("Cursor", filepath.Join(home, ".cursor", "hooks.json"))
 	checkOpenClawHook()
 	fmt.Println()
 
 	// 4. MCP Proxy
 	fmt.Println("─── MCP Proxy ─────────────────────────────────────────")
-	checkMCPProxy("Cursor MCP", filepath.Join(os.Getenv("HOME"), ".cursor", "mcp.json"))
+	checkMCPProxy("Cursor MCP", filepath.Join(home, ".cursor", "mcp.json"))
 	claudeConfigPath := claudeDesktopConfigPath()
 	if claudeConfigPath != "" {
 		checkMCPProxy("Claude Desktop", claudeConfigPath)
@@ -83,7 +88,7 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 
 	// 5. Policy
 	fmt.Println("─── Policy ────────────────────────────────────────────")
-	checkPolicyFile("Shell policy", policyPathOrDefault(cfg))
+	checkShellPolicyFile(policyPathOrDefault(cfg))
 	mcpPolPath := ""
 	if cfg != nil {
 		mcpPolPath = filepath.Join(cfg.ConfigDir, mcp.DefaultMCPPolicyFile)
@@ -121,6 +126,11 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Println("  ⚠  No policy packs available")
 		}
+
+		if ids := uncategorizedRules(policyPathOrDefault(cfg), packsDir); len(ids) > 0 {
+			fmt.Printf("  ⚠  %d rule(s) name no taxonomy node, so their records map to no compliance control: %s\n",
+				len(ids), listSome(ids, 5))
+		}
 	}
 	fmt.Println()
 
@@ -134,6 +144,46 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	return nil
+}
+
+// uncategorizedRules returns the ids of the user's own rules that name no
+// taxonomy node: every rule in the local policy file, plus on-disk pack rules
+// with the documented "co-" (company custom) id prefix. Such a rule still
+// enforces, but its audit records map to no compliance control. Shipped rules
+// are left out because the user can't change them, and ALLOW rules because an
+// allow is not evidence. The policy file is read as written: policy.Load would
+// merge in the built-in default rules.
+func uncategorizedRules(policyFile, packsDir string) []string {
+	var ids []string
+	add := func(rules []policy.Rule, ownOnly bool) {
+		for _, r := range rules {
+			if r.Taxonomy != "" || r.Decision == policy.DecisionAllow {
+				continue
+			}
+			if ownOnly && !strings.HasPrefix(r.ID, "co-") {
+				continue
+			}
+			ids = append(ids, r.ID)
+		}
+	}
+	if data, err := safefile.ReadFile(policyFile); err == nil {
+		var user policy.Policy
+		if yaml.Unmarshal(data, &user) == nil {
+			add(user.Rules, false)
+		}
+	}
+	if packs, _, err := policy.LoadPacks(packsDir, &policy.Policy{}); err == nil && packs != nil {
+		add(packs.Rules, true)
+	}
+	return ids
+}
+
+// listSome joins up to n items and says how many more there are.
+func listSome(items []string, n int) string {
+	if len(items) <= n {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:n], ", "), len(items)-n)
 }
 
 func checkShellHook(name, hooksPath string) {
@@ -150,10 +200,13 @@ func checkShellHook(name, hooksPath string) {
 }
 
 func checkOpenClawHook() {
-	hookDir := filepath.Join(os.Getenv("HOME"), ".openclaw", "hooks", "agentshield")
+	home, _ := homedir.Dir()
+	hookDir := filepath.Join(home, ".openclaw", "hooks", "agentshield")
 	handlerPath := filepath.Join(hookDir, "handler.ts")
 	if _, err := os.Stat(handlerPath); err == nil {
-		fmt.Printf("  ✅ OpenClaw: hook active (%s)\n", hookDir)
+		// Not ✅: the hook only injects a bootstrap instruction. No OpenClaw
+		// tool call reaches `agentshield hook`, so nothing is evaluated (#4582).
+		fmt.Printf("  ⚠  OpenClaw: bootstrap instruction only — commands are NOT evaluated (%s)\n", hookDir)
 	} else {
 		fmt.Printf("  ⬚  OpenClaw: not configured\n")
 	}
@@ -169,7 +222,7 @@ func checkMCPProxy(name, configPath string) {
 	if !strings.Contains(string(data), "agentshield") {
 		// Count servers
 		var configMap map[string]interface{}
-		if err := json.Unmarshal(data, &configMap); err == nil {
+		if err := json.Unmarshal(stripUTF8BOM(data), &configMap); err == nil {
 			if servers, ok := configMap["mcpServers"].(map[string]interface{}); ok {
 				fmt.Printf("  ⚠  %s: %d server(s) NOT proxied (%s)\n", name, len(servers), configPath)
 				return
@@ -181,7 +234,7 @@ func checkMCPProxy(name, configPath string) {
 
 	// Count proxied vs total servers
 	var configMap map[string]interface{}
-	if err := json.Unmarshal(data, &configMap); err != nil {
+	if err := json.Unmarshal(stripUTF8BOM(data), &configMap); err != nil {
 		fmt.Printf("  ✅ %s: proxied (%s)\n", name, configPath)
 		return
 	}
@@ -192,6 +245,18 @@ func checkMCPProxy(name, configPath string) {
 		return
 	}
 
+	proxied := proxiedServerCount(servers)
+	if proxied == len(servers) {
+		fmt.Printf("  ✅ %s: %d/%d server(s) proxied (%s)\n", name, proxied, len(servers), configPath)
+	} else {
+		fmt.Printf("  ⚠  %s: %d/%d server(s) proxied (%s)\n", name, proxied, len(servers), configPath)
+	}
+}
+
+// proxiedServerCount counts the stdio servers whose command is the agentshield
+// binary. setup mcp writes its absolute path, agentshield.exe on Windows, so a
+// bare-name comparison reported every wrapped server as unprotected (#4717).
+func proxiedServerCount(servers map[string]interface{}) int {
 	proxied := 0
 	for _, v := range servers {
 		serverMap, ok := v.(map[string]interface{})
@@ -199,16 +264,29 @@ func checkMCPProxy(name, configPath string) {
 			continue
 		}
 		command, _ := serverMap["command"].(string)
-		if command == "agentshield" {
+		if hookentry.IsProgram(command) {
 			proxied++
 		}
 	}
+	return proxied
+}
 
-	if proxied == len(servers) {
-		fmt.Printf("  ✅ %s: %d/%d server(s) proxied (%s)\n", name, proxied, len(servers), configPath)
-	} else {
-		fmt.Printf("  ⚠  %s: %d/%d server(s) proxied (%s)\n", name, proxied, len(servers), configPath)
+// checkShellPolicyFile is checkPolicyFile plus the parse scan and check do: a
+// policy.yaml that exists but cannot be read makes the hook decide every
+// command as AUDIT (agentshield-eval-error, #4393), so status must not show a
+// tick for it (#4739). Reporting only; no decision changes.
+func checkShellPolicyFile(path string) {
+	if path != "" {
+		if _, statErr := os.Stat(path); statErr == nil {
+			if _, err := policy.Load(path); err != nil {
+				fmt.Printf("  ❌ Shell policy: %s is not a valid AgentShield policy: %v\n", path, err)
+				fmt.Println("     The hook decides every command as AUDIT (agentshield-eval-error) until it is fixed.")
+				fmt.Println("     If you did not write this file, delete it to use the built-in rules.")
+				return
+			}
+		}
 	}
+	checkPolicyFile("Shell policy", path)
 }
 
 func checkPolicyFile(name, path string) {
@@ -251,11 +329,12 @@ func policyPathOrDefault(cfg *config.Config) string {
 }
 
 func claudeDesktopConfigPath() string {
-	home := os.Getenv("HOME")
+	home, _ := homedir.Dir()
 	candidates := []string{
 		filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
 		filepath.Join(home, ".config", "claude", "claude_desktop_config.json"),
 	}
+	candidates = append(candidates, windowsClaudeDesktopConfigs(home)...)
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c

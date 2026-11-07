@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"os/exec"
-	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -48,8 +47,10 @@ var auditFlusherArgv = func() (argv, extraEnv []string, err error) {
 //     hook call as slow as the upload (TestAuditFlusher_HookDoesNotWaitForUpload);
 //   - its own session (Setsid), so a signal to the hook's process group (a
 //     harness timing the hook out) does not reach it;
-//   - Start then Release, never Wait. The hook exits right after, and the
-//     orphan is reaped by init/launchd.
+//   - reaped in the background (startReaped). The hook exits right after and
+//     never waits; an MCP proxy lives as long as its client, and an uploader
+//     it never waited for stayed a zombie, one per decision, until the user
+//     ran out of processes (#4734 review).
 //
 // Its working directory is the queue directory, so it does not pin the
 // agent's project directory.
@@ -62,9 +63,23 @@ func spawnDetachedFlusher() error {
 	cmd.Env = append(os.Environ(), extraEnv...)
 	cmd.Dir = auditQueueDir()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachedProcAttr()
+	_, err = startReaped(cmd)
+	return err
+}
+
+// startReaped starts cmd and waits for it in a goroutine, so a long-lived
+// caller collects its exit status instead of leaving a zombie. The returned
+// channel closes once it has. A caller that exits first leaves the child to
+// init/launchd, as before.
+func startReaped(cmd *exec.Cmd) (<-chan struct{}, error) {
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
-	return cmd.Process.Release()
+	reaped := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(reaped)
+	}()
+	return reaped, nil
 }

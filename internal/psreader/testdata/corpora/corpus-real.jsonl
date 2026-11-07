@@ -1,0 +1,4 @@
+{"id": 515436, "command": "Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,2)}}, @{n='UsedGB';e={[math]::Round($_.Used/1GB,2)}}"}
+{"id": 515433, "command": "Get-ChildItem -Force \"$env:USERPROFILE\\.ssh\" | Select-Object Name, Length, LastWriteTime"}
+{"id": 514825, "command": "Get-ChildItem -Name"}
+{"id": 513714, "command": "$PSVersionTable.PSVersion.ToString(); Get-ChildItem C:\\aiagentlens | Select-Object -First 3 Name; (Get-Process | Measure-Object).Count"}

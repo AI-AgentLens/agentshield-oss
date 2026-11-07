@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -192,10 +191,10 @@ func (r *ToolRegistry) Prune(maxAge time.Duration) int {
 	}
 	defer func() { _ = f.Close() }()
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockRegistry(f); err != nil {
 		return 0
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer unlockRegistry(f)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -259,10 +258,10 @@ func (r *ToolRegistry) lockedReadWrite(serverName string, entry ServerEntry) all
 	}
 	defer func() { _ = f.Close() }()
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockRegistry(f); err != nil {
 		return nil
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer unlockRegistry(f)
 
 	var all allServersRegistry
 	data, err := os.ReadFile(path)

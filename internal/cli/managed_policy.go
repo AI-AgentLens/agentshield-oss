@@ -22,8 +22,10 @@ import (
 // disable_rules (a deliberate tier split between community and premium) are
 // left alone. Returns nil when the host is not managed or nothing was set.
 // managedConfigProtectedPath is the glob added to protected_paths on a managed
-// host for every command that is not a plain read (#3620, path layer).
-const managedConfigProtectedPath = "~/.agentshield/**"
+// host for every command that is not a plain read (#3620, path layer). Defined
+// in policy, which keeps its BLOCK unattributed and off the tool-call surfaces'
+// customer list (#4645, #4431 item 2).
+const managedConfigProtectedPath = policy.ManagedConfigProtectedPath
 
 // protectManagedConfigDir adds the config directory to the policy's
 // protected_paths on a managed host, unless cmd is a plain read-only statement

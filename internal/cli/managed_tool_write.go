@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
@@ -28,10 +29,14 @@ import (
 // selfProtectToolWriteRule names the block in the reason and the audit event.
 const selfProtectToolWriteRule = "sp-block-config-tool-write"
 
-// selfProtectTaxonomy is the node the MCP twin of this check
-// (mcp-persist-block-agentshield-config-write) already cites, so the receipt
-// attests to the control it maps to.
-const selfProtectTaxonomy = "persistence-evasion/defense-evasion/security-tool-tampering"
+// The receipt is split by target, like the shell rules' (Gary, 2026-10-30,
+// #4670): a write onto the audit log cites ai-audit-trail-circumvention, and
+// every other file in the directory cites security-tool-tampering, the node
+// the MCP twin of this check (mcp-persist-block-agentshield-config-write)
+// cites. "The log" is the community rule ts-block-agentshield-log-overwrite's
+// path set (toolWriteTarget), so this path, sp-block-binary-replace and an
+// unmanaged host's shell agree on which files are the log. The nodes are
+// spTargetTaxonomy's.
 
 // harnessWriteTools are the harness file-write tools, by the name the hook
 // receives. The set is closed per harness, so it is a blocklist — a tool not
@@ -149,8 +154,19 @@ func patchTargets(patch string) []string {
 // inside it is not recognised. Creating that link is a shell access to the
 // config, so it is the shell layers' to refuse, with their own limits.
 func inManagedConfigDir(p, cwd, home string) bool {
+	_, ok := managedConfigDirRel(p, cwd, home)
+	return ok
+}
+
+// managedConfigDirRel is inManagedConfigDir, and the path of the file the
+// write lands on relative to the directory ("." for the directory itself),
+// slash-separated. The relative path comes from the reading that found the
+// directory: the cleaned spelling when that is in it, otherwise the resolved
+// path below the ancestor that is the directory. ok is exactly
+// inManagedConfigDir's answer.
+func managedConfigDirRel(p, cwd, home string) (rel string, ok bool) {
 	if p == "" || home == "" {
-		return false
+		return "", false
 	}
 	// Concatenated, not filepath.Join: Join cleans, and the OS reading needs
 	// the path as written.
@@ -164,11 +180,14 @@ func inManagedConfigDir(p, cwd, home string) bool {
 		p = cwd + string(filepath.Separator) + p
 	}
 	dir := filepath.Join(home, ".agentshield")
-	if pathWithin(filepath.Clean(p), dir) {
-		return true
+	if clean := filepath.Clean(p); pathWithin(clean, dir) {
+		return relSlash(dir, clean), true
 	}
 	dirInfo, err := os.Stat(dir)
-	return err == nil && ancestorIsDir(resolveWritePath(p, 0), dirInfo)
+	if err != nil {
+		return "", false
+	}
+	return ancestorRel(resolveWritePath(p, 0), dirInfo)
 }
 
 // pathWithin reports whether p is d or below d, on cleaned paths.
@@ -176,19 +195,48 @@ func pathWithin(p, d string) bool {
 	return p == d || strings.HasPrefix(p, strings.TrimSuffix(d, string(filepath.Separator))+string(filepath.Separator))
 }
 
-// ancestorIsDir walks a clean path p and its parents and reports whether any
-// that exists is the same file as dir.
-func ancestorIsDir(p string, dir os.FileInfo) bool {
-	for {
-		if fi, err := os.Stat(p); err == nil && os.SameFile(fi, dir) {
-			return true
+// ancestorRel walks a clean path p and its parents and reports whether any
+// that exists is the same file as dir, with p relative to that ancestor.
+func ancestorRel(p string, dir os.FileInfo) (string, bool) {
+	for a := p; ; {
+		if fi, err := os.Stat(a); err == nil && os.SameFile(fi, dir) {
+			return relSlash(a, p), true
 		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return false
+		parent := filepath.Dir(a)
+		if parent == a {
+			return "", false
 		}
-		p = parent
+		a = parent
 	}
+}
+
+// relSlash is p relative to its ancestor base, slash-separated.
+func relSlash(base, p string) string {
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		return "."
+	}
+	return filepath.ToSlash(rel)
+}
+
+// toolWriteTarget classifies a write that lands on rel inside the config
+// directory: the log when the community overwrite rule matches a copy onto
+// ~/.agentshield/<rel>, and config otherwise, including when that rule is
+// missing from the embedded packs (TestAuditLogOverwriteSetComesFromCommunityPack
+// fails the build then).
+func toolWriteTarget(rel string) spTarget {
+	return toolWriteTargetWith(rel, auditLogOverwriteSet())
+}
+
+// toolWriteTargetWith is the body, with the log-path set injected so the
+// absent-rule fallback is testable (#4670 pass 1, F2–F4): a nil set means the
+// write is tampering, never the log node.
+func toolWriteTargetWith(rel string, overwrite *regexp.Regexp) spTarget {
+	if overwrite != nil && rel != "." &&
+		overwrite.MatchString("cp /dev/null ~/.agentshield/"+rel) {
+		return spTargetLog
+	}
+	return spTargetConfig
 }
 
 // resolveWritePath returns the clean path of the file a write to p, spelled
@@ -239,16 +287,27 @@ func managedConfigToolWrite(toolName string, arguments map[string]interface{}, f
 	if err != nil {
 		return mcp.MCPEvalResult{}, false
 	}
+	// The reason names the first target in the directory, as before. The
+	// receipt carries the node of every target in it, each once: a patch that
+	// rewrites the log and the policy attests both.
+	first := ""
+	var classes spTarget
 	for _, t := range targets {
-		if inManagedConfigDir(t, cwd, home) {
-			return mcp.MCPEvalResult{
-				Decision:       policy.DecisionBlock,
-				TriggeredRules: []string{"enterprise-self-protect"},
-				Reasons: []string{"Blocked: attempt to modify AgentShield configuration (rule: " + selfProtectToolWriteRule +
-					") — " + toolName + " targets " + t + " in the managed config directory"},
-				TaxonomyRefs: []string{selfProtectTaxonomy},
-			}, true
+		if rel, ok := managedConfigDirRel(t, cwd, home); ok {
+			if first == "" {
+				first = t
+			}
+			classes |= toolWriteTarget(rel)
 		}
 	}
-	return mcp.MCPEvalResult{}, false
+	if first == "" {
+		return mcp.MCPEvalResult{}, false
+	}
+	return mcp.MCPEvalResult{
+		Decision:       policy.DecisionBlock,
+		TriggeredRules: []string{"enterprise-self-protect"},
+		Reasons: []string{"Blocked: attempt to modify AgentShield configuration (rule: " + selfProtectToolWriteRule +
+			") — " + toolName + " targets " + first + " in the managed config directory"},
+		TaxonomyRefs: spTargetRefs(classes),
+	}, true
 }

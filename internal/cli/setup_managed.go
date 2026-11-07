@@ -45,9 +45,9 @@ var managedSettingsPaths = []struct{ label, goos string }{
 
 // managedSettingsSnippet is the managed-settings JSON that registers
 // AgentShield's hook: the result of merging the hook into an empty document.
-func managedSettingsSnippet(binPath string, execOK bool) ([]byte, claudeHookInstall, error) {
+func managedSettingsSnippet(binPath string, execOK bool, onFail onFailurePolicy) ([]byte, claudeHookInstall, error) {
 	doc := map[string]interface{}{}
-	res := mergeClaudeCodeHook(doc, binPath, execOK)
+	res := mergeClaudeCodeHook(doc, binPath, execOK, onFail)
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, res, fmt.Errorf("failed to marshal the managed settings snippet: %w", err)
@@ -58,8 +58,8 @@ func managedSettingsSnippet(binPath string, execOK bool) ([]byte, claudeHookInst
 // printManagedClaudeSnippet is `agentshield setup claude-code --managed`. The
 // JSON goes to stdout alone, so `... --managed > agentshield.json` is a file an
 // MDM can deploy; the guidance goes to stderr. It writes no file.
-func printManagedClaudeSnippet(stdout, stderr io.Writer, binPath, blocker, thisOSPath string) error {
-	snippet, res, err := managedSettingsSnippet(binPath, blocker == "")
+func printManagedClaudeSnippet(stdout, stderr io.Writer, binPath, blocker, thisOSPath string, onFail onFailurePolicy) error {
+	snippet, res, err := managedSettingsSnippet(binPath, blocker == "", onFail)
 	if err != nil {
 		return err
 	}
@@ -88,6 +88,13 @@ func printManagedClaudeSnippet(stdout, stderr io.Writer, binPath, blocker, thisO
 	_, _ = fmt.Fprintln(stderr, "    profile or HKLM registry value, then this file. Put the hook in the source your")
 	_, _ = fmt.Fprintln(stderr, "    machines use; /status in Claude Code names it on its Setting sources line.")
 	_, _ = fmt.Fprintln(stderr, "  - Do not set disableAllHooks in managed settings: it turns off managed hooks too.")
+	if onFail == onFailureBlock {
+		managedOnFailureNote(stderr, "  - ", "    ")
+	} else {
+		_, _ = fmt.Fprintln(stderr, "  - For a fleet whose managed.json sets fail_closed, add --on-failure-block: the entry")
+		_, _ = fmt.Fprintln(stderr, "    then carries \"onFailure\": \"block\", so Claude Code blocks a tool call when the hook")
+		_, _ = fmt.Fprintln(stderr, "    cannot start, crashes or times out.")
+	}
 	_, _ = fmt.Fprintln(stderr)
 	_, _ = fmt.Fprintln(stderr, "To write this machine's file instead, as an administrator:")
 	_, _ = fmt.Fprintln(stderr, "  "+elevatedWriteManagedCommand())
@@ -137,7 +144,9 @@ type managedWrite struct {
 //   - Every key outside hooks.PreToolUse is kept; so is every other hook
 //     group and hook object, and every key of a hook object it migrates.
 //   - A file that already holds our entry is left byte-for-byte unchanged, so
-//     running it twice gives one entry.
+//     running it twice gives one entry. onFail (managedOnFailure) adds
+//     "onFailure": "block" to our entry only for --on-failure-block; it never
+//     removes the key here.
 //   - A file that is not a JSON object, or whose hooks or hooks.PreToolUse
 //     has the wrong type, is refused and left as it is.
 //   - The write is atomic (temp file in the same directory, then rename), so
@@ -147,7 +156,7 @@ type managedWrite struct {
 //
 // A permission failure returns errNeedsElevation; nothing is retried or
 // elevated.
-func writeManagedClaudeHook(path, binPath string, execOK bool) (managedWrite, error) {
+func writeManagedClaudeHook(path, binPath string, execOK bool, onFail onFailurePolicy) (managedWrite, error) {
 	res := managedWrite{Path: path}
 	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		target, err := filepath.EvalSymlinks(path)
@@ -171,7 +180,7 @@ func writeManagedClaudeHook(path, binPath string, execOK bool) (managedWrite, er
 		return res, err
 	}
 
-	res.claudeHookInstall = mergeClaudeCodeHook(settings, binPath, execOK)
+	res.claudeHookInstall = mergeClaudeCodeHook(settings, binPath, execOK, onFail)
 	res.DisablesAllHooks = settings["disableAllHooks"] == true
 	if !res.changed() {
 		if fi, err := os.Stat(res.Path); err == nil {
@@ -276,9 +285,10 @@ func writeFileAtomic(path string, data []byte, mode fs.FileMode) (err error) {
 	return os.Rename(tmp.Name(), path)
 }
 
-// runWriteManaged is `agentshield setup claude-code --write-managed`.
-func runWriteManaged(stdout io.Writer, path, binPath, blocker string) error {
-	res, err := writeManagedClaudeHook(path, binPath, blocker == "")
+// runWriteManaged is `agentshield setup claude-code --write-managed`; onFail is
+// managedOnFailure(--on-failure-block).
+func runWriteManaged(stdout io.Writer, path, binPath, blocker string, onFail onFailurePolicy) error {
+	res, err := writeManagedClaudeHook(path, binPath, blocker == "", onFail)
 	if err != nil {
 		return err
 	}
@@ -296,11 +306,19 @@ func runWriteManaged(stdout io.Writer, path, binPath, blocker string) error {
 		for _, was := range res.Migrated {
 			_, _ = fmt.Fprintf(stdout, "   was: %q\n", was)
 		}
+	case res.OnFailureChanged > 0:
+		_, _ = fmt.Fprintf(stdout, "✅ AgentShield's hook in Claude Code managed settings updated (%s): %s\n", res.Form, res.Path)
 	default:
 		_, _ = fmt.Fprintf(stdout, "✅ Claude Code managed settings already hold AgentShield's hook (%s): %s — not modified\n", res.Form, res.Path)
 	}
 	if res.Form == hookentry.Exec {
 		_, _ = fmt.Fprintf(stdout, "   \"command\": %q, \"args\": [\"hook\"]\n", binPath)
+	}
+	if onFail == onFailureBlock {
+		managedOnFailureNote(stdout, "   ", "   ")
+	} else {
+		_, _ = fmt.Fprintln(stdout, "   No --on-failure-block: no \"onFailure\" key added, and any the file has is left as it is.")
+		_, _ = fmt.Fprintln(stdout, "   A fleet running fail_closed passes --on-failure-block.")
 	}
 	if res.DisablesAllHooks {
 		_, _ = fmt.Fprintln(stdout, "⚠  This file sets \"disableAllHooks\": true, which turns off managed hooks too: AgentShield's hook will not run until it is removed.")
@@ -316,6 +334,126 @@ func runWriteManaged(stdout io.Writer, path, binPath, blocker string) error {
 	_, _ = fmt.Fprintln(stdout)
 	_, _ = fmt.Fprintln(stdout, "The user-scope hook stays as defence in depth. To install or migrate it, run this as")
 	_, _ = fmt.Fprintln(stdout, "each user, without sudo: agentshield setup claude-code")
+	return nil
+}
+
+// managedOnFailureNote says what the managed entry's "onFailure": "block"
+// means, and how to take it out before AgentShield is uninstalled.
+func managedOnFailureNote(w io.Writer, first, rest string) {
+	_, _ = fmt.Fprintln(w, first+"The entry carries \"onFailure\": \"block\" (--on-failure-block): Claude Code 2.1.295+")
+	_, _ = fmt.Fprintln(w, rest+"blocks a tool call when the hook cannot start, crashes or times out, so a machine whose")
+	_, _ = fmt.Fprintln(w, rest+"agentshield is missing blocks every call. Before uninstalling, unenroll the machine and")
+	_, _ = fmt.Fprintln(w, rest+"run: "+elevatedRemoveManagedCommand())
+}
+
+// elevatedRemoveManagedCommand is the command that takes AgentShield's entry
+// out of the managed settings file. AgentShield prints it and never runs it.
+func elevatedRemoveManagedCommand() string {
+	if runtime.GOOS == "windows" {
+		return "agentshield setup claude-code --remove-managed   (from an Administrator prompt)"
+	}
+	return "sudo agentshield setup claude-code --remove-managed"
+}
+
+// managedRemoval reports what removeManagedClaudeHook did.
+type managedRemoval struct {
+	// Path is the file read: the managed settings path, or the file a symlink
+	// there points to.
+	Path string
+	// Missing is true when there is no file.
+	Missing bool
+	// Removed counts the AgentShield hook objects taken out.
+	Removed int
+}
+
+// removeManagedClaudeHook takes every AgentShield hook object out of the
+// Claude Code managed settings file at path (`--remove-managed`). It is the
+// teardown for --write-managed, whose entry no other command removes: --disable
+// and the Homebrew zap touch ~/.claude/settings.json only, and an entry left
+// with "onFailure": "block" after an uninstall blocks every Claude Code call.
+//
+//   - Only AgentShield's hook objects go (hookentry.Classify, the recognizer
+//     --disable uses). Other hooks, groups and keys stay; a PreToolUse group
+//     left empty goes, and hooks.PreToolUse and hooks when nothing is left.
+//   - A missing file, or one with no AgentShield entry, is left as it is.
+//     Running it twice removes nothing the second time.
+//   - A malformed file is refused and left as it is (parseManagedSettings).
+//   - The write is atomic and keeps the file's permission bits, as in
+//     writeManagedClaudeHook.
+//
+// The caller checks enterprise.CheckManagedRemovalAllowed first.
+func removeManagedClaudeHook(path string) (managedRemoval, error) {
+	res := managedRemoval{Path: path}
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return res, fmt.Errorf("cannot resolve symlink %s: %w", path, err)
+		}
+		res.Path = target
+	}
+	data, err := os.ReadFile(res.Path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		res.Missing = true
+		return res, nil
+	case errors.Is(err, fs.ErrPermission):
+		return res, errNeedsElevation(res.Path, err)
+	case err != nil:
+		return res, fmt.Errorf("cannot read Claude Code managed settings %s: %w", res.Path, err)
+	}
+	settings, err := parseManagedSettings(res.Path, data)
+	if err != nil {
+		return res, err
+	}
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	preToolUse, _ := hooks["PreToolUse"].([]interface{})
+	kept, removed := removeAgentShieldHooks(preToolUse)
+	if removed == 0 {
+		return res, nil
+	}
+	res.Removed = removed
+	if len(kept) == 0 {
+		delete(hooks, "PreToolUse")
+	} else {
+		hooks["PreToolUse"] = kept
+	}
+	if len(hooks) == 0 {
+		delete(settings, "hooks")
+	}
+
+	mode := fs.FileMode(0o644)
+	if fi, err := os.Stat(res.Path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return res, fmt.Errorf("failed to marshal managed settings: %w", err)
+	}
+	if err := writeFileAtomic(res.Path, append(out, '\n'), mode); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return res, errNeedsElevation(res.Path, err)
+		}
+		return res, fmt.Errorf("cannot write Claude Code managed settings %s: %w", res.Path, err)
+	}
+	return res, nil
+}
+
+// runRemoveManaged is `agentshield setup claude-code --remove-managed`.
+func runRemoveManaged(stdout io.Writer, path string) error {
+	res, err := removeManagedClaudeHook(path)
+	if err != nil {
+		return err
+	}
+	switch {
+	case res.Missing:
+		_, _ = fmt.Fprintf(stdout, "ℹ  No Claude Code managed settings file at %s — nothing to remove.\n", res.Path)
+	case res.Removed == 0:
+		_, _ = fmt.Fprintf(stdout, "ℹ  Claude Code managed settings hold no AgentShield hook: %s — not modified.\n", res.Path)
+	default:
+		_, _ = fmt.Fprintf(stdout, "✅ AgentShield's hook removed from Claude Code managed settings (%d hook object(s)): %s\n", res.Removed, res.Path)
+		_, _ = fmt.Fprintln(stdout, "   Every other key and hook in the file was kept.")
+		_, _ = fmt.Fprintln(stdout, "   The user-scope hook is separate: agentshield setup claude-code --disable, as each user.")
+	}
 	return nil
 }
 

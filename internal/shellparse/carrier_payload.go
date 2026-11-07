@@ -112,8 +112,7 @@ func resolveWordValue(raw string) (string, bool) {
 // not the shape this resolver models. `'rm -rf /'` IS one word (a quoted span);
 // `rm -rf /` is three and needs no resolution.
 func parseLoneWord(raw string) (*syntax.Word, bool) {
-	parser := syntax.NewParser(syntax.KeepComments(false))
-	file, err := parser.Parse(strings.NewReader(raw), "")
+	file, err := ParseText(raw, syntax.KeepComments(false))
 	if err != nil || file == nil || len(file.Stmts) != 1 {
 		return nil, false
 	}

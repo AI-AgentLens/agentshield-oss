@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
@@ -72,6 +74,33 @@ type ArgFieldMatch struct {
 	PatternAll []string `yaml:"pattern_all,omitempty"` // all patterns must match
 	PatternNot []string `yaml:"pattern_not,omitempty"` // none of these patterns should match
 
+	// PatternNotMatch excuses one match at a time (#4686). pattern_not is
+	// content-wide: one excused literal anywhere in the value stops the field
+	// for every other match in it, so a placeholder beside a real key hid the
+	// key. A pattern_not_match pattern is run over the whole value, exactly
+	// as pattern_not is, so ^, $ and \b mean what they mean there. A match of
+	// a pattern_any or pattern_all pattern is excused when one of those
+	// exclusion matches lies entirely inside it, and an excused match does
+	// not count: pattern_any holds when some pattern_any pattern has a match
+	// that is not excused, and pattern_all when every pattern_all pattern
+	// has one. Matches are Go's leftmost-first, non-overlapping matches
+	// (FindAllStringIndex), for the positive patterns and the exclusions
+	// alike, so a match that begins inside an excused one is not seen (the
+	// residual is pinned in structural_pattern_not_match_test.go).
+	//
+	// Moving a pattern from pattern_not to pattern_not_match can only raise
+	// a decision: when the pattern matches nowhere in the value, nothing is
+	// excused, which is the only case in which pattern_not let the field
+	// hold.
+	//
+	// The down-level copy: a binary that predates this field ignores it.
+	// A pattern listed in BOTH pattern_not and pattern_not_match is read
+	// here per match only, and its pattern_not copy is what an older binary
+	// applies, content-wide, as before. Every other pattern_not entry keeps
+	// its content-wide meaning, and a field without pattern_not_match
+	// decides exactly as it did.
+	PatternNotMatch []string `yaml:"pattern_not_match,omitempty"`
+
 	// Existence check
 	Exists *bool `yaml:"exists,omitempty"` // argument field must/must not exist
 
@@ -135,12 +164,19 @@ func (c *StructuralExcludeClause) matches(toolName string, arguments map[string]
 
 // MCPStructuralRule is a complete structural rule including decision metadata.
 type MCPStructuralRule struct {
-	ID         string             `yaml:"id"`
-	Taxonomy   string             `yaml:"taxonomy,omitempty"`
-	Match      MCPStructuralMatch `yaml:"match"`
-	Decision   policy.Decision    `yaml:"decision"`
-	Reason     string             `yaml:"reason"`
-	Confidence float64            `yaml:"confidence,omitempty"`
+	ID       string `yaml:"id"`
+	Taxonomy string `yaml:"taxonomy,omitempty"`
+	// TaxonomyFrom says where a firing's receipt node comes from when it is
+	// not Taxonomy. The only value is TaxonomyFromMatchedPath (#4665). Empty,
+	// or any other value, records Taxonomy as before. Taxonomy stays the
+	// rule's node for everything that reads the pack YAML (the SaaS index,
+	// the coverage checks, the self-protection classifier). Only the receipt
+	// of a firing changes, and never its decision.
+	TaxonomyFrom string             `yaml:"taxonomy_from,omitempty"`
+	Match        MCPStructuralMatch `yaml:"match"`
+	Decision     policy.Decision    `yaml:"decision"`
+	Reason       string             `yaml:"reason"`
+	Confidence   float64            `yaml:"confidence,omitempty"`
 	// Tests holds inline TP/TN test cases. Same shape as MCPRuleTest so the
 	// rule_yaml_test runner can validate structural-rule packs as well as
 	// flat-pattern rules. Without this field, YAML `tests:` blocks under a
@@ -152,6 +188,66 @@ type MCPStructuralRule struct {
 func matchStructuralRule(toolName string, arguments map[string]interface{}, rule MCPStructuralRule) bool {
 	m := rule.Match
 	return matchStructural(toolName, arguments, m)
+}
+
+// TaxonomyFromMatchedPath makes a structural rule's receipt node come from
+// the argument value it matched, through the protected-path taxonomy table
+// (policy.MatchedPathTaxonomyRef), rather than from its one static Taxonomy
+// (#4665). It is for catch-alls that match many credential families under
+// one rule. The premium alternative-argument-key rules match about 60 path
+// families and attested ssh-private-key-read on every one of them, so to an
+// auditor a read of ~/.pypirc or of the gcloud config looked like an SSH
+// key read. The rule fires, or does not, exactly as before.
+const TaxonomyFromMatchedPath = "matched_path"
+
+// structuralRuleTaxonomy is the taxonomy a firing of rule records. For a rule
+// with taxonomy_from: matched_path, that is the node of each argument value
+// its args_match pattern predicates matched, once each, sorted: the resolvers
+// that read nested values walk Go maps, so the match order varies run to run
+// while the set does not (#4683 item 3). When no
+// such value can be named (an existence-only match, say) it keeps the static
+// Taxonomy, so the refinement can only replace a node, never drop one.
+func structuralRuleTaxonomy(rule MCPStructuralRule, arguments map[string]interface{}) []string {
+	if rule.TaxonomyFrom != TaxonomyFromMatchedPath {
+		return firstTaxonomy(rule.Taxonomy)
+	}
+	var refs []string
+	for _, v := range matchedArgValues(arguments, rule.Match.ArgsMatch) {
+		if ref := policy.MatchedPathTaxonomyRef(v); !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) == 0 {
+		return firstTaxonomy(rule.Taxonomy)
+	}
+	sort.Strings(refs)
+	return refs
+}
+
+// matchedArgValues are the argument values that satisfied an args_match
+// pattern predicate, in field-name order, using the resolution and the
+// per-value test matchArgField uses. A field with no positive pattern
+// (exists, value_gt/value_lt, or pattern_not alone) names no matched value.
+func matchedArgValues(arguments map[string]interface{}, argsMatch map[string]ArgFieldMatch) []string {
+	names := make([]string, 0, len(argsMatch))
+	for name := range argsMatch {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var out []string
+	for _, name := range names {
+		fm := argsMatch[name]
+		if len(fm.PatternAny) == 0 && len(fm.PatternAll) == 0 {
+			continue
+		}
+		values, _ := resolveFieldValues(arguments, name)
+		for _, v := range values {
+			if matchArgPatterns(v, fm) {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 // matchStructural checks if a tool call matches a structural match definition.
@@ -397,15 +493,19 @@ func matchArgField(arguments map[string]interface{}, fieldName string, fm ArgFie
 	return false
 }
 
-// matchArgPatterns evaluates PatternAny/PatternAll/PatternNot against a
-// single candidate string.
+// matchArgPatterns evaluates PatternAny/PatternAll/PatternNot/PatternNotMatch
+// against a single candidate string. See ArgFieldMatch.PatternNotMatch for
+// how an excused match is decided; with no PatternNotMatch, excused is empty
+// and every predicate below is main's.
 func matchArgPatterns(valStr string, fm ArgFieldMatch) bool {
+	excused := excusedSpans(valStr, fm.PatternNotMatch)
+
 	// PatternAny: at least one pattern must match
 	if len(fm.PatternAny) > 0 {
 		anyMatch := false
 		for _, p := range fm.PatternAny {
 			re, err := regexp.Compile(p)
-			if err == nil && re.MatchString(valStr) {
+			if err == nil && hasCountingMatch(re, valStr, excused) {
 				anyMatch = true
 				break
 			}
@@ -419,15 +519,20 @@ func matchArgPatterns(valStr string, fm ArgFieldMatch) bool {
 	if len(fm.PatternAll) > 0 {
 		for _, p := range fm.PatternAll {
 			re, err := regexp.Compile(p)
-			if err != nil || !re.MatchString(valStr) {
+			if err != nil || !hasCountingMatch(re, valStr, excused) {
 				return false
 			}
 		}
 	}
 
-	// PatternNot: none of these patterns should match
+	// PatternNot: none of these patterns should match. A pattern also listed
+	// in PatternNotMatch was applied per match above; this copy is for
+	// binaries that predate that field.
 	if len(fm.PatternNot) > 0 {
 		for _, p := range fm.PatternNot {
+			if slices.Contains(fm.PatternNotMatch, p) {
+				continue
+			}
 			re, err := regexp.Compile(p)
 			if err == nil && re.MatchString(valStr) {
 				return false
@@ -436,6 +541,47 @@ func matchArgPatterns(valStr string, fm ArgFieldMatch) bool {
 	}
 
 	return true
+}
+
+// excusedSpans is every match of every pattern_not_match pattern in valStr,
+// sorted by start. A pattern that does not compile excuses nothing, as a
+// pattern_not that does not compile excludes nothing.
+func excusedSpans(valStr string, patterns []string) [][]int {
+	var spans [][]int
+	for _, p := range patterns {
+		re, err := cachedRegexp(p)
+		if err != nil {
+			continue
+		}
+		spans = append(spans, re.FindAllStringIndex(valStr, -1)...)
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	return spans
+}
+
+// hasCountingMatch reports whether re has a match in valStr that no excused
+// span lies inside. With nothing excused it is re.MatchString.
+func hasCountingMatch(re *regexp.Regexp, valStr string, excused [][]int) bool {
+	if len(excused) == 0 {
+		return re.MatchString(valStr)
+	}
+	for _, m := range re.FindAllStringIndex(valStr, -1) {
+		if !spanExcused(m[0], m[1], excused) {
+			return true
+		}
+	}
+	return false
+}
+
+// spanExcused reports whether some excused span [a, b) lies inside [start, end).
+func spanExcused(start, end int, excused [][]int) bool {
+	i := sort.Search(len(excused), func(i int) bool { return excused[i][0] >= start })
+	for ; i < len(excused) && excused[i][0] <= end; i++ {
+		if excused[i][1] <= end {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveField extracts a value from a map using dot notation.

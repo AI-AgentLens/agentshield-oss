@@ -72,8 +72,7 @@ func (a *SubstitutionAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		rawCommand = normalized
 	}
 
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(rawCommand), "")
+	file, err := shellparse.ParseText(rawCommand, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		// Parse failure is not Layer 2.5's problem — the regex layer still
 		// covers literal cases and the structural layer's fallback handles

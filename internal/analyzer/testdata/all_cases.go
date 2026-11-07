@@ -235,6 +235,11 @@ func AllTestCases() []TestCase {
 	// setpriv granting ambient capabilities across a uid "drop", and the
 	// setarch family's optional-arch / linux32-linux64-alias evasion.
 	all = append(all, WrapperConfinementCases...)
+	// Issue #4597: zsh command-word spellings bash does not have — the
+	// precommand modifiers noglob/nocorrect/-, `repeat N`, and EQUALS `=cmd`.
+	// Each leaked 22.7% of BLOCKing commands to AUDIT, the same ~22% every
+	// wrapper absent from ExecWrappers leaked in #3227.
+	all = append(all, ZshCommandWordCases...)
 	// Issue #3223: `su -c 'CMD'` / `runuser -u USER -c 'CMD'` were never treated
 	// as inline-code carriers, so the oldest privilege-escalation idiom on Unix
 	// reached no layer that could decompose its payload — 34.3% of BLOCKing
@@ -325,5 +330,10 @@ func AllTestCases() []TestCase {
 	// A $'...' escape that decodes to byte 0 ends the body in bash (#4540):
 	// a NUL spliced into a verb or a path hid it from every anchored rule.
 	all = append(all, ANSICNULCases...)
+	// Windows native programs, round 2 (#4245 follow-up, #4770): recovery
+	// inhibition, event-log clearing, firewall off, Run keys and the Startup
+	// folder, Defender, format.com, WMI subscriptions, LSASS and hive dumps,
+	// and the AUDIT-tier enumeration, account and Remote Desktop rules.
+	all = append(all, WindowsNativeCases...)
 	return all
 }

@@ -33,8 +33,7 @@ Supported on macOS and Linux. Windows is supported via WSL.
 Install:
 
 ```bash
-brew tap AI-AgentLens/oss
-brew install agentshield
+brew install ai-agentlens/oss/agentshield
 ```
 
 Check shell policy without executing the command:
@@ -121,20 +120,27 @@ agentshield setup codex
 agentshield scan
 ```
 
-`setup codex` adds one `PreToolUse` hook entry to `~/.codex/hooks.json`
-matching `^Bash$`. Codex's hook payload is a superset of Claude Code's, so the
-same AgentShield handler evaluates both.
+`setup codex` adds two `PreToolUse` hook entries to `~/.codex/hooks.json`: one
+matching `^Bash$` for shell commands and one matching `^mcp__.*` for MCP tool
+calls. Codex's hook payload is a superset of Claude Code's, so the same
+AgentShield handler evaluates both. If you set up Codex before the MCP entry
+existed, run `agentshield setup codex` again: it adds the MCP entry and leaves
+the shell entry you already approved untouched (`agentshield scan` tells you
+when the MCP entry is missing).
 
-**One more step — Codex requires you to approve the hook before it fires.**
-Until you do, Codex shows `⚠ 1 hook needs review before it can run.` and Bash
-commands run unguarded. To approve:
+**One more step — Codex requires you to approve each new entry before it fires.**
+Until you do, Codex shows a "hook needs review" notice and that entry does not
+run, so its commands or MCP calls go unguarded. To approve:
 
 1. Start Codex: `codex`
 2. At the prompt, type `/hooks`
-3. Select `PreToolUse` → highlight the AgentShield entry → press **T** (Trust)
-4. Exit Codex. The next session routes Bash commands through AgentShield.
+3. Select `PreToolUse` → highlight each AgentShield entry ("AgentShield: shell
+   commands" and "AgentShield: MCP tool calls"; an entry from an older install
+   shows as "Unnamed hook") → press **T** (Trust)
+4. Exit Codex. The next session routes shell commands and MCP tool calls
+   through AgentShield.
 
-Codex re-prompts whenever `~/.codex/hooks.json` changes (e.g., after an
+Codex asks again for any entry whose command changes (e.g., after an
 AgentShield upgrade that resolves to a different binary path). Remove the
 integration with `agentshield setup codex --disable`.
 
@@ -164,11 +170,15 @@ Create `~/.agentshield/policy.yaml`:
 version: "0.1"
 rules:
   - id: block-production-db
+    taxonomy: "credential-exposure/database-access/database-credential-access"
     match:
       command_regex: "psql.*prod"
     decision: "BLOCK"
     reason: "Direct production database access is not allowed."
 ```
+
+The `taxonomy:` line names the rule's threat category, and every record the
+rule produces carries it. `agentshield status` lists rules without one.
 
 Test it before using it in Claude Code:
 

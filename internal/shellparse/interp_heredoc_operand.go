@@ -82,8 +82,7 @@ func InterpreterOperandDefeatsHereString(command string) bool {
 	if !strings.Contains(command, "<<<") {
 		return false
 	}
-	parser := syntax.NewParser(syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
-	file, err := parser.Parse(strings.NewReader(command), "")
+	file, err := ParseText(command, syntax.KeepComments(false), syntax.Variant(syntax.LangBash))
 	if err != nil {
 		return false
 	}

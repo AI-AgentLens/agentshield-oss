@@ -37,6 +37,8 @@ func TestRuleSchema_StaysInSyncWithGoTypes(t *testing.T) {
 		{[]string{"$defs", "semantic_match"}, reflect.TypeOf(SemanticMatch{})},
 		{[]string{"$defs", "stateful_match"}, reflect.TypeOf(StatefulMatch{})},
 		{[]string{"$defs", "context_match"}, reflect.TypeOf(ContextMatch{})},
+		{[]string{"$defs", "powershell_match"}, reflect.TypeOf(PowerShellMatch{})},
+		{[]string{"$defs", "powershell_param"}, reflect.TypeOf(PowerShellParam{})},
 		{[]string{"$defs", "chain_step"}, reflect.TypeOf(ChainStep{})},
 		{[]string{"$defs", "rule_tests"}, reflect.TypeOf(RuleTest{})},
 		// Defined inline rather than in $defs, and therefore missed by every

@@ -168,6 +168,167 @@ type Match struct {
 	// a structural/dataflow/semantic/stateful rule at load time rather than
 	// letting it silently no-op (the recurring "inert match field" trap).
 	Context *ContextMatch `yaml:"context,omitempty"`
+	// PowerShell matches what the PowerShell lane read (ADR-001 step 5,
+	// facts_rules.go). Only Engine.EvaluateFacts reads it: the shell pipeline
+	// routes a rule by its other fields, and a rule that carries this block
+	// may carry no other matcher, so it can never fire in the POSIX lane.
+	// A binary older than this field decodes such a rule with an empty
+	// match, which no analyzer and no fallback matcher ever fires
+	// (TestPowerShellRule_InertInThePOSIXLane).
+	PowerShell *PowerShellMatch `yaml:"powershell,omitempty"`
+	// PowerShellStrings matches the string literals the PowerShell lane read
+	// outside every command's elements (facts.Facts.Strings: assignments,
+	// arrays, hashtables, redirection targets and the arguments of a .NET
+	// method call). It is for a threat written as .NET reflection, with no
+	// command to name, such as the AmsiUtils bypass. Some literal equals
+	// one entry, ASCII case-insensitively. Only Engine.EvaluateFacts reads
+	// it, and a rule that carries it may carry no other matcher.
+	//
+	// It is a sibling of `powershell:` on purpose. A binary that knows
+	// `powershell:` but not this field (v0.2.2639 on) would read
+	// `powershell: {strings: …}` as a block that names no command, which
+	// fails its engine, or read a command plus this field as the command
+	// alone, which over-matches. Every older binary decodes the sibling key
+	// as an empty match, which fires on no path
+	// (TestPowerShellRule_InertInThePOSIXLane), so a premium rule may use it.
+	PowerShellStrings []string `yaml:"powershell_strings,omitempty"`
+	// PowerShellCalls is a powershell match whose tree may also name .NET
+	// method calls (PowerShellMatch.Call, facts.Facts.Calls; Windows round
+	// 3): `irm` fed by `[Convert]::ToBase64String(…)`, or
+	// `[Microsoft.Win32.Registry]::SetValue(…)` on its own. Only
+	// Engine.EvaluateFacts reads it, and a rule that carries it may carry no
+	// other matcher. A call node is valid only here, never inside
+	// `powershell:`.
+	//
+	// It is a sibling of `powershell:` for the reason powershell_strings is:
+	// a binary that predates it (v0.2.2619, v0.2.2639, v0.2.2640) decodes the
+	// whole key as an empty match, which fires on no path, where the same
+	// tree inside `powershell:` would lose its call nodes and read as a
+	// narrower-than-written rule, or as a block that names no command and
+	// fails that binary's engine. So a premium rule may use it, with the
+	// vocabulary this binary reads (TestPremiumPowerShellCalls_KnownVocabulary).
+	PowerShellCalls *PowerShellMatch `yaml:"powershell_calls,omitempty"`
+}
+
+// PowerShellMatch matches one command the PowerShell lane read
+// (facts.Facts.Commands). Every field given must hold for the same command.
+type PowerShellMatch struct {
+	// Command lists canonical command names, aliases already resolved by the
+	// lane (`iex` is invoke-expression). Exact, ASCII case-insensitive, and
+	// never a prefix (Format-Table is not Format-Volume). A native program
+	// matches with or without a directory and `.exe`. Any reading of a
+	// version-dependent name matches (facts.Command.Names). Required.
+	Command StringOrList `yaml:"command"`
+	// Call makes this node match one .NET method call the lane read
+	// (facts.Facts.Calls) instead of a command: `Convert::ToBase64String`
+	// (a static call; the type as written, with or without `System.`, ASCII
+	// case-insensitive) or `.UploadString` (an instance call, any object).
+	// A node names Command or Call, not both. A call node carries only
+	// ValuesAny (read over the string literals in its arguments), FedByAny
+	// and FedByAll (the commands and calls inside its arguments). Valid only
+	// under powershell_calls (Match.PowerShellCalls).
+	Call StringOrList `yaml:"call,omitempty"`
+	// ParamsAny: some parameter of the command matches one entry.
+	ParamsAny []PowerShellParam `yaml:"params_any,omitempty"`
+	// Positions are the parameters the command binds positional arguments
+	// to, in order (Set-ItemProperty: -Path, -Name, -Value). ParamsAny then
+	// also reads a parameter bound by position, value_not against the
+	// argument's source text. A parameter the text names takes no position.
+	// It only widens params_any, so a binary that predates it reads the rule
+	// as written without it (Windows round 3).
+	Positions []string `yaml:"positions,omitempty"`
+	// ArgsAny: some word of the command equals one entry, ASCII
+	// case-insensitively: an argument's value (its source text when it is
+	// an expression, such as a number), or a parameter as written, which is
+	// how a native program receives `-create`.
+	ArgsAny []string `yaml:"args_any,omitempty"`
+	// ArgsWildcard: args_any also matches a word that is a PowerShell
+	// wildcard pattern (`*`, `?`, `[a-c]`, a backtick escaping) matching an
+	// entry, for a command that expands one (Stop-Service -Name WinDef*
+	// stops WinDefend). It only widens args_any, so a binary that predates
+	// it reads the rule as written without it, never broader (Windows
+	// round 3). A pattern that matches every entry (`*`) matches.
+	ArgsWildcard bool `yaml:"args_wildcard,omitempty"`
+	// PathsAny: some whole-value path of the command (facts.Element.Paths)
+	// matches one glob, ASCII case-insensitively, `\` read as `/`. A glob
+	// that starts with `**/` matches any trailing run of whole path
+	// components. A relative path is also read under cwd.
+	PathsAny []string `yaml:"paths_any,omitempty"`
+	// ValuesAny: some argument value of the command (an argument's value,
+	// or a parameter's value attached with a colon), `\` read as `/` and
+	// trailing separators dropped, matches one glob, ASCII
+	// case-insensitively; `**/` as in PathsAny. It reads values PathsAny
+	// skips as prose, such as a registry key on a provider drive
+	// (`HKCU:\Software\…\Run`, `Registry::HKEY_CURRENT_USER\…`). A computed
+	// value never matches.
+	//
+	// Added after v0.2.2640. A binary from v0.2.2639 or v0.2.2640 reads a
+	// rule that carries it without it, so the rule would match every call of
+	// its command there. Only a community rule may use it: community rules
+	// ship inside the binary that reads them, and /api/packs never delivers
+	// one (TestPremiumPowerShellRules_OnlyStep5Vocabulary).
+	ValuesAny []string `yaml:"values_any,omitempty"`
+	// OutputRuns: a file the command writes, named by one of Params, is run
+	// by a LATER command of the text: a command whose name is that file's
+	// path (`.\a.exe`, `& C:\t\a.exe`, `. .\x.ps1`; a bare name is not a
+	// path, PowerShell never runs one from the current directory), or a
+	// command of By with that path as an argument (`Start-Process a.exe`,
+	// `msiexec /i a.msi`). Paths compare as the lane resolved them, ASCII
+	// case-insensitively, `.\` dropped. Not read: a name computed at run
+	// time (`& "$env:TEMP\a.exe"`, a dynamic_name note), a path passed
+	// inside a longer string (`-ArgumentList '/i a.msi'`), a positional
+	// output. Community only, for the reason ValuesAny is.
+	OutputRuns *PowerShellOutputRuns `yaml:"output_runs,omitempty"`
+	// FedByAny: some command whose output can reach this one (an earlier
+	// stage of its pipeline, or a command inside its arguments:
+	// facts.Command.InputFrom) matches one entry. Under powershell_calls an
+	// entry may be a call node: some .NET call whose output can reach this
+	// command (facts.Command.CallsFrom), or, below a call node, a command or
+	// call inside that call's arguments.
+	FedByAny []PowerShellMatch `yaml:"fed_by_any,omitempty"`
+	// FedByAll: every entry has an input, as FedByAny reads one (Windows
+	// round 3): `Get-WmiObject Win32_ShadowCopy | ForEach-Object {
+	// $_.Delete() }` is ForEach-Object fed by the listing and holding the
+	// .Delete() call. A narrowing key, valid only under powershell_calls,
+	// which every older binary ignores.
+	FedByAll []PowerShellMatch `yaml:"fed_by_all,omitempty"`
+	// EncodedCommand: the command starts PowerShell with -EncodedCommand
+	// text, in any spelling the command line accepts, decoded or not.
+	EncodedCommand bool `yaml:"encoded_command,omitempty"`
+	// StdinScript: the command starts PowerShell whose command line runs its
+	// standard input as the script (facts.Command.StdinScript): `-`,
+	// `-Command -`, `-File -`, or no script at all. Windows round 3; a
+	// narrowing key, valid only under powershell_calls, which every older
+	// binary ignores (inside `powershell:`, v0.2.2640 would drop it and read
+	// any download piped into powershell).
+	StdinScript bool `yaml:"stdin_script,omitempty"`
+}
+
+// PowerShellOutputRuns is PowerShellMatch.OutputRuns.
+type PowerShellOutputRuns struct {
+	// Params name the parameters whose value is the file written: by
+	// decision 1's prefix rule (`-o` is a prefix of `-OutFile`), or exactly
+	// for a native long option (`--output`).
+	Params []string `yaml:"params"`
+	// By lists the commands that run a file passed as an argument.
+	By StringOrList `yaml:"by,omitempty"`
+}
+
+// PowerShellParam matches one parameter of a command.
+type PowerShellParam struct {
+	// Name is matched by prefix, as ADR-001 decision 1 decides (Gary,
+	// 2026-11-02): `-Rec` and `-re` match `-Recurse`. A trailing `*` names a
+	// family: `-Disable*` matches any parameter that starts with `-Disable`,
+	// and any prefix of `-Disable`.
+	Name string `yaml:"name"`
+	// ValueNot, when given, holds only when the parameter's value is none of
+	// these (ASCII case-insensitive, compared with the value's source text).
+	// The value is the one attached with a colon (`-P:$false`), else the
+	// argument right after the parameter; a parameter followed by another
+	// parameter or by nothing has no value and holds (a bare switch is
+	// true). A computed value (`$x`, `(…)`) is none of the listed literals,
+	// so it holds too: the lane cannot show it is false.
+	ValueNot []string `yaml:"value_not,omitempty"`
 }
 
 // ContextMatch gates a rule on the runtime execution context. Today it carries
@@ -316,9 +477,11 @@ type EvalResult struct {
 	Reasons        []string `json:"reasons,omitempty"`
 	// TaxonomyRefs holds the taxonomy node ids of the rules behind this
 	// decision (deduped, empties dropped). Built-in intercepts that have no
-	// taxonomy entry (protected-path, unicode-*, enterprise-self-protect)
-	// contribute nothing rather than a placeholder — an unresolvable ref is
-	// worse than an absent one for attestation. Issue #3111.
+	// taxonomy entry (unicode-* other than unicode-zero-width, protected-path
+	// on a pattern with no node, enterprise-self-protect) contribute nothing
+	// rather than a placeholder — an unresolvable ref is worse than an absent
+	// one for attestation. Issue #3111. The reviewed exceptions are
+	// protectedPathTaxonomy (#4336) and unicodeTaxonomy (#4560).
 	TaxonomyRefs []string `json:"taxonomy,omitempty"`
 	Explanation  string   `json:"explanation,omitempty"`
 	// Notes records where the pipeline excused a match or knowingly gave

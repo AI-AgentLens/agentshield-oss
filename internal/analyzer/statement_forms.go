@@ -34,6 +34,10 @@ type StatementFoldContext struct {
 	// routinely lives in a different statement from the "$NAME ..." use site
 	// (#3089).
 	ExecSyms *shellparse.ExecSymbols
+	// ExecSymsANSIC is ExecSyms with $'...' values decoded (#4591), nil when
+	// the command has none. Only ever an extra resolution, never in place of
+	// ExecSyms.
+	ExecSymsANSIC *shellparse.ExecSymbols
 	// IFSReassigned is true when the whole command assigns IFS anywhere.
 	IFSReassigned bool
 	// AssignedNames holds every name assigned anywhere in the whole command.
@@ -71,6 +75,7 @@ func NewStatementFoldContext(command string) *StatementFoldContext {
 	ifsReassigned, assigned, emptyBound := shellparse.CommandAssignmentContext(command)
 	return &StatementFoldContext{
 		ExecSyms:        shellparse.BuildExecSymbolTable(command),
+		ExecSymsANSIC:   shellparse.BuildExecSymbolTableANSIC(command),
 		IFSReassigned:   ifsReassigned,
 		AssignedNames:   assigned,
 		EmptyBoundNames: emptyBound,
@@ -82,6 +87,13 @@ func (fc *StatementFoldContext) execSymbols() *shellparse.ExecSymbols {
 		return nil
 	}
 	return fc.ExecSyms
+}
+
+func (fc *StatementFoldContext) execSymbolsANSIC() *shellparse.ExecSymbols {
+	if fc == nil {
+		return nil
+	}
+	return fc.ExecSymsANSIC
 }
 
 func (fc *StatementFoldContext) ifsReassigned() bool {
@@ -460,6 +472,14 @@ func StatementMatchCandidates(stmt string, fc *StatementFoldContext) []string {
 				add(normIFS(unwrapped))
 			}
 			addInlineCodeForms(resolved, 1)
+		}
+		// The same resolution with $'...' values decoded (#4591):
+		// x=$'rm\t-rf\t/'; $x runs three words, split on the decoded tabs.
+		if ansic := fc.execSymbolsANSIC(); ansic != nil {
+			if resolved := shellparse.ResolveIndirectExecutable(s, ansic); resolved != "" {
+				add(resolved)
+				add(normIFS(resolved))
+			}
 		}
 
 		// Re-run the prefix/inline-code/wrapper peels against the
