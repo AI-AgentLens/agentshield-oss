@@ -190,6 +190,8 @@ func policyFileWindowsSpelling() string {
 func TestPowerShellLane_ManagedSelfProtection(t *testing.T) {
 	remove := "Remove-Item " + policyFileWindowsSpelling()
 	read := "Get-Content " + policyFileWindowsSpelling()
+	readTilde := "Get-Content ~" + `\.agent` + `shield\policy.yaml`
+	readHome := "Get-Content $HOME" + `\.agent` + `shield\policy.yaml`
 	disable := "agentshield setup claude-code " + "--disable"
 	cases := []struct {
 		name, payload string
@@ -204,9 +206,22 @@ func TestPowerShellLane_ManagedSelfProtection(t *testing.T) {
 		{"claude-code PowerShell Remove-Item", psCall(t, remove), nil, 2, "enterprise-self-protect", "powershell"},
 		{"copilot compat Bash on windows Remove-Item", copilotCompatPayload(t, "sp", "Bash", shellArgs(remove)), append([]string{"AGENTSHIELD_AGENT_ID=copilot-cli"}, onWindows...), 2, "enterprise-self-protect", "powershell"},
 		{"copilot native powershell Remove-Item", copilotNativePayload(t, "sp", "powershell", shellArgs(remove)), nil, 2, "enterprise-self-protect", "powershell"},
-		// A known read passes the PowerShell lane, and nothing else blocks it.
-		{"claude-code PowerShell Get-Content", psCall(t, read), nil, 0, "", "structured"},
-		{"copilot native powershell Get-Content", copilotNativePayload(t, "sp", "powershell", shellArgs(read)), nil, 0, "", "posix"},
+		// A known read passes the PowerShell lane, and with the cmdlet bridge
+		// off nothing else blocks it.
+		{"claude-code PowerShell Get-Content", psCall(t, read), cmdletBridgeOff, 0, "", "structured"},
+		{"copilot native powershell Get-Content", copilotNativePayload(t, "sp", "powershell", shellArgs(read)), cmdletBridgeOff, 0, "", "posix"},
+		// With the cmdlet bridge on, its twin `cat ~/.agentshield/policy.yaml`
+		// is one plain read, so it is read as the Bash tool reads that `cat`,
+		// without the config directory's pattern (psLane.readTwin; Kai,
+		// 2026-11-07): the known read passes, as on main. Before, the twin was
+		// read on the call's engine, which protects the directory for every
+		// PowerShell text, and it BLOCKed by protected-path.
+		{"claude-code PowerShell Get-Content (cmdlet bridge)", psCall(t, read), nil, 0, "", "structured"},
+		{"claude-code PowerShell Get-Content ~\\ (cmdlet bridge)", psCall(t, readTilde), nil, 0, "", "structured"},
+		{"claude-code PowerShell Get-Content $HOME\\ (cmdlet bridge)", psCall(t, readHome), nil, 0, "", "structured"},
+		{"copilot native powershell Get-Content (cmdlet bridge)", copilotNativePayload(t, "sp", "powershell", shellArgs(read)), nil, 0, "", "posix"},
+		{"copilot native powershell Get-Content ~\\ (cmdlet bridge)", copilotNativePayload(t, "sp", "powershell", shellArgs(readTilde)), nil, 0, "", "posix"},
+		{"copilot native powershell Get-Content $HOME\\ (cmdlet bridge)", copilotNativePayload(t, "sp", "powershell", shellArgs(readHome)), nil, 0, "", "posix"},
 		// sp-block-setup-disable, through the POSIX lane.
 		{"copilot native powershell setup --disable", copilotNativePayload(t, "sp", "powershell", shellArgs(disable)), nil, 2, "enterprise-self-protect", "posix"},
 		// No POSIX lane on Claude Code's row, but `agentshield` is a native
@@ -248,21 +263,36 @@ func TestPowerShellLane_ManagedSelfProtection(t *testing.T) {
 // PowerShell read of the policy file too, and Get-Content is not on bash's
 // read list, so the call is blocked even though the PowerShell lane passes it.
 // Lowering it is Gary's call (a POSIX lane leaving the row is ADR-001 step
-// 6). Claude Code's row, which has no POSIX lane, lets the known read pass.
+// 6). Claude Code's row, which has no POSIX lane, lets the known read pass,
+// with the cmdlet bridge off and on: its twin `cat` is read as the Bash
+// tool reads it (psLane.readTwin).
 func TestPowerShellLane_ManagedForwardSlashReadIsBlockedByPOSIX(t *testing.T) {
 	cmd := "Get-Content ~/.agent" + "shield/policy.yaml"
 	home, configDir := newFailSafeHome(t, true, failSafePolicyGood)
+	if code, _, stderr := runHookChild(t, home, psCall(t, cmd), cmdletBridgeOff...); code != 0 {
+		t.Fatalf("claude-code, cmdlet bridge off: exit %d, want 0 (a known read, no POSIX lane). stderr:\n%s", code, stderr)
+	}
+	home, _ = newFailSafeHome(t, true, failSafePolicyGood)
 	if code, _, stderr := runHookChild(t, home, psCall(t, cmd)); code != 0 {
-		t.Fatalf("claude-code: exit %d, want 0 (a known read, no POSIX lane). stderr:\n%s", code, stderr)
+		t.Fatalf("claude-code, cmdlet bridge on: exit %d, want 0 (the twin `cat` read as the Bash tool reads it). stderr:\n%s", code, stderr)
 	}
 	home, configDir = newFailSafeHome(t, true, failSafePolicyGood)
-	if code, _, stderr := runHookChild(t, home, copilotNativePayload(t, "sp", "powershell", shellArgs(cmd))); code != 2 {
+	if code, _, stderr := runHookChild(t, home, copilotNativePayload(t, "sp", "powershell", shellArgs(cmd)), cmdletBridgeOff...); code != 2 {
 		t.Fatalf("copilot native: exit %d, want 2. stderr:\n%s", code, stderr)
 	}
 	e := oneEvent(t, configDir)
-	n := laneReadingsNotes(e.Notes)
-	if len(n) != 1 || !strings.Contains(n[0], "posix=BLOCK(enterprise-self-protect)") || !strings.Contains(n[0], "powershell=AUDIT") || !strings.HasSuffix(n[0], "kept=posix") {
-		t.Errorf("%s notes %q; want POSIX's BLOCK kept over the PowerShell lane's AUDIT", analyzer.NoteLaneReadings, n)
+	off := laneReadingsNotes(e.Notes)
+	if len(off) != 1 || !strings.Contains(off[0], "posix=BLOCK(enterprise-self-protect)") || !strings.Contains(off[0], "powershell=AUDIT") || !strings.HasSuffix(off[0], "kept=posix") {
+		t.Errorf("%s notes %q; want POSIX's BLOCK kept over the PowerShell lane's AUDIT", analyzer.NoteLaneReadings, off)
+	}
+	// With the cmdlet bridge on it is the same: POSIX's BLOCK, the
+	// PowerShell lane's AUDIT, as on main.
+	home, configDir = newFailSafeHome(t, true, failSafePolicyGood)
+	if code, _, stderr := runHookChild(t, home, copilotNativePayload(t, "sp", "powershell", shellArgs(cmd))); code != 2 {
+		t.Fatalf("copilot native, cmdlet bridge on: exit %d, want 2. stderr:\n%s", code, stderr)
+	}
+	if n := laneReadingsNotes(oneEvent(t, configDir).Notes); !slices.Equal(n, off) {
+		t.Errorf("cmdlet bridge on: %s notes %q; want the bridge-off notes %q", analyzer.NoteLaneReadings, n, off)
 	}
 }
 
@@ -832,7 +862,9 @@ func driveHome(t *testing.T, managed bool) (dir, home, configDir string) {
 // `\\?\` or `\\.\` prefix names the same file, so each prefixed spelling
 // decides as its unprefixed control does, with the same rule, on Claude
 // Code's and Copilot's PowerShell rows, unmanaged and managed. Before, every
-// prefixed row decided AUDIT.
+// prefixed row decided AUDIT. Windows round 4: removing the config
+// directory BLOCKs unmanaged too, by ps-block-agentshield-dir-delete (the
+// twin of bash's ts-struct-block-agentshield-dir-delete), prefixed or not.
 func TestPowerShellLane_Win32NamespacePrefix(t *testing.T) {
 	win := `C:\Users\alice`
 	key := `\.ssh\id_` + "rsa"
@@ -842,19 +874,20 @@ func TestPowerShellLane_Win32NamespacePrefix(t *testing.T) {
 		prefixed      []string
 		rule          string
 		managedOnly   bool
+		unmanagedRule string // the rule an unmanaged host BLOCKs by; "" = it does not
 	}
 	rows := []row{
 		{"key read", "Get-Content '" + win + key + "'", []string{
 			`Get-Content '\\?\` + win + key + "'",
 			`Get-Content '\\.\` + win + key + "'",
 			`Get-Content "\\?\$env:USERPROFILE` + key + `"`,
-		}, policy.ProtectedPathRuleID, false},
+		}, policy.ProtectedPathRuleID, false, ""},
 		{"config dir removed", "Remove-Item -LiteralPath '" + win + cfg + "'", []string{
 			`Remove-Item -LiteralPath '\\?\` + win + cfg + "'",
-		}, "enterprise-self-protect", true},
+		}, "enterprise-self-protect", true, "ps-block-agentshield-dir-delete"},
 		{"policy written", "Set-Content -LiteralPath '" + win + cfg + `\policy.yaml' x`, []string{
 			`Set-Content -LiteralPath '\\?\` + win + cfg + `\policy.yaml' x`,
-		}, "enterprise-self-protect", true},
+		}, "enterprise-self-protect", true, ""},
 	}
 	payloads := map[string]func(string) string{
 		"claude-code PowerShell": func(c string) string { return psCall(t, c) },
@@ -877,16 +910,20 @@ func TestPowerShellLane_Win32NamespacePrefix(t *testing.T) {
 				name := fmt.Sprintf("%s, %s, managed=%v", r.name, rowName, managed)
 				t.Run(name, func(t *testing.T) {
 					code, rules := decide(t, managed, payload(r.control))
-					wantBlock := managed || !r.managedOnly
-					if wantBlock && (code != 2 || !containsStr(rules, r.rule)) {
-						t.Fatalf("control: exit %d rules %v, want BLOCK by %s", code, rules, r.rule)
+					rule := r.rule
+					if !managed && r.unmanagedRule != "" {
+						rule = r.unmanagedRule
+					}
+					wantBlock := managed || !r.managedOnly || r.unmanagedRule != ""
+					if wantBlock && (code != 2 || !containsStr(rules, rule)) {
+						t.Fatalf("control: exit %d rules %v, want BLOCK by %s", code, rules, rule)
 					}
 					if !wantBlock && code != 0 {
 						t.Fatalf("control: exit %d rules %v, want 0 unmanaged", code, rules)
 					}
 					for _, p := range r.prefixed {
 						pc, pr := decide(t, managed, payload(p))
-						if pc != code || wantBlock && !containsStr(pr, r.rule) {
+						if pc != code || wantBlock && !containsStr(pr, rule) {
 							t.Errorf("%s: exit %d rules %v; the control exits %d by %v", p, pc, pr, code, rules)
 						}
 					}

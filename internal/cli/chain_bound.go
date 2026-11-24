@@ -131,6 +131,10 @@ func selfProtectTaxonomyRefsUnparsed(ruleID, command string) []string {
 		return nil
 	case spBinaryReplaceRule:
 		return spTargetRefs(spTargetConfig)
+	case enterprise.ConfigTouchRuleID:
+		// The write classifier parses; past the bound the receipt cites no
+		// node, which is the read case's honest answer (#4666).
+		return nil
 	}
 	return selfProtectTaxonomyRefs(ruleID, command)
 }

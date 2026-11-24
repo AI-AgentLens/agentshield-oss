@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/hookentry"
@@ -111,7 +110,15 @@ func watchdogTick(configDir string, t *watchdogTracker, log func(logger.AuditEve
 // (checkClaudeCodeHookFile): setup writes it in exec form (#4292), where the
 // two tokens are separate JSON strings and no substring check can tell a
 // working entry from a broken one.
-const hookCommandMarker = "agentshield hook"
+//
+// The test is hookentry.HookFile.Present for each file's shape: off Windows
+// exactly this substring. On Windows it also accepts the
+// `C:\...\agentshield.exe hook` that Gemini, Codex and Copilot setup write
+// there, which the substring misses, so every pass reported their hooks as
+// disabled (#5066). It accepts that command only as the command of a hook
+// under the event setup writes, and only while the program it names is a
+// file (#5072 pass 2).
+const hookCommandMarker = hookentry.HookCommand
 
 func checkHookFiles() []WatchdogCheck {
 	home, err := os.UserHomeDir()
@@ -128,16 +135,17 @@ func checkHookFiles() []WatchdogCheck {
 	hookPaths := []struct {
 		name string
 		path string
+		file hookentry.HookFile // where the file keeps its hooks' commands; unused for claude-code
 	}{
-		{"claude-code", filepath.Join(home, ".claude", "settings.json")},
-		{"windsurf", filepath.Join(home, ".codeium", "windsurf", "hooks.json")},
-		{"cursor", filepath.Join(home, ".cursor", "hooks.json")},
-		{"gemini-cli", filepath.Join(home, ".gemini", "settings.json")},
-		{"codex", filepath.Join(home, ".codex", "hooks.json")},
+		{"claude-code", filepath.Join(home, ".claude", "settings.json"), hookentry.HookFile{}},
+		{"windsurf", filepath.Join(home, ".codeium", "windsurf", "hooks.json"), hookentry.WindsurfHookFile},
+		{"cursor", filepath.Join(home, ".cursor", "hooks.json"), hookentry.CursorHookFile},
+		{"gemini-cli", filepath.Join(home, ".gemini", "settings.json"), hookentry.GeminiCLIHookFile},
+		{"codex", filepath.Join(home, ".codex", "hooks.json"), hookentry.CodexHookFile},
 		// GitHub Copilot CLI: AgentShield's own file in the user hooks dir
 		// (internal/cli/setup_copilot.go; COPILOT_HOME overrides ~/.copilot,
 		// mirrored here because this package cannot import cli).
-		{"copilot-cli", filepath.Join(copilotHomeFor(home), "hooks", "agentshield.json")},
+		{"copilot-cli", filepath.Join(copilotHomeFor(home), "hooks", "agentshield.json"), hookentry.CopilotCLIHookFile},
 	}
 
 	var checks []WatchdogCheck
@@ -151,7 +159,7 @@ func checkHookFiles() []WatchdogCheck {
 			checks = append(checks, checkClaudeCodeHookFile(hp.path, data))
 			continue
 		}
-		if !strings.Contains(string(data), hookCommandMarker) {
+		if !hp.file.Present(data) {
 			checks = append(checks, WatchdogCheck{
 				Name:    "hook-" + hp.name,
 				Passed:  false,
@@ -175,7 +183,9 @@ func checkHookFiles() []WatchdogCheck {
 // hookCommandMarker holds and tightens: an `echo "agentshield was here"`
 // command fails, and so does our command appearing anywhere but a PreToolUse
 // hook, an exec-form entry whose args were removed or extended, and a file
-// that no longer parses (Claude Code would not load its hooks either).
+// that no longer parses (Claude Code would not load its hooks either). The
+// shell form only Windows accepts, `C:/.../agentshield.exe hook`, also fails
+// once the program it names is not a file (hookentry.Present, #5072 pass 2).
 func checkClaudeCodeHookFile(path string, data []byte) WatchdogCheck {
 	const name = "hook-claude-code"
 	ok, err := hookentry.SettingsHasPreToolUseHook(data)

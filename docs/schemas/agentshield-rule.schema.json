@@ -139,6 +139,10 @@
           "type": "boolean",
           "description": "Also match the command with Unicode separators (U+00A0 and the other Zs/Zl/Zp characters) folded to a space (#4310). For rules whose pattern matches PROSE an LLM later reads: RE2's \\s is ASCII-only, so one NBSP between the words of a directive drops the rule while the model reads ordinary words. Additive (the raw reading is tried first). Never set on a rule that matches shell syntax: NBSP is not a word separator to bash."
         },
+        "capture_under_cwd": {
+          "type": "string",
+          "description": "Names a capture group of command_regex that holds a directory (#4850). The rule fires only on a match whose group names a directory strictly under the call's working directory. Every doubt keeps the match: no cwd, a directory the reading cannot resolve (a variable other than a leading $HOME, a substitution, a glob, an option word, ~user), a text past 16 KiB, more than 16 matches. Only on a command_regex rule with no command_prefix, command_exact or structural/dataflow/semantic/stateful match; the group must exist. A binary older than the field ignores it and fires as written."
+        },
         "structural":             { "$ref": "#/$defs/structural_match" },
         "dataflow":               { "$ref": "#/$defs/dataflow_match" },
         "semantic":               { "$ref": "#/$defs/semantic_match" },

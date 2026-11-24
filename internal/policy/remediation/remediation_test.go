@@ -3,6 +3,8 @@ package remediation
 import (
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 func TestSuggestForShell_RendersDisableCommand(t *testing.T) {
@@ -143,5 +145,39 @@ func TestSuggestForShell_DoesNotTeachCommandSubstitution(t *testing.T) {
 		if strings.Contains(out, forbidden) {
 			t.Errorf("hint must not suggest %q — that is an evasion shape, not a workaround:\n%s", forbidden, out)
 		}
+	}
+}
+
+// A BLOCK the audit-only keep kept for a reason its rules do not state leads
+// with enterprise-self-protect (#5089). No `rule disable` lifts the keep, so
+// the hint names the rule after it, the one it named before #5089. A record
+// that names enterprise-self-protect alone (the managed middleware's BLOCK)
+// is unchanged.
+func TestSuggestForShell_KeptBlockHintSkipsSelfProtectRecord_5089(t *testing.T) {
+	kept := []string{selfProtectRuleID, "ts-block-mkfs"}
+	out := SuggestForShell(kept, "", false)
+	if !strings.Contains(out, "agentshield rule disable ts-block-mkfs") || strings.Contains(out, "disable "+selfProtectRuleID) {
+		t.Errorf("unmanaged kept BLOCK hint:\n%s\nwant the rule after %s", out, selfProtectRuleID)
+	}
+	if out, want := SuggestForShell(kept, "", true), "rule ts-block-mkfs cannot be disabled locally"; !strings.Contains(out, want) {
+		t.Errorf("managed kept BLOCK hint:\n%s\nwant %q", out, want)
+	}
+	if out, want := SuggestForShell([]string{selfProtectRuleID}, "", true), "rule "+selfProtectRuleID+" cannot be disabled locally"; !strings.Contains(out, want) {
+		t.Errorf("middleware BLOCK hint:\n%s\nwant %q", out, want)
+	}
+	// Only a leading record moves the hint.
+	if out := SuggestForShell([]string{"first", selfProtectRuleID}, "", false); !strings.Contains(out, "agentshield rule disable first") {
+		t.Errorf("hint:\n%s\nwant the first rule", out)
+	}
+	// With more rules after the record, the hint names the one right after
+	// it, not the last.
+	if out := SuggestForShell([]string{selfProtectRuleID, "ts-block-mkfs", "ts-other"}, "", false); !strings.Contains(out, "agentshield rule disable ts-block-mkfs") || strings.Contains(out, "disable ts-other") {
+		t.Errorf("three-rule kept BLOCK hint:\n%s\nwant the rule after %s", out, selfProtectRuleID)
+	}
+}
+
+func TestSelfProtectRuleID_MatchesPolicy(t *testing.T) {
+	if selfProtectRuleID != policy.SelfProtectRuleID {
+		t.Errorf("selfProtectRuleID %q, policy.SelfProtectRuleID %q", selfProtectRuleID, policy.SelfProtectRuleID)
 	}
 }

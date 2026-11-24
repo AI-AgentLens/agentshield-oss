@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4481: a bare glob run from a directory holding a protected dot-dir names
@@ -16,7 +17,7 @@ import (
 // the hook reads test sources as commands.
 func TestBareGlobSkipsDotEntriesLikeTheShell_4481(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	dot := "." + "ssh"
 	if err := os.MkdirAll(filepath.Join(home, dot), 0o700); err != nil {
 		t.Fatal(err)

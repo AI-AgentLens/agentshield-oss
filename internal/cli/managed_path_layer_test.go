@@ -61,7 +61,7 @@ func TestManagedMode_ConfigDirIsProtectedByPath(t *testing.T) {
 		`rm ` + home + `/.agentshield/watchdog-state.json`,
 	}
 	for _, cmd := range blocked {
-		res, _ := evaluateCommand(cmd, home, "claude-code-hook", "")
+		res, _ := evaluateCommand(shellTextPaths(cmd), home, "claude-code-hook", "")
 		if res.Decision != policy.DecisionBlock {
 			t.Errorf("managed host, not blocked: %s\n  rules=%v", cmd, res.TriggeredRules)
 		}

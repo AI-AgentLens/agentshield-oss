@@ -104,6 +104,11 @@ func normalize(args []string, rawCommand string, cwd string) NormalizedCommand {
 	}
 
 	homeDir, _ := os.UserHomeDir()
+	// Every path below resolves against the directory the shell is in. On
+	// Windows a cwd Git Bash spells `/c/Users/u` is C:\Users\u, and a rooted
+	// one with no drive is on the home's drive (#5021 P-c, pathnorm.Cwd); off
+	// Windows this is cwd. nc.Cwd keeps the caller's spelling.
+	cwd = pathnorm.Cwd(cwd, homeDir)
 
 	// Parse the command AST for downstream reuse (structural analyzer).
 	// Even if we don't use it for path extraction, we cache it.
@@ -339,9 +344,15 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 		if isTar {
 			if dir, skip, ok := tarDirectoryFlag(words, i); ok {
 				if pathnorm.StripShellQuotes(dir) == "~" && homeDir != "" {
+					// The home is already resolved, so don't pass it back through
+					// expandPath. Its StripShellQuotes deletes every `\`, turning
+					// a Windows home (C:\Users\x) into a relative C:Usersx under
+					// the cwd, so `-C ~ .ssh` missed ~/.ssh (#5023).
 					dir = homeDir
+					tarDir = filepath.Clean(homeDir)
+				} else {
+					tarDir = expandPath(dir, tarDir, homeDir)
 				}
-				tarDir = expandPath(dir, tarDir, homeDir)
 				if looksLikePath(dir) {
 					paths = append(paths, tarDir)
 				}
@@ -349,7 +360,7 @@ func extractSegmentPathsAndDomains(seg shellparse.CommandSegment, cwd, homeDir s
 				continue
 			}
 			if tarDir != cwd && !strings.HasPrefix(arg, "-") && !skipTextContent {
-				if p, ok := tarOperandPath(arg, tarDir, homeDir); ok {
+				if p, ok := tarOperandPath(arg, tarDir, cwd, homeDir); ok {
 					paths = append(paths, p)
 				}
 			}
@@ -1164,12 +1175,21 @@ func tarDirectoryFlag(words []string, i int) (dir string, skip int, ok bool) {
 // tarOperandPath resolves a member operand against tar's current -C directory.
 // It is an ADDITIONAL candidate beside the cwd-relative reading, never a
 // replacement, so the decision can only rise.
-func tarOperandPath(arg, dir, homeDir string) (string, bool) {
+//
+// On Windows a rooted member (`/srv/x`) is on the -C directory's drive: bsdtar
+// changes into it, and `\x` opens on the current drive (#5021 P-c). It is a
+// candidate only when that differs from the operand's reading from cwd, so
+// `-C` on cwd's drive adds no copy of the same path.
+func tarOperandPath(arg, dir, cwd, homeDir string) (string, bool) {
 	arg = pathnorm.StripShellQuotes(arg)
 	if arg == "" || strings.ContainsAny(arg, "$`*?[") || strings.HasPrefix(arg, "~") || filepath.IsAbs(arg) {
 		return "", false
 	}
-	return expandPath(arg, dir, homeDir), true
+	p := expandPath(arg, dir, homeDir)
+	if pathnorm.IsAbs(arg) && p == expandPath(arg, cwd, homeDir) {
+		return "", false
+	}
+	return p, true
 }
 
 // bareOperandPath resolves a slash-less operand (`cat id_rsa`) against cwd
@@ -1186,8 +1206,12 @@ func tarOperandPath(arg, dir, homeDir string) (string, bool) {
 //     An absolute or ~ pattern never matches a relative path, so for those
 //     main's existence-gated reading is unchanged (#4401 pins `cat
 //     nosuchfile` inside ~/.ssh).
+//
+// On Windows a rooted cwd (`/srv/app`) is usable. normalize has already read
+// the cwd as the directory the shell is in (pathnorm.Cwd), so the existence
+// check looks there (#5021 P-c).
 func bareOperandPath(arg, cwd, exe string) (string, bool) {
-	if cwd == "" || !filepath.IsAbs(cwd) {
+	if cwd == "" || !pathnorm.IsAbs(cwd) {
 		return "", false
 	}
 	arg = pathnorm.StripShellQuotes(arg)
@@ -1263,7 +1287,7 @@ const maxBareGlobMatches = 4096
 //     pattern and match dot-files itself (git pathspecs do);
 //   - only dot entries match: the shell then passes the pattern on as-is.
 func bareGlobPaths(arg, cwd string, keepDots bool) []string {
-	if cwd == "" || !filepath.IsAbs(cwd) {
+	if cwd == "" || !pathnorm.IsAbs(cwd) {
 		return nil
 	}
 	word := arg
@@ -1560,12 +1584,10 @@ func expandPath(path, cwd, homeDir string) string {
 		path = filepath.Join(homeDir, path[2:])
 	}
 
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cwd, path)
-	}
-
-	cleaned := filepath.Clean(path)
-	return cleaned
+	// On Windows Git Bash's `/c/...` is drive C, and a rooted `/srv/x` is on the
+	// cwd's drive, as PowerShell opens it (#5021 P-c). Off Windows this is
+	// main's join of a relative path. See pathnorm.Resolve.
+	return filepath.Clean(pathnorm.Resolve(path, cwd, homeDir))
 }
 
 func extractDomains(s string) []string {

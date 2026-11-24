@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // End-to-end tests for #4337: new installs start in audit-only, existing
@@ -40,10 +42,10 @@ func TestHelperSetupProcess(t *testing.T) {
 func newSetupHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("COPILOT_HOME", "")
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "agentshield"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, exeName("agentshield")), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -61,6 +63,7 @@ func runSetupInChildProcess(t *testing.T, home string, args ...string) string {
 		"HOME="+home,
 		"COPILOT_HOME=",
 	)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("agentshield %s: %v\n%s", strings.Join(args, " "), err, out)

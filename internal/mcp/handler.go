@@ -1083,7 +1083,7 @@ func (h *MessageHandler) HandleResourceSubscribe(msg *Message) (bool, []byte) {
 
 	// Also check config guard on file:// URIs (same protection as resources/read).
 	if result.Decision != "BLOCK" {
-		guardResult := CheckConfigGuard(MethodResourcesSubscribe, map[string]interface{}{"path": strings.TrimPrefix(params.URI, "file://")})
+		guardResult := CheckConfigGuard(MethodResourcesSubscribe, map[string]interface{}{"path": resourceGuardPath(params.URI)})
 		if guardResult.Blocked {
 			result.Decision = "BLOCK"
 			result.TriggeredRules = append(result.TriggeredRules, "config-file-guard")

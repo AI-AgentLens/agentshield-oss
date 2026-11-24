@@ -30,63 +30,63 @@ func TestPatternOptionLeavesFileOperands_4676(t *testing.T) {
 	paths := func(cmd string) []string { return NormalizeCommand(cmd, cwd).Paths }
 
 	// Control, main's reading: the positional pattern, then the file.
-	if got := paths("grep KEY " + f); !slices.Contains(got, f) {
+	if got := paths("grep KEY " + shellPath(f)); !slices.Contains(got, f) {
 		t.Fatalf("control grep KEY <file>: paths %v; want %s", got, f)
 	}
 
 	for _, cmd := range []string{
-		"grep -e KEY " + f,
-		"grep -e KEY -n " + f,
-		"grep --regexp=KEY " + f,
-		"grep --regexp KEY " + f,
-		"grep --reg=KEY " + f, // getopt_long's unique prefix
-		"grep -eKEY " + f,
-		"grep -ie KEY " + f,
-		"grep -ieKEY " + f,
-		"grep -e A -e B " + f,
-		"grep -f pats -e X " + f,
-		"grep --file=pats " + f,
-		"grep -e -n " + f, // -e takes "-n" as the pattern
-		"grep -e KEY -- " + f,
-		"grep " + f + " -e KEY", // getopt permutes: the option still applies
-		"egrep -e KEY " + f,
-		"fgrep -e KEY " + f,
-		"rg -e KEY " + f,
-		"rg --regexp KEY " + f,
-		"rg -tpy -e KEY " + f,
-		"sudo grep -e KEY " + f,
-		"cat pats | grep -e KEY " + f,
+		"grep -e KEY " + shellPath(f),
+		"grep -e KEY -n " + shellPath(f),
+		"grep --regexp=KEY " + shellPath(f),
+		"grep --regexp KEY " + shellPath(f),
+		"grep --reg=KEY " + shellPath(f), // getopt_long's unique prefix
+		"grep -eKEY " + shellPath(f),
+		"grep -ie KEY " + shellPath(f),
+		"grep -ieKEY " + shellPath(f),
+		"grep -e A -e B " + shellPath(f),
+		"grep -f pats -e X " + shellPath(f),
+		"grep --file=pats " + shellPath(f),
+		"grep -e -n " + shellPath(f), // -e takes "-n" as the pattern
+		"grep -e KEY -- " + shellPath(f),
+		"grep " + shellPath(f) + " -e KEY", // getopt permutes: the option still applies
+		"egrep -e KEY " + shellPath(f),
+		"fgrep -e KEY " + shellPath(f),
+		"rg -e KEY " + shellPath(f),
+		"rg --regexp KEY " + shellPath(f),
+		"rg -tpy -e KEY " + shellPath(f),
+		"sudo grep -e KEY " + shellPath(f),
+		"cat pats | grep -e KEY " + shellPath(f),
 	} {
 		if got := paths(cmd); !slices.Contains(got, f) {
 			t.Errorf("%q: paths %v; want %s", cmd, got, f)
 		}
 	}
-	if got := paths("grep -rn -e KEY " + acme); !slices.Contains(got, acme) {
+	if got := paths("grep -rn -e KEY " + shellPath(acme)); !slices.Contains(got, acme) {
 		t.Errorf("grep -rn -e KEY <dir>: paths %v; want %s", got, acme)
 	}
 
 	// The -f value names a file the tool opens and reads.
-	if got := paths("grep -f " + f + " README.md"); !slices.Contains(got, f) {
+	if got := paths("grep -f " + shellPath(f) + " README.md"); !slices.Contains(got, f) {
 		t.Errorf("grep -f <file> README.md: paths %v; want the pattern file %s", got, f)
 	}
-	if got := paths("grep --file " + f + " README.md"); !slices.Contains(got, f) {
+	if got := paths("grep --file " + shellPath(f) + " README.md"); !slices.Contains(got, f) {
 		t.Errorf("grep --file <file> README.md: paths %v; want the pattern file %s", got, f)
 	}
 
 	// Pattern text is never a path, wherever the pattern sits.
 	for _, cmd := range []string{
-		"grep -e " + f + " README.md",
-		"grep -e" + f + " README.md",
-		"grep --regexp=" + f + " README.md",
-		"grep --regexp " + f + " README.md",
-		"grep -ie " + f + " README.md",
-		"grep -e 'see " + f + "' README.md",
-		"echo x | grep -e " + f,
-		"grep " + f + " README.md",        // positional pattern: main's reading
-		"rg -tconf " + f + " README.md",   // -t takes "conf": no -f here
-		"rg -telixir " + f + " README.md", // -t takes "elixir": no -e here
-		"grep -A3e " + f + " README.md",   // -A takes "3e"
-		"ag -f " + f + " README.md",       // ag: -f is --follow
+		"grep -e " + shellPath(f) + " README.md",
+		"grep -e" + shellPath(f) + " README.md",
+		"grep --regexp=" + shellPath(f) + " README.md",
+		"grep --regexp " + shellPath(f) + " README.md",
+		"grep -ie " + shellPath(f) + " README.md",
+		"grep -e 'see " + shellPath(f) + "' README.md",
+		"echo x | grep -e " + shellPath(f),
+		"grep " + shellPath(f) + " README.md",        // positional pattern: main's reading
+		"rg -tconf " + shellPath(f) + " README.md",   // -t takes "conf": no -f here
+		"rg -telixir " + shellPath(f) + " README.md", // -t takes "elixir": no -e here
+		"grep -A3e " + shellPath(f) + " README.md",   // -A takes "3e"
+		"ag -f " + shellPath(f) + " README.md",       // ag: -f is --follow
 	} {
 		if got := paths(cmd); slices.Contains(got, f) {
 			t.Errorf("%q: paths %v; %s is the pattern, not a file", cmd, got, f)
@@ -94,7 +94,7 @@ func TestPatternOptionLeavesFileOperands_4676(t *testing.T) {
 	}
 
 	// Commands outside the grep family keep main's reading.
-	if got := paths("echo -e KEY " + f); slices.Contains(got, f) {
+	if got := paths("echo -e KEY " + shellPath(f)); slices.Contains(got, f) {
 		t.Errorf("echo -e: paths %v; echo's words are text", got)
 	}
 }
@@ -112,7 +112,7 @@ func TestPatternOptionReadingAddsNoDuplicates_4676(t *testing.T) {
 	}
 	// The walk reads `pats` as the positional pattern and f as a file; the
 	// second reading finds f again.
-	got := NormalizeCommand("grep -f pats "+f, cwd).Paths
+	got := NormalizeCommand("grep -f pats "+shellPath(f), cwd).Paths
 	n := 0
 	for _, p := range got {
 		if p == f {

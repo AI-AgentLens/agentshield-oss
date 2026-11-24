@@ -251,6 +251,12 @@ func (p *HeuristicProvider) buildRules() []heuristicRule {
 		// audit record is the product: an AUDIT still emits the attestation event
 		// while letting legitimate work through, whereas allowing outright would
 		// erase the evidence that a credential-named value crossed the boundary.
+		//
+		// DIRECTION (Gary, 2026-11-20, #5002): this detector is to be retired in
+		// favour of rules. Detection belongs in rule packs, which can be switched
+		// on and off and maintained one by one. Do not add a secret pattern or a
+		// new kind here; write a rule. Moving this detector itself is a narrowing
+		// and needs its own review, so it stays until that is decided.
 		{
 			signal: Signal{
 				ID:          "secrets_in_command",
@@ -1166,13 +1172,52 @@ func isBase64Payload(cmd string) bool {
 		// Skip a letters-only run. Base64 of binary or mixed text carries
 		// digits, '+', '/' or '=' padding; a 40+ char run of only [A-Za-z] is a
 		// long CamelCase identifier (a Go test name passed to grep or -run,
-		// #4472) in all but a ~1-in-5000 chance per 40 chars of real payload.
+		// #4472). A real 40-char encoding is letters only about 1 in 5,000
+		// times for binary input and up to 1 in 200 for text (#4507, #4707).
 		if !strings.ContainsAny(matched, "0123456789+/=") {
+			continue
+		}
+		// Skip the same identifier with a short number at its very end: a Go
+		// test named after its issue (`TestShippedTaxonomyFromValuesAreKnown4665`,
+		// #4707), or a version suffix (`...V2`). The shape is exact: letters,
+		// then 1..maxIdentifierNumberDigits digits that end the run, with no
+		// '+', '/' or '=' anywhere. A digit before that final number, a longer
+		// number, or padding still fires. Measured over 6.4M real encodings of
+		// random bytes, shell text, prose and Go source (#4707): this shape is
+		// about a fifth as common as letters only, at most 1 in 950 at 40
+		// chars and 1 in 100,000 at 100, and never ends in '=' padding. The
+		// residual is pinned by TestIsBase64Payload_TrailingNumberResidual_4707.
+		if isLettersThenShortNumber(matched) {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+// maxIdentifierNumberDigits bounds the trailing number isBase64Payload lets a
+// letters-only identifier carry (#4707). Issue numbers in these repos have 4
+// digits today; 6 leaves room without exempting digits in general.
+const maxIdentifierNumberDigits = 6
+
+// isLettersThenShortNumber reports whether s is one or more ASCII letters
+// followed by 1..maxIdentifierNumberDigits ASCII digits, with nothing after
+// them.
+func isLettersThenShortNumber(s string) bool {
+	i := len(s)
+	for i > 0 && s[i-1] >= '0' && s[i-1] <= '9' {
+		i--
+	}
+	if digits := len(s) - i; digits < 1 || digits > maxIdentifierNumberDigits || i == 0 {
+		return false
+	}
+	for j := 0; j < i; j++ {
+		c := s[j]
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+			return false
+		}
+	}
+	return true
 }
 
 // shannonEntropy calculates the Shannon entropy of s in bits per character.
@@ -2615,13 +2660,129 @@ var bulkExfilPipeToNetInStatementRe = regexp.MustCompile(`(?i)\|\s*(curl|nc)\b`)
 // quoted argument to an unrelated program (#3982) does not count — unlike a
 // same-string "preceded by whitespace" test, which cannot distinguish a
 // quoted substring from a real invocation.
-func hasArchiveCommandWord(cmd string, resolve bool) bool {
+//
+// cmd keeps its case. The tar/zip match lowercases each statement itself,
+// exactly as before; the #4856 list-only exemption reads the statement as
+// written, because tar's `-t` (list) and `-T` (files-from) differ only in
+// case, and because an exemption must never read the restrict-only
+// path-resolved form (#3991: a planted /tmp/x/tar is not tar).
+//
+// tarOptions is whether the raw command names TAR_OPTIONS anywhere. GNU tar
+// prepends that variable to its arguments, so a listing tar can be made to
+// create or to run a program by an earlier statement; when it is named, no
+// statement is list-only (#4858 pass 2).
+func hasArchiveCommandWord(cmd string, resolve, tarOptions bool) bool {
 	for _, seg := range splitTopLevelCompound(cmd) {
-		if archiveCmdWordRe.MatchString(archiveStatementForm(seg, resolve)) {
+		if archiveCmdWordRe.MatchString(archiveStatementForm(strings.ToLower(seg), resolve)) &&
+			(tarOptions || !tarListOnly(strings.TrimSpace(seg))) {
 			return true
 		}
 	}
 	return false
+}
+
+// tarListOnlyShort is every short option letter a list-only tar may carry:
+// t (list), f (the archive; takes a value), v (verbose) and the
+// decompression filters z, j, J. Any other letter refuses: a mode (c r u A),
+// files-from (T), a program (GNU I and F), a directory (C).
+const tarListOnlyShort = "tfvzjJ"
+
+// tarListOnlyLong is every long option a list-only tar may carry, spelled in
+// full. It is an allowlist rather than a list of the writing options because
+// that set cannot be enumerated across GNU tar and bsdtar: both accept any
+// unambiguous abbreviation (`--crea` creates, #4858 pass 1), and both carry
+// options that run a program (`--use-compress-program`,
+// `--checkpoint-action`, `--rsh-command`). An abbreviation of an allowed name
+// refuses too; that costs a missed exemption, never a missed block.
+var tarListOnlyLong = map[string]bool{
+	"--list": true, "--file": true, "--verbose": true,
+	"--gzip": true, "--gunzip": true, "--ungzip": true, "--bzip2": true, "--xz": true,
+}
+
+// tarListOnlyPlain reports whether c may appear in the tar stage of a
+// list-only statement. Quoting, escaping, expansion and globbing can each
+// supply a word the scan below cannot read (`'-f' -t`, `$OPTS`,
+// `{-I,prog}`), and a remote archive (`host:path`) runs rsh, so only these
+// bytes are read; anything else keeps the old reading.
+func tarListOnlyPlain(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		strings.ContainsRune(" \t/._-~=", c)
+}
+
+// tarListOnly reports whether a statement is a tar invocation that can only
+// LIST an archive (#4856: `tar tzf backup.tgz` writes nothing, so it is not
+// "archiving" a directory). It is deliberately narrow and fails toward the
+// old reading: anything it cannot read word for word, or any option outside
+// the list-only sets above, keeps the statement an archive, and zip is never
+// list-only. stmt is the statement as written: case kept, no path resolution.
+func tarListOnly(stmt string) bool {
+	// A substitution or redirect may hold a second archiver the word scan
+	// below would not read as one, and a newline or a lone `&` ends a command
+	// that splitTopLevelCompound leaves in this statement (#4858 pass 1); keep
+	// the old reading for those. So does a backslash anywhere in the
+	// statement: splitTopLevelCompound reads an escaped quote (`grep \'`) as
+	// opening a quote, which glues the commands after a `;` into this
+	// statement (#4858 pass 2). A pipeline is accepted only when every later
+	// stage is a read-only filter.
+	if strings.ContainsAny(stmt, "`<>&\n\\") || strings.Contains(stmt, "$(") {
+		return false
+	}
+	stages := strings.Split(stmt, "|")
+	for _, st := range stages[1:] {
+		f := strings.Fields(st)
+		if len(f) == 0 {
+			return false
+		}
+		switch f[0] {
+		case "grep", "egrep", "fgrep", "head", "tail", "wc", "sort", "uniq", "cat", "less", "more":
+		default:
+			return false
+		}
+	}
+	if strings.IndexFunc(stages[0], func(c rune) bool { return !tarListOnlyPlain(c) }) >= 0 {
+		return false
+	}
+	words := strings.Fields(stages[0])
+	if len(words) > 0 && words[0] == "sudo" {
+		words = words[1:]
+	}
+	if len(words) < 2 || words[0] != "tar" {
+		return false
+	}
+	listed, fileValue := false, false
+	for i, w := range words[1:] {
+		switch {
+		case fileValue:
+			// The archive name `f` / `--file` takes is never an option, even
+			// when it begins with `-`: `tar -f -t` names an archive "-t".
+			fileValue = false
+		case strings.HasPrefix(w, "--"):
+			name, _, hasValue := strings.Cut(w, "=")
+			if !tarListOnlyLong[name] {
+				return false
+			}
+			listed = listed || name == "--list"
+			fileValue = name == "--file" && !hasValue
+		case strings.HasPrefix(w, "-") || i == 0:
+			// A cluster (`-tzf`, or the bundled first word of `tar tzf`).
+			// Any byte outside the list-only letters refuses, including the
+			// value attached to a cluster (`-czf/tmp/o.tgz`, pass 1).
+			cluster := strings.TrimPrefix(w, "-")
+			if strings.Trim(cluster, tarListOnlyShort) != "" {
+				return false
+			}
+			// `f` takes the next argument, so in `-fzt` the "zt" is the
+			// archive name and there is no list mode.
+			if at := strings.IndexByte(cluster, 'f'); at >= 0 {
+				if at != len(cluster)-1 {
+					return false
+				}
+				fileValue = true
+			}
+			listed = listed || strings.Contains(cluster, "t")
+		}
+	}
+	return listed
 }
 
 // archiveStatementForm is a statement as archiveCmdWordRe and the pipe-to-net
@@ -2687,7 +2848,7 @@ func matchesBulkExfil(cmd string, resolve bool) bool {
 	// filename ending in ".zip" (or the read-only "unzip" tool, or a quoted
 	// argv substring in an unrelated program's argument) doesn't count as
 	// invoking the archiver (#3294).
-	hasArchive := hasArchiveCommandWord(lower, resolve) && bulkExfilArchiveTargetRe.MatchString(lower)
+	hasArchive := hasArchiveCommandWord(scan, resolve, strings.Contains(cmd, "TAR_OPTIONS")) && bulkExfilArchiveTargetRe.MatchString(lower)
 
 	// Upload to external service
 	hasUpload := strings.Contains(lower, "curl") ||

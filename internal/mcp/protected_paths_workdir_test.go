@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
@@ -12,23 +14,36 @@ import (
 // working directory. InWorkingDir gives it one, with the shell engine's
 // semantics: a relative pattern matches a path under the directory, and a
 // relative argument is read under it.
+// absDir is a POSIX absolute directory spelled as this platform's absolute
+// path: itself on unix, and on drive C: on Windows, where "/work/repo" is not
+// absolute and InWorkingDir rightly refuses it (#5021). Paths under it are
+// built with filepath.Join, the spelling the agent sends there; on unix that
+// is the same string as dir + "/" + name.
+func absDir(dir string) string {
+	if runtime.GOOS == "windows" {
+		return "C:" + filepath.FromSlash(dir)
+	}
+	return dir
+}
+
 func TestProtectedPathArgument_RelativePatternsUnderWorkDir4653(t *testing.T) {
-	const repo = "/work/repo"
-	base := protectedTestEvaluator(t, "secrets/**", ".env", "/work/repo/vault/**")
+	repo := absDir("/work/repo")
+	under := func(elem ...string) string { return filepath.Join(append([]string{repo}, elem...)...) }
+	base := protectedTestEvaluator(t, "secrets/**", ".env", filepath.ToSlash(repo)+"/vault/**")
 	e := base.InWorkingDir(repo)
 	rows := []struct {
 		name string
 		tool string
 		args map[string]interface{}
 	}{
-		{"Read under secrets", "Read", map[string]interface{}{"file_path": repo + "/secrets/k.pem"}},
-		{"Write under secrets", "Write", map[string]interface{}{"file_path": repo + "/secrets/new.key", "content": "x"}},
-		{"Edit under secrets", "Edit", map[string]interface{}{"file_path": repo + "/secrets/k.pem", "old_string": "a", "new_string": "b"}},
-		{"NotebookEdit under secrets", "NotebookEdit", map[string]interface{}{"notebook_path": repo + "/secrets/n.ipynb", "new_source": "x"}},
+		{"Read under secrets", "Read", map[string]interface{}{"file_path": under("secrets", "k.pem")}},
+		{"Write under secrets", "Write", map[string]interface{}{"file_path": under("secrets", "new.key"), "content": "x"}},
+		{"Edit under secrets", "Edit", map[string]interface{}{"file_path": under("secrets", "k.pem"), "old_string": "a", "new_string": "b"}},
+		{"NotebookEdit under secrets", "NotebookEdit", map[string]interface{}{"notebook_path": under("secrets", "n.ipynb"), "new_source": "x"}},
 		{"Grep on the relative directory", "Grep", map[string]interface{}{"pattern": "password", "path": "secrets"}},
-		{"Read the exact relative file", "Read", map[string]interface{}{"file_path": repo + "/.env"}},
+		{"Read the exact relative file", "Read", map[string]interface{}{"file_path": under(".env")}},
 		{"relative argument, absolute pattern", "Grep", map[string]interface{}{"pattern": "x", "path": "vault"}},
-		{"case variant of a relative pattern", "Read", map[string]interface{}{"file_path": repo + "/SECRETS/k.pem"}},
+		{"case variant of a relative pattern", "Read", map[string]interface{}{"file_path": under("SECRETS", "k.pem")}},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -50,16 +65,16 @@ func TestProtectedPathArgument_RelativePatternsUnderWorkDir4653(t *testing.T) {
 // What the working directory must not do: claim files outside it, follow
 // `..` out of the protected tree, or take a relative directory.
 func TestProtectedPathArgument_WorkDirNearMisses4653(t *testing.T) {
-	e := protectedTestEvaluator(t, "secrets/**", ".env").InWorkingDir("/work/repo")
+	e := protectedTestEvaluator(t, "secrets/**", ".env").InWorkingDir(absDir("/work/repo"))
 	for _, c := range []struct {
 		name string
 		args map[string]interface{}
 	}{
-		{"same pattern, another directory", map[string]interface{}{"file_path": "/elsewhere/secrets/k.pem"}},
-		{"sibling of the protected directory", map[string]interface{}{"file_path": "/work/repo/secrets-howto.md"}},
-		{"dot segments leave the tree", map[string]interface{}{"file_path": "/work/repo/secrets/../README.md"}},
-		{"a parent of the working dir", map[string]interface{}{"file_path": "/work/.env"}},
-		{"an .env.example", map[string]interface{}{"file_path": "/work/repo/.env.example"}},
+		{"same pattern, another directory", map[string]interface{}{"file_path": absDir("/elsewhere/secrets/k.pem")}},
+		{"sibling of the protected directory", map[string]interface{}{"file_path": absDir("/work/repo/secrets-howto.md")}},
+		{"dot segments leave the tree", map[string]interface{}{"file_path": absDir("/work/repo/secrets/../README.md")}},
+		{"a parent of the working dir", map[string]interface{}{"file_path": absDir("/work/.env")}},
+		{"an .env.example", map[string]interface{}{"file_path": absDir("/work/repo/.env.example")}},
 		{"relative argument outside", map[string]interface{}{"file_path": "../other/secrets/k"}},
 	} {
 		if got := e.EvaluateToolCall("Read", c.args); got.Decision == policy.DecisionBlock {
@@ -67,7 +82,7 @@ func TestProtectedPathArgument_WorkDirNearMisses4653(t *testing.T) {
 		}
 	}
 	rel := protectedTestEvaluator(t, "secrets/**").InWorkingDir("relative/dir")
-	if got := rel.EvaluateToolCall("Read", map[string]interface{}{"file_path": "/x/relative/dir/secrets/k"}); got.Decision == policy.DecisionBlock {
+	if got := rel.EvaluateToolCall("Read", map[string]interface{}{"file_path": absDir("/x/relative/dir/secrets/k")}); got.Decision == policy.DecisionBlock {
 		t.Errorf("a relative working dir was used: %v", got.TriggeredRules)
 	}
 }
@@ -75,10 +90,10 @@ func TestProtectedPathArgument_WorkDirNearMisses4653(t *testing.T) {
 // Raise-only: a working directory never lowers a verdict, and the view leaves
 // the evaluator it came from as it was.
 func TestProtectedPathArgument_WorkDirOnlyRaises4653(t *testing.T) {
-	patterns := []string{"secrets/**", ".env", "/etc/acme/secrets/**", "~/company/**"}
+	patterns := []string{"secrets/**", ".env", filepath.ToSlash(absDir("/etc/acme/secrets")) + "/**", "~/company/**"}
 	base := protectedTestEvaluator(t, patterns...)
-	view := base.InWorkingDir("/work/repo")
-	paths := []string{"/work/repo/secrets/a", "secrets/a", "/etc/acme/secrets/a", "/work/repo/.env", ".env", "/tmp/x", "~/company/a", "/work/repo/README.md"}
+	view := base.InWorkingDir(absDir("/work/repo"))
+	paths := []string{absDir("/work/repo/secrets/a"), "secrets/a", absDir("/etc/acme/secrets/a"), absDir("/work/repo/.env"), ".env", absDir("/tmp/x"), "~/company/a", absDir("/work/repo/README.md")}
 	raised := 0
 	for _, p := range paths {
 		args := map[string]interface{}{"file_path": p}
@@ -93,7 +108,7 @@ func TestProtectedPathArgument_WorkDirOnlyRaises4653(t *testing.T) {
 	if raised != 2 {
 		t.Errorf("%d paths raised, want 2 (the absolute paths under the working dir)", raised)
 	}
-	if got := base.EvaluateToolCall("Read", map[string]interface{}{"file_path": "/work/repo/secrets/a"}); got.Decision == policy.DecisionBlock {
+	if got := base.EvaluateToolCall("Read", map[string]interface{}{"file_path": absDir("/work/repo/secrets/a")}); got.Decision == policy.DecisionBlock {
 		t.Errorf("InWorkingDir changed the evaluator it was called on: %v", got.TriggeredRules)
 	}
 }

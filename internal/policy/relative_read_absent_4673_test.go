@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4673: a customer's relative protected path (`.env`) BLOCKed a shell write
@@ -51,7 +52,7 @@ func relReadHasRef(r EvalResult, ref string) bool {
 }
 
 func TestRelativeProtectedPath_ShellReadOfAbsentFile_4673(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	env := "." + "env"
 	repo, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -127,7 +128,7 @@ func TestRelativeProtectedPath_ShellReadOfAbsentFile_4673(t *testing.T) {
 // pattern (and every shipped one) keeps main's reading of a bare operand:
 // existing entry only, which #4401 pins for `cat nosuchfile` inside ~/.ssh.
 func TestRelativeProtectedPath_AbsentReadLeavesAbsolutePatternsAlone_4673(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -17,7 +17,7 @@ import (
 // path here is backed by no dedicated rule ("secrets/**"), so a BLOCK can
 // only come from the built-in check actually extracting the path.
 func TestProtectedPathViaCommandSubstitution_ParseFailureOnLaterLine(t *testing.T) {
-	cwd := "/tmp/agentshield-protected-cmdsubst-prefix-test"
+	cwd := absPath("/tmp/agentshield-protected-cmdsubst-prefix-test")
 	pol := DefaultPolicy()
 	pol.Defaults.ProtectedPaths = []string{"secrets/**"}
 	engine, err := NewEngineWithAnalyzers(pol, 2)

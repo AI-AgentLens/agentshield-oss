@@ -72,8 +72,8 @@ func statusCommand(cmd *cobra.Command, args []string) error {
 	// 3. IDE Shell Hooks
 	fmt.Println("─── Shell Command Hooks ────────────────────────────────")
 	home, _ := homedir.Dir() // not $HOME: Windows sets none (#4717)
-	checkShellHook("Windsurf", filepath.Join(home, ".codeium", "windsurf", "hooks.json"))
-	checkShellHook("Cursor", filepath.Join(home, ".cursor", "hooks.json"))
+	checkShellHook("Windsurf", filepath.Join(home, ".codeium", "windsurf", "hooks.json"), hookentry.WindsurfHookFile)
+	checkCursorHook(filepath.Join(home, ".cursor", "hooks.json"))
 	checkOpenClawHook()
 	fmt.Println()
 
@@ -186,17 +186,35 @@ func listSome(items []string, n int) string {
 	return fmt.Sprintf("%s and %d more", strings.Join(items[:n], ", "), len(items)-n)
 }
 
-func checkShellHook(name, hooksPath string) {
+// checkShellHook reports one hook file as active when file.Present accepts
+// it: on Windows the full-path command must sit where file says the hooks
+// are, and name a program that is a file (#5072 pass 2).
+func checkShellHook(name, hooksPath string, file hookentry.HookFile) {
 	data, err := os.ReadFile(hooksPath)
 	if err != nil {
 		fmt.Printf("  ⬚  %s: not configured\n", name)
 		return
 	}
-	if strings.Contains(string(data), "agentshield hook") {
+	if file.Present(data) {
 		fmt.Printf("  ✅ %s: hook active (%s)\n", name, hooksPath)
 	} else {
 		fmt.Printf("  ⬚  %s: hooks.json exists but no AgentShield hook\n", name)
 	}
+}
+
+// checkCursorHook is checkShellHook plus Cursor's own check of the file.
+// Cursor ignores a hooks.json without a numeric "version", so an AgentShield
+// entry in such a file is not an active hook (#5113). Before this check,
+// status reported that file as ✅ while no command was evaluated.
+func checkCursorHook(hooksPath string) {
+	data, err := os.ReadFile(hooksPath)
+	if err == nil && hookentry.CursorHookFile.Present(data) {
+		if problem := hookentry.CursorConfigProblem(data); problem != "" {
+			fmt.Printf("  ⚠  Cursor: hook NOT active: Cursor ignores %s (%s). Fix: agentshield setup cursor\n", hooksPath, problem)
+			return
+		}
+	}
+	checkShellHook("Cursor", hooksPath, hookentry.CursorHookFile)
 }
 
 func checkOpenClawHook() {

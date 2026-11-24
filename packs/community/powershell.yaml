@@ -1141,6 +1141,35 @@ rules:
     - 'New-Item -ItemType File -Path $PROFILE -Force'
     - 'Add-Content .\notes.txt ''$PROFILEX'''
 # ---------------------------------------------------------------------------
+# Claude Code settings. Bash twin: ts-block-agent-settings-write (echo,
+# printf, cat or tee into .claude/settings.json or settings.local.json),
+# BLOCK. Writes only, as bash's (cp onto the file decides AUDIT there).
+# ---------------------------------------------------------------------------
+- id: ps-block-agent-settings-write
+  taxonomy: unauthorized-execution/agentic-attacks/agent-capability-escalation
+  match:
+    powershell:
+      command: [set-content, add-content, out-file, tee-object]
+      paths_any: ['**/.claude/settings.json', '**/.claude/settings.local.json']
+  decision: BLOCK
+  confidence: 0.9
+  reason: >-
+    Writing Claude Code's settings file (.claude/settings.json or
+    settings.local.json) from a command rewrites the agent's own permissions
+    and hooks: an agent granting itself capabilities, the PowerShell spelling
+    of echo into ~/.claude/settings.json.
+  tests:
+    tp:
+    - 'Set-Content ~/.claude/settings.json ''{}'''
+    - 'Set-Content $HOME\.claude\settings.local.json -Value ''{}'''
+    - '''{}'' | Out-File $env:USERPROFILE\.claude\settings.json'
+    - 'Add-Content .claude\settings.local.json ''{}'''
+    tn:
+    - 'Get-Content ~/.claude/settings.json'
+    - 'Copy-Item ~/.claude/settings.json .\backup.json'
+    - 'Set-Content .\settings.json ''{}'''
+    - 'Set-Content ~/.claude/settings.json.bak ''{}'''
+# ---------------------------------------------------------------------------
 # CI/CD configuration. Bash twins: ts-block-cicd-write (a write into
 # .github/workflows/, .gitlab-ci.yml, .circleci/config.yml, Jenkinsfile,
 # .travis.yml) and ts-block-cicd-cp-mv (cp or mv onto one), BLOCK. Copy- and
@@ -1172,6 +1201,77 @@ rules:
     - 'Get-ChildItem .github\workflows'
     - 'Set-Content .\docs\ci.md ''x'''
     - 'Set-Content .github\CODEOWNERS ''* @team'''
+# ---------------------------------------------------------------------------
+# AgentShield's own audit trail. Bash twins: ts-block-agentshield-log-delete,
+# -move and -truncate (rm, mv, a truncating or appending write on
+# ~/.agentshield/audit.jsonl or its logs) and ts-struct-block-agentshield-dir-
+# delete (rm of the directory or everything in it), BLOCK. On a managed host
+# self-protection decides first; these are the unmanaged host's twins.
+# Copy-Item is left out (bash's cp of the log elsewhere decides AUDIT, and the
+# rule cannot tell source from destination), and so is moving the whole
+# directory (bash's mv of ~/.agentshield decides AUDIT).
+# ---------------------------------------------------------------------------
+- id: ps-block-agentshield-log-tamper
+  taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
+  match:
+    powershell:
+      command: [remove-item, move-item, rename-item, clear-content, set-content, add-content, out-file, tee-object]
+      # Bash's twin reads `.agentshield/(logs|audit|.*\.jsonl)`: anything
+      # named audit* (the upload queue, audit-queue/, is the log too, #4671)
+      # and a .jsonl file at the top or one level down (#4833 pass 1).
+      paths_any: ['~/.agentshield/audit*', '~/.agentshield/audit*/**', '~/.agentshield/logs', '~/.agentshield/logs/**', '~/.agentshield/*.jsonl', '~/.agentshield/*/*.jsonl']
+  decision: BLOCK
+  confidence: 0.9
+  reason: >-
+    Deleting, moving, emptying or writing AgentShield's audit log
+    (~/.agentshield/audit.jsonl or its logs) erases or forges the record of
+    what the agent did: the PowerShell spelling of rm, mv or truncating the
+    audit log.
+  tests:
+    tp:
+    - 'Remove-Item ~/.agentshield/audit.jsonl'
+    - 'Clear-Content $env:USERPROFILE\.agentshield\audit.jsonl'
+    - 'Move-Item ~\.agentshield\audit.jsonl C:\t\x'
+    - 'Set-Content ~/.agentshield/audit.jsonl '''''
+    - 'Add-Content ~/.agentshield/audit.jsonl ''{}'''
+    - 'Remove-Item ~/.agentshield/logs/hook.log'
+    - 'Move-Item $HOME\.agentshield\logs C:\t\logs'
+    - 'Remove-Item ~\.agentshield\audit-queue\queue.jsonl'
+    - 'Remove-Item -Recurse ~\.agentshield\audit-queue'
+    - 'Remove-Item ~\.agentshield\audit-queue\batch-1.json'
+    - 'Clear-Content ~\.agentshield\cache\events.jsonl'
+    tn:
+    - 'Get-Content ~/.agentshield/audit.jsonl -Tail 20'
+    - 'Copy-Item ~/.agentshield/audit.jsonl .\audit-copy.jsonl'
+    - 'Select-String BLOCK ~/.agentshield/audit.jsonl'
+    - 'Remove-Item .\audit.jsonl'
+    - 'Move-Item $env:USERPROFILE\.agentshield C:\t\agentshield-old -Force'
+    - 'Remove-Item ~/.agentshield/agentshield.yaml'
+- id: ps-block-agentshield-dir-delete
+  taxonomy: persistence-evasion/anti-forensics/ai-audit-trail-circumvention
+  match:
+    powershell:
+      command: remove-item
+      # The trailing separator names the same directory (#4833 pass 1);
+      # bash's twin lists `~/.agentshield/` too.
+      paths_any: ['~/.agentshield', '~/.agentshield/', '~/.agentshield/\*']
+  decision: BLOCK
+  confidence: 0.9
+  reason: >-
+    Deleting the AgentShield directory (~/.agentshield, or everything in it)
+    erases the audit log with the configuration: the PowerShell spelling of
+    rm -rf ~/.agentshield.
+  tests:
+    tp:
+    - 'Remove-Item -Recurse -Force $HOME\.agentshield'
+    - 'Remove-Item ~/.agentshield/*'
+    - 'rm -r -fo $env:USERPROFILE\.agentshield'
+    - 'Remove-Item -Recurse -Force ~\.agentshield\'
+    tn:
+    - 'Get-ChildItem ~/.agentshield'
+    - 'Move-Item $env:USERPROFILE\.agentshield C:\t\agentshield-old -Force'
+    - 'Remove-Item ~/.agentshield/agentshield.yaml'
+    - 'Remove-Item -Recurse -Force .\.agentshield-test'
 # ---------------------------------------------------------------------------
 # Agent instruction files. Bash twins: ts-block-agent-memory-download-overwrite
 # (curl -o CLAUDE.md, any URL) and ts-block-agent-memory-copy-overwrite (cp or
@@ -1371,13 +1471,14 @@ rules:
 # Secret-named environment variables sent to the network. Bash twin:
 # ts-block-env-secret-exfil (env | grep TOKEN | curl …), BLOCK on a community
 # install, where the unfiltered env dump decides AUDIT (ps-audit-env-exfil).
+# Same node as the twin: the network sink makes it exfiltration.
 # The filter is Where-Object or Select-String naming a secret word (a
 # wildcard like *TOKEN* too), or a wildcard env: path. Not read: a filter in a
 # script block ({ $_.Name -match 'TOKEN' }) or a regex alternation
 # ('TOKEN|SECRET').
 # ---------------------------------------------------------------------------
 - id: ps-block-env-secret-exfil
-  taxonomy: reconnaissance/environment/env-var-enumeration
+  taxonomy: data-exfiltration/network-egress/env-variable-exfiltration
   match:
     powershell:
       command: [invoke-webrequest, invoke-restmethod, curl, wget]

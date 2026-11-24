@@ -298,9 +298,9 @@ func (r ChainVerifyResult) Protected() bool { return r.State == ChainStateVerifi
 // generations) and never verified (#4133 Codex pass 2).
 func VerifyChain(path string) ChainVerifyResult {
 	for attempt := 1; attempt <= verifyAttempts; attempt++ {
-		before, _ := os.Stat(path)
+		before := liveIdentity(path)
 		result := verifyChainOnce(path)
-		after, _ := os.Stat(path)
+		after := liveIdentity(path)
 		if sameIdentity(before, after) {
 			return result
 		}
@@ -323,8 +323,42 @@ const verifyAttempts = 3
 // VerifyChain's retry exists for.
 var verifyChainBetweenFiles func()
 
-// sameIdentity reports whether two stats (either may be nil for "no file")
-// describe the same file.
+// liveIdentity is the identity of the file at path for VerifyChain's
+// before-and-after check, read through an open handle, or nil when there is
+// no file there.
+//
+// Not os.Stat (#5039). On Windows the FileInfo os.Stat returns carries no
+// file id: os.SameFile fetches it later, by opening the path at comparison
+// time. Two os.Stat results of one path therefore compare equal whenever the
+// path names some file when they are compared, so a live file replaced
+// during the pass looked unmoved and the retry never ran. Executed on
+// Windows 10: a clean rotation in the window read broken, and a live file
+// swapped for an edited copy read verified. f.Stat on an open handle reads
+// the id at once. On unix both give the same dev and inode, so nothing
+// changes there.
+//
+// The open is openTail's, which never blocks in open(2) on a FIFO. When the
+// open or the fstat fails for any other reason than absence, os.Stat's
+// answer is used, which is what VerifyChain compared before; verifyFile's own
+// open of the same path decides the verdict in that case.
+func liveIdentity(path string) os.FileInfo {
+	f, err := openIdentity(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err == nil {
+		info, serr := f.Stat()
+		_ = f.Close()
+		if serr == nil {
+			return info
+		}
+	}
+	info, _ := os.Stat(path)
+	return info
+}
+
+// sameIdentity reports whether two identities (either may be nil for "no
+// file") describe the same file.
 func sameIdentity(a, b os.FileInfo) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil

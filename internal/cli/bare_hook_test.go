@@ -9,9 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // These tests pin the bare-invocation backstop (#4292). Claude Code 2.1.138
@@ -74,6 +77,12 @@ func invokeAgentshieldIn(t *testing.T, home, dir string, argv []string, mode std
 	self := []string{exe, "-test.run=^TestHelperBareInvocation$"}
 	var cmd *exec.Cmd
 	if mode == stdinClosed {
+		// Closing fd 0 takes a POSIX shell. Windows has none here, and os/exec
+		// always gives a child a standard input handle (the NUL device when
+		// Stdin is nil, the stdinDevNull row).
+		if runtime.GOOS == "windows" {
+			t.Skip("no /bin/sh to start the child with standard input closed")
+		}
 		cmd = exec.Command("/bin/sh", append([]string{"-c", `exec "$0" "$@" <&-`}, self...)...)
 	} else {
 		cmd = exec.Command(self[0], self[1:]...)
@@ -87,6 +96,7 @@ func invokeAgentshieldIn(t *testing.T, home, dir string, argv []string, mode std
 		env = append(env, kv)
 	}
 	cmd.Env = env
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Dir = dir
 	if mode == stdinPipe {
 		cmd.Stdin = strings.NewReader(stdin)

@@ -203,6 +203,10 @@ func posixWord(w facts.Word) string {
 	}
 	var b strings.Builder
 	for i, p := range w {
+		if p.Bare && !p.Unknown && bareShape(p.Text) {
+			b.WriteString(p.Text)
+			continue
+		}
 		if !p.Unknown {
 			if p.Text == "" && len(w) == 1 {
 				return "''"
@@ -223,6 +227,26 @@ func posixWord(w facts.Word) string {
 		}
 	}
 	return b.String()
+}
+
+// bareShape reports text a cmdlet twin may have written unquoted
+// (facts.WordPart.Bare): a redirection operator, or a wildcard path whose
+// every other byte bash reads literally, so bash expands it as PowerShell
+// does. Anything else is quoted like any literal, whatever the reader marked:
+// the bridge's own spelling never depends on a lane getting this right.
+func bareShape(s string) bool {
+	if s == ">" || s == ">>" {
+		return true
+	}
+	if !strings.ContainsAny(s, "*?[") || s[0] == '~' && len(s) > 1 && s[1] != '/' {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !safeByte(c) && strings.IndexByte("*?[]", c) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // bashVariable reports whether a PowerShell variable's name is one bash

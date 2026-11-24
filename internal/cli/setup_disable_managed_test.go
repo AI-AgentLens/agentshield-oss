@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +63,7 @@ func runSetupChild(t *testing.T, home string, args ...string) (string, int) {
 		"HOME="+home,
 		"COPILOT_HOME=",
 	)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	out, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
 	switch {
@@ -92,7 +94,7 @@ func writeManagedJSON(t *testing.T, home string) {
 // text, so they check that the same function refused.
 func managedRefusal(t *testing.T, home string) string {
 	t.Helper()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	err := enterprise.CheckDisableAllowed()
 	if err == nil {
 		t.Fatalf("CheckDisableAllowed() = nil for a HOME with managed.json; the test setup is wrong")

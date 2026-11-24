@@ -108,7 +108,7 @@ func TestSemanticTwin3118_NoDecisionMovement(t *testing.T) {
 		{"crontab /home/dev/deploy.cron", policy.DecisionAudit},
 		{"crontab /etc/cron.d/backup", policy.DecisionAudit},
 		{"crontab -l", policy.DecisionAudit},
-		{"find /tmp -type f -name '*.log' -delete", policy.DecisionAllow},
+		{"find /tmp -type f -name '*.log' -delete", policy.DecisionAudit}, // #4885: find action flags no longer ALLOW
 		{"python3 -c \"print('hello')\"", policy.DecisionAudit},
 	}
 	for _, tc := range benign {

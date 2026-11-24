@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/homedir"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // These tests pin the "onFailure": "block" key on AgentShield's Claude Code
@@ -224,7 +225,7 @@ func TestInstallClaudeCodeHook_OnFailureOnEveryForm(t *testing.T) {
 	t.Run("shell form migrated to exec form", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "settings.json")
 		writeSettingsFile(t, path, `{"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "/opt/homebrew/bin/agentshield hook", "timeout": 30}]}]}}`)
-		res, err := installClaudeCodeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureBlock)
+		res, err := installClaudeCodeHook(path, fixtureInstallPath(), true, onFailureBlock)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +349,7 @@ func enterManagedHome(t *testing.T, managed string) {
 	settingsPath := setupClaudeHome(t)
 	switch managed {
 	case "<no HOME>":
-		t.Setenv("HOME", "")
+		testhome.Set(t, "")
 	default:
 		setManagedJSON(t, settingsPath, managed)
 	}
@@ -480,6 +481,13 @@ func TestRemoveManagedClaudeHook(t *testing.T) {
 			if err := os.Chmod(path, 0o640); err != nil {
 				t.Fatal(err)
 			}
+			// 0640 off Windows. On Windows Chmod sets only the read-only
+			// attribute, so the mode to keep is whatever Stat reports now.
+			fi, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantMode := fi.Mode().Perm()
 			before, _ := os.ReadFile(path)
 			res, err := removeManagedClaudeHook(path)
 			if err != nil {
@@ -497,8 +505,8 @@ func TestRemoveManagedClaudeHook(t *testing.T) {
 				if got, want := decodeJSONNumbers(t, after), decodeJSONNumbers(t, []byte(tc.wantFile)); !reflect.DeepEqual(got, want) {
 					t.Errorf("after removal:\n%s\nwant:\n%s", after, tc.wantFile)
 				}
-				if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
-					t.Errorf("mode = %#o; want 0640 kept", fi.Mode().Perm())
+				if fi, _ := os.Stat(path); fi.Mode().Perm() != wantMode {
+					t.Errorf("mode = %#o; want %#o kept", fi.Mode().Perm(), wantMode)
 				}
 			}
 			again, err := removeManagedClaudeHook(path)

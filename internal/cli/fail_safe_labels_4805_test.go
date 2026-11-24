@@ -18,6 +18,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/AI-AgentLens/agentshield/internal/psreader"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4805: the record never carries the value it stopped (#4448), on the
@@ -307,7 +308,7 @@ func TestFailSafeRecord_DataLabelScrubbed_4805(t *testing.T) {
 				}
 				t.Cleanup(func() { _ = os.Chmod(p, 0o600) })
 			}, decision: "BLOCK", exit: 2, want: "withheld", line: false,
-			detail: "packs: not a directory", reason: "audit.jsonl: permission denied"},
+			detail: "packs: not a directory", reason: "audit.jsonl: " + accessDeniedWords},
 		// The pack's rules do not parse, so the full load drops it and its
 		// label with it; its data_labels block still reads.
 		{name: "a pack fails to parse, managed fail_closed, label in that pack", managed: true, policy: failSafePolicyGood,
@@ -402,13 +403,16 @@ func TestFailSafeRecord_ConfigLoad_4805(t *testing.T) {
 	// The config directory cannot be created; --policy names a labelled
 	// policy elsewhere, which the evaluation would have loaded.
 	t.Run("config dir cannot be created, labels in the --policy file", func(t *testing.T) {
+		if !modeBitsAreReal {
+			t.Skip("chmod 0500 does not stop creating entries in a directory on Windows")
+		}
 		newFailSafeHome(t, false, "")
 		ro := filepath.Join(t.TempDir(), "ro")
 		if err := os.MkdirAll(ro, 0o500); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
-		t.Setenv("HOME", filepath.Join(ro, "home"))
+		testhome.Set(t, filepath.Join(ro, "home"))
 		labelled := filepath.Join(t.TempDir(), "policy.yaml")
 		if err := os.WriteFile(labelled, []byte(labelledPolicy4805), 0o600); err != nil {
 			t.Fatal(err)
@@ -427,7 +431,7 @@ func TestFailSafeRecord_ConfigLoad_4805(t *testing.T) {
 	// No home directory: nothing says where the labels live.
 	t.Run("no home directory", func(t *testing.T) {
 		newFailSafeHome(t, false, "")
-		t.Setenv("HOME", "")
+		testhome.Set(t, "")
 		result, ev := evaluateCommand(labelCmd4805(), "/tmp", "cursor-hook", "")
 		if !strings.Contains(ev.Error, "HOME") {
 			t.Fatalf("control: error %q; config.Load did not fail on the home directory", ev.Error)

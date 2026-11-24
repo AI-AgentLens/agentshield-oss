@@ -206,6 +206,10 @@ func (s *Server) readLane(l route.Lane, req evaluateRequest, rc *routedCall) (se
 		// pass would add cost under the thin clients' 5 s timeout, already
 		// tight (the accepted C1 residual, #4771; Kai, 2026-11-04).
 		lane.NativeBridge = !slices.Contains(rc.lanes, route.POSIX)
+		// The cmdlet bridge's twins only where the native bridge runs, under
+		// the same byte bound (ServerNativeBridgeBytes): one more POSIX
+		// reading, and only on a call some cmdlet or redirection has a twin.
+		lane.CmdletBridge = lane.NativeBridge
 		result, err := lane.Read(rc.command)
 		if err != nil {
 			result = laneFailure(l, err)

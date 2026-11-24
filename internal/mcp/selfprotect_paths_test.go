@@ -91,14 +91,19 @@ func TestConfigGuard_SpellingProof(t *testing.T) {
 	cfg := home + "/" + spDir
 	w := func(p string) map[string]interface{} { return map[string]interface{}{"path": p, "content": "{}"} }
 
-	// A symlinked alias of HOME and a symlink into the config directory.
+	// A symlinked alias of HOME and a symlink into the config directory. On
+	// a Windows account that may not create symlinks the two rows that use
+	// them are left out, and every other row still runs (#5021).
 	aliasDir := t.TempDir()
 	alias := filepath.Join(aliasDir, "home-alias")
-	if err := os.Symlink(home, alias); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(cfg, filepath.Join(home, "projects", "cfg-link")); err != nil {
-		t.Fatal(err)
+	linked := true
+	for _, l := range [][2]string{{home, alias}, {cfg, filepath.Join(home, "projects", "cfg-link")}} {
+		if err := os.Symlink(l[0], l[1]); err != nil {
+			if !symlinkNotPermitted(err) {
+				t.Fatal(err)
+			}
+			linked = false
+		}
 	}
 
 	rows := []guardRow{
@@ -106,10 +111,10 @@ func TestConfigGuard_SpellingProof(t *testing.T) {
 		{"absolute path", "write_file", w(cfg + "/managed.json"), true},
 		{"literal $HOME", "write_file", w("$HOME/" + spDir + "/managed.json"), true},
 		{"literal ${HOME}", "write_file", w("${HOME}/" + spDir + "/policy.yaml"), true},
-		{"file:// URI", "write_file", w("file://" + cfg + "/managed.json"), true},
+		{"file:// URI", "write_file", w(fileURI(cfg + "/managed.json")), true},
 		{"file:/ URI, one slash (#4352)", "write_file", w("file:" + cfg + "/managed.json"), true},
-		{"file://localhost URI", "write_file", w("file://localhost" + cfg + "/managed.json"), true},
-		{"percent-encoded file:// URI", "write_file", w("file://" + home + "/%2E" + spDir[1:] + "/managed.json"), true},
+		{"file://localhost URI", "write_file", w(fileURIHost("localhost", cfg+"/managed.json")), true},
+		{"percent-encoded file:// URI", "write_file", w(fileURI(home) + "/%2E" + spDir[1:] + "/managed.json"), true},
 		{"relative, cwd HOME", "write_file", w(spDir + "/policy.yaml"), true},
 		{"relative ./, cwd HOME", "delete_file", map[string]interface{}{"path": "./" + spDir + "/managed.json"}, true},
 		{"relative through ..", "write_file", w("projects/../" + spDir + "/managed.json"), true},
@@ -136,6 +141,10 @@ func TestConfigGuard_SpellingProof(t *testing.T) {
 		{"Cursor MCP config (setup mcp wraps it)", "write_file", w("$HOME/.cursor/mcp.json"), true},
 		{"Cursor MCP config, file:/ URI", "write_file", w("file:" + home + "/.cursor/mcp.json"), true},
 		{"command text: interpreter", "run_shell", map[string]interface{}{"cmd": "python3 -c \"open('" + cfg + "/policy.yaml','w')\""}, true},
+		// #4840: a bare read word, a newline, then a write. A newline ends the
+		// statement as `;` does, so this is no plain read.
+		{"command text: read word, newline, delete", "execute_command", map[string]interface{}{"command": "cat\nrm -rf ~/" + spDir}, true},
+		{"command text: read word, CRLF, delete", "execute_command", map[string]interface{}{"command": "ls\r\nrm -rf ~/" + spDir}, true},
 
 		// Allowed: main allowed these, and none names a target here.
 		{"agentshield-notes directory", "write_file", w("~/projects/agentshield-notes/readme.md"), false},
@@ -156,6 +165,23 @@ func TestConfigGuard_SpellingProof(t *testing.T) {
 		{"command text: agentshield CLI", "execute_command", map[string]interface{}{"command": "agentshield status"}, false},
 		{"read tool, relative", "read_file", map[string]interface{}{"path": spDir + "/policy.yaml"}, false},
 	}
+	drop := map[string]string{}
+	if !linked {
+		drop["symlinked HOME alias (#4352)"] = "this Windows account may not create symlinks"
+		drop["symlink into the config directory"] = "this Windows account may not create symlinks"
+	}
+	for name, why := range windowsGapRows() {
+		drop[name] = why
+	}
+	kept := rows[:0]
+	for _, r := range rows {
+		if why, ok := drop[r.name]; ok {
+			t.Logf("row %q not run: %s", r.name, why)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	rows = kept
 	runGuardRows(t, rows)
 
 	// Rows whose answer is the volume's. The spelled path is checked against
@@ -169,6 +195,10 @@ func TestConfigGuard_SpellingProof(t *testing.T) {
 		{"pass2: Codex hook file, APFS Kelvin fold", home + "/.codex/hooKs.json", home + "/.codex/hooks.json"},
 		{"upper-case hook directory", home + "/.CLAUDE/settings.json", home + "/.claude/settings.json"},
 	} {
+		if why, ok := windowsGapRows()[v.name]; ok {
+			t.Logf("row %q not run: %s", v.name, why)
+			continue
+		}
 		want := sameFile(v.spelled, v.real)
 		runGuardRows(t, []guardRow{{v.name + " (same file here: " + map[bool]string{true: "yes", false: "no"}[want] + ")", "write_file", w(v.spelled), want}})
 	}
@@ -327,6 +357,7 @@ func TestKeepRule_NamesSelfProtectTarget(t *testing.T) {
 		{"command text: cd, then relative", "execute_command", map[string]interface{}{"command": "cd ~ && rm -rf " + spDir}, true},
 		{"command text: long s", "execute_command", map[string]interface{}{"command": "rm -rf ~/.agentſhield"}, true},
 		{"command text: plain read is not kept", "execute_command", map[string]interface{}{"command": "tail -5 ~/" + spDir + "/audit.jsonl"}, false},
+		{"command text: read word, newline, delete is kept (#4840)", "execute_command", map[string]interface{}{"command": "wc\nrm -rf ~/" + spDir}, true},
 		{"prose is not a path", "write_file", map[string]interface{}{"path": home + "/projects/app/README.md", "content": "see ~/" + spDir + "/policy.yaml for details"}, false},
 		{"VS Code settings are not a target", "write_file", map[string]interface{}{"path": home + "/Library/Application Support/Code/User/settings.json"}, false},
 		{"project file", "write_file", map[string]interface{}{"path": home + "/projects/app/README.md"}, false},

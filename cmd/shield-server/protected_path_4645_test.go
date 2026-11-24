@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -63,6 +64,14 @@ func TestEvaluateCustomerProtectedPath4645(t *testing.T) {
 // #4653: a relative customer pattern reaches a tool call through the
 // request's cwd, as it reaches a command; a request without one is unchanged.
 func TestEvaluateRelativeProtectedPathUsesRequestCwd4653(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// shield-server is built and shipped for Linux (the enterprise gateway);
+		// goreleaser builds no Windows server. These rows send POSIX request cwds
+		// (/work/repo), which are not absolute on a Windows-hosted server, so they
+		// test a configuration that doesn't exist (#5021). The real cross-OS case
+		// runs the other way: a Windows client's C:\ cwd at a Linux server.
+		t.Skip("shield-server has no Windows build; these rows send POSIX request cwds")
+	}
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "policy.yaml")
 	if err := os.WriteFile(policyFile, []byte("defaults:\n  protected_paths:\n    - \"secrets/**\"\n"), 0o600); err != nil {

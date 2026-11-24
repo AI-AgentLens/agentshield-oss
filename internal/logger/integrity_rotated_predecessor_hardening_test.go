@@ -491,7 +491,7 @@ func TestVerifyChain_UpgradeFromPreChainLogThroughRotations(t *testing.T) {
 			smallRotation(t, 2500)
 			rotations := 0
 			for i := 0; i < 60; i++ {
-				before, _ := os.Stat(p + rotatedSuffix)
+				before := fileIdentity(t, p+rotatedSuffix)
 				lg, err := New(p)
 				if err != nil {
 					t.Fatal(err)
@@ -500,7 +500,7 @@ func TestVerifyChain_UpgradeFromPreChainLogThroughRotations(t *testing.T) {
 					t.Fatal(err)
 				}
 				_ = lg.Close()
-				if after, err := os.Stat(p + rotatedSuffix); err == nil && (before == nil || !os.SameFile(before, after)) {
+				if replacedSince(t, before, p+rotatedSuffix) {
 					rotations++
 				}
 				r := VerifyChain(p)
@@ -622,6 +622,35 @@ func TestVerifyChain_RotationDuringVerificationRetries(t *testing.T) {
 		r := VerifyChain(live)
 		if r.State != ChainStateVerified || r.Note != "linked to audit.jsonl.1" || calls != 3 {
 			t.Fatalf("got %q note %q after %d passes: %s", r.State, r.Note, calls, r.Message)
+		}
+	})
+
+	// #5039: the live file swapped for an edited copy after the live scan.
+	// The first pass scanned the original and verified it; the file on disk
+	// at return is the edited one. The identity check has to see the swap
+	// and re-verify, so the edit is reported. On Windows, os.Stat plus
+	// os.SameFile could not see a replaced file, and this read verified.
+	t.Run("live swapped for an edited copy mid-verification: the retry reports the edit", func(t *testing.T) {
+		live, _ := rotatedPair(t, t.TempDir(), 3, 3)
+		lines := readLines(t, live)
+		edited := strings.Replace(lines[1], `"command":"new-x"`, `"command":"EDITED"`, 1)
+		if edited == lines[1] {
+			t.Fatal("fixture: the edit did not apply")
+		}
+		lines[1] = edited
+		writeLines(t, live+".tmp", lines)
+		calls := 0
+		verifyChainBetweenFiles = func() {
+			calls++
+			if calls == 1 {
+				if err := os.Rename(live+".tmp", live); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		r := VerifyChain(live)
+		if r.State != ChainStateBroken || r.BrokenAt != 1 || calls != 1 {
+			t.Fatalf("got %q at %d after %d seam calls: %s; want broken at entry 1, found by the live scan of the retry (which ends before the seam)", r.State, r.BrokenAt, calls, r.Message)
 		}
 	})
 

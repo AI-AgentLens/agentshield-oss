@@ -694,7 +694,7 @@ var SUIDBitFindExecCases = []TestCase{
 	{
 		ID:               "TN-SUIDFIND-002",
 		Command:          `find /home -name "*.log" -exec cat {} \;`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "privilege-escalation/file-permissions/suid-bit-set",
 		Description:      `find -exec without any SUID perm filter. Normal file search and read.`,

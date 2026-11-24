@@ -10,11 +10,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 func TestWatchdog_DetectRemovedHook(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	// Create a claude code settings file WITHOUT agentshield
 	claudeDir := filepath.Join(tmpHome, ".claude")
@@ -67,7 +69,7 @@ func TestWatchdog_MissingPolicy(t *testing.T) {
 
 func TestWatchdog_AllHealthy(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, ".agentshield")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -157,7 +159,7 @@ func TestWatchdog_BypassEnvDetection(t *testing.T) {
 // marker setup.go writes.
 func TestWatchdog_BypassedByEchoingAgentshield(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	claudeDir := filepath.Join(tmpHome, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
@@ -195,7 +197,7 @@ func TestWatchdog_BypassedByEchoingAgentshield(t *testing.T) {
 // watchdog would never alert.
 func TestWatchdog_DetectsGeminiAndCodexTamper(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	// Gemini: settings.json with no agentshield reference.
 	geminiDir := filepath.Join(tmpHome, ".gemini")
@@ -244,7 +246,7 @@ func TestWatchdog_DetectsGeminiAndCodexTamper(t *testing.T) {
 // command marker is present in a Gemini or Codex hook file, the check passes.
 func TestWatchdog_HealthyGeminiAndCodexPass(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	geminiDir := filepath.Join(tmpHome, ".gemini")
 	if err := os.MkdirAll(geminiDir, 0o755); err != nil {
@@ -285,7 +287,7 @@ func TestWatchdog_HealthyGeminiAndCodexPass(t *testing.T) {
 // agentshield hook is gone; an intact file passes.
 func TestWatchdog_CopilotHookFile(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 	copilotHome := filepath.Join(tmpHome, "custom-copilot")
 	t.Setenv("COPILOT_HOME", copilotHome)
 	hooksDir := filepath.Join(copilotHome, "hooks")
@@ -328,7 +330,7 @@ func TestWatchdog_CopilotHookFile(t *testing.T) {
 func claudeCodeHookChecks(t *testing.T, settings string) []WatchdogCheck {
 	t.Helper()
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 	claudeDir := filepath.Join(tmpHome, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		t.Fatal(err)

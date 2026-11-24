@@ -2,12 +2,15 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +19,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/auth"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // These tests pin #4071: LoadPacks returns (nil, nil, err) when the disk
@@ -53,9 +57,11 @@ func makePacksPathAFile(t *testing.T, configDir string) {
 	}
 }
 
-// makeUnreadablePacksDir creates configDir/packs and strips all permissions
-// so os.ReadDir fails with something other than IsNotExist — the failure
-// mode LoadPacks does not special-case.
+// makeUnreadablePacksDir creates configDir/packs and takes away the right to
+// list it, so os.ReadDir fails with a permission error, something other than
+// IsNotExist — the failure mode LoadPacks does not special-case. Off Windows
+// that is mode 000. On Windows Chmod sets only the read-only attribute, which
+// a directory ignores, so there it is a deny ACE (denyListing).
 func makeUnreadablePacksDir(t *testing.T, configDir string) {
 	t.Helper()
 	if os.Geteuid() == 0 {
@@ -65,10 +71,23 @@ func makeUnreadablePacksDir(t *testing.T, configDir string) {
 	if err := os.MkdirAll(packsDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll packs: %v", err)
 	}
-	if err := os.Chmod(packsDir, 0o000); err != nil {
-		t.Fatalf("Chmod packs: %v", err)
+	if runtime.GOOS == "windows" {
+		denyListing(t, packsDir)
+	} else {
+		if err := os.Chmod(packsDir, 0o000); err != nil {
+			t.Fatalf("Chmod packs: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(packsDir, 0o700) })
 	}
-	t.Cleanup(func() { _ = os.Chmod(packsDir, 0o700) })
+	// The fixture must make the state it is named for. Before #5021 it did
+	// not on Windows: the directory stayed listable and empty, and the tests
+	// over it checked the readable-empty case under this fixture's name.
+	if _, err := os.ReadDir(packsDir); !errors.Is(err, fs.ErrPermission) {
+		if runtime.GOOS == "windows" && err == nil {
+			t.Skip("this process lists a directory past a deny ACE (it holds SeBackupPrivilege enabled, as an administrator's OpenSSH session does), as root lists past mode 000 (the packs-path-is-a-file fixture still runs)")
+		}
+		t.Fatalf("fixture: os.ReadDir(%s) = %v; want a permission error", packsDir, err)
+	}
 }
 
 // policyWithUserWitness is a user policy carrying one BLOCK rule that exists
@@ -347,6 +366,7 @@ func runHookInChildProcessWithStdout(t *testing.T, home, payload string) (exitCo
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHookProcess$")
 	cmd.Env = append(os.Environ(), "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf

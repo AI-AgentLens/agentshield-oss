@@ -174,6 +174,13 @@ func readEvalRecord4818(t *testing.T, r record4805) evalRecord4818 {
 	return evalRecord4818{line: e, wire: r.wire[0]}
 }
 
+// evalRecordBudget4818 is the watchdog budget for the rows below, set far above
+// the evaluation's time (#4826): the watchdog only has to lose the claim race,
+// and at 7 s a saturated runner that took longer than that to evaluate a
+// 96 KiB command let it answer first. The record's own check reads the harness
+// timeout (10 s), not this override, so the rows' arithmetic is unchanged.
+const evalRecordBudget4818 = "120s"
+
 // TestEvalRecord_TooLargeToScrub_Withheld_4818 runs the hook as Codex does on
 // an enrolled host with data labels. The evaluation decides the call inside
 // its budget, and the test-only before-redact slow point then holds its
@@ -209,7 +216,7 @@ func TestEvalRecord_TooLargeToScrub_Withheld_4818(t *testing.T) {
 			home, configDir := newFailSafeHome(t, false, c.policy)
 			wire.enroll(t)
 			start := time.Now()
-			r := runChild4805(t, home, configDir, wire, codexPayload4805(t, c.cmd), budgetEnv("7s", "before-redact="+c.hold)...)
+			r := runChild4805(t, home, configDir, wire, codexPayload4805(t, c.cmd), budgetEnv(evalRecordBudget4818, "before-redact="+c.hold)...)
 			t.Logf("%d KiB command answered after %s (Codex timeout 10s)", len(c.cmd)>>10, time.Since(start))
 			rec := readEvalRecord4818(t, r)
 			raw := r.line + r.wireText()

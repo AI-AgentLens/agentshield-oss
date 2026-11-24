@@ -108,6 +108,9 @@ func TestEmbeddedMCPPacks_RuleCountFloor(t *testing.T) {
 		"mcp-ide-workspace-trust.yaml":                   5,   // actual: ~7
 		"mcp-file-transfer.yaml":                         6,   // actual: ~8
 		"mcp-supply-chain-premium.yaml":                  11,  // actual: ~14
+		"mcp-aws-api-call-aws.yaml":                      1,   // actual: 2
+		"mcp-identifier-arg-filesystem-path.yaml":        4,   // actual: 6
+		"mcp-write-dest-arg-sensitive-paths.yaml":        4,   // actual: 6
 		"mcp-cloud-functions.yaml":                       4,   // actual: ~6
 		"mcp-devtool-creds.yaml":                         107, // actual: ~134
 		"mcp-governance.yaml":                            22,  // actual: ~28
@@ -116,6 +119,11 @@ func TestEmbeddedMCPPacks_RuleCountFloor(t *testing.T) {
 		"mcp-agent-platform-creds.yaml":                  8,   // actual: ~11
 		"mcp-social-media-weaponization.yaml":            3,   // actual: ~4
 		"mcp-package-registry-redirect.yaml":             5,   // actual: ~7
+		"mcp-kubeshark-option-injection.yaml":            1,   // actual: 2
+		"mcp-server-kubernetes-option-injection.yaml":    3,   // actual: 4
+		"mcp-influxdb-endpoint-override.yaml":            1,   // actual: 1
+		"mcp-git-ref-shell-injection.yaml":               2,   // actual: 3
+		"mcp-safari-js-breakout.yaml":                    4,   // actual: 5
 		"mcp-vc-secret-weaponization.yaml":               7,   // actual: ~9
 		"mcp-agentic-attacks.yaml":                       4,   // actual: ~116 (post issue #2660)
 		"mcp-persistence.yaml":                           36,  // actual: ~46
@@ -130,6 +138,8 @@ func TestEmbeddedMCPPacks_RuleCountFloor(t *testing.T) {
 		"mcp-calendar-event-prompt-injection.yaml":       4,   // actual: 6 (premium pack, issue #2174)
 		"mcp-llm-context-summarization-injection.yaml":   2,   // actual: 3 (premium pack, issue #2175)
 		"mcp-deepfake-auth-bypass.yaml":                  1,   // actual: 2 (premium pack, issue #2234)
+		"mcp-erc20-unlimited-allowance.yaml":             7,   // actual: 9 (premium pack, issue #5007)
+		"mcp-agent-automation.yaml":                      1,   // actual: 2 (premium pack, issue #5006)
 		"mcp-package-registry-metadata-injection.yaml":   4,   // actual: 5 (premium pack, issue #2215)
 		"mcp-oauth-consent.yaml":                         3,   // actual: 4 (premium pack, issue #2250)
 		"mcp-payment-mandate-forgery.yaml":               3,   // actual: 4 (premium pack, issue #2271)

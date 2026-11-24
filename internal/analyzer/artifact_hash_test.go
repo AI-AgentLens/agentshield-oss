@@ -155,7 +155,9 @@ func TestArtifactHash_SubdirCwdSuffixMatch(t *testing.T) {
 	absScript := filepath.Join(repo, ".claude/skills/pdf/extract.py")
 
 	a := newArtifactHashAnalyzerFromPath(mpath, "audit")
-	f := a.Analyze(ctxFor(subdir, "python3 "+absScript))
+	// Slash form, as an agent types it in Git Bash: an unquoted backslash path
+	// is shell-escaped there, which is what the analyzer reads (#5021).
+	f := a.Analyze(ctxFor(subdir, "python3 "+filepath.ToSlash(absScript)))
 	if len(f) != 1 {
 		t.Fatalf("suffix match from subdir cwd must fire, got %+v", f)
 	}

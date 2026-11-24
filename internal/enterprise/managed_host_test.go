@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/homedir"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // TestManagedHost_AgreesWithCheckDisableAllowed pins ManagedHost to the
@@ -28,7 +30,7 @@ func TestManagedHost_AgreesWithCheckDisableAllowed(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			// The account's home is HOME, as on a normal install, so the
 			// answer comes from this file and not from the developer's real
 			// home (#4565).
@@ -127,6 +129,12 @@ func TestManagedHost_EitherHomeManaged(t *testing.T) {
 		t.Helper()
 		switch state {
 		case eacces:
+			if runtime.GOOS == "windows" {
+				// chmod cannot make a directory unreadable on Windows, so the
+				// precondition below cannot hold. The dir-file rows reach the same
+				// unreadable-managed.json branch there and still run (#5021).
+				t.Skip("chmod 0 does not make a directory unreadable on Windows; the dir-file rows cover this branch")
+			}
 			if os.Geteuid() == 0 {
 				t.Skip("root reads a mode-000 directory, so EACCES cannot be produced")
 			}
@@ -156,7 +164,7 @@ func TestManagedHost_EitherHomeManaged(t *testing.T) {
 				home = t.TempDir()
 				prepare(t, home, c.home)
 			}
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 
 			var lookup func() (string, error)
 			switch c.account {
@@ -190,12 +198,12 @@ func TestLoadManagedConfig_ReadsHOMEOnly(t *testing.T) {
 	writeManagedFile(t, account, `{"managed": true}`)
 	defer homedir.SetAccountLookupForTest(func() (string, error) { return account, nil })()
 
-	t.Setenv("HOME", "")
+	testhome.Set(t, "")
 	if cfg := LoadManagedConfig(); cfg != nil {
 		t.Errorf("LoadManagedConfig() with HOME empty = %+v, want nil", cfg)
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if cfg := LoadManagedConfig(); cfg != nil {
 		t.Errorf("LoadManagedConfig() with no managed.json under HOME = %+v, want nil", cfg)
 	}

@@ -1,12 +1,11 @@
 package mcp
 
 import (
-	"os"
 	"testing"
 )
 
 func TestConfigGuard_BlockAgentShieldConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.agentshield/policy.yaml",
 		"content": "defaults:\n  decision: ALLOW\n",
@@ -18,7 +17,7 @@ func TestConfigGuard_BlockAgentShieldConfig(t *testing.T) {
 }
 
 func TestConfigGuard_BlockMCPPolicyWrite(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("edit_file", map[string]interface{}{
 		"path": home + "/.agentshield/mcp-policy.yaml",
 	})
@@ -29,7 +28,7 @@ func TestConfigGuard_BlockMCPPolicyWrite(t *testing.T) {
 }
 
 func TestConfigGuard_BlockCursorMCPConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.cursor/mcp.json",
 		"content": `{"mcpServers":{"evil":{"command":"evil-server"}}}`,
@@ -41,7 +40,7 @@ func TestConfigGuard_BlockCursorMCPConfig(t *testing.T) {
 }
 
 func TestConfigGuard_BlockWindsurfHooks(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("create_file", map[string]interface{}{
 		"path":    home + "/.codeium/windsurf/hooks.json",
 		"content": "{}",
@@ -53,7 +52,7 @@ func TestConfigGuard_BlockWindsurfHooks(t *testing.T) {
 }
 
 func TestConfigGuard_BlockBashrc(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.bashrc",
 		"content": "alias rm='rm -rf /'\n",
@@ -65,7 +64,7 @@ func TestConfigGuard_BlockBashrc(t *testing.T) {
 }
 
 func TestConfigGuard_BlockZshrc(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("edit_file", map[string]interface{}{
 		"path": home + "/.zshrc",
 	})
@@ -79,7 +78,7 @@ func TestConfigGuard_NpmrcNotBlockedByGuard(t *testing.T) {
 	// .npmrc is intentionally NOT blocked by the config guard (issue #1897).
 	// Enterprise registries (Verdaccio, Artifactory, etc.) require writing .npmrc.
 	// The YAML rule mcp-sc-block-npmrc-write handles this at AUDIT severity instead.
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.npmrc",
 		"content": "registry=https://evil.com/npm/\n",
@@ -90,7 +89,7 @@ func TestConfigGuard_NpmrcNotBlockedByGuard(t *testing.T) {
 }
 
 func TestConfigGuard_BlockGitConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.gitconfig",
 	})
@@ -101,7 +100,7 @@ func TestConfigGuard_BlockGitConfig(t *testing.T) {
 }
 
 func TestConfigGuard_BlockSSHConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("edit_file", map[string]interface{}{
 		"path": home + "/.ssh/config",
 	})
@@ -112,7 +111,7 @@ func TestConfigGuard_BlockSSHConfig(t *testing.T) {
 }
 
 func TestConfigGuard_BlockKubeConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.kube/config",
 	})
@@ -123,7 +122,7 @@ func TestConfigGuard_BlockKubeConfig(t *testing.T) {
 }
 
 func TestConfigGuard_BlockDockerConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.docker/config.json",
 	})
@@ -148,7 +147,7 @@ func TestConfigGuard_PipConfNotBlockedByGuard(t *testing.T) {
 	// Enterprise PyPI mirrors require writing pip.conf. The generated community rule
 	// mcp-gen-protected-path-pip (**/.pip/**) and mcp-gen-protected-path-config-pip
 	// (**/.config/pip/**) still block it via YAML policy.
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.config/pip/pip.conf",
 		"content": "[global]\nindex-url = https://evil.com/simple/\n",
@@ -203,7 +202,7 @@ func TestConfigGuard_NilArguments(t *testing.T) {
 }
 
 func TestConfigGuard_NestedPathArgument(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("complex_tool", map[string]interface{}{
 		"config": map[string]interface{}{
 			"target": home + "/.bashrc",
@@ -216,7 +215,7 @@ func TestConfigGuard_NestedPathArgument(t *testing.T) {
 }
 
 func TestConfigGuard_AgentShieldSubdir(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.agentshield/packs/evil.yaml",
 	})
@@ -227,7 +226,7 @@ func TestConfigGuard_AgentShieldSubdir(t *testing.T) {
 }
 
 func TestConfigGuard_PathTraversalToBashrc(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	// Path traversal that resolves to ~/.bashrc
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/project/../.bashrc",
@@ -239,7 +238,7 @@ func TestConfigGuard_PathTraversalToBashrc(t *testing.T) {
 }
 
 func TestConfigGuard_PathTraversalToAgentShield(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/dev/../.agentshield/policy.yaml",
 	})
@@ -249,7 +248,7 @@ func TestConfigGuard_PathTraversalToAgentShield(t *testing.T) {
 }
 
 func TestConfigGuard_ClaudeDesktopConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/Library/Application Support/Claude/claude_desktop_config.json",
 		"content": `{"mcpServers":{"evil":{"command":"evil-server"}}}`,
@@ -261,7 +260,7 @@ func TestConfigGuard_ClaudeDesktopConfig(t *testing.T) {
 }
 
 func TestConfigGuard_MultipleFindings(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	// A tool call that has paths to multiple protected configs
 	result := CheckConfigGuard("multi_write", map[string]interface{}{
 		"primary":   home + "/.bashrc",
@@ -276,7 +275,7 @@ func TestConfigGuard_MultipleFindings(t *testing.T) {
 }
 
 func TestConfigGuard_CursorHooksJson(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.cursor/hooks.json",
 		"content": `{"hooks":[]}`,
@@ -288,7 +287,7 @@ func TestConfigGuard_CursorHooksJson(t *testing.T) {
 }
 
 func TestConfigGuard_YarnrcYml(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.yarnrc.yml",
 		"content": "npmRegistryServer: https://evil.com/npm/",
@@ -300,7 +299,7 @@ func TestConfigGuard_YarnrcYml(t *testing.T) {
 }
 
 func TestConfigGuard_BunfigToml(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.bunfig.toml",
 		"content": `[install]\nregistry = "https://evil.com/npm/"`,
@@ -312,7 +311,7 @@ func TestConfigGuard_BunfigToml(t *testing.T) {
 }
 
 func TestConfigGuard_PyPIrc(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.pypirc",
 		"content": "[pypi]\nusername = __token__\npassword = pypi-xxx",
@@ -347,7 +346,7 @@ func TestConfigGuard_AllowProjectNpmrc(t *testing.T) {
 }
 
 func TestConfigGuard_ProfileVariant(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.zprofile",
 	})
@@ -358,7 +357,7 @@ func TestConfigGuard_ProfileVariant(t *testing.T) {
 }
 
 func TestConfigGuard_BashProfile(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.bash_profile",
 	})
@@ -369,7 +368,7 @@ func TestConfigGuard_BashProfile(t *testing.T) {
 }
 
 func TestConfigGuard_GitConfigXDG(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path": home + "/.config/git/config",
 	})
@@ -380,7 +379,7 @@ func TestConfigGuard_GitConfigXDG(t *testing.T) {
 }
 
 func TestConfigGuard_BlockClaudeCodeSettings(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.claude/settings.json",
 		"content": `{"permissions": {}}`,
@@ -392,7 +391,7 @@ func TestConfigGuard_BlockClaudeCodeSettings(t *testing.T) {
 }
 
 func TestConfigGuard_BlockClaudeCodeLocalSettings(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("edit_file", map[string]interface{}{
 		"path": home + "/.claude/settings.local.json",
 	})
@@ -403,7 +402,7 @@ func TestConfigGuard_BlockClaudeCodeLocalSettings(t *testing.T) {
 }
 
 func TestConfigGuard_BlockGeminiSettings(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.gemini/settings.json",
 		"content": `{}`,
@@ -415,7 +414,7 @@ func TestConfigGuard_BlockGeminiSettings(t *testing.T) {
 }
 
 func TestConfigGuard_BlockCodexConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.codex/config.json",
 		"content": `{}`,
@@ -428,7 +427,7 @@ func TestConfigGuard_BlockCodexConfig(t *testing.T) {
 
 func TestConfigGuard_AllowClaudeProjectFiles(t *testing.T) {
 	// Files inside ~/.claude/projects/ are project-level settings and should not be blocked
-	home := os.Getenv("HOME")
+	home := guardHome()
 	result := CheckConfigGuard("write_file", map[string]interface{}{
 		"path":    home + "/.claude/projects/myproject/CLAUDE.md",
 		"content": "# Project notes",

@@ -16,7 +16,7 @@ import (
 
 // shellRule and mcpRule emit the two pack shapes. Terminal packs put `- id:` at
 // column 0 and MCP packs indent it under a rule-bearing key; the scanner has to
-// cope with both, and CLAUDE.md records that assuming one anchor is how the
+// cope with both, and .claude/agent-notes/packs-and-distribution.md records that assuming one anchor is how the
 // corpus got miscounted by 1,173 rules.
 func shellRule(id, node string) string {
 	return "- id: " + id + "\n  taxonomy: " + node + "\n  decision: BLOCK\n"

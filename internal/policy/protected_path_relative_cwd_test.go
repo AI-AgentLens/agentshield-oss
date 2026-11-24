@@ -253,7 +253,7 @@ func TestRelativeProtectedPathViaSubstitution(t *testing.T) {
 	for _, cmd := range []string{
 		`P=./secrets/token; python3 -c "open('$P').read()"`,
 		`P=secrets/token; python3 -c "open('$P').read()"`,
-		`python3 -c "open('` + filepath.Join(cwd, "secrets", "token") + `').read()"`,
+		`python3 -c "open('` + shellPath(filepath.Join(cwd, "secrets", "token")) + `').read()"`,
 	} {
 		n := normalize.NormalizeCommand(cmd, cwd)
 		if r := engine.EvaluateWithParsedCwd(cmd, n.Paths, n.Parsed, cwd); r.Decision != DecisionBlock {

@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 	"gopkg.in/yaml.v3"
 )
 
 func withFakeHomeForRule(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	oldP, oldL, oldM := policyPath, logPath, mode
 	t.Cleanup(func() { policyPath, logPath, mode = oldP, oldL, oldM })
 	policyPath, logPath, mode = "", "", "enforce"

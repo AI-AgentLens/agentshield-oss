@@ -114,7 +114,9 @@ func isCommandArg(toolName, argName string) bool {
 // or backtick. A copy, because internal/mcp may not import the enterprise
 // layer; TestPlainReadPattern_MatchesEnterprise in internal/cli fails if the
 // two drift.
-var plainReadRe = regexp.MustCompile("^\\s*(sudo\\s+)?(cat|head|tail|grep|rg|ls|stat|file|wc|diff|jq|echo|printf|agentshield)(\\s+[^;&|<>\\n`(!]*)?$")
+var plainReadRe = regexp.MustCompile("^\\s*(sudo[ \\t]+)?(cat|head|tail|grep|rg|ls|stat|file|wc|diff|jq|echo|printf|" +
+	"agentshield[ \\t]+(?:version|status|log|check|mcp-eval|pack[ \\t]+(?:list|show)|rule[ \\t]+list))" +
+	"([ \\t]+[^;&|<>\\n`(!]*)?$")
 
 // PlainReadPattern returns plainReadRe's source, for the drift test.
 func PlainReadPattern() string { return plainReadRe.String() }
@@ -160,15 +162,31 @@ func foldKey(s string) string {
 // (one, two or three slashes, an optional localhost authority, percent-
 // decoded), and a leading `~`, `$HOME` or `${HOME}` expanded. ok is false for
 // an empty or multi-line value, or a file: URI naming another host.
-func spellingToPath(v, home string) (string, bool) {
+//
+// On Windows only (#5062): a file: URI's drive path is read as the drive
+// (file:///C:/x, file://localhost/C:/x, file:///c|/x and file://C:/x are all
+// C:/x), and `~`, `$HOME` and `${HOME}` may also be followed by a backslash.
+func spellingToPath(v, home string) (string, bool) { return spellingToPathFor(v, home, false) }
+
+// spellingToPathFor is spellingToPath with the Windows extensions (#5062)
+// switched on by windowsExt. Callers try main's reading (windowsExt false)
+// first and the Windows reading only when that names no target (Codex pass on
+// #5064): on Windows a literal `$HOME\x` is a valid relative path, which main
+// resolves under the working directory, so expanding it first could lower a
+// refusal main made.
+func spellingToPathFor(v, home string, windowsExt bool) (string, bool) {
 	t := strings.TrimSpace(v)
 	if t == "" || len(t) > 4096 || strings.ContainsAny(t, "\r\n") {
 		return "", false
 	}
+	windows := windowsExt
 	if len(t) >= 5 && strings.EqualFold(t[:5], "file:") {
 		rest := t[5:]
 		if strings.HasPrefix(rest, "//") {
 			rest = rest[2:]
+			if windows && driveAuthorityRe.MatchString(rest) {
+				rest = "/" + rest // file://C:/x is the path /C:/x to a WHATWG parser
+			}
 			if !strings.HasPrefix(rest, "/") {
 				i := strings.IndexByte(rest, '/')
 				if i < 0 || !strings.EqualFold(rest[:i], "localhost") {
@@ -180,14 +198,18 @@ func spellingToPath(v, home string) (string, bool) {
 		if dec, err := url.PathUnescape(rest); err == nil {
 			rest = dec
 		}
+		if windows {
+			rest, _ = driveURIPath(rest)
+		}
 		t = rest
 	}
+	sep := func(c byte) bool { return c == '/' || (windows && c == '\\') }
 	switch {
-	case t == "~" || strings.HasPrefix(t, "~/"):
+	case t == "~" || (len(t) > 1 && t[0] == '~' && sep(t[1])):
 		t = home + t[1:]
 	default:
 		for _, ref := range []string{"${HOME}", "$HOME"} {
-			if strings.HasPrefix(t, ref) && (len(t) == len(ref) || t[len(ref)] == '/') {
+			if strings.HasPrefix(t, ref) && (len(t) == len(ref) || sep(t[len(ref)])) {
 				t = home + t[len(ref):]
 				break
 			}
@@ -306,7 +328,19 @@ func namesTargetGuard(v string) (string, bool) {
 	if home == "" {
 		return "", false
 	}
-	p, ok := spellingToPath(v, home)
+	if rel, ok := namesTargetGuardFor(v, home, false); ok {
+		return rel, true
+	}
+	if runtime.GOOS == "windows" {
+		return namesTargetGuardFor(v, home, true)
+	}
+	return "", false
+}
+
+// namesTargetGuardFor is one reading of namesTargetGuard: main's, or with the
+// Windows extensions.
+func namesTargetGuardFor(v, home string, windowsExt bool) (string, bool) {
+	p, ok := spellingToPathFor(v, home, windowsExt)
 	if !ok {
 		return "", false
 	}
@@ -327,7 +361,19 @@ func namesTargetKeep(v string) (string, bool) {
 	if home == "" {
 		return "", false
 	}
-	p, ok := spellingToPath(v, home)
+	if rel, ok := namesTargetKeepFor(v, home, false); ok {
+		return rel, true
+	}
+	if runtime.GOOS == "windows" {
+		return namesTargetKeepFor(v, home, true)
+	}
+	return "", false
+}
+
+// namesTargetKeepFor is one reading of namesTargetKeep: main's, or with the
+// Windows extensions.
+func namesTargetKeepFor(v, home string, windowsExt bool) (string, bool) {
+	p, ok := spellingToPathFor(v, home, windowsExt)
 	if !ok {
 		return "", false
 	}
@@ -383,6 +429,26 @@ func homeAnchored(tok string) bool {
 		strings.HasPrefix(tok, "/") || (len(tok) >= 5 && strings.EqualFold(tok[:5], "file:"))
 }
 
+// commandTextNamesTarget is the guard's reading of one command-text value:
+// the first HOME-anchored word that names a target. On Windows, when that
+// finds nothing, the text is read again as cmd or PowerShell reads it
+// (windowsCommandNamesTarget, #5060). The first reading is main's, unchanged,
+// and runs first, so the second can only add a BLOCK, never lower one.
+func commandTextNamesTarget(text string) (string, bool) {
+	for _, tok := range commandTokens(text) {
+		if !homeAnchored(tok) {
+			continue
+		}
+		if rel, ok := namesTargetGuard(tok); ok {
+			return rel, true
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return windowsCommandNamesTarget(text)
+	}
+	return "", false
+}
+
 // selfProtectFindings is the guard's self-protection reading of a tools/call
 // (every mode). See the file comment.
 func selfProtectFindings(toolName string, arguments map[string]interface{}) []ConfigGuardFinding {
@@ -407,14 +473,8 @@ func selfProtectFindings(toolName string, arguments map[string]interface{}) []Co
 				if plainReadRe.MatchString(text) {
 					continue
 				}
-				for _, tok := range commandTokens(text) {
-					if !homeAnchored(tok) {
-						continue
-					}
-					if rel, ok := namesTargetGuard(tok); ok {
-						add(argName, text, rel)
-						break
-					}
+				if rel, ok := commandTextNamesTarget(text); ok {
+					add(argName, text, rel)
 				}
 			}
 		case isPathArg(argName):

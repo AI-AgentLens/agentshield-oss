@@ -134,7 +134,7 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 )
@@ -228,11 +228,13 @@ func Check(fsys fs.FS, dir string) ([]Finding, []Exemption, error) {
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		src, err := fs.ReadFile(fsys, filepath.Join(dir, name))
+		// io/fs paths are always slash-separated. The OS join gave pkg\a.go on
+		// Windows, which fs.ReadFile rejects (#5021).
+		src, err := fs.ReadFile(fsys, path.Join(dir, name))
 		if err != nil {
 			return nil, nil, fmt.Errorf("read %s: %w", name, err)
 		}
-		fileFindings, fileExemptions, err := CheckSource(filepath.Join(dir, name), src)
+		fileFindings, fileExemptions, err := CheckSource(path.Join(dir, name), src)
 		if err != nil {
 			return nil, nil, err
 		}

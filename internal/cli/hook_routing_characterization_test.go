@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -182,6 +183,14 @@ func routingCases(t *testing.T) []routingCase {
 	copilotEnv := []string{"AGENTSHIELD_AGENT_ID=copilot-cli"}
 	copilotOnWindows := append(slices.Clone(copilotEnv), onWindows...)
 	copilotOnDarwin := append(slices.Clone(copilotEnv), envTestHostOS+"=darwin")
+	// The POSIX host's rows (POSIX alone, as on main) carry no pin, so on a
+	// macOS or Linux host they route as that host does. A Windows host would
+	// read them as its own rows (POSIX then PowerShell), which the
+	// "on windows" rows pin; there they pin a POSIX host instead (#5021).
+	copilotOnPOSIX := copilotEnv
+	if runtime.GOOS == "windows" {
+		copilotOnPOSIX = append(slices.Clone(copilotEnv), envTestHostOS+"=linux")
+	}
 	keyRead := psKeyRead()
 	readme := map[string]interface{}{"file_path": "/repo/README.md"}
 	gemini := func(tool string, input interface{}) string {
@@ -207,12 +216,15 @@ func routingCases(t *testing.T) []routingCase {
 		// the PowerShell lane. On main MCP policy alone read it and decided
 		// AUDIT on every input here. The key read is the PowerShell lane's
 		// raise (with the node the bash spelling gets); the destructive row
-		// stays main's AUDIT (no POSIX lane here, Kai 2026-11-03: it added 5
-		// false BLOCKs in 471 benign inputs), and the benign row is a tie,
-		// where MCP policy keeps main's record.
+		// was main's AUDIT (no POSIX lane here, Kai 2026-11-03: it added 5
+		// false BLOCKs in 471 benign inputs) until the cmdlet bridge, which
+		// reads `rm -rf /` as Remove-Item's POSIX twin (a call PowerShell
+		// would not bind keeps its intent, Gary 2026-11-07): a raise, with
+		// the bash receipt. The benign row is a tie, where MCP policy keeps
+		// main's record.
 		{name: "claude-code PowerShell destructive", payload: claudeShaped(t, "PreToolUse", "PowerShell", routingCmd(destr), nil),
-			path: pathMCP, source: "claude-code-mcp-hook", tool: "PowerShell", decision: "AUDIT", argKey: "command", exit: 0, stdout: verdictNone,
-			readings: "tool=PowerShell; structured=AUDIT; powershell=AUDIT; kept=structured"},
+			path: pathShell, source: "claude-code-hook", command: destr, decision: "BLOCK", rule: "ts-block-rm-root", exit: 2, stdout: verdictNone,
+			readings: "tool=PowerShell; structured=AUDIT; powershell=BLOCK(block-rm-root); kept=powershell"},
 		{name: "claude-code PowerShell key read", payload: claudeShaped(t, "PreToolUse", "PowerShell", routingCmd(keyRead), nil),
 			path: pathShell, source: "claude-code-hook", command: keyRead, decision: "BLOCK", rule: "protected-path", taxonomy: sshKeyReadNode, exit: 2, stdout: verdictNone,
 			readings: "tool=PowerShell; structured=AUDIT; powershell=BLOCK(protected-path); kept=powershell"},
@@ -297,9 +309,9 @@ func routingCases(t *testing.T) []routingCase {
 			path: pathMCP, source: "codex-mcp-hook", tool: "apply_patch", decision: "AUDIT", argKey: "patch", exit: 0, stdout: verdictNone},
 
 		// ---- Copilot CLI, Claude-compatible format (setup's default) -------
-		{name: "copilot compat Bash destructive", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(destr)), env: copilotEnv,
+		{name: "copilot compat Bash destructive", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(destr)), env: copilotOnPOSIX,
 			path: pathShell, source: "copilot-cli-hook", command: destr, decision: "BLOCK", rule: "ts-block-rm-root", exit: 2, stdout: verdictCopilotDeny},
-		{name: "copilot compat Bash benign", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(routingBenign)), env: copilotEnv,
+		{name: "copilot compat Bash benign", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(routingBenign)), env: copilotOnPOSIX,
 			path: pathShell, source: "copilot-cli-hook", command: routingBenign, decision: "ALLOW", rule: "ts-allow-readonly", exit: 0, stdout: verdictNone},
 		// On Windows Copilot sends its powershell tool as Bash too, so the
 		// row reads POSIX then PowerShell (ADR-001 D1). Elsewhere it is POSIX
@@ -311,7 +323,7 @@ func routingCases(t *testing.T) []routingCase {
 			path: pathShell, source: "copilot-cli-hook", command: keyRead, decision: "ALLOW", rule: "ts-allow-readonly", exit: 0, stdout: verdictNone},
 		{name: "copilot compat Bash on windows destructive", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(destr)), env: copilotOnWindows,
 			path: pathShell, source: "copilot-cli-hook", command: destr, decision: "BLOCK", rule: "ts-block-rm-root", exit: 2, stdout: verdictCopilotDeny,
-			readings: "tool=Bash; posix=BLOCK(block-rm-root); powershell=AUDIT; kept=posix"},
+			readings: "tool=Bash; posix=BLOCK(block-rm-root); powershell=BLOCK(block-rm-root); kept=posix"}, // the cmdlet bridge's twin; POSIX keeps the tie
 		{name: "copilot compat Bash on windows benign", payload: copilotCompatPayload(t, "route-char", "Bash", shellArgs(routingBenign)), env: copilotOnWindows,
 			path: pathShell, source: "copilot-cli-hook", command: routingBenign, decision: "AUDIT", exit: 0, stdout: verdictNone,
 			readings: "tool=Bash; posix=ALLOW(allow-safe-readonly); powershell=AUDIT; kept=powershell"},
@@ -328,7 +340,7 @@ func routingCases(t *testing.T) []routingCase {
 			path: pathShell, source: "copilot-cli-hook", command: routingBenign, decision: "ALLOW", rule: "ts-allow-readonly", exit: 0, stdout: verdictNone},
 		{name: "copilot native powershell destructive", payload: copilotNativePayload(t, "route-char", "powershell", shellArgs(destr)),
 			path: pathShell, source: "copilot-cli-hook", command: destr, decision: "BLOCK", rule: "ts-block-rm-root", exit: 2, stdout: verdictCopilotDeny,
-			readings: "tool=powershell; posix=BLOCK(block-rm-root); powershell=AUDIT; kept=posix"},
+			readings: "tool=powershell; posix=BLOCK(block-rm-root); powershell=BLOCK(block-rm-root); kept=posix"}, // the cmdlet bridge's twin; POSIX keeps the tie
 		{name: "copilot native powershell key read", payload: copilotNativePayload(t, "route-char", "powershell", shellArgs(keyRead)),
 			path: pathShell, source: "copilot-cli-hook", command: keyRead, decision: "BLOCK", rule: "protected-path", taxonomy: sshKeyReadNode, exit: 2, stdout: verdictCopilotDeny,
 			readings: "tool=powershell; posix=ALLOW(ts-allow-readonly); powershell=BLOCK(protected-path); kept=powershell"},

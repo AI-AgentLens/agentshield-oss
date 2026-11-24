@@ -1,11 +1,41 @@
 package mcp
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+// errPrivilegeNotHeld is Windows' ERROR_PRIVILEGE_NOT_HELD (1314), what
+// os.Symlink returns for an account without SeCreateSymbolicLinkPrivilege
+// when Developer Mode is off. aial-04's runner account is one (#5021).
+const errPrivilegeNotHeld = syscall.Errno(1314)
+
+// symlinkNotPermitted reports whether err is Windows refusing this account a
+// symlink. Only then may a test go on without the link; anywhere else, and
+// for any other error, the link is part of the test and its failure fails it.
+func symlinkNotPermitted(err error) bool {
+	return runtime.GOOS == "windows" && errors.Is(err, errPrivilegeNotHeld)
+}
+
+// symlinkOrSkip makes newname a symlink to oldname. It skips the test where
+// Windows does not let this account create one, so the test still runs on a
+// Windows host that has the privilege or Developer Mode on.
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	err := os.Symlink(oldname, newname)
+	if err == nil {
+		return
+	}
+	if symlinkNotPermitted(err) {
+		t.Skipf("this Windows account may not create symlinks: %v", err)
+	}
+	t.Fatalf("symlink: %v", err)
+}
 
 // shortSymlinkTestDir creates a short-named temp directory (fully symlink-
 // resolved, e.g. macOS's /tmp -> /private/tmp) for symlink-scanner tests.
@@ -20,7 +50,13 @@ import (
 //     letting tests assert exact resolved-path equality.
 func shortSymlinkTestDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "as-ga")
+	// On Windows "/tmp" is \tmp, a path with no drive, and the paths built
+	// from it reach the scanner without one (#5021); the temp dir has a drive.
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
+	}
+	dir, err := os.MkdirTemp(root, "as-ga")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
@@ -51,9 +87,7 @@ func TestHandleToolCall_SymlinkEscape_BlocksEndToEnd(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(declaredPath), 0o755); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
-	if err := os.Symlink(privateKey, declaredPath); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, privateKey, declaredPath)
 
 	h, buf := newHintTestHandler() // default-AUDIT policy; write_file is not pre-blocked
 
@@ -96,9 +130,7 @@ func TestSymlinkEscape_BlocksSymlinkToSSHKey(t *testing.T) {
 	_ = os.WriteFile(target, []byte("key"), 0o600)
 
 	declared := filepath.Join(dir, "notes.txt")
-	if err := os.Symlink(target, declared); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, target, declared)
 
 	res := ScanFilesystemSymlinkEscape("read_file", map[string]interface{}{"path": declared})
 	if !res.Blocked {
@@ -118,9 +150,7 @@ func TestSymlinkEscape_BlocksSymlinkToAWSCredentials(t *testing.T) {
 
 	declared := filepath.Join(dir, "docs", "readme_link.md")
 	_ = os.MkdirAll(filepath.Dir(declared), 0o755)
-	if err := os.Symlink(target, declared); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, target, declared)
 
 	res := ScanFilesystemSymlinkEscape("read_file", map[string]interface{}{"path": declared})
 	if !res.Blocked {
@@ -149,9 +179,7 @@ func TestSymlinkEscape_TN_SymlinkWithinWorkspace(t *testing.T) {
 	_ = os.WriteFile(target, []byte("export const x = 1;"), 0o644)
 
 	declared := filepath.Join(dir, "src", "utils-link.js")
-	if err := os.Symlink(target, declared); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, target, declared)
 
 	res := ScanFilesystemSymlinkEscape("read_file", map[string]interface{}{"path": declared})
 	if res.Blocked || res.Audited {
@@ -172,9 +200,7 @@ func TestSymlinkEscape_TN_NonExistentPath(t *testing.T) {
 func TestSymlinkEscape_TN_BrokenSymlink(t *testing.T) {
 	dir := shortSymlinkTestDir(t)
 	declared := filepath.Join(dir, "dangling-link")
-	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), declared); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, filepath.Join(dir, "does-not-exist"), declared)
 
 	res := ScanFilesystemSymlinkEscape("read_file", map[string]interface{}{"path": declared})
 	if res.Blocked || res.Audited {
@@ -190,7 +216,7 @@ func TestSymlinkEscape_TN_NonFilesystemToolNotScanned(t *testing.T) {
 	_ = os.WriteFile(target, []byte("key"), 0o600)
 
 	declared := filepath.Join(dir, "notes.txt")
-	_ = os.Symlink(target, declared)
+	symlinkOrSkip(t, target, declared)
 
 	// execute_code is not a filesystem tool — out of scope for this scanner
 	// (its own rule families govern code execution).
@@ -208,7 +234,7 @@ func TestSymlinkEscape_TN_NonPathArgIgnored(t *testing.T) {
 	_ = os.WriteFile(target, []byte("key"), 0o600)
 
 	declared := filepath.Join(dir, "notes.txt")
-	_ = os.Symlink(target, declared)
+	symlinkOrSkip(t, target, declared)
 
 	// The symlink lives in a non-path argument key — out of scope.
 	res := ScanFilesystemSymlinkEscape("read_file", map[string]interface{}{

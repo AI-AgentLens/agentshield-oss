@@ -194,9 +194,9 @@ func TestVerifyChain_UpgradeFromLegacyLogAtRotationThreshold(t *testing.T) {
 			// (and linked) from then on.
 			rotations := 0
 			for i := 0; i < 80; i++ {
-				before, _ := os.Stat(p + rotatedSuffix)
+				before := fileIdentity(t, p+rotatedSuffix)
 				hookWrite(t, p, fmt.Sprintf("new-%d", i))
-				if after, err := os.Stat(p + rotatedSuffix); err == nil && !os.SameFile(before, after) {
+				if replacedSince(t, before, p+rotatedSuffix) {
 					rotations++
 				}
 				r := VerifyChain(p)
@@ -224,9 +224,9 @@ func TestVerifyChain_GenesisLiveBesideIntactPredecessorVerifies(t *testing.T) {
 		p := filepath.Join(t.TempDir(), "audit.jsonl")
 		rotations := 0
 		for i := 0; i < 60; i++ {
-			before, _ := os.Stat(p + rotatedSuffix)
+			before := fileIdentity(t, p+rotatedSuffix)
 			hookWrite(t, p, fmt.Sprintf("hook-%d", i))
-			if after, err := os.Stat(p + rotatedSuffix); err == nil && (before == nil || !os.SameFile(before, after)) {
+			if replacedSince(t, before, p+rotatedSuffix) {
 				rotations++
 			}
 			r := VerifyChain(p)

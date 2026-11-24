@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -21,10 +22,18 @@ import (
 
 // TestPowerShellLane_KeptBlockReceiptNamesTheBlockingRule: Copilot's native
 // powershell row (POSIX, then PowerShell) on a managed host in audit-only
-// mode. The POSIX lane reads an mkfs (ts-block-mkfs, downgraded); the
-// PowerShell lane reads a write to the policy file, spelled so that only it
-// sees it (enterprise-self-protect, kept). The call BLOCKs, and the receipt
-// is the PowerShell lane's.
+// mode. The POSIX lane reads an mkfs (ts-block-mkfs); the PowerShell lane
+// reads a write to the policy file in its Windows spelling
+// (enterprise-self-protect, kept). The call BLOCKs, and the receipt leads
+// with enterprise-self-protect, the rule the BLOCK stands on, not the mkfs
+// rule audit-only mode lowers everywhere else.
+//
+// Which lane's record is kept depends on the OS (#5089). Off Windows the
+// POSIX lane's keep does not read the Windows spelling, so its BLOCK is
+// lowered and the PowerShell lane's kept BLOCK wins the tie (block kept). On
+// Windows it does (#5064), so both lanes keep their BLOCK, they tie, and row
+// order keeps the POSIX lane's record. That record led with ts-block-mkfs on
+// main, and since #5089 leads with the keep's reason, ts-block-mkfs after it.
 func TestPowerShellLane_KeptBlockReceiptNamesTheBlockingRule(t *testing.T) {
 	home, configDir := newFailSafeHome(t, true, failSafePolicyGood)
 	if err := os.WriteFile(filepath.Join(configDir, "agentshield.yaml"), []byte("mode: audit-only\n"), 0o600); err != nil {
@@ -37,16 +46,28 @@ func TestPowerShellLane_KeptBlockReceiptNamesTheBlockingRule(t *testing.T) {
 	}
 	e := oneEvent(t, configDir)
 	n := laneReadingsNotes(e.Notes)
-	if len(n) != 1 || !strings.Contains(n[0], "posix=AUDIT[was BLOCK]") || !strings.Contains(n[0], "powershell=BLOCK(enterprise-self-protect)") {
-		t.Fatalf("control: %s %q; want POSIX's downgraded BLOCK beside the PowerShell lane's kept BLOCK", analyzer.NoteLaneReadings, n)
+	if len(n) != 1 || !strings.Contains(n[0], "powershell=BLOCK(enterprise-self-protect)") {
+		t.Fatalf("control: %s %q; want the PowerShell lane's kept BLOCK", analyzer.NoteLaneReadings, n)
 	}
-	if e.Decision != "BLOCK" || !containsStr(e.TriggeredRules, "enterprise-self-protect") || containsStr(e.TriggeredRules, "ts-block-mkfs") {
-		t.Errorf("event decision=%q rules=%v; want BLOCK naming enterprise-self-protect, the rule that blocked, and not the downgraded ts-block-mkfs", e.Decision, e.TriggeredRules)
+	if e.Decision != "BLOCK" || len(e.TriggeredRules) == 0 || e.TriggeredRules[0] != policy.SelfProtectRuleID {
+		t.Errorf("event decision=%q rules=%v; want BLOCK led by %s, the rule the BLOCK stands on", e.Decision, e.TriggeredRules, policy.SelfProtectRuleID)
 	}
-	if !strings.Contains(n[0], "kept=powershell") {
-		t.Errorf("%s %q; want kept=powershell", analyzer.NoteLaneReadings, n)
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(n[0], "posix=BLOCK("+policy.SelfProtectRuleID+")") || !strings.Contains(n[0], "kept=posix") {
+			t.Errorf("%s %q; want the POSIX lane's kept BLOCK, led by %s, kept on row order", analyzer.NoteLaneReadings, n, policy.SelfProtectRuleID)
+		}
+		if len(e.Reasons) == 0 || !strings.HasPrefix(e.Reasons[0], policy.SelfProtectKeptReasonPrefix) || !containsStr(e.TriggeredRules, "ts-block-mkfs") {
+			t.Errorf("event rules=%v reasons=%q; want the keep's reason first and ts-block-mkfs after it", e.TriggeredRules, e.Reasons)
+		}
+	} else {
+		if !strings.Contains(n[0], "posix=AUDIT[was BLOCK](ts-block-mkfs)") || !strings.Contains(n[0], "kept=powershell") {
+			t.Errorf("%s %q; want POSIX's downgraded BLOCK and the PowerShell lane's record kept", analyzer.NoteLaneReadings, n)
+		}
+		if containsStr(e.TriggeredRules, "ts-block-mkfs") {
+			t.Errorf("event rules=%v; want the PowerShell lane's record, not the downgraded ts-block-mkfs", e.TriggeredRules)
+		}
 	}
-	if !strings.Contains(stderr, "enterprise-self-protect") {
+	if !strings.Contains(stderr, policy.SelfProtectRuleID) {
 		t.Errorf("stderr names %q; want the rule that blocked", stderr)
 	}
 }

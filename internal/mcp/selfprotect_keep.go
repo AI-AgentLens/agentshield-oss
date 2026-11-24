@@ -115,40 +115,94 @@ const shellCommandTool = "execute_command"
 //     configuration directory. A managed host protects that directory, and
 //     the protected-path check returns before the pipeline, so on a managed
 //     host this is often the only rule the keep sees.
+//
+// The second result is the reason for the record (#5089). It is "" when a
+// self-protection rule among rules decided the BLOCK, because the record
+// already names that rule. Otherwise the BLOCK's own rules are ordinary ones
+// (ts-block-mkfs in `mkfs.ext4 /dev/sda1; rm ~/.agentshield/policy.yaml`),
+// which audit-only mode would have lowered, so the reason says what the keep
+// read instead: the protected file, or the target the command text names.
+// It names what was read and no more. The command-text reading counts any
+// command that is not, as a whole, a plain read, so the reason says "names",
+// never "changes". Only the reason is new: the decision is the same
+// ChangesSelfProtectTarget reading as before.
 func ShellSelfProtectionKeep(pol *policy.Policy) policy.SelfProtectionKeep {
 	isSP := ShellSelfProtectionRules(pol)
-	return func(command string, rules, protectedHits []string) bool {
+	return func(command string, rules, protectedHits []string) (bool, string) {
 		for _, id := range rules {
 			if isSP(id) {
-				return true
+				return true, ""
 			}
 			if guardian.RuleTaxonomy(id) == selfProtectionTaxonomy && guardian.TargetsAgentShield(id, command) {
-				return true
+				return true, ""
 			}
 		}
 		for _, p := range protectedHits {
-			if namesAgentShieldConfig(p) {
-				return true
+			if rel, ok := namesAgentShieldConfig(p); ok {
+				return true, keptForProtectedPathReason(rel)
 			}
 		}
-		return ChangesSelfProtectTarget(shellCommandTool, map[string]interface{}{"command": command})
+		if ChangesSelfProtectTarget(shellCommandTool, map[string]interface{}{"command": command}) {
+			return true, keptForCommandReason(command)
+		}
+		return false, ""
 	}
+}
+
+// keptForProtectedPathReason is the reason for a BLOCK kept because a file a
+// protected-path match decided it on is AgentShield's own configuration.
+func keptForProtectedPathReason(rel string) string {
+	return policy.SelfProtectKeptReasonPrefix + "a protected path it matched, ~/" + rel + ", is AgentShield's own configuration"
+}
+
+// keptForCommandReason is the reason for a BLOCK kept because the command
+// text names a self-protection target (ChangesSelfProtectTarget). It names
+// the target commandTextNamesTarget reads, the same reading
+// selfProtectFindings makes of an exec tool's command, and the target's
+// class. A command whose target that reading cannot name (none is known) gets
+// the class-free wording.
+func keptForCommandReason(command string) string {
+	rel, ok := commandTextNamesTarget(command)
+	if !ok {
+		return policy.SelfProtectKeptReasonPrefix + "the command names AgentShield's configuration or an agent's hook or MCP configuration file and is not a plain read"
+	}
+	return policy.SelfProtectKeptReasonPrefix + "the command names ~/" + rel + " (" + targetClass(rel) + ") and is not a plain read"
+}
+
+// targetClass describes the self-protection target rel by its guard
+// category (selfProtectTargets' three).
+func targetClass(rel string) string {
+	for _, c := range protectedConfigs {
+		if rel != c.rel && !(c.dir && strings.HasPrefix(rel, c.rel+"/")) {
+			continue
+		}
+		switch c.category {
+		case "agentshield-config":
+			return "AgentShield's own configuration"
+		case "ide-hooks":
+			return "an agent's hook file"
+		case "ide-mcp-config":
+			return "an agent's MCP configuration"
+		}
+	}
+	return "a self-protection target"
 }
 
 // namesAgentShieldConfig reports whether the path p is, on this machine,
 // AgentShield's own configuration (the guard's agentshield-config entries),
-// by the keep rule's reading (namesTargetKeep).
-func namesAgentShieldConfig(p string) bool {
+// by the keep rule's reading (namesTargetKeep), and returns its HOME-relative
+// spelling.
+func namesAgentShieldConfig(p string) (string, bool) {
 	rel, ok := namesTargetKeep(p)
 	if !ok {
-		return false
+		return "", false
 	}
 	for _, c := range protectedConfigs {
 		if c.category == "agentshield-config" && (rel == c.rel || (c.dir && strings.HasPrefix(rel, c.rel+"/"))) {
-			return true
+			return rel, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // optionalGroupRe is an optional regex group with no group inside it,

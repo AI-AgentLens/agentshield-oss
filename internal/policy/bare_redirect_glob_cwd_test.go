@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4403 (#4381 class): with cwd inside the protected directory, a bare
@@ -14,7 +15,7 @@ import (
 // are assembled at runtime: the hook reads test sources as commands.
 func TestBareRedirectAndGlobInProtectedCwdBlocks_4403(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	dir := filepath.Join(home, "."+"ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

@@ -5,15 +5,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 func TestNormalize_RelativePathExpansion(t *testing.T) {
-	cwd := "/home/user/project"
+	cwd := absPath("/home/user/project")
 	args := []string{"cat", "../secrets.txt"}
 
 	nc := Normalize(args, cwd)
 
-	expected := "/home/user/secrets.txt"
+	expected := osPath(absPath("/home/user/secrets.txt"))
 	if len(nc.Paths) != 1 || nc.Paths[0] != expected {
 		t.Errorf("expected path %q, got %v", expected, nc.Paths)
 	}
@@ -133,7 +135,7 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 			wantPathCount: 0,
 		},
 		{
-			name: "git commit -m with path mention — no path extracted",
+			name:          "git commit -m with path mention — no path extracted",
 			args:          []string{"git", "commit", "-m", "fix:", "~/.aws/credentials", "exposure"},
 			wantPathCount: 0,
 		},
@@ -152,9 +154,9 @@ func TestNormalize_TextContentFlagSkipsPathExtraction(t *testing.T) {
 		},
 		{
 			name:          "--message with path then real file arg — real path extracted",
-			args:          []string{"gh", "pr", "create", "--message", "see", "~/.ssh/keys", "--base", "main", "/real/file"},
+			args:          []string{"gh", "pr", "create", "--message", "see", "~/.ssh/keys", "--base", "main", absPath("/real/file")},
 			wantPathCount: 1,
-			wantPaths:     []string{"/real/file"},
+			wantPaths:     []string{osPath(absPath("/real/file"))},
 		},
 		{
 			name: "git commit -am combined flag with kube path in message — no path extracted",
@@ -208,16 +210,16 @@ func TestNormalize_HeredocBodySkipsPathExtraction(t *testing.T) {
 			name: "cat heredoc with kube config in body — no path extracted",
 			// cat > /tmp/file.go << 'EOF'\n ... ~/.kube/config ... \nEOF
 			// Tokens from strings.Fields: cat > /tmp/file.go << 'EOF' some ~/.kube/config text EOF
-			args:          []string{"cat", ">", "/tmp/file.go", "<<", "'EOF'", "some", "~/.kube/config", "text", "EOF"},
+			args:          []string{"cat", ">", absPath("/tmp/file.go"), "<<", "'EOF'", "some", "~/.kube/config", "text", "EOF"},
 			wantPathCount: 1, // only /tmp/file.go is a real path
-			wantPaths:     []string{"/tmp/file.go"},
+			wantPaths:     []string{osPath(absPath("/tmp/file.go"))},
 		},
 		{
 			name: "cat heredoc with aws credentials in body — no path extracted",
 			// Simulates heredoc body containing documentation about ~/.aws/credentials
-			args:          []string{"cat", ">", "/tmp/setup.sh", "<<", "EOF", "export", "path=~/.aws/credentials", "EOF"},
+			args:          []string{"cat", ">", absPath("/tmp/setup.sh"), "<<", "EOF", "export", "path=~/.aws/credentials", "EOF"},
 			wantPathCount: 1,
-			wantPaths:     []string{"/tmp/setup.sh"},
+			wantPaths:     []string{osPath(absPath("/tmp/setup.sh"))},
 		},
 		{
 			name: "combined heredoc operator token <<'EOF' — body paths skipped",
@@ -226,18 +228,18 @@ func TestNormalize_HeredocBodySkipsPathExtraction(t *testing.T) {
 			wantPathCount: 0,
 		},
 		{
-			name: "indented heredoc <<- — body paths skipped",
+			name:          "indented heredoc <<- — body paths skipped",
 			args:          []string{"bash", "<<-EOF", "~/.gnupg/secring.gpg", "EOF"},
 			wantPathCount: 0,
 		},
 		{
-			name: "heredoc with real path before and protected path inside — only real path extracted",
-			args:          []string{"tee", "/etc/config.conf", "<<", "EOF", "keyfile:", "~/.gnupg/trustdb.gpg", "EOF"},
+			name:          "heredoc with real path before and protected path inside — only real path extracted",
+			args:          []string{"tee", absPath("/etc/config.conf"), "<<", "EOF", "keyfile:", "~/.gnupg/trustdb.gpg", "EOF"},
 			wantPathCount: 1,
-			wantPaths:     []string{"/etc/config.conf"},
+			wantPaths:     []string{osPath(absPath("/etc/config.conf"))},
 		},
 		{
-			name: "no heredoc — normal path extraction still works",
+			name:          "no heredoc — normal path extraction still works",
 			args:          []string{"cat", "~/.ssh/id_rsa"},
 			wantPathCount: 1,
 		},
@@ -245,7 +247,7 @@ func TestNormalize_HeredocBodySkipsPathExtraction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nc := Normalize(tt.args, "/tmp")
+			nc := Normalize(tt.args, absPath("/tmp"))
 			if len(nc.Paths) != tt.wantPathCount {
 				t.Errorf("expected %d paths, got %d: %v", tt.wantPathCount, len(nc.Paths), nc.Paths)
 			}
@@ -331,10 +333,10 @@ func TestNormalize_TPRegression_RealPathAccess(t *testing.T) {
 		},
 		{
 			name: "cp ~/.aws/credentials /tmp/",
-			args: []string{"cp", "~/.aws/credentials", "/tmp/"},
+			args: []string{"cp", "~/.aws/credentials", absPath("/tmp/")},
 			wantPaths: []string{
 				filepath.Join(homeDir, ".aws/credentials"),
-				"/tmp",
+				osPath(absPath("/tmp")),
 			},
 		},
 		{
@@ -351,7 +353,7 @@ func TestNormalize_TPRegression_RealPathAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nc := Normalize(tt.args, "/tmp")
+			nc := Normalize(tt.args, absPath("/tmp"))
 			for _, want := range tt.wantPaths {
 				found := false
 				for _, got := range nc.Paths {
@@ -453,10 +455,10 @@ func TestNormalizeCommand_TPRegression_ZeroSegmentShapesStillExtractPaths(t *tes
 // extraction such as "/tmp/$(cat ~/.zzorgvault/token)" contains the substring
 // and matches no protected_paths glob (#4051 Codex pass 1, test finding).
 func TestNormalizeCommand_TPRegression_CommandSubstitutionPathExtraction(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
-	const want = "/home/tester/.zzorgvault/token"
+	testhome.Set(t, absPath("/home/tester"))
+	abs := absPath("/home/tester/.zzorgvault/token") // quoted operands: bash expands no ~ inside quotes, so a real read names the path absolutely
+	want := osPath(abs)
 	const p = "~/.zzorgvault/token"
-	const abs = want // quoted operands: bash expands no ~ inside quotes, so a real read names the path absolutely
 	cases := []struct{ name, cmd string }{
 		{"dollar-paren, own segment", "echo $(cat " + p + ")"},
 		{"backtick form", "echo `cat " + p + "`"},
@@ -526,7 +528,7 @@ func TestNormalizeCommand_TPRegression_CommandSubstitutionPathExtraction(t *test
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			nc := NormalizeCommand(tc.cmd, "/tmp")
+			nc := NormalizeCommand(tc.cmd, absPath("/tmp"))
 			for _, got := range nc.Paths {
 				if got == want {
 					return
@@ -551,7 +553,7 @@ func nestSubst(depth int, inner string) string {
 // other direction of #4030's fix: a substitution that does not touch the path
 // must not manufacture an extraction of it.
 func TestNormalizeCommand_FPRegression_CommandSubstitutionBenign(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
+	testhome.Set(t, absPath("/home/tester"))
 	const p = "~/.zzorgvault/token"
 	cases := []struct{ name, cmd string }{
 		{"benign basename", "echo $(basename foo)"},
@@ -605,11 +607,11 @@ func TestNormalizeCommand_FPRegression_CommandSubstitutionBenign(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			nc := NormalizeCommand(tc.cmd, "/tmp")
+			nc := NormalizeCommand(tc.cmd, absPath("/tmp"))
 			// Anything under the directory is what a `~/.zzorgvault/**` glob
 			// would match, so that is the bar — not just the exact file.
 			for _, got := range nc.Paths {
-				if strings.HasPrefix(got, "/home/tester/.zzorgvault/") {
+				if strings.HasPrefix(filepath.ToSlash(got), absPath("/home/tester/.zzorgvault/")) {
 					t.Errorf("unexpected extraction %q from %q (all: %v)", got, tc.cmd, nc.Paths)
 				}
 			}
@@ -630,13 +632,13 @@ func TestNormalizeCommand_FPRegression_CommandSubstitutionBenign(t *testing.T) {
 // residual of Codex pass 1 item 3 after the context fix: not context loss,
 // the top-level model's own over-approximation reaching one more position.
 func TestNormalizeCommand_Gap_CommandSubstitutionUnfoldedDefaultExecutable(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
-	const want = "/home/tester/.zzorgvault/token"
+	testhome.Set(t, absPath("/home/tester"))
+	want := osPath(absPath("/home/tester/.zzorgvault/token"))
 	for _, cmd := range []string{
 		`e=echo; ${e:-cat} ~/.zzorgvault/token`,           // top level (main: extracted)
 		`e=echo; echo "$(${e:-cat} ~/.zzorgvault/token)"`, // same word inside a substitution
 	} {
-		nc := NormalizeCommand(cmd, "/tmp")
+		nc := NormalizeCommand(cmd, absPath("/tmp"))
 		found := false
 		for _, got := range nc.Paths {
 			if got == want {
@@ -657,8 +659,8 @@ func TestNormalizeCommand_Gap_CommandSubstitutionUnfoldedDefaultExecutable(t *te
 // extracts, listed after it, so none is a class the walk invented — it is the
 // top-level model reaching into substitution bodies.
 func TestNormalizeCommand_Gap_CommandSubstitutionModelBoundaries(t *testing.T) {
-	t.Setenv("HOME", "/home/tester")
-	const want = "/home/tester/.zzorgvault/token"
+	testhome.Set(t, absPath("/home/tester"))
+	want := osPath(absPath("/home/tester/.zzorgvault/token"))
 	const p = "~/.zzorgvault/token"
 	cases := []struct{ name, cmd string }{
 		// F2: a substitution in a parameter-expansion operator word runs only
@@ -693,7 +695,7 @@ func TestNormalizeCommand_Gap_CommandSubstitutionModelBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			nc := NormalizeCommand(tc.cmd, "/tmp")
+			nc := NormalizeCommand(tc.cmd, absPath("/tmp"))
 			for _, got := range nc.Paths {
 				if got == want {
 					return
@@ -849,7 +851,7 @@ func TestNormalize_NestedShellCodeBodyIsNotPathExtracted(t *testing.T) {
 
 func pathsContainSubstring(paths []string, needle string) bool {
 	for _, p := range paths {
-		if strings.Contains(p, needle) {
+		if strings.Contains(filepath.ToSlash(p), needle) { // needle is slash form; Windows paths are not (#5021)
 			return true
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // TestApplyNewInstallDefault_HomeStates is the table over HOME states for
@@ -68,7 +69,7 @@ func TestApplyNewInstallDefault_HomeStates(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			t.Setenv("COPILOT_HOME", "")
 			writeHomeFiles(t, home, tc.files)
 			before, _ := os.ReadFile(filepath.Join(home, ".agentshield", "agentshield.yaml"))

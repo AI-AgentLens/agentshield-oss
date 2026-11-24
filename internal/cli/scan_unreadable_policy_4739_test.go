@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // An unreadable policy.yaml (here the single word Claude Code's Write tool left
@@ -18,7 +20,7 @@ func TestUnreadablePolicy_ScanAndCheckNameTheFileAndSilenceUsage_4739(t *testing
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("USERPROFILE", home)
 
 	for _, args := range [][]string{

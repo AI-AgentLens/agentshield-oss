@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // End-to-end tests for #4467 through the real hook entry point in a child
@@ -110,6 +112,7 @@ func runHookDetached(t *testing.T, home, payload string, extraEnv ...string) tim
 	env = append(env, "GORACE="+gorace)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHookProcess$")
 	cmd.Env = append(append(env, "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home, envAuditDetachedSpawn+"=1"), extraEnv...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -282,6 +285,7 @@ func TestAuditFlusher_KilledMidUploadResendsSameIDs(t *testing.T) {
 	}
 	child := exec.Command(exe)
 	child.Env = append(os.Environ(), "HOME="+home, envAuditFlushHelper+"=1")
+	child.Env = testhome.ChildEnv(child.Env)
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}

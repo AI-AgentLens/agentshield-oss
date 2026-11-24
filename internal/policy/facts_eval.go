@@ -73,6 +73,11 @@ const SelfProtectRuleID = "enterprise-self-protect"
 // (enterprise.selfProtectRules), which EvaluateFacts mirrors for a lane.
 const configTouchRule = "sp-block-config-touch"
 
+// ConfigTouchBlockMsg is sp-block-config-touch's message on the PowerShell
+// lane: enterprise.ConfigTouchBlockMsg's text, which the shell middleware
+// writes (#4666). TestConfigTouchBlockMsg_SameOnBothLanes_4666 keeps them equal.
+const ConfigTouchBlockMsg = "Blocked: command names AgentShield's managed configuration and is not a known read (rule: " + configTouchRule + ")"
+
 // factsReadOnlyCommands are the commands a managed host lets a lane's text
 // run against AgentShield's config directory (decision 3: only known reads
 // pass), by canonical name. An entry asserts that none of the command's
@@ -99,11 +104,36 @@ var factsReadOnlyCommands = map[string]string{
 
 // EvaluateFacts decides on what a dialect lane read. cwd is the directory the
 // text runs in: a relative path is also read under it.
+//
+// The facts are read twice when factsLexicalReading adds anything (#4830):
+// as the lane wrote them, then with `.`/`..` segments removed, array items
+// in their elements' Paths and a leading `$PWD` read as cwd. The second result is kept only when it is
+// strictly more restrictive (stricterResult), with no tie rule, as the
+// shell's second readings (#4289, #4387, #4540): a tie keeps main's record
+// byte for byte. Every shipped pack rule the reading can newly match
+// (paths_any) is a BLOCK; the one AUDIT it can newly reach is
+// protected-path-consumer, which main records with no rule on that tie too.
 func (e *Engine) EvaluateFacts(f facts.Facts, cwd string, opt FactsOptions) EvalResult {
-	home := opt.Home
-	if home == "" {
-		home = e.homeDir
+	home := e.factsHome(opt)
+	r := e.evaluateFactsReading(f, cwd, opt, home)
+	g, ok := factsLexicalReading(f, home, factsPWD(f, cwd))
+	if !ok {
+		return r
 	}
+	return stricterResult(r, e.evaluateFactsReading(g, cwd, opt, home))
+}
+
+// factsHome is the home directory EvaluateFacts reads `~` as: the lane's,
+// else the engine's.
+func (e *Engine) factsHome(opt FactsOptions) string {
+	if opt.Home != "" {
+		return opt.Home
+	}
+	return e.homeDir
+}
+
+// evaluateFactsReading is one reading of EvaluateFacts.
+func (e *Engine) evaluateFactsReading(f facts.Facts, cwd string, opt FactsOptions, home string) EvalResult {
 	r := EvalResult{
 		Decision:       e.policy.Defaults.Decision,
 		TriggeredRules: []string{},
@@ -117,9 +147,15 @@ func (e *Engine) EvaluateFacts(f facts.Facts, cwd string, opt FactsOptions) Eval
 	if selfProtect {
 		r.Decision = DecisionBlock
 		r.TriggeredRules = []string{SelfProtectRuleID}
-		r.Reasons = []string{fmt.Sprintf("Blocked: attempt to modify AgentShield configuration (rule: %s)", configTouchRule)}
-		// No taxonomy, as for the shell rule: it blocks reads and writes
-		// alike, and a read is not tampering (#4666).
+		// No taxonomy: the lane's reading does not tell a read from a write,
+		// and a read is not tampering (#4666).
+		r.Reasons = []string{ConfigTouchBlockMsg}
+		// audit-only mode does not lower it, so a reading it ties with is
+		// raised for it (keptOnTie) and leads with why (#5089). Its own
+		// record already says why it stands.
+		if e.mode == "audit-only" {
+			r.kept.why = managedFactsKeptReason
+		}
 	} else {
 		patterns := factsProtectedPatterns(e.policy.Defaults.ProtectedPaths, opt.Managed)
 		pattern, matched, hit := factsProtectedPath(f, patterns, home, cwd)
@@ -159,8 +195,12 @@ func (e *Engine) EvaluateFacts(f facts.Facts, cwd string, opt FactsOptions) Eval
 		r.Decision = DecisionAudit
 	}
 
-	if !selfProtect && !e.factsKeepsBlock(r, hits, home, cwd) {
-		r = applyModeDowngrade(r, e.mode)
+	if !selfProtect {
+		if kept, why := e.factsKeepsBlock(r, hits, home, cwd); kept {
+			r = e.keptRecord("", r, why)
+		} else {
+			r = applyModeDowngrade(r, e.mode)
+		}
 	}
 	r.Explanation = buildExplanation(r)
 	return r
@@ -426,6 +466,14 @@ func factsWord(el facts.Element) string {
 	return el.Value
 }
 
+// FactsKnownRead reports whether f is a known read, the one shape managed
+// self-protection lets name the config directory (factsKnownRead). The cmdlet
+// bridge gives a twin the Bash tool's plain-read exception only for such a
+// call (assembly.PowerShellLane.TwinPOSIX, #4841): a statement with no twin
+// beside the read (`Clear-Content`) would otherwise be invisible to the
+// twin's reading and borrow the read's exception (Codex pass 1).
+func FactsKnownRead(f facts.Facts) bool { return factsKnownRead(f) }
+
 // factsKnownRead reports whether the text is one plain command whose every
 // reading is on factsReadOnlyCommands.
 func factsKnownRead(f facts.Facts) bool {
@@ -441,12 +489,17 @@ func factsKnownRead(f facts.Facts) bool {
 }
 
 // factsKeepsBlock is the audit-only keep (#4337 review B1) for a lane's
-// protected-path BLOCK: it is kept when the keep accepts the files it
-// matched. There is no shell text to give the keep, so only its path test
-// can accept.
-func (e *Engine) factsKeepsBlock(r EvalResult, hits []string, home, cwd string) bool {
-	if e.mode != "audit-only" || r.Decision != DecisionBlock || e.selfProtectionKeep == nil || len(hits) == 0 {
-		return false
+// BLOCK: it is kept when the keep accepts the rules that decided it or the
+// protected files it matched. There is no shell text to give the keep, so
+// its rule-id and path tests are the ones that can accept. A pack rule's
+// BLOCK has no protected-path hits (pack rules run only when no protected
+// path matched), so it is kept by its id alone, as a self-protection rule's
+// BLOCK is on the shell surface (#4833: before, len(hits) == 0 returned
+// false and every PowerShell self-protection twin was downgraded). The second
+// result is the keep's reason for the record, as on the shell (#5089).
+func (e *Engine) factsKeepsBlock(r EvalResult, hits []string, home, cwd string) (bool, string) {
+	if e.mode != "audit-only" || r.Decision != DecisionBlock || e.selfProtectionKeep == nil {
+		return false, ""
 	}
 	resolved := make([]string, 0, len(hits))
 	for _, h := range hits {

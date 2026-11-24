@@ -418,7 +418,7 @@ func TestHarvestStripsRegexMetacharacters(t *testing.T) {
 	}
 }
 
-// TestRuleBearingKeysDiscoveredStructurally pins the CLAUDE.md lesson that MCP
+// TestRuleBearingKeysDiscoveredStructurally pins the .claude/agent-notes/packs-and-distribution.md lesson that MCP
 // packs carry rules under SEVEN different keys, and that hand-enumerating them
 // silently dropped 386 rules from the published count. A future eighth key must
 // be covered on the day it lands, not the day someone notices.

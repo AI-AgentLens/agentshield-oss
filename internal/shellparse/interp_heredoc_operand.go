@@ -77,7 +77,7 @@ var interpreterHeredocExecName = map[string]bool{
 // A dynamic operand (`python3 "$F" <<< x`) cannot be proven to be `-`, so it
 // is conservatively treated as an operand — the caller withdraws the
 // inertness label rather than assume the read is safe, same posture as
-// CatReadsFileOperandInsteadOfHeredoc.
+// CatTeeReadsBesidesHeredoc.
 func InterpreterOperandDefeatsHereString(command string) bool {
 	if !strings.Contains(command, "<<<") {
 		return false

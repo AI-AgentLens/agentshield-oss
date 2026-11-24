@@ -102,12 +102,12 @@ func defaultProtectedPathConsumers() []ProtectedPathConsumer {
 // what makes the table's contents a coverage decision instead of a noise
 // decision.
 func (e *Engine) ProtectedEnvAssignment(assignments []analyzer.Assignment) (string, bool) {
-	return e.protectedEnvAssignment(assignments, false)
+	return e.protectedEnvAssignment(assignments, "", false)
 }
 
 // protectedEnvAssignment is ProtectedEnvAssignment with #4194's folded
 // reading selectable (see isProtectedToken).
-func (e *Engine) protectedEnvAssignment(assignments []analyzer.Assignment, foldCase bool) (string, bool) {
+func (e *Engine) protectedEnvAssignment(assignments []analyzer.Assignment, cwd string, foldCase bool) (string, bool) {
 	consumers := e.policy.Defaults.ProtectedPathConsumers
 	if len(consumers) == 0 || len(assignments) == 0 {
 		return "", false
@@ -116,7 +116,7 @@ func (e *Engine) protectedEnvAssignment(assignments []analyzer.Assignment, foldC
 		if a.Name == "" || !envIsCredentialSlot(consumers, a.Name) {
 			continue
 		}
-		if e.isProtectedToken(a.Value, foldCase) {
+		if e.isProtectedToken(a.Value, cwd, foldCase) {
 			return a.Name, true
 		}
 		// A credential slot can hold a LIST. KUBECONFIG is documented as
@@ -132,7 +132,7 @@ func (e *Engine) protectedEnvAssignment(assignments []analyzer.Assignment, foldC
 			if part == "" {
 				continue
 			}
-			if e.isProtectedToken(part, foldCase) {
+			if e.isProtectedToken(part, cwd, foldCase) {
 				return a.Name, true
 			}
 		}
@@ -160,7 +160,28 @@ func envIsCredentialSlot(consumers []ProtectedPathConsumer, name string) bool {
 // Anything that cannot be classified counts against the command: a segment
 // whose words cannot be tokenized, a redirect target, a path reached through
 // a variable the consumer slot does not spell out.
-func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.ParsedCommand, foldCase bool) (ok bool, exe string) {
+//
+// So does a protected path in paths (normalize's, for this command and cwd)
+// that no consumer slot accounts for, each slot occurrence accounting for one
+// entry: a second read of the slot's own file is a read too (`ssh -i
+// ~/.ssh/id_rsa host && cat id_rsa` from ~/.ssh). The words a relative path
+// is spelled with are not candidates here (isProtectedToken), so without this
+// a slot laundered a relative read in the same command: from ~/.ssh, `ssh -i
+// ~/.ssh/k host && cat id_rsa` decided the consumer's AUDIT while `cat
+// id_rsa` alone BLOCKs, and from ~/proj so did `… && cat ../.ssh/id_rsa`, on
+// every OS. #5021 P-c made Windows' Git Bash and drive-less spellings of the
+// slot decide as `~` does, which would have carried them into that gap.
+//
+// The count alone does not close it: normalize does not list a path once per
+// read. It drops a `--name=value` reading of a path the segment already
+// listed (`--from-file=../.kube/config` beside `--kubeconfig
+// ~/.kube/config`; a slot written twice), and it never lists a slot spelled
+// `$HOME/...`, which is a credit with no entry. So the command must also read
+// no protected path once the credited slots are taken out of its text
+// (slotFreeReads, normalize's reading; the materialized reading is asked by
+// the post-pass, slotFreeMaterialized). Both only make the command not
+// consumer-only, so they only raise.
+func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.ParsedCommand, paths []string, cwd string, foldCase bool) (ok bool, exe string) {
 	consumers := e.policy.Defaults.ProtectedPathConsumers
 	if len(consumers) == 0 {
 		return false, ""
@@ -173,6 +194,7 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 	}
 
 	consumerHits, otherHits := 0, 0
+	slots := map[string]int{} // how often a consumer slot names each path, as protectedToken resolves it
 	var walk func(p *analyzer.ParsedCommand)
 	walk = func(p *analyzer.ParsedCommand) {
 		for _, seg := range p.Segments {
@@ -182,18 +204,20 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 				// Could not tokenize in order: fall back to the flattened view,
 				// where no flag position is known, so nothing is a consumer slot.
 				for _, a := range seg.Args {
-					if e.isProtectedToken(a, foldCase) {
+					if e.isProtectedToken(a, cwd, foldCase) {
 						otherHits++
 					}
 				}
 				continue
 			}
 			for i := 1; i < len(words); i++ {
-				if !e.isProtectedToken(words[i], foldCase) {
+				resolved, hit := e.protectedToken(words[i], cwd, foldCase)
+				if !hit {
 					continue
 				}
 				if c != nil && isConsumerSlot(c, words, i) {
 					consumerHits++
+					slots[resolved]++
 					exe = seg.Executable
 				} else {
 					otherHits++
@@ -208,13 +232,13 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 			// word and matches no glob.
 			if mountspec.IsContainerRuntime(seg.Executable) {
 				for _, src := range mountspec.Sources(words[1:]) {
-					if e.isProtectedToken(src, foldCase) {
+					if e.isProtectedToken(src, cwd, foldCase) {
 						otherHits++
 					}
 				}
 			}
 			for _, r := range seg.Redirects {
-				if e.isProtectedToken(r.Path, foldCase) {
+				if e.isProtectedToken(r.Path, cwd, foldCase) {
 					otherHits++
 				}
 			}
@@ -224,7 +248,23 @@ func (e *Engine) protectedPathConsumerOnly(command string, parsed *analyzer.Pars
 		}
 	}
 	walk(parsed)
-	return otherHits == 0 && consumerHits > 0, exe
+	if otherHits != 0 || consumerHits == 0 {
+		return false, ""
+	}
+	for _, h := range e.resolvedProtectedHits(paths, cwd, foldCase) {
+		k := filepath.Clean(h)
+		if foldCase {
+			k = pathnorm.FoldASCII(k)
+		}
+		if slots[k] == 0 {
+			return false, ""
+		}
+		slots[k]--
+	}
+	if reads, ok := e.slotFreeReads(command, cwd, foldCase); ok && reads {
+		return false, ""
+	}
+	return true, exe
 }
 
 func consumerFor(consumers []ProtectedPathConsumer, executable string) *ProtectedPathConsumer {
@@ -287,17 +327,33 @@ func containsFlag(flags []string, f string) bool {
 // falls under a protected_paths glob. Relative words are not candidates: every
 // shipped glob is anchored at the home directory or the filesystem root.
 //
+// A word is read as normalize reads the operand from cwd (#5021 P-c): on
+// Windows Git Bash's `/c/Users/...` is drive C, and a rooted `/srv/x` is on the
+// cwd's drive (pathnorm.Resolve), compared as checkProtectedPaths compares
+// (matchOnDrive). Without that, normalize resolved `ssh -i
+// /c/Users/u/.ssh/id_rsa` to the key and BLOCKed while this check saw no
+// protected word in the consumer slot, so the command decided above the `~`
+// spelling's AUDIT. cwd "" (ProtectedEnvAssignment) leaves a rooted word
+// rooted, as normalize does.
+//
 // foldCase (#4194) compares with ASCII letter case folded on both sides. Set
 // only inside EvaluateCaseFold's folded evaluation, so the consumer table can
 // recognise a case-variant credential slot there (a variant `ssh -i <key>`
 // stays AUDIT, as its canonical is) without ever acting on the as-written
 // evaluation, where widening a BLOCK-to-AUDIT exemption could lower a verdict.
-func (e *Engine) isProtectedToken(word string, foldCase bool) bool {
+func (e *Engine) isProtectedToken(word, cwd string, foldCase bool) bool {
+	_, ok := e.protectedToken(word, cwd, foldCase)
+	return ok
+}
+
+// protectedToken is isProtectedToken, with the path the word resolves to
+// (clean, and folded when foldCase is set) when it is protected.
+func (e *Engine) protectedToken(word, cwd string, foldCase bool) (string, bool) {
 	cand := word
 	if strings.HasPrefix(cand, "-") {
 		eq := strings.IndexByte(cand, '=')
 		if eq < 0 {
-			return false
+			return "", false
 		}
 		cand = cand[eq+1:]
 	}
@@ -305,23 +361,25 @@ func (e *Engine) isProtectedToken(word string, foldCase bool) bool {
 	cand = strings.Trim(cand, `"'`)
 	cand = pathnorm.FoldHomeVar(cand)
 	expanded := e.expandPath(cand)
-	if !filepath.IsAbs(expanded) {
-		return false
+	if !pathnorm.IsAbs(expanded) {
+		return "", false
 	}
-	expanded = filepath.Clean(expanded)
+	expanded = filepath.Clean(pathnorm.Resolve(expanded, cwd, e.homeDir))
+	drive := pathnorm.Drive(cwd, e.homeDir)
 	if foldCase {
 		expanded = pathnorm.FoldASCII(expanded)
+		drive = pathnorm.FoldASCII(drive)
 	}
 	for _, pattern := range e.policy.Defaults.ProtectedPaths {
 		expandedPattern := e.expandPath(pattern)
 		if foldCase {
 			expandedPattern = pathnorm.FoldASCII(expandedPattern)
 		}
-		if matchGlob(expanded, expandedPattern) {
-			return true
+		if matchOnDrive(expanded, expandedPattern, drive) {
+			return expanded, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // segmentWords returns the words of one simple command in order, quotes kept

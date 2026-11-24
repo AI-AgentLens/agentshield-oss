@@ -260,7 +260,7 @@ func TestMachineID_SecondProcessUsesTheCache(t *testing.T) {
 	if string(data) != testHardwareID+"\n" {
 		t.Errorf("cache content = %q, want the id and a newline", data)
 	}
-	if info, err := os.Stat(path); err == nil && info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(path); err == nil && modeBitsAreReal && info.Mode().Perm() != 0o600 {
 		t.Errorf("cache mode = %v, want 0600", info.Mode().Perm())
 	}
 	if filepath.Base(filepath.Dir(path)) != ".agentshield" {

@@ -1004,8 +1004,6 @@ case:TP-OVERSUB-002
 case:TP-OVERSUB-004
 case:TP-OVERSUB-005
 case:TP-OVERSUB-006
-case:TP-PAM-EXEC-INJECT-003
-case:TP-PAM-EXEC-INJECT-006
 case:TP-PASTE-EXFIL-001
 case:TP-PASTE-EXFIL-002
 case:TP-PASTE-EXFIL-003
@@ -1303,8 +1301,6 @@ case:TP-TRANSCRIPT-UPLOAD-001
 case:TP-TRANSCRIPT-UPLOAD-002
 case:TP-TRANSCRIPT-UPLOAD-003
 case:TP-TRANSCRIPT-UPLOAD-004
-case:TP-TS-AUDIT-FIND-FWRITE-001
-case:TP-TS-AUDIT-FIND-FWRITE-002
 case:TP-TS-AUDIT-NULL-BYTE-PATH-001
 case:TP-TS-AUDIT-OLLAMA-SERVE-003  # tier-split #3520/#3521: community AUDITs the shadow-AI command (ts-audit-ollama-serve), premium escalates the all-interfaces exposure to BLOCK. Proven by TestCommunityTierSeesOllamaServe.
 case:TP-TS-AUDIT-TUNNEL-AI-PORT-001
@@ -1527,7 +1523,6 @@ case:TP-UNAUTH-AIDEVSERVER-001
 test:TestProseRulesSurviveNBSP
 
 # --- 2026-10-17: 2 entries added by check-oss-baseline.sh --refresh ---
-test:TestPrivateAliasPositiveControl
 test:TestPrivateAliasTmpIsABudgetedGap
 
 # --- 2026-10-19: 6 entries added by check-oss-baseline.sh --refresh ---
@@ -1572,3 +1567,62 @@ case:TP-WIN-WMIC-SUBSCRIPTION-001
 # --- 2026-11-06: 5 entries added by check-oss-baseline.sh --refresh ---
 case:TP-WIN-HIVE-COPY-001
 case:TP-WIN-HIVE-COPY-002
+
+# --- 2026-11-08: sec-audit-recursive-credential-name-sweep (premium-only; community decides ALLOW) ---
+case:TP-SEC-AUDIT-RECURSIVE-CRED-NAME-SWEEP-001
+
+# --- 2026-11-09: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestNestedRepoRule_FiresOnlyUnderCwd_4850
+case:TP-IMDS-ALIBABA-4894-001
+case:TP-IMDS-OTHER-4909-001
+
+# --- 2026-11-19: 42 entries added by check-oss-baseline.sh --refresh ---
+case:NAT64:_Alibaba,_wget
+case:NAT64:_ECS_credentials
+case:NAT64:_Tencent
+case:NAT64_dotted:_AWS_IMDS
+case:NAT64_hex:_AWS_IMDS
+case:config:_--add
+case:config:_--file
+case:config:_--git-dir=
+case:config:_--global
+case:config:_--local
+case:config:_--replace-all
+case:config:_--system
+case:config:_--type=path
+case:config:_--worktree
+case:config:_-C_dir
+case:config:_-f
+case:config:_after_cd
+case:config:_altrefs,_shell_value
+case:config:_git_by_its_path
+case:config:_recent,_shell_value
+case:config:_set_subcommand
+case:config:_sudo
+case:env:_GIT_CONFIG_PARAMETERS
+case:env:_altrefs_(already_on_main)
+case:env:_recent
+case:executed_text:_command_substitution
+case:executed_text:_piped_into_bash
+case:from_python
+case:inline:_altrefs,_shell_value
+case:inline:_recent
+case:mapped_dotted:_AWS_IMDS
+case:mapped_dotted:_Alibaba
+case:mapped_hex:_AWS_IMDS
+case:mapped_hex:_EKS_Pod_Identity
+case:plain:_Alibaba
+case:plain:_ECS_credentials
+case:twin:_GIT_CONFIG_KEY_n
+case:twin:_git_-c
+case:upper_case
+case:with_a_port
+test:TestRaisedTwins_GitEmptyDriverName
+test:TestRaisedTwins_TeeMCPConfig
+
+# --- 2026-11-20: 1 entry added by check-oss-baseline.sh --refresh ---
+test:TestMessageSlotBesideBuildStep
+
+# --- 2026-11-21: #5029 premium-only corpus cases ---
+case:TP-TS-AUDIT-SQL-CLIENT-PRIVILEGE-GRANT-001
+case:TP-TS-AUDIT-SQL-CLIENT-PRIVILEGE-GRANT-002

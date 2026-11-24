@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Addressee markers on the tools/call result surface (AI_risk_compliance#4554;
@@ -96,6 +97,28 @@ const (
 // characters, by an imperative.
 var addresseeMarkerRE = regexp.MustCompile(`(?is)(?:` + addresseeMarkers + `)[^\n]{0,200}?(?:` + addresseeImperatives + `)`)
 
+// forgedUserTurnRE is the other direction: text in a tool result that speaks
+// AS the user. A context-compacting harness that flattens its history into a
+// plain string labels each message "[User]:", so a result carrying that label
+// followed by a grant of approval survives summarisation as a genuine standing
+// approval (arXiv 2610.29869, Compaction Laundering; 87-100% on five flattening
+// harnesses). The label alone is common in chat transcripts and docs, so a
+// bracketed or line-initial user/human label counts only with an approval grant
+// on the same line. It is a second reading beside addresseeMarkerRE, never a
+// replacement: a match here only adds a finding, at the same AUDIT tier.
+const (
+	forgedUserLabels = "(?:^|[|\\n\"`]\\s*)(?:\\[\\s*(?:user|human)\\s*\\]|(?:user|human))\\s*:"
+	userGrantTails   = `\bi\s+(?:hereby\s+)?(?:approve|authori[sz]e|allow|grant|permit|consent)\b` +
+		`|\b(?:approved|authori[sz]ed|pre-?approved)\b` +
+		`|\bgo\s+ahead\b` +
+		`|\bfrom\s+now\s+on\b` +
+		`|\bstanding\s+(?:approval|permission|authori[sz]ation)\b` +
+		`|\bwithout\s+(?:asking|confirm\w*|prompting|checking\s+with\s+me)\b` +
+		`|\b(?:always|automatically)\s+(?:run|execute|approve|accept|allow)\b`
+)
+
+var forgedUserTurnRE = regexp.MustCompile(`(?is)(?:` + forgedUserLabels + `)[^\n]{0,200}?(?:` + userGrantTails + `)`)
+
 // addresseeMarkerSnippetMax caps the matched text quoted into the receipt.
 const addresseeMarkerSnippetMax = 160
 
@@ -108,17 +131,26 @@ func ScanToolCallResponseForAddresseeMarkers(items []ContentItem) ResponseAddres
 		if item.Type != "text" || item.Text == "" {
 			continue
 		}
+		detail := "addresses the model as the assistant and gives it an instruction"
 		loc := addresseeMarkerRE.FindStringIndex(item.Text)
+		if loc == nil {
+			loc = forgedUserTurnRE.FindStringIndex(item.Text)
+			detail = "speaks as the user and grants an approval (a forged user turn)"
+		}
 		if loc == nil {
 			continue
 		}
 		snippet := item.Text[loc[0]:loc[1]]
+		if detail != "addresses the model as the assistant and gives it an instruction" {
+			// The label's leading delimiter is part of the match, not of the evidence.
+			snippet = strings.TrimLeft(snippet, "|\n\"` \t")
+		}
 		if len(snippet) > addresseeMarkerSnippetMax {
 			snippet = snippet[:addresseeMarkerSnippetMax]
 		}
 		result.Findings = append(result.Findings, ResponseAddresseeMarkerFinding{
 			Signal:       SignalResponseAddresseeMarker,
-			Detail:       fmt.Sprintf("content item %d addresses the model as the assistant and gives it an instruction: %q", i, snippet),
+			Detail:       fmt.Sprintf("content item %d %s: %q", i, detail, snippet),
 			Snippet:      snippet,
 			ContentIndex: i,
 		})

@@ -36,9 +36,15 @@
 # Usage:
 #   scripts/replay-audit.sh [--binary PATH] [--log FILE]... [--hours N]
 #                           [--max N] [--jobs K] [--keep DIR]
+#                           [--packs DIR|deployed]
+#
+# --packs: the pack tree the candidate is judged with (default: this repo's
+# packs/). The candidate sees ~/.agentshield as `make deploy` will leave it:
+# the deployed packs with this tree's community and premium packs copied over.
+# `deployed` replays against the packs installed now, as before 2026-11-11.
 set -euo pipefail
 
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BINARY="$REPO_ROOT/build/agentshield"
@@ -47,10 +53,12 @@ HOURS=24
 MAX=2000
 JOBS=""
 KEEP=""
+PACKS="$REPO_ROOT/packs"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --binary) BINARY="$2"; shift 2 ;;
+    --packs)  PACKS="$2"; shift 2 ;;
     --log)    LOGS+=("$2"); shift 2 ;;
     --hours)  HOURS="$2"; shift 2 ;;
     --max)    MAX="$2"; shift 2 ;;
@@ -89,6 +97,38 @@ else CUTOFF="$(date -u -d "-${HOURS} hours" +%Y-%m-%dT%H:%M:%SZ)"; fi
 WORK="${KEEP:-$(mktemp -d "${TMPDIR:-/tmp}/replay-audit.XXXXXX")}"
 mkdir -p "$WORK"
 [ -n "$KEEP" ] || trap 'rm -rf "$WORK"' EXIT
+
+# The candidate's packs. `check` reads ~/.agentshield/packs, and `make deploy`
+# copies the new packs there only after this replay. So a pack change, which is
+# everything the night squad ships, was replayed against the previous packs and
+# could not flip: on 2026-11-11 a new BLOCK rule's false positive surfaced one
+# deploy late. The candidate now gets a HOME of its own: every entry of
+# ~/.agentshield linked as is (config, credentials), except packs/ and
+# mcp-packs/, which are built the way the deploy target builds them.
+CHECK_HOME="$HOME"
+if [ "$PACKS" != deployed ]; then
+  [ -d "$PACKS/community" ] || { echo "replay-audit: --packs $PACKS has no community/ directory" >&2; exit 1; }
+  CHECK_HOME="$WORK/home"; A="$CHECK_HOME/.agentshield"
+  mkdir -p "$A"
+  for f in "$HOME/.agentshield"/* "$HOME/.agentshield"/.[!.]*; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in packs|mcp-packs) continue ;; esac
+    ln -s "$f" "$A/${f##*/}"
+  done
+  mkdir -p "$A/packs" "$A/mcp-packs"
+  [ -d "$HOME/.agentshield/packs" ] && cp -R "$HOME/.agentshield/packs/." "$A/packs/"
+  [ -d "$HOME/.agentshield/mcp-packs" ] && cp -R "$HOME/.agentshield/mcp-packs/." "$A/mcp-packs/"
+  # Mirrors the Makefile deploy target, step for step.
+  rm -rf "$A/packs/community" "$A/packs/premium" "$A/packs/mcp"
+  rm -f "$A/packs"/mcp-*.yaml "$A/packs/packs.go" "$A/packs/packs_premium.go"
+  cp "$PACKS"/community/*.yaml "$A/packs/" 2>/dev/null || true
+  cp "$PACKS"/premium/*.yaml "$A/packs/" 2>/dev/null || true
+  cp "$PACKS"/community/mcp/*.yaml "$A/mcp-packs/" 2>/dev/null || true
+  cp "$PACKS"/premium/mcp/*.yaml "$A/mcp-packs/" 2>/dev/null || true
+  echo "replay-audit: packs from $PACKS (as the deploy will install them)"
+else
+  echo "replay-audit: packs as deployed now (--packs deployed)"
+fi
 
 START=$(date +%s)
 
@@ -162,7 +202,7 @@ while [ "$i" -lt "$JOBS" ]; do
   # set +e inside: under the inherited errexit a non-zero candidate would
   # abort the subshell before its exit code is written, and a missing code
   # read as "fixture failures" — which is how a crashed shard passed as green.
-  ( set +e; "$BINARY" check --fixture "$WORK/shard_$i.json" > "$WORK/shard_$i.out" 2> "$WORK/shard_$i.err"; echo $? > "$WORK/shard_$i.rc" ) &
+  ( set +e; HOME="$CHECK_HOME" "$BINARY" check --fixture "$WORK/shard_$i.json" > "$WORK/shard_$i.out" 2> "$WORK/shard_$i.err"; echo $? > "$WORK/shard_$i.rc" ) &
   i=$((i+1))
 done
 wait

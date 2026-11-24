@@ -6,6 +6,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // The audit-only tie rule (keptOnTie, #4748 Opus pass 1). When two readings of
@@ -124,8 +125,8 @@ func TestCaseFoldResult_KeptOnTie_4748(t *testing.T) {
 // and an unrelated protected-path read makes both readings BLOCK before the
 // downgrade. Only the expanded reading's keep sees the self-protection rule.
 func TestEvaluateHomeTilde_KeptOnTie_4748(t *testing.T) {
-	const home = "/zzhome/zzme"
-	t.Setenv("HOME", home)
+	home := absPath("/zzhome/zzme")
+	testhome.Set(t, home)
 	restore := SetTildeAccountLookupForTest(func() (string, string) { return "zzme", home })
 	t.Cleanup(restore)
 
@@ -138,19 +139,19 @@ func TestEvaluateHomeTilde_KeptOnTie_4748(t *testing.T) {
 			t.Fatalf("NewEngineWithAnalyzers: %v", err)
 		}
 		e.SetMode(mode)
-		e.SetSelfProtectionKeep(func(_ string, rules, _ []string) bool {
+		e.SetSelfProtectionKeep(func(_ string, rules, _ []string) (bool, string) {
 			for _, id := range rules {
 				if id == "zz-sp-block" {
-					return true
+					return true, ""
 				}
 			}
-			return false
+			return false, ""
 		})
 		return e
 	}
 	eval := func(e *Engine, cmd string) EvalResult {
-		n := normalize.NormalizeCommand(cmd, "/tmp")
-		return e.EvaluateHomeTilde(cmd, n.Paths, n.Parsed, "/tmp", HomeTildeStricter)
+		n := normalize.NormalizeCommand(cmd, absPath("/tmp"))
+		return e.EvaluateHomeTilde(cmd, n.Paths, n.Parsed, absPath("/tmp"), HomeTildeStricter)
 	}
 	enf, aud := build("enforce"), build("audit-only")
 	for _, tc := range []struct {
@@ -176,7 +177,18 @@ func TestEvaluateHomeTilde_KeptOnTie_4748(t *testing.T) {
 			} else if a.Decision != DecisionAudit || a.OriginalDecision != DecisionBlock {
 				t.Errorf("audit-only decided %v (original %q) %v; want AUDIT, original BLOCK", a.Decision, a.OriginalDecision, a.TriggeredRules)
 			}
-			// The record is enforce mode's.
+			// The record is enforce mode's. A kept BLOCK whose record does not
+			// name the self-protection rule leads with the keep's reason
+			// (#5089): its own record is the protected-path read, and the
+			// BLOCK stands on the rule the expanded reading matched.
+			if tc.kept && !has(e.TriggeredRules, "zz-sp-block") {
+				lead := SelfProtectKeptReasonPrefix + "the command also matches the self-protection rule zz-sp-block"
+				if len(a.TriggeredRules) == 0 || a.TriggeredRules[0] != SelfProtectRuleID || len(a.Reasons) == 0 || a.Reasons[0] != lead {
+					t.Fatalf("audit-only record %v %q; want it led by %s, %q", a.TriggeredRules, a.Reasons, SelfProtectRuleID, lead)
+				}
+				a.TriggeredRules, a.Reasons = a.TriggeredRules[1:], a.Reasons[1:]
+				a.Explanation = buildExplanation(a)
+			}
 			if strings.Join(a.TriggeredRules, ",") != strings.Join(e.TriggeredRules, ",") || strings.Join(a.Reasons, "|") != strings.Join(e.Reasons, "|") || strings.Join(a.TaxonomyRefs, ",") != strings.Join(e.TaxonomyRefs, ",") {
 				t.Errorf("audit-only record %v %v %v; want enforce's %v %v %v", a.TriggeredRules, a.Reasons, a.TaxonomyRefs, e.TriggeredRules, e.Reasons, e.TaxonomyRefs)
 			}

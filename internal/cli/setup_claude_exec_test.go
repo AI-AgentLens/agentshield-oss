@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/hookentry"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // These tests pin how `agentshield setup claude-code` registers the hook
@@ -26,18 +28,25 @@ import (
 // locations (/opt/homebrew/bin, /usr/local/bin) are taken out of reach, so
 // resolveAgentShieldPath finds the symlink, and setup runs "as" the real
 // binary behind it. It returns the settings path setup writes.
+//
+// On Windows there is no Homebrew link: an install is agentshield.exe in a
+// directory on PATH, and setup runs as that file, so that is the layout
+// there. It also needs no symlink privilege, which aial-04 lacks (#5021).
 func setupClaudeHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	cellar := t.TempDir()
-	real := filepath.Join(cellar, "agentshield")
+	real := filepath.Join(cellar, exeName("agentshield"))
 	if err := os.WriteFile(real, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	if err := os.Symlink(real, filepath.Join(bin, "agentshield")); err != nil {
-		t.Fatal(err)
+	bin := cellar
+	if runtime.GOOS != "windows" {
+		bin = t.TempDir()
+		if err := os.Symlink(real, filepath.Join(bin, "agentshield")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -166,7 +175,7 @@ func requireOneExecHook(t *testing.T, settings map[string]interface{}) map[strin
 		t.Fatalf("AgentShield hook is %v; want exec form: %v", got, h)
 	}
 	cmd, _ := h["command"].(string)
-	if !filepath.IsAbs(cmd) || filepath.Base(cmd) != "agentshield" {
+	if !filepath.IsAbs(cmd) || filepath.Base(cmd) != exeName("agentshield") {
 		t.Errorf("exec-form command = %q; want an absolute path to agentshield", cmd)
 	}
 	return h
@@ -354,7 +363,7 @@ func TestInstallClaudeCodeHook_BrokenLookalikeIsNotInstalled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	writeSettingsFile(t, path, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/opt/homebrew/bin/agentshield hook","args":["--help"]}]}]}}`)
 
-	res, err := installClaudeCodeHook(path, "/opt/homebrew/bin/agentshield", true, onFailureOmit)
+	res, err := installClaudeCodeHook(path, fixtureInstallPath(), true, onFailureOmit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +409,7 @@ func TestScanDetectsExecFormClaudeCodeHook(t *testing.T) {
 // at another path: an older copy left in /usr/local/bin, say.
 func otherBinary(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "agentshield")
+	p := filepath.Join(t.TempDir(), exeName("agentshield"))
 	if err := os.WriteFile(p, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +428,8 @@ func TestSetupClaudeCode_ExecFormOnlyForTheRunningBinary(t *testing.T) {
 		out := runSetupClaudeCode(t, false)
 
 		h := requireOneExecHook(t, readSettingsFile(t, settingsPath))
-		if fi, err := os.Lstat(h["command"].(string)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		// Windows has no link here (setupClaudeHome): the PATH entry is the binary.
+		if fi, err := os.Lstat(h["command"].(string)); runtime.GOOS != "windows" && (err != nil || fi.Mode()&os.ModeSymlink == 0) {
 			t.Errorf("exec-form command %v is not the PATH symlink (stat err %v); setup must keep the stable link, not the resolved target", h["command"], err)
 		}
 		if strings.Contains(out, "not the binary running setup") {
@@ -435,9 +445,12 @@ func TestSetupClaudeCode_ExecFormOnlyForTheRunningBinary(t *testing.T) {
 
 		out := runSetupClaudeCode(t, false)
 
+		// On Windows the shell-form path is written with forward slashes:
+		// Claude Code runs it through Git Bash, which drops unquoted
+		// backslashes (#5072 review). Off Windows ToSlash changes nothing.
 		ours := agentShieldHooks(readSettingsFile(t, settingsPath))
-		if len(ours) != 1 || hookentry.Classify(ours[0]) != hookentry.Shell || ours[0]["command"] != hookPath+" hook" {
-			t.Fatalf("hooks = %v; want one shell-form %q", ours, hookPath+" hook")
+		if want := filepath.ToSlash(hookPath) + " hook"; len(ours) != 1 || hookentry.Classify(ours[0]) != hookentry.Shell || ours[0]["command"] != want {
+			t.Fatalf("hooks = %v; want one shell-form %q", ours, want)
 		}
 		want := "agentshield at " + hookPath + " is not the binary running setup (" + exe + "); keeping shell form — update or remove " + hookPath + ", or re-run setup with it once it is current"
 		if !strings.Contains(out, want) {
@@ -513,7 +526,7 @@ func writeStandIn(t *testing.T, path string) {
 func pinClaudeHome(t *testing.T, dirOnPath string, candidates []string) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("PATH", dirOnPath+string(os.PathListSeparator)+os.Getenv("PATH"))
 	prevCandidates := agentShieldPathCandidates
 	agentShieldPathCandidates = candidates
@@ -530,16 +543,14 @@ func pinClaudeHome(t *testing.T, dirOnPath string, candidates []string) string {
 // resolved target, the Linux shape, so only this one sees that case.
 func TestSetupClaudeCode_DarwinCaskLayoutGetsExecForm(t *testing.T) {
 	root := t.TempDir()
-	real := filepath.Join(root, "Caskroom", "agentshield", "1.2.3", "agentshield")
+	real := filepath.Join(root, "Caskroom", "agentshield", "1.2.3", exeName("agentshield"))
 	writeStandIn(t, real)
 	bin := filepath.Join(root, "opt", "homebrew", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(bin, "agentshield")
-	if err := os.Symlink(filepath.Join("..", "..", "..", "Caskroom", "agentshield", "1.2.3", "agentshield"), link); err != nil {
-		t.Fatal(err)
-	}
+	link := filepath.Join(bin, exeName("agentshield"))
+	symlinkOrSkip(t, filepath.Join("..", "..", "..", "Caskroom", "agentshield", "1.2.3", exeName("agentshield")), link)
 	settingsPath := pinClaudeHome(t, bin, []string{link})
 	pinSelfExecutable(t, link) // darwin: the symlink, not its target
 
@@ -560,10 +571,10 @@ func TestSetupClaudeCode_DarwinCaskLayoutGetsExecForm(t *testing.T) {
 func TestSetupClaudeCode_GateJudgesThePathWrittenNotLookPath(t *testing.T) {
 	t.Run("candidate is the running binary, PATH has an older one: exec form", func(t *testing.T) {
 		root := t.TempDir()
-		candidate := filepath.Join(root, "preferred", "agentshield")
+		candidate := filepath.Join(root, "preferred", exeName("agentshield"))
 		writeStandIn(t, candidate)
 		onPath := filepath.Join(root, "pathdir")
-		writeStandIn(t, filepath.Join(onPath, "agentshield")) // an older copy, first on PATH
+		writeStandIn(t, filepath.Join(onPath, exeName("agentshield"))) // an older copy, first on PATH
 		settingsPath := pinClaudeHome(t, onPath, []string{candidate})
 		pinSelfExecutable(t, candidate)
 
@@ -580,10 +591,10 @@ func TestSetupClaudeCode_GateJudgesThePathWrittenNotLookPath(t *testing.T) {
 
 	t.Run("candidate is an older binary, PATH has the running one: shell form", func(t *testing.T) {
 		root := t.TempDir()
-		candidate := filepath.Join(root, "preferred", "agentshield")
+		candidate := filepath.Join(root, "preferred", exeName("agentshield"))
 		writeStandIn(t, candidate) // an older copy at the preferred location
 		onPath := filepath.Join(root, "pathdir")
-		running := filepath.Join(onPath, "agentshield")
+		running := filepath.Join(onPath, exeName("agentshield"))
 		writeStandIn(t, running)
 		settingsPath := pinClaudeHome(t, onPath, []string{candidate})
 		pinSelfExecutable(t, running)
@@ -591,8 +602,8 @@ func TestSetupClaudeCode_GateJudgesThePathWrittenNotLookPath(t *testing.T) {
 		out := runSetupClaudeCode(t, false)
 
 		ours := agentShieldHooks(readSettingsFile(t, settingsPath))
-		if len(ours) != 1 || hookentry.Classify(ours[0]) != hookentry.Shell || ours[0]["command"] != candidate+" hook" {
-			t.Fatalf("hooks = %v; want one shell-form %q (exec form would run the older binary bare)", ours, candidate+" hook")
+		if want := filepath.ToSlash(candidate) + " hook"; len(ours) != 1 || hookentry.Classify(ours[0]) != hookentry.Shell || ours[0]["command"] != want {
+			t.Fatalf("hooks = %v; want one shell-form %q (exec form would run the older binary bare)", ours, want)
 		}
 		if !strings.Contains(out, "agentshield at "+candidate+" is not the binary running setup ("+running+")") {
 			t.Errorf("setup output lacks the skew warning naming both paths:\n%s", out)

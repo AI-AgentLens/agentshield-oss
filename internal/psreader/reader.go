@@ -127,9 +127,13 @@ type reader struct {
 	// redirs are the literal targets of output redirections (`> x`, `>> x`,
 	// `2> x`, `*> x`), each also in strs: a file the text writes.
 	redirs []string
-	notes  []rawNote
-	steps  int
-	depth  int
+	// outRedirs are the redirections of the success stream (`>`, `>>`, `1>`,
+	// `*>`) to a literal target, with whether they append: the cmdlet
+	// bridge's redirection twins (cmdlet_twin.go).
+	outRedirs []outRedir
+	notes     []rawNote
+	steps     int
+	depth     int
 	// pipeStart is the offset the pipeline being read starts at.
 	pipeStart int
 	// pipes maps a pipeline's start offset to its statement chain and the
@@ -1403,8 +1407,10 @@ func (r *reader) redirection() bool {
 		return false
 	}
 	i++
+	appends := false
 	if r.peek(i) == '>' {
 		i++
+		appends = true
 	}
 	if r.peek(i) == '&' && isDigit(r.peek(i+1)) {
 		r.p += i + 2
@@ -1415,6 +1421,12 @@ func (r *reader) redirection() bool {
 	if v := r.argSingle(0, false); v.k == kStr {
 		r.strs = append(r.strs, v.text)
 		r.redirs = append(r.redirs, v.text)
+		// `>`, `1>` and `*>` send the success stream, the statement's
+		// output, to the file: Out-File's job. `2>` to `6>` send another
+		// stream only.
+		if c == '>' || c == '1' || c == '*' {
+			r.outRedirs = append(r.outRedirs, outRedir{appends: appends, val: v})
+		}
 	}
 	return true
 }

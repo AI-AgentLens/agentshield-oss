@@ -362,7 +362,10 @@ func runSetupInstall() error {
 
 // ─── Shared Disable Logic ────────────────────────────────────────────────────
 
-func disableHook(hooksPath, ideName string) error {
+// disableHook sets aside hooksPath when file.Has says it holds AgentShield's
+// hook. It renames the whole file, so on Windows only a command in the place
+// file names counts, not a copy elsewhere in it (#5072 pass 2).
+func disableHook(hooksPath, ideName string, file hookentry.HookFile) error {
 	backupPath := hooksPath + ".bak"
 
 	if _, err := os.Stat(hooksPath); os.IsNotExist(err) {
@@ -375,7 +378,7 @@ func disableHook(hooksPath, ideName string) error {
 		return fmt.Errorf("failed to read %s: %w", hooksPath, err)
 	}
 
-	if !strings.Contains(string(data), "agentshield hook") {
+	if !file.Has(data) {
 		fmt.Printf("ℹ  %s hooks.json does not contain AgentShield — nothing to disable.\n", ideName)
 		return nil
 	}
@@ -407,7 +410,7 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 		if err := enterprise.CheckDisableAllowed(); err != nil {
 			return err
 		}
-		return disableHook(hooksPath, "Windsurf")
+		return disableHook(hooksPath, "Windsurf", hookentry.WindsurfHookFile)
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -428,7 +431,7 @@ func setupWindsurfCommand(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(hooksPath); err == nil {
 		// Read existing hooks
 		data, err := os.ReadFile(hooksPath)
-		if err == nil && strings.Contains(string(data), "agentshield hook") {
+		if err == nil && hookentry.WindsurfHookFile.Has(data) {
 			fmt.Printf("✅ Cascade Hook already configured: %s\n", hooksPath)
 			fmt.Println()
 			printTestHint("Cascade")
@@ -504,7 +507,7 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 		if err := enterprise.CheckDisableAllowed(); err != nil {
 			return err
 		}
-		return disableHook(hooksPath, "Cursor")
+		return disableHook(hooksPath, "Cursor", hookentry.CursorHookFile)
 	}
 
 	fmt.Println("═══════════════════════════════════════════════════════")
@@ -524,8 +527,31 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 	// Check for existing hooks.json
 	if _, err := os.Stat(hooksPath); err == nil {
 		data, err := os.ReadFile(hooksPath)
-		if err == nil && strings.Contains(string(data), "agentshield hook") {
-			fmt.Printf("✅ Cursor Hook already configured: %s\n", hooksPath)
+		if err == nil && hookentry.CursorHookFile.Has(data) {
+			// An entry alone is not a working hook: Cursor ignores the
+			// whole file without a numeric "version" (#5113), so files
+			// setup wrote before the fix are repaired here, not reported
+			// as configured.
+			if problem := hookentry.CursorConfigProblem(data); problem != "" {
+				fixed, ferr := addCursorHooksVersion(data)
+				if ferr != nil || hookentry.CursorConfigProblem(fixed) != "" {
+					fmt.Printf("⚠  Cursor ignores %s: %s, so no command is evaluated.\n", hooksPath, problem)
+					fmt.Println("   AgentShield did not change the file. Fix it by hand, then run: agentshield setup cursor")
+					return nil
+				}
+				mode := os.FileMode(0o644)
+				if info, serr := os.Stat(hooksPath); serr == nil {
+					mode = info.Mode().Perm()
+				}
+				if err := writeFileAtomic(hooksPath, fixed, mode); err != nil {
+					return fmt.Errorf("failed to repair %s: %w", hooksPath, err)
+				}
+				fmt.Printf("✅ Cursor Hook repaired: %s\n", hooksPath)
+				fmt.Printf("   Added \"version\": 1. Without it Cursor ignored this file (%s), so no command was evaluated.\n", problem)
+				fmt.Println("   Restart Cursor to activate the hook.")
+			} else {
+				fmt.Printf("✅ Cursor Hook already configured: %s\n", hooksPath)
+			}
 			fmt.Println()
 			printTestHint("Cursor's Agent")
 			fmt.Println()
@@ -544,6 +570,13 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 		fmt.Println(`     }`)
 		fmt.Println(`   ]`)
 		fmt.Println()
+		fmt.Println("   The file also needs a top-level \"version\": 1. Cursor ignores a hooks.json without it (#5113).")
+		if err == nil {
+			if problem := hookentry.CursorConfigProblem(data); problem != "" {
+				fmt.Printf("   As it stands, Cursor ignores this file: %s.\n", problem)
+			}
+		}
+		fmt.Println()
 		return nil
 	}
 
@@ -552,18 +585,7 @@ func setupCursorCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create %s: %w", hooksDir, err)
 	}
 
-	hooksContent := `{
-  "hooks": {
-    "beforeShellExecution": [
-      {
-        "command": "agentshield hook",
-        "show_output": true
-      }
-    ]
-  }
-}
-`
-	if err := os.WriteFile(hooksPath, []byte(hooksContent), 0644); err != nil {
+	if err := os.WriteFile(hooksPath, []byte(cursorHooksContent), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", hooksPath, err)
 	}
 
@@ -1470,7 +1492,7 @@ func isAgentShieldGeminiHookEntry(entry interface{}) bool {
 	subHooks, _ := m["hooks"].([]interface{})
 	for _, h := range subHooks {
 		if hm, ok := h.(map[string]interface{}); ok {
-			if cmd, ok := hm["command"].(string); ok && strings.HasSuffix(cmd, "agentshield hook") {
+			if cmd, ok := hm["command"].(string); ok && hookentry.MatchesHookCommand(cmd) {
 				return true
 			}
 		}
@@ -1628,7 +1650,7 @@ func isAgentShieldCodexHookEntry(entry interface{}) bool {
 	subHooks, _ := m["hooks"].([]interface{})
 	for _, h := range subHooks {
 		if hm, ok := h.(map[string]interface{}); ok {
-			if cmd, ok := hm["command"].(string); ok && strings.HasSuffix(cmd, "agentshield hook") {
+			if cmd, ok := hm["command"].(string); ok && hookentry.MatchesHookCommand(cmd) {
 				return true
 			}
 		}

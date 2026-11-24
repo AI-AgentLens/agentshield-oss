@@ -17,6 +17,9 @@ var stdlibOnly = map[string]string{
 	// #4785: every evaluating package checks the hook's stop flag in its hot
 	// loops, so the flag can depend on nothing they could depend on.
 	"internal/abandon": "the hook's evaluation stop flag (#4785)",
+	// #4958: the MCP evaluator reads credential values through it, and it
+	// stays reusable by any other engine only if it reaches back into none.
+	"internal/placeholder": "visibly placeholder credential values (#4958)",
 }
 
 // isStdlib reports whether an import path names a standard-library package:

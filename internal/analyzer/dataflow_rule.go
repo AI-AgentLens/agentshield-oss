@@ -37,32 +37,58 @@ type DataflowRuleEndpoint struct {
 
 // MatchDataflowRule evaluates a dataflow rule against the parsed command.
 // It checks pipe chains and redirects for source→sink flows.
+//
+// On Windows the flow is matched under main's reading of the words its
+// endpoints read and under Git Bash's (#5049, see quoteReading), and the two
+// results, after negation, are joined by the rule's decision: a restricting
+// rule fires if either fires, an ALLOW only if both do. The join is on whole
+// evaluations because the pipe flow takes the FIRST source and the first sink
+// after it: a source that matches one segment earlier can move the sink and
+// lose a flow main matched.
 func MatchDataflowRule(parsed *ParsedCommand, rule DataflowRule) bool {
 	if parsed == nil || len(parsed.Segments) == 0 {
 		return rule.Negate
 	}
 
+	return matchDataflowRuleGated(parsed, rule, readsTwoWays(parsed))
+}
+
+// matchDataflowRuleGated is MatchDataflowRule for a command whose
+// readsTwoWays is already known.
+func matchDataflowRuleGated(parsed *ParsedCommand, rule DataflowRule, twoWays bool) bool {
+	if parsed == nil || len(parsed.Segments) == 0 {
+		return rule.Negate
+	}
+	twoWays = twoWays || globsHaveBackslash(rule.Source.Paths, rule.Sink.Paths)
+	return combineReadingsIf(twoWays, restrictingDecision(rule.Decision), func(r quoteReading) bool {
+		return applyNegate(matchDataflowAs(parsed, rule, r), rule.Negate)
+	})
+}
+
+// matchDataflowAs is MatchDataflowRule's flow match, before negation, under
+// one reading.
+func matchDataflowAs(parsed *ParsedCommand, rule DataflowRule, r quoteReading) bool {
 	matched := false
 
 	// Check pipe-based flows: source segment → [via] → sink segment
 	if len(parsed.Segments) >= 2 {
-		matched = matched || matchPipeFlow(parsed, rule)
+		matched = matched || matchPipeFlow(parsed, rule, r)
 	}
 
 	// Check redirect-based flows: source command → redirect to sink path
-	matched = matched || matchRedirectFlow(parsed, rule)
+	matched = matched || matchRedirectFlow(parsed, rule, r)
 
-	return applyNegate(matched, rule.Negate)
+	return matched
 }
 
 // matchPipeFlow checks if the pipe chain matches source → [via] → sink.
-func matchPipeFlow(parsed *ParsedCommand, rule DataflowRule) bool {
+func matchPipeFlow(parsed *ParsedCommand, rule DataflowRule, r quoteReading) bool {
 	segments := parsed.Segments
 
 	// Find source segments (leftmost matching segment)
 	sourceIdx := -1
 	for i, seg := range segments {
-		if matchesFlowEndpointAsSource(seg, rule.Source) {
+		if matchesFlowEndpointAsSource(seg, rule.Source, r) {
 			sourceIdx = i
 			break
 		}
@@ -74,7 +100,7 @@ func matchPipeFlow(parsed *ParsedCommand, rule DataflowRule) bool {
 	// Find sink segments (any segment after source)
 	sinkIdx := -1
 	for i := sourceIdx + 1; i < len(segments); i++ {
-		if matchesFlowEndpointAsSink(segments[i], rule.Sink) {
+		if matchesFlowEndpointAsSink(segments[i], rule.Sink, r) {
 			sinkIdx = i
 			break
 		}
@@ -101,17 +127,17 @@ func matchPipeFlow(parsed *ParsedCommand, rule DataflowRule) bool {
 }
 
 // matchRedirectFlow checks if a command reads from a source and redirects to a sink path.
-func matchRedirectFlow(parsed *ParsedCommand, rule DataflowRule) bool {
+func matchRedirectFlow(parsed *ParsedCommand, rule DataflowRule, r quoteReading) bool {
 	// Collect all redirects (top-level + per-segment)
 	for i, seg := range parsed.Segments {
-		if !matchesFlowEndpointAsSource(seg, rule.Source) {
+		if !matchesFlowEndpointAsSource(seg, rule.Source, r) {
 			continue
 		}
 
 		// Check segment-level redirects
 		for _, redir := range seg.Redirects {
 			if redir.Op == ">" || redir.Op == ">>" {
-				if matchesSinkPath(redir.Path, rule.Sink) {
+				if matchesSinkPath(redir.Path, rule.Sink, r) {
 					return true
 				}
 			}
@@ -121,7 +147,7 @@ func matchRedirectFlow(parsed *ParsedCommand, rule DataflowRule) bool {
 		if i == 0 || i == len(parsed.Segments)-1 {
 			for _, redir := range parsed.Redirects {
 				if redir.Op == ">" || redir.Op == ">>" {
-					if matchesSinkPath(redir.Path, rule.Sink) {
+					if matchesSinkPath(redir.Path, rule.Sink, r) {
 						return true
 					}
 				}
@@ -132,10 +158,10 @@ func matchRedirectFlow(parsed *ParsedCommand, rule DataflowRule) bool {
 }
 
 // matchesFlowEndpointAsSource checks if a command segment acts as a data source.
-func matchesFlowEndpointAsSource(seg CommandSegment, ep DataflowRuleEndpoint) bool {
+func matchesFlowEndpointAsSource(seg CommandSegment, ep DataflowRuleEndpoint, r quoteReading) bool {
 	// Match by pre-classified type
 	if ep.Type != "" {
-		sourceType := classifySource(seg.Executable, seg.Args)
+		sourceType := classifySourceAs(seg.Executable, seg.Args, r)
 		switch ep.Type {
 		case "credential":
 			if sourceType != "credential-source" {
@@ -166,7 +192,7 @@ func matchesFlowEndpointAsSource(seg CommandSegment, ep DataflowRuleEndpoint) bo
 		foundPath := false
 		for _, arg := range seg.Args {
 			for _, pattern := range ep.Paths {
-				if matchArgGlob(arg, pattern) {
+				if matchArgGlobAs(arg, pattern, r) {
 					foundPath = true
 					break
 				}
@@ -189,7 +215,7 @@ func matchesFlowEndpointAsSource(seg CommandSegment, ep DataflowRuleEndpoint) bo
 }
 
 // matchesFlowEndpointAsSink checks if a command segment acts as a data sink.
-func matchesFlowEndpointAsSink(seg CommandSegment, ep DataflowRuleEndpoint) bool {
+func matchesFlowEndpointAsSink(seg CommandSegment, ep DataflowRuleEndpoint, r quoteReading) bool {
 	// Match by pre-classified type
 	if ep.Type != "" {
 		switch ep.Type {
@@ -201,7 +227,7 @@ func matchesFlowEndpointAsSink(seg CommandSegment, ep DataflowRuleEndpoint) bool
 			// For device sinks, check args for device paths
 			hasDevice := false
 			for _, arg := range seg.Args {
-				if isDevicePath(arg) {
+				if isDevicePathAs(arg, r) {
 					hasDevice = true
 					break
 				}
@@ -230,7 +256,7 @@ func matchesFlowEndpointAsSink(seg CommandSegment, ep DataflowRuleEndpoint) bool
 		foundPath := false
 		for _, arg := range seg.Args {
 			for _, pattern := range ep.Paths {
-				if matchArgGlob(arg, pattern) {
+				if matchArgGlobAs(arg, pattern, r) {
 					foundPath = true
 					break
 				}
@@ -253,12 +279,12 @@ func matchesFlowEndpointAsSink(seg CommandSegment, ep DataflowRuleEndpoint) bool
 }
 
 // matchesSinkPath checks if a redirect target path matches sink criteria.
-func matchesSinkPath(path string, ep DataflowRuleEndpoint) bool {
+func matchesSinkPath(path string, ep DataflowRuleEndpoint, r quoteReading) bool {
 	// Match by type
 	if ep.Type != "" {
 		switch ep.Type {
 		case "device":
-			if !isDevicePath(path) {
+			if !isDevicePathAs(path, r) {
 				return false
 			}
 		case "cron":
@@ -274,7 +300,7 @@ func matchesSinkPath(path string, ep DataflowRuleEndpoint) bool {
 	if len(ep.Paths) > 0 {
 		foundPath := false
 		for _, pattern := range ep.Paths {
-			if matchArgGlob(path, pattern) {
+			if matchArgGlobAs(path, pattern, r) {
 				foundPath = true
 				break
 			}

@@ -23,8 +23,12 @@ type AnalysisContext struct {
 	RawCommand string
 	Args       []string
 	Cwd        string
-	Paths      []string // filesystem paths extracted by normalizer
-	Domains    []string // domains extracted by normalizer
+	// Home is the home directory a leading `~` or $HOME names, for the
+	// capture_under_cwd gate (#4850). Empty leaves those words unresolved,
+	// which keeps a gated rule's match.
+	Home    string
+	Paths   []string // filesystem paths extracted by normalizer
+	Domains []string // domains extracted by normalizer
 
 	// ExecContext describes the runtime environment this command is being
 	// evaluated in — currently whether the process lives inside a CI/CD

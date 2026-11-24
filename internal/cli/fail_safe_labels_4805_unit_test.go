@@ -48,8 +48,10 @@ func TestWithheldCause_4805(t *testing.T) {
 		err  error
 		want string
 	}{
-		{logErr, "open /h/.agentshield/audit.jsonl: permission denied"},
-		{packsErr, "open /h/.agentshield/packs: not a directory"},
+		// In the file system's words: the errno's own text, which on Windows
+		// is the system message for the code Go maps ENOTDIR to.
+		{logErr, "open /h/.agentshield/audit.jsonl: " + syscall.EACCES.Error()},
+		{packsErr, "open /h/.agentshield/packs: " + syscall.ENOTDIR.Error()},
 		{errors.New("yaml: cannot unmarshal !!str `" + shortKeyword4805() + "` into []string"), "(cause withheld)"},
 		{errors.New("data label engine init failed: invalid regex `" + shortKeyword4805() + "(`"), "(cause withheld)"},
 	} {

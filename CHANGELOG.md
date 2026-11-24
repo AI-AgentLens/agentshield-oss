@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Cursor now runs the AgentShield hook (#5113).** `agentshield setup cursor` wrote a `~/.cursor/hooks.json` with no top-level `"version"`, and Cursor ignores such a file as a whole. From 4f8c594f (2026-02-08) on, no command in Cursor was evaluated, while `agentshield status` reported the hook as active. Fixed:
+  - Setup writes `"version": 1`.
+  - Re-running `agentshield setup cursor` repairs an existing AgentShield file and keeps your other hooks.
+  - `status` checks the file with Cursor's own rules and reports such a file as NOT active.
+
+  Verified live on Cursor CLI 2026.11.22: a marker command that ran unevaluated before the fix is blocked and recorded after it.
+
 ### Changed
 - **New installs start in audit-only mode (#4337).** `agentshield setup` on a machine with no AgentShield state (nothing in `~/.agentshield` beyond the `packs/` a Homebrew install copies there, and no agent configuration that mentions AgentShield) writes `default_mode: audit-only` to `~/.agentshield/agentshield.yaml` and says so, with the line that turns enforcement on (`mode: enforce`). Existing installs keep their mode: the built-in default stays `enforce`, and `default_mode` sits below the organisation's `enforcement_mode` and is ignored on a managed host. `mcp-proxy` and `mcp-http-proxy` now honour audit-only on `tools/call`, recording a would-be block as `AUDIT` with `original_decision: BLOCK`; the proxies' config-file guard still blocks. `setup`, `status` and `scan` print the mode and where it came from.
 - **Upgrade note for hosts that run `setup` from a clean state on every job (CI runners, containers) (#4337).** Each such run is a new install, so after upgrading these hosts start in audit-only mode and record instead of block. Add `mode: enforce` to `~/.agentshield/agentshield.yaml` right after `setup` (see `docs/examples/github-actions-agent-with-shield.yml`).

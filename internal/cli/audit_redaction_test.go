@@ -16,6 +16,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Issue #4332: the audit log redacted a COPY of the event (Log takes it by
@@ -38,7 +39,9 @@ const redactionCanary = "Lk4332canary"
 func testAPIKey() string      { return "sk_" + "test_" + "Zm9v" + "YmFy" + "YmF6" + redactionCanary }
 func testBearerToken() string { return "tok_" + "live_" + "A1b2" + "C3d4" + "E5f6" + redactionCanary }
 func testPassword() string    { return "Pw-" + "Sx9" + "-q7" + redactionCanary }
-func testGitHubToken() string { return "gh" + "p_" + "Zm9vYmFy" + "YmF6Zm9v" + "YmFyYmF6" + redactionCanary }
+func testGitHubToken() string {
+	return "gh" + "p_" + "Zm9vYmFy" + "YmF6Zm9v" + "YmFyYmF6" + redactionCanary
+}
 
 // redactionCase is one way a secret reaches an audit event.
 type redactionCase struct {
@@ -154,7 +157,7 @@ func redactionCases() []redactionCase {
 func newRedactionHome(t *testing.T, server string) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".agentshield"), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

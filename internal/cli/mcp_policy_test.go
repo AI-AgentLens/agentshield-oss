@@ -8,6 +8,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // withFakeHome points $HOME at a temp dir and resets the package-level CLI
@@ -15,7 +16,7 @@ import (
 func withFakeHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	oldPolicyPath, oldLogPath, oldMode, oldMCPPolicyPath := policyPath, logPath, mode, mcpPolicyPath
 	t.Cleanup(func() {

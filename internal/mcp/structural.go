@@ -3,11 +3,14 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/AI-AgentLens/agentshield/internal/placeholder"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
@@ -43,8 +46,8 @@ type MCPStructuralMatch struct {
 	//
 	// Tool name is matched on the WIRE form, never the render-evasion recovered
 	// form: recovering a confusable here would WIDEN the carve-out and switch
-	// the rule OFF (CLAUDE.md, "Only POSITIVE predicates get the recovered
-	// form"). An empty clause never excludes.
+	// the rule OFF (.claude/agent-notes/mcp-scanners.md, "Only POSITIVE predicates get the
+	// recovered form"). An empty clause never excludes.
 	ExcludeWhen *StructuralExcludeClause `yaml:"exclude_when,omitempty"`
 
 	// Argument field predicates — keyed by argument name (supports dot notation for nesting)
@@ -101,6 +104,22 @@ type ArgFieldMatch struct {
 	// decides exactly as it did.
 	PatternNotMatch []string `yaml:"pattern_not_match,omitempty"`
 
+	// PlaceholderCapture names a capture group of the pattern_any patterns
+	// that holds a credential value's body (#4958). It never changes whether
+	// the rule fires. It changes what a firing decides: a structural rule
+	// that decides BLOCK or REQUIRE_APPROVAL decides AUDIT instead, under its
+	// own id, when every pattern_any match that counts (not excused by
+	// pattern_not_match) has a body that placeholder.Visible calls a visible
+	// placeholder, judged against that group's own minimum length. One match
+	// whose body is key material, or that the group does not take part in,
+	// keeps the rule's decision. pattern_all is read as before.
+	//
+	// Read on structural_rules entries (evaluateArguments); a `rules:` entry's
+	// match.structural ignores it and keeps its decision. A binary that
+	// predates the field ignores it too, and BLOCKs as before: the capture
+	// groups change no match.
+	PlaceholderCapture string `yaml:"placeholder_capture,omitempty"`
+
 	// Existence check
 	Exists *bool `yaml:"exists,omitempty"` // argument field must/must not exist
 
@@ -118,8 +137,8 @@ type StructuralExcludeClause struct {
 	// ToolNameRegex: if set, the WIRE tool name must match this pattern for the
 	// exclusion to apply. Deliberately the wire name, not the render-evasion
 	// recovered form — recovering here would widen the carve-out and switch the
-	// rule OFF on a confusable name (CLAUDE.md, "Only POSITIVE predicates get
-	// the recovered form").
+	// rule OFF on a confusable name (.claude/agent-notes/mcp-scanners.md, "Only POSITIVE
+	// predicates get the recovered form").
 	ToolNameRegex string `yaml:"tool_name_regex,omitempty"`
 
 	// ArgsMatch: if set, EVERY named argument predicate must match (the same
@@ -252,6 +271,42 @@ func matchedArgValues(arguments map[string]interface{}, argsMatch map[string]Arg
 
 // matchStructural checks if a tool call matches a structural match definition.
 func matchStructural(toolName string, arguments map[string]interface{}, m MCPStructuralMatch) bool {
+	return matchStructuralKeys(toolName, arguments, m, false)
+}
+
+// hasPlaceholderCapture reports whether any args_match field of m names a
+// placeholder_capture group (#4958).
+func hasPlaceholderCapture(m MCPStructuralMatch) bool {
+	for _, fm := range m.ArgsMatch {
+		if fm.PlaceholderCapture != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// placeholderReasonSuffix is appended to a rule's reason when its BLOCK is
+// lowered to AUDIT because every value it matched is a visible placeholder.
+const placeholderReasonSuffix = " [AUDIT, not BLOCK: every credential-shaped value matched is visibly a placeholder (#4958)]"
+
+// structuralRuleVerdict is the decision and reason of a structural rule that
+// fired (matchStructuralRule): its own, unless it names a placeholder_capture
+// group, restricts, and does not also fire when placeholder matches are left
+// out, in which case AUDIT (#4958).
+func structuralRuleVerdict(toolName string, arguments map[string]interface{}, rule MCPStructuralRule) (policy.Decision, string) {
+	if (rule.Decision != policy.DecisionBlock && rule.Decision != policy.DecisionRequireApproval) || !hasPlaceholderCapture(rule.Match) {
+		return rule.Decision, rule.Reason
+	}
+	if matchStructuralKeys(toolName, arguments, rule.Match, true) {
+		return rule.Decision, rule.Reason
+	}
+	return policy.DecisionAudit, rule.Reason + placeholderReasonSuffix
+}
+
+// matchStructuralKeys is matchStructural. With keyMaterialOnly set, a
+// pattern_any match of a field naming a placeholder_capture group counts only
+// when its body is key material; the exclusions read as without it.
+func matchStructuralKeys(toolName string, arguments map[string]interface{}, m MCPStructuralMatch, keyMaterialOnly bool) bool {
 	// exclude_when: conjunction carve-out checked first — if EVERY condition
 	// (tool name AND the path/arg predicates) holds, this rule never fires,
 	// regardless of the positive predicates below. Path-aware by construction:
@@ -324,8 +379,10 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 
 	// Exclusion predicates — if the field exists and matches, the rule does NOT fire.
 	// Non-existent fields are skipped (exclusion only applies when the field is present).
+	// An exclude keyed on `path` also reads the call's file_path (#4747); the
+	// positive args_match below does not.
 	for fieldName, fieldMatch := range m.ExcludeArgsMatch {
-		if matchArgField(arguments, fieldName, fieldMatch) {
+		if excludeArgFieldMatches(arguments, fieldName, fieldMatch) {
 			return false
 		}
 	}
@@ -333,7 +390,7 @@ func matchStructural(toolName string, arguments map[string]interface{}, m MCPStr
 	// Argument field matching — all specified fields must match
 	if len(m.ArgsMatch) > 0 {
 		for fieldName, fieldMatch := range m.ArgsMatch {
-			if !matchArgField(arguments, fieldName, fieldMatch) {
+			if !matchArgFieldKeys(arguments, fieldName, fieldMatch, keyMaterialOnly) {
 				return false
 			}
 		}
@@ -436,13 +493,114 @@ func globMatchRec(s, p string, si, pi int) bool {
 	return si == len(s)
 }
 
+// filePathArgName is normalizeFieldName's form of file_path, the argument
+// Claude Code's Write, Edit and MultiEdit name the file they write with
+// (#4747). The same folding resolveField applies makes filepath, filePath
+// and file-path this one name too.
+const filePathArgName = "filepath"
+
+// excludeArgFieldMatches reports whether one exclude_args_match field holds.
+//
+// For every field but `path` it is matchArgField, as before. An exclude keyed
+// on `path` names the file the call acts on, and the harnesses do not agree
+// on that argument's name: Claude Code's Write, Edit and MultiEdit send
+// file_path, while Copilot CLI (create, edit, view, and Read and Write in its
+// Claude-compatible format) and the reference MCP filesystem server send
+// path. So on Claude Code's hook such an exclude never saw the file and never
+// applied (#4747). It now also reads every top-level argument named
+// file_path (in any spelling that folds to it), and holds only when each of
+// them, and `path` when the call has one, is a location the exclude excuses.
+//
+// Each of them, not the first one present. An exclude lowers a decision, so
+// an argument the tool does not write to must not be able to satisfy it. A
+// call that carries both names cannot pass with whichever one is the decoy,
+// in either order: the target Claude Code writes (file_path) and the one
+// Copilot writes (path) must both be excused. That is stricter than main on
+// a call carrying both names, where main read path alone, and it is exactly
+// matchArgField on a call with no file_path, so a call without one decides
+// as main.
+//
+// A file_path is read as written, as path.Clean leaves it, and with its
+// backslashes turned to slashes and then cleaned, and must pass all three:
+// an unanchored `.*/docs/.*` exclude matches
+// `/etc/kubernetes/docs/../manifests/admin.yaml`, which names a file outside
+// docs, and path.Clean alone is POSIX-only while every exclude pattern also
+// treats `\` as a separator, so `\repo\docs\..\deploy\x.yaml` climbed out
+// the same way (#4927 pass 1). A file_path that is not a string never
+// passes. Every value main's resolution finds for file_path (nested in an
+// envelope, in a batch's items, the plural file_paths) must be excused too,
+// as for path, so a second, nested target cannot hide behind an excused
+// top-level one. The alias is only
+// file_path: `file` and `filename` (the other names #3225 copied its exclude
+// under) are not what any harness the repo documents writes through, and a
+// basename beside a directory argument would pass an extension exclude like
+// `.*\.md$` wherever the directory points.
+func excludeArgFieldMatches(arguments map[string]interface{}, fieldName string, fm ArgFieldMatch) bool {
+	if normalizeFieldName(fieldName) != "path" {
+		return matchArgField(arguments, fieldName, fm)
+	}
+	var filePaths []interface{}
+	for k, v := range arguments {
+		if normalizeFieldName(k) == filePathArgName {
+			filePaths = append(filePaths, v)
+		}
+	}
+	if len(filePaths) == 0 {
+		return matchArgField(arguments, fieldName, fm)
+	}
+	if _, hasPath := resolveFieldValues(arguments, fieldName); hasPath && !matchArgField(arguments, fieldName, fm) {
+		return false
+	}
+	for _, v := range filePaths {
+		s, ok := v.(string)
+		if !ok || !filePathExcused(s, fm) {
+			return false
+		}
+	}
+	nested, _ := resolveFieldValues(arguments, "file_path")
+	for _, s := range nested {
+		if !filePathExcused(s, fm) {
+			return false
+		}
+	}
+	return true
+}
+
+// filePathExcused reports whether fm excuses the file_path s on every
+// reading excludeArgFieldMatches requires.
+func filePathExcused(s string, fm ArgFieldMatch) bool {
+	for _, reading := range []string{s, path.Clean(s), path.Clean(strings.ReplaceAll(s, `\`, "/"))} {
+		if !matchResolvedArg(reading, []string{reading}, true, fm) {
+			return false
+		}
+	}
+	return true
+}
+
 // matchArgField checks if an argument field matches the given criteria.
 // Supports dot notation for nested fields (e.g., "config.path").
 func matchArgField(arguments map[string]interface{}, fieldName string, fm ArgFieldMatch) bool {
+	return matchArgFieldKeys(arguments, fieldName, fm, false)
+}
+
+// matchArgFieldKeys is matchArgField; keyMaterialOnly as in matchStructuralKeys.
+func matchArgFieldKeys(arguments map[string]interface{}, fieldName string, fm ArgFieldMatch, keyMaterialOnly bool) bool {
 	val, exists := resolveField(arguments, fieldName)
 	values, valuesExist := resolveFieldValues(arguments, fieldName)
-	exists = exists || valuesExist
+	return matchResolvedArgKeys(val, values, exists || valuesExist, fm, keyMaterialOnly)
+}
 
+// matchResolvedArg is matchArgField's predicate step on an argument already
+// resolved: val is the single value resolveField found (numeric predicates
+// read it), values every candidate string the pattern predicates read, and
+// exists whether either lookup found the field.
+func matchResolvedArg(val interface{}, values []string, exists bool, fm ArgFieldMatch) bool {
+	return matchResolvedArgKeys(val, values, exists, fm, false)
+}
+
+// matchResolvedArgKeys is matchResolvedArg; keyMaterialOnly as in
+// matchStructuralKeys.
+func matchResolvedArgKeys(val interface{}, values []string, exists bool, fm ArgFieldMatch, keyMaterialOnly bool) bool {
 	// Existence check
 	if fm.Exists != nil {
 		if *fm.Exists && !exists {
@@ -486,7 +644,7 @@ func matchArgField(arguments map[string]interface{}, fieldName string, fm ArgFie
 	// one argument (see resolveFieldValues) — the rule fires if ANY one of
 	// them, individually, satisfies every specified pattern predicate.
 	for _, valStr := range values {
-		if matchArgPatterns(valStr, fm) {
+		if matchArgPatternsKeys(valStr, fm, keyMaterialOnly) {
 			return true
 		}
 	}
@@ -498,14 +656,32 @@ func matchArgField(arguments map[string]interface{}, fieldName string, fm ArgFie
 // how an excused match is decided; with no PatternNotMatch, excused is empty
 // and every predicate below is main's.
 func matchArgPatterns(valStr string, fm ArgFieldMatch) bool {
+	return matchArgPatternsKeys(valStr, fm, false)
+}
+
+// matchArgPatternsKeys is matchArgPatterns. With keyMaterialOnly set and a
+// placeholder_capture group named, a pattern_any match counts only when its
+// body is key material (ArgFieldMatch.PlaceholderCapture, #4958).
+func matchArgPatternsKeys(valStr string, fm ArgFieldMatch, keyMaterialOnly bool) bool {
 	excused := excusedSpans(valStr, fm.PatternNotMatch)
+	keysOnly := keyMaterialOnly && fm.PlaceholderCapture != ""
 
 	// PatternAny: at least one pattern must match
 	if len(fm.PatternAny) > 0 {
 		anyMatch := false
 		for _, p := range fm.PatternAny {
 			re, err := regexp.Compile(p)
-			if err == nil && hasCountingMatch(re, valStr, excused) {
+			if err != nil {
+				continue
+			}
+			if keysOnly {
+				if hasKeyMaterialMatch(p, fm.PlaceholderCapture, valStr, excused) {
+					anyMatch = true
+					break
+				}
+				continue
+			}
+			if hasCountingMatch(re, valStr, excused) {
 				anyMatch = true
 				break
 			}
@@ -571,6 +747,41 @@ func hasCountingMatch(re *regexp.Regexp, valStr string, excused [][]int) bool {
 		}
 	}
 	return false
+}
+
+// hasKeyMaterialMatch reports whether pattern has a match in valStr that is
+// not excused (as hasCountingMatch) and whose `group` body is key material
+// (placeholder.Capture.Classify). A pattern that does not define the group
+// judges every counting match key material, as hasCountingMatch does.
+func hasKeyMaterialMatch(pattern, group, valStr string, excused [][]int) bool {
+	c := cachedCapture(pattern, group)
+	if c == nil {
+		re, err := cachedRegexp(pattern)
+		return err == nil && hasCountingMatch(re, valStr, excused)
+	}
+	var skip func(start, end int) bool
+	if len(excused) > 0 {
+		skip = func(start, end int) bool { return spanExcused(start, end, excused) }
+	}
+	_, key := c.Classify(valStr, skip)
+	return key
+}
+
+// captureCache holds one placeholder.Capture per (pattern, group): the group
+// minimum lengths are a parse of the pattern, done once.
+var captureCache sync.Map // map[string]*placeholder.Capture (nil entries included)
+
+func cachedCapture(pattern, group string) *placeholder.Capture {
+	key := pattern + "\x00" + group
+	if v, ok := captureCache.Load(key); ok {
+		return v.(*placeholder.Capture)
+	}
+	var c *placeholder.Capture
+	if re, err := cachedRegexp(pattern); err == nil {
+		c = placeholder.NewCapture(re, group)
+	}
+	actual, _ := captureCache.LoadOrStore(key, c)
+	return actual.(*placeholder.Capture)
 }
 
 // spanExcused reports whether some excused span [a, b) lies inside [start, end).

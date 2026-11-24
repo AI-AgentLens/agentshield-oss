@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -105,8 +106,16 @@ func TestAuditLogger_ConcurrentRotationLosesNoEntries(t *testing.T) {
 // os.Rename (which modifies a directory entry) to fail while leaving
 // os.OpenFile on the still-present, already-existing path unaffected (opening
 // an existing file needs permission on the file, not the directory).
+//
+// On Windows a directory's mode cannot do that (os.Chmod sets only the
+// read-only attribute, which a rename ignores), but a handle on the log
+// opened without FILE_SHARE_DELETE can: Go's os.OpenFile never passes it,
+// Windows refuses to rename a file such a handle holds, and opening it again
+// still works. That is how the rename still fails on a real Windows host
+// while the MCP proxy (its own os.OpenFile), a reader or another program
+// holds audit.jsonl. The logger's own handles allow it since #5038.
 func TestAuditLogger_RenameFailureReopensRatherThanPoisons(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if runtime.GOOS != "windows" && os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
 	dir := t.TempDir()
@@ -125,10 +134,7 @@ func TestAuditLogger_RenameFailureReopensRatherThanPoisons(t *testing.T) {
 	}
 	smallRotation(t, info.Size()) // the next Log() decides it needs to rotate
 
-	if err := os.Chmod(dir, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	unblock := blockRename(t, dir, logPath)
 
 	errDuring := lg.Log(AuditEvent{Timestamp: "t", Command: "echo during", Decision: "ALLOW", Mode: "enforce"})
 	if errDuring != nil {
@@ -138,9 +144,7 @@ func TestAuditLogger_RenameFailureReopensRatherThanPoisons(t *testing.T) {
 		t.Fatalf("rotation should not have happened (rename was blocked); found %s", logPath+rotatedSuffix)
 	}
 
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	unblock()
 	// The threshold is still the pre-rotation size, and "during" grew the
 	// file past it, so without raising it here the next Log() would
 	// legitimately rotate again (now that permissions allow it) — a real
@@ -171,5 +175,35 @@ func TestAuditLogger_RenameFailureReopensRatherThanPoisons(t *testing.T) {
 	}
 	if r := VerifyChain(logPath); r.State != ChainStateVerified {
 		t.Errorf("expected %q, got %q: %s", ChainStateVerified, r.State, r.Message)
+	}
+}
+
+// blockRename makes renaming logPath fail while opening it still works, and
+// returns the function that lifts the block: on unix a directory without
+// write permission, on Windows a second handle on the file opened without
+// FILE_SHARE_DELETE (see
+// TestAuditLogger_RenameFailureReopensRatherThanPoisons).
+func blockRename(t *testing.T, dir, logPath string) (unblock func()) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		h, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = h.Close() })
+		return func() {
+			if err := h.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	return func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

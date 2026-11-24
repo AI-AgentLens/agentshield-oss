@@ -66,7 +66,7 @@ func ppHome(t *testing.T, withPack, managed bool) string {
 }
 
 func ppPayload(tool string, input map[string]interface{}) string {
-	b, _ := json.Marshal(map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": tool, "session_id": "pp-4645", "cwd": "/tmp", "tool_input": input})
+	b, _ := json.Marshal(map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": tool, "session_id": "pp-4645", "cwd": "/tmp", "tool_input": withShellTextPaths(input)})
 	return string(b)
 }
 

@@ -1,6 +1,7 @@
 package guardian
 
 import (
+	"encoding/base64"
 	"testing"
 )
 
@@ -2811,6 +2812,45 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 			name: "go test -run with a long Go test function name",
 			cmd:  `go test -run TestControlEvidenceEventWithoutTaxonomyFallsBackToPublishedMapping ./internal/posture/`,
 		},
+		// Regression tests for #4707: the same CamelCase name with the issue
+		// number appended, the repo's naming convention for a regression test.
+		// Each run below is letters, then a 1..6 digit number at its very end,
+		// and each BLOCKed on main (entropy >= 4.5) except where noted.
+		{
+			name: "grep for a Go test name ending in an issue number (#4707 row 1)",
+			cmd:  `grep -n TestShippedTaxonomyFromValuesAreKnown4665 internal/policy/taxonomy_from_test.go`,
+		},
+		{
+			name: "go test -run with a Go test name ending in an issue number (#4707 row 2)",
+			cmd:  `go test ./internal/policy/ -run TestShippedTaxonomyFromValuesAreKnown4665`,
+		},
+		{
+			name: "go test -run with an anchored name ending in an issue number",
+			cmd:  `go test ./internal/policy/ -run '^TestShippedTaxonomyFromValuesAreKnown4665$'`,
+		},
+		{
+			name: "rg for the func line of a name ending in an issue number",
+			cmd:  `rg -n 'func TestShippedTaxonomyFromValuesAreKnown4665' internal/`,
+		},
+		{
+			name: "underscore name whose last segment ends in an issue number",
+			cmd:  `go test ./internal/policy/ -run TestPolicy_ShippedTaxonomyFromValuesAreKnownByEveryPackLoader4685`,
+		},
+		{
+			// Already quiet on main: the '_' ends the run before the number, so
+			// the run is letters only (#4472). Pinned so the #4707 skip cannot
+			// change it either way.
+			name: "underscore-suffixed issue number (_4685)",
+			cmd:  `go test ./internal/policy/ -run TestShippedTaxonomyFromValuesAreKnownByEveryPackLoader_4685`,
+		},
+		{
+			name: "six-digit trailing number, the longest the skip allows",
+			cmd:  `grep -n TestShippedTaxonomyFromValuesAreKnown466512 internal/policy/taxonomy_from_test.go`,
+		},
+		{
+			name: "one trailing digit (a version suffix)",
+			cmd:  `grep -rn UnmarshalShippedTaxonomyFromJSONValuesIntoPackRulesV2 internal/`,
+		},
 	}
 
 	for _, tt := range fps {
@@ -2823,6 +2863,128 @@ func TestHeuristicProvider_Base64FalsePositives(t *testing.T) {
 				t.Errorf("FP: obfuscated_base64 falsely triggered on file path command: %q", tt.cmd)
 			}
 		})
+	}
+}
+
+// TestHeuristicProvider_Base64TrailingNumberBoundary_4707 pins the edges of
+// the #4707 skip. The skip covers exactly one shape: letters, then 1..6 digits
+// that end the run. Every row here is one step outside that shape and must
+// still fire, as it does on main. Each run is 40+ characters with entropy
+// >= 4.5, so no earlier skip in isBase64Payload can quiet it.
+func TestHeuristicProvider_Base64TrailingNumberBoundary_4707(t *testing.T) {
+	p := NewHeuristicProvider()
+	payload := `aW1wb3J0IG9zOyBvcy5zeXN0ZW0oJ3JtIC1yZiAvdG1wL2RhdGEnKQ==`
+
+	tests := []struct {
+		name string
+		cmd  string
+	}{
+		{"seven trailing digits, one more than the skip allows",
+			`grep -n TestShippedTaxonomyFromValuesAreKnown1234567 internal/policy/taxonomy_from_test.go`},
+		{"a digit in the middle as well as a trailing number",
+			`grep -n TestShippedTaxonomyFrom4ValuesAreKnown665 internal/policy/taxonomy_from_test.go`},
+		{"two digit groups, the first in the middle",
+			`grep -n TestShippedTaxonomyFromValues12AreKnown4665 internal/policy/taxonomy_from_test.go`},
+		{"a digit near the start of a long run (the whole run is checked)",
+			`grep -n T3stShippedTaxonomyFromValuesAreKnownByEveryPackLoader4685 internal/policy/taxonomy_from_test.go`},
+		{"a leading number, then letters",
+			`grep -n 4665TestShippedTaxonomyFromValuesAreKnown internal/policy/taxonomy_from_test.go`},
+		// The three rows below keep the trailing number, so only the letters
+		// loop can reject them: its first character, and its last one.
+		{"one leading digit plus the trailing number",
+			`grep -n 4TestShippedTaxonomyFromValuesAreKnown4665 internal/policy/taxonomy_from_test.go`},
+		{"a leading '+' plus the trailing number",
+			`grep -n "+TestShippedTaxonomyFromValuesAreKnown4665" internal/policy/taxonomy_from_test.go`},
+		{"a '+' directly before the trailing digits",
+			`grep -n "TestShippedTaxonomyFromValuesAreKnown+4665" internal/policy/taxonomy_from_test.go`},
+		{"a digit in the middle is the only non-letter",
+			`grep -n TestShippedTaxonomyFrom4ValuesAreKnownByEveryPackLoader internal/policy/taxonomy_from_test.go`},
+		{"a '+' with a trailing number",
+			`grep -n "TestShippedTaxonomyFromValues+AreKnown4665" internal/policy/taxonomy_from_test.go`},
+		{"a '/' with a trailing number (quoted, so not a path argument)",
+			`grep -n "TestShippedTaxonomyFromValues/AreKnown4665" internal/policy/taxonomy_from_test.go`},
+		{"'=' padding after a trailing number",
+			`grep -n "TestShippedTaxonomyFromValuesAreKnown4665=" internal/policy/taxonomy_from_test.go`},
+		{"'==' padding after a trailing number",
+			`grep -n "TestShippedTaxonomyFromValuesAreKnown4665==" internal/policy/taxonomy_from_test.go`},
+		// The skip is per run: an identifier earlier in the command must not
+		// excuse a real payload later in it (a `continue`, not a `return false`).
+		{"an identifier run before a real payload",
+			`grep -n TestShippedTaxonomyFromValuesAreKnown4665 f.go; echo "` + payload + `" > /tmp/x`},
+		{"a real payload before an identifier run",
+			`echo "` + payload + `" > /tmp/x; grep -n TestShippedTaxonomyFromValuesAreKnown4665 f.go`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := p.Analyze(GuardianRequest{RawCommand: tt.cmd})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !hasSignal(resp.Signals, "obfuscated_base64") {
+				t.Errorf("obfuscated_base64 must still fire one step outside the #4707 skip: %q, got %v", tt.cmd, signalIDs(resp.Signals))
+			}
+		})
+	}
+}
+
+// TestIsBase64Payload_TrailingNumberResidual_4707 pins the accepted gap the
+// #4707 skip opens: a real, unpadded encoding can land in the skipped shape.
+// The plaintext below is ordinary shell text, and its standard encoding is
+// letters followed by "95". The skip does not flag it, as #4472's letters-only
+// skip does not flag a letters-only encoding. Measured over 6.4M encodings
+// (#4707): at most ~1 in 950 at 40 chars, ~1 in 5,500 at 60, 1 in 100,000 at
+// 100, and never when the encoding ends in '=' padding. Closing the gap later
+// has to be deliberate: change this test.
+func TestIsBase64Payload_TrailingNumberResidual_4707(t *testing.T) {
+	plain := " script:build\nbash scripts/deploy"
+	enc := base64.StdEncoding.EncodeToString([]byte(plain))
+	if !isLettersThenShortNumber(enc) {
+		t.Fatalf("precondition: %q should encode to letters plus a short number, got %q", plain, enc)
+	}
+	if isBase64Payload(`echo "` + enc + `" > /tmp/x`) {
+		t.Errorf("accepted residual changed: the real encoding %q is flagged again; update the #4707 gap note", enc)
+	}
+	// Control: one more byte gives a padded encoding, outside the shape, and
+	// it fires.
+	padded := base64.StdEncoding.EncodeToString([]byte(plain + "\n"))
+	if !isBase64Payload(`echo "` + padded + `" > /tmp/x`) {
+		t.Errorf("control: the padded encoding %q must still fire", padded)
+	}
+}
+
+// TestIsLettersThenShortNumber_4707 pins the #4707 shape predicate directly,
+// including the inputs isBase64Payload never hands it today (short strings,
+// no letters), so a later caller cannot widen it by accident.
+func TestIsLettersThenShortNumber_4707(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"TestShippedTaxonomyFromValuesAreKnown4665", true},
+		{"TestShippedTaxonomyFromValuesAreKnown1", true},
+		{"TestShippedTaxonomyFromValuesAreKnown123456", true},
+		{"TestShippedTaxonomyFromValuesAreKnown1234567", false}, // 7 digits
+		{"TestShippedTaxonomyFromValuesAreKnown", false},        // no number: #4472's skip, not this one
+		{"TestShipped4TaxonomyFromValuesAreKnown4665", false},   // digit in the middle
+		{"4665TestShippedTaxonomyFromValuesAreKnown", false},    // leading number
+		{"4TestShippedTaxonomyFromValuesAreKnown4665", false},   // leading digit, trailing number
+		{"+TestShippedTaxonomyFromValuesAreKnown4665", false},   // leading '+', trailing number
+		{"TestShippedTaxonomyFromValuesAreKnown+4665", false},   // '+' right before the number
+		{"4665", false}, // no letters
+		{"", false},
+		{"TestShippedTaxonomy+FromValuesAreKnown4665", false},
+		{"TestShippedTaxonomy/FromValuesAreKnown4665", false},
+		{"TestShippedTaxonomyFromValuesAreKnown4665=", false},
+		{"TestShippedTaxonomyFromValuesAreKnown4665==", false},
+		{"TestShipped_TaxonomyFromValuesAreKnown4665", false}, // '_' is not a letter
+		{"TestShippedTaxonomyFromValuesAreKnown٤٦٦٥", false},  // non-ASCII digits
+		{"TestShippédTaxonomyFromValuesAreKnown4665", false},  // non-ASCII letter
+	}
+	for _, tt := range tests {
+		if got := isLettersThenShortNumber(tt.in); got != tt.want {
+			t.Errorf("isLettersThenShortNumber(%q) = %v, want %v", tt.in, got, tt.want)
+		}
 	}
 }
 

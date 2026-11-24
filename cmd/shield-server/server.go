@@ -56,10 +56,12 @@ type Server struct {
 	degraded    bool
 	failedPacks []string
 	warnings    []string
-	// shellProtected is the merged shell policy's protected_paths, which
-	// loadShellEngine records for loadMCPEvaluator: the customer's patterns
-	// among them apply to tool-call file-path arguments (#4645).
-	shellProtected []string
+	// shellPolicy is what the merged shell policy says about tool calls,
+	// which loadShellEngine records for loadMCPEvaluator: the customer's
+	// protected_paths among its patterns apply to tool-call file-path
+	// arguments (#4645), and its disable_rules switch tool-call rules off
+	// (#5001), exactly the list the shell engine applies.
+	shellPolicy policy.ToolCallInputs
 	// maxParseDepth is the analyzer's max_parse_depth, which also bounds the
 	// PowerShell lane's nested interpreters (ADR-001 D6).
 	maxParseDepth int
@@ -144,7 +146,11 @@ func (s *Server) loadShellEngine(cfg *config.Config, policyOverride string) erro
 		return fmt.Errorf("create policy engine: %w", err)
 	}
 	s.engine = engine
-	s.shellProtected = append([]string(nil), pol.Defaults.ProtectedPaths...)
+	// The list the shell engine above applies, so the tool-call evaluator
+	// applies the same one. Like loadCheckPolicy, this load has no
+	// managed-host check, so a managed host's local list counts here on both
+	// sides (#5001: mirrored, not fixed; the hook ignores it).
+	s.shellPolicy = pol.ForToolCalls()
 	s.maxParseDepth = cfg.Analyzer.MaxParseDepth
 	return nil
 }
@@ -203,9 +209,9 @@ func (s *Server) loadMCPEvaluator(cfg *config.Config, policyOverride string) {
 	//
 	// The shell policy loadShellEngine loaded supplies the customer's
 	// protected_paths, so /v1/evaluate blocks a tool call naming one exactly
-	// as the hook's tool path does (#4645). NewServer runs loadShellEngine
-	// first.
-	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, s.shellProtected, "")
+	// as the hook's tool path does (#4645), and its disable_rules (#5001).
+	// NewServer runs loadShellEngine first.
+	s.mcpEval = assembly.MCPEvaluator(mcpPolicy, s.shellPolicy, "")
 }
 
 // Close releases the audit logger. Safe on a nil logger.
@@ -433,11 +439,17 @@ func (s *Server) readMCP(req evaluateRequest) mcp.MCPEvalResult {
 	// call_history.go); keying by the caller-supplied session_id here is
 	// strictly better. No session_id → no history, honestly, rather than a
 	// synthesized one correlating unrelated calls.
+	//
+	// The call is recorded first and evaluated with a history that ends in
+	// it, as the MCP proxy does (internal/mcp/handler.go): the matcher reads
+	// the last element as the triggering call. Evaluating with the earlier
+	// calls only decided every sequence rule one call late, on the next,
+	// unrelated call (#5011). RecordAndHistory records and copies under one
+	// lock, so a concurrent request on the same session cannot become this
+	// call's last element.
 	var history []mcp.RecordedCall
-	var tracker *mcp.MCPCallHistoryTracker
 	if req.SessionID != "" {
-		tracker = s.sessions.get(req.SessionID)
-		history = tracker.History()
+		history = s.sessions.get(req.SessionID).RecordAndHistory(req.ToolName, args)
 	}
 
 	// #4653: the protected-path check resolves file-path arguments against
@@ -449,9 +461,16 @@ func (s *Server) readMCP(req evaluateRequest) mcp.MCPEvalResult {
 	// #4351, in lock-step with the hook: Claude Code names an MCP server's
 	// tool mcp__<server>__<tool>, and pack rules are authored against the bare
 	// <tool>. The enterprise gateway sends the wire name here, so evaluate the
-	// bare name too and keep it only when it blocks or would block. History
-	// stays keyed by the wire name, so a sequence rule written against bare
-	// names does not see earlier namespaced calls.
+	// bare name too and keep it only when it blocks or would block.
+	//
+	// Both readings get the same history: the calls as recorded, under the
+	// wire name, ending in this one. A sequence rule's steps read the session
+	// as written, as on the proxies (which have no bare reading), so one
+	// written against bare names does not match namespaced calls, this one
+	// included. A bare-named last entry alone would be worse: a
+	// negative-lookback rule (action_step) would see the bare action but not
+	// the namespaced precheck right before it, and record the precheck as
+	// missing (#5011).
 	if bare, ok := mcp.BareToolName(req.ToolName); ok {
 		result = mcp.PreferBlockingBareResult(result,
 			ev.EvaluateToolCallWithHistory(bare, args, req.ToolDescription, history))
@@ -468,15 +487,7 @@ func (s *Server) readMCP(req evaluateRequest) mcp.MCPEvalResult {
 	// original decision whichever source decided it (#4356), except a
 	// self-protection BLOCK, which blocks in either mode, as on the proxies
 	// (#4337 review B1).
-	result = s.mcpEval.ApplyModeKeepingSelfProtection(result, s.mode, req.ToolName, args)
-
-	if tracker != nil {
-		// Record after evaluation so history holds prior calls only — a rule
-		// matching "call X after call Y" must not see the current call as
-		// its own predecessor.
-		tracker.Record(req.ToolName, args)
-	}
-	return result
+	return s.mcpEval.ApplyModeKeepingSelfProtection(result, s.mode, req.ToolName, args)
 }
 
 func mcpResponse(result mcp.MCPEvalResult) evaluateResponse {

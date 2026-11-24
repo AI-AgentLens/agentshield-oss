@@ -4,8 +4,30 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
+
+// withoutKeptLead is a shell verdict's rules and reasons without the keep's
+// lead (#5089): a BLOCK audit-only mode keeps for a reason its rules do not
+// state leads with policy.SelfProtectRuleID and that reason. enf is enforce
+// mode's verdict for the same call; a record that leads with the id there too
+// (the managed middleware's) has no lead to drop. It fails t when a lead is
+// not the keep's.
+func withoutKeptLead(t *testing.T, aud, enf evaluateResponse) evaluateResponse {
+	t.Helper()
+	if len(aud.Rules) == 0 || aud.Rules[0] != policy.SelfProtectRuleID || len(enf.Rules) > 0 && enf.Rules[0] == policy.SelfProtectRuleID {
+		return aud
+	}
+	if len(aud.Reasons) == 0 || !strings.HasPrefix(aud.Reasons[0], policy.SelfProtectKeptReasonPrefix) {
+		t.Errorf("audit-only leads with %s but reasons %q do not lead with the keep's reason", policy.SelfProtectRuleID, aud.Reasons)
+		return aud
+	}
+	aud.Rules, aud.Reasons = aud.Rules[1:], aud.Reasons[1:]
+	return aud
+}
 
 // Audit-only mode records BLOCKs instead of enforcing them, except
 // self-protection, which blocks in either mode. The MCP proxies have kept that
@@ -127,7 +149,11 @@ func TestEvaluateAuditOnlyKeepsSelfProtectionBlock(t *testing.T) {
 				want.Decision, want.OriginalDecision = "AUDIT", "BLOCK"
 			}
 			// Everything else is enforce mode's record: rules, reasons and
-			// taxonomy. A kept BLOCK is enforce mode's verdict exactly.
+			// taxonomy. A kept BLOCK is enforce mode's verdict, led by the
+			// keep's reason when its rules do not say why it stands (#5089).
+			if tc.kept {
+				aud = withoutKeptLead(t, aud, enf)
+			}
 			aud.Remediation, want.Remediation = "", ""
 			aud.Explanation, want.Explanation = "", ""
 			if !reflect.DeepEqual(aud, want) {
@@ -178,7 +204,7 @@ func TestEvaluateAuditOnlyResidual_ReadOnlyTargetMentionKept_4396(t *testing.T) 
 				t.Fatalf("enforce: %q (rules %v), want BLOCK", enf.Decision, enf.Rules)
 			}
 			_, aud := postEval(t, auditOnly, tc.req)
-			if aud.Decision != "BLOCK" || aud.OriginalDecision != "" || !reflect.DeepEqual(aud.Rules, enf.Rules) {
+			if aud = withoutKeptLead(t, aud, enf); aud.Decision != "BLOCK" || aud.OriginalDecision != "" || !reflect.DeepEqual(aud.Rules, enf.Rules) {
 				t.Errorf("audit-only: %q (original %q, rules %v); the accepted residual is BLOCK with enforce mode's rules %v", aud.Decision, aud.OriginalDecision, aud.Rules, enf.Rules)
 			}
 		})

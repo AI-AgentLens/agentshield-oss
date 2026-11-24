@@ -1,0 +1,11 @@
+# Check text files out with LF on every OS (#5021). Tests compare testdata,
+# generated tables and pack files byte for byte. On Windows, git's usual
+# core.autocrlf=true checked them out with CRLF: on the first aial-04 run that
+# failed psreader's generated-table check ("aliases_table.go is out of date with
+# testdata\aliases") and the pack-content counts in mcp and policy. macOS and
+# Linux clones are unchanged, because the files are LF already.
+* text=auto eol=lf
+
+# Captured from Windows PowerShell 5.1 with CRLF line endings, and compared
+# byte for byte. Keep them exactly as committed.
+internal/psreader/testdata/truth51/*.jsonl -text

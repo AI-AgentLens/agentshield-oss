@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4689: a customer protected path covering a file BLOCKed `wc <file>` but not
@@ -13,7 +15,7 @@ import (
 // had no grep spec at all. A customer pattern has no regex backstop, so path
 // extraction is the only layer. Helpers are #4673's (relReadEngine etc.).
 func TestProtectedPath_MFlagReaderFileOperand_4689(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -32,18 +34,18 @@ func TestProtectedPath_MFlagReaderFileOperand_4689(t *testing.T) {
 	engine := relReadEngine(t, acme+"/**")
 
 	// Control, BLOCK on main.
-	if r := relReadEval(engine, "wc "+f, root); r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) {
+	if r := relReadEval(engine, "wc "+shellPath(f), root); r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) {
 		t.Fatalf("control wc <file>: %v %v; want BLOCK protected-path", r.Decision, r.TriggeredRules)
 	}
 
 	for _, cmd := range []string{
-		"wc -m " + f,
-		"wc -lm " + f,
-		"sort -m " + f + " " + g,
-		"less -m " + f,
-		"pr -m " + f + " " + g,
-		"/usr/bin/grep -m 1 KEY " + f,
-		"/usr/bin/grep -e KEY " + f,
+		"wc -m " + shellPath(f),
+		"wc -lm " + shellPath(f),
+		"sort -m " + shellPath(f) + " " + shellPath(g),
+		"less -m " + shellPath(f),
+		"pr -m " + shellPath(f) + " " + shellPath(g),
+		"/usr/bin/grep -m 1 KEY " + shellPath(f),
+		"/usr/bin/grep -e KEY " + shellPath(f),
 	} {
 		r := relReadEval(engine, cmd, root)
 		if r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) || !relReadHasRef(r, ProtectedPathNode) {
@@ -53,9 +55,9 @@ func TestProtectedPath_MFlagReaderFileOperand_4689(t *testing.T) {
 
 	// A commit message is text, not a file, and README.md is not protected.
 	for _, cmd := range []string{
-		`git commit -m "` + f + `"`,
+		`git commit -m "` + shellPath(f) + `"`,
 		"wc -m README.md",
-		"/usr/bin/grep -m 1 " + f + " README.md",
+		"/usr/bin/grep -m 1 " + shellPath(f) + " README.md",
 	} {
 		if r := relReadEval(engine, cmd, root); relReadHasRule(r, ProtectedPathRuleID) {
 			t.Errorf("%q: %v %v; the protected path is not a file this command reads", cmd, r.Decision, r.TriggeredRules)

@@ -107,6 +107,18 @@ var deletesNoAgentshieldPath = map[string]string{
 	// zsh stops at "bad pattern: /tmp/[". Neither deletes the log. Checked
 	// with echo in place of rm in bash 3.2.57 and zsh 5.9.
 	"r" + "m -f /tmp/[;]x ~/.agent" + "shield/audit.jsonl": "the ; ends the rm statement before the log path",
+	// #4259 keeps this BLOCK on purpose: its exclude admits one read after
+	// the rm, and this has two. The rm removes out.txt; wc only reads the log.
+	"r" + "m -f out.txt; cat x > y; wc -l < ~/.agent" + "shield/audit.jsonl": "the rm removes out.txt; the log is only read",
+	// #4674 and #4759 keep these BLOCK on purpose: each fails the exclude's
+	// read-only shape. xargs deletes the names the read prints, not the log.
+	`grep "r` + `m -rf" ~/.agent` + `shield/audit.jsonl | xargs r` + `m`: "xargs rm deletes the lines grep prints; the log is only read",
+	`r` + `m -rf /tmp/scratch/x; jq -r '.decision' ~/.agent` + `shield/audit.jsonl | xargs r` + `m`: "the rm removes /tmp/scratch/x; xargs rm deletes the values jq prints",
+	// sort -o rewrites the log: an overwrite, not a delete, so this receipt
+	// names no node. Same on main; the overwrite rules attribute it unmanaged.
+	`r` + `m -rf /tmp/scratch/x; jq -r '.decision' ~/.agent` + `shield/audit.jsonl | sort -o ~/.agent` + `shield/audit.jsonl`: "the rm removes /tmp/scratch/x; sort -o overwrites the log rather than deleting it",
+	// $H is unresolved, so no AgentShield path is known to be removed.
+	`r` + `m -rf $H; jq -r '.d' $H/.agent` + `shield/audit.jsonl | sort | uniq -c`: "rm -rf $H names no AgentShield path statically",
 }
 
 // The exception list cannot go stale: each entry is still an inline TP of

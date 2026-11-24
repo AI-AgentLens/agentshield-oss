@@ -2075,6 +2075,72 @@ var GitCredentialTheftCases = []TestCase{
 // Taxonomy: credential-exposure/cloud-imds/aws-imds-token-theft
 var IMDSTheftCases = []TestCase{
 
+	// --- #4894: Alibaba/Tencent metadata addresses from the shell ---
+	{
+		ID:               "TP-IMDS-ALIBABA-4894-001",
+		Command:          `curl -s http://169.254.0.23/latest/meta-data/cam/security-credentials/`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/alibaba-imds-credential-theft",
+		Analyzer:         "regex",
+		Description:      `Tencent Cloud CVM metadata literal IP (GHSA-5fj9-5pjw-vpwc); returns CAM role credentials.`,
+		Tags:             []string{"tp", "critical", "cloud"},
+	},
+	{
+		ID:               "TN-IMDS-ALIBABA-4894-001",
+		Command:          `curl -s http://100.100.100.100/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/alibaba-imds-credential-theft",
+		Analyzer:         "regex",
+		Description:      `One octet off the Alibaba metadata address; generic curl AUDIT only.`,
+		Tags:             []string{"tn", "cloud"},
+	},
+
+	// --- #4909: Scaleway and Oracle Cloud Classic metadata addresses ---
+	{
+		ID:               "TP-IMDS-OTHER-4909-001",
+		Command:          `curl -s http://169.254.42.42/conf?format=json`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/cloud-imds/other-cloud-imds-credential-theft",
+		Analyzer:         "regex",
+		Description:      `Scaleway instance metadata address (GHSA-5fj9-5pjw-vpwc).`,
+		Tags:             []string{"tp", "critical", "cloud"},
+	},
+	{
+		ID:               "TN-IMDS-OTHER-4909-001",
+		Command:          `curl -s http://169.254.42.420/`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/cloud-imds/other-cloud-imds-credential-theft",
+		Analyzer:         "regex",
+		Description:      `One digit past the Scaleway metadata address; generic curl AUDIT only.`,
+		Tags:             []string{"tn", "cloud"},
+	},
+
+	// --- #4898: removing MFA from an AWS IAM user ---
+	{
+		ID:               "TP-MFA-DEVICE-REMOVAL-4898-001",
+		Command:          `aws iam deactivate-mfa-device --user-name alice --serial-number arn:aws:iam::123456789012:mfa/alice`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/mfa-bypass/cloud-iam-mfa-device-removal",
+		Analyzer:         "regex",
+		Description:      `Deactivating an IAM user's MFA device (T1556.006); AUDIT because admins rotate devices.`,
+		Tags:             []string{"tp", "cloud"},
+	},
+	{
+		ID:               "TN-MFA-DEVICE-REMOVAL-4898-001",
+		Command:          `aws iam list-mfa-devices --user-name alice`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/mfa-bypass/cloud-iam-mfa-device-removal",
+		Analyzer:         "regex",
+		Description:      `Listing MFA devices is read-only; generic AWS CLI AUDIT only, not the removal rule.`,
+		Tags:             []string{"tn", "cloud"},
+	},
+
 	// --- TRUE POSITIVES: Commands that MUST be blocked ---
 
 	{
@@ -3322,6 +3388,74 @@ var ShadowReadCases = []TestCase{
 		Description: `Twin of TP-SHADOW-SUBSTR-ASSEMBLY-002 using HOME instead of PATH — the other
 			half of the two-name wellKnownAbsolutePathVars set #3378 introduced.`,
 		Tags: []string{"tp", "substr-evasion", "issue-3378"},
+	},
+
+	// --- HERE-STRING / HEREDOC PLUS AN INPUT REDIRECT (issue #4965) ---
+	//
+	// A dummy here-string or heredoc on a cat/tee statement used to earn the
+	// in_heredoc label even when an input redirect on the same statement
+	// points stdin at the file. bash keeps the last input redirect on fd 0;
+	// zsh (MULTIOS, on by default) reads every one in turn — so the file is
+	// read in both shells, and in zsh in either order. Each TP below decided
+	// AUDIT on main (sec-block-etc-shadow fired, then lowered).
+	{
+		ID:               "TP-SHADOW-HERESTRING-STDIN-001",
+		Command:          `tee /tmp/out <<< x < /etc/shadow`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#4965: the here-string is replaced by the later < /etc/shadow in bash and read
+			before it in zsh; tee copies the shadow file to /tmp/out either way. Twin of the plain
+			tee /tmp/out < /etc/shadow, which BLOCKs.`,
+		Tags: []string{"tp", "critical", "heredoc", "downgrade-guard", "issue-4965"},
+	},
+	{
+		ID:               "TP-SHADOW-HERESTRING-STDIN-002",
+		Command:          `cat <<< x < /etc/shadow > /tmp/out`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#4965: cat with no operand reads stdin, and stdin is /etc/shadow (bash) or the
+			here-string followed by /etc/shadow (zsh). The output redirect is a write target, not an
+			input.`,
+		Tags: []string{"tp", "critical", "heredoc", "downgrade-guard", "issue-4965"},
+	},
+	{
+		ID:               "TP-SHADOW-HERESTRING-STDIN-003",
+		Command:          `tee /tmp/out < /etc/shadow <<< x`,
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#4965, the other order: bash keeps the here-string, but zsh with its default
+			MULTIOS reads /etc/shadow and then x — measured: zsh 5.9 copies both. zsh is the macOS
+			default shell, so the order of the two redirects does not make this text.`,
+		Tags: []string{"tp", "critical", "heredoc", "zsh", "downgrade-guard", "issue-4965"},
+	},
+	{
+		ID:               "TP-SHADOW-HEREDOC-STDIN-001",
+		Command:          "tee /tmp/out <<'EOF' < /etc/shadow\nx\nEOF",
+		ExpectedDecision: "BLOCK",
+		Classification:   "TP",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#4965 with a quoted heredoc instead of a here-string: the dummy body x is
+			replaced (bash) or followed (zsh) by /etc/shadow on tee's stdin.`,
+		Tags: []string{"tp", "critical", "heredoc", "downgrade-guard", "issue-4965"},
+	},
+	{
+		ID:               "TN-SHADOW-HERESTRING-TEXT-001",
+		Command:          `cat <<< 'read it with: cat < /etc/shadow' > /tmp/note.txt`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "credential-exposure/password-db-access/system-shadow-read",
+		Analyzer:         "regex",
+		Description: `#4965 control: the < /etc/shadow is inside the quoted here-string, so it is
+			text written to a note, not a redirect. The only input is the body; in_heredoc still
+			downgrades the BLOCK to AUDIT (attested, not suppressed).`,
+		Tags: []string{"tn", "heredoc", "issue-4965"},
 	},
 }
 

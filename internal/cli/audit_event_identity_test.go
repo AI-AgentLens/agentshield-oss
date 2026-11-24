@@ -10,6 +10,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Issue #3111 — these tests sit one layer BELOW the wire-format tests in
@@ -27,7 +28,7 @@ const testTaxonomyRef = "unauthorized-execution/agentic-attacks/test-only-node"
 func writeTestPolicy(t *testing.T) string {
 	t.Helper()
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, ".agentshield")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -135,7 +136,7 @@ func TestEvaluateCommand_AuditEventCarriesTaxonomyAndIdentity(t *testing.T) {
 // site from the shell path, and the one an incomplete fix would miss.
 func TestAuditMCPCall_EventCarriesTaxonomyAndIdentity(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".agentshield"), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

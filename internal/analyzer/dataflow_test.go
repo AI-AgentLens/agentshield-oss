@@ -97,6 +97,52 @@ func TestDataflow_WriteToEtcCrontab(t *testing.T) {
 	assertHasFinding(t, findings, "df-block-write-cron-spool", "BLOCK")
 }
 
+// #4966: tee writes its input to every file operand, so it is the same write
+// as the redirect, whatever feeds it: a pipe, a here-string, a heredoc or a file.
+func TestDataflow_TeeWritesToCronSpool(t *testing.T) {
+	structural := analyzer.NewStructuralAnalyzer(2)
+	df := analyzer.NewDataflowAnalyzer()
+
+	cases := []string{
+		`echo "* * * * * root /tmp/job.sh" | sudo tee /etc/cron.d/sync`,
+		`echo "* * * * * root /tmp/job.sh" | sudo tee -a /etc/crontab`,
+		`sudo tee -a /etc/crontab <<< '* * * * * root /tmp/job.sh'`,
+		"sudo tee /etc/cron.d/sync <<'EOF'\n* * * * * root /tmp/job.sh\nEOF",
+		`tee /tmp/copy /var/spool/cron/crontabs/root < /tmp/job`,
+		`echo x | /usr/bin/tee "/etc/cron.daily/sync" > /dev/null`,
+		`echo x | sudo -n tee -a /etc/cron.hourly/sync`,
+	}
+	for _, cmd := range cases {
+		ctx := &analyzer.AnalysisContext{RawCommand: cmd}
+		structural.Analyze(ctx)
+		assertHasFinding(t, df.Analyze(ctx), "df-block-write-cron-spool", "BLOCK")
+	}
+}
+
+// A cron path that is not one of tee's file operands is not a write to it.
+func TestDataflow_TeeElsewhereIsNotCronSpool(t *testing.T) {
+	structural := analyzer.NewStructuralAnalyzer(2)
+	df := analyzer.NewDataflowAnalyzer()
+
+	cases := []string{
+		`tee /tmp/notes.txt <<< "jobs live in /etc/cron.d/sync"`,     // the path is text in the here-string
+		"tee /tmp/notes.txt <<'EOF'\nsee /etc/cron.d/sync\nEOF",      // and in a heredoc body
+		`cat /etc/cron.d/sync | tee /tmp/copy`,                       // a read of the cron file
+		`echo x | tee /tmp/cron-notes/list.txt`,                      // "cron" in a scratch path (#3523)
+		`grep -r tee /etc/cron.d/`,                                   // tee is an argument, not the program
+		`echo "to install it, run: sudo tee /etc/cron.d/sync" | cat`, // prose
+	}
+	for _, cmd := range cases {
+		ctx := &analyzer.AnalysisContext{RawCommand: cmd}
+		structural.Analyze(ctx)
+		for _, f := range df.Analyze(ctx) {
+			if f.RuleID == "df-block-write-cron-spool" {
+				t.Errorf("command %q: expected no cron-spool finding, got one", cmd)
+			}
+		}
+	}
+}
+
 // #3523: a scratch path that merely contains the substring "cron" is not a
 // cron spool file and must not be blocked as persistence.
 func TestDataflow_WriteToPathContainingCronSubstringIsNotSpool(t *testing.T) {

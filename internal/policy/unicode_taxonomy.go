@@ -13,11 +13,12 @@ package policy
 // categories (bidi-override, homoglyph-*, tag-char, control-char, ...) wait on
 // their own taxonomy decision, and an absent ref is better than a guessed one.
 //
-// Each node is written as a TaxonomyRef field set to a string literal, on
-// purpose: scripts/check-taxonomy-refs.sh (CI's taxonomy-refs job) resolves
-// exactly that spelling against Comply's taxonomy tree, so a renamed or
-// retired node turns CI red instead of shipping a dangling ref. A map of bare
-// strings would be invisible to it.
+// Each node is written as a TaxonomyRef field set to a string literal:
+// scripts/check-taxonomy-refs.sh (CI's taxonomy-refs job) resolves it against
+// Comply's taxonomy tree, so a renamed or retired node turns CI red instead of
+// shipping a dangling ref. Since #4602 the gate also reads any other
+// taxonomy-shaped literal in non-test Go (a map of bare strings included); the
+// TaxonomyRef spelling stays the convention because it says what the string is.
 //
 // Evidence only: this table never changes a decision, a rule id or a reason.
 var unicodeTaxonomy = []struct {

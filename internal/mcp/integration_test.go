@@ -25,6 +25,11 @@ func buildEchoServer(t *testing.T) string {
 
 	tmpDir := t.TempDir()
 	binary := filepath.Join(tmpDir, "echo_server")
+	if runtime.GOOS == "windows" {
+		// exec finds a file without an extension only through PATHEXT, so a
+		// bare name is "not found" on Windows (#5021).
+		binary += ".exe"
+	}
 
 	cmd := exec.Command("go", "build", "-o", binary, serverSrc)
 	cmd.Stderr = os.Stderr

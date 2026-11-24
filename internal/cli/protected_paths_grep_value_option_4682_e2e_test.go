@@ -17,7 +17,7 @@ import (
 func TestHook_CustomerProtectedPath_GrepValueOption_4682(t *testing.T) {
 	// A short directory under /tmp: a long random temp segment in the command
 	// text reads as a high-entropy secret to guardian (see #4676's test).
-	dir, err := os.MkdirTemp("/tmp", "pp4682-")
+	dir, err := os.MkdirTemp(shortTempRoot(t), "pp4682-")
 	if err != nil {
 		t.Fatal(err)
 	}

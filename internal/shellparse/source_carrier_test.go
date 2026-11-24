@@ -57,6 +57,58 @@ func TestShellSourceArg(t *testing.T) {
 	}
 }
 
+// TestShellSourceArgValue pins the values form the substitution layer reads
+// through (#4903): argv words that are already runtime values in, the source
+// as a value out. Each row also gives the raw spelling of the same argv, and
+// the two readings must agree once the raw one is dequoted the way
+// ExtractInlineCode dequotes it: one table, two quote conventions.
+func TestShellSourceArgValue(t *testing.T) {
+	cases := []struct {
+		name   string
+		values []string
+		raw    []string
+		want   string
+	}{
+		{"man -P", []string{"man", "-P", "cat x", "ls"}, []string{"man", "-P", "'cat x'", "ls"}, "cat x"},
+		{"man --pager=", []string{"man", "--pager=cat x", "ls"}, []string{"man", "--pager='cat x'", "ls"}, "cat x"},
+		{"env -S", []string{"env", "-S", "cat x"}, []string{"env", "-S", "'cat x'"}, "cat x"},
+		{"flock -c", []string{"flock", "/tmp/l", "-c", "cat x"}, []string{"flock", "/tmp/l", "-c", "'cat x'"}, "cat x"},
+		{"watch quoted operand", []string{"watch", "-n", "1", "cat x"}, []string{"watch", "-n", "1", "'cat x'"}, "cat x"},
+		{"osascript", []string{"osascript", "-e", `do shell script "cat x"`}, []string{"osascript", "-e", `'do shell script "cat x"'`}, "cat x"},
+		{"osascript, call in a later -e", []string{"osascript", "-e", "set x to 1", "-e", `do shell script "cat x"`},
+			[]string{"osascript", "-e", "'set x to 1'", "-e", `'do shell script "cat x"'`}, "cat x"},
+		// A single quote in the command is a value here, not shell quoting to
+		// undo: the raw reading has to escape it into its synthesized word.
+		{"osascript, quote in the command", []string{"osascript", "-e", `do shell script "cat 'a b'"`},
+			[]string{"osascript", "-e", `"do shell script \"cat 'a b'\""`}, "cat 'a b'"},
+		{"osascript -l JavaScript", []string{"osascript", "-l", "JavaScript", "-e", `do shell script "cat x"`},
+			[]string{"osascript", "-l", "JavaScript", "-e", `'do shell script "cat x"'`}, ""},
+		{"osascript string, not a call", []string{"osascript", "-e", `display dialog "do shell script"`},
+			[]string{"osascript", "-e", `'display dialog "do shell script"'`}, ""},
+		{"man -M is data", []string{"man", "-M", "cat x", "ls"}, []string{"man", "-M", "'cat x'", "ls"}, ""},
+		{"grep is not a carrier", []string{"grep", "-e", "cat x", "f"}, []string{"grep", "-e", "'cat x'", "f"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShellSourceArgValue(tc.values); got != tc.want {
+				t.Errorf("ShellSourceArgValue(%q) = %q, want %q", tc.values, got, tc.want)
+			}
+			raw := ShellSourceArg(tc.raw)
+			if raw != "" {
+				raw = payloadValue(raw)
+			}
+			if raw != tc.want {
+				t.Errorf("raw reading of %q = %q, want %q: the two conventions disagree", tc.raw, raw, tc.want)
+			}
+		})
+	}
+	// The positional form joins values with one space, which is what watch
+	// hands to sh -c: an operand's inner spacing is its own.
+	if got := ShellSourceArgValue([]string{"watch", "-n", "1", "cat", "a  b"}); got != "cat a  b" {
+		t.Errorf("watch positional values = %q, want %q", got, "cat a  b")
+	}
+}
+
 // TestShellSourceCarrierDecomposes pins the end-to-end path: the captured
 // SourceArg must become a real Subcommand, not just sit in the struct. #3223
 // measured what a partial fix looks like — teaching the extractor alone left

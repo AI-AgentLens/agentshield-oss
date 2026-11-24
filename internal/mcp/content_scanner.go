@@ -11,6 +11,20 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/unicode"
 )
 
+// DIRECTION (Gary, 2026-11-20, #5002): this scanner is to be retired in favour
+// of rules. Detection belongs in rule packs, which can be switched on and off
+// and maintained one by one, and which change more often than code.
+//
+// Do not add a signal or a pattern to this file. Write a tool-call rule
+// instead: `argument_value_regex_any` tests a regex against every argument
+// value, nested ones included. Go is only for a matcher the rule vocabulary
+// lacks.
+//
+// The scanner is not tagged with Go's "Deprecated:" marker on purpose. Its
+// callers stay until each detection has moved, and moving a BLOCK from Go to
+// a rule is a narrowing that needs its own review (a rule that misses a shape
+// this code catches is a silent fail-open).
+
 // ContentSignal identifies a type of sensitive data found in tool call arguments.
 type ContentSignal string
 

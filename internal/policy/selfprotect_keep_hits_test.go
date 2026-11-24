@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // The audit-only keep rule sees the files a protected_paths match decided a
@@ -17,9 +19,9 @@ type keepCall struct {
 
 // recordingKeep records every call and keeps when keepIt says so.
 func recordingKeep(calls *[]keepCall, keepIt bool) SelfProtectionKeep {
-	return func(command string, rules, hits []string) bool {
+	return func(command string, rules, hits []string) (bool, string) {
 		*calls = append(*calls, keepCall{append([]string{}, rules...), append([]string{}, hits...)})
-		return keepIt
+		return keepIt, ""
 	}
 }
 
@@ -34,7 +36,7 @@ func keepHitsPolicy() *Policy {
 
 func TestSelfProtectionKeep_ProtectedPathHits(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	sp, other := filepath.Join(home, ".zq-sp", "audit.jsonl"), filepath.Join(home, ".zq-other", "a")
 	for _, tc := range []struct {
 		name     string
@@ -74,7 +76,7 @@ func TestSelfProtectionKeep_ProtectedPathHits(t *testing.T) {
 // The materialized-path post-pass passes its files too.
 func TestSelfProtectionKeep_SubstitutionHits(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	e, err := NewEngineWithAnalyzers(keepHitsPolicy(), 0)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +98,7 @@ func TestSelfProtectionKeep_SubstitutionHits(t *testing.T) {
 // keep downgrades as before.
 func TestSelfProtectionKeep_EnforceNeverAsks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	sp := filepath.Join(home, ".zq-sp", "audit.jsonl")
 	for _, mode := range []string{"", "enforce"} {
 		e, err := NewEngine(keepHitsPolicy())

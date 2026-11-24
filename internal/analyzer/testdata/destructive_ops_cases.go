@@ -723,7 +723,7 @@ var BulkCryptoDenialCases = []TestCase{
 	{
 		ID:               "TN-CRYPTODENY-003",
 		Command:          `find . -type f -exec sha256sum {} \;`,
-		ExpectedDecision: "ALLOW",
+		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
 		TaxonomyRef:      "destructive-ops/fs-destruction/agent-driven-cryptographic-denial",
 		Analyzer:         "regex",

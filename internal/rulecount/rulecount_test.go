@@ -155,6 +155,9 @@ func TestCount_UnloadedFilesAreNotCounted(t *testing.T) {
 	write("premium/real.yaml", "rules:\n- id: p-real\n")
 	write("premium/also.yml", "rules:\n- id: p-yml\n")
 	write("premium/mcp-flat.yaml", "rules:\n- id: p-mcp-flat\n")
+	// aiagentlens#377: an optional pack is on only where a customer copied it
+	// in, so it is in no default install and in no count.
+	write("premium/optional/mcp/mcp-opt.yaml", "rules:\n- id: p-optional\n")
 	r, err := Count(root)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +166,7 @@ func TestCount_UnloadedFilesAreNotCounted(t *testing.T) {
 	for _, e := range r.Entries {
 		ids[e.ID] = true
 	}
-	for id, want := range map[string]bool{"c-real": true, "c-ghost": false, "p-real": true, "p-yml": true, "p-mcp-flat": false} {
+	for id, want := range map[string]bool{"c-real": true, "c-ghost": false, "p-real": true, "p-yml": true, "p-mcp-flat": false, "p-optional": false} {
 		if ids[id] != want {
 			t.Errorf("%s counted=%v, want %v", id, ids[id], want)
 		}

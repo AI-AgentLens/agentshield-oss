@@ -7,6 +7,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/mcp"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // clearCIEnv blanks every variable execenv.Detect reads, so a test starts
@@ -87,7 +88,7 @@ func TestMCPEvaluator_AppliesMode(t *testing.T) {
 		{"", policy.DecisionBlock, ""},
 		{"audit-only", policy.DecisionAudit, policy.DecisionBlock},
 	} {
-		got := MCPEvaluator(pol, nil, c.mode).EvaluateToolCall("zzassembly_tool", nil)
+		got := MCPEvaluator(pol, policy.ToolCallInputs{}, c.mode).EvaluateToolCall("zzassembly_tool", nil)
 		if got.Decision != c.want || got.OriginalDecision != c.wantOr {
 			t.Errorf("mode %q: decision %s (original %q), want %s (original %q)", c.mode, got.Decision, got.OriginalDecision, c.want, c.wantOr)
 		}
@@ -99,10 +100,10 @@ func TestMCPEvaluator_AppliesMode(t *testing.T) {
 // keeps the tool-call decision it has without it (#4248's AUDIT-with-rule
 // choice for the agent's own Read of a shipped credential path).
 func TestMCPEvaluator_AppliesCustomerProtectedPathsOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	pol := &mcp.MCPPolicy{Defaults: mcp.MCPDefaults{Decision: policy.DecisionAudit}}
 	shell := []string{"~/.aws/**", "~/.npmrc", "/etc/**", policy.ManagedConfigProtectedPath, "/etc/acme/secrets/**"}
-	ev := MCPEvaluator(pol, shell, "")
+	ev := MCPEvaluator(pol, policy.ToolCallInputs{ProtectedPaths: shell}, "")
 	if got := ev.ProtectedPaths(); len(got) != 1 || got[0] != "/etc/acme/secrets/**" {
 		t.Fatalf("evaluator protected paths %v, want only the customer's", got)
 	}
@@ -117,8 +118,8 @@ func TestMCPEvaluator_AppliesCustomerProtectedPathsOnly(t *testing.T) {
 			t.Errorf("shipped pattern %s: %s %v, want the policy's AUDIT with no rule", p, r.Decision, r.TriggeredRules)
 		}
 	}
-	// nil: no shell policy, no change.
-	if r := MCPEvaluator(pol, nil, "").EvaluateToolCall("Read", map[string]interface{}{"file_path": "/etc/acme/" + "secrets/db.env"}); r.Decision != policy.DecisionAudit {
+	// The zero value: no shell policy, no change.
+	if r := MCPEvaluator(pol, policy.ToolCallInputs{}, "").EvaluateToolCall("Read", map[string]interface{}{"file_path": "/etc/acme/" + "secrets/db.env"}); r.Decision != policy.DecisionAudit {
 		t.Errorf("nil shell paths: %s %v, want AUDIT", r.Decision, r.TriggeredRules)
 	}
 }
@@ -194,7 +195,7 @@ func TestShellEngine_AuditOnlyKeepsSelfProtectionBlock(t *testing.T) {
 // keep's predicate true.
 func TestShellEngine_AuditOnlyNeverKeepsRequireApproval_TemplatePolicy(t *testing.T) {
 	clearCIEnv(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	command := "touch " + "~/.cursor/" + "mcp.json"
 	load := func() *policy.Policy {
 		p, err := policy.Load(filepath.Join("..", "..", "configs", "default_policy.yaml"))
@@ -203,7 +204,7 @@ func TestShellEngine_AuditOnlyNeverKeepsRequireApproval_TemplatePolicy(t *testin
 		}
 		return p
 	}
-	if !mcp.ShellSelfProtectionKeep(load())(command, nil, nil) {
+	if kept, _ := mcp.ShellSelfProtectionKeep(load())(command, nil, nil); !kept {
 		t.Fatal("setup: the keep's predicate must accept the command, or this row cannot see a keep that admits REQUIRE_APPROVAL")
 	}
 	enf, err := ShellEngine(load(), 0, "enforce")

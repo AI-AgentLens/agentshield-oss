@@ -34,38 +34,38 @@ func TestHook_ManagedHarnessWriteToConfig_IsBlocked(t *testing.T) {
 	home, configDir := newFailSafeHome(t, true, failSafePolicyGood)
 	policyFile := asConfigFile(home, "policy.yaml")
 
-	// Indirections that land in the config directory.
+	// Indirections that land in the config directory. A Windows host without
+	// the symlink privilege (aial-04) runs every other row (#5021).
+	links := canSymlink(t)
+	symlink := func(oldname, newname string) {
+		t.Helper()
+		if err := os.Symlink(oldname, newname); err != nil {
+			t.Fatal(err)
+		}
+	}
 	outside := t.TempDir()
 	dirLink := filepath.Join(outside, "cfg")
-	if err := os.Symlink(configDir, dirLink); err != nil {
-		t.Fatal(err)
-	}
 	fileLink := filepath.Join(outside, "p.yaml")
-	if err := os.Symlink(policyFile, fileLink); err != nil {
-		t.Fatal(err)
-	}
-	// A symlink to a directory under home, then "..": the OS resolves the
-	// link first, so this spelling names the config; filepath.Clean says
-	// otherwise (Opus pass 1).
-	if err := os.MkdirAll(filepath.Join(home, "sub"), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	subLink := filepath.Join(outside, "l")
-	if err := os.Symlink(filepath.Join(home, "sub"), subLink); err != nil {
-		t.Fatal(err)
-	}
-	// A link in home to somewhere else, then "..": the kernel lands outside,
-	// but a harness that normalises the string first writes the config.
 	elsewhere := filepath.Join(outside, "zz")
-	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(elsewhere, filepath.Join(home, "m")); err != nil {
-		t.Fatal(err)
-	}
 	dangling := filepath.Join(outside, "new.yaml")
-	if err := os.Symlink(asConfigFile(home, "packs/new.yaml"), dangling); err != nil {
-		t.Fatal(err)
+	if links {
+		symlink(configDir, dirLink)
+		symlink(policyFile, fileLink)
+		// A symlink to a directory under home, then "..": the OS resolves the
+		// link first, so this spelling names the config; filepath.Clean says
+		// otherwise (Opus pass 1).
+		if err := os.MkdirAll(filepath.Join(home, "sub"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		symlink(filepath.Join(home, "sub"), subLink)
+		// A link in home to somewhere else, then "..": the kernel lands outside,
+		// but a harness that normalises the string first writes the config.
+		if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		symlink(elsewhere, filepath.Join(home, "m"))
+		symlink(asConfigFile(home, "packs/new.yaml"), dangling)
 	}
 
 	patch := func(header string) string {
@@ -87,12 +87,6 @@ func TestHook_ManagedHarnessWriteToConfig_IsBlocked(t *testing.T) {
 		{"claude Edit watchdog state", claudeToolPayload(t, "w25", "Edit", map[string]interface{}{"file_path": asConfigFile(home, "watchdog-state.json"), "old_string": "a", "new_string": "b"})},
 		{"tilde", claudeToolPayload(t, "w7", "Write", map[string]interface{}{"file_path": "~/.agentshield/policy.yaml", "content": "x"})},
 		{"dot-dot", claudeToolPayload(t, "w8", "Write", map[string]interface{}{"file_path": filepath.Join(home, "proj") + "/../.agentshield/policy.yaml", "content": "x"})},
-		{"symlinked dir", claudeToolPayload(t, "w10", "Write", map[string]interface{}{"file_path": filepath.Join(dirLink, "policy.yaml"), "content": "x"})},
-		{"symlinked file", claudeToolPayload(t, "w11", "Edit", map[string]interface{}{"file_path": fileLink, "old_string": "a", "new_string": "b"})},
-		{"dangling symlink into config", claudeToolPayload(t, "w12", "Write", map[string]interface{}{"file_path": dangling, "content": "x"})},
-		{"symlink then dot-dot", claudeToolPayload(t, "w21", "Write", map[string]interface{}{"file_path": subLink + "/../.agentshield/policy.yaml", "content": "x"})},
-		{"symlink then dot-dot, new file", claudeToolPayload(t, "w22", "Write", map[string]interface{}{"file_path": subLink + "/../.agentshield/packs/new.yaml", "content": "x"})},
-		{"normalising harness: link then dot-dot", claudeToolPayload(t, "w23", "Write", map[string]interface{}{"file_path": filepath.Join(home, "m") + "/../.agentshield/policy.yaml", "content": "x"})},
 		{"copilot compat Write", copilotCompatPayload(t, "w13", "Write", map[string]interface{}{"path": policyFile, "file_text": "x"})},
 		{"copilot compat Edit", copilotCompatPayload(t, "w14", "Edit", map[string]interface{}{"path": policyFile, "old_str": "a", "new_str": "b"})},
 		{"copilot native create", copilotNativePayload(t, "w15", "create", map[string]interface{}{"path": policyFile, "file_text": "x"})},
@@ -101,6 +95,28 @@ func TestHook_ManagedHarnessWriteToConfig_IsBlocked(t *testing.T) {
 		{"apply_patch move into config", copilotNativePayload(t, "w18", "apply_patch", patch("*** Update File: notes.txt\n*** Move to: "+policyFile))},
 		{"apply_patch add pack", copilotCompatPayload(t, "w19", "Edit", "*** Begin Patch\n*** Add File: "+asConfigFile(home, "packs/x.yaml")+"\n+x\n*** End Patch\n")},
 		{"apply_patch delete", copilotNativePayload(t, "w20", "apply_patch", "*** Begin Patch\n*** Delete File: "+asConfigFile(home, "managed.json")+"\n*** End Patch\n")},
+	}
+	type row = struct{ name, payload string }
+	if links {
+		cases = append(cases,
+			row{"symlinked dir", claudeToolPayload(t, "w10", "Write", map[string]interface{}{"file_path": filepath.Join(dirLink, "policy.yaml"), "content": "x"})},
+			row{"symlinked file", claudeToolPayload(t, "w11", "Edit", map[string]interface{}{"file_path": fileLink, "old_string": "a", "new_string": "b"})},
+			row{"dangling symlink into config", claudeToolPayload(t, "w12", "Write", map[string]interface{}{"file_path": dangling, "content": "x"})},
+			row{"normalising harness: link then dot-dot", claudeToolPayload(t, "w23", "Write", map[string]interface{}{"file_path": filepath.Join(home, "m") + "/../.agentshield/policy.yaml", "content": "x"})},
+		)
+	}
+	// The kernel rows: macOS and Linux resolve the link before "..", so
+	// <link>/../.agentshield names the config. Windows resolves ".." in the
+	// path text first (Win32 path normalisation), so the same spelling names
+	// <outside>\.agentshield, not the config: measured on the Win10 box with
+	// PowerShell, .NET and cmd, all three landing beside the link (#5021).
+	// There the config is reached only by the lexical spelling, which the
+	// "normalising harness" row covers.
+	if links && runtime.GOOS != "windows" {
+		cases = append(cases,
+			row{"symlink then dot-dot", claudeToolPayload(t, "w21", "Write", map[string]interface{}{"file_path": subLink + "/../.agentshield/policy.yaml", "content": "x"})},
+			row{"symlink then dot-dot, new file", claudeToolPayload(t, "w22", "Write", map[string]interface{}{"file_path": subLink + "/../.agentshield/packs/new.yaml", "content": "x"})},
+		)
 	}
 	// A case variant is the config only where the volume says so (macOS and
 	// Windows defaults); on a case-sensitive volume it is another directory.
@@ -124,7 +140,7 @@ func TestHook_ManagedHarnessWriteToConfig_IsBlocked(t *testing.T) {
 func TestHook_ManagedRelativePatchIntoConfig_IsBlocked(t *testing.T) {
 	home, _ := newFailSafeHome(t, true, failSafePolicyGood)
 	p := strings.Replace(copilotNativePayload(t, "r1", "apply_patch", "*** Begin Patch\n*** Update File: .agentshield/policy.yaml\n@@\n-a\n+b\n*** End Patch\n"),
-		`"cwd":"/repo"`, `"cwd":"`+home+`"`, 1)
+		`"cwd":"/repo"`, `"cwd":`+jsonString(home), 1)
 	code, stdout, stderr := runHookChild(t, home, p, "AGENTSHIELD_AGENT_ID=copilot-cli")
 	requireCopilotDeny(t, "relative patch", code, stdout, stderr, "sp-block-config-tool-write")
 }

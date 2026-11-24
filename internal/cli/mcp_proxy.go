@@ -114,14 +114,16 @@ func mcpProxyCommand(cmd *cobra.Command, args []string) error {
 	// The customer's protected_paths apply to tool-call file-path arguments
 	// here as on the hook's tool path (#4645). Read once, at startup, like the
 	// MCP packs: a pack added later takes effect on the proxy's next start.
-	shellProtected, ppWarnings := shellProtectedPathsFor(cfg)
+	// So is policy.yaml's disable_rules (#5001), ignored on a managed host as
+	// the hook ignores it.
+	shellPolicy, ppWarnings := toolCallShellPolicy(cfg, managedIgnoresLocalDisables)
 	for _, w := range ppWarnings {
 		fmt.Fprintf(os.Stderr, "[AgentShield MCP] warning: %s\n", w)
 	}
 	// File-path arguments resolve against this process's directory (#4653):
 	// the MCP server is spawned without its own Dir, so it inherits it and
 	// resolves a relative argument there.
-	evaluator := assembly.MCPEvaluator(mcpPolicy, shellProtected, "").InWorkingDir(toolCallWorkDir(""))
+	evaluator := assembly.MCPEvaluator(mcpPolicy, shellPolicy, "").InWorkingDir(toolCallWorkDir(""))
 	proxyMode := ""
 	if cfg != nil {
 		proxyMode = cfg.Mode

@@ -190,6 +190,7 @@ func read(text string, env Env, panicAt int) facts.Facts {
 	})
 
 	stage(&f, "native", func() { f.Native = nativeStatements(r.cmds, routed, r.pipes) })
+	stage(&f, "cmdlet twins", func() { f.Twins = twinStatements(r.cmds, routed, r.pipes, r.outRedirs, res) })
 
 	stage(&f, "paths", func() {
 		for _, c := range r.cmds {
@@ -263,6 +264,9 @@ func elements(c *rawCommand, res *resolver) []facts.Element {
 			e.Value = el.val.text
 			for _, item := range el.val.items {
 				e.Items = append(e.Items, item.text)
+				for _, p := range res.argumentPaths(item.text) {
+					e.ItemPaths = appendUnique(e.ItemPaths, p)
+				}
 			}
 		}
 		for _, v := range elementValues(el) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4381: a bare key name with cwd inside the protected directory is an alias
@@ -14,7 +15,7 @@ import (
 // runtime: the hook reads test sources as commands.
 func TestBareOperandInProtectedCwdBlocks_4381(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	dir := filepath.Join(home, "."+"ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -57,7 +58,7 @@ func TestBareOperandInProtectedCwdBlocks_4381(t *testing.T) {
 // that take a file operand. Words that are not files stay words.
 func TestBareNewNameInProtectedCwdBlocks_4381(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	dir := filepath.Join(home, "."+"ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

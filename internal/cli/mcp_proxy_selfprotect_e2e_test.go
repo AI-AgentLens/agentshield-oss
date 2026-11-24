@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4337 review B1: on an audit-only host both MCP proxies forwarded writes to
@@ -218,6 +220,7 @@ func TestMCPProxy_AuditOnlySelfProtectionSpellings_EndToEnd(t *testing.T) {
 			defer cancel()
 			cmd := proxyHelperCmd(ctx, home, "mcp-proxy", "--", os.Args[0], "-test.run=^TestHelperFakeMCPServer$")
 			cmd.Env = append(cmd.Env, "AGENTSHIELD_FAKE_MCP_SERVER=1", "AGENTSHIELD_FAKE_MCP_WRITE=1")
+			cmd.Env = testhome.ChildEnv(cmd.Env)
 			cmd.Dir = home // a stdio server inherits the proxy's working directory; the fake server writes absolute paths only
 			cmd.Stdin = strings.NewReader(strings.Join(reqs, "\n") + "\n")
 			var stderr bytes.Buffer

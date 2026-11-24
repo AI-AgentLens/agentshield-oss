@@ -191,6 +191,38 @@ func TestMalformedBaseline_IsRefused(t *testing.T) {
 	}
 }
 
+// aiagentlens#377: an install that copies an optional pack into
+// ~/.agentshield/mcp-packs/ loads it beside the embedded packs, so an id it
+// shares with an embedded pack would emit twice. The gate reads
+// premium/optional/mcp for that reason; this pins that it does.
+func TestOptionalPackDuplicateOfAnEmbeddedRule_Fails(t *testing.T) {
+	d := t.TempDir()
+	writePack(t, d, "a.yaml", cleanPack)
+	opt := filepath.Join(d, "premium", "optional", "mcp")
+	if err := os.MkdirAll(opt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opt, "mcp-opt.yaml"), []byte("name: opt\nrules:\n  - id: rule-a\n    taxonomy: \"k/c/a\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runIn(t, d, filepath.Join(d, "absent.txt"))
+	if code != 1 || !strings.Contains(out, "rule-a") {
+		t.Fatalf("an optional pack reusing an embedded id should fail as NEW, got exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, filepath.Join("premium", "optional", "mcp", "mcp-opt.yaml")) {
+		t.Errorf("the optional site should be named:\n%s", out)
+	}
+
+	// Control: the same file with its own id passes, so the failure above is
+	// the shared id and not the directory.
+	if err := os.WriteFile(filepath.Join(opt, "mcp-opt.yaml"), []byte("name: opt\nrules:\n  - id: rule-opt\n    taxonomy: \"k/c/a\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runIn(t, d, filepath.Join(d, "absent.txt")); code != 0 {
+		t.Fatalf("an optional pack with its own ids should pass, got exit %d\n%s", code, out)
+	}
+}
+
 // The real corpus must agree with the checked-in baseline, so the gate cannot
 // drift green while the file rots.
 func TestRealCorpusMatchesCheckedInBaseline(t *testing.T) {

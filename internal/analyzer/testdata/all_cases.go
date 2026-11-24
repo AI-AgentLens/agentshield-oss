@@ -299,6 +299,10 @@ func AllTestCases() []TestCase {
 	// fit none of ExecWrappers / PrivilegeShellCarriers / CodeInterpreters —
 	// fifteen such programs leaked 31-34% of the BLOCKing corpus apiece.
 	all = append(all, ShellSourceCarrierCases...)
+	// osascript (#4900): `do shell script "CMD"` in an -e statement runs CMD
+	// through /bin/sh -c, under an AppleScript carrier no layer read through —
+	// the dogfood canary decided a ruleless AUDIT wrapped this way.
+	all = append(all, OsascriptCarrierCases...)
 	// Stdin-source decomposition (#3242): a here-string (any interpreter
 	// flag) or a stdin redirect from a literal-only process substitution are
 	// two more spellings of "shell interpreter reads its source via stdin",
@@ -307,6 +311,7 @@ func AllTestCases() []TestCase {
 	// for the non-decomposable network-fetch-via-redirect shape.
 	all = append(all, StdinSourceDecompositionCases...)
 	all = append(all, AdminAPIAuthDisableCurlCases...)
+	all = append(all, SQLClientPrivilegeGrantCases...)
 	// MCP credential-store insecure deserialization (#3785): an MCP server's own
 	// steady-state credential/session persistence via pickle/yaml unsafe deserialization
 	// (CVE-2026-76404 class) — distinct from the existing ML-checkpoint/agent-cache coverage.

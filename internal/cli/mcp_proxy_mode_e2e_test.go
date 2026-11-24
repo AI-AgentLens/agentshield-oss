@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // End-to-end tests for #4337 on the real `agentshield mcp-proxy` and
@@ -82,6 +84,7 @@ func proxyHelperCmd(ctx context.Context, home string, args ...string) *exec.Cmd 
 	enc, _ := json.Marshal(args)
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperProxyProcess$")
 	cmd.Env = append(os.Environ(), "AGENTSHIELD_PROXY_HELPER=1", "AGENTSHIELD_PROXY_ARGS="+string(enc), "HOME="+home)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	return cmd
 }
 
@@ -109,6 +112,7 @@ func runStdioProxy(t *testing.T, home, request string) string {
 	defer cancel()
 	cmd := proxyHelperCmd(ctx, home, "mcp-proxy", "--", os.Args[0], "-test.run=^TestHelperFakeMCPServer$")
 	cmd.Env = append(cmd.Env, "AGENTSHIELD_FAKE_MCP_SERVER=1")
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(request + "\n")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

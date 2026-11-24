@@ -53,6 +53,16 @@ func TestSelfProtect_ConfigTouch_BlocksEveryWriterNotJustTheEnumeratedOnes(t *te
 		// subshell/backtick in a "read" is not a plain read
 		"cat $(echo ~/.agentshield/policy.yaml)",
 		"cat `echo ~/.agentshield/managed.json`",
+		// #4840: a bare read word, then a newline, then a write. plainReadRe's
+		// `\s+` matched the newline, so the write passed as a plain read. A
+		// newline separates statements as `;` does.
+		"cat\nsed -i 's/BLOCK/AUDIT/' ~/.agentshield/policy.yaml",
+		"wc\nsed -i 's/BLOCK/AUDIT/' ~/.agentshield/policy.yaml",
+		"ls\ndd if=/dev/null of=~/.agentshield/policy.yaml",
+		"cat \nsed -i 's/BLOCK/AUDIT/' ~/.agentshield/policy.yaml",
+		"cat\r\nsed -i 's/BLOCK/AUDIT/' ~/.agentshield/policy.yaml",
+		"sudo\nsed -i 's/BLOCK/AUDIT/' ~/.agentshield/policy.yaml",
+		"agentshield\nyq -i '.mode = \"audit\"' ~/.agentshield/policy.yaml",
 	}
 	for _, cmd := range cases {
 		blocked, msg := selfProtectVerdict(t, cmd)
@@ -84,6 +94,12 @@ func TestSelfProtect_ConfigTouch_PlainReadsStillPass(t *testing.T) {
 		`diff ~/.agentshield/policy.yaml /tmp/policy.yaml`,
 		`sudo cat /Users/dev/.agentshield/policy.yaml`,
 		`agentshield rule list`,
+		// #4840: a plain read stays one line, but blanks around it and a tab
+		// between words are still a plain read.
+		"cat\t~/.agentshield/policy.yaml",
+		"\n  cat ~/.agentshield/policy.yaml",
+		"cat ~/.agentshield/policy.yaml  ",
+		"sudo\tcat ~/.agentshield/policy.yaml",
 		// unrelated commands that mention nothing under the config dir
 		`python3 -c "print('hello')"`,
 		`echo 'rules: []' > /tmp/policy.yaml`,
@@ -134,5 +150,61 @@ func TestLoadManagedConfigFrom_CorruptFailsClosed(t *testing.T) {
 	cfg = LoadManagedConfigFrom(path)
 	if cfg == nil || !cfg.Managed || cfg.FailClosed {
 		t.Fatalf("valid file → %+v; want the parsed values, not the corrupt fallback", cfg)
+	}
+}
+
+// TestSelfProtect_NewlineAttributesAsSemicolon_4840: a bare read word, a
+// newline and a statement are attributed exactly as the same two statements
+// joined by `;`, the separator a newline is. On main the first row differed:
+// the raw text passed as a plain read (the #4840 bypass), so a quote-spliced
+// delete reached the dequoted reading and was claimed by
+// sp-block-delete-config, while its `;` spelling, and the same delete with no
+// read before it, are claimed on the raw text by sp-block-config-touch (#4840
+// Codex pass 1). That the catch-all pre-empts a specific rule a normalized
+// reading would match is pre-existing and tracked on its own; when it is
+// fixed, both spellings move together.
+func TestSelfProtect_NewlineAttributesAsSemicolon_4840(t *testing.T) {
+	cfg := "~/.agent" + "shield/policy.yaml"
+	dir := "~/.agent" + "shield"
+	for _, r := range [][2]string{
+		{"ls", "r'm' " + cfg},
+		{"cat", "sed -i s/x/y/ " + cfg},
+		{"wc", "rm " + cfg},
+		{"ls", "r'm' -rf " + dir},
+		{"head", "cp /tmp/p " + cfg},
+	} {
+		nl, nlOK := matchesSelfProtectRule(r[0] + "\n" + r[1])
+		semi, semiOK := matchesSelfProtectRule(r[0] + "; " + r[1])
+		if !nlOK || !semiOK || nl != semi {
+			t.Errorf("%q then %q: newline %v %s, semicolon %v %s; want the same BLOCK", r[0], r[1], nlOK, nl, semiOK, semi)
+		}
+	}
+}
+
+// TestSelfProtect_SplicedAfterARead_PinnedReceipt_4840 pins the receipt Codex
+// pass 2 found (#4844): a read word, then a statement whose specific rule
+// only a normalized reading reaches (a quote-spliced path plus an unset
+// expansion in the variable name). On main both the newline and the `;`
+// spelling were claimed by sp-block-bypass-env, each only through the #4840
+// bug: DequoteCommand prints `;` as a newline, and the old plainReadRe read
+// that as one plain read, which let the folded reading run. Here the raw or
+// dequoted text is no plain read, so the catch-all sp-block-config-touch
+// claims it first, with no node (#4666). The decision is BLOCK either way.
+// The statement alone is claimed by the catch-all on main too, so all three
+// now agree. Codex's own standalone row kept sp-block-bypass-env on main only
+// because it began `agentshield mcp-proxy --`, which plainReadRe wrongly
+// exempts as a read (a separate issue). Trying the catch-all last (#4666)
+// would give all three the specific rule; change these rows then.
+func TestSelfProtect_SplicedAfterARead_PinnedReceipt_4840(t *testing.T) {
+	stmt := "env AGENTSHIELD_BYPA${zqx}SS=1 sed -i.bak s/BLOCK/AUDIT/ ~/.agentshi'e'ld/policy.yaml"
+	for _, r := range []struct{ cmd, rule string }{
+		{"ls\n" + stmt, "sp-block-config-touch"},
+		{"ls; " + stmt, "sp-block-config-touch"},
+		{stmt, "sp-block-config-touch"},
+	} {
+		id, ok := matchesSelfProtectRule(r.cmd)
+		if !ok || id != r.rule {
+			t.Errorf("%q: %v %s, want BLOCK by %s", r.cmd, ok, id, r.rule)
+		}
 	}
 }

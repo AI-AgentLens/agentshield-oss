@@ -17,6 +17,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/route"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4785: on a slower host with every CPU busy, the budget's answer reached
@@ -170,6 +171,7 @@ func hookChildCPU(t *testing.T, home, payload string, killAfter time.Duration, e
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHookProcess$")
 	cmd.Env = append(append(withoutEnv(os.Environ(), "AGENTSHIELD_AGENT_ID="), "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home), extraEnv...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -216,6 +218,7 @@ func TestStopEvaluation_StopsAndSwitchesOffGC(t *testing.T) {
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperStopEvaluation$")
 	cmd.Env = append(os.Environ(), envTestStopHelper+"=1", "GOGC=100")
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("helper: %v\n%s", err, out)

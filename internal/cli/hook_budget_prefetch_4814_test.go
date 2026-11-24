@@ -20,6 +20,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/route"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // recordReads points hookLabelReadSeen at a list for the rest of the test.
@@ -55,7 +56,7 @@ func setSlowPoints(t *testing.T, points map[string]time.Duration) {
 // evaluation that claimed the call answers itself; a watchdog that holds it
 // reads for itself.
 func TestHookBudgetPrefetch_ReadsOnlyWhenTheAnswerNeedsIt_4814(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	for _, c := range []struct {
 		name   string
 		before func(b *hookBudget)
@@ -93,7 +94,7 @@ func TestHookBudgetPrefetch_ReadsOnlyWhenTheAnswerNeedsIt_4814(t *testing.T) {
 // main (e210c480). The rows test the wait and the bound, not this host's
 // read speed.
 func TestHookBudgetPrefetch_AnswerWaitsOnThePrefetch_4814(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	const limit = time.Second
 	prevLimit := hookLabelReadLimit
 	hookLabelReadLimit = limit

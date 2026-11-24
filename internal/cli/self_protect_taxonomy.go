@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 	"github.com/AI-AgentLens/agentshield/packs"
@@ -59,8 +60,9 @@ const (
 // (Gary, #4670): a copy, move, link or install onto the audit log cited
 // tampering, while a delete of the same file cited the audit-trail node.
 var selfProtectTargetRules = map[string]func(command string) []string{
-	spDeleteConfigRule:  deleteConfigTaxonomyRefs,
-	spBinaryReplaceRule: binaryReplaceTaxonomyRefs,
+	spDeleteConfigRule:           deleteConfigTaxonomyRefs,
+	spBinaryReplaceRule:          binaryReplaceTaxonomyRefs,
+	enterprise.ConfigTouchRuleID: configTouchTaxonomyRefs,
 }
 
 // spTarget is the class of AgentShield path a blocked command acts on.
@@ -89,16 +91,11 @@ var spTargetTaxonomy = []struct {
 // node, each with the reason. A gap written down beats a guessed node, and
 // TestSelfProtectEveryRuleIsMappedOrUnattributed keeps every rule in exactly
 // one of these tables.
-var selfProtectUnattributed = map[string]string{
-	// sp-block-config-touch is a default-deny over command text. It blocks every
-	// command that names the managed config files unless the command is a plain
-	// read, so its BLOCKs mix reads (less, sed -n, cat $(…), grep | head) with
-	// interpreter writes (python3 -c "open(…,'w')"). security-tool-tampering
-	// is false for the reads; its own good example is "reading policy is safe".
-	// Nothing today tells the two apart, so the rule attests nothing until it
-	// can (#4666).
-	"sp-block-config-touch": "reads and interpreter writes cannot be told apart today (#4666)",
-}
+// selfProtectUnattributed lists the sp-* rules whose BLOCK attests no node,
+// each with the reason. Empty since #4666 (sp-block-config-touch now cites
+// tampering for a write and nothing for a read, self_protect_config_touch.go);
+// kept so a rule with no defensible node has a place to go.
+var selfProtectUnattributed = map[string]string{}
 
 // selfProtectTaxonomyRefs is the evidence for one shell self-protection BLOCK:
 // the node or nodes of the sp-* rule ruleID, given the blocked command. It

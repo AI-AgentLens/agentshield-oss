@@ -60,7 +60,18 @@ func TestHeredocShellExecParity(t *testing.T) {
 	// quoted payloads of shell/eval/trap calls by text, so all 18 wrapped
 	// TP-ANSICNUL-* leaks are gone. Measured 62/2808 (not main's 57 from the
 	// issue; the rest of the delta is unrelated rules merged since).
-	maxLeaks := 62
+	//
+	// Bumped 62->63 (#4900). The new TP-OSASCRIPT-SHELL-* cases join the BLOCK
+	// baseline, and one of them leaks here: TP-OSASCRIPT-SHELL-003,
+	// `osascript -e 'do shell script "rm -rf \"/\""'`. Its inner `rm -rf "/"`
+	// is caught only by structural rules, which need parse depth 3 (heredoc,
+	// osascript, the inner sh) — the second residual bucket above. Verified
+	// directly: `bash <<EOF` around `bash -c 'rm -rf "/"'` or
+	// `man -P 'rm -rf "/"' ls` leaks identically, on main and on #4900, and
+	// the heredoc-wrapped osascript form decides AUDIT on main too. Measured
+	// 63/2873; the other 62 are main's set. The OSS constant below is left
+	// as is: an OSS-stripped `git archive` of #4900 measured 56/1926.
+	maxLeaks := 63
 
 	// The budget is a property of the LOADED RULE SET, not of the code, so it
 	// cannot be one number across two rule sets. Before #3135, the OSS tree

@@ -46,7 +46,21 @@ func heredocLaunderingShapes() []heredocShape {
 		{"heredoc-pipe-to-bash", true, body("cat <<'EOF' | bash", "")},
 		{"heredoc-write-then-bash", true, body("cat > /tmp/x.sh <<'EOF'", "\nbash /tmp/x.sh")},
 		{"heredoc-write-then-source", true, body("cat > /tmp/x.sh <<'EOF'", "\nsource /tmp/x.sh")},
+		// #5092: a shell under an inert sink's name. Each one ran its body
+		// in bash or zsh (the PR's ground-truth table); the gate trusted the
+		// name, so the body was excused while the shell executed it.
+		{"disguise-path-qualified-cat", true, body("/tmp/e/cat <<'EOF'", "")},
+		{"disguise-dot-slash-cat", true, body("./cat <<'EOF'", "")},
+		{"disguise-PATH-prefix", true, body("PATH=/tmp/e cat <<'EOF'", "")},
+		{"disguise-PATH-statement", true, body("PATH=/tmp/e; cat <<'EOF'", "")},
+		{"disguise-bash-hash-p", true, body("hash -p /bin/sh cat; cat <<'EOF'", "")},
+		{"disguise-zsh-hash", true, body("hash cat=/bin/sh; cat <<'EOF'", "")},
+		{"disguise-path-qualified-tee", true, body("/tmp/e/tee /dev/null <<'EOF'", "")},
+		{"disguise-path-qualified-git-commit", true, body("/tmp/e/git commit -F - <<'EOF'", "")},
+		{"disguise-zsh-functions-table", true, body("functions[cat]=/bin/sh; cat <<'EOF'", "")},
+		{"disguise-zsh-path-array", true, body("path=(/tmp/e); cat <<'EOF'", "")},
 		{"note (control: stays excused)", false, body("cat > /tmp/notes.md <<'EOF'", "")},
+		{"note via /bin/cat (control: a system directory stays trusted)", false, body("/bin/cat > /tmp/notes.md <<'EOF'", "")},
 	}
 }
 

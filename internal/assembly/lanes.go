@@ -251,6 +251,32 @@ type PowerShellLane struct {
 	// shield-server sets it only for a call no POSIX lane reads, for its
 	// thin clients' 5 s budget (Kai, 2026-11-04).
 	NativeBridge bool
+	// CmdletBridge also reads each file cmdlet call (Get-Content, Copy-Item,
+	// Move-Item, Remove-Item, Set-Content, Add-Content, Out-File) and each
+	// output redirection to a literal file as its POSIX twin (`cat`, `cp`,
+	// `mv`, `rm`, `echo x > f`; facts.Facts.Twins, the cmdlet bridge), so the
+	// bash rules for file operations apply. The twins are a SECOND POSIX
+	// text: the native lines with each twin in its command's place, read
+	// only when some nesting level has a twin, under the same byte bound,
+	// and combined with the call's reading as a nested reading is (stricter
+	// wins, the lane's own record on a tie, the AUDIT tie rule). The native
+	// bridge's text is not changed, so a twin can only raise a decision. It
+	// runs only where NativeBridge does: both surfaces set it wherever they
+	// set NativeBridge; a test leaves it unset to switch the twins off.
+	CmdletBridge bool
+	// TwinPOSIX is the surface's POSIX reading of the cmdlet bridge's text
+	// for a call that is a known read (policy.FactsKnownRead: one plain
+	// read-only command and nothing else); nil, or any other call, reads it
+	// with POSIX. The hook reads such a twin that is one plain read as the
+	// Bash tool reads that command on a managed host (psLane.readTwin in
+	// internal/cli). Any other call keeps POSIX's reading even when its twin
+	// text alone is a plain read: a statement with no twin (`Get-Content
+	// <cfg>; Clear-Content <cfg>`) leaves only the read's `cat` in it, and
+	// the lane's own reading misses some spellings of the config path
+	// (#4841, Codex pass 1). A reading of it is never cached with POSIX's:
+	// the text is read once a call, and a nested text with the same
+	// characters is read with POSIX.
+	TwinPOSIX func(text string) policy.EvalResult
 	// NativeBridgeBytes bounds the bridge's rebuilt text in bytes; 0 is
 	// only the bound every surface has, the call's text plus BridgeSlack.
 	// See ServerNativeBridgeBytes for which surface sets one and why.
@@ -325,6 +351,14 @@ type readState struct {
 	posix   map[string]policy.EvalResult // nested POSIX readings, by text
 	bounded bool                         // a text past NestedPOSIXBound was dropped
 	native  []facts.NativeStatement      // every level's native programs, for the bridge
+	// twins are every level's native programs with each file cmdlet's twin
+	// in its place (facts.Facts.Twins, or Native for a level with none), for
+	// the cmdlet bridge; twinned reports that some level had a twin.
+	twins   []facts.NativeStatement
+	twinned bool
+	// knownRead reports that the call's own text (depth 0) is a known read
+	// (policy.FactsKnownRead), the only call TwinPOSIX reads.
+	knownRead bool
 }
 
 // Read decides the call's text. A panic anywhere in the lane is returned as
@@ -338,12 +372,25 @@ func (l *PowerShellLane) Read(text string) (result policy.EvalResult, err error)
 	}()
 	st := &readState{posix: map[string]policy.EvalResult{}}
 	result = l.read(text, 0, st)
-	if l.NativeBridge && len(st.native) > 0 {
-		limit := len(text) + BridgeSlack
-		if l.NativeBridgeBytes > 0 {
-			limit = min(limit, l.NativeBridgeBytes)
+	if !l.NativeBridge {
+		return result, nil
+	}
+	limit := len(text) + BridgeSlack
+	if l.NativeBridgeBytes > 0 {
+		limit = min(limit, l.NativeBridgeBytes)
+	}
+	if len(st.native) > 0 {
+		result = l.bridge(result, st, st.native, limit, "native-command bridge", nil)
+	}
+	// The cmdlet bridge's text after the native bridge's, as one more nested
+	// reading of the result: the native bridge's text and its combination
+	// are main's, so the twins can only raise.
+	if l.CmdletBridge && st.twinned {
+		var twinRead func(string) policy.EvalResult
+		if st.knownRead {
+			twinRead = l.TwinPOSIX
 		}
-		result = l.bridge(result, st, limit)
+		result = l.bridge(result, st, st.twins, limit, "cmdlet bridge", twinRead)
 	}
 	return result, nil
 }
@@ -360,21 +407,27 @@ func (l *PowerShellLane) Read(text string) (result policy.EvalResult, err error)
 // line past it is not read, and a pipeline or chain longer than
 // BridgeWindow is read in windows. Either writes a parse_error note (the
 // AUDIT floor), because some of what the programs do was not read.
-func (l *PowerShellLane) bridge(own policy.EvalResult, st *readState, limit int) policy.EvalResult {
-	bt := NativePOSIXText(st.native, limit)
+//
+// The cmdlet bridge's text (CmdletBridge) is read the same way, as one more
+// nested reading of what this returns; name labels each note. read, when
+// set, reads the text in place of POSIX, uncached (TwinPOSIX).
+func (l *PowerShellLane) bridge(own policy.EvalResult, st *readState, stmts []facts.NativeStatement, limit int, name string, read func(string) policy.EvalResult) policy.EvalResult {
+	bt := NativePOSIXText(stmts, limit)
 	text := bt.Text
 	var unread []analyzer.Note
 	if bt.Cut {
 		unread = append(unread, analyzer.Note{Kind: string(facts.NoteParseError),
-			Detail: fmt.Sprintf("native-command bridge: the rebuilt command lines passed %d bytes; the rest were not read", limit)})
+			Detail: fmt.Sprintf("%s: the rebuilt command lines passed %d bytes; the rest were not read", name, limit)})
 	}
 	if bt.Windowed {
 		unread = append(unread, analyzer.Note{Kind: string(facts.NoteParseError),
-			Detail: fmt.Sprintf("native-command bridge: a pipeline or chain longer than %d was read in windows of %d; programs further apart were not read together", BridgeWindow, BridgeWindow)})
+			Detail: fmt.Sprintf("%s: a pipeline or chain longer than %d was read in windows of %d; programs further apart were not read together", name, BridgeWindow, BridgeWindow)})
 	}
 	results := []policy.EvalResult{own}
 	abandon.Checkpoint()
-	if text != "" {
+	if text != "" && read != nil {
+		results = append(results, read(text))
+	} else if text != "" {
 		r, done := st.posix[text]
 		if !done {
 			r = l.POSIX(text)
@@ -404,11 +457,22 @@ func (l *PowerShellLane) read(text string, depth int, st *readState) policy.Eval
 		reader = psreader.Read
 	}
 	f := reader(text, l.Env)
+	if depth == 0 {
+		st.knownRead = policy.FactsKnownRead(f)
+	}
 	// An evaluation the hook's watchdog has already answered parks here and
 	// between nested readings (#4785); otherwise a no-op.
 	abandon.Checkpoint()
 	if l.NativeBridge {
 		st.native = append(st.native, f.Native...)
+		if l.CmdletBridge {
+			if f.Twins != nil {
+				st.twins = append(st.twins, f.Twins...)
+				st.twinned = true
+			} else {
+				st.twins = append(st.twins, f.Native...)
+			}
+		}
 	}
 	own := l.Engine.EvaluateFacts(f, l.Cwd, l.Opts)
 	// The shell pipeline's inline-secrets heuristic over this text as
@@ -464,6 +528,9 @@ func (l *PowerShellLane) read(text string, depth int, st *readState) policy.Eval
 						results = append(results, l.read(ps, depth+1, st))
 					} else if l.NativeBridge {
 						st.native = append(st.native, cmdNative(words))
+						if l.CmdletBridge {
+							st.twins = append(st.twins, cmdNative(words))
+						}
 					}
 				}
 			}

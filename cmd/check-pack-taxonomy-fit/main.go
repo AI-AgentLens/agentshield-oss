@@ -888,7 +888,7 @@ func loadRefs(dir string, perRule bool) (map[string][]referent, int, error) {
 		base := d.Name()
 
 		// Rule-bearing keys are discovered structurally, not enumerated.
-		// CLAUDE.md records that MCP packs carry rules under SEVEN different
+		// .claude/agent-notes/packs-and-distribution.md records that MCP packs carry rules under SEVEN different
 		// keys and that hand-enumerating them silently dropped 386 rules from
 		// the published count. Anything that is a list of maps with an `id` is
 		// a rule list, so a future eighth key is covered on the day it lands.

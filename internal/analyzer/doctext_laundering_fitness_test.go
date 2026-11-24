@@ -105,6 +105,33 @@ func TestDocTextDowngradeCannotBeLaundered(t *testing.T) {
 	var newLeaks []string
 
 	rules, probes, skipped, laundered := 0, 0, 0, 0
+	// stdinTargets/stdinBases/stdinProbes count the #4965 generator below:
+	// operands taken from live TPs, the plain `< TARGET` reads that decide at
+	// or above REQUIRE_APPROVAL, and the heredoc-carrying forms built on them.
+	stdinTargets, stdinBases, stdinProbes := 0, 0, 0
+	// leak records one probe whose decision dropped below its comparison
+	// form's. bareCmd is what it is compared against: the inline TP for the
+	// wrapper channels, the plain `< TARGET` read for the #4965 channels.
+	leak := func(r policy.Rule, channel, keyText, bareCmd string, bare policy.Decision, wrapped string, got policy.EvalResult) {
+		laundered++
+		key := launderingKey(r.ID, channel, keyText)
+		seen[key] = true
+		if known[key] {
+			return // recorded gap — see the baseline file
+		}
+		newLeaks = append(newLeaks, key)
+		// Does the rule's own pattern still match the wrapped text?
+		// false = the wrapper's punctuation defeated an anchor (#3802
+		// class); true = the pattern matched and a label excused it.
+		pm := "n/a"
+		if r.Match.CommandRegex != "" {
+			if re, err := regexp.Compile(r.Match.CommandRegex); err == nil {
+				pm = strconv.FormatBool(re.MatchString(wrapped))
+			}
+		}
+		t.Errorf("%s laundered via %s: bare=%s wrapped=%s rules=%v patternMatchesWrapped=%s\n  bare:    %q\n  wrapped: %q",
+			r.ID, channel, bare, got.Decision, got.TriggeredRules, pm, bareCmd, wrapped)
+	}
 	for _, r := range pol.Rules {
 		if !labelled(r) || r.Tests == nil {
 			continue
@@ -124,29 +151,58 @@ func TestDocTextDowngradeCannotBeLaundered(t *testing.T) {
 				probes++
 				got := engine.Evaluate(wrapped, nil)
 				if sev[got.Decision] < sev[bare.Decision] {
-					laundered++
-					key := launderingKey(r.ID, ch.name, tp)
-					seen[key] = true
-					if known[key] {
-						continue // recorded gap — see the baseline file
+					// The key hashes the TP, as it always has, so the
+					// recorded lines keep their keys.
+					leak(r, ch.name, tp, tp, bare.Decision, wrapped, got)
+				}
+			}
+
+			// #4965: a here-string or heredoc on a cat/tee statement whose
+			// stdin an input redirect on the same statement points at a
+			// file. bash keeps the LAST input redirect on fd 0 and zsh
+			// (MULTIOS, on by default) reads every one in turn, so the file
+			// is read whichever of the two comes first — yet on main the
+			// statement was labelled in_heredoc, "body written to a file",
+			// and its BLOCK lowered to AUDIT. None of the wrapper channels
+			// above builds this shape: they wrap the TP, while this one has
+			// to move the TP's file operand into an input redirect.
+			//
+			// So each file-like operand of a live TP is read through `<` by
+			// cat and by tee. Where that plain read decides at or above
+			// REQUIRE_APPROVAL, the same read with a dummy here-string or
+			// quoted heredoc, before and after the `<`, must not decide
+			// lower. Comparing against the plain read, not the TP, keeps a
+			// rule whose pattern cannot see a redirected path (it anchors
+			// on `cat FILE`, say) from reading as a laundering leak.
+			for _, target := range stdinRedirectTargets(tp) {
+				stdinTargets++
+				for _, sink := range stdinSinks {
+					base := sink.read(target)
+					baseDec := engine.Evaluate(base, nil).Decision
+					if sev[baseDec] < sev[policy.DecisionRequireApproval] {
+						continue // not a read any rule stops; nothing to launder
 					}
-					newLeaks = append(newLeaks, key)
-					// Does the rule's own pattern still match the wrapped text?
-					// false = the wrapper's punctuation defeated an anchor (#3802
-					// class); true = the pattern matched and a label excused it.
-					pm := "n/a"
-					if r.Match.CommandRegex != "" {
-						if re, err := regexp.Compile(r.Match.CommandRegex); err == nil {
-							pm = strconv.FormatBool(re.MatchString(wrapped))
+					stdinBases++
+					for _, form := range stdinHeredocForms {
+						wrapped := sink.withHeredoc(target, form)
+						stdinProbes++
+						probes++
+						got := engine.Evaluate(wrapped, nil)
+						if sev[got.Decision] < sev[baseDec] {
+							// Keyed on the probe text: one TP yields several
+							// targets, and each target several probes.
+							leak(r, "stdin-redirect:"+sink.name+":"+form.name, wrapped, base, baseDec, wrapped, got)
 						}
 					}
-					t.Errorf("%s laundered via %s: bare=%s wrapped=%s rules=%v patternMatchesWrapped=%s\n  bare:    %q\n  wrapped: %q",
-						r.ID, ch.name, bare.Decision, got.Decision, got.TriggeredRules, pm, tp, wrapped)
 				}
 			}
 		}
 	}
 	t.Logf("doc-text-downgrade laundering fitness: %d rules, %d probes, %d skipped (quoting), %d laundered (%d recorded, %d new)", rules, probes, skipped, laundered, laundered-len(newLeaks), len(newLeaks))
+	t.Logf("  of which stdin-redirect (#4965): %d file-like TP operands, %d live plain reads, %d heredoc-carrying probes", stdinTargets, stdinBases, stdinProbes)
+	if stdinProbes == 0 {
+		t.Fatal("the #4965 stdin-redirect generator built no probes — the operand filter or the sinks are broken, not clean")
+	}
 	if probes == 0 {
 		t.Fatal("no probes ran — the rule population or the TP wrapper is broken, not clean")
 	}
@@ -162,6 +218,95 @@ func TestDocTextDowngradeCannotBeLaundered(t *testing.T) {
 	for _, key := range fixed {
 		t.Errorf("recorded laundering gap no longer leaks — remove it from %s: %s", knownLaunderingGapsFile, key)
 	}
+}
+
+// stdinSink is a command that reads its stdin and writes it somewhere: the
+// two the in_heredoc label names (cat, tee).
+type stdinSink struct {
+	name string
+	// read is the plain form: the sink reading target through `<`.
+	read func(target string) string
+	// withHeredoc is the same read carrying a dummy here-string or heredoc.
+	withHeredoc func(target string, form stdinHeredocForm) string
+}
+
+// stdinHeredocForm is where the dummy body sits relative to `< target`.
+type stdinHeredocForm struct {
+	name    string
+	heredoc bool // quoted heredoc <<'EOF' (body x); false = here-string <<< x
+	before  bool // the heredoc/here-string precedes `< target`
+}
+
+var stdinHeredocForms = []stdinHeredocForm{
+	{"herestring-before", false, true},
+	{"herestring-after", false, false},
+	{"heredoc-before", true, true},
+	{"heredoc-after", true, false},
+}
+
+// redirs renders the two input redirects in form's order, plus the heredoc
+// body to append after the command line ("" for a here-string).
+func (f stdinHeredocForm) redirs(target string) (line, body string) {
+	dummy := "<<< x"
+	if f.heredoc {
+		dummy, body = "<<'EOF'", "\nx\nEOF"
+	}
+	if f.before {
+		return dummy + " < " + target, body
+	}
+	return "< " + target + " " + dummy, body
+}
+
+var stdinSinks = []stdinSink{
+	{
+		name: "cat",
+		read: func(target string) string { return "cat < " + target + " > /tmp/out" },
+		withHeredoc: func(target string, f stdinHeredocForm) string {
+			line, body := f.redirs(target)
+			return "cat " + line + " > /tmp/out" + body
+		},
+	},
+	{
+		name: "tee",
+		read: func(target string) string { return "tee /tmp/out < " + target },
+		withHeredoc: func(target string, f stdinHeredocForm) string {
+			line, body := f.redirs(target)
+			return "tee /tmp/out " + line + body
+		},
+	},
+}
+
+// stdinRedirectTargets returns the words of tp that could name a file to
+// read through `<`: whitespace-separated, not a flag, carrying a `/` or `.`
+// or starting with `~`, and free of anything that would change meaning as a
+// redirect target (operators, substitutions, globs, embedded quotes). A word
+// that is one whole single- or double-quoted string is kept as written. The
+// filter is deliberately loose — the plain read in the caller decides which
+// targets any rule actually stops.
+func stdinRedirectTargets(tp string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, w := range strings.Fields(tp) {
+		inner := w
+		if len(w) >= 2 && (w[0] == '\'' || w[0] == '"') && w[len(w)-1] == w[0] {
+			inner = w[1 : len(w)-1]
+		}
+		switch {
+		case inner == "" || strings.HasPrefix(inner, "-"):
+			continue
+		case strings.ContainsAny(inner, "|&;<>()`'\"\\{}*?[]=\n"):
+			continue
+		case strings.Contains(inner, "://"):
+			continue // a URL, not a file
+		case !strings.ContainsAny(inner, "/.") && !strings.HasPrefix(inner, "~"):
+			continue
+		}
+		if !seen[w] {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // knownLaunderingGapsFile records probes that leak TODAY. It exists so this

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/homedir"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // TestMain must keep daemon auto-start off: before it did, every test HOME
@@ -38,7 +39,7 @@ func TestDaemonAutoStart_OnlyForTheAccountHome(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			defer homedir.SetAccountLookupForTest(c.account)()
 			prev := daemonAutoStartDisabled
 			daemonAutoStartDisabled = false
@@ -65,7 +66,7 @@ func TestOpportunisticHeartbeat_StartsTheDaemonOnlyForTheAccountHome(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			// A cooldown stamp from now, so no heartbeat is POSTed.
 			cfg := filepath.Join(home, ".agentshield")
 			if err := os.MkdirAll(cfg, 0o700); err != nil {
@@ -88,7 +89,9 @@ func TestOpportunisticHeartbeat_StartsTheDaemonOnlyForTheAccountHome(t *testing.
 			heartbeatRunning = func() bool { return false }
 			heartbeatStart = func() error { starts++; return nil }
 			daemonAutoStartDisabled = false
-			defer func() { heartbeatRunning, heartbeatStart, daemonAutoStartDisabled = prevRunning, prevStart, prevDisabled }()
+			defer func() {
+				heartbeatRunning, heartbeatStart, daemonAutoStartDisabled = prevRunning, prevStart, prevDisabled
+			}()
 
 			sendOpportunisticHeartbeat()
 			if starts != tc.wantStarts {

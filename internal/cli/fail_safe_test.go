@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // These tests pin the error-to-decision boundary (#3619). Each one drives
@@ -44,7 +45,7 @@ rules: []
 func newFailSafeHome(t *testing.T, managed bool, policyYAML string) (home, configDir string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	configDir = filepath.Join(home, ".agentshield")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -198,6 +199,7 @@ func runHookInChildProcess(t *testing.T, home, payload string) (exitCode int, st
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHookProcess$")
 	cmd.Env = append(os.Environ(), "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var errBuf strings.Builder
 	cmd.Stderr = &errBuf

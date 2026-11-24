@@ -160,10 +160,10 @@ func TestPowerShellMatch_Semantics(t *testing.T) {
 func TestPowerShellMatch_PathUnderCwd(t *testing.T) {
 	m := compilePowerShellMatch(&PowerShellMatch{Command: StringOrList{"remove-item"}, PathsAny: []string{"**/psreadline/*_history.txt"}})
 	f := psFacts(`Remove-Item ConsoleHost_history.txt`)
-	if m.matches(f, "/home/u/.local/share/other") {
+	if m.matches(f, absPath("/home/u/.local/share/other")) {
 		t.Errorf("matched outside the directory")
 	}
-	if !m.matches(f, "/home/u/.local/share/powershell/PSReadLine") {
+	if !m.matches(f, absPath("/home/u/.local/share/powershell/PSReadLine")) {
 		t.Errorf("did not match under cwd")
 	}
 }

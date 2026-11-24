@@ -55,6 +55,8 @@ func TestMain(m *testing.M) {
 	// The hook's decision budget: a test budget, a slow evaluation, and the
 	// claim race (#4772).
 	pinTestHookBudget()
+	// The cmdlet bridge, so a test can read a call without it.
+	pinTestCmdletBridge()
 	switch {
 	case os.Getenv(envAuditFlushHelper) == "1":
 		flushAuditQueue()

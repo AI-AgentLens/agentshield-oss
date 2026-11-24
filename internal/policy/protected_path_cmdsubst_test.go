@@ -18,7 +18,7 @@ import (
 // The attribution is asserted too, for the same reason: a BLOCK from some
 // other rule would not show the path was seen.
 func TestProtectedPathViaCommandSubstitution(t *testing.T) {
-	cwd := "/tmp/agentshield-protected-cmdsubst-test"
+	cwd := absPath("/tmp/agentshield-protected-cmdsubst-test")
 	pol := DefaultPolicy()
 	pol.Defaults.ProtectedPaths = []string{"secrets/**"}
 	engine, err := NewEngineWithAnalyzers(pol, 2)

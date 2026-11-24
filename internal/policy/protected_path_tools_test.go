@@ -223,9 +223,13 @@ func TestDeclaredProtectedPaths_FastPathMatchesFullDecode(t *testing.T) {
 	}
 }
 
-// #4645: LoadDeclaredProtectedPaths reads the same files LoadPacks reads,
+// #4645: LoadDeclaredToolCallInputs reads the same files LoadPacks reads,
 // and the same protected_paths from them.
 func TestLoadDeclaredProtectedPaths_MatchesLoadPacks(t *testing.T) {
+	declared := func(policyPath, packsDir string) ([]string, []PackInfo, error) {
+		in, infos, err := LoadDeclaredToolCallInputs(policyPath, packsDir)
+		return in.ProtectedPaths, infos, err
+	}
 	dir := t.TempDir()
 	packs := filepath.Join(dir, "packs")
 	write := func(rel, body string) {
@@ -255,9 +259,9 @@ func TestLoadDeclaredProtectedPaths_MatchesLoadPacks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, infos, err := LoadDeclaredProtectedPaths(policyFile, packs)
+	got, infos, err := declared(policyFile, packs)
 	if err != nil {
-		t.Fatalf("LoadDeclaredProtectedPaths: %v", err)
+		t.Fatalf("LoadDeclaredToolCallInputs: %v", err)
 	}
 	base, err := Load(policyFile)
 	if err != nil {
@@ -281,7 +285,7 @@ func TestLoadDeclaredProtectedPaths_MatchesLoadPacks(t *testing.T) {
 	}
 
 	// Missing files are not errors, and still yield the defaults.
-	got, _, err = LoadDeclaredProtectedPaths(filepath.Join(dir, "absent.yaml"), filepath.Join(dir, "absent"))
+	got, _, err = declared(filepath.Join(dir, "absent.yaml"), filepath.Join(dir, "absent"))
 	if err != nil || !reflect.DeepEqual(got, DefaultPolicy().Defaults.ProtectedPaths) {
 		t.Errorf("absent files: %v %v", got, err)
 	}
@@ -289,7 +293,7 @@ func TestLoadDeclaredProtectedPaths_MatchesLoadPacks(t *testing.T) {
 	if err := os.WriteFile(policyFile, []byte("defaults: [\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err = LoadDeclaredProtectedPaths(policyFile, packs)
+	got, _, err = declared(policyFile, packs)
 	if err == nil || !contains(got, "/etc/acme/secrets/**") {
 		t.Errorf("broken policy file: %v %v, want an error and the pack paths", got, err)
 	}

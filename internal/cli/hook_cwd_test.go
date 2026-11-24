@@ -7,11 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4452: the Claude-shaped PreToolUse path (Claude Code, Codex CLI, both
@@ -54,7 +57,10 @@ func newCwdFixture(t *testing.T) *cwdFixture {
 	if err := os.WriteFile(filepath.Join(f.a, "vault", "key"), []byte("k\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f.writePolicy(t, "version: \"0.1\"\ndefaults:\n  decision: \"AUDIT\"\n  protected_paths:\n    - \""+f.a+"/vault/**\"\n")
+	// Slash form: in a YAML double-quoted scalar a backslash is an escape, so
+	// a Windows path (C:\Users\...) would not parse. ToSlash is the identity
+	// off Windows, and protected-path matching compares in slash form.
+	f.writePolicy(t, "version: \"0.1\"\ndefaults:\n  decision: \"AUDIT\"\n  protected_paths:\n    - \""+filepath.ToSlash(f.a)+"/vault/**\"\n")
 	if err := os.WriteFile(filepath.Join(f.home, ".agentshield", "agentshield.yaml"), []byte("mode: enforce\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +93,7 @@ func runHookFrom(t *testing.T, dir, home, payload string, extraEnv ...string) (i
 		env = append(env, kv)
 	}
 	cmd.Env = append(append(env, "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home, "PWD="+dir), extraEnv...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -150,6 +157,13 @@ func TestPayloadEvalCwd(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// stat fails with ENOTDIR, which is not "does not exist". Windows has no
+	// such error: a path under a file is ERROR_PATH_NOT_FOUND there (Go's
+	// syscall.ENOTDIR is that code), so it does not exist.
+	underFile := "cannot be read"
+	if runtime.GOOS == "windows" {
+		underFile = "does not exist"
+	}
 	cases := []struct {
 		name, in, want, why string // why "" = no note
 	}{
@@ -160,8 +174,7 @@ func TestPayloadEvalCwd(t *testing.T) {
 		{"dot", ".", "", "is not an absolute path"},
 		{"missing", filepath.Join(dir, "gone"), "", "does not exist"},
 		{"not a directory", file, "", "is not a directory"},
-		// stat fails with ENOTDIR, which is not "does not exist".
-		{"under a file", filepath.Join(file, "sub"), "", "cannot be read"},
+		{"under a file", filepath.Join(file, "sub"), "", underFile},
 	}
 	for _, c := range cases {
 		got, notes := payloadEvalCwd(c.in)
@@ -175,20 +188,22 @@ func TestPayloadEvalCwd(t *testing.T) {
 			continue
 		}
 		if len(notes) != 1 || notes[0].Kind != analyzer.NotePayloadCwdUnusable ||
-			!strings.Contains(notes[0].Detail, c.why) || !strings.Contains(notes[0].Detail, c.in) {
+			!strings.Contains(notes[0].Detail, c.why) || !strings.Contains(notes[0].Detail, strconv.Quote(c.in)) {
 			t.Errorf("%s: notes = %+v, want one %s note naming %q and %q", c.name, notes, analyzer.NotePayloadCwdUnusable, c.in, c.why)
 		}
 	}
 	// The process's own directory under another spelling (a symlink to it)
 	// yields the process's spelling: what main evaluated against.
-	link := filepath.Join(canonicalTempDir(t), "link-to-dir")
-	if err := os.Symlink(dir, link); err != nil {
-		t.Fatal(err)
-	}
 	t.Chdir(dir)
 	wd, _ := os.Getwd()
-	if got, notes := payloadEvalCwd(link); got != wd || len(notes) != 0 {
-		t.Errorf("payloadEvalCwd(symlink to the process dir) = %q %+v, want the process spelling %q", got, notes, wd)
+	if canSymlink(t) {
+		link := filepath.Join(canonicalTempDir(t), "link-to-dir")
+		if err := os.Symlink(dir, link); err != nil {
+			t.Fatal(err)
+		}
+		if got, notes := payloadEvalCwd(link); got != wd || len(notes) != 0 {
+			t.Errorf("payloadEvalCwd(symlink to the process dir) = %q %+v, want the process spelling %q", got, notes, wd)
+		}
 	}
 	if got, _ := payloadEvalCwd(dir + "/"); got != wd {
 		t.Errorf("payloadEvalCwd(process dir + \"/\") = %q, want %q", got, wd)
@@ -283,7 +298,7 @@ func TestHookPayloadCwd_RelativeProtectedPathBothDirections(t *testing.T) {
 	}
 
 	// An absolute path is not moved by the cwd at all.
-	code, _, _ = runHookFrom(t, f.b, f.home, claudeBash(t, f.b, "cat "+f.a+"/vault/key"))
+	code, _, _ = runHookFrom(t, f.b, f.home, claudeBash(t, f.b, shellTextPaths("cat "+f.a+"/vault/key")))
 	if code != 2 {
 		t.Errorf("absolute protected path: exit %d, want 2 regardless of cwd", code)
 	}
@@ -299,9 +314,7 @@ func TestHookPayloadCwd_RelativeProtectedPathBothDirections(t *testing.T) {
 func TestHookPayloadCwd_SymlinkSpelling(t *testing.T) {
 	f := newCwdFixture(t)
 	link := filepath.Join(f.b, "link-to-a")
-	if err := os.Symlink(f.a, link); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, f.a, link)
 	code, _, stderr := runHookFrom(t, f.a, f.home, claudeBash(t, link, vaultRead))
 	if code != 2 {
 		t.Errorf("payload cwd = symlink to the process dir: exit %d, want 2 as on main (stderr: %s)", code, stderr)
@@ -379,7 +392,7 @@ func TestHookPayloadCwd_FallsBackToProcessDir(t *testing.T) {
 		switch {
 		case c.why == "" && noted:
 			t.Errorf("%s: unexpected note %+v", c.label, n)
-		case c.why != "" && (!noted || !strings.Contains(n.Detail, c.why) || !strings.Contains(n.Detail, c.cwd)):
+		case c.why != "" && (!noted || !strings.Contains(n.Detail, c.why) || !strings.Contains(n.Detail, strconv.Quote(c.cwd))):
 			t.Errorf("%s: notes %+v, want a %s note naming %q and %q", c.label, e.Notes, analyzer.NotePayloadCwdUnusable, c.cwd, c.why)
 		}
 	}
@@ -435,8 +448,8 @@ func TestHookPayloadCwd_EveryClaudeShapedDialect(t *testing.T) {
 		"copilot native": copilotNativePayload(t, "s", "bash", shellArgs(vaultRead)),
 	}
 	for name, p := range payloads {
-		p = strings.Replace(p, `"cwd":"/repo"`, `"cwd":"`+f.a+`"`, 1)
-		if !strings.Contains(p, f.a) {
+		p = strings.Replace(p, `"cwd":"/repo"`, `"cwd":`+jsonString(f.a), 1)
+		if !strings.Contains(p, jsonString(f.a)) {
 			t.Fatalf("%s: fixture did not take the cwd: %s", name, p)
 		}
 		code, _, stderr := runHookFrom(t, f.b, f.home, p)

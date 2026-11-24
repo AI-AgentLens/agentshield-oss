@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
@@ -15,6 +16,14 @@ import (
 // `cat .env` never resolved under the request cwd while the Read tool and a
 // shell write of the same file BLOCKed. The read now matches them.
 func TestEvaluateRelativeProtectedPathShellRead4673(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// shield-server is built and shipped for Linux (the enterprise gateway);
+		// goreleaser builds no Windows server. These rows send POSIX request cwds
+		// (/work/repo), which are not absolute on a Windows-hosted server, so they
+		// test a configuration that doesn't exist (#5021). The real cross-OS case
+		// runs the other way: a Windows client's C:\ cwd at a Linux server.
+		t.Skip("shield-server has no Windows build; these rows send POSIX request cwds")
+	}
 	dir := t.TempDir()
 	env := "." + "env"
 	policyFile := filepath.Join(dir, "policy.yaml")

@@ -16,7 +16,7 @@ import (
 //
 // Payload fragments are assembled from pieces so the raw injection strings do
 // not sit whole in the source (keeps the corpus grep-clean and mirrors the
-// fixture-indirection discipline in CLAUDE.md).
+// fixture-indirection discipline in .claude/agent-notes/mcp-mediation.md).
 
 func cardWith(desc string, skills []interface{}) *A2AAgentCard {
 	return &A2AAgentCard{

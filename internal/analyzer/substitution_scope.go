@@ -47,11 +47,12 @@ import (
 //
 // # Scope propagation is modelled on what the shell actually does
 //
-// A subprocess carrier (`bash -c`, `sh -c`, `su -c`) sees the EXPORTED
-// environment plus that statement's own prefix assignments — not the caller's
-// ordinary variables. `K=~/.kube/config; bash -c 'cat "$K"'` reads nothing in a
-// real bash, so folding it would manufacture a block for a command that opens no
-// file. `eval` is the opposite: it runs in the current shell, so it inherits
+// A subprocess carrier (`bash -c`, `sh -c`, `su -c`, and the shell-source
+// carriers `env -S`, `man -P`, osascript's `do shell script` and the rest of
+// shellparse's table, #4903) sees the EXPORTED environment plus that
+// statement's own prefix assignments — not the caller's ordinary variables.
+// `K=~/.kube/config; bash -c 'cat "$K"'` reads nothing in a real bash, so
+// folding it would manufacture a block for a command that opens no file. `eval` is the opposite: it runs in the current shell, so it inherits
 // everything and its own bindings persist afterwards.
 //
 // # Model boundary — accepted, not a backlog (#3769, 2026-09-11)
@@ -183,9 +184,28 @@ type scopeEval struct {
 	// isolated marks statements that are a pipeline COMPONENT and therefore
 	// run in their own subshell — see openRegion.
 	isolated map[*syntax.Stmt]bool
-	out      []string
-	depth    int
+	// decoded holds the byte ranges of a carrier body that the OUTER shell
+	// produced by folding a decode substitution, when this evaluator walks
+	// such a body — see decodeSpan.
+	decoded []decodeSpan
+	out     []string
+	depth   int
 }
+
+// decodeSpan is a byte range [start, end) of a carrier body whose text the
+// outer shell produced by folding a decode substitution (#4925).
+//
+// `bash -c "cat $(echo <b64> | base64 -d)"` hands the child shell a body that
+// already holds the decoded path as plain text, because the outer shell runs
+// the substitution inside the double quotes before bash starts. In the child
+// walk that path is a pure literal, and materialize skips pure literals on the
+// grounds that the literal layers have already seen them. That reason does not
+// hold for these bytes: they appear nowhere in the command as written. So a
+// literal word that overlaps a decodeSpan is materialized like a substituted
+// one. Only decode folds count: a `$HOME` or `$VAR` the outer shell expands is
+// not marked, so this reading adds nothing where the substitution layer
+// already had no say (`bash -c "cat $HOME/.ssh/id_rsa"`).
+type decodeSpan struct{ start, end int }
 
 // altBinding is a value a CONDITIONAL write superseded without certainly
 // destroying: the branch may not have run, in which case the shell still holds
@@ -837,6 +857,11 @@ func (ev *scopeEval) unsetBuiltin(call *syntax.CallExpr) bool {
 func (ev *scopeEval) materialize(w *syntax.Word) {
 	if !wordRequiresSubstitution(w) {
 		if val, ok := materializeWord(w, nil); ok {
+			// A literal in a carrier body that the outer shell decoded is not
+			// visible to the literal layers; see decodeSpan.
+			if val != "" && ev.wordOverlapsDecoded(w) {
+				ev.out = append(ev.out, val)
+			}
 			ev.out = append(ev.out, extractFileCallPaths(val)...)
 		}
 		return
@@ -1292,27 +1317,55 @@ func (ev *scopeEval) carrier(call *syntax.CallExpr, prefixNames []string) {
 	name := carrierExecName(exe)
 
 	body := ""
+	var decoded []decodeSpan
 	sameShell := false
 	switch {
 	case name == "eval":
 		// eval takes no options: every argument is source, joined the way
 		// shellparse.evalCode joins them.
-		parts := make([]string, 0, len(call.Args)-1)
-		for _, w := range call.Args[1:] {
-			v, ok := ev.resolve(w)
+		var sb strings.Builder
+		for i, w := range call.Args[1:] {
+			v, spans, ok := ev.resolveDecoded(w)
 			if !ok {
 				return
 			}
-			parts = append(parts, v)
+			if i > 0 {
+				sb.WriteByte(' ')
+			}
+			decoded = appendShifted(decoded, spans, sb.Len())
+			sb.WriteString(v)
 		}
-		body, sameShell = strings.Join(parts, " "), true
-	case shellparse.ShellInterpreters[name] || shellparse.PrivilegeShellCarriers[name]:
-		body, ok = ev.inlineCodeArg(call.Args[1:])
+		body, sameShell = sb.String(), true
+	case isDashCCarrier(name):
+		body, decoded, ok = ev.inlineCodeArg(call.Args[1:])
 		if !ok {
 			return
 		}
 	default:
-		return
+		// An exec wrapper in front of a `-c` carrier (`sudo bash -c '…'`,
+		// `env bash -c '…'`, #4925). The `-c` arm above keys on Args[0], so
+		// the wrapped form reached neither it nor the shell-source table
+		// below. The wrapper is peeled exactly as the shell-source arm peels
+		// it, over the same resolved words, so `sudo bash -c` and
+		// `sudo man -P` are read alike.
+		vals, spans := ev.resolvedArgv(call.Args)
+		stripped := shellparse.StripExecWrappers(vals)
+		if target := wrappedDashCCarrier(vals, stripped); target > 0 {
+			body, decoded, ok = ev.inlineCodeArg(call.Args[target+1:])
+			if !ok {
+				return
+			}
+			break
+		}
+		// A shell-source carrier: `env -S`, `man -P`, osascript's `do shell
+		// script` and the rest of shellparse's table hand their operand to a
+		// child shell, as `bash -c` does (#4903). Not a change to the scope
+		// model: the body is walked in the same child scope a `-c` body is.
+		body = shellparse.ShellSourceArgValue(stripped)
+		if body == "" {
+			return
+		}
+		decoded = sourceArgDecoded(body, stripped, spans[len(vals)-len(stripped):])
 	}
 	if strings.TrimSpace(body) == "" {
 		return
@@ -1324,6 +1377,7 @@ func (ev *scopeEval) carrier(call *syntax.CallExpr, prefixNames []string) {
 	}
 
 	child := ev.childScope(sameShell, prefixNames)
+	child.decoded = decoded
 	child.walk(parsed)
 	ev.out = append(ev.out, child.out...)
 	// A cap reached inside a separate-shell child (bash -c '…') is the same
@@ -1393,10 +1447,16 @@ func (ev *scopeEval) childScope(sameShell bool, prefixNames []string) *scopeEval
 	return child
 }
 
+// isDashCCarrier reports whether name is a program whose `-c` operand is
+// shell source: a shell, or a privilege carrier (`su -c`).
+func isDashCCarrier(name string) bool {
+	return shellparse.ShellInterpreters[name] || shellparse.PrivilegeShellCarriers[name]
+}
+
 // inlineCodeArg returns the value of the `-c` operand, accepting the clustered
 // spelling (`bash -lc 'code'`, `sh -ec 'code'`) the same way ExtractInlineCode's
-// CFlagArg capture does.
-func (ev *scopeEval) inlineCodeArg(args []*syntax.Word) (string, bool) {
+// CFlagArg capture does, and the operand's decodeSpans.
+func (ev *scopeEval) inlineCodeArg(args []*syntax.Word) (string, []decodeSpan, bool) {
 	for i, w := range args {
 		lit, ok := literalWord(w)
 		if !ok || !strings.HasPrefix(lit, "-") || strings.HasPrefix(lit, "--") || len(lit) < 2 {
@@ -1406,11 +1466,196 @@ func (ev *scopeEval) inlineCodeArg(args []*syntax.Word) (string, bool) {
 			continue
 		}
 		if i+1 >= len(args) {
-			return "", false
+			return "", nil, false
 		}
-		return ev.resolve(args[i+1])
+		return ev.resolveDecoded(args[i+1])
 	}
-	return "", false
+	return "", nil, false
+}
+
+// wrappedDashCCarrier returns the argv index of a `-c` carrier that an
+// exec-wrapper chain runs (`sudo bash -c '…'`, `env -i sh -c '…'`,
+// `sudo su -c '…'`), or 0 when argv is not one (#4925).
+//
+// stripped is shellparse.StripExecWrappers(vals), the same peel the
+// shell-source arm reads, so the two arms cannot disagree on where a
+// wrapper's operands end. StripExecWrappers returns a suffix of its input, so
+// the carrier's index is the length difference. The name is read with
+// carrierExecName, as in the unwrapped arm: a relative `./bash` is still not a
+// carrier, and `eval` behind a wrapper is not eval (sudo and env cannot run a
+// builtin).
+func wrappedDashCCarrier(vals, stripped []string) int {
+	target := len(vals) - len(stripped)
+	if target <= 0 || target >= len(vals) || len(stripped) == 0 {
+		return 0
+	}
+	if !isDashCCarrier(carrierExecName(stripped[0])) {
+		return 0
+	}
+	return target
+}
+
+// resolveDecoded is resolve that also returns the byte ranges of the value
+// that a decode substitution produced; see decodeSpan. The value is the one
+// resolve returns: each part is rendered by the same appendPart.
+func (ev *scopeEval) resolveDecoded(w *syntax.Word) (string, []decodeSpan, bool) {
+	if w == nil {
+		return "", nil, true
+	}
+	var sb strings.Builder
+	var spans []decodeSpan
+	var add func(parts []syntax.WordPart) bool
+	add = func(parts []syntax.WordPart) bool {
+		for _, p := range parts {
+			switch x := p.(type) {
+			case *syntax.DblQuoted:
+				if !add(x.Parts) {
+					return false
+				}
+			case *syntax.CmdSubst:
+				start := sb.Len()
+				if !appendPart(&sb, x, ev.view) {
+					return false
+				}
+				if sb.Len() > start {
+					spans = append(spans, decodeSpan{start, sb.Len()})
+				}
+			default:
+				if !appendPart(&sb, p, ev.view) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !add(w.Parts) {
+		return "", nil, false
+	}
+	return sb.String(), spans, true
+}
+
+// appendShifted appends spans moved right by off bytes.
+func appendShifted(dst, spans []decodeSpan, off int) []decodeSpan {
+	for _, s := range spans {
+		dst = append(dst, decodeSpan{s.start + off, s.end + off})
+	}
+	return dst
+}
+
+// wordOverlapsDecoded reports whether any byte of w lies in a decodeSpan of
+// the body this evaluator walks.
+func (ev *scopeEval) wordOverlapsDecoded(w *syntax.Word) bool {
+	if len(ev.decoded) == 0 || w == nil {
+		return false
+	}
+	start, end := int(w.Pos().Offset()), int(w.End().Offset())
+	for _, s := range ev.decoded {
+		if s.start < end && start < s.end {
+			return true
+		}
+	}
+	return false
+}
+
+// unresolvedArgWord stands in for an argv word this scope cannot resolve when
+// a shell-source carrier's argv is read. A plain word rather than a dropped
+// one, so the words around it keep their positions, and with no `/`, `$` or
+// leading `-`, so it can be neither a path nor a flag nor an expansion that
+// folds to something else.
+const unresolvedArgWord = "__agentshield_unresolved__"
+
+// resolvedArgv resolves every word of argv against this scope, putting
+// unresolvedArgWord where a word does not resolve, for the carrier's
+// default arm. That arm reads a shell-source carrier the way shellparse
+// captures CommandSegment.SourceArg: exec wrappers are stripped first
+// (`sudo man -P …`), and the operand is located by shellparse's own table, so
+// this layer and the sub-parse agree on which word is source and which is
+// data. The words are resolved first, as inlineCodeArg resolves `bash -c`'s
+// operand, so the source is what the outer shell hands the carrier (#4903).
+// The same stripped words find a `-c` carrier behind a wrapper (#4925).
+//
+// A word that does not resolve becomes unresolvedArgWord. Bailing instead, as
+// inlineCodeArg does for its one operand, would let any unrelated dynamic word
+// (`man -P '…' "$(date)"`) switch the reading off.
+//
+// spans[i] holds word i's decodeSpans, relative to vals[i].
+func (ev *scopeEval) resolvedArgv(args []*syntax.Word) (vals []string, spans [][]decodeSpan) {
+	vals = make([]string, len(args))
+	spans = make([][]decodeSpan, len(args))
+	for i, w := range args {
+		v, sp, ok := ev.resolveDecoded(w)
+		if !ok {
+			v, sp = unresolvedArgWord, nil
+		}
+		vals[i], spans[i] = v, sp
+	}
+	return vals, spans
+}
+
+// sourceArgDecoded maps the decodeSpans of a shell-source carrier's argv onto
+// the body ShellSourceArgValue took from it (#4925), so `man -P "cat $(…)" ls`
+// is read like `bash -c "cat $(…)"`.
+//
+// The body is located among the words rather than re-derived, so the table
+// that chose it stays the only reader of each carrier's grammar. The three
+// shapes the table returns unchanged are recognised: a whole word (`-P CMD`,
+// watch's single operand), the tail of a `--flag=CMD` word, and watch's
+// operands joined by one space. Anything else, which today is only
+// osascript's `do shell script` string, gets no spans and is read as before.
+// With no decode in argv there is nothing to map and nothing is searched.
+func sourceArgDecoded(body string, words []string, spans [][]decodeSpan) []decodeSpan {
+	found := false
+	for _, s := range spans {
+		found = found || len(s) > 0
+	}
+	if !found {
+		return nil
+	}
+	// words[0] is the carrier itself, never its source.
+	for k := 1; k < len(words); k++ {
+		w := words[k]
+		if w == body {
+			return spans[k]
+		}
+		if cut := len(w) - len(body); cut > 1 && w[cut-1] == '=' && w[cut:] == body {
+			return clipShifted(spans[k], cut, len(body))
+		}
+	}
+	// watch's positional form: body == strings.Join(words[k:], " ") for one
+	// k, found by length first so a long argv costs one join, not one per word.
+	tail := -1
+	for k := len(words) - 1; k >= 1; k-- {
+		tail += len(words[k]) + 1
+		if tail == len(body) {
+			if strings.Join(words[k:], " ") != body {
+				return nil
+			}
+			var out []decodeSpan
+			off := 0
+			for j := k; j < len(words); j++ {
+				out = appendShifted(out, spans[j], off)
+				off += len(words[j]) + 1
+			}
+			return out
+		}
+		if tail > len(body) {
+			break
+		}
+	}
+	return nil
+}
+
+// clipShifted moves spans left by cut bytes and clips them to [0, n): the
+// part of a `--flag=CMD` word's spans that falls inside CMD.
+func clipShifted(spans []decodeSpan, cut, n int) []decodeSpan {
+	var out []decodeSpan
+	for _, s := range spans {
+		start, end := max(s.start-cut, 0), min(s.end-cut, n)
+		if start < end {
+			out = append(out, decodeSpan{start, end})
+		}
+	}
+	return out
 }
 
 // carrierExecName resolves a command word to the program name the carrier

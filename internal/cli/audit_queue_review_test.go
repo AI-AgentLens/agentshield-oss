@@ -231,6 +231,9 @@ func TestAuditFlush_StopsWhenProgressCannotBeRecorded(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
+	if !modeBitsAreReal {
+		t.Skip("chmod 0500 does not make a directory read-only on Windows: it sets only the read-only attribute, which Windows ignores for directories")
+	}
 	saas := newFakeSaaS(t, nil)
 	dir := newQueueHome(t, saas.srv.URL)
 	spawns := stubFlusher(t, nil)
@@ -295,9 +298,7 @@ func TestAuditQueue_SymlinkedQueueFallsBackToSync(t *testing.T) {
 	if err := os.WriteFile(sink, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(sink, queue); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, sink, queue)
 	before, startsBefore := len(saas.requests()), spawns()
 	sendRemoteAudit(queueEvent("echo through a symlink"), nil)
 	if got := len(saas.requests()) - before; got != 1 || spawns() != startsBefore {

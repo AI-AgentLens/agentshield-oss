@@ -269,6 +269,18 @@ rules:
 | `tool_name_any` | List | Match if any name in list matches |
 | `argument_patterns` | Map | Glob patterns matched against argument values |
 
+### Argument names a `path` rule also reads
+
+On an MCP server tool call, a rule predicate written on the argument `path` (`argument_patterns`, `argument_patterns_any`, `argument_regex_patterns`, `exclude_argument_patterns`, a structural `args_match`) also sees a path the call carries under `file_path`, `filepath`, `file` or `filename` (#4937), and the file a tool writes its output to under `dest`, `destination`, `output_file`, `output_path`, `out_path` or `save_path` (#4942). The names resolve the way every argument name does, so `filePath`, `file-path`, `FILE_PATH` and `outputFile` count too. The list is closed: no other name is read as `path`. Plurals (`file_paths`, `files`), identifier-style names (`name`, `id`, `target`) and other destination spellings (`output`, `output_dir`, `dest_path`, `dst`) are not aliases.
+
+A download or report tool is why the second group exists: it takes what to fetch from one argument and where to write it from another, so the place it writes is not under `path` (Kubeshark's `download_file` has `path` for the remote file and `dest` for the local one, GHSA-gj7r-p794-hhq5; awslabs' `generate_cost_report` has `output_file`, GHSA-mqm3-w68j-75mw).
+
+A harness's own file tools are out of scope by decision: Claude Code's `Read`, `Write`, `Edit` and `MultiEdit` and Copilot CLI's `view`, `create` and `edit` decide exactly as without the alias, and keep their record-only attribution: when such a call decides AUDIT, the BLOCK rules the equivalent MCP file tool call would match are recorded on it with their taxonomy, not enforced (#4248, #4457). The tool names come from the same two lists that attribution uses, compared exactly. One known ambiguity: an MCP server tool whose bare name is `view`, `create` or `edit` is on those lists too, so it gets no alias reading either.
+
+It is an extra reading, not a rename. The evaluator runs the rule set on the arguments as written, then once more on a copy in which each alias value is also presented under `path` (the original keys are kept), and keeps the second verdict only when it is strictly more restrictive. So the alias can raise a decision and never lower one: an exclusion or `exclude_when` written on `path` acts only inside the alias reading, and on a tie the as-written verdict and its rules are kept (so an AUDIT-level `path` rule is not added to a call that already decides AUDIT). When the alias raises a decision, the rule recorded is the `path` rule that matched, with its own taxonomy. A call that carries `path` and an alias with different values has both evaluated: `path` as written, and the alias value under `path`. The alias reading also gets the case-fold, Windows-separator and macOS `/private` readings.
+
+It reads the top-level arguments and every object nested in them (an envelope such as `{"request": {"file_path": …}}`, the objects of a batch array), and a list value under an alias name. It does not reach an alias inside a string that holds JSON, and it applies only to the policy rules (`rules`, `structural_rules`, `semantic_rules`): the argument content scan, the config-file write guard, the path-traversal and symlink scans, `protected_paths` and `value_limits` keep their own argument names, and a sequence rule's steps read the session's recorded calls as written. A call with more than four distinct alias values in one object gets one reading for each of the first four and one reading presenting the rest together as a list.
+
 ### Glob patterns
 
 - `*` matches a single path component (e.g., `read_*` matches `read_file`)

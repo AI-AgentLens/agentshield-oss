@@ -22,6 +22,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/logger"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 	"github.com/AI-AgentLens/agentshield/internal/route"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // The hook's decision budget (#4772). Every test below that runs the hook
@@ -757,10 +758,12 @@ func slowBraceCommand(n int) string {
 	return b.String()
 }
 
-// buildAgentshield builds the real agentshield binary into a temp dir.
+// buildAgentshield builds the real agentshield binary into a temp dir. On
+// Windows it is agentshield.exe: go build -o writes the name it is given, and
+// exec finds a program there only under a PATHEXT extension.
 func buildAgentshield(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "agentshield")
+	bin := filepath.Join(t.TempDir(), exeName("agentshield"))
 	build := exec.Command("go", "build", "-o", bin, "github.com/AI-AgentLens/agentshield/cmd/agentshield")
 	build.Env = withoutEnv(os.Environ(), "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -775,6 +778,7 @@ func runAgentshield(t *testing.T, bin, home, payload string, env ...string) (int
 	t.Helper()
 	cmd := exec.Command(bin, "hook")
 	cmd.Env = append(withoutEnv(os.Environ(), "AGENTSHIELD_", "HOME="), append(env, "HOME="+home)...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb

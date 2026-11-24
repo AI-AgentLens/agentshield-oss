@@ -3226,7 +3226,7 @@ var GitNestedBareRepoHookDetonationCases = []TestCase{
 	},
 	{
 		ID:               "TP-GITNESTEDHOOK-003",
-		Command:          "cd /tmp/scratch; git checkout feature-branch",
+		Command:          "cd vendor/scratch; git checkout feature-branch",
 		ExpectedDecision: "AUDIT",
 		Classification:   "TP",
 		TaxonomyRef:      "supply-chain/config-tampering/embedded-bare-repository-hook-execution",

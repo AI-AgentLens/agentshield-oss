@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,10 @@ import (
 type unopenableLockFixture struct {
 	name      string
 	needsMode bool
-	setup     func(t *testing.T, dir, logPath string)
+	// notOnWindows, when set, is why the fixture cannot deny the lock on
+	// Windows; the case is skipped there with that reason.
+	notOnWindows string
+	setup        func(t *testing.T, dir, logPath string)
 }
 
 var unopenableLockFixtures = []unopenableLockFixture{
@@ -46,6 +50,11 @@ var unopenableLockFixtures = []unopenableLockFixture{
 		// so the lock file cannot be created. Logging worked before #4052.
 		name:      "log dir read-only, log file writable",
 		needsMode: true,
+		// os.Chmod on a Windows directory sets only its read-only attribute,
+		// which does not stop a file being created inside it, so the lock
+		// opens normally. The ACL that would deny it is not something a
+		// mode can express (#5021).
+		notOnWindows: "a read-only directory attribute does not stop file creation on Windows, so the lock stays openable",
 		setup: func(t *testing.T, dir, logPath string) {
 			if err := os.WriteFile(logPath, nil, 0600); err != nil {
 				t.Fatal(err)
@@ -67,6 +76,9 @@ func newDegradedLogger(t *testing.T, fx unopenableLockFixture) (*AuditLogger, st
 	t.Helper()
 	if fx.needsMode && os.Geteuid() == 0 {
 		t.Skip("root ignores file modes; the directory-at-lock fixture still runs")
+	}
+	if fx.notOnWindows != "" && runtime.GOOS == "windows" {
+		t.Skip(fx.notOnWindows)
 	}
 	dir := filepath.Join(t.TempDir(), "logs")
 	if err := os.Mkdir(dir, 0755); err != nil {

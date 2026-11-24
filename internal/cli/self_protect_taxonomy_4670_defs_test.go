@@ -80,9 +80,7 @@ func TestManagedConfigDirRel(t *testing.T) {
 	}
 	outside := t.TempDir()
 	link := filepath.Join(outside, "cfg")
-	if err := os.Symlink(dir, link); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, dir, link)
 	for _, c := range []struct {
 		p, wantRel string
 		wantOK     bool

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // withFakeHomeForCheck mirrors the helper in mcp_policy_test.go but resets
@@ -18,7 +20,7 @@ import (
 func withFakeHomeForCheck(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	oldPolicyPath, oldLogPath, oldMode := policyPath, logPath, mode
 	oldShell, oldCheckPolicy, oldFixture, oldFormat := checkShell, checkPolicyPath, checkFixture, checkFormat
@@ -430,17 +432,20 @@ func evaluateViaHookEnginePath(t *testing.T, command string) policy.Decision {
 // TestEvaluateShellCommand_NormalizesWithProcessCwd.
 func TestEvaluateShellCommand_CwdParity(t *testing.T) {
 	withFakeHomeForCheck(t)
-	dd := "dd if=/dev/zero of=sda count=1"
-	t.Chdir("/dev")
-	got, err := evaluateShellCommand(dd, "")
-	if err != nil {
-		t.Fatalf("evaluateShellCommand: %v", err)
-	}
-	if got.Decision != policy.DecisionBlock {
-		t.Errorf("cwd=/dev check %q: got %s, want BLOCK", dd, got.Decision)
-	}
-	if hook := evaluateViaHookEnginePath(t, dd); hook != policy.DecisionBlock {
-		t.Errorf("cwd=/dev hook %q: got %s, want BLOCK", dd, hook)
+	// /dev and its block devices are POSIX; Windows has no such directory.
+	if runtime.GOOS != "windows" {
+		dd := "dd if=/dev/zero of=sda count=1"
+		t.Chdir("/dev")
+		got, err := evaluateShellCommand(dd, "")
+		if err != nil {
+			t.Fatalf("evaluateShellCommand: %v", err)
+		}
+		if got.Decision != policy.DecisionBlock {
+			t.Errorf("cwd=/dev check %q: got %s, want BLOCK", dd, got.Decision)
+		}
+		if hook := evaluateViaHookEnginePath(t, dd); hook != policy.DecisionBlock {
+			t.Errorf("cwd=/dev hook %q: got %s, want BLOCK", dd, hook)
+		}
 	}
 
 	pol, _, err := loadCheckPolicy("")
@@ -474,7 +479,9 @@ func TestEvaluateShellCommand_NormalizesWithProcessCwd(t *testing.T) {
 	t.Chdir(cwd)
 	cwd, _ = os.Getwd()
 	policyFile := filepath.Join(t.TempDir(), "policy.yaml")
-	body := "version: \"0.1\"\ndefaults:\n  decision: \"AUDIT\"\n  protected_paths:\n    - \"" + filepath.Join(cwd, "vault") + "/**\"\n"
+	// Slash form, so a Windows path is not read as YAML escapes (\U...);
+	// ToSlash is the identity elsewhere.
+	body := "version: \"0.1\"\ndefaults:\n  decision: \"AUDIT\"\n  protected_paths:\n    - \"" + filepath.ToSlash(filepath.Join(cwd, "vault")) + "/**\"\n"
 	if err := os.WriteFile(policyFile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

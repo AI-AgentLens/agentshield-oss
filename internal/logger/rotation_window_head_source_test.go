@@ -1,11 +1,10 @@
-//go:build unix
-
 package logger
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -129,6 +128,12 @@ func TestDegradedFollower_AppendInWindow_HeadFromHeldFile(t *testing.T) {
 func TestOpenLog_WriteOnlyFileStillOpens(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads regardless of mode")
+	}
+	if runtime.GOOS == "windows" {
+		// os.Chmod sets only the read-only attribute on Windows; 0200 keeps
+		// the file readable, so the read-write open never fails. A file
+		// that is writable but not readable there takes an ACL.
+		t.Skip("a file mode cannot make a file write-only on Windows")
 	}
 	logPath := filepath.Join(t.TempDir(), "audit.jsonl")
 	l, err := New(logPath)

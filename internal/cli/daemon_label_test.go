@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4476: a second HOME must not share the real user's launchd label.
@@ -13,14 +15,14 @@ func TestLaunchdLabel_ScratchHomeGetsOwnLabel(t *testing.T) {
 	if err != nil || u.HomeDir == "" {
 		t.Skip("no current user home")
 	}
-	t.Setenv("HOME", u.HomeDir)
+	testhome.Set(t, u.HomeDir)
 	if got := launchdLabel(); got != launchdBaseLabel {
 		t.Fatalf("real home label = %q, want the bare label (no migration)", got)
 	}
 	a, b := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", a)
+	testhome.Set(t, a)
 	la := launchdLabel()
-	t.Setenv("HOME", b)
+	testhome.Set(t, b)
 	lb := launchdLabel()
 	if la == launchdBaseLabel || lb == launchdBaseLabel || la == lb {
 		t.Fatalf("scratch labels must be unique and not the global one: %q %q", la, lb)
@@ -28,7 +30,7 @@ func TestLaunchdLabel_ScratchHomeGetsOwnLabel(t *testing.T) {
 	if !strings.HasPrefix(la, launchdBaseLabel+".") {
 		t.Fatalf("label %q lost its prefix", la)
 	}
-	t.Setenv("HOME", a)
+	testhome.Set(t, a)
 	if !strings.HasSuffix(plistPath(), la+".plist") || !strings.Contains(plistPath(), filepath.Join(a, "Library")) {
 		t.Fatalf("plist path %q does not follow the label", plistPath())
 	}

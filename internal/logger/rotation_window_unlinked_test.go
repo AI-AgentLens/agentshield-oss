@@ -1,5 +1,3 @@
-//go:build unix
-
 package logger
 
 import (
@@ -42,18 +40,11 @@ func windowFixture(t *testing.T) (D, H *AuditLogger, logPath string) {
 // line of the fresh file.
 func rotateOnce(t *testing.T, H *AuditLogger, logPath, cmd string) {
 	t.Helper()
-	before, err := os.Stat(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := fileIdentity(t, logPath)
 	if err := H.Log(windowEvent(cmd)); err != nil {
 		t.Fatal(err)
 	}
-	after, err := os.Stat(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if os.SameFile(before, after) {
+	if !replacedSince(t, before, logPath) {
 		t.Fatalf("control: H.Log(%s) did not rotate", cmd)
 	}
 }

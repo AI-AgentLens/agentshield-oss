@@ -178,6 +178,11 @@ func isGitCommitMessageStdinSink(args []*syntax.Word) bool {
 // commit message from stdin is exactly as inert as `cat`/`tee`, while
 // `git apply`/`git am` take a patch; see isGitCommitMessageStdinSink). Exec
 // wrappers are stripped first, so `sudo bash <<'EOF'` is named bash, not sudo.
+// The sink is named by its last path element only for a bare word or a
+// system command directory: `/tmp/e/cat`, `./cat`, a wrapper named by a path,
+// and `env PATH=… cat` keep the body live (#5092, sinkWordsRebindLookup). A
+// line that rebinds the name some other way (PATH, hash, zsh's tables) is
+// CommandLineIsPure's to refuse, which heredoc_body also requires.
 // A heredoc fed to an interpreter
 // (`bash <<EOF`, `python3 <<EOF`, `eval <<EOF`) is source code, not inert
 // data — the InInterpreterHeredoc label already exists for the python/node/
@@ -255,6 +260,13 @@ func HeredocBodies(command string) (items []string, redacted string) {
 		offset := len(words) - len(stripped) // StripExecWrappers only trims the front
 		exe := staticWord(ce.Args[offset])
 		if exe == "" {
+			return true
+		}
+		// #5092: the sink is trusted by name, so a name that is a file
+		// (`/tmp/e/cat`, `./cat`), or a wrapper that names one or sets PATH
+		// (`env PATH=/tmp/e cat`), leaves the body live. path.Base below is
+		// only reached for a bare name or a system command directory.
+		if sinkWordsRebindLookup(append(words[:offset:offset], exe)) {
 			return true
 		}
 		name := path.Base(NormalizeExecName(exe))

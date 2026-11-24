@@ -16,7 +16,8 @@ package policy_test
 //     with a file:line error. Shell packs are schema-clean, so this is the
 //     strongest possible guard and it is green from day one.
 //
-//  2. MCP packs (community/mcp, premium/mcp): full strict decode with
+//  2. MCP packs (community/mcp, premium/mcp, premium/optional/mcp; see
+//     mcpPackDirs): full strict decode with
 //     yaml.Decoder.KnownFields(true) into mcp.MCPPack (TestMCPPackYAML_
 //     StrictDecode below). This became possible once #2869 Class A
 //     (confidence/taxonomy/tests/description/generated/result/tools_list —
@@ -65,6 +66,18 @@ func strictDecode(data []byte, out interface{}) error {
 func packsRoot() string {
 	_, filename, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(filename), "..", "..", "packs")
+}
+
+// mcpPackDirs is every directory of MCP-schema packs the lints below read.
+// premium/optional/mcp holds packs no install has until the customer copies
+// one into ~/.agentshield/mcp-packs/ (aiagentlens#377); an install that does
+// loads it with the same lenient decoder, so it gets the same strict twin.
+func mcpPackDirs(root string) []string {
+	return []string{
+		filepath.Join(root, "community", "mcp"),
+		filepath.Join(root, "premium", "mcp"),
+		filepath.Join(root, "premium", "optional", "mcp"),
+	}
 }
 
 // yamlFilesIn returns the .yaml files directly inside dir, skipping
@@ -229,10 +242,7 @@ func mcpRuleLevelMatchKeys(doc map[string]interface{}) []string {
 // and fails the build with the pack, section, and rule id.
 func TestMCPPackYAML_NoRuleLevelMatchKeys(t *testing.T) {
 	root := packsRoot()
-	mcpDirs := []string{
-		filepath.Join(root, "community", "mcp"),
-		filepath.Join(root, "premium", "mcp"),
-	}
+	mcpDirs := mcpPackDirs(root)
 
 	checked := 0
 	for _, dir := range mcpDirs {
@@ -311,10 +321,7 @@ structural_rules:
 // Go type update — never expected drift.
 func TestMCPPackYAML_StrictDecode(t *testing.T) {
 	root := packsRoot()
-	mcpDirs := []string{
-		filepath.Join(root, "community", "mcp"),
-		filepath.Join(root, "premium", "mcp"),
-	}
+	mcpDirs := mcpPackDirs(root)
 
 	checked := 0
 	for _, dir := range mcpDirs {
@@ -423,10 +430,7 @@ var knownMCPClassBGaps = map[string]string{}
 // and the rule's filter never applies (#2869 Class B).
 func TestMCPPackYAML_NoInertMatchPredicates(t *testing.T) {
 	root := packsRoot()
-	mcpDirs := []string{
-		filepath.Join(root, "community", "mcp"),
-		filepath.Join(root, "premium", "mcp"),
-	}
+	mcpDirs := mcpPackDirs(root)
 
 	checked := 0
 	seenGaps := map[string]bool{}

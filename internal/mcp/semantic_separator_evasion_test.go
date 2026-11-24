@@ -24,7 +24,7 @@ import (
 //   - PARITY: the respelled call must match exactly the semantic rule ids the
 //     ASCII call matched. "Still BLOCKs" would not do — several other layers
 //     can block the same fixture, so a decision-level assertion stays green with
-//     the fold removed (the lesson recorded in CLAUDE.md under tool-name render
+//     the fold removed (the lesson recorded in .claude/agent-notes/mcp-scanners.md under tool-name render
 //     evasion).
 //   - VACUITY: the ASCII control must match a non-empty, named rule set. Without
 //     it, a change that stopped classifying anything at all would make every

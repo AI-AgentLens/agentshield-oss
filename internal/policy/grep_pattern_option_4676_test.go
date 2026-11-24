@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4676: a customer protected path covering a file BLOCKed `grep KEY <file>`
@@ -11,7 +13,7 @@ import (
 // walk dropped the file operand. A customer pattern has no regex backstop, so
 // path extraction is the only layer. Helpers are #4673's (relReadEngine etc.).
 func TestProtectedPath_GrepPatternOptionFileOperand_4676(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Set(t, t.TempDir())
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -29,22 +31,22 @@ func TestProtectedPath_GrepPatternOptionFileOperand_4676(t *testing.T) {
 	engine := relReadEngine(t, acme+"/**")
 
 	// Control, BLOCK on main: the positional pattern.
-	if r := relReadEval(engine, "grep KEY "+f, root); r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) {
+	if r := relReadEval(engine, "grep KEY "+shellPath(f), root); r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) {
 		t.Fatalf("control grep KEY <file>: %v %v; want BLOCK protected-path", r.Decision, r.TriggeredRules)
 	}
 
 	for _, cmd := range []string{
-		"grep -e KEY " + f,
-		"grep -e KEY -n " + f,
-		"grep --regexp=KEY " + f,
-		"grep -eKEY " + f,
-		"grep -e A -e B " + f,
-		"grep -f pats " + f,
-		"grep -f pats -e X " + f,
-		"rg -e KEY " + f,
-		"grep -rn -e KEY " + acme,
-		"grep " + f + " -e KEY",
-		"grep -f " + f + " README.md", // the pattern file is read
+		"grep -e KEY " + shellPath(f),
+		"grep -e KEY -n " + shellPath(f),
+		"grep --regexp=KEY " + shellPath(f),
+		"grep -eKEY " + shellPath(f),
+		"grep -e A -e B " + shellPath(f),
+		"grep -f pats " + shellPath(f),
+		"grep -f pats -e X " + shellPath(f),
+		"rg -e KEY " + shellPath(f),
+		"grep -rn -e KEY " + shellPath(acme),
+		"grep " + shellPath(f) + " -e KEY",
+		"grep -f " + shellPath(f) + " README.md", // the pattern file is read
 	} {
 		r := relReadEval(engine, cmd, root)
 		if r.Decision != DecisionBlock || !relReadHasRule(r, ProtectedPathRuleID) || !relReadHasRef(r, ProtectedPathNode) {
@@ -54,13 +56,13 @@ func TestProtectedPath_GrepPatternOptionFileOperand_4676(t *testing.T) {
 
 	// The protected path as pattern text, or a pattern with no file operand.
 	for _, cmd := range []string{
-		"grep -e " + f + " README.md",
-		"grep --regexp=" + f + " README.md",
+		"grep -e " + shellPath(f) + " README.md",
+		"grep --regexp=" + shellPath(f) + " README.md",
 		"grep -e KEY README.md",
 		"echo x | grep -e KEY",
-		"echo x | grep -e " + f,
-		"grep " + f + " README.md",
-		"rg -tconf " + f + " README.md",
+		"echo x | grep -e " + shellPath(f),
+		"grep " + shellPath(f) + " README.md",
+		"rg -tconf " + shellPath(f) + " README.md",
 	} {
 		if r := relReadEval(engine, cmd, root); relReadHasRule(r, ProtectedPathRuleID) {
 			t.Errorf("%q: %v %v; the protected path is pattern text here, not a file", cmd, r.Decision, r.TriggeredRules)

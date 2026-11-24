@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Integration contract test for clients/agentshield-remote-hook.py — the
@@ -31,11 +33,85 @@ const clientScript = "../../clients/agentshield-remote-hook.py"
 
 func python3(t *testing.T) string {
 	t.Helper()
-	py, err := exec.LookPath("python3")
+	py, err := lookPython3(exec.LookPath, runtime.GOOS)
 	if err != nil {
+		if missingPython3Fails(os.Getenv("GITHUB_ACTIONS"), runtime.GOOS) {
+			t.Fatal("python3 not on PATH: the Python client tests cannot run, and in CI that is a failure, not a skip")
+		}
 		t.Skip("python3 not on PATH — remote-hook client test skipped")
 	}
 	return py
+}
+
+// lookPython3 finds an installed python3. On Windows, a python3.exe under
+// Microsoft\WindowsApps is the Store's app-execution alias. With no Python
+// installed it prints "Python was not found" and exits 9009, which every
+// Python-driven test then reported as a client failure (38 on the Win10 box,
+// #5021). So it counts as absent.
+func lookPython3(lookPath func(string) (string, error), goos string) (string, error) {
+	py, err := lookPath("python3")
+	if err != nil {
+		return "", err
+	}
+	// Explicit `\` → `/`, not filepath.ToSlash, so this reads the same on the
+	// macOS and Linux runs that pin it.
+	if goos == "windows" && strings.Contains(strings.ToLower(strings.ReplaceAll(py, `\`, "/")), "/microsoft/windowsapps/") {
+		return "", exec.ErrNotFound
+	}
+	return py, nil
+}
+
+// missingPython3Fails says whether a missing python3 fails a test instead of
+// skipping it. CI runs go test without -v, so a skip there is invisible and
+// every Python-driven test could stop running without anyone seeing it.
+// GitHub Actions sets GITHUB_ACTIONS=true; anywhere else a skip is fine.
+//
+// Windows is the exception, even in CI. The Windows job (aial-04) does not
+// provision Python, and the Python clients are exercised by the Linux and
+// macOS jobs, where the rule still holds (#5021). What that leaves untested
+// is the Python clients running ON Windows; the Windows harnesses use the
+// PowerShell client (clients/agentshield-remote-hook.ps1).
+func missingPython3Fails(githubActions, goos string) bool {
+	return githubActions == "true" && goos != "windows"
+}
+
+func TestMissingPython3FailsOnlyInGitHubActions(t *testing.T) {
+	for _, c := range []struct {
+		githubActions, goos string
+		want                bool
+	}{
+		{"true", "linux", true},
+		{"true", "darwin", true},
+		{"true", "windows", false},
+		{"", "linux", false},
+		{"false", "linux", false},
+		{"1", "linux", false},
+		{"", "windows", false},
+	} {
+		if got := missingPython3Fails(c.githubActions, c.goos); got != c.want {
+			t.Errorf("missingPython3Fails(%q, %q) = %v, want %v", c.githubActions, c.goos, got, c.want)
+		}
+	}
+}
+
+func TestLookPython3TreatsTheWindowsStoreAliasAsAbsent(t *testing.T) {
+	stub := func(p string) func(string) (string, error) {
+		return func(string) (string, error) { return p, nil }
+	}
+	alias := `C:\Users\u\AppData\Local\Microsoft\WindowsApps\python3.exe`
+	if _, err := lookPython3(stub(alias), "windows"); err == nil {
+		t.Errorf("the Store alias %s was accepted as an installed Python on windows", alias)
+	}
+	real := `C:\Users\u\AppData\Local\Programs\Python\Python313\python3.exe`
+	if got, err := lookPython3(stub(real), "windows"); err != nil || got != real {
+		t.Errorf("an installed Python was refused on windows: %q, %v", got, err)
+	}
+	if got, err := lookPython3(stub("/usr/bin/python3"), "linux"); err != nil || got != "/usr/bin/python3" {
+		t.Errorf("linux python3 refused: %q, %v", got, err)
+	}
+	if _, err := lookPython3(func(string) (string, error) { return "", exec.ErrNotFound }, "linux"); err == nil {
+		t.Error("a missing python3 was reported as found")
+	}
 }
 
 // runHookClient executes the client script with the given stdin payload and
@@ -69,8 +145,10 @@ func runClientProcess(t *testing.T, argv []string, env map[string]string, payloa
 	// Minimal, explicit environment: the client must work from nothing but
 	// its documented variables (plus HOME for getpass on some platforms).
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "USER=" + os.Getenv("USER"), "LOGNAME=" + os.Getenv("LOGNAME")}
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
+		cmd.Env = testhome.ChildEnv(cmd.Env)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -172,11 +250,12 @@ func TestRemoteHookBlocksMCPToolCall(t *testing.T) {
 // other tool, Claude Code's PowerShell included, is sent as a tool call. That
 // shape is what a server without the routing key routes on; this server
 // routes on the key the client also sends (step 2), and each input below
-// decides as its row says: a destructive command BLOCKs as Bash and decides
-// AUDIT as Claude Code's PowerShell (MCP policy and the PowerShell lane: no
-// step-5 PowerShell rule covers `rm -rf /`, a bash spelling); `ls -la` ALLOWs
-// as Bash and BLOCKs as a call to a tool named bash, which no row names (MCP
-// policy).
+// decides as its row says: a destructive command BLOCKs as Bash and as
+// Claude Code's PowerShell, sent as a tool call (the client's tool-call
+// message names it); there the PowerShell lane's cmdlet bridge reads `rm -rf
+// /` as Remove-Item's POSIX twin, where main decided AUDIT (no step-5
+// PowerShell rule covers that bash spelling). `ls -la` ALLOWs as Bash and
+// BLOCKs as a call to a tool named bash, which no row names (MCP policy).
 func TestRemoteHookRoutesOnlyBashAsAShell(t *testing.T) {
 	ts := httptest.NewServer(sharedServer.Handler())
 	defer ts.Close()
@@ -191,8 +270,8 @@ func TestRemoteHookRoutesOnlyBashAsAShell(t *testing.T) {
 	}
 
 	code, stderr := runHookClient(t, env, call("PowerShell", destructiveCommand()))
-	if code != 0 || !strings.Contains(stderr, "AUDIT MCP tool: PowerShell") {
-		t.Errorf("PowerShell: exit %d, want 0 with the MCP AUDIT line (sent as a tool call). stderr: %s", code, stderr)
+	if code != 2 || !strings.Contains(stderr, "BLOCKED MCP tool call: PowerShell") {
+		t.Errorf("PowerShell: exit %d, want 2 with the tool-call block message (sent as a tool call; the cmdlet bridge BLOCKs). stderr: %s", code, stderr)
 	}
 
 	code, stderr = runHookClient(t, env, call("bash", "ls -la"))

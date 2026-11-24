@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4653 through the real hook entry point. A customer pack protects
@@ -67,7 +68,7 @@ func ppRepo(t *testing.T) string {
 // blocks the call before policy, which would hide what these tests measure.
 func ppShortRepo(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "pp4653-")
+	dir, err := os.MkdirTemp(shortTempRoot(t), "pp4653-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func ppShortRepo(t *testing.T) string {
 }
 
 func ppPayloadIn(cwd, tool string, input map[string]interface{}) string {
-	m := map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": tool, "session_id": "pp-4653", "tool_input": input}
+	m := map[string]interface{}{"hook_event_name": "PreToolUse", "tool_name": tool, "session_id": "pp-4653", "tool_input": withShellTextPaths(input)}
 	if cwd != "" {
 		m["cwd"] = cwd
 	}
@@ -190,6 +191,7 @@ func TestMCPProxy_RelativeProtectedPath_ProcessDir_4653(t *testing.T) {
 		defer cancel()
 		cmd := proxyHelperCmd(ctx, ppRelHome(t, false), "mcp-proxy", "--", os.Args[0], "-test.run=^TestHelperFakeMCPServer$")
 		cmd.Env = append(cmd.Env, "AGENTSHIELD_FAKE_MCP_SERVER=1")
+		cmd.Env = testhome.ChildEnv(cmd.Env)
 		cmd.Dir = dir
 		cmd.Stdin = strings.NewReader(req + "\n")
 		out, err := cmd.Output()

@@ -16,6 +16,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/auth"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4474: the hook reads two files under ~/.agentshield on every call before
@@ -232,6 +233,7 @@ func runHookWithDeadline(t *testing.T, home, payload string, deadline time.Durat
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperHookProcess$")
 	cmd.Env = append(os.Environ(), "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var errBuf strings.Builder
 	cmd.Stderr = &errBuf

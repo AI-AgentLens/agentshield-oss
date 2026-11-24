@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
@@ -89,6 +90,16 @@ func priorInstallEvidence(home string) string {
 	entries, err := os.ReadDir(configDir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return configDir + " is unreadable: " + err.Error()
+	}
+	// POSIX lists a regular file at configDir as ENOTDIR, which the branch
+	// above names. Windows lists it as ERROR_PATH_NOT_FOUND, a not-exist
+	// error, so there the file read as "nothing here", and setup then failed
+	// to create the directory and warned instead of naming the prior state
+	// (#5021). Whatever is at the path is prior state.
+	if err != nil && runtime.GOOS == "windows" {
+		if _, lerr := os.Lstat(configDir); lerr == nil {
+			return configDir + " exists and is not a directory"
+		}
 	}
 	for _, e := range entries {
 		if e.Name() == "packs" && e.IsDir() {

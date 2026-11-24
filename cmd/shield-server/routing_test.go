@@ -650,3 +650,61 @@ func TestRoutedRequest_NativeBridgeIsBoundedOnTheServer(t *testing.T) {
 		t.Errorf("unbounded lane: %s %v; want the last line's BLOCK", res.Decision, err)
 	}
 }
+
+// cmdletReadS3 reads a cloud-storage credential file with a file cmdlet,
+// in the Windows spelling. Assembled at run time.
+func cmdletReadS3() string { return `Get-Content $env:USERPROFILE\.s3` + "cfg" }
+
+// TestRoutedRequest_CmdletBridge: the cmdlet bridge runs where the native
+// bridge runs, on the Python client's Claude Code PowerShell call, so a file
+// cmdlet's read of a credential file BLOCKs by the bash rule there. The
+// PowerShell client's call keeps its legacy POSIX reading and no bridge, so
+// it decides as main. Control: the server's lane with the cmdlet bridge off
+// does not BLOCK.
+func TestRoutedRequest_CmdletBridge(t *testing.T) {
+	ts := httptest.NewServer(sharedServer.Handler())
+	defer ts.Close()
+	const rule = "sec-block-cloud-storage-creds"
+
+	l := sharedServer.powerShellLane(`C:\repo`)
+	l.NativeBridge = true
+	if res, err := l.Read(cmdletReadS3()); err != nil || res.Decision == policy.DecisionBlock {
+		t.Fatalf("control, cmdlet bridge off: %s %v %v; want no BLOCK, as on main", res.Decision, res.TriggeredRules, err)
+	}
+
+	py := withRoute(evaluateRequest{ToolName: "PowerShell", Cwd: `C:\repo`,
+		Arguments: map[string]interface{}{"command": cmdletReadS3()}}, "claude-code", "PowerShell", "windows")
+	r := mustPost(t, ts, py)
+	lr := noteDetails(r.Notes, analyzer.NoteLaneReadings)
+	if r.Decision != "BLOCK" || !slices.Contains(r.Rules, rule) || len(lr) != 1 || !strings.HasSuffix(lr[0], "kept=powershell") {
+		t.Errorf("Python client: %s %v %q; want BLOCK by %s, kept from the PowerShell lane", r.Decision, r.Rules, lr, rule)
+	}
+
+	pwsh := withRoute(evaluateRequest{Command: cmdletReadS3(), Cwd: `C:\repo`,
+		Arguments: map[string]interface{}{"command": cmdletReadS3()}}, "claude-code", "PowerShell", "windows")
+	if r := mustPost(t, ts, pwsh); r.Decision == "BLOCK" {
+		t.Errorf("PowerShell client: %s %v; want no BLOCK (no bridge beside POSIX, as on main)", r.Decision, r.Rules)
+	}
+}
+
+// TestRoutedRequest_CmdletBridgeIsBoundedOnTheServer: the twins' text takes
+// the native bridge's byte bound (ServerNativeBridgeBytes); past it a line
+// is not read, and the cmdlet bridge's parse_error note floors the call at
+// AUDIT. Control: with no bound the last line's BLOCK is read.
+func TestRoutedRequest_CmdletBridgeIsBoundedOnTheServer(t *testing.T) {
+	text := strings.Repeat("Get-Content a.txt; ", assembly.ServerNativeBridgeBytes/10+100) + cmdletReadS3()
+	l := sharedServer.powerShellLane(`C:\repo`)
+	l.NativeBridge, l.CmdletBridge = true, true
+	res, err := l.Read(text)
+	bounded := false
+	for _, n := range res.Notes {
+		bounded = bounded || n.Kind == string(facts.NoteParseError) && strings.HasPrefix(n.Detail, "cmdlet bridge:")
+	}
+	if err != nil || res.Decision != policy.DecisionAudit || !bounded {
+		t.Errorf("server lane: %s %v, bound note %v; want AUDIT with the cmdlet bridge's note", res.Decision, err, bounded)
+	}
+	l.NativeBridgeBytes = 0
+	if res, err := l.Read(text); err != nil || res.Decision != policy.DecisionBlock {
+		t.Errorf("unbounded lane: %s %v; want the last line's BLOCK", res.Decision, err)
+	}
+}

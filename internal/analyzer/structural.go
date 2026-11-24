@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/abandon"
-	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -99,10 +98,13 @@ func (a *StructuralAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 	// A restricting, non-negated rule also gets the program-name view, as a
 	// union (#3991); an ALLOW rule — whose finding carries the
 	// structural-override tag that can suppress a regex BLOCK — never does.
+	// Whether Git Bash's reading of a word can differ (#5049) is known once
+	// per command, so each rule's second evaluation runs only where it can.
+	tw, twv := readsTwoWays(parsed), pv != nil && readsTwoWays(pv)
 	for _, rule := range a.userRules {
 		abandon.Checkpoint()
-		if MatchStructuralRule(parsed, rule) ||
-			(pv != nil && restrictingDecision(rule.Decision) && !rule.Negate && MatchStructuralRule(pv, rule)) {
+		if matchStructuralRuleGated(parsed, rule, tw) ||
+			(pv != nil && restrictingDecision(rule.Decision) && !rule.Negate && matchStructuralRuleGated(pv, rule, twv)) {
 			f := Finding{
 				AnalyzerName: "structural",
 				RuleID:       rule.ID,
@@ -301,10 +303,15 @@ func (c *ddOutputTargetCheck) CheckInCwd(parsed *ParsedCommand, raw, cwd string)
 			}
 		}
 
-		normIfPath := normalizeTargetPath(ifPath)
-		hasDangerousInput := strings.HasPrefix(normIfPath, "/dev/zero") ||
-			strings.HasPrefix(normIfPath, "/dev/urandom") ||
-			strings.HasPrefix(normIfPath, "/dev/random")
+		// The input is a condition of the ALLOW below, so on Windows it must
+		// hold under both readings (#5049). The output is its veto: a block
+		// device under either reading withholds it (isBlockDevice).
+		hasDangerousInput := combineReadingsIf(wordReadsTwoWays(ifPath), false, func(r quoteReading) bool {
+			normIfPath := normalizeTargetPathAs(ifPath, r)
+			return strings.HasPrefix(normIfPath, "/dev/zero") ||
+				strings.HasPrefix(normIfPath, "/dev/urandom") ||
+				strings.HasPrefix(normIfPath, "/dev/random")
+		})
 
 		if hasDangerousInput && ofPath != "" && !isBlockDevice(ofPath) {
 			findings = append(findings, Finding{
@@ -513,14 +520,23 @@ func hasFlag(flags map[string]string, key string) bool {
 //
 // Words carrying a dynamic expansion ($VAR, $(...), backticks) are left
 // untouched — their value can't be resolved statically.
-func normalizeTargetPath(p string) string {
+//
+// This is main's reading. A check reads a target under both readings on
+// Windows through normalizeTargetPathAs (#5049).
+func normalizeTargetPath(p string) string { return normalizeTargetPathAs(p, readMain) }
+
+// normalizeTargetPathAs is normalizeTargetPath under reading r. Under
+// readBash every backslash Git Bash keeps is a '/' before path.Clean, so a
+// dot component spelled across both separators (`"/.\./etc"`) cleans as Git
+// Bash resolves it, not as one opaque name (#5049, Codex pass 2).
+func normalizeTargetPathAs(p string, r quoteReading) string {
 	if p == "" {
 		return p
 	}
 	// Shared shell quote/escape stripping (single source of truth in pathnorm) so
 	// this destructive-target check, protected_paths and argument-glob matching
 	// all collapse quotes identically (issue #2813).
-	p = pathnorm.StripShellQuotes(p)
+	p = r.word(p)
 	if p == "" {
 		return p
 	}
@@ -545,8 +561,15 @@ func normalizeTargetPath(p string) string {
 	return cleaned
 }
 
+// isRootTarget and the predicates after it each answer for EITHER reading of
+// the target on Windows (#5049): every caller restricts when they say yes.
+// The one exception, dd's ALLOW, reads its input itself, under both.
 func isRootTarget(p string) bool {
-	cleaned := normalizeTargetPath(p)
+	return anyReadingOf(p, func(r quoteReading) bool { return isRootTargetAs(p, r) })
+}
+
+func isRootTargetAs(p string, r quoteReading) bool {
+	cleaned := normalizeTargetPathAs(p, r)
 	return cleaned == "" || cleaned == "/" || cleaned == "/*"
 }
 
@@ -558,13 +581,21 @@ var systemDirs = map[string]bool{
 }
 
 func isSystemDir(p string) bool {
-	cleaned := strings.TrimRight(normalizeTargetPath(p), "/")
+	return anyReadingOf(p, func(r quoteReading) bool { return isSystemDirAs(p, r) })
+}
+
+func isSystemDirAs(p string, r quoteReading) bool {
+	cleaned := strings.TrimRight(normalizeTargetPathAs(p, r), "/")
 	return systemDirs[cleaned]
 }
 
 func isSystemPath(p string) bool {
-	cleaned := normalizeTargetPath(p)
-	if isSystemDir(cleaned) {
+	return anyReadingOf(p, func(r quoteReading) bool { return isSystemPathAs(p, r) })
+}
+
+func isSystemPathAs(p string, r quoteReading) bool {
+	cleaned := normalizeTargetPathAs(p, r)
+	if isSystemDirAs(cleaned, r) {
 		return true
 	}
 	for dir := range systemDirs {
@@ -590,7 +621,11 @@ func isSystemPath(p string) bool {
 // and doing that honestly needs wipefs's real option grammar. shred's wider
 // list lives in isShredTargetDevice (#4006) for exactly that reason.
 func isBlockDevice(p string) bool {
-	p = normalizeTargetPath(p)
+	return anyReadingOf(p, func(r quoteReading) bool { return isBlockDeviceAs(p, r) })
+}
+
+func isBlockDeviceAs(p string, r quoteReading) bool {
+	p = normalizeTargetPathAs(p, r)
 	return strings.HasPrefix(p, "/dev/sd") ||
 		strings.HasPrefix(p, "/dev/hd") ||
 		strings.HasPrefix(p, "/dev/nvme") ||
@@ -609,10 +644,14 @@ func isBlockDevice(p string) bool {
 // also gates sem-block-wipefs-device and structural.go's dd-target check, so
 // this widening cannot leak into wipefs's narrower, flag-sensitive rule.
 func isShredTargetDevice(p string) bool {
-	if isBlockDevice(p) {
+	return anyReadingOf(p, func(r quoteReading) bool { return isShredTargetDeviceAs(p, r) })
+}
+
+func isShredTargetDeviceAs(p string, r quoteReading) bool {
+	if isBlockDeviceAs(p, r) {
 		return true
 	}
-	p = normalizeTargetPath(p)
+	p = normalizeTargetPathAs(p, r)
 	return strings.HasPrefix(p, "/dev/disk") || // macOS whole disk
 		strings.HasPrefix(p, "/dev/rdisk") || // macOS raw disk
 		strings.HasPrefix(p, "/dev/mmcblk") || // SD/eMMC
@@ -639,14 +678,21 @@ func isShredTargetDevice(p string) bool {
 // or $OUT in the command withholds it. The residual is a target that is
 // ALREADY a symlink to a device before the command runs, which no static
 // check can see.
+//
+// A yes withholds an ALLOW, so on Windows it is a yes under either reading
+// (#5049).
 func ddTargetMayBeDevice(p string) bool {
+	return anyReadingOf(p, func(r quoteReading) bool { return ddTargetMayBeDeviceAs(p, r) })
+}
+
+func ddTargetMayBeDeviceAs(p string, r quoteReading) bool {
 	// Detect /dev case-folded: macOS's root volume is case-insensitive, so an
 	// upper-case spelling of /dev reaches the same device nodes (#3997
 	// post-merge review). But match the harmless sinks on the path AS
 	// WRITTEN. Folding it too turned /dev/NULL and /dev/SHM/<x> into sinks
 	// and granted an ALLOW that main withholds (Codex on #4019). This way the
 	// fold can only ever withhold.
-	n := normalizeTargetPath(p)
+	n := normalizeTargetPathAs(p, r)
 	low := strings.ToLower(n)
 	if low == "/dev" || strings.HasPrefix(low, "/dev/") {
 		return !isHarmlessDeviceSink(n)

@@ -345,9 +345,7 @@ func TestToolWriteReceiptSplitByTarget(t *testing.T) {
 	// A link from outside into the directory, and a link to the log itself.
 	outside := t.TempDir()
 	dirLink := filepath.Join(outside, "cfg")
-	if err := os.Symlink(configDir, dirLink); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, configDir, dirLink)
 	if err := os.WriteFile(f("audit.jsonl"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

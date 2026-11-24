@@ -228,7 +228,7 @@ var selfProtectRules = []struct {
 		// through a symlink or an alias the shell resolves is not seen. The
 		// path-based layer that would close that lives in the structural and
 		// dataflow analyzers and is tracked separately under #3620.
-		ID:      "sp-block-config-touch",
+		ID:      ConfigTouchRuleID,
 		Pattern: regexp.MustCompile(`[~/]\.agentshield/(policy\.yaml|managed\.json|agentshield\.yaml|credentials\.json|packs(/|\b))`),
 		Exclude: plainReadRe,
 	},
@@ -347,7 +347,25 @@ func brewWord(word string) string {
 // not a reader. jq stays: it has no in-place or exec mode. Anything not on
 // the list — a pager, an editor, an in-place processor — falls through to
 // the default-deny and blocks.
-var plainReadRe = regexp.MustCompile("^\\s*(sudo\\s+)?(cat|head|tail|grep|rg|ls|stat|file|wc|diff|jq|echo|printf|agentshield)(\\s+[^;&|<>\\n`(!]*)?$")
+//
+// agentshield is a read only with one of its read-only subcommands (#4845):
+// version, status, log, check, mcp-eval, pack list, pack show and rule list
+// print and evaluate, and change neither the config nor what is enforced.
+// Every other subcommand writes or runs something: `agentshield mcp-proxy --
+// <cmd>` starts <cmd>, so the whole word list passed a config write as one
+// plain read. The subcommand must follow agentshield directly, as cobra
+// resolves it only there; a flag first is no plain read.
+// TestPlainRead_AgentshieldSubcommands_4845 (internal/cli) walks the command
+// tree, so a new subcommand must be classified before it ships.
+//
+// Words are separated by spaces and tabs only, the shell's blanks (#4840).
+// RE2's \s also matches a newline, which separates statements as `;` does,
+// so `cat`, a newline and then a write of the policy passed as one plain
+// read, exempted by both layers. A plain read is one line; blank lines may
+// still lead it.
+var plainReadRe = regexp.MustCompile("^\\s*(sudo[ \\t]+)?(cat|head|tail|grep|rg|ls|stat|file|wc|diff|jq|echo|printf|" +
+	"agentshield[ \\t]+(?:version|status|log|check|mcp-eval|pack[ \\t]+(?:list|show)|rule[ \\t]+list))" +
+	"([ \\t]+[^;&|<>\\n`(!]*)?$")
 
 // IsPlainConfigRead reports whether cmd is a single simple read-only
 // statement (see plainReadRe). The path-based config protection in managed
@@ -358,13 +376,31 @@ func IsPlainConfigRead(cmd string) bool {
 	return plainReadRe.MatchString(cmd)
 }
 
+// ConfigTouchRuleID is the default-deny self-protection rule: every command
+// that names a managed config file and is not a plain read.
+const ConfigTouchRuleID = "sp-block-config-touch"
+
+// ConfigTouchBlockMsg is sp-block-config-touch's message. The rule blocks
+// reads that are not on the plain-read list as well as writes, so the
+// message says only what is known (#4666, Gary 2026-11-09): "attempt to
+// modify" was false for a read.
+const ConfigTouchBlockMsg = "Blocked: command names AgentShield's managed configuration and is not a known read (rule: " + ConfigTouchRuleID + ")"
+
+// SelfProtectBlockMsg is the message of a self-protection BLOCK by rule.
+func SelfProtectBlockMsg(rule string) string {
+	if rule == ConfigTouchRuleID {
+		return ConfigTouchBlockMsg
+	}
+	return fmt.Sprintf("Blocked: attempt to modify AgentShield configuration (rule: %s)", rule)
+}
+
 // SelfProtect is pre-eval middleware that blocks commands targeting AgentShield itself.
 func SelfProtect() EvalMiddleware {
 	return func(ctx *EvalContext, next func()) {
 		if rule, matched := matchesSelfProtectRule(ctx.Command); matched {
 			ctx.Blocked = true
 			ctx.BlockRule = rule
-			ctx.BlockMsg = fmt.Sprintf("Blocked: attempt to modify AgentShield configuration (rule: %s)", rule)
+			ctx.BlockMsg = SelfProtectBlockMsg(rule)
 			return
 		}
 		next()
@@ -530,6 +566,14 @@ func matchContinuationAndQuotedVerbReadings(cmd, raw string, argv func(string) b
 			if folded == "" {
 				continue
 			}
+			if id, ok := matchSelfProtectReadings(folded, raw, argv); ok {
+				return id, true
+			}
+		}
+		// The word each simple command runs, wherever it sits: after an
+		// assignment prefix or an exec wrapper, or inside a substitution
+		// (#4728). The statement-start fold above cannot reach those.
+		if folded := shellparse.FoldQuotedCommandWords(base); folded != "" {
 			if id, ok := matchSelfProtectReadings(folded, raw, argv); ok {
 				return id, true
 			}
@@ -891,7 +935,7 @@ func SelfProtectRawText() EvalMiddleware {
 		if rule, matched := MatchSelfProtectRawText(ctx.Command); matched {
 			ctx.Blocked = true
 			ctx.BlockRule = rule
-			ctx.BlockMsg = fmt.Sprintf("Blocked: attempt to modify AgentShield configuration (rule: %s)", rule)
+			ctx.BlockMsg = SelfProtectBlockMsg(rule)
 			return
 		}
 		next()

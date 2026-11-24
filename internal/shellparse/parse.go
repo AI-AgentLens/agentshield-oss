@@ -150,6 +150,10 @@ type CommandSegment struct {
 	// shell-source carrier. See shellSourceFlags for the table and, more
 	// importantly, for why a wrong entry here fails toward a FALSE POSITIVE
 	// rather than a miss.
+	//
+	// For osascript it is not an argv word but one synthesized single-quoted
+	// word holding the `do shell script` commands of its -e statements
+	// (#4900, osascript_carrier.go), so payloadValue recovers them exactly.
 	SourceArg string
 	// ProcSubstLiteral is the literal text an input process substitution
 	// ("<(echo '...')" / "<(printf '...')") would write to its anonymous

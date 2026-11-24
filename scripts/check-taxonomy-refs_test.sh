@@ -381,5 +381,91 @@ rm -f "$T3WORK/scripts/go-ref-baseline.txt"
 check "missing baseline file -> orphan still reported as new -> fail" 1 $?
 contains "names the orphan with no baseline file present" "$TMP/out22.txt" "totally-bogus/not-real/orphan"
 
+# ── Taxonomy-shaped literals outside TaxonomyRef: (#4602) ────────────────────
+#
+# A ref reaches a receipt as a map value, a `return "…"` or a field under
+# another name. The gate reads every whole three-segment literal whose first
+# segment is a kingdom directory of the tree, in non-test Go, outside `//`
+# comment lines.
+echo ""
+echo "check-taxonomy-refs taxonomy-shaped Go literals (#4602):"
+
+# Case 23: a map-value orphan under a real kingdom -> FAIL, named with its
+# file and line. This is the shape the TaxonomyRef: scan could not see.
+new_t3work 23
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+var signals = map[string]string{
+	"sig": "credential-exposure/private-key-access/renamed-node",
+}
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out23.txt" 2>&1
+check "map-value orphan outside TaxonomyRef: -> fail" 1 $?
+contains "names the map-value orphan" "$TMP/out23.txt" "credential-exposure/private-key-access/renamed-node"
+contains "says where it is written" "$TMP/out23.txt" "internal/fake/x.go:4:"
+
+# Case 24: the same orphan as a `return "…"` -> FAIL too.
+new_t3work 24
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+func ref() string { return "credential-exposure/private-key-access/renamed-node" }
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out24.txt" 2>&1
+check "return-literal orphan -> fail" 1 $?
+
+# Case 25: a resolving map value -> PASS, and counted.
+new_t3work 25
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+var signals = map[string]string{"sig": "$REAL_ID"}
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out25.txt" 2>&1
+check "resolving map value -> pass" 0 $?
+contains "counts the extra literal" "$TMP/out25.txt" "2 taxonomy-shaped literal(s) in non-test Go"
+
+# Case 26: the orphan only in a _test.go file or a // comment line -> PASS.
+# A comment cannot reach a receipt; a test file's refs are fixtures.
+new_t3work 26
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+// was "credential-exposure/private-key-access/renamed-node" before #4602
+EOF
+cat > "$T3WORK/internal/fake/x_test.go" <<'EOF'
+package fake
+var want = "credential-exposure/private-key-access/renamed-node"
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out26.txt" 2>&1
+check "orphan only in a comment or a test file -> pass" 0 $?
+
+# Case 27: slash-bearing strings that are not taxonomy-shaped -> PASS. A path
+# whose first segment is no kingdom, a four-segment string under a kingdom,
+# and a kingdom-prefixed string concatenated with a variable.
+new_t3work 27
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+var p = "docs/fake/readme"
+var q = "credential-exposure/private-key-access/ssh/extra"
+var r = "credential-exposure/private-key-access/" + node
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out27.txt" 2>&1
+check "non-taxonomy slash strings -> pass" 0 $?
+
+# Case 28: a three-segment literal with a real kingdom immediately followed by
+# '+' is concatenation-built, excluded like a TaxonomyRef: one (case 20).
+new_t3work 28
+cat > "$T3WORK/internal/fake/x.go" <<EOF
+package fake
+var x = Finding{TaxonomyRef: "$REAL_ID"}
+var r = "credential-exposure/private-key-access/renamed-node" + suffix
+EOF
+(cd "$T3WORK" && bash "$GATE" "$T3TAX") > "$TMP/out28.txt" 2>&1
+check "concatenated taxonomy-shaped literal -> excluded" 0 $?
+contains "reports the exclusion" "$TMP/out28.txt" "1 concatenation-built, excluded"
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "FAILURES"; fi
 exit "$fail"

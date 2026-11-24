@@ -46,6 +46,20 @@ func (h *boundedHistory[T]) snapshot() []T {
 	return out
 }
 
+// appendSnapshot adds v and returns a copy of the resulting window, oldest
+// first, under one hold of the lock: the copy ends in v even when another
+// goroutine appends at the same time, which append then snapshot cannot
+// promise.
+func (h *boundedHistory[T]) appendSnapshot(v T) []T {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.entries = append(h.entries, v)
+	h.trimLocked()
+	out := make([]T, len(h.entries))
+	copy(out, h.entries)
+	return out
+}
+
 // mutate replaces the entries with fn's result under the lock, evicts the
 // oldest entries beyond the bound, and returns the resulting length. fn may
 // reuse the input slice's backing array (e.g. entries[:0] pruning).

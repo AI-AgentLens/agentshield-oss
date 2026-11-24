@@ -1,11 +1,33 @@
 package mcp
 
 import (
-	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
+
+// fileURI is the file: URI a client sends for the absolute path p (RFC 8089):
+// "file://" + p on unix, and file:///C:/... in slash form on Windows, where
+// "file://" + p would be "file://C:\Users\...", a URI no client sends
+// (#5021).
+func fileURI(p string) string {
+	if runtime.GOOS == "windows" {
+		return "file:///" + filepath.ToSlash(p)
+	}
+	return "file://" + p
+}
+
+// fileURIHost is fileURI with an authority: "file://" + host + p on unix,
+// and file://host/C:/... on Windows, where "file://localhost" + p would run
+// the host into the drive letter (file://localhostC:\Users\...).
+func fileURIHost(host, p string) string {
+	if runtime.GOOS == "windows" {
+		return "file://" + host + "/" + filepath.ToSlash(p)
+	}
+	return "file://" + host + p
+}
 
 func testResourcePolicy() *MCPPolicy {
 	return &MCPPolicy{
@@ -63,13 +85,13 @@ func TestResourcePolicy_BlockByRegex(t *testing.T) {
 }
 
 func TestResourcePolicy_ConfigGuardOnFileURI(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	evaluator := NewPolicyEvaluator(&MCPPolicy{
 		Defaults: MCPDefaults{Decision: policy.DecisionAudit},
 	})
 
 	// file:// URI pointing to AgentShield config should be blocked by config guard
-	result := evaluator.EvaluateResourceRead("file://" + home + "/.agentshield/policy.yaml")
+	result := evaluator.EvaluateResourceRead(fileURI(home + "/.agentshield/policy.yaml"))
 	if result.Decision != "BLOCK" {
 		t.Errorf("expected BLOCK for file:// to AgentShield config, got %s", result.Decision)
 	}
@@ -92,23 +114,23 @@ func TestResourcePolicy_NilPolicy(t *testing.T) {
 }
 
 func TestResourcePolicy_FileURItoSSHKey(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	evaluator := NewPolicyEvaluator(&MCPPolicy{
 		Defaults: MCPDefaults{Decision: policy.DecisionAudit},
 	})
 	// file:// URI to SSH key should be blocked by config guard
-	result := evaluator.EvaluateResourceRead("file://" + home + "/.ssh/config")
+	result := evaluator.EvaluateResourceRead(fileURI(home + "/.ssh/config"))
 	if result.Decision != "BLOCK" {
 		t.Errorf("expected BLOCK for file:// to SSH config, got %s", result.Decision)
 	}
 }
 
 func TestResourcePolicy_FileURItoShellConfig(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	evaluator := NewPolicyEvaluator(&MCPPolicy{
 		Defaults: MCPDefaults{Decision: policy.DecisionAudit},
 	})
-	result := evaluator.EvaluateResourceRead("file://" + home + "/.bashrc")
+	result := evaluator.EvaluateResourceRead(fileURI(home + "/.bashrc"))
 	if result.Decision != "BLOCK" {
 		t.Errorf("expected BLOCK for file:// to .bashrc, got %s", result.Decision)
 	}

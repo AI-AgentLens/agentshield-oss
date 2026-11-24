@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -194,6 +195,13 @@ func TestAuditLogger_EnforceModeOmitsOriginalDecision(t *testing.T) {
 }
 
 func TestAuditLogger_FilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows has no POSIX mode bits. os.OpenFile's 0600 only decides the
+		// read-only attribute, and Go reports 0666 for every writable file;
+		// who may read the log is set by the ACL the file inherits from its
+		// directory, which this test cannot see (#5021).
+		t.Skip("POSIX file modes do not exist on Windows; Go reports 0666 for any writable file")
+	}
 	tmpDir := t.TempDir()
 	logPath := filepath.Join(tmpDir, "secure_audit.jsonl")
 

@@ -111,6 +111,7 @@ ts-block-jailbreak-compliance-prefix	echo-wrap-laundering-leak	packs/community/t
 ts-block-kernel-helper-path-hijack	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
 ts-block-kubeconfig-exec-plugin-poison	tp-loses-block(inline+corpus)	packs/premium/terminal-safety-advanced.yaml
 ts-block-launchd-system-persist	tp-loses-block(inline)	packs/community/terminal-safety.yaml
+ts-block-launchd-system-persist-tee	heredoc-suffix-laundering-leak (#3964) (new 2026-11-17, #4951: tee anchored as a command, so prose never matches; labelled, `tee /Library/LaunchDaemons/x.plist < payload <<< x` drops BLOCK->AUDIT, measured)	packs/community/terminal-safety.yaml
 ts-block-launchd-user-persist	tp-loses-block(inline+corpus)	packs/community/terminal-safety.yaml
 ts-block-launchd-user-persist-tee	tp-loses-block(corpus)	packs/community/terminal-safety.yaml
 ts-block-ld-preload-export	tp-loses-block(corpus)	packs/community/terminal-safety.yaml

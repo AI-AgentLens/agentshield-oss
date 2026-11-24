@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // The new-install default (#4337) is rung 4 of the mode resolution: below the
@@ -120,7 +122,7 @@ func TestLoad_NewInstallDefaultRung(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			dir := filepath.Join(home, DefaultConfigDir)
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				t.Fatal(err)

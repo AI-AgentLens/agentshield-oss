@@ -26,3 +26,12 @@ a/b/c
 # corresponding TestCase.TaxonomyRef values in
 # internal/analyzer/testdata/persistence_evasion_cases.go were repointed to
 # match.
+
+# #4602: cmd/mcp-gen/emit.go's fallback node for a source shell rule that
+# declares no taxonomy. It is not a real node and is emitted 0 times today
+# (grep it in packs/community/mcp/mcp-generated.yaml). Kept as a tripwire,
+# not excused: if a generated rule ever gets it, tier 1's packs/ scan fails
+# on mcp-generated.yaml, which is the right outcome, since a generated rule
+# must inherit a real node from its source rule. Remove this line by making
+# the generator refuse a source rule with no taxonomy.
+credential-exposure/config-file-access/mcp-generated

@@ -74,6 +74,18 @@ func TestIntentClassifier_PerLabelTPs(t *testing.T) {
 		{"cat_dash_flag_herestring", `cat -A <<< x`, CommandFacts{InHeredoc: true}},
 		{"cat_explicit_stdin_herestring", `cat - <<< x`, CommandFacts{InHeredoc: true}},
 		{"tee_operand_herestring", `tee ~/.ssh/authorized_keys <<< x`, CommandFacts{InHeredoc: true}},
+		// #4965 controls: the body is still the only input. An output
+		// redirect, a `<` inside the quoted body, a redirect onto another
+		// descriptor, a closed stdin and a process substitution destination
+		// are not an input redirect onto stdin, so InHeredoc stays true.
+		{"cat_herestring_text_to_note", `cat <<< 'the file /etc/shadow holds password hashes' > /tmp/note.txt`, CommandFacts{InHeredoc: true}},
+		{"tee_heredoc_text_to_note", "tee /tmp/note.txt <<'EOF'\nthe file /etc/shadow holds password hashes\nEOF", CommandFacts{InHeredoc: true}},
+		{"cat_herestring_lt_in_body", `cat <<< 'read it with: cat < /etc/shadow' > /tmp/note.txt`, CommandFacts{InHeredoc: true}},
+		{"cat_heredoc_lt_in_body", "cat > /tmp/note.txt <<'EOF'\nwc -l < /etc/shadow\nEOF", CommandFacts{InHeredoc: true}},
+		{"tee_herestring_append_redirect", `tee -a /tmp/log <<< x >> /tmp/other`, CommandFacts{InHeredoc: true}},
+		{"cat_herestring_fd3_redirect", `cat <<< x 3< /etc/shadow > /tmp/out`, CommandFacts{InHeredoc: true}},
+		{"cat_herestring_stdin_closed", `cat <<< x <&- > /tmp/out`, CommandFacts{InHeredoc: true}},
+		{"tee_procsubst_destination", `tee /tmp/out >(wc -c) <<< x`, CommandFacts{InHeredoc: true}},
 
 		// IsSelfMgmt
 		{"as_scan", `agentshield scan`, CommandFacts{IsSelfMgmt: true}},
@@ -161,6 +173,24 @@ func TestIntentClassifier_TNs(t *testing.T) {
 		{"cat_shadow_heredoc", "cat /etc/shadow <<'EOF'\nx\nEOF"},
 		{"cat_flag_ssh_key_herestring", `cat -A ~/.ssh/id_rsa <<< x`},
 		{"cat_dynamic_operand_herestring", `cat "$KEY_PATH" <<< x`},
+
+		// #4965: an input redirect onto stdin on the same cat/tee statement
+		// replaces the here-string (bash: the last input redirect wins) or is
+		// read with it (zsh MULTIOS, either order) — the file IS read, so
+		// the statement is not "body written to a file".
+		{"tee_herestring_then_stdin_file", `tee /tmp/out <<< x < /etc/shadow`},
+		{"tee_stdin_file_then_herestring", `tee /tmp/out < /etc/shadow <<< x`},
+		{"tee_herestring_stdin_file_devnull", `tee /tmp/out <<< x < /etc/shadow > /dev/null`},
+		{"tee_heredoc_then_stdin_file", "tee /tmp/out <<'EOF' < /etc/shadow\nx\nEOF"},
+		{"tee_stdin_file_then_heredoc", "tee /tmp/out < /etc/shadow <<'EOF'\nx\nEOF"},
+		{"cat_herestring_then_stdin_file", `cat <<< x < /etc/shadow > /tmp/out`},
+		{"cat_stdin_file_then_herestring", `cat < /etc/shadow <<< x > /tmp/out`},
+		{"cat_heredoc_then_stdin_file", "cat <<'EOF' < /etc/shadow > /tmp/out\nx\nEOF"},
+		{"cat_herestring_fd0_file", `cat <<< x 0< /etc/shadow > /tmp/out`},
+		{"tee_herestring_readwrite_file", `tee /tmp/out <<< x <> /etc/shadow`},
+		{"cat_herestring_dup_from_fd3", `cat <<< x 3< /etc/shadow <&3 > /tmp/out`},
+		{"tee_herestring_quoted_stdin_file", `tee /tmp/out <<< x < "/etc/shadow"`},
+		{"tee_compound_herestring_stdin_file", `cd /tmp && tee /tmp/out <<< x < /etc/shadow`},
 	}
 
 	for _, tc := range threats {

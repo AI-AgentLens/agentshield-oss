@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
+	"github.com/AI-AgentLens/agentshield/internal/hookentry"
 	"github.com/spf13/cobra"
 )
 
@@ -82,10 +83,11 @@ func copilotHookFile(binPath string) map[string]interface{} {
 // isAgentShieldCopilotHookFile reports whether the file at path is one this
 // command wrote: a PreToolUse entry that runs `<binary> hook` and carries the
 // AGENTSHIELD_AGENT_ID=copilot-cli marker setup writes, or one whose bash
-// command is literally `agentshield hook`. The marker is what makes ownership
-// independent of where the binary lives (a dev build, a test binary). A file
-// we cannot parse, or one routing elsewhere, is not ours and is never
-// overwritten or removed.
+// command passes hookentry.MatchesHookCommand (it ends in `agentshield hook`,
+// or on Windows is the command setup writes there, #5066). The marker is what
+// makes ownership independent of where the binary lives (a dev build, a test
+// binary). A file we cannot parse, or one routing elsewhere, is not ours and
+// is never overwritten or removed.
 func isAgentShieldCopilotHookFile(path string) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -99,7 +101,7 @@ func isAgentShieldCopilotHookFile(path string) (bool, error) {
 	}
 	for _, entry := range doc.Hooks["PreToolUse"] {
 		cmd, _ := entry["bash"].(string)
-		if strings.HasSuffix(cmd, "agentshield hook") {
+		if hookentry.MatchesHookCommand(cmd) {
 			return true, nil
 		}
 		env, _ := entry["env"].(map[string]interface{})

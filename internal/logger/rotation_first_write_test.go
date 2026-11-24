@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -197,6 +198,16 @@ func TestAuditLogger_RotationLinksToTrueHeadNotStaleInProcessHead(t *testing.T) 
 	}
 }
 
+// countIn reports how many times needle occurs in the file at path; 0 when
+// the file does not exist.
+func countIn(path, needle string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(b), needle)
+}
+
 // countLines returns how many records in path contain sub.
 func countLines(t *testing.T, path, sub string) int {
 	t.Helper()
@@ -317,6 +328,12 @@ func TestAuditLogger_HookOpenedBeforeSiblingRotationDoesNotReRotate(t *testing.T
 func TestAuditLogger_TransientOpenFailureKeepsDescriptor(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
+	}
+	if runtime.GOOS == "windows" {
+		// os.Chmod(dir, 0) sets only the directory's read-only attribute on
+		// Windows: the stat below still succeeds, so the test would pass
+		// without reaching the stat-error branch it exists for (#5021).
+		t.Skip("chmod cannot make a directory unreadable on Windows, so the stat error this test needs never happens")
 	}
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")
@@ -461,6 +478,16 @@ func TestAuditLogger_StaleReopenersConcurrent(t *testing.T) {
 		logEvents(t, rotator, 1, "echo rotator")
 		_ = rotator.Close()
 		maxLogBytes = 1 << 30
+		// Positive control: without a rotation no writer below holds a
+		// stale descriptor, and the test passes without exercising the
+		// reopen it exists for. On Windows, before #5038, the stale
+		// writers' open handles made the rename fail.
+		if _, err := os.Stat(logPath + rotatedSuffix); err != nil {
+			for _, lg := range stale {
+				_ = lg.Close()
+			}
+			t.Fatalf("trial %d: the rotator did not rotate the log, so no writer holds a stale descriptor: %v", trial, err)
+		}
 
 		var wg sync.WaitGroup
 		start := make(chan struct{})
@@ -502,6 +529,14 @@ func TestAuditLogger_StaleReopenersConcurrent(t *testing.T) {
 // lost to the orphan) and closing the old descriptor before opening the new
 // one (the logger is dead after the failed open).
 func TestAuditLogger_ReopenOpenFailureKeepsDescriptor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The fixture removes the log directory. Windows refuses while the
+		// logger holds audit.jsonl.lock, which is opened without
+		// FILE_SHARE_DELETE: nothing renames or deletes the lock file, so it
+		// does not need it. The degraded twin has no lock file and runs here
+		// (TestDegradedLogger_ReopenFailureKeepsDescriptor).
+		t.Skip("Windows refuses to remove the log directory while audit.jsonl.lock is held open")
+	}
 	dir := filepath.Join(t.TempDir(), "as")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)

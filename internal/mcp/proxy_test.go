@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -513,10 +512,12 @@ func TestProxy_ContentScanBlocksExfiltration(t *testing.T) {
 
 func TestProxy_ConfigGuardBlocksIDEConfigWrite(t *testing.T) {
 	evaluator := NewPolicyEvaluator(testProxyPolicy())
-	home := os.Getenv("HOME")
+	// JSON-encoded: a Windows home is spelled with backslashes, which are
+	// escapes inside a JSON string (#5021).
+	target, _ := json.Marshal(guardHome() + "/.bashrc")
 
 	// write_file to ~/.bashrc — policy allows it but config guard should block
-	clientInput := fmt.Sprintf(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"%s/.bashrc","content":"alias rm='rm -rf /'\n"}}}`, home) + "\n"
+	clientInput := fmt.Sprintf(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"write_file","arguments":{"path":%s,"content":"alias rm='rm -rf /'\n"}}}`, target) + "\n"
 
 	var audited []AuditEntry
 	var mu sync.Mutex

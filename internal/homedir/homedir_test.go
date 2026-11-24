@@ -6,11 +6,13 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 func TestDir_ReturnsHOME(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	got, err := Dir()
 	if err != nil || got != home {
 		t.Fatalf("Dir() = %q, %v; want %q, nil", got, err, home)
@@ -22,13 +24,13 @@ func TestDir_ReturnsHOME(t *testing.T) {
 // directory (#4565).
 func TestDir_EmptyOrUnsetHOMEIsErrNoHome(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		t.Setenv("HOME", "")
+		testhome.Set(t, "")
 		if got, err := Dir(); !errors.Is(err, ErrNoHome) || got != "" {
 			t.Fatalf("Dir() with HOME empty = %q, %v; want \"\", ErrNoHome", got, err)
 		}
 	})
 	t.Run("unset", func(t *testing.T) {
-		t.Setenv("HOME", "") // registers the restore
+		testhome.Set(t, "") // registers the restore
 		if err := os.Unsetenv("HOME"); err != nil {
 			t.Fatal(err)
 		}
@@ -126,6 +128,7 @@ func TestAccount_IgnoresHOME(t *testing.T) {
 				env = append(env, "HOME="+*c.home)
 			}
 			cmd.Env = env
+			cmd.Env = testhome.ChildEnv(cmd.Env)
 			out, err := cmd.Output()
 			if err != nil {
 				t.Fatalf("helper: %v\n%s", err, out)

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4805: PolicyLocation names the files Load would, so the hook's fail-safe
@@ -23,7 +25,7 @@ func TestPolicyLocation_MatchesLoad(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			configDir := filepath.Join(home, DefaultConfigDir)
 			if c.managed != "" {
 				if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -54,7 +56,7 @@ func TestPolicyLocation_MatchesLoad(t *testing.T) {
 }
 
 func TestPolicyLocation_NoHomeIsAnError(t *testing.T) {
-	t.Setenv("HOME", "")
+	testhome.Set(t, "")
 	if _, _, err := PolicyLocation(""); err == nil {
 		t.Fatal("PolicyLocation with no home: no error")
 	}

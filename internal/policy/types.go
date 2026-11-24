@@ -24,9 +24,10 @@ type Policy struct {
 	Rules      []Rule      `yaml:"rules"`
 	DataLabels []DataLabel `yaml:"data_labels,omitempty"`
 	// DisableRules lists rule IDs the user has chosen to skip. The runtime
-	// engine filters these out before evaluation. Managed mode ignores this
-	// list for community rules — only rules tagged policy_override_allowed
-	// can be relaxed by a non-admin.
+	// engine filters these out before evaluation, and the tool-call surfaces
+	// skip the MCP rules it names (ToolCallInputs, #5001). An id matches
+	// exactly (IsRuleDisabled). The hook ignores the user file's list on a
+	// managed host (internal/cli dropLocalDisablesWhenManaged).
 	DisableRules []string `yaml:"disable_rules,omitempty"`
 	// EnforcementMode is the SaaS-pushed enforcement mode for this org's
 	// agents — surfaced in the YAML so the AI Agent Lens dashboard can flip
@@ -155,11 +156,24 @@ type Match struct {
 	// always tried first. Never set it on a rule that matches shell syntax —
 	// NBSP is not a word separator to bash, so folding it would invent a command
 	// the shell never runs. Same split as guardian's ProseOnly (#4294).
-	CommandFoldSeparators bool             `yaml:"command_fold_separators,omitempty"`
-	Structural            *StructuralMatch `yaml:"structural,omitempty"`
-	Dataflow              *DataflowMatch   `yaml:"dataflow,omitempty"`
-	Semantic              *SemanticMatch   `yaml:"semantic,omitempty"`
-	Stateful              *StatefulMatch   `yaml:"stateful,omitempty"`
+	CommandFoldSeparators bool `yaml:"command_fold_separators,omitempty"`
+	// CaptureUnderCwd names a capture group of command_regex that holds a
+	// directory (#4850). The rule fires only on a match whose group names a
+	// directory strictly under the call's working directory, so a rule whose
+	// evidence is "git ran in a repository nested inside this one" stops
+	// attesting it for `cd ~/dev/<another repo> && git commit`. Every doubt
+	// keeps the match, which is main's verdict: no cwd or a relative one, a
+	// directory the reading cannot resolve (a variable other than a leading
+	// $HOME, a substitution, a glob, an escape, an option word, ~user), a long
+	// text, many matches (analyzer.CaptureInScope). Only on a command_regex
+	// rule with no command_prefix or command_exact; BuildAnalyzerPipeline
+	// refuses any other shape, and a group the regex does not define. A
+	// binary older than the field ignores it and fires as main did.
+	CaptureUnderCwd string           `yaml:"capture_under_cwd,omitempty"`
+	Structural      *StructuralMatch `yaml:"structural,omitempty"`
+	Dataflow        *DataflowMatch   `yaml:"dataflow,omitempty"`
+	Semantic        *SemanticMatch   `yaml:"semantic,omitempty"`
+	Stateful        *StatefulMatch   `yaml:"stateful,omitempty"`
 	// Context gates a rule on the runtime execution environment (issue #3291).
 	// It is a precondition, not a matcher: it decides whether the rule APPLIES,
 	// not what text it matches, so it must be combined with a command_regex /
@@ -494,4 +508,8 @@ type EvalResult struct {
 	// show "would have blocked." Empty in enforce mode and in audit-only
 	// mode when no downgrade happened (ALLOW/AUDIT pass through untouched).
 	OriginalDecision Decision `json:"original_decision,omitempty"`
+	// kept is why audit-only mode did not lower this BLOCK, for the reading
+	// layers' tie rule (keptFor, #5089). Unexported: it is never serialized,
+	// never reaches the audit event and never decides anything.
+	kept keptFor
 }

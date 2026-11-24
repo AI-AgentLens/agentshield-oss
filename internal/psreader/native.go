@@ -120,6 +120,23 @@ func programNameByte(c byte) bool {
 // them. routed marks the commands whose own text the reader hands to the
 // router (Nested), which are left out.
 func nativeStatements(cmds []*rawCommand, routed []bool, pipes map[int]pipeInfo) []facts.NativeStatement {
+	return groupStatements(cmds, routed, pipes, nativeCommandArgv)
+}
+
+// nativeCommandArgv is the argument vector of a command that runs a native
+// program: the program itself, or one Start-Process starts.
+func nativeCommandArgv(c *rawCommand) (facts.Argv, bool) {
+	if prog, ok := nativeProgram(c); ok {
+		return nativeArgv(c, prog), true
+	}
+	return startProcessArgv(c)
+}
+
+// groupStatements groups the commands argvOf reports an argument vector for
+// as the text joins them: statements, the `&&`/`||` chains of pipelines in
+// one statement, and the stages of one pipeline. routed marks the commands
+// left out.
+func groupStatements(cmds []*rawCommand, routed []bool, pipes map[int]pipeInfo, argvOf func(*rawCommand) (facts.Argv, bool)) []facts.NativeStatement {
 	type stage struct {
 		pipe int
 		argv facts.Argv
@@ -130,10 +147,8 @@ func nativeStatements(cmds []*rawCommand, routed []bool, pipes map[int]pipeInfo)
 		if i < len(routed) && routed[i] {
 			continue
 		}
-		var argv facts.Argv
-		if prog, ok := nativeProgram(c); ok {
-			argv = nativeArgv(c, prog)
-		} else if argv, ok = startProcessArgv(c); !ok {
+		argv, ok := argvOf(c)
+		if !ok {
 			continue
 		}
 		chain := c.pipeStart

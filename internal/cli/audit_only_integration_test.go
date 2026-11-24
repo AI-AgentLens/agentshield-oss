@@ -9,6 +9,7 @@ import (
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // TestAuditOnly_EndToEnd_PolicyYamlFlipsEngineMode is the load-bearing
@@ -32,7 +33,7 @@ import (
 // re-break any link in the chain fail loudly here.
 func TestAuditOnly_EndToEnd_PolicyYamlFlipsEngineMode(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, ".agentshield")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -132,7 +133,7 @@ rules:
 // trust for a security tool.
 func TestAuditOnly_EndToEnd_LocalConfigOverridesSaasPush(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, ".agentshield")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {

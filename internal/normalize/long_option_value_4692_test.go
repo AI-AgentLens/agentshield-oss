@@ -19,19 +19,19 @@ func TestLongOptionAttachedValueIsAPath_4692(t *testing.T) {
 	paths := func(cmd string) []string { return NormalizeCommand(cmd, cwd).Paths }
 
 	// Control: the spaced spelling of the same option extracts the file on main.
-	if got := paths("sort -o " + f + " README.md"); !slices.Contains(got, f) {
+	if got := paths("sort -o " + shellPath(f) + " README.md"); !slices.Contains(got, f) {
 		t.Fatalf("control: paths %v; want %s", got, f)
 	}
 
 	for _, cmd := range []string{
-		"sort --output=" + f + " README.md",
-		"sort README.md --output=" + f,
-		`sort --output="` + f + `" README.md`,
-		"/usr/bin/sort --output=" + f + " README.md",
-		"sudo sort --output=" + f + " README.md",
-		"tool --log-file=" + f,
-		"tool --config=" + f + " run",
-		"cat README.md | tool --file=" + f,
+		"sort --output=" + shellPath(f) + " README.md",
+		"sort README.md --output=" + shellPath(f),
+		`sort --output="` + shellPath(f) + `" README.md`,
+		"/usr/bin/sort --output=" + shellPath(f) + " README.md",
+		"sudo sort --output=" + shellPath(f) + " README.md",
+		"tool --log-file=" + shellPath(f),
+		"tool --config=" + shellPath(f) + " run",
+		"cat README.md | tool --file=" + shellPath(f),
 	} {
 		if got := paths(cmd); !slices.Contains(got, f) {
 			t.Errorf("%q: paths %v; want %s", cmd, got, f)
@@ -40,10 +40,10 @@ func TestLongOptionAttachedValueIsAPath_4692(t *testing.T) {
 
 	// Prose, words after `--`, and a nested interpreter body are not read.
 	for _, cmd := range []string{
-		`git commit --message=` + f,
-		`git commit --message="` + f + `"`,
-		"tool -- --output=" + f,
-		`bash -c 'sort --output=` + f + `'`,
+		`git commit --message=` + shellPath(f),
+		`git commit --message="` + shellPath(f) + `"`,
+		"tool -- --output=" + shellPath(f),
+		`bash -c 'sort --output=` + shellPath(f) + `'`,
 		"sort --output= README.md",
 		"sort --output=notes README.md --flag=a=b",
 	} {
@@ -74,9 +74,9 @@ func TestLongOptionValuePaths_4692(t *testing.T) {
 		// A bare value is kept only for a reader whose bare operands are
 		// (#4673); an unknown tool's `--level=3` is not a path.
 	} {
-		got := longOptionValuePaths(tc.words, text, cwd, "/home/u", "sort", false)
-		if !slices.Equal(got, tc.want) {
-			t.Errorf("%q: got %v, want %v", tc.words, got, tc.want)
+		got := longOptionValuePaths(absWords(tc.words), text, cwd, "/home/u", "sort", false)
+		if want := absWant(tc.want); !slices.Equal(got, want) {
+			t.Errorf("%q: got %v, want %v", tc.words, got, want)
 		}
 	}
 	if got := longOptionValuePaths([]string{"--level=3"}, text, cwd, "/home/u", "tool", false); len(got) != 0 {

@@ -147,8 +147,52 @@ func (l *psLane) lane() *assembly.PowerShellLane {
 		// text: on this call's engine, the enterprise middleware first
 		// (readPOSIX).
 		NativeBridge: true,
+		// The cmdlet bridge wherever the native bridge runs: Remove-Item,
+		// Copy-Item, Get-Content, Set-Content … and `> file` read as their
+		// POSIX twins, a second POSIX text beside the bridge's (raise-only).
+		CmdletBridge: cmdletBridge,
+		TwinPOSIX:    l.readTwin,
 	}
 }
+
+// readTwin is the cmdlet bridge's reading of its twin text: readPOSIX, except
+// that on a managed host a twin text that is one plain read as a whole
+// (enterprise.IsPlainConfigRead, the test protectManagedConfigDir applies to a
+// Bash tool command) is read on the call's engine without the config
+// directory's pattern (policy.ManagedConfigProtectedPath), as the Bash tool
+// reads that command (Kai, 2026-11-07). protectManagedConfigDir added the
+// pattern to the call's engine because no PowerShell text is a plain read, so
+// on readPOSIX the twin `cat ~/.agentshield/policy.yaml` of a known read
+// BLOCKed by protected-path where the Bash tool's `cat` ALLOWs.
+//
+// Nothing that was enforced is lost: the lane's own reading (EvaluateFacts)
+// BLOCKs every text naming the config directory that is not a known read,
+// with the same pattern dropped from its protected list, and the middleware,
+// every other protected path and every rule still read the twin. Only this
+// reading changes: nested bash or sh texts and the native bridge's text are
+// read with readPOSIX, and a twin text with anything more than one plain
+// read (`cat <policy>` then `rm x`) is read with it too, as the Bash tool
+// reads `cat <policy>; rm x`. The lane calls this only for a call that is a
+// known read (assembly.PowerShellLane.TwinPOSIX, policy.FactsKnownRead): a
+// write with no twin beside a read (`Get-Content <p>; Clear-Content <p>`)
+// leaves the twin text one plain read, and in a spelling the lane's own
+// reading did not resolve then (`/./` before the home directory, closed by
+// #4830's lexical reading) the twin's pattern was the only layer that BLOCKed
+// it (#4841, Codex pass 1). A plain read is one line: a newline in the twin
+// text ends it, as `;` does (#4840).
+func (l *psLane) readTwin(text string) policy.EvalResult {
+	if l.cfg == nil || l.cfg.Managed == nil || !l.cfg.Managed.Managed || !enterprise.IsPlainConfigRead(text) {
+		return l.readPOSIX(text)
+	}
+	plain := *l
+	plain.engine = l.engine.WithoutProtectedPath(policy.ManagedConfigProtectedPath)
+	return plain.readPOSIX(text)
+}
+
+// cmdletBridge switches the cmdlet bridge (assembly.PowerShellLane.
+// CmdletBridge). A variable only so a test can read a call without it
+// (pinTestCmdletBridge); nothing in the agentshield binary changes it.
+var cmdletBridge = true
 
 // readPOSIX is the POSIX lane's decision on a nested bash or sh text, on this
 // call's engine: the enterprise middleware, then the analyzer pipeline, as

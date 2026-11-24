@@ -79,7 +79,7 @@ func TestDeclarationBuiltinSpellingParity(t *testing.T) {
 	// all, it asks sudo to execute a program named `HISTFILESIZE=0`. The
 	// wrapper-composed forms of these five do nothing, so counting them as
 	// leaks reports bypasses for commands that cannot run — the same artifact
-	// CLAUDE.md records for `~` in the unset-param probe. The budgets are
+	// .claude/agent-notes/shell-readings.md records for `~` in the unset-param probe. The budgets are
 	// corpus-wide, so they cannot express "this row is not wrappable"; a unit
 	// test asserting the rule id can, and does.
 	rows := []row{

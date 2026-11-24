@@ -53,6 +53,11 @@
 // NOT counted here — exactly as it is not loaded. The manifest generator's
 // count-vs-delivery refusal is what turns such a file into a loud error
 // rather than a silent gap.
+//
+// packs/premium/optional/mcp is not counted either: no install has those packs
+// until a customer copies one into ~/.agentshield/mcp-packs/ (aiagentlens#377),
+// so they are not part of what a default install enforces.
+// cmd/check-duplicate-rule-ids reads that directory itself, with Collect.
 package rulecount
 
 import (

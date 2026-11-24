@@ -1600,8 +1600,8 @@ var InstallSetuidCases = []TestCase{
 //
 // Read the Analyzer field carefully here. The corpus graders call
 // `engine.Evaluate(cmd, nil)` — no argv paths — so the `protected_paths` layer
-// that turns a READ into a BLOCK is not exercised at all (see CLAUDE.md, "Accuracy
-// test caveat"). What IS exercised on the pipeline path is the substitution
+// that turns a READ into a BLOCK is not exercised at all (see
+// .claude/agent-notes/rule-testing.md, "Accuracy test caveat"). What IS exercised on the pipeline path is the substitution
 // analyzer, which publishes both the resolved assignment (this feature) and the
 // materialized path of a read through it. Cases marked "pipeline" are skipped by
 // the regex-only runner, which has no ctx.Assignments to attribute from.

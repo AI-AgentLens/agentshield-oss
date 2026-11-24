@@ -25,7 +25,7 @@ escape_splice:punct-escape-slash 9
 exec_wrapper:maxLeaks 46
 glob_evasion:maxLeaks 0
 glob_evasion_structural:maxLeaks 0
-heredoc_shell_exec:maxLeaks 62
+heredoc_shell_exec:maxLeaks 63
 heredoc_shell_exec:maxLeaks#2 80
 ifs_separator:maxLeaks 0
 indirect_exec_name:maxLeaksScalarVar 21
@@ -37,6 +37,7 @@ paramop_fold:maxLeaksArgReplace 525
 private_alias:maxLeaksTmpAlias 117
 procsubst_echo:maxLeaks 86
 procsubst_echo:maxLeaks#2 88
+quoted_command_word:maxLeaks 0
 quoted_flag:maxLeaks 0
 set_positional:maxLeaksIndex 20
 set_positional:maxLeaksSplat 3
@@ -56,4 +57,4 @@ zsh_reading:parameter-flags-prefix 0
 zsh_reading:parameter-flags-suffix 0
 zsh_reading:brace-group-no-separator 8
 zsh_reading:anonymous-function 7
-TOTAL 2038
+TOTAL 2039

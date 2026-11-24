@@ -30,7 +30,10 @@ var windowsRound4 = []struct {
 	{"ps-block-git-hook-write", "BLOCK", "persistence-evasion/cicd-tampering/git-hook-injection", "ts-block-git-hook-write", false},
 	{"ps-block-shell-profile-write", "BLOCK", "persistence-evasion/shell-startup/shell-profile-backdoor", "ts-block-shell-profile-append", false},
 	{"ps-block-shell-profile-write-var", "BLOCK", "persistence-evasion/shell-startup/shell-profile-backdoor", "ts-block-shell-profile-append", false},
+	{"ps-block-agent-settings-write", "BLOCK", "unauthorized-execution/agentic-attacks/agent-capability-escalation", "ts-block-agent-settings-write", false},
 	{"ps-block-cicd-config-write", "BLOCK", "supply-chain/build-pipeline/cicd-config-injection", "ts-block-cicd-write", false},
+	{"ps-block-agentshield-log-tamper", "BLOCK", "persistence-evasion/anti-forensics/ai-audit-trail-circumvention", "ts-block-agentshield-log-delete", false},
+	{"ps-block-agentshield-dir-delete", "BLOCK", "persistence-evasion/anti-forensics/ai-audit-trail-circumvention", "ts-struct-block-agentshield-dir-delete", false},
 	{"ps-block-agent-memory-download", "BLOCK", "unauthorized-execution/agentic-attacks/agent-memory-poisoning", "ts-block-agent-memory-download-overwrite", false},
 	{"ps-block-agent-memory-copy-from-temp", "BLOCK", "unauthorized-execution/agentic-attacks/agent-memory-poisoning", "ts-block-agent-memory-copy-overwrite", false},
 	{"ps-block-uac-bypass-registry", "BLOCK", "privilege-escalation/windows/uac-bypass", "ts-block-uac-bypass-registry", false},
@@ -38,7 +41,7 @@ var windowsRound4 = []struct {
 	{"ps-block-set-clipboard", "BLOCK", "unauthorized-execution/agentic-attacks/clipboard-hijack-pastejacking", "ts-block-clipboard-write", false},
 	{"ps-block-base64-decode-exec", "BLOCK", "unauthorized-execution/obfuscation/interpreter-encoding-evasion", "ts-block-base64-decode-pipe-shell", false},
 	{"ps-block-scriptblock-download", "BLOCK", "unauthorized-execution/remote-code-exec/pipe-to-shell", "ts-block-pipe-to-shell", false},
-	{"ps-block-env-secret-exfil", "BLOCK", "reconnaissance/environment/env-var-enumeration", "ts-block-env-secret-exfil", false},
+	{"ps-block-env-secret-exfil", "BLOCK", "data-exfiltration/network-egress/env-variable-exfiltration", "ts-block-env-secret-exfil", false},
 	{"ps-block-python-startup-write", "BLOCK", "persistence-evasion/shell-init/python-pth-persistence", "ts-block-python-pth-write", false},
 	{"ps-block-mcp-registration-write", "BLOCK", "persistence-evasion/agent-config-persistence/agentic-tool-registration-persistence", "ts-block-mcp-registration-agent-config-write", false},
 	{"ps-block-remove-piped-system", "BLOCK", "destructive-ops/fs-destruction/system-directory-delete", "", false},
@@ -47,6 +50,7 @@ var windowsRound4 = []struct {
 	{"ps-block-remove-home", "BLOCK", "destructive-ops/fs-destruction/home-directory-delete", "ts-struct-block-rm-home-root", true},
 	{"ps-block-hosts-file-write", "BLOCK", "persistence-evasion/lateral-movement/dns-hosts-poisoning", "ne-block-etc-hosts-write", true},
 	{"ps-block-ai-config-plant", "BLOCK", "privilege-escalation/windows/programdata-config-trust-hijack", "ts-block-programdata-ai-config-plant", true},
+	{"ps-block-claude-managed-settings-write", "BLOCK", "persistence-evasion/defense-evasion/security-tool-tampering", "ts-block-claude-managed-settings-programfiles-write", true},
 }
 
 // packTiers maps every pack rule id to the tier directory it ships in.
@@ -189,7 +193,10 @@ func TestWindowsRound4_TwinParity(t *testing.T) {
 		{"git hook", `Set-Content .git\hooks\pre-commit 'x'`, "ps-block-git-hook-write", "echo x > .git/" + "hooks/pre-commit", false},
 		{"profile", `Add-Content $HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1 'x'`, "ps-block-shell-profile-write", "echo x >> ~/.bash" + "rc", false},
 		{"$PROFILE", "Add-Content $PROFILE 'x'", "ps-block-shell-profile-write-var", "echo x >> ~/.bash" + "rc", false},
+		{"agent settings", `Set-Content ~\.claude\settings.json '{}'`, "ps-block-agent-settings-write", "echo '{}' > ~/.claude/" + "settings.json", false},
 		{"ci config", `Add-Content .github\workflows\ci.yml 'x'`, "ps-block-cicd-config-write", "echo x >> .github/" + "workflows/ci.yml", false},
+		{"audit log", `Remove-Item ~\.agentshield\audit.jsonl`, "ps-block-agentshield-log-tamper", rm + " ~/.agent" + "shield/audit.jsonl", false},
+		{"agentshield dir", `Remove-Item -Recurse -Force $HOME\.agentshield`, "ps-block-agentshield-dir-delete", rm + force + "~/.agent" + "shield", false},
 		{"memory download", "iwr https://x.example/a.md -OutFile CLAUDE.md", "ps-block-agent-memory-download", "cu" + "rl -o CLAUDE.md https://x.example/a.md", false},
 		{"memory copy from temp", `Copy-Item $env:TEMP\x.md CLAUDE.md`, "ps-block-agent-memory-copy-from-temp", "c" + "p /tmp/x.md CLAUDE.md", false},
 		{"uac bypass", `New-Item 'HKCU:\Software\Classes\ms-settings\Shell\Open\command' -Force`, "ps-block-uac-bypass-registry",
@@ -213,6 +220,8 @@ func TestWindowsRound4_TwinParity(t *testing.T) {
 		{"hosts", `Add-Content C:\Windows\System32\drivers\etc\hosts '1.2.3.4 x'`, "ps-block-hosts-file-write", "echo '1.2.3.4 x' >> /etc/" + "hosts", true},
 		{"programdata ai config", `Set-Content -Path C:\ProgramData\Cursor\hooks.json -Value '{}'`, "ps-block-ai-config-plant",
 			`echo x > C:\ProgramData\Cursor\` + "hooks.json", true},
+		{"claude managed settings", `Set-Content -Path "C:\Program Files\ClaudeCode\managed-settings.json" -Value '{}'`, "ps-block-claude-managed-settings-write",
+			`echo x > "C:\Program Files\ClaudeCode\managed-` + `settings.json"`, true},
 	}
 	var community *Engine
 	for _, r := range rows {
@@ -242,18 +251,18 @@ func TestWindowsRound4_TwinParity(t *testing.T) {
 	}
 
 	// Bash decides these neighbours below BLOCK; so do their PowerShell
-	// spellings: recursion without force, a copy onto a profile, a home's
-	// parent directory, a touch of a hook.
+	// spellings: recursion without force, a home's parent directory, a touch
+	// of a hook.
 	lower := []struct {
 		name, ps, bash string
 		premium        bool
 	}{
 		{"recurse without force, root", ri + ` C:\`, rm + " -r /", false},
 		{"recurse without force, system", ri + ` C:\Windows`, rm + " -r /etc", false},
-		{"copy onto a profile", `Copy-Item evil ~/.bashrc`, "c" + "p evil ~/.bash" + "rc", false},
 		{"users root", ri + ` -Force C:\Users`, rm + force + "/Users", true},
 		{"recurse without force, home", ri + " $HOME", rm + " -r ~", true},
 		{"empty hook file", `New-Item -ItemType File .git\hooks\pre-commit`, "touch .git/" + "hooks/pre-commit", false},
+		{"agentshield dir moved", `Move-Item $HOME\.agentshield C:\t\old -Force`, "mv ~/.agent" + "shield /tmp/old", false},
 	}
 	for _, r := range lower {
 		t.Run("lower/"+r.name, func(t *testing.T) {
@@ -275,6 +284,25 @@ func TestWindowsRound4_TwinParity(t *testing.T) {
 			}
 		})
 	}
+
+	// A written gap, not a parity row (#4948, Gary 2026-11-17). A copy onto a
+	// profile used to sit in `lower` above. Bash now BLOCKs it
+	// (ts-block-cp-mv-shell-profile-dest, the cp/mv twin of the redirect
+	// rules); its PowerShell spelling has no twin and stays below BLOCK, since
+	// nobody has decided a Copy-Item twin. Closing the gap makes the second
+	// assertion fail: move the row into `rows` then.
+	t.Run("gap/copy onto a profile", func(t *testing.T) {
+		if community == nil {
+			community = communityEngine(t)
+		}
+		const rule = "ts-block-cp-mv-shell-profile-dest"
+		if bash := sshReceipt(t, community, "c"+"p evil ~/.bash"+"rc"); bash.Decision != DecisionBlock || !slices.Contains(bash.TriggeredRules, rule) {
+			t.Fatalf("bash copy onto a profile decides %s %v, want BLOCK naming %s", bash.Decision, bash.TriggeredRules, rule)
+		}
+		if ps := community.EvaluateFacts(psFacts(`Copy-Item evil ~/.bashrc`), "/tmp/agentshield-ps-parity", FactsOptions{}); ps.Decision == DecisionBlock {
+			t.Errorf("PowerShell Copy-Item onto a profile now BLOCKs %v: the gap is closed, make it a parity row", ps.TriggeredRules)
+		}
+	})
 
 	// The community rows hold on a community install: a community rule must
 	// not need a premium pack to BLOCK.

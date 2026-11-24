@@ -509,6 +509,54 @@ var GuardianObfuscationTNCases = []TestCase{
 		"internal/analyzer/testdata/persistence" is a path argument, not a base64 payload.`,
 		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
 	},
+	{
+		ID:               "TN-GUARD-OBF-005",
+		Command:          `grep -n TestShippedTaxonomyFromValuesAreKnown4665 internal/policy/taxonomy_from_test.go`,
+		ExpectedDecision: "ALLOW",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #4707): grep for a Go test name that ends in its
+		issue number, the repo's convention for a regression test. The 41-char run is
+		letters plus a trailing 4-digit number, an identifier, not a base64 payload.
+		BLOCKed by guardian-obfuscated_base64 on main.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+	{
+		ID:               "TN-GUARD-OBF-006",
+		Command:          `go test ./internal/policy/ -run TestShippedTaxonomyFromValuesAreKnown4665`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #4707): go test -run with a test name ending in its
+		issue number. AUDIT is the engine default for go test; main BLOCKed it.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+	{
+		ID:               "TN-GUARD-OBF-007",
+		Command:          `go test ./internal/policy/ -run TestPolicy_ShippedTaxonomyFromValuesAreKnownByEveryPackLoader4685`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
+		Analyzer:         "guardian",
+		Description: `FP regression (issue #4707): an underscore test name whose last segment
+		is 54 chars of letters plus an issue number. The '_' splits the name, and the
+		long segment still has the identifier shape. main BLOCKed it.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
+	{
+		ID:               "TN-GUARD-OBF-008",
+		Command:          `go test ./internal/policy/ -run TestShippedTaxonomyFromValuesAreKnownByEveryPackLoader_4685`,
+		ExpectedDecision: "AUDIT",
+		Classification:   "TN",
+		TaxonomyRef:      "unauthorized-execution/obfuscation/interpreter-encoding-evasion",
+		Analyzer:         "guardian",
+		Description: `Pin (issue #4707): the underscore-suffixed issue number. The '_' ends the
+		run before the digits, so the run is letters only and #4472's skip already
+		covers it on main. Kept so neither skip changes it.`,
+		Tags: []string{"tn", "fp-regression", "guardian", "obfuscation"},
+	},
 }
 
 // ---------------------------------------------------------------------------

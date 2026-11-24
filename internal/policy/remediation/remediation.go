@@ -42,10 +42,9 @@ func SuggestForShell(triggeredRules []string, command string, managed bool) stri
 	if len(triggeredRules) == 0 {
 		return ""
 	}
-	first := triggeredRules[0]
 
 	var sb strings.Builder
-	writeDisableHint(&sb, first, managed)
+	writeDisableHint(&sb, shellHintRule(triggeredRules), managed)
 
 	sb.WriteString("To see why this triggered:\n")
 	if command != "" {
@@ -62,6 +61,24 @@ func SuggestForShell(triggeredRules []string, command string, managed bool) stri
 	sb.WriteString("    to a file with your editor, then: agentshield check --shell-file <file>\n")
 
 	return sb.String()
+}
+
+// selfProtectRuleID is policy.SelfProtectRuleID (this package does not import
+// the engine; TestSelfProtectRuleID_MatchesPolicy keeps the two equal).
+const selfProtectRuleID = "enterprise-self-protect"
+
+// shellHintRule is the rule a shell BLOCK's disable hint names: the first,
+// except that a leading selfProtectRuleID gives way to the rule after it. The
+// audit-only keep puts that record first when the BLOCK's own rules do not
+// say why it stands (#5089), and no `rule disable` lifts the keep, so naming
+// it would print a hint that cannot be followed (#3302). The rule after it is
+// the one the hint named before #5089. A record that names selfProtectRuleID
+// alone (the managed middleware's BLOCK) is unchanged.
+func shellHintRule(triggeredRules []string) string {
+	if len(triggeredRules) > 1 && triggeredRules[0] == selfProtectRuleID {
+		return triggeredRules[1]
+	}
+	return triggeredRules[0]
 }
 
 // SuggestForMCP renders the BLOCK self-help text for an MCP tool call that

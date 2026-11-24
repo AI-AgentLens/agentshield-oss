@@ -7,6 +7,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #3995 (Opus review mutation e): the hook's AuditEvent construction must
@@ -15,7 +16,7 @@ import (
 // the pattern fires, the label excuses it, the event names both.
 func TestEvaluateCommand_AuditEventCarriesNotes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	configDir := filepath.Join(home, ".agentshield")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)

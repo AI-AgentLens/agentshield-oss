@@ -3,10 +3,13 @@ package mcp
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	slashpath "path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,6 +95,11 @@ type MCPRule struct {
 type MCPRuleTest struct {
 	TP []MCPTestCase `yaml:"tp"`           // true positives: tool calls that MUST fire the rule
 	TN []MCPTestCase `yaml:"tn,omitempty"` // true negatives: tool calls that must NOT fire
+	// Attested: tool calls that MUST fire the rule and decide AUDIT under it,
+	// the placeholder_capture downgrade (#4958). The MCP twin of the shell
+	// RuleTest.Attested. For a rule that names a placeholder_capture group,
+	// a TP must also decide the rule's own decision.
+	Attested []MCPTestCase `yaml:"attested,omitempty"`
 }
 
 // MCPTestCase represents a single test tool call.
@@ -250,6 +258,20 @@ type MCPEvalResult struct {
 	// a BLOCK or REQUIRE_APPROVAL on this tool call to AUDIT. Empty when no
 	// downgrade happened.
 	OriginalDecision policy.Decision `json:"original_decision,omitempty"`
+
+	// placeholderRules are the structural rules this evaluation fired and
+	// lowered to AUDIT because every credential value they matched is a
+	// visible placeholder (structuralRuleVerdict, #4958), whether or not they
+	// are among TriggeredRules. attributeHarnessRead reads them: on main
+	// those rules BLOCKed, and a harness Edit's receipt names them. Not
+	// serialized.
+	placeholderRules []placeholderRule
+}
+
+// placeholderRule is one entry of MCPEvalResult.placeholderRules.
+type placeholderRule struct {
+	id, reason string
+	taxonomy   []string
 }
 
 // AllTaxonomyRefs returns the merged taxonomy view for this result: the
@@ -286,17 +308,21 @@ func (e AuditEntry) AllTaxonomyRefs() []string {
 // no taxonomy (#4734): the description scan, schema drift, rug-pull. It reads
 // only the rule's static taxonomy, so a decision whose taxonomy depends on the
 // arguments must carry it in the entry, as the tools/call entry does.
+//
+// It reads the declared policy: a rule DisableRules switched off still
+// resolves, because the Go check whose record names it still runs (#5001).
 func (e *PolicyEvaluator) RuleTaxonomyRefs(ruleIDs []string) []string {
 	if e == nil || e.policy == nil || len(ruleIDs) == 0 {
 		return nil
 	}
+	declared := e.declaredPolicy()
 	byID := make(map[string]string)
-	for _, r := range e.policy.Rules {
+	for _, r := range declared.Rules {
 		if r.Taxonomy != "" {
 			byID[r.ID] = r.Taxonomy
 		}
 	}
-	for _, r := range e.policy.ResourceRules {
+	for _, r := range declared.ResourceRules {
 		if r.Taxonomy != "" {
 			byID[r.ID] = r.Taxonomy
 		}
@@ -317,8 +343,15 @@ func (e *PolicyEvaluator) RuleTaxonomyRefs(ruleIDs []string) []string {
 
 // PolicyEvaluator evaluates MCP tool calls against an MCPPolicy.
 type PolicyEvaluator struct {
-	policy        *MCPPolicy
-	SentinelRules map[string]*MCPRule // indexed by Engine name for O(1) lookup
+	// policy is what the matcher reads: the policy as loaded, less the rules
+	// DisableRules switched off.
+	policy *MCPPolicy
+	// declared is the policy as loaded, before DisableRules; nil when nothing
+	// was switched off (declaredPolicy). Every index that turns a rule id into
+	// a receipt or a keep decision reads it, so the list changes which rules
+	// can match and never what a Go check's record resolves (#5001).
+	declared      *MCPPolicy
+	SentinelRules map[string]*MCPRule // indexed by Engine name for O(1) lookup; built from the declared policy
 	// mode mirrors policy.Engine.mode for MCP evaluation. "audit-only"
 	// downgrades BLOCK/REQUIRE_APPROVAL to AUDIT with OriginalDecision set.
 	// Issue #1952.
@@ -360,15 +393,48 @@ const selfProtectionTaxonomy = "persistence-evasion/defense-evasion/security-too
 // file list, not kept as a list of ids, so a new rule that protects those
 // files is in it the moment it names them. TestSelfProtectionRules_EmbeddedPacks
 // pins the rules known today and bounds the set's size.
+//
+// The set is the declared policy's: a Go check that labels its BLOCK with a
+// rule DisableRules switched off keeps the audit-only keep it had (#5001).
 func (e *PolicyEvaluator) IsSelfProtectionRule(ruleID string) bool {
 	if e == nil || e.policy == nil || ruleID == "" {
 		return false
 	}
 	if e.selfProtect == nil {
-		return selfProtectionRuleIDs(e.policy)[ruleID]
+		return selfProtectionRuleIDs(e.declaredPolicy())[ruleID]
 	}
-	e.selfProtect.once.Do(func() { e.selfProtect.ids = selfProtectionRuleIDs(e.policy) })
+	e.selfProtect.once.Do(func() { e.selfProtect.ids = selfProtectionRuleIDs(e.declaredPolicy()) })
 	return e.selfProtect.ids[ruleID]
+}
+
+// declaredPolicy is the policy as loaded, before DisableRules.
+func (e *PolicyEvaluator) declaredPolicy() *MCPPolicy {
+	if e.declared != nil {
+		return e.declared
+	}
+	return e.policy
+}
+
+// DisableRules leaves the rules whose id ids lists out of matching: the shell
+// policy's disable_rules, which until #5001 switched off shell rules only
+// (assembly.MCPEvaluator calls it; withoutDisabledRules says what is
+// filtered and how ids match). It replaces any earlier list. An empty list
+// leaves the evaluator exactly as NewPolicyEvaluator built it.
+//
+// The list decides which rules can MATCH. It never changes what a receipt or
+// a keep decision resolves: SentinelRules (LookupSentinel), RuleTaxonomyRefs
+// and IsSelfProtectionRule keep reading the declared policy, so a Go check
+// labelled by a listed rule (a sentinel, or a label rule such as
+// mcp-sec-audit-tool-description-changed) runs and is recorded as before.
+// Call it before taking InWorkingDir views.
+func (e *PolicyEvaluator) DisableRules(ids []string) {
+	if e == nil || len(ids) == 0 {
+		return
+	}
+	if e.declared == nil {
+		e.declared = e.policy
+	}
+	e.policy = withoutDisabledRules(e.declared, ids)
 }
 
 func selfProtectionRuleIDs(p *MCPPolicy) map[string]bool {
@@ -526,9 +592,45 @@ func (e *PolicyEvaluator) evaluate(toolName string, arguments map[string]interfa
 
 // evaluateReadings runs the argument-dependent rule set under every reading of
 // the arguments — as written, case-folded (#4194), separator-normalised
-// (#4243), /private alias written short (#4387) — and keeps the strictest,
+// (#4243), /private alias written short (#4387), and each of those again on
+// every argument-name alias reading (#4937) — and keeps the strictest,
 // WITHOUT the audit-only downgrade.
 func (e *PolicyEvaluator) evaluateReadings(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall) MCPEvalResult {
+	result := e.evaluateValueReadings(toolName, arguments, toolDescription, history)
+	// Argument-name alias reading (#4937). Rules that match a file path are
+	// written on `path`, and a tool that carries the path as file_path,
+	// filepath, file or filename (Claude Code's Read/Write/Edit,
+	// code-graph-rag's read_file) was invisible to them. Each alias reading
+	// (pathAliasArguments) is a copy of the arguments with the alias value
+	// also presented under `path`, the as-written `path`, if any, having been
+	// evaluated above. Same raise-only construction as the value readings: an
+	// alias reading's verdict replaces the one above only when STRICTLY more
+	// restrictive, so exclusions, ALLOW rules and exclude_when act only inside
+	// it and cannot lower the as-written verdict, and a tie keeps the
+	// as-written record. Each alias reading gets the value readings too
+	// (case fold, separators, /private), as the as-written one does, so
+	// `C:\Users\u\.ssh\id_rsa` under file_path meets the forward-slash rules.
+	// Built only when a map in the call carries an alias name.
+	//
+	// MCP server tools only (Gary, 2026-11-16). A harness's own file tools
+	// (harnessReadTools, harnessWriteTools: Claude Code's Read/Write/Edit
+	// send file_path) decide exactly as before: their credential reads and
+	// writes are recorded, never enforced (#4248 option (c), #4457), and
+	// attributeHarnessRead keeps doing that.
+	if isHarnessFileTool(toolName) {
+		return result
+	}
+	for _, aliased := range pathAliasArguments(arguments) {
+		result = stricterMCPResult(result, e.evaluateValueReadings(toolName, aliased, toolDescription, history))
+	}
+	return result
+}
+
+// evaluateValueReadings is evaluateReadings without the argument-name alias
+// readings: the rule set under the arguments as given and under each reading
+// of their values (case fold, Windows separators, /private alias), strictest
+// kept, WITHOUT the audit-only downgrade.
+func (e *PolicyEvaluator) evaluateValueReadings(toolName string, arguments map[string]interface{}, toolDescription string, history []RecordedCall) MCPEvalResult {
 	// Case-folded path reading (#4194). The rules below compare argument
 	// values case-sensitively, and on a case-insensitive volume (APFS, NTFS)
 	// `/Users/u/.SSH/id_rsa` is the same file as `/Users/u/.ssh/id_rsa`. So the
@@ -619,6 +721,12 @@ func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName st
 	if !ok || result.Decision != policy.DecisionAudit {
 		return result
 	}
+	// #4958: when the call's own AUDIT comes from the placeholder reading,
+	// main BLOCKed this call and attributed nothing; keep it that way, so a
+	// Write's receipt keeps naming the file-write rule and node alone.
+	if len(result.placeholderRules) > 0 {
+		return result
+	}
 	equivArgs := make(map[string]interface{}, len(arguments)+1)
 	for k, v := range arguments {
 		equivArgs[k] = v
@@ -638,23 +746,41 @@ func (e *PolicyEvaluator) attributeHarnessRead(result MCPEvalResult, toolName st
 		}
 	}
 	// No description and no history: the equivalence is about the path
-	// alone, so semantic and sequence rules have nothing to say here.
-	equiv := e.evaluateReadings(mcpName, equivArgs, "", nil)
-	if equiv.Decision != policy.DecisionBlock || len(equiv.TriggeredRules) == 0 {
+	// alone, so semantic and sequence rules have nothing to say here. The
+	// value readings only, not the #4937 alias readings: the harness call is
+	// out of that change's scope, so what it records stays what main records.
+	equiv := e.evaluateValueReadings(mcpName, equivArgs, "", nil)
+	blocks := equiv.Decision == policy.DecisionBlock && len(equiv.TriggeredRules) > 0
+	// #4958 (review C2): a rule the placeholder reading lowered to AUDIT
+	// BLOCKed here on main and was named on this receipt. It still fired, so
+	// the receipt still names it, with its node, worded as a placeholder.
+	if !blocks && len(equiv.placeholderRules) == 0 {
 		return result
 	}
 	out := result
 	out.TriggeredRules = append([]string{}, result.TriggeredRules...)
 	out.Reasons = append([]string{}, result.Reasons...)
-	for i, rule := range equiv.TriggeredRules {
-		why := ""
-		if i < len(equiv.Reasons) {
-			why = " — " + equiv.Reasons[i]
+	taxonomy := append([]string{}, result.TaxonomyRefs...)
+	if blocks {
+		for i, rule := range equiv.TriggeredRules {
+			why := ""
+			if i < len(equiv.Reasons) {
+				why = " — " + equiv.Reasons[i]
+			}
+			out.TriggeredRules = append(out.TriggeredRules, rule)
+			out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (%s): as %s this call matches the BLOCK rule %s%s", issue, mcpName, rule, why))
 		}
-		out.TriggeredRules = append(out.TriggeredRules, rule)
-		out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (%s): as %s this call matches the BLOCK rule %s%s", issue, mcpName, rule, why))
+		taxonomy = append(taxonomy, equiv.AllTaxonomyRefs()...)
 	}
-	out.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(append(append([]string{}, result.TaxonomyRefs...), equiv.AllTaxonomyRefs()...))
+	for _, p := range equiv.placeholderRules {
+		if slices.Contains(out.TriggeredRules, p.id) {
+			continue
+		}
+		out.TriggeredRules = append(out.TriggeredRules, p.id)
+		out.Reasons = append(out.Reasons, fmt.Sprintf("Recorded, not enforced (%s): as %s this call matches the rule %s, which decides AUDIT because every credential value it matched is visibly a placeholder (#4958) — %s", issue, mcpName, p.id, p.reason))
+		taxonomy = append(taxonomy, p.taxonomy...)
+	}
+	out.TaxonomyRefs = analyzer.NormalizeTaxonomyRefs(taxonomy)
 	return out
 }
 
@@ -724,16 +850,23 @@ func (e *PolicyEvaluator) evaluateArguments(toolName string, arguments map[strin
 	// taxonomy a firing records is structuralRuleTaxonomy's: the static node,
 	// or for a taxonomy_from: matched_path rule the node of the path it
 	// matched (#4665). It is computed only for a firing that is recorded.
+	// A rule naming a placeholder_capture group decides AUDIT, under its own
+	// id and node, when every credential value it matched is a visible
+	// placeholder (structuralRuleVerdict, #4958).
 	for _, rule := range e.policy.StructuralRules {
 		if matchStructuralRule(toolName, arguments, rule) {
-			if decisionSeverity(rule.Decision) > decisionSeverity(result.Decision) {
-				result.Decision = rule.Decision
+			decision, reason := structuralRuleVerdict(toolName, arguments, rule)
+			if decision != rule.Decision {
+				result.placeholderRules = append(result.placeholderRules, placeholderRule{rule.ID, reason, structuralRuleTaxonomy(rule, arguments)})
+			}
+			if decisionSeverity(decision) > decisionSeverity(result.Decision) {
+				result.Decision = decision
 				result.TriggeredRules = []string{rule.ID}
-				result.Reasons = []string{rule.Reason}
+				result.Reasons = []string{reason}
 				result.TaxonomyRefs = structuralRuleTaxonomy(rule, arguments)
-			} else if decisionSeverity(rule.Decision) == decisionSeverity(result.Decision) {
+			} else if decisionSeverity(decision) == decisionSeverity(result.Decision) {
 				result.TriggeredRules = append(result.TriggeredRules, rule.ID)
-				result.Reasons = append(result.Reasons, rule.Reason)
+				result.Reasons = append(result.Reasons, reason)
 				result.TaxonomyRefs = append(result.TaxonomyRefs, structuralRuleTaxonomy(rule, arguments)...)
 			}
 		}
@@ -1532,7 +1665,7 @@ func (e *PolicyEvaluator) EvaluateResourceRead(uri string) MCPEvalResult {
 
 	// Check config guard on file:// URIs
 	if strings.HasPrefix(uri, "file://") {
-		path := strings.TrimPrefix(uri, "file://")
+		path := resourceGuardPath(uri) // on Windows, file:///C:/x is C:/x (#5062)
 		// Use config guard to check if the resource path is protected
 		guardResult := CheckConfigGuard("resources/read", map[string]interface{}{"path": path})
 		if guardResult.Blocked {
@@ -1804,14 +1937,29 @@ func argValueToFloat(val interface{}) (float64, bool) {
 	case int64:
 		return float64(v), true
 	case json.Number:
-		f, err := v.Float64()
-		return f, err == nil
+		return parseNumericText(v.String())
 	case string:
-		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		return f, err == nil
+		return parseNumericText(v)
 	default:
 		return 0, false
 	}
+}
+
+// parseNumericText reads a number written as text. A well-formed number too
+// large for float64 is still a number: strconv hands back ±Inf with a range
+// error for it, and that ±Inf is what a cap must see. Treating the range error
+// as "not a number" let 400 nines in `amount` pass a cap that 500 trips
+// (#4997). Text that is not a number at all gives a syntax error and stays
+// "not a number".
+func parseNumericText(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err == nil {
+		return f, true
+	}
+	if errors.Is(err, strconv.ErrRange) && math.IsInf(f, 0) {
+		return f, true
+	}
+	return 0, false
 }
 
 // EvaluateRootsList checks the roots declared in a roots/list response for

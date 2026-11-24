@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/abandon"
-	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -44,21 +43,24 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		return findings
 	}
 
+	// Whether Git Bash's reading of a word can differ (#5049), once per
+	// command: it gates every second evaluation below.
+	tw := readsTwoWays(ctx.Parsed)
 	for _, pc := range shellparse.AllParsedCommands(ctx.Parsed) {
 		abandon.Checkpoint() // #4785: parks an evaluation already answered
 		// 1. Run built-in Go checks
 		// Check compound commands within this single evaluation
 		// (e.g., "curl -o x.sh && bash x.sh")
-		findings = append(findings, s.checkCompoundDownloadExecute(pc, writtenName)...)
+		findings = append(findings, s.checkCompoundDownloadExecute(pc, writtenName, readMain)...)
 
 		// Check for the agentic-pentest decoy-payload pattern: a recon/exploit
 		// tool run against a target, followed by fetching an executable
 		// artifact FROM THAT SAME HOST, followed by running it (#3654).
-		findings = append(findings, s.checkPentestDecoyPayloadExecution(pc, writtenName)...)
+		findings = append(findings, s.checkPentestDecoyPayloadExecution(pc, writtenName, readMain)...)
 
 		// 2. Run user-defined YAML stateful rules
 		for _, rule := range s.userRules {
-			if MatchStatefulRule(pc, rule) {
+			if matchStatefulRuleGated(pc, rule, tw) {
 				f := Finding{
 					AnalyzerName: "stateful",
 					RuleID:       rule.ID,
@@ -98,12 +100,13 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 			}
 		}
 		for _, pc := range shellparse.AllParsedCommands(ctx.Parsed) {
-			keep(s.checkCompoundDownloadExecute(pc, programName))
-			keep(s.checkPentestDecoyPayloadExecution(pc, programName))
+			keep(s.checkCompoundDownloadExecute(pc, programName, readMain))
+			keep(s.checkPentestDecoyPayloadExecution(pc, programName, readMain))
 		}
+		twv := readsTwoWays(pv)
 		for _, pc := range shellparse.AllParsedCommands(pv) {
 			for _, rule := range s.userRules {
-				if !restrictingDecision(rule.Decision) || rule.Negate || have[rule.ID] || !MatchStatefulRule(pc, rule) {
+				if !restrictingDecision(rule.Decision) || rule.Negate || have[rule.ID] || !matchStatefulRuleGated(pc, rule, twv) {
 					continue
 				}
 				have[rule.ID] = true
@@ -119,6 +122,36 @@ func (s *StatefulAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 					f.Confidence = 0.85
 				}
 				findings = append(findings, f)
+			}
+		}
+	}
+
+	// Git Bash's reading on Windows (#5049, see quoteReading): the built-in
+	// chains are run again with every file and host they compare read as Git
+	// Bash reads it, both sides alike, and new RESTRICTING findings are kept.
+	// A union for the reason the program-name view is one: a chain takes the
+	// FIRST download or recon step it recognises, so a per-word "either" could
+	// move it and lose a later match. Both chains only ever BLOCK, so main's
+	// pass alone already decides no weaker than main. YAML chains join their
+	// readings inside MatchStatefulRule. Only where a word can read
+	// differently: otherwise the pass would repeat main's.
+	if tw {
+		have := map[string]bool{}
+		for _, f := range findings {
+			have[f.RuleID+"\x00"+f.Decision] = true
+		}
+		names := []func(CommandSegment) string{writtenName}
+		if ctx.restrictView() != nil {
+			names = append(names, programName)
+		}
+		for _, pc := range shellparse.AllParsedCommands(ctx.Parsed) {
+			for _, name := range names {
+				for _, f := range append(s.checkCompoundDownloadExecute(pc, name, readBash), s.checkPentestDecoyPayloadExecution(pc, name, readBash)...) {
+					if key := f.RuleID + "\x00" + f.Decision; restrictingDecision(f.Decision) && !have[key] {
+						have[key] = true
+						findings = append(findings, f)
+					}
+				}
 			}
 		}
 	}
@@ -143,7 +176,9 @@ func programName(seg CommandSegment) string {
 // Patterns:
 //   - curl/wget -o <file> && bash/sh/chmod <file>
 //   - curl/wget -O <file> && chmod +x <file> && ./<file>
-func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, name func(CommandSegment) string) []Finding {
+//
+// Every file name it compares is read under r (#5049).
+func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, name func(CommandSegment) string, r quoteReading) []Finding {
 	if parsed == nil {
 		return nil
 	}
@@ -165,7 +200,7 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, n
 		// (issue #2945) — "/tmp/x'.'sh" resolves to /tmp/x.sh at exec time,
 		// so raw-text comparison against the execute-side filename misses
 		// the spliced form while the same file still gets executed.
-		outFile := pathnorm.StripShellQuotes(extractDownloadOutputFile(seg))
+		outFile := r.word(extractDownloadOutputFile(seg))
 		if outFile != "" {
 			downloadedFiles = append(downloadedFiles, outFile)
 			downloadSegIdx = i
@@ -176,6 +211,16 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, n
 		return nil
 	}
 
+	// What each segment runs, read through its re-parse carriers (#4861),
+	// computed once per segment and only for the segments a check reaches.
+	reach := make([][]CommandSegment, len(parsed.Segments))
+	runs := func(i int) []CommandSegment {
+		if reach[i] == nil {
+			reach[i] = carrierReach(parsed.Segments[i], maxCarrierDepth)
+		}
+		return reach[i]
+	}
+
 	// Look for execute segments that reference the downloaded file
 	var findings []Finding
 	for i, seg := range parsed.Segments {
@@ -184,7 +229,7 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, n
 		}
 
 		for _, dlFile := range downloadedFiles {
-			if isExecuteOfFile(seg, dlFile) {
+			if runsFile(runs(i), dlFile, r) {
 				findings = append(findings, Finding{
 					AnalyzerName: "stateful",
 					RuleID:       "sf-block-download-execute",
@@ -205,15 +250,15 @@ func (s *StatefulAnalyzer) checkCompoundDownloadExecute(parsed *ParsedCommand, n
 		if name(seg) != "chmod" {
 			continue
 		}
-		chmodFile := pathnorm.StripShellQuotes(extractChmodTarget(seg))
+		chmodFile := r.word(extractChmodTarget(seg))
 		if chmodFile == "" {
 			continue
 		}
 
 		for j := i + 1; j < len(parsed.Segments); j++ {
 			nextSeg := parsed.Segments[j]
-			nextExec := pathnorm.StripShellQuotes(nextSeg.Executable)
-			if isExecuteOfFile(nextSeg, chmodFile) || nextExec == chmodFile || nextExec == "./"+chmodFile {
+			nextExec := r.word(nextSeg.Executable)
+			if runsFile(runs(j), chmodFile, r) || nextExec == chmodFile || nextExec == "./"+chmodFile {
 				// Already covered by the download-execute finding above, skip if duplicate
 				alreadyFound := false
 				for _, f := range findings {
@@ -273,7 +318,9 @@ var pentestReconTargetFlags = []string{"u", "url", "host", "h", "target", "rhost
 // must not match. Exact-host-match only (no subdomain/base-domain fuzzing) —
 // deliberately conservative for a BLOCK-tier finding; see #3654 PR notes for
 // the scope decision.
-func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedCommand, name func(CommandSegment) string) []Finding {
+//
+// Every host and file name it compares is read under r (#5049).
+func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedCommand, name func(CommandSegment) string, r quoteReading) []Finding {
 	if parsed == nil || len(parsed.Segments) < 3 {
 		return nil
 	}
@@ -286,7 +333,7 @@ func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedComma
 		if !pentestReconTools[name(seg)] {
 			continue
 		}
-		if h := extractReconTargetHost(seg); h != "" {
+		if h := extractReconTargetHost(seg, r); h != "" {
 			reconHost = h
 			reconTool = seg.Executable
 			reconIdx = i
@@ -305,12 +352,12 @@ func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedComma
 		if !isDownloadCommand(name(seg)) {
 			continue
 		}
-		if extractDownloadURLHost(seg) != reconHost {
+		if extractDownloadURLHost(seg, r) != reconHost {
 			continue
 		}
-		outFile := pathnorm.StripShellQuotes(extractDownloadOutputFile(seg))
+		outFile := r.word(extractDownloadOutputFile(seg))
 		if outFile == "" {
-			outFile = extractDownloadURLBasename(seg)
+			outFile = extractDownloadURLBasename(seg, r)
 		}
 		if outFile != "" {
 			downloadedFiles[outFile] = true
@@ -325,7 +372,7 @@ func (s *StatefulAnalyzer) checkPentestDecoyPayloadExecution(parsed *ParsedComma
 	for i := downloadIdx + 1; i < len(parsed.Segments); i++ {
 		seg := parsed.Segments[i]
 		for f := range downloadedFiles {
-			if isExecuteOfFile(seg, f) {
+			if isExecuteOfFile(seg, f, r) {
 				return []Finding{{
 					AnalyzerName: "stateful",
 					RuleID:       "sf-block-pentest-decoy-payload-execution",
@@ -431,13 +478,15 @@ func hasInlineCodeFlag(seg CommandSegment) bool {
 }
 
 // isExecuteOfFile checks if a segment executes a specific file.
-func isExecuteOfFile(seg CommandSegment, file string) bool {
+//
+// Both sides are read under r (#5049).
+func isExecuteOfFile(seg CommandSegment, file string, r quoteReading) bool {
 	// Strip inline shell quotes from both sides (issue #2945) — the caller
 	// may pass an already-spliced filename (e.g. from extractDownloadOutputFile
 	// before normalization landed here too), and the execute-side arg/
 	// executable can independently be spliced (e.g. "bash /tmp/x'.'sh").
-	file = pathnorm.StripShellQuotes(file)
-	execName := pathnorm.StripShellQuotes(seg.Executable)
+	file = r.word(file)
+	execName := r.word(seg.Executable)
 
 	// Direct execution: bash <file>, sh <file>, python3 <file>, node <file>, etc.
 	// Use isShellOrInterpreter to cover both shell (bash/sh/zsh) and code
@@ -457,7 +506,7 @@ func isExecuteOfFile(seg CommandSegment, file string) bool {
 		// does not record option arity, redirect fds, or whether stdin text
 		// is literal. See TestStateful_PythonStdinArgvDownloadIsPinnedFP.
 		for _, arg := range seg.Args {
-			a := pathnorm.StripShellQuotes(arg)
+			a := r.word(arg)
 			if a == file || strings.HasSuffix(a, "/"+file) {
 				return true
 			}
@@ -467,7 +516,7 @@ func isExecuteOfFile(seg CommandSegment, file string) bool {
 	// chmod +x <file> (not execution, but part of the chain)
 	if execName == "chmod" {
 		for _, arg := range seg.Args {
-			a := pathnorm.StripShellQuotes(arg)
+			a := r.word(arg)
 			if a == file || strings.HasSuffix(a, "/"+file) {
 				return true
 			}
@@ -479,6 +528,62 @@ func isExecuteOfFile(seg CommandSegment, file string) bool {
 		return true
 	}
 
+	return false
+}
+
+// carrierReach returns seg followed by every segment its re-parse carrier
+// runs, recursively up to depth carriers deep (#4861). The caller passes the
+// package's shared nested-carrier bound, maxCarrierDepth (substitution_scope.go):
+// `bash -c "eval bash F"` is two carriers deep. A run step nested deeper is
+// not read.
+//
+// `eval bash F`, `eval "bash F"`, `bash -c "bash F"` and `sh -c 'sh F'` run F
+// exactly as `bash F` does: the carrier hands its text back to a shell, which
+// parses it again. isExecuteOfFile reads one segment as written, so the run
+// step behind the carrier was invisible and a download-then-run chain fell
+// from BLOCK to AUDIT. The carrier list and the text each one runs are not
+// restated here: shellparse.CarriesShellSource is the one predicate every
+// carrier-reading surface shares (eval, trap, a shell's -c / heredoc /
+// here-string, su/runuser -c, the SourceArg carriers, osascript) and
+// shellparse.ExtractInlineCode returns the text, the same pair the parser's
+// own carrier sub-parse uses. A code interpreter's -c program is Python or
+// JavaScript, not shell, and CarriesShellSource leaves it out on purpose.
+//
+// Each statement of the carrier text is judged by the unchanged
+// isExecuteOfFile, so what counts as running the file through a carrier is
+// exactly what counts in the plain form: `bash -c "cat F"` reads F and stays
+// unflagged, as `cat F` does. Additive only: seg itself is always first in
+// the result, so every match main made is still made.
+func carrierReach(seg CommandSegment, depth int) []CommandSegment {
+	out := []CommandSegment{seg}
+	if depth <= 0 || !shellparse.CarriesShellSource(seg) {
+		return out
+	}
+	inner := shellparse.ExtractInlineCode(seg)
+	if inner == "" {
+		return out
+	}
+	abandon.Checkpoint() // a parse per carrier; parks an evaluation already answered (#4785)
+	// Depth 1: no sub-parse of nested carriers here; the recursion below
+	// reads them, under this function's own bound.
+	parsed := shellparse.Parse(inner, 1)
+	if parsed == nil {
+		return out
+	}
+	for _, s := range parsed.Segments {
+		out = append(out, carrierReach(s, depth-1)...)
+	}
+	return out
+}
+
+// runsFile reports whether any of segs executes file (isExecuteOfFile), under
+// reading r.
+func runsFile(segs []CommandSegment, file string, r quoteReading) bool {
+	for _, s := range segs {
+		if isExecuteOfFile(s, file, r) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -512,8 +617,8 @@ var nonHostFileSuffixes = []string{
 // correlation (both call sites require the SAME extracted host to appear on
 // two independent segments), it can never manufacture a match between two
 // genuinely different hosts.
-func hostFromToken(raw string) string {
-	tok := pathnorm.StripShellQuotes(strings.TrimSpace(raw))
+func hostFromToken(raw string, r quoteReading) string {
+	tok := r.word(strings.TrimSpace(raw))
 	if tok == "" {
 		return ""
 	}
@@ -562,16 +667,16 @@ func hostLikeToken(s string) bool {
 // extractReconTargetHost pulls the scan/exploit target host out of a recon
 // tool's segment: known target-carrying flags first (-u/-url/-host/-target/
 // -rhost(s)/-d), then the first host-like positional argument.
-func extractReconTargetHost(seg CommandSegment) string {
+func extractReconTargetHost(seg CommandSegment, r quoteReading) string {
 	for _, flag := range pentestReconTargetFlags {
 		if v, ok := seg.Flags[flag]; ok && v != "" {
-			if h := hostFromToken(v); h != "" {
+			if h := hostFromToken(v, r); h != "" {
 				return h
 			}
 		}
 	}
 	for _, arg := range seg.Args {
-		if h := hostFromToken(arg); h != "" {
+		if h := hostFromToken(arg, r); h != "" {
 			return h
 		}
 	}
@@ -588,14 +693,14 @@ func extractReconTargetHost(seg CommandSegment) string {
 // scanning Args with the bare-host-tolerant matcher would grab the filename
 // and never reach the real URL. curl/wget invocations in practice always
 // carry an explicit scheme, so requiring one here costs no real recall.
-func extractDownloadURLHost(seg CommandSegment) string {
+func extractDownloadURLHost(seg CommandSegment, r quoteReading) string {
 	for _, arg := range seg.Args {
-		if h := urlSchemeHost(arg); h != "" {
+		if h := urlSchemeHost(arg, r); h != "" {
 			return h
 		}
 	}
 	for _, v := range seg.Flags {
-		if h := urlSchemeHost(v); h != "" {
+		if h := urlSchemeHost(v, r); h != "" {
 			return h
 		}
 	}
@@ -605,8 +710,8 @@ func extractDownloadURLHost(seg CommandSegment) string {
 // urlSchemeHost extracts the lowercase hostname from a token that carries an
 // explicit "scheme://" prefix; returns "" for anything else (including bare
 // hostnames — see extractDownloadURLHost).
-func urlSchemeHost(raw string) string {
-	tok := pathnorm.StripShellQuotes(strings.TrimSpace(raw))
+func urlSchemeHost(raw string, r quoteReading) string {
+	tok := r.word(strings.TrimSpace(raw))
 	if !strings.Contains(tok, "://") {
 		return ""
 	}
@@ -621,9 +726,9 @@ func urlSchemeHost(raw string) string {
 // default naming produces when no explicit -o/-O <name> is given — the
 // URL's path basename. Only called after extractDownloadOutputFile finds no
 // explicit output filename.
-func extractDownloadURLBasename(seg CommandSegment) string {
+func extractDownloadURLBasename(seg CommandSegment, r quoteReading) string {
 	for _, arg := range seg.Args {
-		a := pathnorm.StripShellQuotes(arg)
+		a := r.word(arg)
 		raw := a
 		if !strings.Contains(raw, "://") {
 			if !strings.Contains(raw, ".") {

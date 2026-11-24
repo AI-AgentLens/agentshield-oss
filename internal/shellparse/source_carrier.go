@@ -150,8 +150,36 @@ func lookupShellSource(tbl map[string]map[string]bool, word string) (map[string]
 // Positional form: every trailing operand from the first non-option token,
 // joined with a single space — what a real `watch` hands to `sh -c`.
 func ShellSourceArg(words []string) string {
+	return shellSource(words, false)
+}
+
+// ShellSourceArgValue is ShellSourceArg over argv given as runtime VALUES,
+// each word after the outer shell's expansion and quote removal, and it
+// returns the source as the value the carrier hands to its shell rather than
+// as a word still to be dequoted.
+//
+// ShellSourceArg reads raw word text because a CommandSegment keeps raw text,
+// and its consumers recover the payload with payloadValue. The substitution
+// layer's scope walk (analyzer/substitution_scope.go) resolves every word
+// against its own symbol table first, the way it reads `bash -c`'s operand, so
+// what it holds is values (#4903). Same tables, same readers; only the quote
+// handling differs, and only osascript's reader has any.
+func ShellSourceArgValue(argv []string) string {
+	return shellSource(argv, true)
+}
+
+func shellSource(words []string, values bool) string {
 	if len(words) == 0 {
 		return ""
+	}
+	// osascript's source is AppleScript, and only the string a `do shell
+	// script` call hands to /bin/sh is shell source (#4900). That needs a
+	// reader, not a flag table: see osascript_carrier.go.
+	if isOsascript(words[0]) {
+		if values {
+			return strings.Join(osascriptShellCommands(words[1:], identityArgValue), "\n")
+		}
+		return osascriptShellSource(words[1:])
 	}
 	if flags, ok := lookupShellSource(shellSourceFlags, words[0]); ok {
 		return shellSourceFlagValue(flags, words[1:])

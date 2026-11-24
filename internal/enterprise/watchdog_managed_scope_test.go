@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Tests for the watchdog's Claude Code managed-scope check (#4292 PR B). The
@@ -27,7 +29,7 @@ type scopeFixture struct {
 func newScopeFixture(t *testing.T) scopeFixture {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("COPILOT_HOME", "")
 	f := scopeFixture{
 		home:        home,

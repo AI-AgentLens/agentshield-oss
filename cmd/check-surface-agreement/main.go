@@ -127,8 +127,8 @@ type impl struct {
 // scanPacks returns stem -> surface -> the implementations found.
 //
 // The YAML is read line-wise rather than unmarshalled because the pack files
-// carry rules under seven different top-level keys (see CLAUDE.md, "Policy
-// Packs" — parsing only `rules:` silently drops 386 of them). Tracking the most
+// carry rules under seven different top-level keys (see .claude/agent-notes/packs-and-distribution.md,
+// "Policy Packs" — parsing only `rules:` silently drops 386 of them). Tracking the most
 // recent `id:` and attaching the next `taxonomy:` to it is key-agnostic and
 // matches how check-taxonomy-refs.sh reads the same tree.
 func scanPacks(dir string) (map[string]map[string][]impl, int, error) {

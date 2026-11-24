@@ -40,21 +40,43 @@ type ChainStepRule struct {
 // MatchStatefulRule evaluates a stateful rule against the parsed command's
 // segments and operators. The chain is matched as a subsequence — steps can
 // be non-adjacent but must appear in order.
+//
+// On Windows the chain is matched under main's reading of its step arguments
+// and under Git Bash's (#5049, see quoteReading), and the two results, after
+// negation, are joined by the rule's decision: a restricting rule fires if
+// either fires, an ALLOW only if both do. The join is on whole evaluations,
+// not on each step, because the subsequence match is greedy and does not
+// backtrack: a step that matches one more segment can move where the next
+// step is looked for, and lose a chain main matched.
 func MatchStatefulRule(parsed *ParsedCommand, rule StatefulRule) bool {
 	if parsed == nil || len(parsed.Segments) == 0 || len(rule.Chain) == 0 {
 		return applyNegate(false, rule.Negate)
 	}
 
-	matched := matchChain(parsed, rule.Chain)
-	return applyNegate(matched, rule.Negate)
+	return matchStatefulRuleGated(parsed, rule, readsTwoWays(parsed))
+}
+
+// matchStatefulRuleGated is MatchStatefulRule for a command whose
+// readsTwoWays is already known.
+func matchStatefulRuleGated(parsed *ParsedCommand, rule StatefulRule, twoWays bool) bool {
+	if parsed == nil || len(parsed.Segments) == 0 || len(rule.Chain) == 0 {
+		return applyNegate(false, rule.Negate)
+	}
+	for _, step := range rule.Chain {
+		twoWays = twoWays || globsHaveBackslash(step.ArgsAny)
+	}
+	return combineReadingsIf(twoWays, restrictingDecision(rule.Decision), func(r quoteReading) bool {
+		return applyNegate(matchChain(parsed, rule.Chain, r), rule.Negate)
+	})
 }
 
 // matchChain attempts to match the chain steps against segments and operators
 // in order. Each step must match a segment, and operator constraints must
 // match the operator between the matched segments. The subsequence skeleton
 // (greedy left-to-right, gaps allowed) is the shared seqmatch.Match; the
-// operator constraints are enforced by the probe below.
-func matchChain(parsed *ParsedCommand, chain []ChainStepRule) bool {
+// operator constraints are enforced by the probe below. r is the reading the
+// step argument globs take (#5049).
+func matchChain(parsed *ParsedCommand, chain []ChainStepRule, r quoteReading) bool {
 	segments := parsed.Segments
 	operators := parsed.Operators
 
@@ -80,7 +102,7 @@ func matchChain(parsed *ParsedCommand, chain []ChainStepRule) bool {
 			return seqmatch.StepSatisfied
 		}
 
-		if !matchChainStep(seg, step) {
+		if !matchChainStep(seg, step, r) {
 			return seqmatch.Skip
 		}
 
@@ -122,8 +144,9 @@ func matchChain(parsed *ParsedCommand, chain []ChainStepRule) bool {
 	return seqmatch.Match(chain, segments, nil, probe)
 }
 
-// matchChainStep checks if a segment matches a single chain step.
-func matchChainStep(seg CommandSegment, step ChainStepRule) bool {
+// matchChainStep checks if a segment matches a single chain step, its
+// argument globs under reading r.
+func matchChainStep(seg CommandSegment, step ChainStepRule, r quoteReading) bool {
 	// --- ExecutableAny ---
 	if len(step.ExecutableAny) > 0 {
 		if !stringInList(seg.Executable, step.ExecutableAny) {
@@ -157,7 +180,7 @@ func matchChainStep(seg CommandSegment, step ChainStepRule) bool {
 		found := false
 		for _, arg := range seg.Args {
 			for _, pattern := range step.ArgsAny {
-				if matchArgGlob(arg, pattern) {
+				if matchArgGlobAs(arg, pattern, r) {
 					found = true
 					break
 				}

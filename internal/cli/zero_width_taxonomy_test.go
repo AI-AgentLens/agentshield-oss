@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Issue #4560 at the shell hook surface: the event the hook records for a
@@ -23,7 +24,7 @@ const zeroWidthTaxonomyNode = "unauthorized-execution/agentic-attacks/invisible-
 func enforceHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	dir := filepath.Join(home, ".agentshield")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

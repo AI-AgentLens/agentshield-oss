@@ -288,11 +288,11 @@ func TestAuditQueue_RedactionAtRest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", p, err)
 		}
-		if st.Mode().Perm() != 0o600 {
+		if modeBitsAreReal && st.Mode().Perm() != 0o600 {
 			t.Errorf("%s mode = %v; want 0600", p, st.Mode().Perm())
 		}
 	}
-	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
+	if st, err := os.Stat(dir); err != nil || (modeBitsAreReal && st.Mode().Perm() != 0o700) {
 		t.Errorf("queue dir mode = %v (%v); want 0700", st.Mode().Perm(), err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // OpenClaw has no integration that sends a tool call to `agentshield hook`:
@@ -21,7 +23,7 @@ func TestOpenClawStatus_DoesNotReportEnforcement_4582(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(hookDir, "handler.ts"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	out := captureStdout(t, checkOpenClawHook)
 	if strings.Contains(out, "✅") || strings.Contains(out, "hook active") {

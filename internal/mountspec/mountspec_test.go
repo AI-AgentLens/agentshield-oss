@@ -47,12 +47,19 @@ func TestSources(t *testing.T) {
 		{"mount inline flag", strings.Fields("run --mount=type=bind,source=/var/creds,target=/mnt img"), []string{"/var/creds"}},
 		{"mount SOURCE uppercase", strings.Fields("run --mount type=bind,SOURCE=/var/creds,target=/mnt img"), []string{"/var/creds"}},
 		{"two mounts", strings.Fields("run -v /a/b:/x -v /c/d:/y img"), []string{"/a/b", "/c/d"}},
+		// #5052: a Windows host path carries its own colon. Docker on Windows
+		// reads the drive letter as part of the source.
+		{"windows drive source", strings.Fields("run -v C:/Users/u/." + "aws:/mnt img"), []string{"C:/Users/u/.aws"}},
+		{"windows drive source, options", strings.Fields("run -v d:/data/x:/mnt:ro img"), []string{"d:/data/x"}},
+		{"windows drive source, inline flag", strings.Fields("run --volume=C:/Users/u/x:/mnt img"), []string{"C:/Users/u/x"}},
 
 		// Nothing to report.
 		{"no args", nil, nil},
 		{"version flag alone", []string{"-v"}, nil},
 		{"anonymous volume", strings.Fields("run -v /data img"), nil},
 		{"named volume", strings.Fields("run -v myvol:/data img"), nil},
+		// Two parts keep their reading: a one-letter named volume, not a drive.
+		{"one-letter named volume", strings.Fields("run -v C:/data img"), nil},
 		{"tmpfs mount", strings.Fields("run --mount type=tmpfs,destination=/tmp img"), nil},
 		{"named volume via --mount", strings.Fields("run --mount type=volume,source=myvol,target=/data img"), nil},
 		{"unrelated flags", strings.Fields("run --rm -it img sh"), nil},

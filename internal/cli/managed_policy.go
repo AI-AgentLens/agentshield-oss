@@ -21,6 +21,8 @@ import (
 // Call it on the user policy before packs merge in, so a premium pack's own
 // disable_rules (a deliberate tier split between community and premium) are
 // left alone. Returns nil when the host is not managed or nothing was set.
+// The tool-call surfaces that mirror the hook apply it to the same list
+// (toolCallShellPolicy, #5001).
 // managedConfigProtectedPath is the glob added to protected_paths on a managed
 // host for every command that is not a plain read (#3620, path layer). Defined
 // in policy, which keeps its BLOCK unattributed and off the tool-call surfaces'

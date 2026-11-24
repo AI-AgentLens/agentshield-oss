@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
@@ -399,11 +398,14 @@ func printIntegrationHooks() {
 }
 
 // describeClaudeCodeHook recognises AgentShield's Claude Code hook object in
-// either form, with the recognizer setup and the watchdog use, and returns the
-// command as scan prints it. A shell-form entry gets a pointer to the
-// migration (#4292): a re-run of setup rewrites it to exec form.
+// either form, with the test the watchdog uses (hookentry.Present), and
+// returns the command as scan prints it. A shell-form entry gets a pointer to
+// the migration (#4292): a re-run of setup rewrites it to exec form.
 func describeClaudeCodeHook(hook map[string]interface{}) (string, bool) {
 	cmd, _ := hook["command"].(string)
+	if !hookentry.Present(hook) {
+		return "", false
+	}
 	switch hookentry.Classify(hook) {
 	case hookentry.Exec:
 		return cmd + " " + hookentry.Subcommand + " (exec form)", true
@@ -413,11 +415,13 @@ func describeClaudeCodeHook(hook map[string]interface{}) (string, bool) {
 	return "", false
 }
 
-// describeCodexHook is the Codex check, unchanged: the command ends with
-// "agentshield hook".
+// describeCodexHook is the Codex check: the command ends with
+// "agentshield hook", or on Windows is the command setup writes there and
+// names a program that is a file (hookentry.CommandPresent, #5066, #5072
+// pass 2).
 func describeCodexHook(hook map[string]interface{}) (string, bool) {
 	cmd, _ := hook["command"].(string)
-	return cmd, strings.HasSuffix(cmd, "agentshield hook")
+	return cmd, hookentry.CommandPresent(cmd)
 }
 
 // detectPreToolUseHook reads a settings.json-shaped file (Claude Code or

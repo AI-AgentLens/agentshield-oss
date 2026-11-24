@@ -7418,7 +7418,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/home/user/.config/fish/config.fish"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read fish shell main config — commonly contains `set -x API_KEY ...` credential exports, must BLOCK (issue #980)",
 	},
 	{
@@ -7427,7 +7427,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/home/user/.config/fish/conf.d/secrets.fish"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read fish shell conf.d drop-in — executed on every session, may export credentials, must BLOCK (issue #980)",
 	},
 	{
@@ -7436,7 +7436,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/workspace/project/fish-config.fish"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read project-scoped fish config file — not a user shell config, must not trigger fish credential rule (issue #980)",
 	},
 	{
@@ -7445,7 +7445,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/workspace/docs/fish-config-guide.md"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read documentation mentioning fish config — docs file, must not trigger credential rules (issue #980)",
 	},
 	// Nushell config read+write scenarios (issue #981)
@@ -7455,7 +7455,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/home/user/.nushell/env.nu"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read nushell legacy env.nu — commonly contains $env.API_KEY exports, must BLOCK (issue #981)",
 	},
 	{
@@ -7464,7 +7464,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/home/user/.config/nushell/config.nu"},
 		ExpectedDecision: "BLOCK",
 		Classification:   "TP",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read nushell XDG config.nu — executed on every session, may export credentials, must BLOCK (issue #981)",
 	},
 	{
@@ -7482,7 +7482,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/workspace/project/nushell-config.nu"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read project-scoped .nu file — not a user shell config, must not trigger nushell credential rule (issue #981)",
 	},
 	{
@@ -7491,7 +7491,7 @@ var TrueNegativeScenarios = []Scenario{
 		Arguments:        map[string]interface{}{"path": "/workspace/docs/nushell-env-guide.md"},
 		ExpectedDecision: "AUDIT",
 		Classification:   "TN",
-		Category:         "credential-exposure/token-access/shell-init-credential-access",
+		Category:         "credential-exposure/config-file-access/shell-init-credential-access",
 		Description:      "Read documentation about nushell env — docs file, must not trigger credential rules (issue #981)",
 	},
 	// --- mcp-privesc-block-kernel-security-params (issue #1032) ---

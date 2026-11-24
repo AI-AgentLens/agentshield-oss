@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"path/filepath"
+	slashpath "path"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,20 +16,34 @@ import (
 // one 4,000-character path cost ~15 s of evaluation. The linear version must
 // return EXACTLY what the old walk returned for every input: a component that
 // differs is a glob that matches differently, and a missed match is a silent
-// fail-open. The old implementation is kept here, verbatim, as the reference.
+// fail-open. The old implementation is kept here as the reference, verbatim
+// except that it calls path where it called filepath.
+//
+// That one change is the #4717 invariant: the glob engine works in slash form
+// on every platform, so a Windows build must split a string exactly as the
+// POSIX build did. The old walk was written and pinned on POSIX, where
+// filepath.Clean and filepath.Split are path.Clean and path.Split (the
+// separator is '/' and there is no volume name), so on macOS and Linux this
+// reference is unchanged. On Windows, filepath's reading is the one #4717
+// removed: it split `C:\Users\dev\.ssh\id_rsa` at the backslashes, dropped
+// the drive and read `//a//b/` as a UNC share, and every value carrying a
+// backslash or a drive letter differed from splitPath for that reason alone
+// (#5021: 128 values on aial-04, among them every Windows-path fixture). A
+// backslash value reaches the rules in slash form through matchGlob's retry,
+// which TestMatchGlob_SameOnEveryPlatform pins.
 
 func splitPathQuadraticReference(p string) []string {
-	p = filepath.Clean(p)
+	p = slashpath.Clean(p)
 	if p == "/" || p == "." {
 		return nil
 	}
 	var parts []string
 	for {
-		dir, file := filepath.Split(p)
+		dir, file := slashpath.Split(p)
 		if file != "" {
 			parts = append([]string{file}, parts...)
 		}
-		dir = filepath.Clean(dir)
+		dir = slashpath.Clean(dir)
 		if dir == p || dir == "." {
 			break
 		}

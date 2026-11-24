@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4352: on a managed fail_closed host, a write to managed.json spelled with
@@ -65,9 +67,7 @@ func new4352Home(t *testing.T, policyYAML string) (home, nfdHome, alias string) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base + "-alias") })
-	if err := os.Symlink(home, alias); err != nil {
-		t.Fatal(err)
-	}
+	symlinkOrSkip(t, home, alias)
 	return home, nfdHome, alias
 }
 
@@ -143,6 +143,7 @@ func TestMCPProxy_ConfigGuard4352_EndToEnd(t *testing.T) {
 			defer cancel()
 			cmd := proxyHelperCmd(ctx, home, "mcp-proxy", "--", os.Args[0], "-test.run=^TestHelperFakeMCPServer$")
 			cmd.Env = append(cmd.Env, "AGENTSHIELD_FAKE_MCP_SERVER=1", "AGENTSHIELD_FAKE_MCP_WRITE=1")
+			cmd.Env = testhome.ChildEnv(cmd.Env)
 			cmd.Dir = home
 			cmd.Stdin = strings.NewReader(strings.Join(reqs, "\n") + "\n")
 			var stderr bytes.Buffer

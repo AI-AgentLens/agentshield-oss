@@ -44,6 +44,19 @@ func (t *MCPCallHistoryTracker) Record(toolName string, args map[string]interfac
 	t.history.append(RecordedCall{ToolName: toolName, Args: args, At: time.Now()})
 }
 
+// RecordAndHistory records a tool call and returns the history that ends in
+// it, in one step. Record followed by History is two: a call another
+// goroutine records in between becomes the last element, and a sequence rule
+// then judges that call instead of this one. A caller that serves concurrent
+// requests on one tracker uses this (shield-server's per-session trackers,
+// #5011). Returns nil for a nil tracker.
+func (t *MCPCallHistoryTracker) RecordAndHistory(toolName string, args map[string]interface{}) []RecordedCall {
+	if t == nil {
+		return nil
+	}
+	return t.history.appendSnapshot(RecordedCall{ToolName: toolName, Args: args, At: time.Now()})
+}
+
 // History returns a copy of the recorded calls, oldest first. Returns nil for a
 // nil tracker.
 func (t *MCPCallHistoryTracker) History() []RecordedCall {

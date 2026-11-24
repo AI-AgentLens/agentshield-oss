@@ -666,9 +666,9 @@ func TestEvaluateFacts_AuditOnlyMode(t *testing.T) {
 	}
 	// The keep, when installed, sees the files the BLOCK matched.
 	var seen []string
-	engine.SetSelfProtectionKeep(func(command string, rules, hits []string) bool {
+	engine.SetSelfProtectionKeep(func(command string, rules, hits []string) (bool, string) {
 		seen = append(seen, hits...)
-		return true
+		return true, ""
 	})
 	kept := engine.EvaluateFacts(psFacts(`Get-Content ~\.ssh\`+sshKey), "", FactsOptions{})
 	if kept.Decision != DecisionBlock || len(seen) != 1 || seen[0] != filepath.Join(engine.homeDir, ".ssh", sshKey) {

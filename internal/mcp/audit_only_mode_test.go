@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -173,7 +172,7 @@ func TestHandleToolCall_AuditOnlyCompositeLeadsTheRecord(t *testing.T) {
 // before the guard runs. Downgrading that earlier BLOCK without running the
 // guard would forward a write to AgentShield's own policy.
 func TestHandleToolCall_AuditOnlyConfigGuardStillBlocks(t *testing.T) {
-	home := os.Getenv("HOME") // the guard's patterns are expanded at init
+	home := guardHome() // the guard's patterns are expanded at init
 	target := filepath.Join(home, ".agentshield", "policy.yaml")
 	cases := []struct {
 		name string
@@ -223,7 +222,7 @@ func TestHandleToolCall_AuditOnlyRecordsRequireApproval(t *testing.T) {
 // A batch is blocked when an item is. In audit-only a would-be-blocked tool
 // call no longer blocks its batch; a config-guard hit still does.
 func TestHandleBatch_AuditOnly(t *testing.T) {
-	home := os.Getenv("HOME")
+	home := guardHome()
 	ssh := modeToolCall(t, 1, "read_file", map[string]interface{}{"path": "/home/u/.ssh/id_rsa"})
 	guard := modeToolCall(t, 2, "edit_file", map[string]interface{}{"path": filepath.Join(home, ".agentshield", "managed.json")})
 

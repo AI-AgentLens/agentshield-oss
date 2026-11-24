@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/analyzer"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // envTestHostOS makes this test binary, and every child it re-execs, route
@@ -68,6 +69,7 @@ func TestHostOSOverride_ProductionBinaryIgnoresIt(t *testing.T) {
 	home, configDir = newFailSafeHome(t, false, failSafePolicyGood)
 	cmd := exec.Command(bin, "hook")
 	cmd.Env = append(withoutEnv(os.Environ(), "AGENTSHIELD_", "HOME="), append(env, "HOME="+home)...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

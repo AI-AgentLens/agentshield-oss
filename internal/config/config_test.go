@@ -1,11 +1,14 @@
 package config
 
 import (
-	"strings"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 func TestLoadManaged_FileExists(t *testing.T) {
@@ -59,6 +62,12 @@ func TestLoadManaged_InvalidJSON_FailsClosed(t *testing.T) {
 }
 
 func TestLoadManaged_UnreadableFile_FailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows has no POSIX read bit: the file stays readable and is parsed
+		// as {"managed": true}. TestLoadManaged_UnreadableDirectory_FailsClosed
+		// covers the same branch there (#5021).
+		t.Skip("chmod 0000 does not make a file unreadable on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permission bits")
 	}
@@ -74,10 +83,24 @@ func TestLoadManaged_UnreadableFile_FailsClosed(t *testing.T) {
 	}
 }
 
+// The same fail-closed branch through a fixture that is unreadable on every
+// OS, root included: managed.json is a directory, so reading it fails with
+// something other than "does not exist" (#5021).
+func TestLoadManaged_UnreadableDirectory_FailsClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmpDir, "managed.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mc := LoadManaged(tmpDir)
+	if mc == nil || !mc.Managed || !mc.FailClosed {
+		t.Fatalf("managed.json that cannot be read → %+v; want Managed=true FailClosed=true", mc)
+	}
+}
+
 func TestLoad_ManagedOverridesPolicyPath(t *testing.T) {
 	// Create a temp dir to act as home
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -110,7 +133,7 @@ func TestLoad_ManagedOverridesPolicyPath(t *testing.T) {
 
 func TestLoad_NonManagedAllowsCustomPaths(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -138,7 +161,7 @@ func TestLoad_NonManagedAllowsCustomPaths(t *testing.T) {
 // that introduces this field.
 func TestConfig_DefaultMode(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	cfg, err := Load("", "", "")
 	if err != nil {
@@ -154,7 +177,7 @@ func TestConfig_DefaultMode(t *testing.T) {
 // that the value flows through.
 func TestConfig_AuditOnlyMode_FromYAML(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -179,7 +202,7 @@ func TestConfig_AuditOnlyMode_FromYAML(t *testing.T) {
 // the YAML has been flipped to audit-only.
 func TestConfig_CLIOverridesYAML(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -207,7 +230,7 @@ func TestConfig_CLIOverridesYAML(t *testing.T) {
 // Issue #1952.
 func TestConfig_AuditOnlyMode_FromPolicyYAML(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -241,7 +264,7 @@ rules: []
 // while waiting for the SaaS toggle to flip back. Issue #1952.
 func TestConfig_AgentshieldYamlOverridesPolicyYaml(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -274,7 +297,7 @@ func TestConfig_AgentshieldYamlOverridesPolicyYaml(t *testing.T) {
 // silently turns the gateway into a passive logger. Issue #1952.
 func TestConfig_PolicyYaml_UnparseableIsIgnored(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	configDir := filepath.Join(tmpHome, DefaultConfigDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -301,7 +324,7 @@ func TestConfig_PolicyYaml_UnparseableIsIgnored(t *testing.T) {
 // in agentshield.yaml — strictly worse for a security tool.
 func TestConfig_InvalidMode(t *testing.T) {
 	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
+	testhome.Set(t, tmpHome)
 
 	cfg, err := Load("", "", "nonsense")
 	if err != nil {
@@ -323,8 +346,8 @@ func TestNormalizeMode(t *testing.T) {
 		{"", ModeEnforce, true},
 		{"enforce", ModeEnforce, true},
 		{"audit-only", ModeAuditOnly, true},
-		{"AUDIT-ONLY", ModeEnforce, false},  // case-sensitive on purpose
-		{"audit_only", ModeEnforce, false},  // separator is hyphen, not underscore
+		{"AUDIT-ONLY", ModeEnforce, false}, // case-sensitive on purpose
+		{"audit_only", ModeEnforce, false}, // separator is hyphen, not underscore
 		{"nonsense", ModeEnforce, false},
 	}
 	for _, tc := range cases {

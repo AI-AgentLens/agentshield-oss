@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/homedir"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Tests for #4565 step 1: one home resolver for setup and the managed check,
@@ -99,6 +100,7 @@ func runSetupChildEnv(t *testing.T, home childHome, dir, account string, args ..
 		env = append(env, "HOME="+home.value)
 	}
 	cmd.Env = env
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	out, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
 	switch {
@@ -112,11 +114,12 @@ func runSetupChildEnv(t *testing.T, home childHome, dir, account string, args ..
 	}
 }
 
-// putOnPath puts a stand-in executable named name (exit 0) first on PATH.
+// putOnPath puts a stand-in executable named name (exit 0) first on PATH,
+// as name.exe on Windows, where exec.LookPath needs the extension.
 func putOnPath(t *testing.T, name string) {
 	t.Helper()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, exeName(name)), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -361,6 +364,11 @@ func TestSetupDisable_ManagedAccountRefusedUnderAnyHOME(t *testing.T) {
 			t.Run("account home unreadable, HOME unmanaged: disables as on main", func(t *testing.T) {
 				if os.Geteuid() == 0 {
 					t.Skip("root reads a mode-000 directory, so the account home cannot be made unreadable")
+				}
+				if !modeBitsAreReal {
+					// The managed.json stays readable, so the account is managed
+					// and the refusal is right.
+					t.Skip("chmod 0 sets only the read-only attribute on Windows, so the account home cannot be made unreadable")
 				}
 				locked := t.TempDir()
 				writeManagedJSON(t, locked)

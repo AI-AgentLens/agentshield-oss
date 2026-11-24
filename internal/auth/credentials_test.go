@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // scratchHome points HOME at a fresh directory holding an empty config
@@ -11,7 +13,7 @@ import (
 func scratchHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".agentshield"), 0o700); err != nil {
 		t.Fatal(err)
 	}

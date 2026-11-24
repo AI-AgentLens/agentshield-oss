@@ -51,6 +51,13 @@ import (
 //     link (`vscode://file/…`), any other non-web scheme, or no scheme at all.
 //     Each has a legitimate reading; the receipt is the response.
 //
+// A fourth finding is not URL-mode specific: a `command:` link (#4899) in the
+// message, the schema, or the URL-mode target is an AUDIT with its own
+// sentinel. VS Code 1.145.2 and earlier rendered elicitation text with command
+// links live (GHSA-66hq-jw93-462h / CVE-2026-120779), so one click ran the
+// server's chosen editor command, e.g. keystrokes sent to the terminal. It is
+// AUDIT until there is evidence on what legitimate servers send.
+//
 // The URL is normalised the way a browser does before the scheme is read:
 // ASCII tab/CR/LF are deleted anywhere and leading/trailing C0 controls and
 // spaces are stripped (WHATWG URL parsing), so `java\tscript:` is `javascript:`.
@@ -65,10 +72,14 @@ const (
 	// SignalElicitationURLWeakTarget — cleartext, IDN, host-app non-install,
 	// other non-web scheme, or no scheme. AUDIT.
 	SignalElicitationURLWeakTarget ElicitationSignal = "elicitation_url_weak_target"
+	// SignalElicitationCommandLink — a `command:` link (an editor command a
+	// VS Code-family client runs when the link is activated) in the message,
+	// the schema, or the URL-mode target. AUDIT (#4899).
+	SignalElicitationCommandLink ElicitationSignal = "elicitation_command_link"
 )
 
 // elicitationURLSentinelEngine names the sentinel that attributes a URL-mode
-// finding to a rule id and taxonomy node.
+// or rendered-link finding to a rule id and taxonomy node.
 func elicitationURLSentinelEngine(sig ElicitationSignal) string {
 	switch sig {
 	case SignalElicitationURLInstallDeeplink:
@@ -77,6 +88,8 @@ func elicitationURLSentinelEngine(sig ElicitationSignal) string {
 		return "mcp-elicitation-url-unsafe-target"
 	case SignalElicitationURLWeakTarget:
 		return "mcp-elicitation-url-weak-target"
+	case SignalElicitationCommandLink:
+		return "mcp-elicitation-command-link"
 	}
 	return ""
 }
@@ -125,20 +138,59 @@ func normalizeElicitationURL(raw string) string {
 	return strings.TrimFunc(s, func(r rune) bool { return r <= 0x20 })
 }
 
+// commandLinkRE finds a `command:` link in rendered text (#4899). The scheme
+// is matched case-insensitively, as VS Code's matchesScheme does. Tab, CR and
+// LF may sit between the scheme's letters, because the URL parser deletes
+// them (`comm&#9;and:` opens), but not after the colon: there a line break is
+// prose ("run this command:⏎npm test"), and deleting it would join two words
+// into a link nobody wrote. So this runs on the entity-decoded and
+// backslash-unescaped readings, not on the tab/CR/LF-stripped one.
+var commandLinkRE = regexp.MustCompile(`(?i)\bc[\t\r\n]*o[\t\r\n]*m[\t\r\n]*m[\t\r\n]*a[\t\r\n]*n[\t\r\n]*d[\t\r\n]*:[^\s<>"'` + "`" + `)\]]+`)
+
+// commandLinkFinding describes a `command:` link: which field carried it and
+// which editor command activating it runs. s is already normalised.
+func commandLinkFinding(s, where string) ElicitationFinding {
+	rest := s[strings.IndexByte(s, ':')+1:]
+	id, args, hasArgs := strings.Cut(strings.SplitN(rest, "#", 2)[0], "?")
+	id = strings.TrimSpace(pctDecodeLenient(strings.TrimLeft(id, "/"), false))
+	what := "a command: link with no command id"
+	if id != "" {
+		what = "activating it runs the editor command " + quoteShort(id)
+		if hasArgs && args != "" {
+			what += " with server-chosen arguments"
+		}
+	}
+	return ElicitationFinding{
+		Signal: SignalElicitationCommandLink,
+		Detail: "command: link in the elicitation " + where + ": " + what +
+			" — VS Code 1.145.2 and earlier rendered elicitation text with command links live (GHSA-66hq-jw93-462h)",
+		Snippet: truncateURL(s),
+	}
+}
+
 // scanElicitationURLs returns the URL-mode findings for one elicitation.
 func scanElicitationURLs(params *ElicitationCreateParams) []ElicitationFinding {
 	var out []ElicitationFinding
 	if params.URL != "" {
 		out = append(out, classifyElicitationURL(params.URL)...)
+		// Additive: classifyElicitationURL's weak-target finding for a
+		// non-web scheme stands; this one names the mechanism.
+		s := normalizeElicitationURL(params.URL)
+		if m := urlSchemeRE.FindStringSubmatch(s); m != nil && strings.EqualFold(m[1], "command") {
+			out = append(out, commandLinkFinding(s, "URL-mode target"))
+		}
 	}
 	// Install deep links anywhere the client renders text. Only the install
-	// class is taken from prose: a `file:` path or an http link mentioned in a
-	// sentence is a mention, not a target.
-	type rendered struct{ text, where string }
-	texts := []rendered{{params.Message, "message"}}
+	// class and command: links are taken from prose: a `file:` path or an
+	// http link mentioned in a sentence is a mention, not a target.
+	type rendered struct {
+		text, where string
+		joined      bool // tab/CR/LF deleted: not read for command: links
+	}
+	texts := []rendered{{params.Message, "message", false}}
 	if params.RequestedSchema != nil {
 		for _, str := range elicitationSchemaStrings(params.RequestedSchema.Raw) {
-			texts = append(texts, rendered{str, "requestedSchema"})
+			texts = append(texts, rendered{str, "requestedSchema", false})
 		}
 	}
 	// A Markdown renderer decodes HTML entities in a link destination, so
@@ -151,14 +203,26 @@ func scanElicitationURLs(params *ElicitationCreateParams) []ElicitationFinding {
 	// entity-encoded tab inside a scheme (`vs&#9;code:`) still opens it.
 	for i, n := 0, len(texts); i < n; i++ {
 		dec := html.UnescapeString(texts[i].text)
-		for _, v := range []string{dec, markdownBackslashUnescape(dec), stripTabNewline(dec)} {
+		for j, v := range []string{dec, markdownBackslashUnescape(dec), stripTabNewline(dec)} {
 			if v != texts[i].text {
-				texts = append(texts, rendered{v, texts[i].where})
+				texts = append(texts, rendered{v, texts[i].where, j == 2})
 			}
 		}
 	}
 	seen := map[string]bool{}
+	seenCommand := map[string]bool{}
 	for _, rt := range texts {
+		// command: links (#4899). Reported in addition to, never instead of,
+		// the install class below, which reads the same candidates unchanged.
+		if !rt.joined {
+			for _, cand := range commandLinkRE.FindAllString(rt.text, -1) {
+				s := stripTabNewline(cand)
+				if key := rt.where + "\x00" + s; !seenCommand[key] {
+					seenCommand[key] = true
+					out = append(out, commandLinkFinding(s, rt.where))
+				}
+			}
+		}
 		// No cap on candidates: a cap is a bypass (64 decoy tokens before the
 		// link hid it — Opus review of #4061), and each candidate costs a
 		// linear scan. A bare install route with no query or fragment

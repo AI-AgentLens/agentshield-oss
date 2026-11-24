@@ -13,6 +13,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/hookentry"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // Tests for `agentshield setup claude-code --managed` and --write-managed
@@ -172,7 +173,7 @@ func TestSetupPreRun_SkipsManagedRuns(t *testing.T) {
 	for _, flag := range []string{"managed", "write-managed", "remove-managed", ""} {
 		t.Run("flag="+flag, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			resetManagedFlags(t)
 			if flag != "" {
 				if err := setupClaudeCodeCmd.Flags().Set(flag, "true"); err != nil {
@@ -211,6 +212,7 @@ func TestSetupClaudeCode_ManagedFlagsMutuallyExclusive(t *testing.T) {
 			"HOME="+t.TempDir(),
 			"COPILOT_HOME=",
 		)
+		cmd.Env = testhome.ChildEnv(cmd.Env)
 		out, err := cmd.CombinedOutput()
 		if err == nil {
 			t.Errorf("setup claude-code %v succeeded; want a flag error\n%s", args, out)
@@ -233,6 +235,7 @@ func TestSetupManaged_ChildProcess_WritesNothing(t *testing.T) {
 		"HOME="+home,
 		"COPILOT_HOME=",
 	)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

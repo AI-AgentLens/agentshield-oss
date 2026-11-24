@@ -59,17 +59,17 @@ func TestCaseFold_CwdIsFoldedInTheFoldedReading_4206(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	cwd := "/Work/Project"
+	cwd := absPath("/Work/Project")
 
 	// Control: the canonical spelling is blocked, so the pattern and cwd wiring
 	// are live in this test.
-	canon := "cat /Work/Project/secrets/token"
-	if r := engine.EvaluateCaseFold(canon, []string{"/Work/Project/secrets/token"}, nil, cwd, CaseFoldOff); r.Decision != DecisionBlock {
+	canon := "cat " + absPath("/Work/Project/secrets/token")
+	if r := engine.EvaluateCaseFold(canon, []string{absPath("/Work/Project/secrets/token")}, nil, cwd, CaseFoldOff); r.Decision != DecisionBlock {
 		t.Fatalf("control: canonical relative-pattern hit = %v rules=%v; want BLOCK", r.Decision, r.TriggeredRules)
 	}
 
-	variant := "cat /Work/Project/Secrets/token"
-	paths := []string{"/Work/Project/Secrets/token"}
+	variant := "cat " + absPath("/Work/Project/Secrets/token")
+	paths := []string{absPath("/Work/Project/Secrets/token")}
 	if r := engine.EvaluateCaseFold(variant, paths, nil, cwd, CaseFoldOff); r.Decision == DecisionBlock {
 		t.Fatalf("control: fold-off must not block the case variant (it is the pre-#4194 gap); got %v", r.Decision)
 	}

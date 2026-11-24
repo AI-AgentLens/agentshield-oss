@@ -5,7 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AI-AgentLens/agentshield/internal/enterprise"
 	"github.com/AI-AgentLens/agentshield/internal/policy"
+	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
 // The nodes a managed host's shell self-protection BLOCK may attest. They are
@@ -87,36 +89,164 @@ func TestSelfProtectBlockCarriesRuleNode(t *testing.T) {
 	}
 }
 
-// TestSelfProtectConfigTouchCarriesNoNode pins a written gap (Gary,
-// 2026-10-30). sp-block-config-touch blocks reads as well as interpreter
-// writes, and security-tool-tampering is false for a read, so the rule attests
-// no node until #4666 tells the two apart. The interpreter write is here on
-// purpose: it is tampering, and it still attests nothing. Closing #4666 means
-// changing this test deliberately.
-func TestSelfProtectConfigTouchCarriesNoNode(t *testing.T) {
+// TestSelfProtectConfigTouch_WritesCiteTamperingReadsCiteNone_4666: an
+// sp-block-config-touch BLOCK cites security-tool-tampering only on positive
+// evidence that a statement writes a managed config file; a read that is not
+// on the plain-read list cites no node (Gary, 2026-11-09). Both carry the
+// generic message, which is true of a read and a write. The decision is
+// BLOCK either way.
+func TestSelfProtectConfigTouch_WritesCiteTamperingReadsCiteNone_4666(t *testing.T) {
 	home, _ := newFailSafeHome(t, true, failSafePolicyGood)
 	as := "agent" + "shield"
 	policyFile := "~/." + as + "/policy.yaml"
-	for _, cmd := range []string{
-		"less " + policyFile,
-		"sed -n '1,40p' " + policyFile,
-		"cat $(echo " + policyFile + ")",
-		"grep -n mode ~/." + as + "/" + as + ".yaml | head -5",
-		`python3 -c "open('` + home + "/." + as + `/policy.yaml','w')"`,
+	abs := home + "/." + as + "/policy.yaml"
+	cfgDir := "~/." + as
+	for _, tc := range []struct {
+		cmd   string
+		write bool
+	}{
+		// Reads and mentions: no node.
+		{"less " + policyFile, false},
+		{"sed -n '1,40p' " + policyFile, false},
+		{"cat $(echo " + policyFile + ")", false},
+		{"grep -n mode " + cfgDir + "/" + as + ".yaml | head -5", false},
+		{"cat " + policyFile + " | tee /tmp/copy.yaml", false},
+		{"cat " + policyFile + " > /tmp/copy.yaml", false},
+		{"dd if=" + policyFile + " of=/tmp/copy.yaml", false},
+		{`python3 -c "print(open('` + abs + `').read())"`, false},
+		{`python3 -c "print(open('` + abs + `','r').read())"`, false},
+		{`python3 -c "print(open('` + abs + `', mode='rb').read())"`, false},
+		{"sed -i.bak s/x/y/ /tmp/other.txt; less " + policyFile, false},
+		{`P=` + abs + `; python3 -c "open('$P','w')"`, false},
+		// Opus pass 1, F1: perl options with an i that is not -i.
+		{"perl -Mstrict -ne 'print if /mode/' " + cfgDir + "/" + as + ".yaml", false},
+		{"perl -Ilib -ne 'print' " + policyFile, false},
+		{"perl -MList::Util=sum -ne 'print' " + policyFile, false},
+		// Opus pass 1, F2: the writer named in an argument, or the file as input.
+		{`grep -rn "sed -i" ` + cfgDir + "/packs/ | head -20", false},
+		{`grep -rn 'perl -pi' ` + cfgDir + "/packs/ | head", false},
+		{"grep -rn truncate " + cfgDir + "/packs/ 2>/dev/null", false},
+		{"grep -rn tee " + cfgDir + "/managed.json | head", false},
+		{`git commit -m "fix: block sed -i s/x/y/ ` + policyFile + `"`, false},
+		{`echo 'never: echo x >> ` + cfgDir + `/managed.json' | head`, false},
+		{"tee /tmp/copy.yaml < " + cfgDir + "/managed.json", false},
+		{`sed -i '/marker/r ` + policyFile + `' /tmp/notes.md`, false},
+		{"sed -i -f " + policyFile + " /tmp/x.txt", false},
+		{"truncate -r " + policyFile + " /tmp/x.bin", false},
+		{`jq -r '.rules[] | select(.id|test("tee"))' ` + cfgDir + "/managed.json", false},
+		{"jq . " + policyFile + " > " + cfgDir + "/managed.json.bak", false},
+		{"jq . " + policyFile + " > /tmp/bak/." + as + "/managed.json", false},
+		// Opus pass 2, F-A: a substitution naming a pack inside a writer's
+		// operand is not a write to the pack.
+		{"cat " + cfgDir + "/packs/a.yaml | tee /tmp/bk-$(basename " + cfgDir + "/packs/a.yaml)", false},
+		{"truncate -s 0 /tmp/$(basename " + cfgDir + "/packs/a.yaml)", false},
+		{"perl -pi -e 's/a/b/' /tmp/$(basename " + cfgDir + "/packs/a.yaml)", false},
+		{"tee -a /tmp/log >(grep x " + cfgDir + "/packs/a.yaml)", false},
+		{"cat " + cfgDir + "/managed.json | tee /tmp/bk-$(basename " + cfgDir + "/managed.json .json)", false},
+		// Pass 2 follow-up 1: a sed read whose script holds an i.
+		{"sed -n '/limit/p' " + policyFile, false},
+		// Writes: tampering.
+		// Opus pass 2, F-B: an interpreter's heredoc.
+		{"python3 - <<'EOF'\nopen('" + abs + "','w').write('x')\nEOF", true},
+		{"node - <<'EOF'\nrequire('fs').writeFileSync('" + abs + "','x')\nEOF", true},
+		{`python3 -c "open('` + abs + `','w')"`, true},
+		{`python3 -c "open('` + abs + `', mode='w')"`, true},
+		{`python3 -c "open('` + abs + `','r+')"`, true},
+		{`python3 -c "import pathlib; pathlib.Path('` + abs + `').write_text('x')"`, true},
+		{`node -e "require('fs').writeFileSync('` + abs + `', 'x')"`, true},
+		{"sed -i s/BLOCK/AUDIT/ " + policyFile, true},
+		{"sed --in-place s/BLOCK/AUDIT/ " + policyFile, true},
+		{"sudo sed -i.bak s/BLOCK/AUDIT/ " + policyFile, true},
+		{"perl -pi -e s/BLOCK/AUDIT/ " + policyFile, true},
+		{"perl -0pi -e s/BLOCK/AUDIT/ " + policyFile, true},
+		{"dd if=/dev/null of=" + policyFile, true},
+		{`dd if=/dev/null of="` + abs + `"`, true},
+		{"truncate -s 0 " + cfgDir + "/managed.json", true},
+		{"echo x | tee " + cfgDir + "/managed.json", true},
+		{"echo mode: audit >> " + cfgDir + "/" + as + ".yaml", true},
+		{"less " + policyFile + "; sed -i s/x/y/ " + policyFile, true},
+		// Pass 2 follow-up 1: a write inside a substitution.
+		{"echo $(sed -i s/x/y/ " + policyFile + ")", true},
 	} {
-		t.Run(cmd, func(t *testing.T) {
-			res, event := evaluateCommand(cmd, home, "claude-code-hook", "")
+		t.Run(tc.cmd, func(t *testing.T) {
+			res, event := evaluateCommand(tc.cmd, home, "claude-code-hook", "")
 			assertSPBlock(t, res, "sp-block-config-touch")
-			if len(res.TaxonomyRefs) != 0 {
-				t.Errorf("result taxonomy %v, want none (#4666)", res.TaxonomyRefs)
+			want := []string(nil)
+			if tc.write {
+				want = []string{spNodeTampering}
+			}
+			if !equalStrings(res.TaxonomyRefs, want) {
+				t.Errorf("result taxonomy %v, want %v", res.TaxonomyRefs, want)
 			}
 			if event == nil {
 				t.Fatal("no audit event")
 			}
-			if len(event.TaxonomyRefs) != 0 {
-				t.Errorf("audit event taxonomy %v, want none (#4666)", event.TaxonomyRefs)
+			if !equalStrings(event.TaxonomyRefs, want) {
+				t.Errorf("audit event taxonomy %v, want %v", event.TaxonomyRefs, want)
+			}
+			if len(res.Reasons) != 1 || res.Reasons[0] != enterprise.ConfigTouchBlockMsg {
+				t.Errorf("reasons %q, want the generic statement %q", res.Reasons, enterprise.ConfigTouchBlockMsg)
 			}
 		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestConfigTouchBlockMsg_SameOnBothLanes_4666: the shell middleware and the
+// PowerShell lane write the same message for sp-block-config-touch.
+func TestConfigTouchBlockMsg_SameOnBothLanes_4666(t *testing.T) {
+	if policy.ConfigTouchBlockMsg != enterprise.ConfigTouchBlockMsg {
+		t.Errorf("PowerShell lane %q, shell %q", policy.ConfigTouchBlockMsg, enterprise.ConfigTouchBlockMsg)
+	}
+	if got := enterprise.SelfProtectBlockMsg("sp-block-policy-write"); got != "Blocked: attempt to modify AgentShield configuration (rule: sp-block-policy-write)" {
+		t.Errorf("other rules keep their message, got %q", got)
+	}
+}
+
+// TestConfigTouchFileSetMatchesTheRule_4666: the write classifier's managed
+// files are the files the rule's pattern names.
+func TestConfigTouchFileSetMatchesTheRule_4666(t *testing.T) {
+	as := "." + "agent" + "shield"
+	for _, p := range []string{"policy.yaml", "managed.json", as[1:] + ".yaml", "credentials.json", "packs/x.yaml", "packs"} {
+		path := "~/" + as + "/" + p
+		id, ok := enterprise.MatchSelfProtectRawText("less " + path)
+		if !ok || id != enterprise.ConfigTouchRuleID {
+			t.Fatalf("%q: rule %q %v, want the config-touch rule", path, id, ok)
+		}
+		if !isManagedConfigFile(path) {
+			t.Errorf("%q: the rule names it, the classifier does not", path)
+		}
+	}
+	for _, p := range []string{"~/" + as + "/audit.jsonl", "~/" + as + "/managed.json.bak", "/tmp/x/" + as + "/policy.yaml"} {
+		if isManagedConfigFile(p) {
+			t.Errorf("%s is not a managed config file", p)
+		}
+	}
+}
+
+// TestConfigTouch_PastChainBoundIsNodelessWithTheMessage_4666: past the chain
+// bound the raw-text middleware blocks with the generic message, and the
+// receipt cites no node without parsing.
+func TestConfigTouch_PastChainBoundIsNodelessWithTheMessage_4666(t *testing.T) {
+	cmd := "less ~/." + "agent" + "shield/policy.yaml" + strings.Repeat(" && true", shellparse.MaxChainOperators+1)
+	ctx := &enterprise.EvalContext{Command: cmd}
+	enterprise.RunChain(ctx, []enterprise.EvalMiddleware{enterprise.SelfProtectRawText()})
+	if !ctx.Blocked || ctx.BlockRule != enterprise.ConfigTouchRuleID || ctx.BlockMsg != enterprise.ConfigTouchBlockMsg {
+		t.Fatalf("blocked=%v rule=%q msg=%q", ctx.Blocked, ctx.BlockRule, ctx.BlockMsg)
+	}
+	if refs := selfProtectTaxonomyRefsUnparsed(enterprise.ConfigTouchRuleID, cmd); refs != nil {
+		t.Errorf("refs %v, want none past the chain bound", refs)
 	}
 }
 

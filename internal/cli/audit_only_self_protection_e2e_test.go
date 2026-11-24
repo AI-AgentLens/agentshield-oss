@@ -278,7 +278,9 @@ func TestHook_AuditOnlyKeepsSelfProtectionBlock_EndToEnd(t *testing.T) {
 		if rec["mode"] != want {
 			t.Errorf("audit-only record mode %v, want %s", rec["mode"], want)
 		}
-		// The record is enforce mode's: rules, reasons and taxonomy.
+		// The record is enforce mode's: rules, reasons and taxonomy, led by
+		// the keep's reason when its rules do not say why it stands (#5089).
+		rec = withoutKeptLeadRecord(t, rec, enfRec)
 		for _, k := range []string{"triggered_rules", "reasons", "taxonomy"} {
 			if !reflect.DeepEqual(rec[k], enfRec[k]) {
 				t.Errorf("audit-only %s %v, want enforce mode's %v", k, rec[k], enfRec[k])
@@ -457,4 +459,36 @@ func spJSONEqual(a, b map[string]interface{}) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
 	return string(ja) == string(jb)
+}
+
+// withoutKeptLeadRecord is an audit-only hook record without the keep's lead
+// (#5089): a BLOCK audit-only mode keeps for a reason its rules do not state
+// leads with policy.SelfProtectRuleID and that reason. enf is enforce mode's
+// record for the same call; a record that leads with the id there too (the
+// managed middleware's) has no lead to drop. It fails t when a lead is not the
+// keep's.
+func withoutKeptLeadRecord(t *testing.T, rec, enf map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	first := func(r map[string]interface{}, k string) string {
+		if xs, ok := r[k].([]interface{}); ok && len(xs) > 0 {
+			s, _ := xs[0].(string)
+			return s
+		}
+		return ""
+	}
+	if first(rec, "triggered_rules") != policy.SelfProtectRuleID || first(enf, "triggered_rules") == policy.SelfProtectRuleID {
+		return rec
+	}
+	if !strings.HasPrefix(first(rec, "reasons"), policy.SelfProtectKeptReasonPrefix) {
+		t.Errorf("audit-only leads with %s but reasons %v do not lead with the keep's reason", policy.SelfProtectRuleID, rec["reasons"])
+		return rec
+	}
+	out := make(map[string]interface{}, len(rec))
+	for k, v := range rec {
+		out[k] = v
+	}
+	for _, k := range []string{"triggered_rules", "reasons"} {
+		out[k] = rec[k].([]interface{})[1:]
+	}
+	return out
 }

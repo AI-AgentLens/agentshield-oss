@@ -177,7 +177,7 @@ func TestShellSelfProtectionKeep(t *testing.T) {
 		{"cp evil " + sshConfig, []string{"zq-plain"}, false},
 		{"r" + "m -rf /", []string{"zq-plain"}, false},
 	} {
-		if got := keep(tc.command, tc.rules, nil); got != tc.want {
+		if got, _ := keep(tc.command, tc.rules, nil); got != tc.want {
 			t.Errorf("%q %v: keep %v, want %v", tc.command, tc.rules, got, tc.want)
 		}
 	}
@@ -217,7 +217,7 @@ func TestShellSelfProtectionKeep_DecidingRule(t *testing.T) {
 		{"control: protected-path, a sibling named like it", "zq", pp, []string{filepath.Join(h, as+"x")}, false},
 		{"control: protected-path, an agent hook file", "zq", pp, []string{filepath.Join(h, ".claude", "settings.json")}, false},
 	} {
-		if got := keep(tc.command, tc.rules, tc.hits); got != tc.want {
+		if got, _ := keep(tc.command, tc.rules, tc.hits); got != tc.want {
 			t.Errorf("%s: keep(%q, %v, %v) = %v, want %v", tc.name, tc.command, tc.rules, tc.hits, got, tc.want)
 		}
 	}
@@ -242,7 +242,7 @@ func TestShellSelfProtectionRules_EmbeddedPacks(t *testing.T) {
 		}
 	}
 	sort.Strings(hookRules)
-	want := []string{"ts-block-agent-hook-injection", "ts-block-agent-settings-write"}
+	want := []string{"ps-block-agent-settings-write", "ts-block-agent-hook-injection", "ts-block-agent-settings-write"}
 	if !reflect.DeepEqual(hookRules, want) {
 		t.Errorf("shell BLOCK rules naming an agent hook file: %v, want %v. Each one's BLOCK is kept in audit-only mode; add a rule here only if every file it guards keeps AgentShield hooked in", hookRules, want)
 	}

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // GitHub Copilot CLI support for the local hook (#4251). The payload shapes
@@ -83,6 +85,7 @@ func runHookChildIn(t *testing.T, dir, home, payload string, extraEnv ...string)
 		}
 	}
 	cmd.Env = append(append(env, "AGENTSHIELD_FAILSAFE_HOOK_HELPER=1", "HOME="+home), extraEnv...)
+	cmd.Env = testhome.ChildEnv(cmd.Env)
 	cmd.Stdin = strings.NewReader(payload)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -323,7 +326,7 @@ func withCopilotSetup(t *testing.T, disable bool) (home, copilotDir string) {
 	t.Helper()
 	home = t.TempDir()
 	copilotDir = filepath.Join(home, "copilot-home")
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("COPILOT_HOME", copilotDir)
 	prev := disableFlag
 	disableFlag = disable

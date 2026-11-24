@@ -6,6 +6,7 @@ import (
 	slashpath "path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -54,7 +55,12 @@ type Engine struct {
 // decided it (protected-path, protected-path-via-substitution): the paths it
 // matched, resolved against the working directory and with `~` expanded, so a
 // relative spelling after `cd` reads as the file it names (#4424).
-type SelfProtectionKeep func(command string, rules, protectedHits []string) bool
+//
+// It returns whether the BLOCK is kept and, for the record, why: "" when a
+// self-protection rule among rules decided it (the record names that rule),
+// else the reason the keep read, which the engine puts first on the record
+// under SelfProtectRuleID (keptForSelfProtection, #5089).
+type SelfProtectionKeep func(command string, rules, protectedHits []string) (keep bool, why string)
 
 func NewEngine(p *Policy) (*Engine, error) {
 	homeDir, err := os.UserHomeDir()
@@ -122,12 +128,13 @@ func (e *Engine) SetSelfProtectionKeep(keep SelfProtectionKeep) {
 }
 
 // keepsSelfProtectionBlock reports whether audit-only mode keeps this BLOCK of
-// command. protectedOn is the path list a protected_paths match decided the
-// BLOCK on (nil when none did); its hits are resolved only here, so enforce
-// mode never computes them.
-func (e *Engine) keepsSelfProtectionBlock(command string, r EvalResult, protectedOn []string, cwd string, foldCase bool) bool {
+// command, and the keep's reason for the record (SelfProtectionKeep).
+// protectedOn is the path list a protected_paths match decided the BLOCK on
+// (nil when none did); its hits are resolved only here, so enforce mode never
+// computes them.
+func (e *Engine) keepsSelfProtectionBlock(command string, r EvalResult, protectedOn []string, cwd string, foldCase bool) (bool, string) {
 	if e.mode != "audit-only" || r.Decision != DecisionBlock || e.selfProtectionKeep == nil {
-		return false
+		return false, ""
 	}
 	return e.selfProtectionKeep(command, r.TriggeredRules, e.resolvedProtectedHits(protectedOn, cwd, foldCase))
 }
@@ -136,7 +143,9 @@ func (e *Engine) keepsSelfProtectionBlock(command string, r EvalResult, protecte
 // pattern matches, `~` expanded and a relative path joined onto cwd: the files
 // a protected-path BLOCK is about, whatever their spelling. Every pattern, not
 // only the first hit's: in `cd ~ && rm -rf .ssh .agentshield` the first
-// pattern to match is the ssh one.
+// pattern to match is the ssh one. A hit is resolved as normalize resolves an
+// operand (pathnorm.Resolve, #5021 P-c): on Windows Git Bash's `/c/...` is
+// drive C, and a rooted `/srv/x` is on the cwd's drive.
 func (e *Engine) resolvedProtectedHits(paths []string, cwd string, foldCase bool) []string {
 	if len(paths) == 0 {
 		return nil
@@ -150,8 +159,10 @@ func (e *Engine) resolvedProtectedHits(paths []string, cwd string, foldCase bool
 		for _, pattern := range e.policy.Defaults.ProtectedPaths {
 			if e.protectedPathMatches(p, pattern, matchCwd, foldCase) {
 				resolved := e.expandPath(p)
-				if !filepath.IsAbs(resolved) && filepath.IsAbs(cwd) {
-					resolved = filepath.Join(cwd, resolved)
+				if pathnorm.IsAbs(cwd) {
+					resolved = pathnorm.Resolve(resolved, cwd, e.homeDir)
+				} else {
+					resolved = pathnorm.FromMSYSDrive(resolved)
 				}
 				hits = append(hits, resolved)
 				break
@@ -203,6 +214,24 @@ func (e *Engine) Policy() *Policy {
 	return e.policy
 }
 
+// WithoutProtectedPath returns an engine that decides as e does, except that
+// pattern is not among its protected_paths. It is a copy that shares e's
+// compiled rules, analyzer pipeline and settings, with its own policy value
+// whose protected_paths list lacks every entry equal to pattern, so it costs
+// a copy of that list, not a second engine. e is unchanged. When the list
+// has no such entry, e itself is returned.
+func (e *Engine) WithoutProtectedPath(pattern string) *Engine {
+	paths := e.policy.Defaults.ProtectedPaths
+	if !slices.Contains(paths, pattern) {
+		return e
+	}
+	pol := *e.policy
+	pol.Defaults.ProtectedPaths = slices.DeleteFunc(slices.Clone(paths), func(p string) bool { return p == pattern })
+	c := *e
+	c.policy = &pol
+	return &c
+}
+
 func (e *Engine) Evaluate(command string, paths []string) EvalResult {
 	return e.EvaluateWithParsed(command, paths, nil)
 }
@@ -221,9 +250,10 @@ func (e *Engine) EvaluateWithParsed(command string, paths []string, parsed *anal
 // It is the single evaluation entry point: the hook (cli/hook.go), `check`,
 // `scan` and shield-server all arrive here, which is why #3991's safety
 // guarantee lives here — see EvaluateProgramPaths — and #4194's too, see
-// EvaluateCaseFold, #4289's, see EvaluateQuotedFlags, #4387's, see
-// EvaluatePrivateAlias, #4540's, see EvaluateANSICNUL, #4610's, see
-// EvaluateStderrRedirect, and #4598's, see EvaluateZshReading.
+// EvaluateCaseFold, #4289's, see EvaluateQuotedFlags, #4873's, see
+// EvaluateQuotedCommandWords, #4387's, see EvaluatePrivateAlias, #4540's, see
+// EvaluateANSICNUL, #4610's, see EvaluateStderrRedirect, and #4598's, see
+// EvaluateZshReading.
 func (e *Engine) EvaluateWithParsedCwd(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string) EvalResult {
 	return e.EvaluateZshReading(command, paths, parsed, cwd, ZshReadingStricter)
 }
@@ -298,21 +328,21 @@ const (
 // 3,600 that carry only Claude Code's `/private/tmp/claude-501/` pay the scan.
 func (e *Engine) EvaluatePrivateAlias(command string, paths []string, parsed *analyzer.ParsedCommand, cwd string, mode PrivateAliasMode) EvalResult {
 	if mode == PrivateAliasOff {
-		return e.EvaluateQuotedFlags(command, paths, parsed, cwd, QuotedFlagsStricter)
+		return e.EvaluateQuotedCommandWords(command, paths, parsed, cwd, QuotedCommandWordsStricter)
 	}
 	short, shortPaths, shortCwd, changed := privateAliasReading(command, paths, cwd)
 	if mode == PrivateAliasOn {
 		if !changed {
-			return e.EvaluateQuotedFlags(command, paths, parsed, cwd, QuotedFlagsStricter)
+			return e.EvaluateQuotedCommandWords(command, paths, parsed, cwd, QuotedCommandWordsStricter)
 		}
-		return e.EvaluateQuotedFlags(short, shortPaths, nil, shortCwd, QuotedFlagsStricter)
+		return e.EvaluateQuotedCommandWords(short, shortPaths, nil, shortCwd, QuotedCommandWordsStricter)
 	}
-	asWritten := e.EvaluateQuotedFlags(command, paths, parsed, cwd, QuotedFlagsStricter)
+	asWritten := e.EvaluateQuotedCommandWords(command, paths, parsed, cwd, QuotedCommandWordsStricter)
 	if !changed {
 		return asWritten
 	}
 	// parsed is the tree of the as-written text; every analyzer re-parses.
-	return stricterResult(asWritten, e.EvaluateQuotedFlags(short, shortPaths, nil, shortCwd, QuotedFlagsStricter))
+	return stricterResult(asWritten, e.EvaluateQuotedCommandWords(short, shortPaths, nil, shortCwd, QuotedCommandWordsStricter))
 }
 
 // privateAliasReading is the input of the short reading: command, paths and
@@ -565,8 +595,10 @@ func caseFoldResult(asWritten, folded EvalResult) EvalResult {
 		return asWritten
 	}
 	// A tie from here on: whichever reading is returned keeps a BLOCK the
-	// other kept (keptOnTie, #4748 Opus pass 1).
-	if !strictSuperset(folded.TriggeredRules, asWritten.TriggeredRules) {
+	// other kept (keptOnTie, #4748 Opus pass 1). The records are compared
+	// without the keep's lead (withoutKeptLead, #5089), so the lead never
+	// changes which reading's record is returned.
+	if !strictSuperset(withoutKeptLead(folded), withoutKeptLead(asWritten)) {
 		return keptOnTie(asWritten, folded)
 	}
 	for _, n := range asWritten.Notes {
@@ -711,11 +743,23 @@ func stricterResult(off, on EvalResult) EvalResult {
 // same record. So it never reaches above enforce, and in enforce mode,
 // where nothing carries an OriginalDecision, it never applies. Any other
 // pair is returned as picked.
+//
+// The record names why picked's BLOCK stands (#5089). picked was lowered, so
+// the keep accepted none of its rules: it stands for what kept other, which
+// other's provenance says (keptFor.why: the keep's reason, the
+// self-protection rule other's reading matched, or a managed lane's
+// self-protection reading). picked leads with that reason, and carries it as
+// its own provenance for a layer above that ties with it. Before, a reading
+// kept by a self-protection rule picked's reading cannot see raised picked
+// with no lead: `mkfs.ext4 /dev/sda1; rm -rf ~<login>/.agentshield` recorded
+// ts-block-mkfs alone (#5091 pass 1, F1). An other without provenance raises
+// picked's record as it is.
 func keptOnTie(picked, other EvalResult) EvalResult {
 	if picked.OriginalDecision != DecisionBlock || other.Decision != DecisionBlock || other.OriginalDecision != "" {
 		return picked
 	}
 	picked.Decision, picked.OriginalDecision = DecisionBlock, ""
+	picked = keptForSelfProtection(picked, other.kept.why)
 	picked.Explanation = buildExplanation(picked)
 	return picked
 }
@@ -909,15 +953,21 @@ func (e *Engine) evaluate(command string, paths []string, parsed *analyzer.Parse
 // mode, audit-only, so it decides BLOCK only when the keep accepted a BLOCK
 // of its own; every other BLOCK there is downgraded.
 //
-// It decides nothing. r, enforce mode's verdict, is kept as it is, record
-// included, or downgraded as before, so audit-only can only reach the BLOCK
-// enforce mode makes. Enforce mode never asks, and neither does a BLOCK the
-// pipeline decided: the pipeline already saw every rule.
-func (e *Engine) keepsMaskedSelfProtectionBlock(command string, r EvalResult, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase bool) bool {
+// It decides nothing. r, enforce mode's verdict, is kept as it is, or
+// downgraded as before, so audit-only can only reach the BLOCK enforce mode
+// makes. Enforce mode never asks, and neither does a BLOCK the pipeline
+// decided: the pipeline already saw every rule. The second result is the
+// reason r is kept, for its record (maskedKeptReason, #5089): r's own rule is
+// the protected-path one, which is not why it stands.
+func (e *Engine) keepsMaskedSelfProtectionBlock(command string, r EvalResult, paths []string, parsed *analyzer.ParsedCommand, cwd string, resolve, foldCase bool) (bool, string) {
 	if e.mode != "audit-only" || r.Decision != DecisionBlock || e.selfProtectionKeep == nil {
-		return false
+		return false, ""
 	}
-	return e.evaluateFrom(command, paths, parsed, cwd, resolve, foldCase, false).Decision == DecisionBlock
+	m := e.evaluateFrom(command, paths, parsed, cwd, resolve, foldCase, false)
+	if m.Decision != DecisionBlock {
+		return false, ""
+	}
+	return true, e.maskedKeptReason(command, m)
 }
 
 // evaluateFrom is evaluate. protectedFirst false skips the protected-path
@@ -944,7 +994,7 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		if consumerNote != "" {
 			return true
 		}
-		ok, exe := e.protectedPathConsumerOnly(command, parsed, foldCase)
+		ok, exe := e.protectedPathConsumerOnly(command, parsed, paths, cwd, foldCase)
 		if ok {
 			consumerNote = fmt.Sprintf("Protected credential path used by its designated consumer (%s) — recorded, not blocked", exe)
 		}
@@ -1024,8 +1074,15 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		// only decision the keep sees; it carries the files it matched (#4424).
 		// When that BLOCK hides a self-protection action elsewhere in the
 		// command, the keep is asked of the rest of the evaluation (#4429).
-		if !e.keepsSelfProtectionBlock(command, r, protectedOn, cwd, foldCase) &&
-			!(decidedBeforePipeline && e.keepsMaskedSelfProtectionBlock(command, r, paths, parsed, cwd, resolve, foldCase)) {
+		// A BLOCK kept for a reason none of its rules states leads with that
+		// reason (keptForSelfProtection, #5089).
+		kept, why := e.keepsSelfProtectionBlock(command, r, protectedOn, cwd, foldCase)
+		if !kept && decidedBeforePipeline {
+			kept, why = e.keepsMaskedSelfProtectionBlock(command, r, paths, parsed, cwd, resolve, foldCase)
+		}
+		if kept {
+			r = e.keptRecord(command, r, why)
+		} else {
 			r = applyModeDowngrade(r, e.mode)
 		}
 		notes := make([]string, 0, 2)
@@ -1074,10 +1131,22 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 
 	if protectedFirst {
 		if blocked, rule := e.checkProtectedPaths(paths, cwd, foldCase); blocked && !consumerOnly() {
+			// The receipt names a read the command's consumer slots do not
+			// account for, not the slot's own file (#5021 P-c, pass 2):
+			// `kubectl --kubeconfig ~/.kube/config create secret generic x
+			// --from-file=../.aws/credentials` is a BLOCK about the AWS file.
+			// The first protected path in paths is often the slot's. A
+			// command with no credited slot keeps paths' first match.
+			on := paths
+			if besides := e.slotFreePaths(command, cwd, foldCase); besides != nil {
+				if b, r := e.checkProtectedPaths(besides, cwd, foldCase); b {
+					on, rule = besides, r
+				}
+			}
 			result.Decision = DecisionBlock
 			result.TriggeredRules = append(result.TriggeredRules, ProtectedPathRuleID)
 			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied: %s", rule))
-			result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(paths, rule, cwd, true), cwd))
+			result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(on, rule, cwd, true), cwd))
 			protectedOn = paths
 			decidedBeforePipeline = true
 			return finish(result)
@@ -1092,6 +1161,7 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 			Paths:               paths,
 			Parsed:              parsed,
 			Cwd:                 cwd,
+			Home:                e.homeDir,
 			ExecContext:         e.execContext,
 			ResolveProgramPaths: resolve,
 		}
@@ -1115,12 +1185,29 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		// after the AST walk. We override to BLOCK on a hit because
 		// protected paths are non-negotiable — combiner severity doesn't
 		// apply when the policy explicitly named the path off-limits.
-		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths, cwd, foldCase); blocked && !consumerOnly() {
-			result.Decision = DecisionBlock
-			result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
-			result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
-			result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(ctx.MaterializedPaths, rule, cwd, true), cwd))
-			protectedOn = ctx.MaterializedPaths
+		//
+		// A designated consumer's slot accounts for its own word only (#5021
+		// P-c, pass 2): `D=$HOME; ssh -i ~/.ssh/k host; cp
+		// $D/.aws/credentials /tmp/o` is consumer-only by normalize's reading,
+		// and the AWS read is here. So a consumer-only command still BLOCKs
+		// on a path materialized from its text with the slots taken out
+		// (slotFreeMaterialized), and the receipt names that path, not the
+		// slot's. It can only raise.
+		if blocked, rule := e.checkProtectedPaths(ctx.MaterializedPaths, cwd, foldCase); blocked {
+			on := ctx.MaterializedPaths
+			if consumerOnly() {
+				on = e.slotFreeMaterialized(command, cwd, foldCase)
+				if blocked, rule = e.checkProtectedPaths(on, cwd, foldCase); blocked {
+					consumerNote = ""
+				}
+			}
+			if blocked {
+				result.Decision = DecisionBlock
+				result.TriggeredRules = append(result.TriggeredRules, "protected-path-via-substitution")
+				result.Reasons = append(result.Reasons, fmt.Sprintf("Access to protected path denied (resolved via variable substitution): %s", rule))
+				result.TaxonomyRefs = addProtectedPathTaxonomy(result.TaxonomyRefs, rule, e.sshReceiptHits(parsed, e.protectedPathHits(on, rule, cwd, true), cwd))
+				protectedOn = on
+			}
 		}
 
 		// Assignment half of the consumer table (#3630): naming a protected
@@ -1128,7 +1215,7 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		// (`export KUBECONFIG=~/.kube/config`) is recorded, never blocked.
 		// Deliberately does not feed checkProtectedPaths — see
 		// AnalysisContext.Assignments and ProtectedEnvAssignment.
-		if env, ok := e.protectedEnvAssignment(ctx.Assignments, foldCase); ok {
+		if env, ok := e.protectedEnvAssignment(ctx.Assignments, cwd, foldCase); ok {
 			envConsumerNote = fmt.Sprintf("Protected credential path assigned to %s, a designated consumer's environment credential slot — recorded, not blocked", env)
 		}
 
@@ -1257,24 +1344,24 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		}
 		matchedCmd := ""
 		switch {
-		case e.matchRule(command, rule):
+		case e.matchRuleInCwd(command, rule, cwd):
 			matchedCmd = command
-		case dequotedCommand != "" && e.matchRule(dequotedCommand, rule):
+		case dequotedCommand != "" && e.matchRuleInCwd(dequotedCommand, rule, cwd):
 			matchedCmd = dequotedCommand
-		case foldedCommand != "" && e.matchRule(foldedCommand, rule):
+		case foldedCommand != "" && e.matchRuleInCwd(foldedCommand, rule, cwd):
 			matchedCmd = foldedCommand
-		case materializedCommand != "" && e.matchRule(materializedCommand, rule):
+		case materializedCommand != "" && e.matchRuleInCwd(materializedCommand, rule, cwd):
 			matchedCmd = materializedCommand
-		case materializedANSICCommand != "" && e.matchRule(materializedANSICCommand, rule):
+		case materializedANSICCommand != "" && e.matchRuleInCwd(materializedANSICCommand, rule, cwd):
 			matchedCmd = materializedANSICCommand
-		case ifsCommand != "" && e.matchRule(ifsCommand, rule):
+		case ifsCommand != "" && e.matchRuleInCwd(ifsCommand, rule, cwd):
 			matchedCmd = ifsCommand
-		case emittedCommand != "" && e.matchRule(emittedCommand, rule):
+		case emittedCommand != "" && e.matchRuleInCwd(emittedCommand, rule, cwd):
 			matchedCmd = emittedCommand
 		}
 		if matchedCmd == "" {
 			for _, cand := range interpExecCandidates {
-				if e.matchRule(cand, rule) {
+				if e.matchRuleInCwd(cand, rule, cwd) {
 					matchedCmd = cand
 					break
 				}
@@ -1282,7 +1369,7 @@ func (e *Engine) evaluateFrom(command string, paths []string, parsed *analyzer.P
 		}
 		if matchedCmd == "" && rule.Decision != DecisionAllow {
 			for _, cand := range executedText {
-				if e.matchRule(cand, rule) {
+				if e.matchRuleInCwd(cand, rule, cwd) {
 					matchedCmd = cand
 					break
 				}
@@ -1413,6 +1500,23 @@ func (e *Engine) regexExcluded(command, excl string) bool {
 	}
 	re := e.compiledRegex(excl)
 	return re != nil && re.MatchString(command)
+}
+
+// matchRuleInCwd is matchRule plus the capture_under_cwd gate (#4850), the
+// regex-fallback twin of RegexAnalyzer's per-form `fires`: a form counts only
+// where a match's directory is under cwd, or one the gate cannot resolve.
+func (e *Engine) matchRuleInCwd(command string, rule Rule, cwd string) bool {
+	if !e.matchRule(command, rule) {
+		return false
+	}
+	if rule.Match.CaptureUnderCwd == "" {
+		return true
+	}
+	m := e.compiledRegex(rule.Match.CommandRegex)
+	if m == nil {
+		return true
+	}
+	return analyzer.CaptureInScope(m.Regexp(), command, rule.Match.CaptureUnderCwd, cwd, e.homeDir, rule.Match.CommandFoldSeparators)
 }
 
 // matchRule reports whether rule fires on command: its raw pattern (exact,
@@ -1663,15 +1767,33 @@ func (e *Engine) protectedPathMatches(path, pattern, cwd string, foldCase bool) 
 func protectedPathMatchesIn(home, path, pattern, cwd string, foldCase bool) bool {
 	expandedPath := expandHome(path, home)
 	expandedPattern := expandHome(pattern, home)
+	drive := pathnorm.Drive(cwd, home)
 	if foldCase {
 		expandedPath = pathnorm.FoldASCII(expandedPath)
 		expandedPattern = pathnorm.FoldASCII(expandedPattern)
+		drive = pathnorm.FoldASCII(drive)
 	}
-	if matchGlob(expandedPath, expandedPattern) {
+	if matchOnDrive(expandedPath, expandedPattern, drive) {
 		return true
 	}
-	rel, ok := relativeToCwd(expandedPath, expandedPattern, cwd)
+	rel, ok := relativeToCwd(expandedPath, expandedPattern, cwd, home)
 	return ok && matchGlob(rel, filepath.Clean(expandedPattern))
+}
+
+// matchOnDrive is matchGlob, and then, on Windows, the same match with a
+// rooted path or pattern that has no drive read on drive, the cwd's
+// (pathnorm.Drive, #5021 P-c). From a cwd on C:, normalize reads the operand
+// `/etc/x` as C:\etc\x, so the pattern `/etc/**` is C:\etc\** there; and a
+// path that did not come through normalize (the substitution analyzer's, a
+// PowerShell argument the lane keeps as written) is read on the same drive.
+// The first test is main's, so this can only add a match. Off Windows drive is
+// "" and OnDrive is the identity: this is matchGlob.
+func matchOnDrive(path, pattern, drive string) bool {
+	if matchGlob(path, pattern) {
+		return true
+	}
+	p, q := pathnorm.OnDrive(path, drive), pathnorm.OnDrive(pattern, drive)
+	return (p != path || q != pattern) && matchGlob(p, q)
 }
 
 // protectedPathHits returns every path that matches pattern, for the receipt
@@ -1709,22 +1831,27 @@ func expandHome(path, home string) string {
 
 // relativeToCwd returns path relative to cwd, for matching a relative
 // protected_paths pattern. A relative pattern describes paths UNDER cwd:
-//   - a path outside cwd is refused. Its cwd-relative form starts with "../",
+//   - a path outside cwd is refused. Its cwd-relative form starts with "../"
+//     ("..\" on Windows: filepath.Rel answers in the OS separator, #5021),
 //     and matchGlob's literal-prefix test would let "../**" claim every
 //     absolute path on the machine, or "*/x" claim "../x" (#4025 Opus review).
 //     So a pattern that climbs out of cwd ("../**") never matches here; it
 //     keeps only main's as-written match, as before this change.
 //   - a relative path (from variable substitution, "./secrets/token") is
 //     joined onto cwd first, so "./" and "secrets/.." spellings still match.
-func relativeToCwd(path, pattern, cwd string) (string, bool) {
-	if cwd == "" || !filepath.IsAbs(cwd) || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "~") {
+//   - path and cwd are read as normalize reads them (pathnorm.Cwd and
+//     pathnorm.Resolve, #5021 P-c): on Windows a rooted cwd is usable, Git
+//     Bash's `/c/...` is drive C on either side, and a rooted `/srv/x` is on the
+//     cwd's drive, so from a cwd other than the drive's root it is outside
+//     cwd, as it is for PowerShell and cmd.
+func relativeToCwd(path, pattern, cwd, home string) (string, bool) {
+	if cwd == "" || !pathnorm.IsAbs(cwd) || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "~") {
 		return "", false
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cwd, path)
-	}
+	cwd = pathnorm.Cwd(cwd, home)
+	path = pathnorm.Resolve(path, cwd, home)
 	rel, err := filepath.Rel(filepath.Clean(cwd), path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", false
 	}
 	return rel, true
@@ -1781,6 +1908,9 @@ func buildExplanation(result EvalResult) string {
 // only literal argv paths; a key read spelled with $HOME, a substitution, an
 // interpreter body, a glob or a cwd-relative bare name is invisible to it, so
 // refining below ssh-private-key-read on hits alone under-attests that read.
+// A word is keyed as normalize resolved the hit (pathnorm.Resolve, #5021
+// P-c): on Windows Git Bash's `/c/...` is drive C, and a rooted `/srv/x` is on
+// the cwd's drive.
 func (e *Engine) sshReceiptHits(parsed *analyzer.ParsedCommand, hits []string, cwd string) []string {
 	incomplete := append(append([]string{}, hits...), "~/.ssh")
 	if parsed == nil || len(hits) == 0 || len(parsed.Subcommands) > 0 || len(parsed.Substitutions) > 0 {
@@ -1788,8 +1918,10 @@ func (e *Engine) sshReceiptHits(parsed *analyzer.ParsedCommand, hits []string, c
 	}
 	key := func(p string) string {
 		p = e.expandPath(p)
-		if !filepath.IsAbs(p) && cwd != "" {
-			p = filepath.Join(cwd, p)
+		if cwd != "" {
+			p = pathnorm.Resolve(p, cwd, e.homeDir)
+		} else {
+			p = pathnorm.FromMSYSDrive(p)
 		}
 		return pathnorm.FoldASCII(filepath.Clean(p))
 	}

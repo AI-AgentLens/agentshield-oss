@@ -343,9 +343,14 @@ func (c *IntentClassifier) classify(cmd string) CommandFacts {
 	// distinction (`.*` before `<<` matches straight through a file path),
 	// so a live credential read was mislabelled "body is data written to a
 	// file, not execution" and downgraded to AUDIT on 17 shipped BLOCK
-	// rules. `tee` needs no equivalent check — see
-	// CatReadsFileOperandInsteadOfHeredoc's doc comment.
-	if f.InHeredoc && shellparse.CatReadsFileOperandInsteadOfHeredoc(cmd) {
+	// rules.
+	//
+	// #4965: the same false claim on `cat` AND `tee` when an input redirect
+	// points stdin at a file or descriptor on the same statement:
+	// `tee out <<< x < /etc/shadow` copies /etc/shadow in bash (last input
+	// redirect wins) and in zsh (MULTIOS reads both, in either order). See
+	// CatTeeReadsBesidesHeredoc's doc comment for both shapes.
+	if f.InHeredoc && shellparse.CatTeeReadsBesidesHeredoc(cmd) {
 		f.InHeredoc = false
 	}
 	// #3970: the InInterpreterHeredoc twin of the #3964 gap above, scoped to
@@ -657,6 +662,7 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 		}
 	}
 	var reach shellparse.TextReach
+	slotsOnly := false
 	if inertRequested {
 		// #3798 (Gary, 2026-09-23 — strict purity). An inertness label is
 		// honoured only on a command line whose every command is on the
@@ -667,17 +673,88 @@ func IntentExcludedForStatements(classifier *IntentClassifier, command string, s
 		// The rule still has to match: this removes an exception, it never
 		// creates a finding. The per-channel withdrawals below stay as
 		// defence in depth on pure lines.
+		//
+		// #4988 (Gary, 2026-11-19) is the one exception: a git/gh message
+		// slot keeps is_doc_text on an impure line that
+		// shellparse.MessageSlotsSurviveImpureLine admits, and only for the
+		// slot statements themselves. Every other inertness label is still
+		// withdrawn, so a heredoc or echo beside a build step stays strict.
 		if !classifier.commandIsPure(command) {
+			keepDocText := hasLabel(exclude, LabelIsDocText) && shellparse.MessageSlotsSurviveImpureLine(command)
 			exclude = withoutInertTextLabels(exclude)
-			if len(exclude) == 0 {
-				return false
+			if keepDocText {
+				exclude = append(exclude, LabelIsDocText)
+				reach = classifier.commandTextReach(command)
+				slotsOnly = true
+			} else {
+				if len(exclude) == 0 {
+					return false
+				}
+				inertRequested = false
 			}
-			inertRequested = false
 		} else {
 			reach = classifier.commandTextReach(command)
 		}
 	}
+	if slotsOnly {
+		return intentExcludedForMessageSlots(classifier, command, statements, parsed, exclude, matchesStatement, wrapperFuncs, reach)
+	}
 	return intentExcludedForStatements(classifier, command, statements, parsed, exclude, matchesStatement, wrapperFuncs, reach, inertRequested, 0)
+}
+
+func hasLabel(labels []string, want string) bool {
+	for _, l := range labels {
+		if l == want {
+			return true
+		}
+	}
+	return false
+}
+
+// intentExcludedForMessageSlots is the #4988 reading: the line is impure
+// but MessageSlotsSurviveImpureLine admitted it, and exclude carries
+// is_doc_text as its only inertness label. Every statement the rule matches
+// must be excused: by a non-inert label, as on any line, or by is_doc_text
+// when the statement is itself a git/gh message slot. A matched statement
+// that is not a slot (a plain build step, a git read) keeps its decision.
+//
+// The substitution check of the pure path is not re-run for a slot: the
+// predicate admits exactly one substitution in a slot, the commit idiom
+// `"$(cat <<'EOF' … EOF)"`, whose output is the quoted heredoc's body
+// verbatim. Re-entering it would ask in_heredoc about that body, and on
+// this path in_heredoc is withdrawn, so the idiom would never qualify.
+func intentExcludedForMessageSlots(classifier *IntentClassifier, command string, statements []string, parsed bool, exclude []string, matchesStatement func(string) bool, wrapperFuncs map[string]bool, reach shellparse.TextReach) bool {
+	if !parsed {
+		return false
+	}
+	// The non-inert labels decide exactly as main's strict path does (no
+	// reach, no inertness); only the slot exemption below is new, and only
+	// it is subject to the per-channel withdrawals.
+	nonInert := withoutInertTextLabels(exclude)
+	withdrawAll := reach.PipesIntoExecutor || reach.CoarseCorrelated
+	excused := func(stmt string) bool {
+		if len(nonInert) > 0 && intentExcludedForStatements(classifier, stmt, []string{stmt}, true, nonInert, matchesStatement, wrapperFuncs, shellparse.TextReach{}, false, 0) {
+			return true
+		}
+		if withdrawAll || (len(reach.Correlated) > 0 && shellparse.StatementWritesAny(stmt, reach.Correlated)) {
+			return false
+		}
+		return shellparse.IsMessageSlotStatement(stmt) && classifier.Classify(stmt).HasAny([]string{LabelIsDocText})
+	}
+	if len(statements) <= 1 {
+		return excused(command)
+	}
+	matchedAny := false
+	for _, stmt := range statements {
+		if !matchesStatement(stmt) {
+			continue
+		}
+		matchedAny = true
+		if !excused(stmt) {
+			return false
+		}
+	}
+	return matchedAny
 }
 
 // maxSubstitutionDepth bounds the re-entry into substitution bodies

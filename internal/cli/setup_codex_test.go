@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // codexPreToolUse parses a hooks.json body the way setup reads it from disk,
@@ -43,7 +45,7 @@ func withAgentShieldOnPath(t *testing.T) {
 	agentShieldPathCandidates = nil
 	t.Cleanup(func() { agentShieldPathCandidates = prev })
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "agentshield"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, exeName("agentshield")), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -84,7 +86,7 @@ func TestEnsureCodexHookEntries_FreshInstallAddsShellThenMCP(t *testing.T) {
 // or touches the groups Codex already trusts.
 func TestSetupCodexCommand_UpgradeOnDiskKeepsTrustedGroups(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	withAgentShieldOnPath(t)
 	prev := disableFlag
 	disableFlag = false

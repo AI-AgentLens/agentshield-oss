@@ -114,12 +114,36 @@ func MatchProtectedPath(patterns []string, home, path, cwd string, foldCase bool
 	return "", false
 }
 
-// LoadDeclaredProtectedPaths returns the protected_paths the shell hook's
-// policy declares outside the binary: the user policy file (layered over
-// DefaultPolicy, as Load does) and every enabled pack LoadPacks reads from
-// packsDir, in LoadPacks's order. The embedded community packs are left out:
+// ToolCallInputs is what a surface's tool-call evaluator takes from the shell
+// policy the same surface enforces (assembly.MCPEvaluator).
+type ToolCallInputs struct {
+	// ProtectedPaths is the shell policy's protected_paths. The customer's
+	// patterns among them apply to tool-call file-path arguments (#4645).
+	ProtectedPaths []string
+	// DisableRules is the shell policy's disable_rules, as that surface's
+	// shell path applies it. A tool-call rule whose id it lists does not fire,
+	// as a shell rule it lists does not (#5001): rule ids are unique across
+	// both kinds, so one list serves both.
+	DisableRules []string
+}
+
+// ForToolCalls returns p's ToolCallInputs, for a surface that holds the merged
+// shell policy it enforces (shield-server). The slices are copies.
+func (p *Policy) ForToolCalls() ToolCallInputs {
+	return ToolCallInputs{
+		ProtectedPaths: append([]string(nil), p.Defaults.ProtectedPaths...),
+		DisableRules:   append([]string(nil), p.DisableRules...),
+	}
+}
+
+// LoadDeclaredToolCallInputs returns what the shell hook's policy declares
+// outside the binary for the tool-call surfaces: the protected_paths of the
+// user policy file (layered over DefaultPolicy, as Load does) and of every
+// enabled pack LoadPacks reads from packsDir, in LoadPacks's order, and the
+// policy file's disable_rules. The embedded community packs are left out:
 // every pattern they declare is shipped, so CustomerProtectedPaths would drop
-// it anyway.
+// it anyway. Only the policy file declares disable_rules: a pack has no such
+// key (Pack), so no pack adds to the list, as none adds to the shell's.
 //
 // It exists for the tool-call path of the hook, which evaluates every Read,
 // Write and Edit. LoadPacks parses each pack whole, about 50 ms for a premium
@@ -129,16 +153,20 @@ func MatchProtectedPath(patterns []string, home, path, cwd string, foldCase bool
 // ruleset as the shell path does. err is set when the policy file cannot be
 // parsed or packsDir cannot be listed; a missing file or directory is not an
 // error. Either failure still returns what did load (DefaultPolicy's list in
-// place of an unparsable policy file), so a broken layer never takes the
-// other layer's paths with it.
-func LoadDeclaredProtectedPaths(policyPath, packsDir string) ([]string, []PackInfo, error) {
+// place of an unparsable policy file, and then no disable_rules), so a broken
+// layer never takes the other layer's paths with it.
+//
+// The managed-host rule (a managed host ignores the local list) is not
+// applied here: each surface applies the one its shell side applies.
+func LoadDeclaredToolCallInputs(policyPath, packsDir string) (ToolCallInputs, []PackInfo, error) {
 	pol, loadErr := Load(policyPath)
 	if loadErr != nil {
 		pol = DefaultPolicy()
 	}
 	paths := append([]string(nil), pol.Defaults.ProtectedPaths...)
+	disable := append([]string(nil), pol.DisableRules...)
 	if packsDir == "" {
-		return paths, nil, loadErr
+		return ToolCallInputs{ProtectedPaths: paths, DisableRules: disable}, nil, loadErr
 	}
 	infos, err := walkShellPackTree(packsDir, PackLoadHooks[declaredPack]{
 		Parse: func(data []byte, label string) (*declaredPack, error) {
@@ -154,10 +182,10 @@ func LoadDeclaredProtectedPaths(policyPath, packsDir string) ([]string, []PackIn
 	if err != nil && os.IsNotExist(err) {
 		err = nil
 	}
-	return paths, infos, errors.Join(loadErr, err)
+	return ToolCallInputs{ProtectedPaths: paths, DisableRules: disable}, infos, errors.Join(loadErr, err)
 }
 
-// declaredPack is one pack as LoadDeclaredProtectedPaths reads it.
+// declaredPack is one pack as LoadDeclaredToolCallInputs reads it.
 type declaredPack struct{ paths []string }
 
 // protectedPathsDoc is the one field of a pack declaredProtectedPaths decodes.

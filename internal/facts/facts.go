@@ -84,6 +84,17 @@ type Facts struct {
 	// (git, kubectl, terraform …) read the argv the program receives, not the
 	// PowerShell text around it.
 	Native []NativeStatement
+	// Twins are Native with each file cmdlet call read as its POSIX twin in
+	// its place (the cmdlet bridge): Get-Content as `cat`, Copy-Item as `cp`,
+	// Move-Item as `mv`, Remove-Item as `rm`, Set-Content and Out-File as
+	// `echo x > path`, Add-Content as `echo x >> path`; then each redirection
+	// of the success stream to a literal file (`> f`, `>> f`, `1> f`, `*> f`)
+	// as a statement `echo x > f` of its own. Nil when the text has no twin,
+	// so a reader of Twins can tell "no twin" from "the same as Native". A
+	// surface reads it as a SECOND POSIX text beside Native's, never in its
+	// place, and keeps the stricter reading, so Native's text stays what it
+	// is without twins and a twin can only raise a decision.
+	Twins []NativeStatement
 	// Calls are the .NET method calls the text makes, in source order
 	// (Windows round 3): a static call on a type literal
 	// (`[Convert]::ToBase64String(…)`) and an instance call
@@ -155,6 +166,12 @@ type WordPart struct {
 	// (`$b`, `$env:HOME` names HOME, `@args` names args), without its `$`
 	// and scope; "" for an expression.
 	Var string
+	// Bare marks literal text a cmdlet twin (Facts.Twins) writes unquoted:
+	// its redirection operator (`>`, `>>`), or a wildcard path both shells
+	// expand alike (`Remove-Item -Path ~/x/*` as `rm ~/x/*`). Only twins set
+	// it. A surface writes it bare only when it is one of those shapes, and
+	// otherwise as any literal part.
+	Bare bool
 }
 
 // Command is one command invocation.
@@ -248,6 +265,14 @@ type Element struct {
 	// cmdlet binds the array to one parameter; a native program receives
 	// each item as an argument. Windows round 3; empty for any other value.
 	Items []string
+	// ItemPaths are the paths Items are, each item read as a whole value
+	// and resolved as Facts.Paths are (`Remove-Item x.txt, ~\.ssh\id`
+	// deletes both). They are not in Paths. A path-like one is in
+	// Facts.Paths; a bare name (`b` in `a,b`) is not, though a lone bare
+	// argument is. The back end reads them only in its second, stricter-wins
+	// reading (policy.factsLexicalReading, #4830), so the first reading is
+	// main's.
+	ItemPaths []string
 }
 
 // ParamMatches reports whether a parameter as written binds to ruleParam

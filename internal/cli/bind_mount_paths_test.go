@@ -58,7 +58,7 @@ func TestProtectedPaths_ContainerBindMountSourceIsARead(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := evaluateCommand(tc.cmd, "/tmp", "claude-code-hook", "")
+			res, _ := evaluateCommand(shellTextPaths(tc.cmd), "/tmp", "claude-code-hook", "")
 			if res.Decision != policy.DecisionBlock {
 				t.Errorf("not blocked: %s\n  decision=%s rules=%v", tc.cmd, res.Decision, res.TriggeredRules)
 				return

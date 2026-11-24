@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4381: with cwd inside a protected directory, a bare operand naming an
@@ -11,7 +13,7 @@ import (
 // `~/.ssh/<key>`, which sec-block-ssh-private / protected_paths already BLOCK.
 func TestBareOperandResolvesAgainstCwd_4381(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	ssh := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(ssh, 0o700); err != nil {
 		t.Fatal(err)

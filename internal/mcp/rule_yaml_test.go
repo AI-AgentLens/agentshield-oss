@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/AI-AgentLens/agentshield/internal/ossbuild"
+	"github.com/AI-AgentLens/agentshield/internal/policy"
 )
 
 // mcpPacksDir returns the absolute path to the authoritative MCP packs
@@ -29,6 +30,15 @@ func mcpPacksDir() string {
 func premiumMCPPacksDir() string {
 	_, filename, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(filename), "..", "..", "packs", "premium", "mcp")
+}
+
+// optionalPremiumMCPPacksDir returns packs/premium/optional/mcp: premium MCP
+// packs that are off for every install until the customer copies the file
+// into ~/.agentshield/mcp-packs/ (aiagentlens#377). Nothing embeds or
+// bundles them, so this harness is where their inline tests run.
+func optionalPremiumMCPPacksDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(filename), "..", "..", "packs", "premium", "optional", "mcp")
 }
 
 // parseMCPPackFile reads and parses a single MCP pack YAML file. Extracted
@@ -116,23 +126,27 @@ func loadAllMCPStructuralRules(t *testing.T) []MCPStructuralRule {
 }
 
 // loadAllPremiumMCPRules loads all MCP rules from all premium pack YAML
-// files (packs/premium/mcp). Unlike community, premium packs are not
-// embedded into the binary — but this repo clone has them on disk, and
-// their inline `tests:` blocks are just as load-bearing for the attestation
-// chain (a Shield block is only attestation-grade if we can prove the rule
-// fires as claimed — see issue #2865).
+// files (packs/premium/mcp, then packs/premium/optional/mcp). Unlike
+// community, premium packs are not embedded into the binary — but this repo
+// clone has them on disk, and their inline `tests:` blocks are just as
+// load-bearing for the attestation chain (a Shield block is only
+// attestation-grade if we can prove the rule fires as claimed — see issue
+// #2865). The optional packs are included because an install that copies
+// one in runs it exactly like any other disk pack (aiagentlens#377).
 func loadAllPremiumMCPRules(t *testing.T) []MCPRule {
 	t.Helper()
 	ossbuild.SkipPremiumSized(t) // every caller loads packs/premium/
-	return loadMCPRulesFromDir(t, premiumMCPPacksDir())
+	return append(loadMCPRulesFromDir(t, premiumMCPPacksDir()),
+		loadMCPRulesFromDir(t, optionalPremiumMCPPacksDir())...)
 }
 
 // loadAllPremiumMCPStructuralRules loads all MCP structural rules from all
-// premium pack YAML files.
+// premium pack YAML files, the optional ones included.
 func loadAllPremiumMCPStructuralRules(t *testing.T) []MCPStructuralRule {
 	t.Helper()
 	ossbuild.SkipPremiumSized(t) // every caller loads packs/premium/
-	return loadMCPStructuralRulesFromDir(t, premiumMCPPacksDir())
+	return append(loadMCPStructuralRulesFromDir(t, premiumMCPPacksDir()),
+		loadMCPStructuralRulesFromDir(t, optionalPremiumMCPPacksDir())...)
 }
 
 // TestParseMCPPackFile proves the #3637 gate mechanism: a pack file that
@@ -270,7 +284,9 @@ func TestMCPStructuralRuleYAMLTests(t *testing.T) {
 						return
 					}
 					t.Errorf("TP failed — MCP structural rule %s should fire on tool=%q args=%v", rule.ID, tc.Tool, args)
+					return
 				}
+				checkStructuralTPDecision(t, rule, tc.Tool, args)
 			})
 		}
 
@@ -290,6 +306,7 @@ func TestMCPStructuralRuleYAMLTests(t *testing.T) {
 				}
 			})
 		}
+		runStructuralAttested(t, rule)
 	}
 
 	t.Logf("Validated inline MCP structural tests for %d/%d rules (%d known gaps)", tested, len(rules), len(knownStructuralRuleTestGaps))
@@ -315,7 +332,8 @@ var knownPremiumMCPStructuralTestGaps = map[string]string{}
 
 // TestPremiumMCPRuleYAMLTests validates every premium MCP semantic rule's
 // inline TP/TN test cases by calling matchRule directly. Mirrors
-// TestMCPRuleYAMLTests but for packs/premium/mcp. Engine-based sentinel
+// TestMCPRuleYAMLTests but for packs/premium/mcp and
+// packs/premium/optional/mcp. Engine-based sentinel
 // rules (rule.Engine != "") are pattern-matched by dedicated Go signal
 // functions, not matchRule, and already have direct Go test coverage
 // (description_scanner_test.go et al.) — matchRule always returns false
@@ -396,7 +414,9 @@ func TestPremiumMCPStructuralRuleYAMLTests(t *testing.T) {
 						return
 					}
 					t.Errorf("TP failed — premium MCP structural rule %s should fire on tool=%q args=%v", rule.ID, tc.Tool, args)
+					return
 				}
+				checkStructuralTPDecision(t, rule, tc.Tool, args)
 			})
 		}
 
@@ -416,9 +436,43 @@ func TestPremiumMCPStructuralRuleYAMLTests(t *testing.T) {
 				}
 			})
 		}
+		runStructuralAttested(t, rule)
 	}
 
 	t.Logf("Validated inline premium MCP structural tests for %d/%d rules (%d known gaps)", tested, len(rules), len(knownPremiumMCPStructuralTestGaps))
+}
+
+// checkStructuralTPDecision: a TP of a rule that names a placeholder_capture
+// group (#4958) must decide the rule's own decision, not the placeholder
+// AUDIT, so a TP row cannot silently become a placeholder row.
+func checkStructuralTPDecision(t *testing.T, rule MCPStructuralRule, tool string, args map[string]interface{}) {
+	t.Helper()
+	if !hasPlaceholderCapture(rule.Match) {
+		return
+	}
+	if d, _ := structuralRuleVerdict(tool, args, rule); d != rule.Decision {
+		t.Errorf("TP of %s decides %s, want the rule's %s: every credential value in it is a visible placeholder; move it to attested:", rule.ID, d, rule.Decision)
+	}
+}
+
+// runStructuralAttested runs a structural rule's attested: rows (#4958): each
+// must fire the rule and decide AUDIT under it.
+func runStructuralAttested(t *testing.T, rule MCPStructuralRule) {
+	t.Helper()
+	for i, tc := range rule.Tests.Attested {
+		t.Run(fmt.Sprintf("%s/ATTESTED-%d", rule.ID, i+1), func(t *testing.T) {
+			args, err := tc.ResolvedArgs()
+			if err != nil {
+				t.Fatalf("rule %s: decode test args: %v", rule.ID, err)
+			}
+			if !matchStructuralRule(tc.Tool, args, rule) {
+				t.Fatalf("attested row does not fire %s (tool=%q)", rule.ID, tc.Tool)
+			}
+			if d, _ := structuralRuleVerdict(tc.Tool, args, rule); d != policy.DecisionAudit {
+				t.Errorf("attested row of %s decides %s, want AUDIT (tool=%q)", rule.ID, d, tc.Tool)
+			}
+		})
+	}
 }
 
 // TestAllMCPRulesHaveTests is the coverage gate for MCP rules.

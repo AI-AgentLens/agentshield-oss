@@ -96,7 +96,7 @@ func TestDiscoveryFloorRejectsEmptyRequiredDir(t *testing.T) {
 		t.Fatal("empty packs/community accepted — the floor cannot fail, " +
 			"which is the #3359 defect itself")
 	}
-	if !strings.Contains(err.Error(), "packs/community") {
+	if !strings.Contains(err.Error(), filepath.Join("packs", "community")) {
 		t.Errorf("error should name the failing source, got: %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestDiscoveryFloorRejectsPresentButEmptyOptionalDir(t *testing.T) {
 		t.Fatal("present-but-empty packs/premium accepted — optional was read as " +
 			"'may be empty', which reopens #3359 on the premium half")
 	}
-	if !strings.Contains(err.Error(), "packs/premium") {
+	if !strings.Contains(err.Error(), filepath.Join("packs", "premium")) {
 		t.Errorf("error should name the failing source, got: %v", err)
 	}
 }

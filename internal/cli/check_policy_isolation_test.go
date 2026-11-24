@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // writePack writes a minimal shell pack and returns its path.
@@ -42,7 +44,7 @@ func writePack(t *testing.T, dir, name, ruleID, regex, decision string) string {
 // BLOCK.
 func TestCheckPolicyOverride_NotShadowedByDeployedPacks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	cfgDir := filepath.Join(home, ".agentshield")
 	writePack(t, filepath.Join(cfgDir, "packs"), "deployed.yaml",
@@ -68,7 +70,7 @@ func TestCheckPolicyOverride_NotShadowedByDeployedPacks(t *testing.T) {
 // #3030 must not turn `check` into a tool that ignores installed premium packs.
 func TestCheckWithoutPolicyOverride_StillLoadsDeployedPacks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	cfgDir := filepath.Join(home, ".agentshield")
 	writePack(t, filepath.Join(cfgDir, "packs"), "deployed.yaml",

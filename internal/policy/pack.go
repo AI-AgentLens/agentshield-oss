@@ -1,9 +1,12 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/AI-AgentLens/agentshield/internal/safefile"
@@ -79,16 +82,57 @@ func LoadPacks(packsDir string, base *Policy) (*Policy, []PackInfo, error) {
 	return result, infos, nil
 }
 
+// readPacksDir is os.ReadDir on the packs directory, with one correction on
+// Windows. Every caller of walkShellPackTree reads a not-exist error as "no
+// disk packs installed" and any other error as a failure to report (the
+// hook's warning, and under managed fail_closed its enterprise-fail-closed
+// BLOCK). POSIX reports a regular file at packsDir, or at one of its
+// parents, as ENOTDIR. Windows reports it as ERROR_PATH_NOT_FOUND, which
+// os.IsNotExist calls not-exist, so a file at ~/.agentshield/packs dropped
+// every disk pack without a word (#5021). Go's own Windows ENOTDIR is that
+// same errno (syscall.ENOTDIR == ERROR_PATH_NOT_FOUND), so it cannot carry
+// the difference. There, a not-exist error whose deepest existing prefix is
+// not a directory is reported as errPacksNotADirectory, in POSIX's words
+// (`open <packsDir>: not a directory`). Elsewhere this is os.ReadDir
+// unchanged.
+func readPacksDir(packsDir string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(packsDir)
+	if err != nil && runtime.GOOS == "windows" && os.IsNotExist(err) && existsAsNonDirectory(packsDir) {
+		return nil, &fs.PathError{Op: "open", Path: packsDir, Err: errPacksNotADirectory}
+	}
+	return entries, err
+}
+
+// errPacksNotADirectory is readPacksDir's Windows error for a packs path
+// that cannot be a directory. It is deliberately no errno, so os.IsNotExist
+// is false for it on every OS.
+var errPacksNotADirectory = errors.New("not a directory")
+
+// existsAsNonDirectory reports whether the deepest prefix of path that can
+// be stat'ed (path itself, or its nearest parent that can) is something
+// other than a directory, so that path cannot be a directory. Only a stat
+// that succeeds can make it true; reaching the root without one is false.
+func existsAsNonDirectory(path string) bool {
+	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+		if fi, err := os.Stat(p); err == nil {
+			return !fi.IsDir()
+		}
+		if filepath.Dir(p) == p {
+			return false
+		}
+	}
+}
+
 // walkShellPackTree runs the shared pack lifecycle over every shell pack
 // LoadPacks reads from packsDir, in LoadPacks's order: each flat YAML file,
 // and each analyzer-type subdirectory's files under that subdirectory's name.
 // It is the one definition of which disk files are shell packs, shared with
-// LoadDeclaredProtectedPaths (#4645) so the two cannot disagree about it.
-// err is os.ReadDir's error on packsDir.
+// LoadDeclaredToolCallInputs (#4645) so the two cannot disagree about it.
+// err is readPacksDir's error on packsDir.
 func walkShellPackTree[P any](packsDir string, diskHooks PackLoadHooks[P]) ([]PackInfo, error) {
 	var infos []PackInfo
 
-	entries, err := os.ReadDir(packsDir)
+	entries, err := readPacksDir(packsDir)
 	if err != nil {
 		return nil, err
 	}

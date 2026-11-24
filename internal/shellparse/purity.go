@@ -49,6 +49,12 @@ import (
 //   - Anything else — shells, eval, source, exec, xargs, env/sudo/timeout and
 //     other wrappers, build tools, a path to a script, a function defined in
 //     the line, a command word with any expansion — is impure.
+//   - Every entry above is trusted by NAME, so the spellings of a name
+//     rebinding that command_lookup.go recognises are impure too (#5092): a
+//     command word with a slash outside /bin and /usr/bin, `hash` with
+//     anything but -r, and an assignment to PATH, zsh's path, the hash table
+//     or zsh's function and alias tables, including through read/unset or a
+//     nameref. That list is known to be incomplete (see its doc comment).
 //
 // A write into a git hooks directory (`.git/hooks/`, `.husky/`) is impure
 // too: git runs those on commit, so writing one and committing executes it.
@@ -59,6 +65,18 @@ import (
 // #3976 each closed for a synchronous channel. Unparseable input is impure
 // (no exemption), the same fail-closed posture as the rest of the
 // attribution code.
+//
+// # The one exception (#4988, Gary 2026-11-19)
+//
+// A git/gh message slot keeps is_doc_text on an impure line that
+// MessageSlotsSurviveImpureLine admits: a list of the slot, git reads,
+// navigation and plain commands (bare names, plain words, no shell or
+// interpreter, nothing piped into them, no `.git` word, no assignment, no
+// file redirect). Only the slot statements are excused there; every other
+// inertness label is still withdrawn. That predicate is its own closed list,
+// of the same-line ways a stored message can reach an executor, so it does
+// not reopen the per-channel withdrawal this gate replaced. See its doc
+// comment for the clauses and the two-call residual.
 //
 // interpHeredocExecFree receives the actual program text. Optional legacy
 // checks are additional AND requirements on the historical source range,
@@ -72,6 +90,12 @@ func CommandLineIsPure(command string, interpHeredocExecFree func(lang, body str
 	src := ifsNormalized(command)
 	file := parseBashFile(src)
 	if file == nil {
+		return false
+	}
+	// #5092: the list below trusts commands by name, so a line that changes
+	// what a name resolves to (PATH, the hash table, zsh's tables) vouches
+	// for nothing. See command_lookup.go for the spellings recognised.
+	if lineRebindsCommandLookup(file) {
 		return false
 	}
 	// Git's editor environment can be selected in another statement. Treat
@@ -231,9 +255,23 @@ func callIsPure(src string, stmt *syntax.Stmt, call *syntax.CallExpr, gitEditorS
 	// Dequoted: a sed/awk script, a git subcommand or a find predicate is
 	// judged by the value the program receives, not its quoted spelling.
 	words := callWordsDequoted(call)
-	name := path.Base(NormalizeExecName(words[0]))
+	exe := NormalizeExecName(words[0])
+	if commandWordNamesUntrustedFile(exe) {
+		return false // #5092: `/tmp/e/cat` is whatever that file is, not cat
+	}
+	name := path.Base(exe)
 	args := words[1:]
 	if pureCommands[name] {
+		switch name {
+		case "hash":
+			if !pureHashCall(args) {
+				return false // #5092: `hash -p /bin/sh cat`, zsh `hash cat=/bin/sh`
+			}
+		case "read", "mapfile", "readarray", "unset":
+			if bindsLookupParam(args) {
+				return false // #5092: `read -r PATH <<< /tmp/e`, `unset PATH`
+			}
+		}
 		if name == "tee" {
 			for _, w := range args {
 				if isDeferredExecTarget(w) {

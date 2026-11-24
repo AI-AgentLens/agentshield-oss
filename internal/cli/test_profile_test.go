@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/auth"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // The test profile (#4777): TestMain re-runs the test binary with HOME (and
@@ -100,6 +101,7 @@ func TestProfile_ChildrenKeepTheirTestsHome(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProfileProcess$")
 		cmd.Env = append(append(os.Environ(), "AGENTSHIELD_TEST_PROFILE_HELPER=1"), extra...)
+		cmd.Env = testhome.ChildEnv(cmd.Env)
 		out, err := cmd.Output()
 		if err != nil {
 			t.Fatalf("child: %v", err)

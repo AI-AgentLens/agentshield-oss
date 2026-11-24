@@ -36,6 +36,7 @@ var coreLayer = map[string]string{
 	"internal/shellparse":         "shell AST",
 	"internal/datalabel":          "data-label matching engine",
 	"internal/pathnorm":           "path normalisation",
+	"internal/placeholder":        "visibly placeholder credential values, read by the MCP credential rules (#4958); stdlib only",
 	"internal/mountspec":          "container mount parsing",
 	"internal/execenv":            "execution-context facts",
 	"internal/facts":              "what a dialect lane hands the engine (ADR-001, D3); data only, stdlib only",

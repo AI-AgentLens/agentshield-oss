@@ -38,18 +38,26 @@ test: ## Run tests
 # `main` runs with zero true positives. Kept as a measurement, run by the
 # nightly perf-budget workflow and by hand here. Needs a QUIET machine: do not
 # run it alongside Comply's `make test-all`.
-test-perf: ## Run the pipeline P95 latency budget (quarantined; needs a quiet machine)
+#
+# The three measurements below run every time, and the target fails after the
+# last one if any failed: a red pipeline P95 (a co-tenancy number) used to stop
+# make before the hook's wall-clock checks ran, so a red night said nothing
+# about them.
+#   1. The pipeline P95 budget.
+#   2. The hook's decision budget answers before Codex's 10 s timeout, wall
+#      clock, on the real binary (#4772). Also a runner measurement.
+#   3. A labelled host's budget answer withholds a record too large to scrub
+#      and still answers before Codex's timeout (#4814, #4813). Every run checks
+#      the record; only this one holds the wall clock to the timeout (#4827).
+test-perf: ## Run the latency budgets (quarantined; needs a quiet machine); all run, then fail if any failed
+	rc=0; \
 	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
-		-run 'TestPipelinePerfBudget' ./internal/policy/
-	# The hook's decision budget answers before Codex's 10 s timeout, wall
-	# clock, on the real binary (#4772). Also a runner measurement.
+		-run 'TestPipelinePerfBudget' ./internal/policy/ || rc=1; \
 	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
-		-run 'TestHookBudget_ProductionBinaryAtCodexTimeout' ./internal/cli/
-	# A labelled host's budget answer withholds a record too large to scrub
-	# and still answers before Codex's timeout (#4814, #4813). Every run checks
-	# the record; only this one holds the wall clock to the timeout (#4827).
+		-run 'TestHookBudget_ProductionBinaryAtCodexTimeout' ./internal/cli/ || rc=1; \
 	SHIELD_PERF_BUDGET=1 go test -v -count=1 -timeout 10m \
-		-run 'TestFailSafeRecord_TooLargeToScrub_AnsweredOnTime|TestHookRecord_LabelInsideSecret_BudgetAnswer_4813' ./internal/cli/
+		-run 'TestFailSafeRecord_TooLargeToScrub_AnsweredOnTime|TestHookRecord_LabelInsideSecret_BudgetAnswer_4813' ./internal/cli/ || rc=1; \
+	exit $$rc
 
 lint: ## Run linter (requires golangci-lint)
 	golangci-lint run ./...

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AI-AgentLens/agentshield/internal/normalize"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // #4381 residual: `tar -C <dir> <operand>` reads <operand> from <dir>, so
@@ -15,7 +16,7 @@ import (
 // sources as commands.
 func TestTarDirectoryOperandAliasesProtectedPath_4381(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	sshName := "." + "ssh"
 	dir := filepath.Join(home, sshName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -34,18 +35,18 @@ func TestTarDirectoryOperandAliasesProtectedPath_4381(t *testing.T) {
 	}
 	other := t.TempDir()
 	tp := []struct{ cmd, cwd string }{
-		{"tar czf /tmp/x.tgz " + dir + "/" + key, other}, // control: explicit spelling
-		{"tar czf /tmp/x.tgz -C " + home + " " + sshName, other},
-		{"tar czf /tmp/x.tgz -C " + home + " " + sshName + "/" + key, other},
-		{"tar czf /tmp/x.tgz -C " + dir + " " + key, other},
-		{"tar czf /tmp/x.tgz -C " + dir + " .", other},
-		{"tar czf /tmp/x.tgz -C" + dir + " " + key, other},
-		{"tar czf /tmp/x.tgz --directory " + dir + " " + key, other},
-		{"tar czf /tmp/x.tgz --directory=" + dir + " " + key, other},
+		{"tar czf /tmp/x.tgz " + shellPath(dir) + "/" + key, other}, // control: explicit spelling
+		{"tar czf /tmp/x.tgz -C " + shellPath(home) + " " + sshName, other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(home) + " " + sshName + "/" + key, other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(dir) + " " + key, other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(dir) + " .", other},
+		{"tar czf /tmp/x.tgz -C" + shellPath(dir) + " " + key, other},
+		{"tar czf /tmp/x.tgz --directory " + shellPath(dir) + " " + key, other},
+		{"tar czf /tmp/x.tgz --directory=" + shellPath(dir) + " " + key, other},
 		{"tar -czf /tmp/x.tgz -C ~ " + sshName, other},
-		{"tar czf /tmp/x.tgz -C " + home + " -C " + sshName + " " + key, other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(home) + " -C " + sshName + " " + key, other},
 		{"tar czf /tmp/x.tgz -C " + sshName + " " + key, home},
-		{"gtar czf /tmp/x.tgz -C " + home + " " + sshName, other},
+		{"gtar czf /tmp/x.tgz -C " + shellPath(home) + " " + sshName, other},
 	}
 	for _, c := range tp {
 		if r := eval(c.cmd, c.cwd); r.Decision != DecisionBlock {
@@ -53,9 +54,9 @@ func TestTarDirectoryOperandAliasesProtectedPath_4381(t *testing.T) {
 		}
 	}
 	tn := []struct{ cmd, cwd string }{
-		{"tar czf /tmp/x.tgz -C " + other + " src", other},
-		{"tar xzf rel.tgz -C " + other, other},
-		{"tar czf /tmp/x.tgz -C " + home + " Documents", other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(other) + " src", other},
+		{"tar xzf rel.tgz -C " + shellPath(other), other},
+		{"tar czf /tmp/x.tgz -C " + shellPath(home) + " Documents", other},
 		{"tar czf out.tgz src", other},
 	}
 	for _, c := range tn {

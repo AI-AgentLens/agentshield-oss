@@ -141,6 +141,12 @@ carries refs. Evaluations are appended to the audit log (hash-chained
 
 Per-`session_id` MCP call history feeds sequence rules server-side — one
 tracker per session, unlike the in-process HTTP proxy's shared history.
+Each call is recorded first and evaluated with a history that ends in it, as
+on the MCP proxies, so a sequence rule decides on the call that completes its
+chain (#5011). Its steps read the calls as recorded: an
+`mcp__<server>__<tool>` call is in the history under that name, for its bare
+reading too. A request without `session_id` gets no history, and no sequence
+rule fires on it.
 Shell `stateful.chain` rules need no cross-call state (they match within one
 compound command), so shell evaluation is fully stateless.
 

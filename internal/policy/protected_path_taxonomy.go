@@ -7,10 +7,11 @@ import (
 )
 
 // protectedPathNode pairs a protected_paths pattern with the taxonomy node its
-// BLOCK attests to. TaxonomyRef is a field set to a string literal on purpose:
-// scripts/check-taxonomy-refs.sh (CI's taxonomy-refs job) resolves exactly that
-// spelling against Comply's taxonomy tree, so a renamed or retired node turns
-// CI red. The map of bare strings this replaced was invisible to it (#4560).
+// BLOCK attests to. TaxonomyRef is a field set to a string literal:
+// scripts/check-taxonomy-refs.sh (CI's taxonomy-refs job) resolves it against
+// Comply's taxonomy tree, so a renamed or retired node turns CI red. The map of
+// bare strings this replaced was invisible to the gate then (#4560); since
+// #4602 the gate reads any taxonomy-shaped literal in non-test Go.
 type protectedPathNode struct {
 	Pattern     string
 	TaxonomyRef string
@@ -227,10 +228,11 @@ func sshTaxonomyOf(hits []string) string {
 // protected_paths entry (a pack's or policy.yaml's) lands here too: "the
 // policy declared this path off-limits" is what the node describes.
 //
-// A const is invisible to scripts/check-taxonomy-refs.sh, which reads
-// TaxonomyRef literals. The same string is the TaxonomyRef of the
-// ~/.docker/config.json, ~/.netrc and ~/.config/gh/** rows above, so the CI
-// ref gate resolves it there; the #4560 ratchet fails if no row carries it.
+// The CI ref gate (scripts/check-taxonomy-refs.sh) resolves this literal
+// directly since #4602. Before that it read TaxonomyRef literals only, and the
+// same string as the TaxonomyRef of the ~/.docker/config.json, ~/.netrc and
+// ~/.config/gh/** rows above is what it resolved; the #4560 ratchet still fails
+// if no row carries it.
 const ProtectedPathNode = "credential-exposure/config-file-access/protected-path"
 
 // ManagedConfigProtectedPath is the glob a managed host adds to

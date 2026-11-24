@@ -8,12 +8,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // sharedServer is built once for the whole package: engine construction
 // compiles every embedded pack (~seconds), and every test only needs a
-// read-only view. HOME points at a throwaway dir because config.Load mkdirs
-// ~/.agentshield as a side effect and the audit logger writes there.
+// read-only view. The home points at a throwaway dir because config.Load mkdirs
+// ~/.agentshield as a side effect and the audit logger writes there. That
+// includes USERPROFILE on Windows, which is where os.UserHomeDir looks there
+// (#5021).
 var sharedServer *Server
 
 func TestMain(m *testing.M) {
@@ -22,7 +26,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	_ = os.Setenv("HOME", dir)
+	testhome.SetProcess(dir)
 
 	sharedServer, err = NewServer(Options{Version: "test"})
 	if err != nil {
@@ -59,7 +63,7 @@ func postEval(t *testing.T, ts *httptest.Server, req evaluateRequest) (int, eval
 // Attack-shaped strings are assembled by concatenation, not written as
 // literals: this repo dogfoods AgentShield, and quoted attack text in file
 // content can trip the very rules under test (see the fixture-indirection
-// note in CLAUDE.md).
+// note in .claude/agent-notes/mcp-mediation.md).
 func destructiveCommand() string { return "rm -rf " + "/" }
 func credentialPath() string     { return "/home/user/" + ".vault-token" }
 

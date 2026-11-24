@@ -49,6 +49,10 @@ type RegexRule struct {
 	// policy.Match.Context.CI. The check is a cheap nil-test per rule, done
 	// before any matching, so a gated-out rule costs effectively nothing.
 	RequireCI *bool
+	// CaptureUnderCwd names the regex group holding a directory; the rule
+	// fires on a form only where a match's directory is under ctx.Cwd, or
+	// cannot be resolved (#4850, CaptureInScope). Empty: no gate.
+	CaptureUnderCwd string
 }
 
 // RegexAnalyzer wraps the existing regex/prefix/exact rule matching logic
@@ -454,20 +458,38 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		}
 		return !(rule.Decision == "ALLOW" && len(rule.Prefixes) > 0 && rawAllowDisqualified())
 	}
+	// fires is matchRegexRule plus the capture_under_cwd gate (#4850): a
+	// form counts only where a match's directory is under the call's cwd, or
+	// one the gate cannot resolve. Per form, so a nested `cd sub && git …`
+	// that only the dequoted form reads still fires beside a raw match whose
+	// directory is another repo.
+	fires := func(s string, rule RegexRule) bool {
+		if !a.matchRegexRule(s, rule) {
+			return false
+		}
+		if rule.CaptureUnderCwd == "" {
+			return true
+		}
+		m := a.regexCache[rule.Regex]
+		if m == nil {
+			return true
+		}
+		return CaptureInScope(m.Regexp(), s, rule.CaptureUnderCwd, ctx.Cwd, ctx.Home, rule.FoldSeparators)
+	}
 	matchAnyFormInner = func(ruleIdx int, rule RegexRule) bool {
-		if a.matchRegexRule(ctx.RawCommand, rule) {
+		if fires(ctx.RawCommand, rule) {
 			return true
 		}
 		for _, form := range wholeCommandForms {
 			abandon.Checkpoint()
-			if a.matchRegexRule(form, rule) {
+			if fires(form, rule) {
 				return true
 			}
 		}
 		if rule.Decision != "ALLOW" && a.positionSensitive[ruleIdx] {
 			for _, cand := range retryCandidates() {
 				abandon.Checkpoint()
-				if a.matchRegexRule(cand, rule) {
+				if fires(cand, rule) {
 					return true
 				}
 			}
@@ -480,7 +502,7 @@ func (a *RegexAnalyzer) Analyze(ctx *AnalysisContext) []Finding {
 		if rule.Decision != "ALLOW" && !a.positionSensitive[ruleIdx] {
 			for _, cand := range programCandidates() {
 				abandon.Checkpoint()
-				if a.matchRegexRule(cand, rule) {
+				if fires(cand, rule) {
 					return true
 				}
 			}

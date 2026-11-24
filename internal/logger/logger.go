@@ -658,12 +658,15 @@ func errClass(err error) string {
 // log init failed" and skips evaluation (#4052). In that mode resyncHead
 // has no readable descriptor and reads the head by path, the pre-round-5
 // behaviour, with its rotation-window cost.
+//
+// Both opens go through openLogFile, which on Windows lets the file be
+// renamed and deleted while it is held (#5038, logfile_windows.go).
 func openLog(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
+	f, err := openLogFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR)
 	if err == nil {
 		return f, nil
 	}
-	if f, werr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); werr == nil {
+	if f, werr := openLogFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY); werr == nil {
 		return f, nil
 	}
 	return nil, err
@@ -675,9 +678,9 @@ func openLog(path string) (*os.File, error) {
 // Our descriptor may point at a generation another process has already
 // rotated away (a long-running writer such as the enterprise watchdog, or
 // a hook that opened the log before a sibling hook rotated it). Its size
-// is still over the threshold, so rotating it again would os.Remove the
-// .1 that other process just produced and rename the small live file
-// over it: a whole generation lost, and with the head link intact the
+// is still over the threshold, so rotating it again would rename the
+// small live file over the .1 that other process just produced: a whole
+// generation lost, and with the head link intact the
 // verifier would still say "linked". Reopen the live path instead; the
 // caller re-takes the lock on the new descriptor and resyncHead reads
 // the head from it. Its size is checked on the next write.
@@ -747,8 +750,7 @@ func (l *AuditLogger) rotateIfNeeded() error {
 	}
 
 	rotated := l.path + rotatedSuffix
-	_ = os.Remove(rotated)
-	if err := os.Rename(l.path, rotated); err != nil {
+	if err := renameOverRotated(l.path, rotated); err != nil {
 		// The close above succeeded but the rename did not, so l.path still
 		// holds the original (unrotated) file under its original name. Reopen
 		// it rather than leave l.file a closed descriptor: every later Log()
@@ -781,6 +783,32 @@ func (l *AuditLogger) rotateIfNeeded() error {
 	l.file = f
 	l.knownSize = 0
 	return nil
+}
+
+// renameOverRotated renames the live log to <path>.1, replacing what is
+// there. The rename comes first (#5038). Main removed <path>.1 and then
+// renamed, so a rename that then failed left no predecessor at all. On
+// Windows it fails whenever another handle holds the live file without
+// FILE_SHARE_DELETE, and the first failed attempt deleted the retained
+// generation. Now <path>.1 is removed only when the rename was refused
+// because of what is at <path>.1 (rotatedInTheWay), and the rename is then
+// tried once more. Failing any other way, <path>.1 is kept untouched, and the
+// next write retries the rotation.
+//
+// What is left ends as main did on every failed attempt, with <path>.1 gone
+// and the rotation failed: a source that becomes unrenamable between the
+// removal and the second rename (on Windows, another program opening the
+// live file without FILE_SHARE_DELETE in those microseconds), or a refusal
+// that rotatedInTheWay attributes to <path>.1 but that was the source's own.
+func renameOverRotated(live, rotated string) error {
+	err := os.Rename(live, rotated)
+	if err == nil || !rotatedInTheWay(err) {
+		return err
+	}
+	if os.Remove(rotated) != nil {
+		return err
+	}
+	return os.Rename(live, rotated)
 }
 
 // LockUnavailableNote returns the note Log stamps on every event while the

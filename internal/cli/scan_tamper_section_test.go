@@ -10,6 +10,7 @@ import (
 
 	"github.com/AI-AgentLens/agentshield/internal/config"
 	"github.com/AI-AgentLens/agentshield/internal/logger"
+	"github.com/AI-AgentLens/agentshield/internal/testhome"
 )
 
 // logState builds one on-disk audit log shape under home and returns the
@@ -197,7 +198,7 @@ func TestTamperSection_FailingChainRaisesTheDenominator(t *testing.T) {
 // "no entries yet" forever — a silent no-op dressed as a check.
 func TestTamperSection_UsesConfiguredLogPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("AGENTSHIELD_BYPASS", "")
 
 	elsewhere := filepath.Join(t.TempDir(), "custom-audit.jsonl")
@@ -231,7 +232,7 @@ func TestTamperSection_UsesConfiguredLogPath(t *testing.T) {
 func tamperTestConfig(t *testing.T, managed bool) *config.Config {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("AGENTSHIELD_BYPASS", "")
 
 	dir := filepath.Join(home, ".agentshield")

@@ -2,9 +2,9 @@ package analyzer
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 
-	"github.com/AI-AgentLens/agentshield/internal/pathnorm"
 	"github.com/AI-AgentLens/agentshield/internal/shellparse"
 )
 
@@ -52,7 +52,29 @@ type StructuralRule struct {
 // MatchStructuralRule evaluates a single structural rule against a ParsedCommand.
 // Returns true if the command matches all specified predicates (AND logic).
 // Empty predicates are skipped (vacuously true).
+//
+// On Windows the rule is evaluated under main's reading of its arguments and
+// under Git Bash's (#5049, see quoteReading). A restricting rule fires if
+// either evaluation fires; an ALLOW, whose firing takes findings away, only if
+// both do. Negation, the every-argument check and args_none's carve-out and
+// veto all sit inside one evaluation, so each takes the direction it has in
+// this rule. main's evaluation is main's, byte for byte, so the rule never
+// decides weaker than it did on main.
 func MatchStructuralRule(parsed *ParsedCommand, rule StructuralRule) bool {
+	return matchStructuralRuleGated(parsed, rule, readsTwoWays(parsed))
+}
+
+// matchStructuralRuleGated is MatchStructuralRule for a command whose
+// readsTwoWays is already known: an analyzer computes it once per command.
+func matchStructuralRuleGated(parsed *ParsedCommand, rule StructuralRule, twoWays bool) bool {
+	twoWays = twoWays || globsHaveBackslash(rule.ArgsAny, rule.ArgsNone)
+	return combineReadingsIf(twoWays, restrictingDecision(rule.Decision), func(r quoteReading) bool {
+		return matchStructuralRuleAs(parsed, rule, r)
+	})
+}
+
+// matchStructuralRuleAs is MatchStructuralRule under one reading.
+func matchStructuralRuleAs(parsed *ParsedCommand, rule StructuralRule, r quoteReading) bool {
 	if parsed == nil {
 		return false
 	}
@@ -75,7 +97,7 @@ func MatchStructuralRule(parsed *ParsedCommand, rule StructuralRule) bool {
 
 	// Check each segment for command-level predicates.
 	for _, seg := range segments {
-		if matchSegment(seg, rule) {
+		if matchSegment(seg, rule, r) {
 			matched = true
 			break
 		}
@@ -89,7 +111,9 @@ func MatchStructuralRule(parsed *ParsedCommand, rule StructuralRule) bool {
 // If NO predicates are set the rule has no shell-level constraints; return false
 // so that under-specified rules (e.g. MCP-only rules loaded into the shell
 // pipeline) do not spuriously match every command.
-func matchSegment(seg CommandSegment, rule StructuralRule) bool {
+//
+// r is the reading the argument globs take (#5049).
+func matchSegment(seg CommandSegment, rule StructuralRule, r quoteReading) bool {
 	// Guard: a structural rule with no shell constraints defined should not
 	// match any shell command. This prevents MCP-pack rules whose non-shell
 	// fields (args_match, tool_name_regex, etc.) are silently dropped by the
@@ -168,7 +192,7 @@ func matchSegment(seg CommandSegment, rule StructuralRule) bool {
 		for _, arg := range seg.Args {
 			ok := false
 			for _, pattern := range rule.ArgsAny {
-				if matchArgGlob(arg, pattern) {
+				if matchArgGlobAs(arg, pattern, r) {
 					ok = true
 					break
 				}
@@ -191,10 +215,10 @@ func matchSegment(seg CommandSegment, rule StructuralRule) bool {
 	if len(rule.ArgsAny) > 0 {
 		found := false
 		for _, arg := range seg.Args {
-			if operandCarveOut && argMatchesAny(arg, rule.ArgsNone) {
+			if operandCarveOut && argMatchesAny(arg, rule.ArgsNone, r) {
 				continue
 			}
-			if argMatchesAny(arg, rule.ArgsAny) {
+			if argMatchesAny(arg, rule.ArgsAny, r) {
 				found = true
 				break
 			}
@@ -208,7 +232,7 @@ func matchSegment(seg CommandSegment, rule StructuralRule) bool {
 	if len(rule.ArgsNone) > 0 && !operandCarveOut {
 		for _, arg := range seg.Args {
 			for _, pattern := range rule.ArgsNone {
-				if matchArgGlob(arg, pattern) {
+				if matchArgGlobAs(arg, pattern, r) {
 					return false
 				}
 			}
@@ -356,49 +380,98 @@ func flagAliases(flag string) []string {
 	return aliasMap[flag]
 }
 
-// matchArgGlob matches a command argument against a glob pattern.
+// matchArgGlob matches a command argument against a glob pattern, for a
+// match that adds a finding: on Windows it holds if either reading of the
+// argument matches (#5049). A caller whose match can take a finding away
+// evaluates under one reading with matchArgGlobAs and joins the evaluations
+// itself (combineReadings).
 // Supports:
 //   - "/"       → exact match
 //   - "/etc/**" → prefix match (recursive)
 //   - "/dev/sd*" → filepath.Match glob
 //   - "*.py"    → suffix match
 func matchArgGlob(arg, pattern string) bool {
-	// Collapse shell quote-splices in the argument (tar ... ~/.ss'h'/,
-	// cat /etc/pass'w'd) so an inline quote pair can't dodge an args_any /
-	// args_none glob the shell itself resolves straight through. seg.Args stays
-	// raw for every other predicate; only the glob comparison is normalized
-	// (issue #2813).
-	arg = pathnorm.StripShellQuotes(arg)
-	// Same reasoning, one shell-expansion phase later: a '?'/'*' masking one
-	// interior byte of a well-known sensitive path (tar czf k.tgz ~/.?sh/)
-	// resolves identically at runtime, so it must not dodge an args_any /
-	// args_none glob any more than a quote-splice can (issue #3103).
-	arg = shellparse.DeglobPath(arg)
+	twoWays := wordReadsTwoWays(arg) || globsHaveBackslash([]string{pattern})
+	return combineReadingsIf(twoWays, true, func(r quoteReading) bool { return matchArgGlobAs(arg, pattern, r) })
+}
+
+// matchArgGlobAs is matchArgGlob under one reading.
+func matchArgGlobAs(arg, pattern string, r quoteReading) bool {
+	return matchArgGlobOn(arg, pattern, r, runtime.GOOS)
+}
+
+// matchArgGlobOn is matchArgGlobAs as goos runs it. Production passes
+// runtime.GOOS; the parameter lets the Windows readings be tested on every OS.
+//
+// Quote removal collapses shell quote-splices in the argument (tar ...
+// ~/.ss'h'/, cat /etc/pass'w'd) so an inline quote pair can't dodge an
+// args_any / args_none glob the shell itself resolves straight through.
+// seg.Args stays raw for every other predicate; only the glob comparison is
+// normalized (issue #2813).
+//
+// Under readMain that is main's quote removal and main's match, byte for byte.
+// Under readBash (Windows only) the word keeps the backslash Git Bash keeps
+// between two names, and word and pattern are compared in slash form, where
+// `*` crosses a separator as Windows filepath.Match always let it cross '/'.
+// Keeping the backslash raw instead would stop every `*`-led glob at it
+// (Windows filepath.Match stops `*` only at a backslash) and lose `*.pem` on
+// every quoted native spelling Git Bash opens.
+func matchArgGlobOn(arg, pattern string, r quoteReading, goos string) bool {
+	word := r.wordOn(arg, goos)
+	if r == readBash && goos == "windows" {
+		pattern = toSlash(pattern)
+	}
+	return matchWordGlob(word, pattern, goos)
+}
+
+// matchWordGlob is main's glob match of a word quote removal has already
+// read, as goos runs it.
+func matchWordGlob(word, pattern, goos string) bool {
+	// Same reasoning as the quote-splice collapse, one shell-expansion phase
+	// later: a '?'/'*' masking one interior byte of a well-known sensitive path
+	// (tar czf k.tgz ~/.?sh/) resolves identically at runtime, so it must not
+	// dodge an args_any / args_none glob any more than a quote-splice can
+	// (issue #3103).
+	word = shellparse.DeglobPath(word)
 
 	// Handle recursive glob: "/etc/**"
 	if strings.HasSuffix(pattern, "/**") {
 		prefix := strings.TrimSuffix(pattern, "/**")
-		return arg == prefix || strings.HasPrefix(arg, prefix+"/")
+		return word == prefix || strings.HasPrefix(word, prefix+"/")
 	}
 
 	// Handle single-level glob: "/etc/*"
 	if strings.HasSuffix(pattern, "/*") {
 		prefix := strings.TrimSuffix(pattern, "/*")
-		if !strings.HasPrefix(arg, prefix+"/") {
+		if !strings.HasPrefix(word, prefix+"/") {
 			return false
 		}
-		remainder := strings.TrimPrefix(arg, prefix+"/")
+		remainder := strings.TrimPrefix(word, prefix+"/")
 		return !strings.Contains(remainder, "/")
 	}
 
 	// Standard filepath.Match for wildcards
 	if strings.ContainsAny(pattern, "*?[") {
-		matched, err := filepath.Match(pattern, arg)
+		matched, err := globMatch(pattern, word, goos)
 		return err == nil && matched
 	}
 
 	// Exact match
-	return arg == pattern
+	return word == pattern
+}
+
+// globMatch is filepath.Match as goos runs it. Production passes
+// runtime.GOOS, so this is filepath.Match itself; only a unit test asks for
+// Windows' reading on another OS. Windows takes '\' as the separator and
+// never as an escape, and '/' as an ordinary byte, so here '\' becomes this
+// OS's '/' and '/' becomes NUL, a byte no argument carries. That is exact
+// except inside a character-class range spanning either byte (`[!-0]`).
+func globMatch(pattern, name, goos string) (bool, error) {
+	if goos == "windows" && runtime.GOOS != "windows" {
+		toLocal := strings.NewReplacer("/", "\x00", `\`, "/")
+		pattern, name = toLocal.Replace(pattern), toLocal.Replace(name)
+	}
+	return filepath.Match(pattern, name)
 }
 
 // applyNegate inverts the match result if negate is true.
@@ -419,9 +492,9 @@ func stringInList(s string, list []string) bool {
 	return false
 }
 
-func argMatchesAny(arg string, patterns []string) bool {
+func argMatchesAny(arg string, patterns []string, r quoteReading) bool {
 	for _, pattern := range patterns {
-		if matchArgGlob(arg, pattern) {
+		if matchArgGlobAs(arg, pattern, r) {
 			return true
 		}
 	}

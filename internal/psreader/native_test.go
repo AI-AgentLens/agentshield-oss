@@ -10,7 +10,8 @@ import (
 
 // show writes Facts.Native compactly: statements on lines, pipelines joined
 // by their op, stages by " | ", words by spaces, an unknown part as <var> or
-// <?>, a word's parts by "+".
+// <?>, a bare part (facts.WordPart.Bare, cmdlet twins only) as {text}, a
+// word's parts by "+".
 func show(stmts []facts.NativeStatement) string {
 	var lines []string
 	for _, st := range stmts {
@@ -36,6 +37,8 @@ func show(stmts []facts.NativeStatement) string {
 							b.WriteByte('+')
 						}
 						switch {
+						case part.Bare:
+							b.WriteString("{" + part.Text + "}")
 						case part.Unknown && part.Var != "":
 							b.WriteString("<" + part.Var + ">")
 						case part.Unknown:

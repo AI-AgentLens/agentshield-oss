@@ -38,6 +38,10 @@ cat > "$FAKE" <<'FAKEEOF'
 # $FAKE_SEEN so a test can prove the shards cover the selection.
 [ "$1" = "check" ] && [ "$2" = "--fixture" ] || { echo "fake: unsupported: $*" >&2; exit 64; }
 F="$3"
+# $FAKE_HOME_SEEN: what this candidate finds under its HOME (packs, MCP packs,
+# config), so a test can prove which pack set it was judged with.
+[ -n "${FAKE_HOME_SEEN:-}" ] && { ls "$HOME/.agentshield/packs"; echo --; ls "$HOME/.agentshield/mcp-packs"; echo --
+  [ -e "$HOME/.agentshield/agentshield.yaml" ] && echo config-linked; } > "$FAKE_HOME_SEEN"
 n=$(jq '.cases|length' "$F"); echo "$F: $n cases"; failed=0
 for i in $(seq 0 $((n-1))); do
   name=$(jq -r ".cases[$i].name" "$F"); shell=$(jq -r ".cases[$i].shell" "$F"); exp=$(jq -r ".cases[$i].expect" "$F")
@@ -189,6 +193,33 @@ LOG="$TMP/l11d.jsonl"
 ev claude-code-hook BLOCK 'awsKey := "[REDACTED]"' '["guardian-secrets_in_command"]' > "$LOG"
 run --log "$LOG" > "$TMP/o11d.txt" 2>&1; check "only redacted events -> exit 2 (vacuous)" 2 $?
 contains "says nothing was replayable, with the count" "$TMP/o11d.txt" "replayed 0 · unreplayable (redacted) 1 (1 recorded BLOCK) — nothing replayable (vacuous)"
+
+# ── 12. the candidate is judged with the tree's packs, as the deploy installs them
+# `check` reads ~/.agentshield/packs and the deploy copies new packs only after
+# the replay, so before this a pack change was replayed against the old packs
+# and could not flip (2026-11-11: a new BLOCK's FP surfaced one deploy late).
+FH="$TMP/fakehome"; mkdir -p "$FH/.agentshield/packs/community" "$FH/.agentshield/mcp-packs"
+echo old > "$FH/.agentshield/packs/kept.yaml"; echo old > "$FH/.agentshield/packs/community/stale.yaml"
+echo old > "$FH/.agentshield/packs/mcp-legacy.yaml"; echo old > "$FH/.agentshield/mcp-packs/kept-mcp.yaml"
+echo 'mode: enforce' > "$FH/.agentshield/agentshield.yaml"
+TREE="$TMP/tree"; mkdir -p "$TREE/community/mcp" "$TREE/premium/mcp"
+echo a > "$TREE/community/new-a.yaml"; echo b > "$TREE/premium/new-b.yaml"; echo m > "$TREE/community/mcp/new-m.yaml"
+LOG="$TMP/l12.jsonl"; ev claude-code-hook AUDIT "ls" > "$LOG"
+HOME="$FH" FAKE_HOME_SEEN="$TMP/seen12" bash "$SCRIPT" --binary "$FAKE" --log "$LOG" --packs "$TREE" > "$TMP/o12.txt" 2>&1
+check "tree packs: replayed, no flips" 0 $?
+contains "names where the packs came from" "$TMP/o12.txt" "packs from $TREE"
+want=$'kept.yaml\nnew-a.yaml\nnew-b.yaml\n--\nkept-mcp.yaml\nnew-m.yaml\n--\nconfig-linked'
+if [ "$(cat "$TMP/seen12" 2>/dev/null)" = "$want" ]; then echo "  ok: the candidate saw the post-deploy pack set and the config"
+else echo "  FAIL: the candidate saw: $(tr '\n' ' ' < "$TMP/seen12" 2>/dev/null)"; fail=1; fi
+if [ -f "$FH/.agentshield/packs/community/stale.yaml" ] && [ -f "$FH/.agentshield/packs/mcp-legacy.yaml" ] && [ ! -e "$FH/.agentshield/packs/new-a.yaml" ]
+then echo "  ok: the installed packs are untouched"; else echo "  FAIL: the replay changed the installed packs"; fail=1; fi
+HOME="$FH" FAKE_HOME_SEEN="$TMP/seen12d" bash "$SCRIPT" --binary "$FAKE" --log "$LOG" --packs deployed > "$TMP/o12d.txt" 2>&1
+check "--packs deployed: replayed, no flips" 0 $?
+contains "--packs deployed says so" "$TMP/o12d.txt" "packs as deployed now"
+if grep -qx community "$TMP/seen12d" 2>/dev/null; then echo "  ok: --packs deployed reads the installed packs"
+else echo "  FAIL: --packs deployed did not read the installed packs"; fail=1; fi
+HOME="$FH" bash "$SCRIPT" --binary "$FAKE" --log "$LOG" --packs "$TMP/nope" > "$TMP/o12e.txt" 2>&1
+check "a --packs dir without community/ is a usage error" 1 $?
 
 echo
 if [ "$fail" -eq 0 ]; then echo "replay-audit_test: all cases passed"; else echo "replay-audit_test: FAILURES"; exit 1; fi

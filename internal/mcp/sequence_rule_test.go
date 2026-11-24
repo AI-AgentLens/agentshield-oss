@@ -1397,3 +1397,52 @@ func TestMCPSequenceRule_TicketingPagingCollection(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPSequenceRule_GitHubReadThenPublicWrite validates the #4884 rule: a GitHub
+// MCP content read followed within the window by an issue/PR/gist write.
+func TestMCPSequenceRule_GitHubReadThenPublicWrite(t *testing.T) {
+	ossbuild.SkipPremiumSized(t)
+	const id = "mcp-llmdf-audit-github-read-then-issue-pr-write"
+	var rule *MCPRule
+	for _, r := range loadPremiumPackRules(t, "mcp-llm-data-flow.yaml") {
+		if r.ID == id {
+			r := r
+			rule = &r
+		}
+	}
+	if rule == nil || rule.Match.Sequence == nil {
+		t.Fatalf("rule %q missing or has no sequence block", id)
+	}
+	e := NewPolicyEvaluator(&MCPPolicy{Defaults: MCPDefaults{Decision: policy.DecisionAllow}, Rules: []MCPRule{*rule}})
+	fires := func(h []RecordedCall) bool {
+		last := h[len(h)-1]
+		res := e.EvaluateToolCallWithHistory(last.ToolName, last.Args, "", h)
+		for _, r := range res.TriggeredRules {
+			if r == id {
+				return res.Decision == policy.DecisionAudit
+			}
+		}
+		return false
+	}
+	read := RecordedCall{ToolName: "get_file_contents", Args: map[string]interface{}{"owner": "acme-corp", "repo": "internal-tools", "path": "runbook.md"}}
+	write := RecordedCall{ToolName: "add_issue_comment", Args: map[string]interface{}{"owner": "acme-corp", "repo": "public-site", "issue_number": 42, "body": "contents"}}
+	if !fires([]RecordedCall{read, write}) {
+		t.Errorf("read then issue comment should fire")
+	}
+	if !fires([]RecordedCall{{ToolName: "mcp__github__get_file_contents", Args: read.Args}, {ToolName: "mcp__github__create_pull_request", Args: write.Args}}) {
+		t.Errorf("hook-prefixed names should fire")
+	}
+	if fires([]RecordedCall{write}) {
+		t.Errorf("write with no prior read must not fire")
+	}
+	if fires([]RecordedCall{write, read}) {
+		t.Errorf("write before read must not fire")
+	}
+	h := []RecordedCall{read}
+	for i := 0; i < 12; i++ {
+		h = append(h, RecordedCall{ToolName: "list_issues"})
+	}
+	if fires(append(h, write)) {
+		t.Errorf("read outside the window must not fire")
+	}
+}

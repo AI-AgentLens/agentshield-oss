@@ -19,6 +19,9 @@
 #              so the baseline can only shrink. Refs built by string
 #              concatenation (`"prefix/" + variable`) cannot be resolved
 #              statically and are excluded by pattern, not by name.
+#              Since #4602 it also reads every taxonomy-shaped string literal
+#              in non-test Go (a map value, a `return "…"`, a field under
+#              another name), not just `TaxonomyRef:` ones.
 #   tier 2     resolves in taxonomy/ but is absent
 #              from the published artifact          -> REPORT only. Exit stays 0.
 #
@@ -68,13 +71,17 @@
 # goes back to being invisible until the SaaS build turns red days later.
 #
 # ── Dependencies ───────────────────────────────────────────────────────────
-# The artifact is read with grep/sed only. jq and python3 are NOT installed on
-# the self-hosted runner (no workflow in this repo uses either), and a
+# The artifact is read with grep/sed only. jq is NOT installed on the
+# self-hosted runner (no workflow in this repo uses it), and a
 # `command -v jq || exit 0` guard would turn the whole tier into the vacuous
 # always-green check it exists to prevent. Extraction is self-validating
 # instead: the number of ids we pull out must equal the artifact's own
 # counts.entries, so a renamed field or a restructured schema fails loudly
 # rather than reporting "0 awaiting publication" while vouching for nothing.
+# (An earlier version of this comment said python3 was missing there too. On
+# 2026-11-21 the AI_risk_compliance CI ran python3 scripts on that runner, and
+# the Go tests that drive the Python clients now fail in GitHub Actions when
+# python3 is missing instead of skipping.)
 
 set -euo pipefail
 
@@ -232,6 +239,79 @@ GO_REF_BASELINE="scripts/go-ref-baseline.txt"
 go_ref_lines=$(grep -rhoE 'TaxonomyRef:[[:space:]]*"[^"]*"([[:space:]]*\+)?' --include='*.go' internal/ cmd/ 2>/dev/null) || true
 go_line_count=$(printf '%s\n' "$go_ref_lines" | grep -c . || true)
 
+# ── Every other taxonomy-shaped literal in non-test Go (#4602) ─────────────
+#
+# WHAT IT IS FOR: a taxonomy ref reaches a receipt by more spellings than
+# `TaxonomyRef: "…"`: a map value (the MCP handler's signal tables), a
+# `return "…"` (guardian's signalToTaxonomy), a struct field under another
+# name. Measured on main 2dd1527f: 156 such literals covering 70 ids, every
+# one invisible to the scan above. They all resolved, so the gap was latent;
+# but since the SaaS resolves controls THROUGH the ref, a node renamed or
+# retired in AI_risk_compliance would have turned those receipts into "no
+# controls" with this job green. unicode_taxonomy.go already stated the
+# convention ("a map of bare strings would be invisible to it"); this turns it
+# into a gate, so the next scanner that writes `return "…"` is covered without
+# anyone remembering.
+#
+# WHAT "TAXONOMY-SHAPED" MEANS: a whole string literal of exactly three
+# segments, kingdom/category/node, whose first segment is a top-level
+# directory of $TAXONOMY_DIR. Deriving the kingdoms from the tree (rather than
+# listing them here) keeps the pattern current; anchoring on them is what
+# keeps file paths, URLs and other slash-bearing strings out. Lines whose
+# first non-space characters are `//` are skipped: a comment cannot reach a
+# receipt. Test files are skipped too: their refs are fixtures, and the
+# TaxonomyRef: scan above already reads the ones that matter (testdata cases).
+#
+# WHAT IT DOES NOT KNOW: a literal whose kingdom is not a directory of the
+# tree (a kingdom renamed or retired) is not taxonomy-shaped by this
+# definition, so it is not checked. Kingdoms have not changed since the tree
+# was created; if one ever does, this is the line to revisit. A literal inside
+# a `/* … */` block comment is still read.
+#
+# WHAT BREAKS IF IT IS REMOVED: nothing fails; a dangling ref spelled any way
+# other than `TaxonomyRef:` goes back to being invisible until a customer's
+# dashboard shows a receipt with no controls.
+go_kingdoms=$(find "$TAXONOMY_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name '_*' -exec basename {} \; 2>/dev/null \
+                | sort | paste -sd'|' -) || true
+if [ -z "$go_kingdoms" ]; then
+  echo "FAIL: found no kingdom directories under $TAXONOMY_DIR, so no Go literal" >&2
+  echo "      can be recognised as a taxonomy ref. The tree moved or is empty;" >&2
+  echo "      the check cannot vouch for anything in this state." >&2
+  exit 1
+fi
+go_nontest_code=$(find internal cmd -name '*.go' ! -name '*_test.go' -exec grep -hvE '^[[:space:]]*//' {} + 2>/dev/null) || true
+go_lit_re="\"($go_kingdoms)/[a-z0-9-]+/[a-z0-9-]+\""
+go_lit_lines=$( (printf '%s\n' "$go_nontest_code" | grep -oE "$go_lit_re([[:space:]]*\\+)?") || true)
+go_lit_count=$(printf '%s\n' "$go_lit_lines" | grep -c . || true)
+# Self-consistency instead of a magic floor: every `TaxonomyRef: "<kingdom>/…"`
+# in non-test Go is itself a taxonomy-shaped literal, so this extraction must
+# find at least that many. Fewer means its pattern broke and it is vouching for
+# nothing (the vacuous-gate shape #3130 describes). The floor is counted by a
+# separate path on purpose: its own grep -r read of the files (not the find
+# above), and an awk test of the segments against the kingdom list read from
+# find, never $go_nontest_code, $go_lit_re or $go_kingdoms. A floor computed with the same pattern breaks
+# with it and passes at 0 >= 0 (measured: mutating the pattern did exactly that).
+# A function, not an inline $( … ) program: written inline, bash 5.3 rejected
+# the quoted multi-line awk program inside $( … ) with a syntax error.
+count_kingdom_refs() { # stdin: one ref per line; $1: the taxonomy dir
+  awk -v kd="$1" '
+    BEGIN { cmd = "find \"" kd "\" -mindepth 1 -maxdepth 1 -type d"
+            while ((cmd | getline d) > 0) { sub(/.*\//, "", d); k[d] = 1 } }
+    { n = split($0, s, "/")
+      if (n == 3 && (s[1] in k) && s[2] ~ /^[a-z0-9-]+$/ && s[3] ~ /^[a-z0-9-]+$/) c++ }
+    END { print c + 0 }'
+}
+go_lit_floor=$( (grep -rhE 'TaxonomyRef:[[:space:]]*"' --include='*.go' --exclude='*_test.go' internal/ cmd/ 2>/dev/null \
+                  | grep -vE '^[[:space:]]*//' | grep -oE 'TaxonomyRef:[[:space:]]*"[^"]*"' \
+                  | sed -E 's/^TaxonomyRef:[[:space:]]*"([^"]*)"$/\1/' \
+                  | count_kingdom_refs "$TAXONOMY_DIR") || echo 0)
+if [ "$go_lit_count" -lt "$go_lit_floor" ]; then
+  echo "FAIL: the taxonomy-shaped literal scan found $go_lit_count literal(s) in" >&2
+  echo "      non-test Go, fewer than the $go_lit_floor TaxonomyRef: literals it must" >&2
+  echo "      contain. Its pattern broke; the check cannot vouch for anything." >&2
+  exit 1
+fi
+
 # Same vacuity reasoning as the packs/ guard above: zero matches means the
 # field was renamed or this ran from the wrong directory, never that the
 # source tree is clean.
@@ -247,13 +327,13 @@ go_refs=""
 go_concat=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  ref=$(printf '%s' "$line" | sed -E 's/^TaxonomyRef:[[:space:]]*"([^"]*)".*/\1/')
+  ref=$(printf '%s' "$line" | sed -E 's/^(TaxonomyRef:[[:space:]]*)?"([^"]*)".*/\2/')
   if printf '%s' "$line" | grep -qE '\+[[:space:]]*$'; then
     go_concat+="$ref"$'\n'
   else
     go_refs+="$ref"$'\n'
   fi
-done <<< "$go_ref_lines"
+done <<< "$go_ref_lines"$'\n'"$go_lit_lines"
 
 go_refs=$( (printf '%s\n' "$go_refs" | grep -v '^$' | sort -u) || true)
 go_concat=$( (printf '%s\n' "$go_concat" | grep -v '^$' | sort -u) || true)
@@ -292,6 +372,7 @@ go_new_count=$(printf '%s' "$go_new" | grep -c . || true)
 go_fixed_count=$(printf '%s' "$go_fixed" | grep -c . || true)
 
 echo "Go-source tier 1: $go_total ref(s) checked ($go_concat_count concatenation-built, excluded), $go_orphan_count orphan(s), $baseline_count baselined"
+echo "  (read from $go_line_count TaxonomyRef: literal(s) and $go_lit_count taxonomy-shaped literal(s) in non-test Go, #4602)"
 
 if [ "$go_new_count" -gt 0 ] || [ "$go_fixed_count" -gt 0 ]; then
   if [ "$go_new_count" -gt 0 ]; then
@@ -299,6 +380,13 @@ if [ "$go_new_count" -gt 0 ] || [ "$go_fixed_count" -gt 0 ]; then
     echo "FAIL: $go_new_count NEW Go-source taxonomy ref(s) do not resolve and are"
     echo "      not in $GO_REF_BASELINE:"
     printf '%s' "$go_new"
+    echo ""
+    echo "Where they are written:"
+    while IFS= read -r ref; do
+      ref=${ref#  - }
+      [ -z "$ref" ] && continue
+      grep -rnF "\"$ref\"" --include='*.go' internal/ cmd/ 2>/dev/null | head -3 | sed 's/^/  /' || true
+    done <<< "$go_new"
     echo ""
     echo "Fix: add the taxonomy YAML in AI_risk_compliance and merge that PR"
     echo "FIRST, or if this is an intentionally synthetic/test-only literal,"

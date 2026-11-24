@@ -112,7 +112,19 @@ func volumeSource(spec string) string {
 		// `-v /data` is an anonymous container volume, not a host mount.
 		return ""
 	}
+	// A Windows host path carries its own colon. `C:/Users/u/.aws:/mnt` splits
+	// into "C", "/Users/u/.aws" and "/mnt", and Docker on Windows reads the
+	// drive letter as part of the source (#5052). Rejoin them. The two-part
+	// form (`C:/data`) keeps its reading: a one-letter named volume. This only
+	// adds a host path where none was extracted.
+	if len(parts) >= 3 && isDriveLetter(parts[0]) && (strings.HasPrefix(parts[1], "/") || strings.HasPrefix(parts[1], `\`)) {
+		return hostPath(parts[0] + ":" + parts[1])
+	}
 	return hostPath(parts[0])
+}
+
+func isDriveLetter(s string) bool {
+	return len(s) == 1 && (s[0] >= 'A' && s[0] <= 'Z' || s[0] >= 'a' && s[0] <= 'z')
 }
 
 // mountSource returns the `source=`/`src=` value of a `--mount` spec.

@@ -50,6 +50,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -198,19 +199,33 @@ func uniq(sorted []string) int {
 	return n
 }
 
+// optionalMCPDir is the premium MCP packs no install has until the customer
+// copies one into ~/.agentshield/mcp-packs/ (aiagentlens#377). They are not
+// in rulecount's four directories on purpose: a default install does not
+// enforce them, so they are not in any published count. But an install that
+// copies one in loads it beside the embedded packs, and a shared id would then
+// emit twice, so this gate reads them too. A missing directory adds nothing
+// (the OSS tree has no packs/premium/).
+var optionalMCPDir = filepath.Join("premium", "optional", "mcp")
+
 // collect walks packsDir and returns rule_id -> every definition site,
 // repetitions included. The walk itself — which files, which top-level
 // sections, and the refusal of an id-bearing section nobody has vetted — is
 // internal/rulecount, the one definition every count in this repo derives
-// from. Files under packsDir that are not in one of its four pack directories
-// are therefore not scanned; that matches what Shield loads.
+// from: its four pack directories, plus optionalMCPDir read with the same
+// file selection. Any other file under packsDir is not scanned; that matches
+// what Shield loads.
 func collect(packsDir string) (map[string][]occurrence, error) {
 	report, err := rulecount.Count(packsDir)
 	if err != nil {
 		return nil, err
 	}
+	optional, err := rulecount.Collect(filepath.Join(packsDir, optionalMCPDir), rulecount.MCP, rulecount.Premium)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string][]occurrence{}
-	for _, e := range report.Entries {
+	for _, e := range append(report.Entries, optional...) {
 		out[e.ID] = append(out[e.ID], occurrence{Path: e.Path, Taxonomy: e.Taxonomy})
 	}
 	return out, nil

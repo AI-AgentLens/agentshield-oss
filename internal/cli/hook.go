@@ -1076,7 +1076,9 @@ func readToolCall(toolName string, rawToolInput json.RawMessage, source, session
 	// #4645: the customer's protected_paths (policy.yaml and packs, as the
 	// shell path loads them) apply to the tool call's file-path arguments. A
 	// layer that cannot be read degrades this ruleset like a broken MCP pack.
-	shellProtected, ppWarnings := shellProtectedPathsFor(cfg)
+	// #5001: policy.yaml's disable_rules switch tool-call rules off, and on a
+	// managed host the local list is ignored, as readShellShaped ignores it.
+	shellPolicy, ppWarnings := toolCallShellPolicy(cfg, managedIgnoresLocalDisables)
 	for _, w := range ppWarnings {
 		fmt.Fprintf(os.Stderr, "[AgentShield] warning: %s\n", w)
 	}
@@ -1111,7 +1113,7 @@ func readToolCall(toolName string, rawToolInput json.RawMessage, source, session
 	// usable (payloadEvalCwd, #4452), else this process's, as
 	// evaluateCommand falls back. A relative customer pattern then matches
 	// the absolute paths Claude Code sends.
-	evaluator := assembly.MCPEvaluator(loaded.Policy, shellProtected, "").InWorkingDir(toolCallWorkDir(auditCwd))
+	evaluator := assembly.MCPEvaluator(loaded.Policy, shellPolicy, "").InWorkingDir(toolCallWorkDir(auditCwd))
 	hookSlowPoint("evaluate")
 	result := evaluator.EvaluateToolCall(toolName, arguments)
 

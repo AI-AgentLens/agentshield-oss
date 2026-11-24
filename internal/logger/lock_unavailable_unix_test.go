@@ -11,16 +11,6 @@ import (
 	"testing"
 )
 
-// countIn reports how many times needle occurs in the file at path; 0 when
-// the file does not exist.
-func countIn(path, needle string) int {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	return strings.Count(string(b), needle)
-}
-
 // logUntilRotated appends through l until the live path names a different
 // file than it did on entry, i.e. l rotated it. Bounded so a logger that
 // never rotates fails the test instead of spinning.

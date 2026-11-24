@@ -95,7 +95,8 @@ func TestStructuralExcludeWhenIsPathAware(t *testing.T) {
 
 // TestStructuralExcludeWhenIsNotRenderRecovered: a name that RENDERS as an
 // excluded tool must still fire (two rules is tolerable for an obfuscated call;
-// zero is not). CLAUDE.md: "Only POSITIVE predicates get the recovered form."
+// zero is not). .claude/agent-notes/mcp-scanners.md: "Only POSITIVE predicates get the
+// recovered form."
 func TestStructuralExcludeWhenIsNotRenderRecovered(t *testing.T) {
 	confusable := "reаd_file" // Cyrillic а (U+0430) for ASCII a
 	if confusable == "read_file" {

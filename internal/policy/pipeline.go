@@ -78,6 +78,10 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 			}
 		}
 
+		if err := validateCaptureUnderCwd(r); err != nil {
+			return nil, err
+		}
+
 		// Regex/prefix/exact match → RegexAnalyzer
 		if hasRegexFamily {
 			regexRules = append(regexRules, analyzer.RegexRule{
@@ -95,6 +99,7 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 				PositionExclude: r.Match.CommandPositionExclude,
 				FoldSeparators:  r.Match.CommandFoldSeparators,
 				RequireCI:       contextRequireCI(r.Match),
+				CaptureUnderCwd: r.Match.CaptureUnderCwd,
 			})
 		}
 
@@ -186,6 +191,30 @@ func BuildAnalyzerPipeline(pol *Policy, maxParseDepth int) (*analyzer.Registry, 
 		analyzers,
 		analyzer.NewCombiner(analyzer.StrategyMostRestrictive),
 	), nil
+}
+
+// validateCaptureUnderCwd refuses a capture_under_cwd gate (#4850) that
+// would be inert or ambiguous: one on a rule with no command_regex, beside a
+// command_prefix or command_exact (whose match has no group to read), beside a
+// structural/dataflow/semantic/stateful match (the gate would bind only the
+// regex half), or naming a group the regex does not define.
+func validateCaptureUnderCwd(r Rule) error {
+	g := r.Match.CaptureUnderCwd
+	if g == "" {
+		return nil
+	}
+	m := r.Match
+	switch {
+	case m.CommandRegex == "":
+		return fmt.Errorf("rule %q: match.capture_under_cwd requires a command_regex", r.ID)
+	case m.CommandExact != "" || len(m.CommandPrefix) > 0:
+		return fmt.Errorf("rule %q: match.capture_under_cwd cannot be combined with command_prefix or command_exact", r.ID)
+	case m.Structural != nil || m.Dataflow != nil || m.Semantic != nil || m.Stateful != nil:
+		return fmt.Errorf("rule %q: match.capture_under_cwd cannot be combined with a structural/dataflow/semantic/stateful match", r.ID)
+	case !analyzer.CaptureGroupDefined(m.CommandRegex, g):
+		return fmt.Errorf("rule %q: match.capture_under_cwd names group %q, which command_regex does not define", r.ID, g)
+	}
+	return nil
 }
 
 // contextRequireCI extracts the CI-context gate (issue #3291) from a Match for

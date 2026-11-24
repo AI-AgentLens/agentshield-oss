@@ -826,7 +826,7 @@ func (p *inertParser) call(name string, arguments inertArgs) inertValue {
 		if strings.HasSuffix(name, ".dirname") {
 			dest = path.Dir(dest)
 		}
-		if strings.HasPrefix(dest, "|") || shellparse.IsDeferredExecTarget(dest) {
+		if strings.HasPrefix(dest, "|") || inertDestinationRefused(dest) {
 			p.ok = false
 		}
 		if result == "path" {
@@ -834,6 +834,23 @@ func (p *inertParser) call(name string, arguments inertArgs) inertValue {
 		}
 	}
 	return v
+}
+
+// inertDestinationRefused reports whether a statically known file
+// destination disqualifies a body from being inert: a deferred-exec target
+// (startup, hook and cron paths), or AgentShield's own state directory.
+//
+// The second is #4455. interp_heredoc_literal redacts an inert body's string
+// literals, and the audit-log rules match on exactly those literals. A body
+// that opens ~/.agentshield/audit.jsonl itself must therefore keep its
+// literals, or a decoy literal plus a real truncation would decide lower
+// than with no exclusion at all. Matched per path segment, case-folded,
+// because APFS resolves `.AgentShield` to the same directory.
+func inertDestinationRefused(dest string) bool {
+	if shellparse.IsDeferredExecTarget(dest) {
+		return true
+	}
+	return strings.Contains("/"+strings.ToLower(path.Clean(dest))+"/", "/.agentshield/")
 }
 func (p *inertParser) method(v inertValue, name string, arguments inertArgs) inertValue {
 	if (v.kind == "file" || v.kind == "readfile") && p.py() {
@@ -855,14 +872,14 @@ func (p *inertParser) method(v inertValue, name string, arguments inertArgs) ine
 		case "read_text":
 			return inertValue{kind: "text"}
 		case "write_text":
-			if !v.known || shellparse.IsDeferredExecTarget(v.constant) {
+			if !v.known || inertDestinationRefused(v.constant) {
 				p.ok = false
 			}
 			return inertValue{kind: "data"}
 		case "exists", "is_file", "is_dir", "glob", "rglob":
 			return inertValue{kind: "data"}
 		case "mkdir":
-			if !v.known || shellparse.IsDeferredExecTarget(v.constant) {
+			if !v.known || inertDestinationRefused(v.constant) {
 				p.ok = false
 			}
 			return inertValue{kind: "data"}
